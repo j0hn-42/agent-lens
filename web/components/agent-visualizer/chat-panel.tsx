@@ -102,7 +102,7 @@ export function AgentChatPanel({
               className="min-h-6 text-[11px] font-mono px-3 py-1 rounded-full transition-all motion-reduce:transition-none"
               style={{
                 background: COLORS.holoBg10,
-                border: `1px solid ${COLORS.glassBorder}`,
+                border: `1px solid ${COLORS.controlBorder}`,
                 color: COLORS.scrollBtnText,
               }}
             >

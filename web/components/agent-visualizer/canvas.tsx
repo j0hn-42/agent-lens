@@ -635,7 +635,7 @@ export function AgentCanvas({
             aria-label="Zoom in"
             onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
             className={CONTROL_BUTTON_CLASS}
-            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
             <span aria-hidden="true">+</span>
           </button>
@@ -644,7 +644,7 @@ export function AgentCanvas({
             aria-label="Zoom out"
             onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
             className={CONTROL_BUTTON_CLASS}
-            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
             <span aria-hidden="true">{'−'}</span>
           </button>
@@ -653,7 +653,7 @@ export function AgentCanvas({
             aria-label="Fit graph to view"
             onClick={doZoomToFit}
             className={CONTROL_BUTTON_CLASS}
-            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
             Fit
           </button>
@@ -667,7 +667,7 @@ export function AgentCanvas({
           className={CONTROL_BUTTON_CLASS}
           style={{
             background: animationsPaused || pausedBySystem ? COLORS.toggleActive : COLORS.panelBg,
-            border: `1px solid ${COLORS.glassBorder}`,
+            border: `1px solid ${COLORS.controlBorder}`,
             color: COLORS.textPrimary,
           }}
         >
@@ -680,7 +680,7 @@ export function AgentCanvas({
           className={CONTROL_BUTTON_CLASS}
           style={{
             background: neverHide ? COLORS.toggleActive : COLORS.panelBg,
-            border: `1px solid ${COLORS.glassBorder}`,
+            border: `1px solid ${COLORS.controlBorder}`,
             color: COLORS.textPrimary,
           }}
         >

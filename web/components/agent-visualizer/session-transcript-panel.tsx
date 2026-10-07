@@ -126,7 +126,7 @@ export function SessionTranscriptPanel({
               className="w-full px-2 py-1 min-h-6 rounded text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#aaeeff] placeholder:text-[color:var(--ph)]"
               style={{
                 background: COLORS.holoBg05,
-                border: `1px solid ${COLORS.glassBorder}`,
+                border: `1px solid ${COLORS.controlBorder}`,
                 color: COLORS.assistantText,
                 ['--ph' as string]: COLORS.textMuted,
               }}
@@ -180,7 +180,7 @@ export function SessionTranscriptPanel({
               className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING}`}
               style={{
                 background: COLORS.holoBg10,
-                border: `1px solid ${COLORS.glassBorder}`,
+                border: `1px solid ${COLORS.controlBorder}`,
                 color: COLORS.scrollBtnText,
               }}
             >

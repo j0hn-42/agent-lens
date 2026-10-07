@@ -71,7 +71,7 @@ const TEXT_TOKENS = [
 const NON_TEXT_TOKENS = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder',
   'playBtnBorder', 'reviewBtnBorder', 'liveResumeBorder',
-  'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
+  'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
 ] as const
 
 for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {

@@ -49,6 +49,7 @@ export const COLORS = {
 
   // Glass card
   glassBg: 'rgba(10, 15, 30, 0.7)',
+  controlBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — border of buttons/inputs that are real controls (glassBorder is decoration only)
   glassBorder: 'rgba(102, 204, 255, 0.22)', // decorative card edge only (not a control boundary, no 3:1 requirement)
   glassHighlight: 'rgba(100, 200, 255, 0.08)',
 

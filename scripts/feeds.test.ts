@@ -129,6 +129,6 @@ for (const [name, fg, layers] of combos) {
 }
 
 test('feed contrast: search input border >= 3:1', () => {
-  const r = effective(COLORS.glassBorder, COLORS.holoBg05)
+  const r = effective(COLORS.controlBorder, COLORS.holoBg05)
   assert.ok(r >= 3, `border is ${r.toFixed(2)}:1`)
 })
