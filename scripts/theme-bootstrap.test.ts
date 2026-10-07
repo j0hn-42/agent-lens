@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { themeBootstrapScript, THEME_STORAGE_KEY } from '../extension/src/theme-bootstrap'
+import { themeBootstrapScript, THEME_STORAGE_KEY, LIGHT_PALETTE_AVAILABLE } from '../extension/src/theme-bootstrap'
 
 interface Env {
   stored?: string | null
@@ -11,10 +11,13 @@ interface Env {
   systemDark?: boolean
   storageThrows?: boolean
   noBody?: boolean
+  lightPalette?: boolean
 }
 
 /** Minimal DOM: just what the bootstrap touches. Returns hooks to fire host / system changes. */
 function run(env: Env = {}) {
+  // precedence tests run with the light palette on; the default (clamp to dark) has its own test below
+  const lightPalette = env.lightPalette ?? true
   const classes = new Set<string>(['dark'])
   const root = {
     dataset: {} as Record<string, string>,
@@ -37,7 +40,7 @@ function run(env: Env = {}) {
     matchMedia: () => ({ matches: env.systemDark ?? true, addEventListener: (_: string, cb: () => void) => { mqlCb = cb } }),
     MutationObserver: class { constructor(cb: () => void) { observerCb = cb } observe() {} },
   }
-  vm.runInNewContext(themeBootstrapScript(), sandbox)
+  vm.runInNewContext(themeBootstrapScript(lightPalette), sandbox)
   return {
     root, classes,
     hostChanged(patch: { bodyClass?: string; vscodeKind?: string }) {
@@ -111,4 +114,15 @@ test('theme: the script is self-contained text, safe to inline in an HTML shell'
   const s = themeBootstrapScript()
   assert.ok(!s.includes('${'))
   assert.ok(!s.toLowerCase().includes('</script'))
+})
+
+test('theme: no light palette ships, so any light request (stored, parameter, host, system) resolves to dark', () => {
+  assert.equal(LIGHT_PALETTE_AVAILABLE, false)
+  assert.match(themeBootstrapScript(), /!false\)/, 'the shipped script clamps')
+  for (const env of [{ stored: 'light' }, { search: '?theme=light' }, { bodyClass: 'vscode-light' }, { systemDark: false }]) {
+    const r = run({ ...env, lightPalette: LIGHT_PALETTE_AVAILABLE })
+    assert.equal(r.root.dataset.theme, 'dark')
+    assert.equal(r.root.style.colorScheme, 'dark')
+    assert.equal(r.classes.has('dark'), true, 'the dark class is never removed')
+  }
 })

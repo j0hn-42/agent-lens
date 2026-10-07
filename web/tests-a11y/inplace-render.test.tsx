@@ -107,6 +107,17 @@ test('collapsed: the agents stay in the DOM but are inert and hidden from assist
   assert.equal(section.style.gridTemplateRows, '1fr')
 })
 
+test('collapsed: the open wrapper clips with a margin wider than the focus ring, the closed one clips hard', () => {
+  const { container, getByRole } = render(panel([agent('m1')]))
+  const inner = container.querySelector<HTMLElement>('[data-collapsible] > div')!
+  const margin = /overflow-clip-margin:(\d+)px/.exec(inner.className)
+  assert.ok(margin && Number(margin[1]) >= 4, 'outline 2px + offset 2px must stay visible')
+  assert.ok(!inner.className.includes('overflow-hidden'))
+  fireEvent.click(getByRole('button', { name: 'Collapse agents of Sa' }))
+  assert.ok(inner.className.includes('overflow-hidden'))
+  assert.ok(!inner.className.includes('overflow-clip'))
+})
+
 test('collapsed: arrow navigation skips rows inside an inert section', () => {
   const { container } = render(panel([agent('m1')]))
   const rows = () => Array.from(container.querySelectorAll<HTMLElement>('[data-row-main]'))

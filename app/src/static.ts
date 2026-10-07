@@ -19,7 +19,7 @@ export const HTML_SHELL = `<!DOCTYPE html>
   <style>html, body { height: 100%; margin: 0; padding: 0; }</style>
 </head>
 <body class="font-sans antialiased" style="background: #0a0a1a;">
-  <script>${themeBootstrapScript()}</script>
+  <script src="/theme.js"></script>
   <div id="root" style="height: 100%;"></div>
   <script src="/index.js"></script>
 </body>
@@ -32,11 +32,18 @@ const MIME_TYPES: Record<string, string> = {
 }
 
 export function serveStatic(req: http.IncomingMessage, res: http.ServerResponse) {
-  const url = req.url || '/'
+  const url = (req.url || '/').split('?')[0]
 
   if (url === '/' || url === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html' })
     res.end(HTML_SHELL)
+    return
+  }
+
+  // Same-origin so CSP_STATIC_APP (script-src 'self', no inline) lets the theme bootstrap run before first paint
+  if (url === '/theme.js') {
+    res.writeHead(200, { 'Content-Type': 'application/javascript' })
+    res.end(themeBootstrapScript())
     return
   }
 
