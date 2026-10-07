@@ -135,7 +135,7 @@ export function GraphLegend() {
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        aria-controls="graph-legend-panel"
+        aria-controls={open ? "graph-legend-panel" : undefined}
         className="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
       >

@@ -249,3 +249,38 @@ export function pushAnnouncements(current: string[], transitions: StateTransitio
   const next = [...current, ...added]
   return next.length > max ? next.slice(next.length - max) : next
 }
+
+// ─── Append-only announcement queue (stable ids => stable React keys) ───────
+
+export interface AnnouncementItem {
+  /** Monotonic id, never reused: used as the React key so older messages are never remounted / re-read */
+  id: number
+  text: string
+}
+
+export interface AnnouncementQueue {
+  items: AnnouncementItem[]
+  nextId: number
+}
+
+export function createAnnouncementQueue(): AnnouncementQueue {
+  return { items: [], nextId: 1 }
+}
+
+/**
+ * Append announcements for `transitions`. Existing items keep their ids when the window slides,
+ * duplicates inside one batch are dropped, and bulk batches collapse into one summary.
+ * Returns the same queue object when nothing was added.
+ */
+export function enqueueAnnouncements(queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX): AnnouncementQueue {
+  const texts: string[] = []
+  for (const t of transitions) {
+    const text = describeTransition(t)
+    if (text && !texts.includes(text)) texts.push(text)
+  }
+  if (texts.length === 0) return queue
+  const added = texts.length > ANNOUNCE_BULK_THRESHOLD ? [`${texts.length} agent graph updates`] : texts
+  let nextId = queue.nextId
+  const items = [...queue.items, ...added.map(text => ({ id: nextId++, text }))]
+  return { items: items.length > max ? items.slice(items.length - max) : items, nextId }
+}

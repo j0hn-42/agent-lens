@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, type KeyboardEvent } from 'react'
-import type { A11yModel, CommEntry } from './canvas/a11y-model'
+import type { A11yModel, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
 
 interface GraphA11yListProps {
@@ -9,7 +9,7 @@ interface GraphA11yListProps {
   /** Dispatch / return exchanges, newest last */
   communications: CommEntry[]
   /** Recent semantic transitions, announced through the polite live region */
-  announcements: string[]
+  announcements: AnnouncementItem[]
   focusedNode: NavNode | null
   onAgentClick: (agentId: string | null) => void
   onToolCallClick?: (toolCallId: string | null) => void
@@ -56,7 +56,7 @@ export function GraphA11yList({
   return (
     <>
       <div role="status" aria-live="polite" aria-atomic="false" className="sr-only">
-        {announcements.map((text, i) => <p key={`${i}-${text}`}>{text}</p>)}
+        {announcements.map(a => <p key={a.id}>{a.text}</p>)}
       </div>
 
       <section aria-label="Agent graph outline" className="sr-only" onKeyDown={handleKeyDown}>

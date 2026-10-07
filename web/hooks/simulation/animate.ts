@@ -5,6 +5,7 @@ import {
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
   ANIM_SPEED, isExpiryHeld,
 } from '@/lib/canvas-constants'
+import { a11yRecorder, recordFrame } from '@/components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
   useMockData: boolean
@@ -158,6 +159,8 @@ function animateParticles(particles: SimulationState['particles'], deltaTime: nu
 }
 
 export function computeNextFrame(prev: SimulationState, deltaTime: number, newTime: number, maxT: number, currentState: SimulationState, options: AnimateOptions): SimulationState {
+      // Record dispatch/return particles and tool calls the moment they exist (before expiry removes them)
+      recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
       const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
       const newToolCallsRaw = animateToolCalls(currentState.toolCalls, deltaTime, newTime)

@@ -247,3 +247,49 @@ test('held bubbles stay visible past their normal lifetime', () => {
   assert.ok(bubbleAlpha(late, 1, true) > 0.5)
   assert.ok(bubbleAlpha(0.1, 1, true) < bubbleAlpha(1, 1, true), 'fade-in is preserved')
 })
+
+// ─── announcement queue + event-time recorder ───────────────────────────────
+
+import { createAnnouncementQueue, enqueueAnnouncements } from '../web/components/agent-visualizer/canvas/a11y-model'
+import { createRecorder, recordFrame, resetRecorder } from '../web/components/agent-visualizer/canvas/a11y-recorder'
+
+test('announcement queue keeps stable ids when the window slides', () => {
+  let q = createAnnouncementQueue()
+  const ids: number[][] = []
+  for (let i = 0; i < 6; i++) {
+    q = enqueueAnnouncements(q, [{ kind: 'agent_error', id: `a${i}`, name: `n${i}` }])
+    ids.push(q.items.map(x => x.id))
+  }
+  assert.deepEqual(ids[2], [1, 2, 3])
+  assert.deepEqual(ids[3], [2, 3, 4], 'older items keep their ids (React keys) when the window slides')
+  assert.deepEqual(ids[5], [4, 5, 6])
+  assert.equal(q.items[2].text, 'Agent n5 failed')
+})
+
+test('announcement queue dedupes within a batch and returns same queue when empty', () => {
+  const q = createAnnouncementQueue()
+  const same = enqueueAnnouncements(q, [{ kind: 'tool_start', id: 't', name: 'Bash' }])
+  assert.equal(same, q)
+  const dup = enqueueAnnouncements(q, [
+    { kind: 'agent_error', id: 'a', name: 'X' }, { kind: 'agent_error', id: 'a', name: 'X' },
+  ])
+  assert.equal(dup.items.length, 1)
+})
+
+test('recorder captures dispatch particles that exist for a single frame and tool calls after they vanish', () => {
+  const agents = new Map<string, any>([['a1', agent()], ['a2', agent({ id: 'a2', name: 'Explorer', isMain: false })]])
+  const edges: any[] = [{ id: 'e1', from: 'a1', to: 'a2', type: 'parent-child', opacity: 1 }]
+  const rec = createRecorder()
+  const particle = { id: 'p1', edgeId: 'e1', progress: 0.1, type: 'dispatch', color: '#fff', size: 1, trailLength: 1, label: 'Find auth' }
+  const tool: any = { id: 't1', agentId: 'a1', toolName: 'Read', args: 'a.ts', state: 'running' }
+  const v0 = rec.version
+  recordFrame(rec, { particles: [particle as any], edges, agents, toolCalls: new Map([['t1', tool]]) })
+  assert.ok(rec.version > v0)
+  const v1 = rec.version
+  recordFrame(rec, { particles: [], edges, agents, toolCalls: new Map() })
+  assert.equal(rec.version, v1, 'no change, no version bump')
+  assert.equal(rec.comms.get('p1')?.text, 'main dispatched to Explorer: Find auth')
+  assert.equal(rec.tools.get('t1')?.name, 'Read')
+  resetRecorder(rec)
+  assert.equal(rec.comms.size + rec.tools.size, 0)
+})
