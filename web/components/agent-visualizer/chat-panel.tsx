@@ -8,6 +8,7 @@ import { PanelHeader, SlidingPanel } from './shared-ui'
 import { useEffect, useId, useState } from 'react'
 import { getStateLabel } from '@/lib/state-labels'
 import { useAutoScroll } from '@/hooks/use-auto-scroll'
+import { clampSeen, unseenCount } from '@/lib/menu-utils'
 
 interface ChatPanelProps {
   visible: boolean
@@ -32,10 +33,13 @@ export function AgentChatPanel({
   const titleId = useId()
   // Number of messages the user has already seen (everything when pinned to the bottom)
   const [seenCount, setSeenCount] = useState(conversation.length)
-  const unseen = Math.max(0, conversation.length - seenCount)
+  const unseen = unseenCount(conversation.length, seenCount)
 
   useEffect(() => {
+    // Pinned to the bottom: everything counts as seen. Otherwise only clamp, so a
+    // shrinking conversation (e.g. another agent selected) cannot hide later messages.
     if (isAutoScrolling.current) setSeenCount(conversation.length)
+    else setSeenCount(prev => clampSeen(prev, conversation.length))
   }, [conversation.length, isAutoScrolling])
 
   const onScroll = () => {
@@ -91,7 +95,9 @@ export function AgentChatPanel({
           )}
         </div>
 
-        {/* Polite status line announces the count only, instead of every message */}
+        {/* Intentional: the log is not live (it would read every message). While pinned to the
+            bottom the transcript is already in view; when scrolled up this polite status line
+            announces only the unseen count. */}
         <div role="status" className="sr-only">{unseen > 0 ? newMessagesText : ''}</div>
 
         {unseen > 0 && (
