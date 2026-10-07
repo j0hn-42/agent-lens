@@ -116,8 +116,12 @@
 }
 
 @layer base {
+  :focus-visible {
+    outline: 2px solid #aaeeff;
+    outline-offset: 2px;
+  }
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
   }
   body {
     @apply bg-background text-foreground;
@@ -129,7 +133,7 @@
   background: rgba(10, 15, 30, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(100, 200, 255, 0.15);
+  border: 1px solid rgba(102, 204, 255, 0.5);
   border-radius: 8px;
   padding: 12px;
   box-shadow:
@@ -159,20 +163,21 @@
 .glass-card textarea,
 .glass-card select {
   background: rgba(100, 200, 255, 0.05) !important;
-  border: 1px solid rgba(100, 200, 255, 0.15) !important;
+  border: 1px solid rgba(102, 204, 255, 0.5) !important;
   color: #aaeeff !important;
   font-family: monospace;
 }
 
 .glass-card input::placeholder,
 .glass-card textarea::placeholder {
-  color: rgba(102, 204, 255, 0.3);
+  color: rgba(102, 204, 255, 0.69);
 }
 
 .glass-card input:focus,
 .glass-card textarea:focus {
-  border-color: rgba(102, 204, 255, 0.3) !important;
-  outline: none;
+  border-color: #aaeeff !important;
+  outline: 2px solid #aaeeff;
+  outline-offset: 2px;
   box-shadow: 0 0 8px rgba(102, 204, 255, 0.1);
 }
 
@@ -186,12 +191,12 @@
 }
 
 .glass-card ::-webkit-scrollbar-thumb {
-  background: rgba(100, 200, 255, 0.15);
+  background: rgba(102, 204, 255, 0.5);
   border-radius: 2px;
 }
 
 .glass-card ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 200, 255, 0.25);
+  background: rgba(102, 204, 255, 0.7);
 }
 
 /* Hide scrollbar but keep scroll functionality */
@@ -201,4 +206,15 @@
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+/* Honor the OS reduced-motion preference (WCAG 2.2.2, 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
