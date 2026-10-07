@@ -4,7 +4,7 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel } from './shared-ui'
-import { FOCUS_RING } from './feed-utils'
+import { FOCUS_RING } from '@/lib/feed-utils'
 
 interface FileAttentionPanelProps {
   visible: boolean
