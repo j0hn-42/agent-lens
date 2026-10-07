@@ -34,7 +34,7 @@ export const COLORS = {
   message: '#66ccff',
 
   // Context breakdown colors
-  contextSystem: '#555577',     // gray-blue — fixed overhead
+  contextSystem: '#7777a0',     // gray-blue — fixed overhead
   contextUser: '#66ccff',       // blue — user input
   contextToolResults: '#ffbb44', // amber — expensive!
   contextReasoning: '#cc88ff',  // purple — agent thinking
@@ -43,12 +43,12 @@ export const COLORS = {
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
   textPrimary: '#aaeeff',
-  textDim: '#66ccff90',
-  textMuted: '#66ccff50',
+  textDim: '#66ccffa0',
+  textMuted: '#66ccffb0',
 
   // Glass card
   glassBg: 'rgba(10, 15, 30, 0.7)',
-  glassBorder: 'rgba(100, 200, 255, 0.15)',
+  glassBorder: 'rgba(102, 204, 255, 0.5)',
   glassHighlight: 'rgba(100, 200, 255, 0.08)',
 
   // Holo background/border opacities (avoids scattered rgba literals)
@@ -67,13 +67,16 @@ export const COLORS = {
   // Toggle button states
   toggleActive: 'rgba(100, 200, 255, 0.15)',
   toggleInactive: 'rgba(100, 200, 255, 0.05)',
-  toggleBorder: 'rgba(100, 200, 255, 0.1)',
+  toggleBorder: 'rgba(102, 204, 255, 0.5)',
+
+  // Non-text tracks (scrubber, progress bars), >= 3:1 on glass/void
+  controlTrack: 'rgba(102, 204, 255, 0.5)',
 
   // Live indicator
   liveDot: '#ff4444',
   liveText: '#ff6666',
   liveResumeBg: 'rgba(255, 68, 68, 0.15)',
-  liveResumeBorder: 'rgba(255, 68, 68, 0.35)',
+  liveResumeBorder: 'rgba(255, 68, 68, 0.7)',
 
   // Discovery type colors
   discoveryFile: '#66ccff',
@@ -84,8 +87,8 @@ export const COLORS = {
   // Session tab states
   tabSelectedBg: 'rgba(100, 200, 255, 0.15)',
   tabInactiveBg: 'rgba(100, 200, 255, 0.03)',
-  tabSelectedBorder: 'rgba(100, 200, 255, 0.3)',
-  tabInactiveBorder: 'rgba(100, 200, 255, 0.08)',
+  tabSelectedBorder: 'rgba(102, 204, 255, 0.6)',
+  tabInactiveBorder: 'rgba(102, 204, 255, 0.5)',
   tabClose: '#ff6688',
 
   // Role colors (message bubbles)
@@ -109,13 +112,13 @@ export const COLORS = {
   // Play button
   playBtnBg: 'rgba(102, 204, 255, 0.12)',
   playBtnActiveBg: 'rgba(102, 204, 255, 0.2)',
-  playBtnBorder: 'rgba(102, 204, 255, 0.4)',
+  playBtnBorder: 'rgba(102, 204, 255, 0.5)',
   playBtnGlow: '0 0 12px rgba(102, 204, 255, 0.15)',
 
   // Scrubber
   scrubberFill: 'linear-gradient(90deg, rgba(102,204,255,0.3), rgba(102,204,255,0.6))',
   scrubberHeadGlow: '0 0 10px rgba(102, 204, 255, 0.6), 0 0 20px rgba(102, 204, 255, 0.2)',
-  reviewBtnBorder: 'rgba(102, 204, 255, 0.25)',
+  reviewBtnBorder: 'rgba(102, 204, 255, 0.5)',
 
   // Cost overlay
   costActiveBg: 'rgba(102, 255, 170, 0.15)',
@@ -145,7 +148,7 @@ export const COLORS = {
 
   // Canvas drawing — cost labels
   costText: '#66ffaa',
-  costTextDim: '#66ffaa80',
+  costTextDim: '#66ffaaa0',
   costPillBg: 'rgba(10, 20, 40, 0.75)',
   costPillStroke: 'rgba(102, 255, 170, 0.3)',
 
@@ -158,21 +161,21 @@ export const COLORS = {
   // User messages
   userMsgBg: 'rgba(255, 187, 68, 0.06)',
   userMsgBorder: 'rgba(255, 187, 68, 0.12)',
-  userLabel: '#ffbb4490',
+  userLabel: '#ffbb44a0',
   userText: '#ffcc66',
 
   // Assistant messages
-  assistantLabel: '#66ccff80',
+  assistantLabel: '#66ccffa0',
   assistantText: '#aaeeff',
 
   // Thinking messages
   thinkingBgExpanded: 'rgba(180, 140, 255, 0.06)',
   thinkingBgCollapsed: 'rgba(180, 140, 255, 0.03)',
   thinkingBorder: 'rgba(180, 140, 255, 0.08)',
-  thinkingLabel: '#bb99ff70',
-  thinkingArrow: '#bb99ff55',
+  thinkingLabel: '#bb99ffc0',
+  thinkingArrow: '#bb99ffc0',
   thinkingPreview: '#bb99ff',
-  thinkingTextExpanded: '#bb99ff80',
+  thinkingTextExpanded: '#bb99ffc0',
   thinkingBorderLeft: 'rgba(180, 140, 255, 0.15)',
 
   // Tool call messages
@@ -184,9 +187,9 @@ export const COLORS = {
   toolResultBg: 'rgba(102, 255, 170, 0.04)',
   bashResultBorder: 'rgba(255, 187, 68, 0.1)',
   toolResultBorder: 'rgba(102, 255, 170, 0.08)',
-  bashResultText: '#aaeeff80',
-  toolResultText: '#66ffaa80',
-  textFaint: '#aaeeff60',
+  bashResultText: '#aaeeffa0',
+  toolResultText: '#66ffaaa0',
+  textFaint: '#aaeeffa0',
 
   // Search highlight
   searchHighlightBg: 'rgba(255,187,68,0.3)',
@@ -202,19 +205,19 @@ export const COLORS = {
   // ─── Tool content colors ────────────────────────────────────────────────────
 
   filePathActive: '#66ccff',
-  filePathInactive: '#66ccff90',
+  filePathInactive: '#66ccffa0',
   todoCompleted: '#66ffaa',
-  todoCompletedText: '#66ffaa90',
-  todoPending: '#66ccff60',
-  contentDim: '#aaeeff90',
+  todoCompletedText: '#66ffaaa0',
+  todoPending: '#66ccffa0',
+  contentDim: '#aaeeffa0',
   searchIcon: '#66ccff60',
 
   // ─── Panel header / chrome text ─────────────────────────────────────────────
 
-  panelLabel: '#66ccff90',
-  panelLabelDim: '#66ccff65',
+  panelLabel: '#66ccffa0',
+  panelLabelDim: '#66ccffa0',
   scrollBtnText: '#66ccff',
-  scrollbarThumb: 'rgba(100,200,255,0.15)',
+  scrollbarThumb: 'rgba(102,204,255,0.5)',
 } as const
 
 // ─── Role Colors (message feed & bubbles) ───────────────────────────────────
