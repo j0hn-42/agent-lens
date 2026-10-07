@@ -4,7 +4,7 @@
  * Everything returned is built field by field from a whitelist (never by copying an input object), so a
  * prompt, a message, a tool argument or a file path cannot leak by being added to an event later:
  * - sessions: id, runtime, status, timestamps, age and freshness;
- * - agents: a sanitized name and a lifecycle state derived from spawn / idle / complete events.
+ * - agents: a sanitized, unique name and a lifecycle state tracked from spawn / idle / complete / activity events.
  * Session labels (derived from prompts), cwd and workspace are deliberately NOT part of the output.
  * Counts are honest: whatever is capped or skipped is reported in `truncated` / `omittedSessions`.
  */
@@ -31,6 +31,8 @@ export interface ObservedSession {
   agentCount: number
   agents?: ObservedAgent[]
   agentsTruncated?: boolean
+  /** The agent list may miss agents (history dropped by the tracker): count and states are lower bounds */
+  agentsIncomplete?: boolean
 }
 
 export interface Observations {
@@ -93,6 +95,7 @@ export const OBSERVATIONS_ACTION = {
             freshness: { enum: ['fresh', 'stale', 'closed'] },
             agentCount: { type: 'integer', minimum: 0 },
             agentsTruncated: { type: 'boolean' },
+            agentsIncomplete: { type: 'boolean' },
             agents: {
               type: 'array',
               maxItems: OBSERVATIONS_MAX_AGENTS_PER_SESSION,
@@ -144,24 +147,93 @@ export function safeAgentName(raw: unknown): string {
   return clean.slice(0, OBSERVATIONS_NAME_MAX)
 }
 
-/** Lifecycle of each agent of a session, from its buffered events (insertion order = first seen). */
-function agentsOf(events: readonly AgentEvent[]): ObservedAgent[] {
-  const states = new Map<string, ObservedAgentState>()
-  for (const e of events) {
-    const p = e.payload ?? {}
+/** Bounds of the tracker itself (it must not grow without limit either). */
+const TRACKER_MAX_SESSIONS = 200
+const TRACKER_MAX_AGENTS_PER_SESSION = 500
+const TRACKER_MAX_LOST_SESSIONS = 1000
+const TRACKER_KEY_MAX = 256
+
+interface TrackedSession { agents: Map<string, ObservedAgentState>; overflowed: boolean }
+
+/** What the tracker knows of one session: agents with display names, and whether that list is the whole truth. */
+export interface TrackedAgents { agents: ObservedAgent[]; complete: boolean }
+
+function trackerKey(raw: unknown): string {
+  return typeof raw === 'string' ? raw.slice(0, TRACKER_KEY_MAX) : ''
+}
+
+/**
+ * Agent lifecycle kept incrementally, fed with every delivered event. It is independent of the relay's
+ * replay buffer, which evicts chatter (agent_idle / agent_complete included) and whole sessions: here an
+ * eviction is never mistaken for "no agents" or "still active". Agents are keyed by their raw identity, so
+ * two names that sanitize to the same text stay two agents; only the display is cleaned.
+ * When the tracker itself has to drop something (too many sessions or agents), `complete` turns false.
+ */
+export class AgentStateTracker {
+  private readonly sessions = new Map<string, TrackedSession>()
+  private readonly lost = new Set<string>()
+
+  ingest(e: AgentEvent): void {
+    const sid = e.sessionId
+    if (typeof sid !== 'string' || !sid) return
+    const p = (e.payload ?? {}) as Record<string, unknown>
     if (e.type === 'agent_spawn') {
-      states.set(safeAgentName(p.name), 'active')
-    } else if (e.type === 'agent_idle' || e.type === 'agent_complete') {
-      const name = safeAgentName(p.agent ?? p.name)
-      if (states.has(name)) states.set(name, e.type === 'agent_idle' ? 'idle' : 'complete')
+      const t = this.session(sid)
+      const key = trackerKey(p.name)
+      if (!t.agents.has(key) && t.agents.size >= TRACKER_MAX_AGENTS_PER_SESSION) { t.overflowed = true; return }
+      t.agents.set(key, 'active')
+      return
+    }
+    const t = this.sessions.get(sid)
+    if (!t) return
+    if (e.type === 'agent_idle' || e.type === 'agent_complete') {
+      const key = trackerKey(p.agent ?? p.name)
+      if (t.agents.has(key)) t.agents.set(key, e.type === 'agent_idle' ? 'idle' : 'complete')
+    } else if (e.type === 'tool_call_start' || e.type === 'tool_call_end' || e.type === 'message' || e.type === 'agent_activity') {
+      // Later work of an idle agent: it is active again
+      const key = trackerKey(p.agent ?? p.name)
+      if (t.agents.get(key) === 'idle') t.agents.set(key, 'active')
     }
   }
-  return [...states].map(([name, state]) => ({ name, state }))
+
+  private session(sid: string): TrackedSession {
+    let t = this.sessions.get(sid)
+    if (t) return t
+    t = { agents: new Map(), overflowed: false }
+    this.sessions.set(sid, t)
+    while (this.sessions.size > TRACKER_MAX_SESSIONS) {
+      const oldest = this.sessions.keys().next().value
+      if (oldest === undefined || oldest === sid) break
+      this.sessions.delete(oldest)
+      this.lost.add(oldest)
+      if (this.lost.size > TRACKER_MAX_LOST_SESSIONS) this.lost.delete(this.lost.values().next().value as string)
+    }
+    return t
+  }
+
+  /** Agents of a session with unique display names ("name", "name#2"...). */
+  get(sid: string): TrackedAgents {
+    const t = this.sessions.get(sid)
+    const complete = !this.lost.has(sid) && !(t?.overflowed ?? false)
+    if (!t) return { agents: [], complete }
+    const used = new Map<string, number>()
+    const agents: ObservedAgent[] = []
+    for (const [key, state] of t.agents) {
+      const base = safeAgentName(key)
+      const n = (used.get(base) ?? 0) + 1
+      used.set(base, n)
+      const suffix = n > 1 ? `#${n}` : ''
+      agents.push({ name: base.slice(0, OBSERVATIONS_NAME_MAX - suffix.length) + suffix, state })
+    }
+    return { agents, complete }
+  }
+
+  clear(): void { this.sessions.clear(); this.lost.clear() }
 }
 
 export interface ObservationsSource {
   sessions: readonly SessionInfo[]
-  events: ReadonlyMap<string, readonly AgentEvent[]>
+  agents: Pick<AgentStateTracker, 'get'>
 }
 
 /** Project the relay state through the whitelist. Pure. */
@@ -180,7 +252,8 @@ export function buildObservations(
   candidates.sort((a, b) => b.lastActivityTime - a.lastActivityTime)
   const sessions: ObservedSession[] = candidates.slice(0, OBSERVATIONS_MAX_SESSIONS).map(s => {
     const ageMs = Math.max(0, Math.trunc(now - s.lastActivityTime))
-    const agents = agentsOf(source.events.get(s.id) ?? [])
+    const tracked = source.agents.get(s.id)
+    const agents = tracked.agents
     const out: ObservedSession = {
       id: s.id,
       runtime: s.runtime === 'claude' || s.runtime === 'codex' ? s.runtime : 'unknown',
@@ -191,6 +264,8 @@ export function buildObservations(
       freshness: s.status === 'completed' ? 'closed' : (ageMs <= staleAfterMs ? 'fresh' : 'stale'),
       agentCount: agents.length,
     }
+    // The list is not the whole truth once the tracker had to drop sessions or agents: say so, don't show 0
+    if (!tracked.complete) out.agentsIncomplete = true
     if (includeAgents) {
       out.agents = agents.slice(0, OBSERVATIONS_MAX_AGENTS_PER_SESSION)
       if (agents.length > OBSERVATIONS_MAX_AGENTS_PER_SESSION) out.agentsTruncated = true

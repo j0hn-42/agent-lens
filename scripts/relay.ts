@@ -32,7 +32,7 @@ import {
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
-import { createObservationsAction, parseObservationsInput } from '../extension/src/observations'
+import { createObservationsAction, parseObservationsInput, AgentStateTracker } from '../extension/src/observations'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -110,6 +110,8 @@ function broadcast(data: string, sessionId?: string) {
 // ─── Event buffering ────────────────────────────────────────────────────────
 
 const eventBuffer = new Map<string, AgentEvent[]>()
+/** Agent states for /observations: fed on every event, not subject to the replay buffer's eviction */
+const agentTracker = new AgentStateTracker()
 
 /**
  * Single entry point for every event, whatever its source. Events go through the reconciler
@@ -134,6 +136,7 @@ function deliverEvent(event: AgentEvent) {
   if (event.sessionId) {
     // Bounded per session, in number of sessions and in total events (see relay-guards.ts)
     appendBounded(eventBuffer, event.sessionId, event)
+    agentTracker.ingest(event)
   }
 
   broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
@@ -670,7 +673,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const list: SessionInfo[] = []
     for (const session of sessions.values()) if (session.sessionDetected) list.push(toSessionInfo(session))
     if (codexWatcher) list.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
-    return { sessions: list, events: eventBuffer }
+    return { sessions: list, agents: agentTracker }
   })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
@@ -890,6 +893,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) unwatchSession(id)
       eventBuffer.clear()
+      agentTracker.clear()
     },
   }
 }
