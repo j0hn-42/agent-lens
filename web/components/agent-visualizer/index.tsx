@@ -13,6 +13,7 @@ import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
 import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
+import { LinkPanel } from "./link-panel"
 import { AgentChatPanel } from "./chat-panel"
 import { SessionTranscriptPanel } from "./session-transcript-panel"
 import { OpenFileProvider } from "./tool-content-renderer"
@@ -567,6 +568,15 @@ export function AgentVisualizer() {
             onClose={selection.clearDiscovery}
           />
         </div>
+      )}
+
+      {/* Communication link detail (opened by clicking an edge or its entry in the graph list) */}
+      {selectedLinkId && links.get(selectedLinkId) && (
+        <LinkPanel
+          link={links.get(selectedLinkId)!}
+          agents={agents}
+          onClose={() => setSelectedLinkId(null)}
+        />
       )}
 
       {/* Chat panel (bottom-right, shown when agent selected) */}
