@@ -4,7 +4,7 @@ import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/feed-utils'
 import {
-  isPairSet, pairAnnouncement, pairChipLabel, pairSpokenLabel, type PairState,
+  isPairComplete, isPairSet, pairAnnouncement, pairChipLabel, pairSpokenLabel, type PairState,
 } from '@/lib/pair-filter'
 
 // One polite live region shared by every chip on the page (feed, transcript, timeline): the first mounted
@@ -14,6 +14,7 @@ const owners: symbol[] = []
 const subscribers = new Set<() => void>()
 let announcedKey: string | null = null
 let announcedText = ''
+let announcedEmpty = false
 let version = 0
 
 function emit() { version++; for (const s of [...subscribers]) s() }
@@ -25,18 +26,25 @@ function registerChip(id: symbol): () => void {
   emit()
   return () => {
     owners.splice(owners.indexOf(id), 1)
-    if (owners.length === 0) { announcedKey = null; announcedText = '' }
+    if (owners.length === 0) { announcedKey = null; announcedText = ''; announcedEmpty = false }
     emit()
   }
 }
 
-function announce(key: string, text: string, initial: boolean, pairIsSet: boolean) {
-  if (announcedKey === key) return
+function announce(key: string, text: string, initial: boolean, pairIsSet: boolean, count: number, isPairCompleteKey: boolean) {
+  // The guard also dedups the several chips (feed, transcript, timeline) that report the same pair.
+  if (announcedKey === key) {
+    // A pair chosen before its messages loaded announced "No messages"; say the real count once, but never
+    // re-announce a count that merely moves
+    if (announcedEmpty && count > 0) { announcedEmpty = false; announcedText = text; emit() }
+    return
+  }
   const first = announcedKey === null
   announcedKey = key
   // A chip mounted while no pair is chosen has nothing to say yet
   if (first && initial && !pairIsSet) return
   announcedText = text
+  announcedEmpty = count === 0 && isPairCompleteKey
   emit()
 }
 
@@ -64,12 +72,13 @@ export function PairFilterChip({ pair, nameOf, count, onClear }: {
   nameOfRef.current = nameOf
   const pairRef = useRef(pair)
   pairRef.current = pair
+  const hasMessages = count > 0
   const mounted = useRef(false)
   useEffect(() => {
     const initial = !mounted.current
     mounted.current = true
-    announce(key, pairAnnouncement(pairRef.current, nameOfRef.current, countRef.current), initial, isPairSet(pairRef.current))
-  }, [key])
+    announce(key, pairAnnouncement(pairRef.current, nameOfRef.current, countRef.current), initial, isPairSet(pairRef.current), countRef.current, isPairComplete(pairRef.current))
+  }, [key, hasMessages])
 
   return (
     <>
