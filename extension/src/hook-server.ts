@@ -1,6 +1,6 @@
 import * as http from 'http'
 import * as vscode from 'vscode'
-import { AgentEvent, emitSubagentSpawn } from './protocol'
+import { AgentEvent, NormalizationStats, emitSubagentSpawn } from './protocol'
 import {
   ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX, MESSAGE_MAX,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
@@ -22,6 +22,8 @@ import {
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
 import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
+import { SessionNormalizer } from './event-normalize'
+import { isSafeId } from './hook-guards'
 
 const log = createLogger('HookServer')
 
@@ -87,6 +89,10 @@ export class HookServer implements vscode.Disposable {
   /** SubagentStop transcript reads run one at a time with a bounded queue */
   private readonly transcriptLimiter = new AsyncLimiter(SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE)
   private disposed = false
+  /** Per-session input normalizers (bounded like sessionState): every emitted event goes through one */
+  private readonly normalizers = new Map<string, SessionNormalizer>()
+  /** Counters for requests that cannot be attributed to a session (invalid JSON, invalid session_id) */
+  private readonly unattributed = new SessionNormalizer()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
 
@@ -190,10 +196,14 @@ export class HookServer implements vscode.Disposable {
       try {
         parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       } catch {
+        this.unattributed.noteMalformed()
         return this.reject(req, res, 400, 'Invalid JSON')
       }
       const checked = validateHookPayload(parsed)
-      if (!checked.ok) { return this.reject(req, res, 400, `Invalid payload: ${checked.reason}`) }
+      if (!checked.ok) {
+        this.noteMalformedPayload(parsed)
+        return this.reject(req, res, 400, `Invalid payload: ${checked.reason}`)
+      }
       if (!this.sessionLimiter.allow(checked.payload.session_id)) {
         return this.reject(req, res, 429, 'Too Many Requests', { 'Retry-After': '1' })
       }
@@ -207,6 +217,36 @@ export class HookServer implements vscode.Disposable {
       res.writeHead(200)
       res.end()
     })
+  }
+
+  /** Normalization counters of a session (or of the requests no session could be found for). */
+  getNormalizationStats(sessionId?: string): NormalizationStats {
+    const n = sessionId === undefined ? this.unattributed : this.normalizers.get(sessionId)
+    return { ...(n ?? this.unattributed).stats }
+  }
+
+  /** Normalizer of a session, created on first use; oldest evicted past HOOK_MAX_SESSIONS. */
+  private normalizerFor(sessionId: string): SessionNormalizer {
+    let n = this.normalizers.get(sessionId)
+    if (n) {
+      this.normalizers.delete(sessionId)
+    } else {
+      if (this.normalizers.size >= HOOK_MAX_SESSIONS) {
+        const oldest = this.normalizers.keys().next().value
+        if (oldest !== undefined) { this.normalizers.get(oldest)?.dispose(); this.normalizers.delete(oldest) }
+      }
+      n = new SessionNormalizer(sessionId, { onTrailing: event => { if (!this.disposed) this._onEvent.fire({ ...event, sessionId }) } })
+    }
+    this.normalizers.set(sessionId, n)
+    return n
+  }
+
+  /** A payload that failed validation: counted against its session when it names a safe one. */
+  private noteMalformedPayload(parsed: unknown): void {
+    const sid = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).session_id : undefined
+    const norm = isSafeId(sid) ? this.normalizerFor(sid) : this.unattributed
+    // The counter reaches the UI with the next event of that session (no event is emitted for a rejected request)
+    norm.noteMalformed()
   }
 
   getPort(): number {
@@ -517,7 +557,11 @@ export class HookServer implements vscode.Disposable {
       payload: { name: ORCHESTRATOR_NAME, sessionEnd: true },
     }, payload.session_id)
 
-    // Clean up per-session state to prevent unbounded Map growth
+    // Last word on what was left out, then clean up per-session state to prevent unbounded Map growth
+    const last = this.normalizers.get(payload.session_id)?.flush()
+    if (last) { this._onEvent.fire({ ...last, sessionId: payload.session_id }) }
+    this.normalizers.get(payload.session_id)?.dispose()
+    this.normalizers.delete(payload.session_id)
     this.sessionState.delete(payload.session_id)
   }
 
@@ -533,7 +577,10 @@ export class HookServer implements vscode.Disposable {
   }
 
   private emit(event: AgentEvent, sessionId?: string): void {
-    this._onEvent.fire(sessionId ? { ...event, sessionId } : event)
+    const norm = sessionId ? this.normalizerFor(sessionId) : this.unattributed
+    for (const out of norm.process(event)) {
+      this._onEvent.fire(sessionId ? { ...out, sessionId } : out)
+    }
   }
 
   dispose(): void {
@@ -543,6 +590,9 @@ export class HookServer implements vscode.Disposable {
       this.server = null
     }
     this.sessionState.clear()
+    for (const n of this.normalizers.values()) n.dispose()
+    this.normalizers.clear()
+    this.unattributed.dispose()
     this._onEvent.dispose()
   }
 }
