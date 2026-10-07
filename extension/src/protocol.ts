@@ -116,6 +116,14 @@ export interface AgentEventEmitter {
   elapsed(sessionId?: string): number
 }
 
+/** Optional fields carried by subagent_dispatch (all backward compatible). */
+export interface SubagentDispatchExtra {
+  prompt?: string
+  subagentType?: string
+  model?: string
+  toolUseId?: string
+}
+
 /**
  * Emit the paired subagent_dispatch + agent_spawn events.
  *
@@ -128,11 +136,13 @@ export function emitSubagentSpawn(
   child: string,
   task: string,
   sessionId?: string,
+  /** Optional rich dispatch data (prompt, subagentType, model, toolUseId) */
+  extra?: SubagentDispatchExtra,
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
     type: 'subagent_dispatch',
-    payload: { parent, child, task },
+    payload: { parent, child, task, ...extra },
   }, sessionId)
   emitter.emit({
     time: emitter.elapsed(sessionId),

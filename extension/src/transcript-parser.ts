@@ -5,6 +5,9 @@
  * keeping the parsing logic decoupled from file-watching concerns.
  */
 
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import {
   AgentEvent, PendingToolCall, WatchedSession,
   TranscriptEntry, ToolUseBlock, ToolResultBlock,
@@ -290,7 +293,13 @@ export class TranscriptParser {
       const session = sessionId ? this.delegate.getSession(sessionId) : undefined
       if (!session?.spawnedSubagents.has(childName)) {
         session?.spawnedSubagents.add(childName)
-        emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId)
+        const inputData = extractInputData(toolName, block.input)
+        emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId, {
+          prompt: typeof inputData?.prompt === 'string' ? inputData.prompt : undefined,
+          subagentType: typeof inputData?.subagent_type === 'string' ? inputData.subagent_type : undefined,
+          model: typeof inputData?.model === 'string' ? inputData.model : undefined,
+          toolUseId: block.id,
+        })
       }
     }
 
@@ -303,6 +312,7 @@ export class TranscriptParser {
         args,
         preview: `${toolName}: ${args}`.slice(0, PREVIEW_MAX),
         inputData: extractInputData(toolName, block.input),
+        toolUseId: block.id,
       },
     }, sessionId)
   }
@@ -317,7 +327,9 @@ export class TranscriptParser {
     // Skip orphaned tool_results (their tool_use was deduped during catch-up)
     if (!pending) { return }
     const toolName = pending.name
-    const result = summarizeResult(block.content)
+    const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
+    // Subagent reports are kept up to MESSAGE_MAX so the full report can be shown
+    const result = summarizeResult(block.content, isSubagentTool ? MESSAGE_MAX : RESULT_MAX)
     const tokenCost = estimateTokensFromContent(block.content)
 
     // Update context breakdown
@@ -337,8 +349,12 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
+    // Detect errors in tool output
+    const isError = detectError(result)
+    const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
+
     // If it was a subagent call completing, emit subagent return
-    if (toolName === 'Task' || toolName === 'Agent') {
+    if (isSubagentTool) {
       const childName = this.subagentChildNames.get(block.tool_use_id) || pending?.args?.slice(0, CHILD_NAME_MAX) || 'subagent'
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
@@ -346,7 +362,15 @@ export class TranscriptParser {
       this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'subagent_return',
-        payload: { child: childName, parent: agentName, summary: result.slice(0, ARGS_MAX) },
+        payload: {
+          child: childName,
+          parent: agentName,
+          summary: result.slice(0, MESSAGE_MAX),
+          toolUseId: block.tool_use_id,
+          isError,
+          durationS: Math.round((Date.now() - pending.startTime) / 100) / 10,
+          tokenCost,
+        },
       }, sessionId)
       this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
@@ -355,18 +379,15 @@ export class TranscriptParser {
       }, sessionId)
     }
 
-    // Detect errors in tool output
-    const isError = detectError(result)
-    const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
-
     this.delegate.emit({
       time: this.delegate.elapsed(sessionId),
       type: 'tool_call_end',
       payload: {
         agent: agentName,
         tool: toolName,
-        result: result.slice(0, RESULT_MAX),
+        result: result.slice(0, isSubagentTool ? MESSAGE_MAX : RESULT_MAX),
         tokenCost,
+        toolUseId: block.tool_use_id,
         ...(discovery ? { discovery } : {}),
         ...(isError ? { isError, errorMessage } : {}),
       },
@@ -614,4 +635,71 @@ export class TranscriptParser {
     session.labelSet = true
     this.delegate.fireSessionLifecycle({ type: 'updated', sessionId, label: session.label })
   }
+}
+
+/** Default root that hook-supplied transcript paths must resolve inside. */
+export const DEFAULT_TRANSCRIPT_ROOT = path.join(os.homedir(), '.claude', 'projects')
+
+/**
+ * True when a path supplied by an untrusted source (e.g. an HTTP hook payload) is a
+ * regular `.jsonl` file whose real path (symlinks and `..` resolved) lies inside one
+ * of the allowed roots. Prevents arbitrary file reads through `agent_transcript_path`.
+ */
+export function isAllowedTranscriptPath(filePath: unknown, roots: string[] = [DEFAULT_TRANSCRIPT_ROOT]): boolean {
+  if (typeof filePath !== 'string' || !filePath || filePath.includes('\0')) { return false }
+  try {
+    if (!path.isAbsolute(filePath) || path.extname(filePath).toLowerCase() !== '.jsonl') { return false }
+    const real = fs.realpathSync(filePath)
+    if (path.extname(real).toLowerCase() !== '.jsonl' || !fs.statSync(real).isFile()) { return false }
+    return roots.some(root => {
+      let realRoot: string
+      try { realRoot = fs.realpathSync(root) } catch { return false }
+      const rel = path.relative(realRoot, real)
+      return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Extract the last assistant text block from a (subagent) JSONL transcript file.
+ * Reads only the tail of the file; returns undefined on any failure.
+ */
+export function extractLastAssistantText(filePath: string, max = MESSAGE_MAX): string | undefined {
+  try {
+    const TAIL_BYTES = 256 * 1024
+    const fd = fs.openSync(filePath, 'r')
+    let raw: string
+    try {
+      const size = fs.fstatSync(fd).size
+      const start = Math.max(0, size - TAIL_BYTES)
+      const buf = Buffer.alloc(size - start)
+      fs.readSync(fd, buf, 0, buf.length, start)
+      raw = buf.toString('utf8')
+    } finally {
+      fs.closeSync(fd)
+    }
+    const lines = raw.split('\n')
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) { continue }
+      let entry: unknown
+      try { entry = JSON.parse(line) } catch { continue }
+      if (!isRecord(entry)) { continue }
+      const msg = entry.message
+      const role = isRecord(msg) ? msg.role : entry.type
+      if (role !== 'assistant' || !isRecord(msg)) { continue }
+      const content = msg.content
+      const text = typeof content === 'string'
+        ? content.trim()
+        : Array.isArray(content)
+          ? content.filter(b => isRecord(b) && b.type === 'text').map(safeText).filter(Boolean).pop() ?? ''
+          : ''
+      if (text) { return text.slice(0, max) }
+    }
+  } catch {
+    // fall through
+  }
+  return undefined
 }
