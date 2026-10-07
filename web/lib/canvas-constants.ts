@@ -440,6 +440,8 @@ export const HIT_DETECTION = {
   minAgentRadiusPx: 12,
   /** Minimum width/height of any other hit target in SCREEN pixels (WCAG 2.5.8) */
   minTargetPx: 24,
+  /** Tolerance (SCREEN pixels) around a link curve for hit-testing */
+  linkTolerancePx: 8,
 } as const
 
 

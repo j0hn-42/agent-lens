@@ -1,6 +1,7 @@
 import { Agent, NODE } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
-import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, MIN_VISIBLE_OPACITY, isExpiryHeld } from '@/lib/canvas-constants'
+import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, isExpiryHeld } from '@/lib/canvas-constants'
+import { isAgentVisible, agentDrawOpacity } from './team-style'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
@@ -14,7 +15,7 @@ export function drawMessageBubblesWorld(
 ) {
   const showText = lodForZoom(opts.zoom).details
   for (const agent of agents.values()) {
-    if (agent.messageBubbles.length === 0 || agent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
     // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible
     const held = isExpiryHeld('agent', agent.id)
 
@@ -26,7 +27,7 @@ export function drawMessageBubblesWorld(
 
     for (const bubble of agent.messageBubbles) {
       const age = time - bubble.time
-      const alpha = bubbleAlpha(age, agent.opacity, held)
+      const alpha = bubbleAlpha(age, agentDrawOpacity(agent), held)
       if (alpha < 0.01) continue
 
       const { role, text } = bubble

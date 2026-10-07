@@ -2,7 +2,8 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle, NODE } from '@/lib/agent-types'
-import type { SimulationState } from '@/hooks/simulation/types'
+import type { TeamSummary } from '@/lib/agent-types'
+import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { COLORS } from '@/lib/colors'
 import {
   ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED, A11Y_SNAPSHOT_MS, FLASH_MAX_PER_SECOND,
@@ -24,10 +25,13 @@ import {
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor,
+  drawLinks, drawTeamHalos, resolveLinks, computeTeamHalos, hasSeveralSessions,
+  detectTeamChanges, createTeamPrev, type TeamPrev, type ResolvedLink,
   createFlashLimiter, buildA11yModel, enqueueAnnouncements, createAnnouncementQueue, a11yRecorder,
   type AnnouncementItem, type AnnouncementQueue,
   type DrawOpts, type HitTarget, type CommEntry, type A11yModel,
 } from './canvas/index'
+import { agentStatusText, teammateActivity, cleanText } from './canvas/team-style'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
@@ -52,9 +56,16 @@ interface CanvasProps {
   onDiscoveryClick?: (discoveryId: string | null) => void
   selectedDiscoveryId?: string | null
   showCostOverlay?: boolean
+  /** Communication links between agents (spawn / teammate). Defaults to the simulation's own links. */
+  links?: Map<string, AgentLink>
+  /** Agent Teams (halo colours, legend) */
+  teams?: Map<string, TeamSummary>
+  /** A link (edge or count badge) was clicked */
+  onLinkClick?: (linkId: string) => void
+  selectedLinkId?: string | null
 }
 
-const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [] }
+const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [] }
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -71,6 +82,7 @@ export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay,
+  links: linksProp, teams, onLinkClick, selectedLinkId,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -157,6 +169,12 @@ export function AgentCanvas({
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const announcementsRef = useRef<AnnouncementQueue>(createAnnouncementQueue())
   const a11ySignatureRef = useRef('')
+  const teamPrevRef = useRef<TeamPrev>(createTeamPrev())
+  // Props read by the draw loop and the snapshot timer without re-subscribing
+  const linksPropRef = useRef(linksProp)
+  linksPropRef.current = linksProp
+  const teamsRef = useRef(teams)
+  teamsRef.current = teams
 
   const handleFocusedNodeChange = useCallback((node: NavNode | null) => {
     setFocusedNode(prev => (sameNode(prev, node) ? prev : node))
@@ -174,10 +192,11 @@ export function AgentCanvas({
     agents: sim.agents, toolCalls: sim.toolCalls,
     particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
-    showCostOverlay, selectedToolCallId, selectedDiscoveryId,
+    showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
+    links: [] as ResolvedLink[],
     onAgentDrag, onAgentClick, onAgentHover, onContextMenu,
-    onToolCallClick, onDiscoveryClick,
+    onToolCallClick, onDiscoveryClick, onLinkClick,
     isDragging: prev?.isDragging ?? false,
   })
   const drawPropsRef = useRef(makeDrawProps())
@@ -259,7 +278,9 @@ export function AgentCanvas({
       const s = simulationRef.current
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
-      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, a11yRecorder.tools)
+      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, a11yRecorder.tools, {
+        links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
+      })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
       if (signature === a11ySignatureRef.current) return
@@ -303,6 +324,11 @@ export function AgentCanvas({
     prevAgentStatesRef.current = newAgentStates
     prevToolStatesRef.current = newToolStates
 
+    // Teammate activity changes ("<name> is idle") and new link messages ("<from> sent a message to <to>")
+    const team = detectTeamChanges(agents, linksPropRef.current ?? simulationRef.current.links, teamPrevRef.current)
+    teamPrevRef.current = team.next
+    transitions.push(...team.transitions)
+
     if (transitions.length > 0) {
       const next = enqueueAnnouncements(announcementsRef.current, transitions)
       if (next !== announcementsRef.current) {
@@ -310,7 +336,7 @@ export function AgentCanvas({
         setAnnouncements(next.items)
       }
     }
-  }, [])
+  }, [simulationRef])
 
   // ─── Main draw loop ────────────────────────────────────────────────────
 
@@ -338,14 +364,15 @@ export function AgentCanvas({
         p.edges = s.edges
         p.discoveries = s.discoveries
         p.simTime = s.currentTime
+        p.links = resolveLinks(linksPropRef.current ?? s.links, s.agents, s.currentTime)
       }
 
       const {
         agents, toolCalls, particles, edges, discoveries,
         selectedAgentId, hoveredAgentId, showStats, showHexGrid,
-        showCostOverlay, selectedToolCallId, selectedDiscoveryId,
+        showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
         simTime, pauseAutoFit, dimensions, onAgentDrag,
-        isDragging,
+        isDragging, links: resolvedLinks,
       } = drawPropsRef.current
       const transform = transformRef.current
       const reducedMotion = reducedMotionRef.current
@@ -396,6 +423,7 @@ export function AgentCanvas({
       opts.zoom = transform.scale
       opts.showCost = !!showCostOverlay
       opts.showStats = showStats
+      opts.showSessionLabels = hasSeveralSessions(agents.values())
 
       // Camera physics (inertia + auto-fit)
       updateCamera(isDragging, pauseAutoFit)
@@ -453,7 +481,14 @@ export function AgentCanvas({
       // Draw order (bottom to top) matches hit-test priority in reverse:
       // bubbles sit under tool/discovery cards so interactive cards are never covered.
       drawDiscoveryConnections(ctx, discoveries, agents)
+      // Team halos sit under everything; links (communication edges) under the nodes
+      drawTeamHalos(ctx, computeTeamHalos(agents.values(), teamsRef.current), opts)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
+      drawLinks(
+        ctx, resolvedLinks, agents, selectedLinkId,
+        hoverTargetRef.current?.type === 'link' ? hoverTargetRef.current.id : null,
+        timeRef.current, opts,
+      )
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
@@ -603,6 +638,8 @@ export function AgentCanvas({
 
       <GraphA11yList
         model={a11yModel}
+        onLinkClick={onLinkClick}
+        selectedLinkId={selectedLinkId}
         communications={communications}
         announcements={announcements}
         focusedNode={focusedNode}
@@ -695,7 +732,7 @@ export function AgentCanvas({
         </button>
       </div>
 
-      <GraphLegend />
+      <GraphLegend teams={a11yModel.teams} />
     </div>
   )
 }
@@ -713,6 +750,10 @@ function describeTooltip(node: NavNode, sim: SimulationState): TooltipContent | 
       `State: ${STATE_LABEL_LONG[a.state] ?? a.state}`,
       `Model: ${a.model ? formatModelName(a.model) : 'unknown'}`,
     ]
+    if (a.kind === 'teammate') {
+      lines.unshift(`Teammate${a.teamName ? ` of team ${cleanText(a.teamName)}` : ''}: ${teammateActivity(a) ?? agentStatusText(a)}`)
+    }
+    if (a.archived) lines.unshift('Archived: finished, kept so its conversation stays reachable')
     if (a.task) lines.push(`Task: ${a.task.length > 160 ? a.task.slice(0, 159) + '…' : a.task}`)
     return { title: a.name, lines }
   }

@@ -13,6 +13,8 @@ import {
 import { bubbleAlpha } from './bubble-utils'
 import { getToolCardSize } from './render-cache'
 import type { FocusShape } from './draw-misc'
+import { isAgentVisible, agentDrawScale, agentDrawOpacity } from './team-style'
+import { findLinkAt, type ResolvedLink } from './link-geometry'
 import type { NavNode } from './keyboard-nav'
 
 /** Node radii duplicated from agent-types NODE to keep this module free of "@/" runtime imports. */
@@ -54,8 +56,9 @@ export function findAgentAt(
   scale = 1,
 ): string | null {
   for (const [id, agent] of reverseEntries(agents)) {
-    if (agent.opacity < MIN_VISIBLE_OPACITY) continue
-    const base = (agent.isMain ? RADIUS_MAIN : RADIUS_SUB) * (agent.scale || 1)
+    // Archived agents and teammates stay clickable even when their opacity is low
+    if (!isAgentVisible(agent)) continue
+    const base = (agent.isMain ? RADIUS_MAIN : RADIUS_SUB) * agentDrawScale(agent)
     const r = hitRadiusWorld(base, scale, HIT_DETECTION.minAgentRadiusPx)
     const dx = x - agent.x
     const dy = y - agent.y
@@ -111,14 +114,14 @@ export function findBubbleAgentAt(
   scale = 1,
 ): string | null {
   for (const agent of reverseValues(agents.values())) {
-    if (agent.messageBubbles.length === 0 || agent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
     const radius = agent.isMain ? RADIUS_MAIN : RADIUS_SUB
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
     let cursorY = agent.y + AGENT_DRAW.bubbleCursorY
     const held = isExpiryHeld('agent', agent.id)
     for (const bubble of agent.messageBubbles) {
       const age = currentTime - bubble.time
-      const alpha = bubbleAlpha(age, agent.opacity, held)
+      const alpha = bubbleAlpha(age, agentDrawOpacity(agent), held)
       if (alpha < 0.01) continue
 
       // Use cached dimensions from the draw pass when available;
@@ -183,15 +186,16 @@ export type HitTarget =
   | { type: 'tool'; id: string }
   | { type: 'discovery'; id: string }
   | { type: 'bubble'; id: string }
+  | { type: 'link'; id: string }
 
 /**
  * Single hit test with the same priority as the draw order (top first):
- * agent, tool card, discovery card, bubble.
+ * agent, tool card, discovery card, bubble, then communication links (drawn under the nodes).
  */
 export function hitTestAt(
   x: number,
   y: number,
-  scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[] },
+  scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[]; links?: ResolvedLink[] },
   simTime: number,
   scale = 1,
 ): HitTarget | null {
@@ -203,6 +207,10 @@ export function hitTestAt(
   if (discId) return { type: 'discovery', id: discId }
   const bubbleId = findBubbleAgentAt(x, y, scene.agents, simTime, scale)
   if (bubbleId) return { type: 'bubble', id: bubbleId }
+  if (scene.links && scene.links.length > 0) {
+    const linkId = findLinkAt(x, y, scene.links, scene.agents, scale)
+    if (linkId) return { type: 'link', id: linkId }
+  }
   return null
 }
 
@@ -214,7 +222,7 @@ export function focusShapeFor(
   if (node.type === 'agent') {
     const a = scene.agents.get(node.id)
     if (!a) return null
-    return { kind: 'hex', x: a.x, y: a.y, r: (a.isMain ? RADIUS_MAIN : RADIUS_SUB) * (a.scale || 1) }
+    return { kind: 'hex', x: a.x, y: a.y, r: (a.isMain ? RADIUS_MAIN : RADIUS_SUB) * agentDrawScale(a) }
   }
   if (node.type === 'tool') {
     const t = scene.toolCalls.get(node.id)

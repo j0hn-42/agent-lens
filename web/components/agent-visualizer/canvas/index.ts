@@ -17,3 +17,13 @@ export { buildA11yModel, updateToolHistory, updateCommHistory, pushAnnouncements
 export { a11yRecorder, resetRecorder } from './a11y-recorder'
 export type { AnnouncementItem, AnnouncementQueue, A11yModel, ToolHistoryEntry, CommEntry } from './a11y-model'
 export { detectStateChanges } from './detect-state-changes'
+export { drawLinks, linkBadgeText, linkWidth } from './draw-links'
+export { drawTeamHalos } from './draw-teams'
+export { resolveLinks, resolveAgentRef, linkState, findLinkAt, linkCurve, LINK_STATE_LABEL_TEXT } from './link-geometry'
+export type { ResolvedLink, LinkState } from './link-geometry'
+export {
+  safeTeamColor, computeTeamHalos, isAgentVisible, hasSeveralSessions, layoutAgentLabel, forceTeamCohesion,
+} from './team-style'
+export type { TeamHalo } from './team-style'
+export { detectTeamChanges, createTeamPrev } from './team-changes'
+export type { TeamPrev } from './team-changes'
