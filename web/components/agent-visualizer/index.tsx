@@ -33,6 +33,7 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
+import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
@@ -333,6 +334,16 @@ export function AgentVisualizer() {
     try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
   }, [])
 
+  // 'Hide inactive agents': on by default, persisted in localStorage
+  const [hideInactive, setHideInactive] = useState(true)
+  useEffect(() => {
+    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
+  }, [])
+  const updateHideInactive = useCallback((hide: boolean) => {
+    setHideInactive(hide)
+    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
+  }, [])
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -473,6 +484,8 @@ export function AgentVisualizer() {
         showFinished={bridge.showFinished}
         finishedSessionCount={bridge.finishedSessionCount}
         onToggleShowFinished={bridge.setShowFinished}
+        hideInactive={hideInactive}
+        onToggleHideInactive={updateHideInactive}
         selectedSessionId={bridge.selectedSessionId}
         sessionsWithActivity={bridge.sessionsWithActivity}
         onSelectSession={bridge.selectSession}
@@ -553,6 +566,7 @@ export function AgentVisualizer() {
         onDiscoveryClick={selection.handleDiscoveryClick}
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
+        hideInactive={hideInactive}
       />
 
       {/* Message feed panel (top-left) */}
