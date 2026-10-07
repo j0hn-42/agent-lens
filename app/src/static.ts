@@ -5,10 +5,11 @@
 import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
+import { themeBootstrapScript } from '../../extension/src/theme-bootstrap'
 
 const WEBVIEW_DIR = path.join(__dirname, 'webview')
 
-const HTML_SHELL = `<!DOCTYPE html>
+export const HTML_SHELL = `<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
@@ -18,6 +19,7 @@ const HTML_SHELL = `<!DOCTYPE html>
   <style>html, body { height: 100%; margin: 0; padding: 0; }</style>
 </head>
 <body class="font-sans antialiased" style="background: #0a0a1a;">
+  <script>${themeBootstrapScript()}</script>
   <div id="root" style="height: 100%;"></div>
   <script src="/index.js"></script>
 </body>
