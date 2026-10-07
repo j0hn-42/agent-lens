@@ -89,8 +89,13 @@ export function edgeBubbleAriaLabel(sender: string, receiver: string, kind: Edge
 export interface EdgeBubbleSetOptions {
   /** Every bubble of the link is held (hovered / selected link, paused, keep cards visible) */
   held?: boolean
-  /** Message ids held individually (hovered or focused bubble) */
+  /**
+   * Message ids held individually (hovered or focused bubble), without their link: a link not holding
+   * them must scan its whole list to be sure. Prefer `heldKeys`.
+   */
   heldMessageIds?: ReadonlySet<string>
+  /** Bubble keys (`bubbleKey(linkId, messageId)`) held individually: only the named link looks further back than maxPerLink */
+  heldKeys?: ReadonlySet<string>
   measure?: MeasureText
   maxPerLink?: number
 }
@@ -109,16 +114,27 @@ export function selectEdgeBubbles(
   if (msgs.length === 0) return []
   const max = Math.max(0, options.maxPerLink ?? EDGE_BUBBLE.maxPerLink)
   const measure = options.measure ?? (t => estimateTextWidth(t))
-  const heldIds = options.heldMessageIds
+  // Held messages outside the newest window: only those of this link count, and the scan stops once all are found
+  const heldIds = new Set<string>()
+  if (options.heldKeys && options.heldKeys.size > 0) {
+    const prefix = `${r.id}|`
+    for (const k of options.heldKeys) if (k.startsWith(prefix)) heldIds.add(k.slice(prefix.length))
+  }
+  if (options.heldMessageIds) for (const id of options.heldMessageIds) heldIds.add(id)
+  let heldLeft = heldIds.size
 
   const picked: ConversationMessage[] = []
   let windowCount = 0
   for (let i = msgs.length - 1; i >= 0; i--) {
     const m = msgs[i]
-    if (!edgeMessageKind(m)) continue
-    const isHeld = !!heldIds && heldIds.has(m.id)
+    if (!edgeMessageKind(m)) {
+      if (windowCount >= max && heldLeft === 0) break
+      continue
+    }
+    const isHeld = heldIds.has(m.id)
+    if (isHeld) heldLeft--
     if (windowCount < max) { picked.push(m); windowCount++ } else if (isHeld) picked.push(m)
-    else if (!heldIds || heldIds.size === 0) break
+    if (windowCount >= max && heldLeft <= 0) break
   }
   if (picked.length === 0) return []
   const curve = linkCurve(r, agents)
@@ -128,7 +144,7 @@ export function selectEdgeBubbles(
   for (const m of picked) {
     const kind = edgeMessageKind(m)!
     const age = simTime - m.timestamp
-    const held = !!options.held || (!!heldIds && heldIds.has(m.id))
+    const held = !!options.held || heldIds.has(m.id)
     if (!held && !(age >= 0 && age <= EDGE_BUBBLE.visibleS)) continue
 
     const ends = messageEnds(r, m, kind, agents)

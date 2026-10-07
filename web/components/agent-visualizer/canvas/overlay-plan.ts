@@ -70,7 +70,7 @@ export interface OverlayPlanInput {
   focusedAgentId: string | null
   selectedLinkId?: string | null
   hoveredLinkId?: string | null
-  /** Keys of the edge bubbles that are hovered / focused: planned right below the selected agent's labels */
+  /** Keys of the edge bubbles that are hovered / focused: planned just below the selected agent's labels (see HELD_BUBBLE_BOOST) */
   heldBubbleKeys?: ReadonlySet<string>
   simTime: number
   /** Teams, to tell a team lead from a session's main agent in the label layout */
@@ -95,6 +95,14 @@ export interface OverlayPlanResult {
   /** Many agents on screen: secondary overlays are limited to the priority agents */
   crowded: boolean
 }
+
+/**
+ * Priority added to a hovered / focused bubble. Kept strictly below the 1000 that a selected / hovered /
+ * focused agent adds to its labels: a bubble the user points at never displaces the selected agent's label.
+ */
+export const HELD_BUBBLE_BOOST = 990
+/** Priority added to a bubble on the selected / hovered link (below the held boost) */
+const EMPHASISED_BUBBLE_BOOST = 900
 
 /** Keys of the plan */
 export const planKey = {
@@ -296,7 +304,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     if (b.w <= 0) continue
     const id = edgeBubblePlanId(b)
     const emphasised = b.linkId === input.selectedLinkId || b.linkId === input.hoveredLinkId
-    const boost = input.heldBubbleKeys?.has(id) ? 1500 : emphasised ? 1000 : 0
+    const boost = input.heldBubbleKeys?.has(id) ? HELD_BUBBLE_BOOST : emphasised ? EMPHASISED_BUBBLE_BOOST : 0
     const preferred = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
     if (!onScreen(preferred, vp, 0)) continue
     bubbleLinkOf.set(planKey.edgeBubble(id), b.linkId)
