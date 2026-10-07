@@ -68,7 +68,10 @@ function heldSets(st: LayerState): { ids: Set<string>; keys: Set<string> } {
 type EventCtor = new (type: string, init?: Record<string, unknown>) => Event
 
 /** Clone a pointer / wheel event onto another element (the canvas). */
-function forwardEvent(e: MouseEvent | WheelEvent, type: string, target: HTMLElement, at?: { x: number; y: number }): void {
+function forwardEvent(
+  e: MouseEvent | WheelEvent, type: string, target: HTMLElement,
+  at?: { x: number; y: number; button?: number; buttons?: number },
+): void {
   const win = target.ownerDocument.defaultView as (Window & Record<string, unknown>) | null
   if (!win) return
   const isWheel = type === 'wheel'
@@ -78,7 +81,7 @@ function forwardEvent(e: MouseEvent | WheelEvent, type: string, target: HTMLElem
   target.dispatchEvent(new Ctor(type, {
     bubbles: true, cancelable: true, composed: true,
     clientX: at?.x ?? e.clientX, clientY: at?.y ?? e.clientY, screenX: e.screenX, screenY: e.screenY,
-    button: e.button, buttons: e.buttons, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
+    button: at?.button ?? e.button, buttons: at?.buttons ?? e.buttons, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
     pointerId: pe.pointerId, pointerType: pe.pointerType, isPrimary: pe.isPrimary,
     deltaX: we.deltaX, deltaY: we.deltaY, deltaZ: we.deltaZ, deltaMode: we.deltaMode,
   }))
@@ -114,6 +117,9 @@ export function attachBubbleLayer(root: HTMLElement, handlers: BubbleLayerHandle
   const onOut = (e: Event) => {
     if (buttonOf(e.target) && st.hovered !== null) { st.hovered = null; notify() }
   }
+  // A keyboard activation is never the click that follows a pan (the canvas holds the pointer capture, so
+  // that click may never reach the button and the flag would swallow the next Enter / Space)
+  const onKeyDown = () => { st.suppressClick = false }
   const onFocusIn = (e: Event) => {
     const b = buttonOf(e.target)
     if (b) { st.focused = keyOf(b); notify() }
@@ -141,13 +147,17 @@ export function attachBubbleLayer(root: HTMLElement, handlers: BubbleLayerHandle
     const press = st.press
     const to = target()
     if (!press || !to || press.pointerId !== pe.pointerId) return
+    // The canvas captures the pointer when the replayed press reaches it, so the release may never come back
+    // here: a mouse move with no button down means the press is over
+    if (pe.pointerType === 'mouse' && pe.buttons === 0) { st.press = null; return }
     if (!press.forwarding) {
       if (Math.hypot(pe.clientX - press.x, pe.clientY - press.y) < DRAG_FORWARD_PX) return
       press.forwarding = true
       st.suppressClick = true
-      forwardEvent(pe, 'pointerdown', to, { x: press.x, y: press.y })
+      // The replayed press is a primary-button press: the move that triggered it carries button -1
+      forwardEvent(pe, 'pointerdown', to, { x: press.x, y: press.y, button: 0, buttons: 1 })
     }
-    forwardEvent(pe, 'pointermove', to)
+    forwardEvent(pe, 'pointermove', to, { x: pe.clientX, y: pe.clientY, button: -1, buttons: 1 })
   }
   const onPointerEnd = (e: Event) => {
     const pe = e as PointerEvent
@@ -155,12 +165,13 @@ export function attachBubbleLayer(root: HTMLElement, handlers: BubbleLayerHandle
     if (!press || press.pointerId !== pe.pointerId) return
     st.press = null
     const to = target()
-    if (press.forwarding && to) forwardEvent(pe, e.type === 'pointercancel' ? 'pointercancel' : 'pointerup', to)
+    if (press.forwarding && to) forwardEvent(pe, e.type === 'pointercancel' ? 'pointercancel' : 'pointerup', to, { x: pe.clientX, y: pe.clientY, button: 0, buttons: 0 })
   }
 
   const listeners: Array<[string, (e: Event) => void, AddEventListenerOptions?]> = [
     ['click', onClick, { capture: true }],
     ['pointerover', onOver], ['pointerout', onOut],
+    ['keydown', onKeyDown, { capture: true }],
     ['focusin', onFocusIn], ['focusout', onFocusOut],
     ['wheel', onWheel, { passive: false }],
     ['pointerdown', onPointerDown], ['pointermove', onPointerMove],
