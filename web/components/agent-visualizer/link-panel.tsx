@@ -7,7 +7,7 @@ import { COLORS } from '@/lib/colors'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
-import { PanelHeader, useDialogBehavior } from './shared-ui'
+import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
 interface LinkPanelProps {
   link: AgentLink
@@ -35,6 +35,9 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   const descId = useId()
   const ref = useRef<HTMLDivElement>(null)
   useDialogBehavior(ref, onClose)
+  // Right dock, stacked above Files / Conversation (shared layout: never over another panel)
+  const dock = useDockPanel('link', true)
+  const { rect } = dock
 
   // Escape closes exactly this layer (one Escape, one thing: see shared-ui's arbitration note).
   // A native listener keeps the dialog element free of JSX key handlers.
@@ -86,10 +89,20 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
       aria-labelledby={titleId}
       aria-describedby={descId}
       tabIndex={-1}
-      className="link-panel max-w-[calc(100vw-24px)] outline-none"
-      style={{ position: 'absolute', right: 12, top: 56, width: 380, zIndex: Z.detailCard }}
+      {...dockAttrs('link', 'right', dock)}
+      className="link-panel outline-none"
+      style={{
+        position: 'absolute',
+        left: rect?.x ?? 'auto',
+        right: rect ? 'auto' : 12,
+        top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
+        width: rect?.w ?? 380,
+        maxWidth: 'calc(100vw - 24px)',
+        zIndex: Z.detailCard,
+        display: dock.hidden ? 'none' : undefined,
+      }}
     >
-      <GlassCard visible={true}>
+      <GlassCard visible={true} style={{ display: 'flex', flexDirection: 'column', maxHeight: rect?.h ?? 'min(60vh, 28rem)' }}>
         <PanelHeader
           onClose={onClose}
           className="mb-2"
@@ -123,7 +136,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
         ) : (
           <ol
             ref={listRef}
-            className="m-0 flex max-h-[min(60vh,28rem)] list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]"
+            className="m-0 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]"
             aria-label="Messages, oldest first"
           >
             {model.entries.map(entry => {

@@ -110,6 +110,8 @@ const SCRUBBER_FILL = 'linear-gradient(90deg, #66ccff, #99e0ff)'
 
 const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
+/** Same box as controlBarRect() in lib/panel-layout (which the docks keep clear of). */
+const BAR_STYLE: import("react").CSSProperties = { pointerEvents: 'auto', maxWidth: `min(${POPUP.controlBarMaxWidth}px, calc(100vw - 32px))`, zIndex: Z.controlBar }
 
 /**
  * Swaps between the live and review bars. The control that was just activated (Review, LIVE,
@@ -167,8 +169,9 @@ function LiveControlBar({
     <div
       role="toolbar"
       aria-label="Playback controls"
+      data-control-bar
       className={BAR_CLASS}
-      style={{ pointerEvents: 'auto', maxWidth: POPUP.controlBarMaxWidth, zIndex: Z.controlBar }}
+      style={BAR_STYLE}
     >
       <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* LIVE / DEMO badge */}
@@ -290,8 +293,9 @@ function ReviewControlBar({
     <div
       role="toolbar"
       aria-label="Playback controls"
+      data-control-bar
       className={BAR_CLASS}
-      style={{ pointerEvents: 'auto', maxWidth: POPUP.controlBarMaxWidth, zIndex: Z.controlBar }}
+      style={BAR_STYLE}
     >
       <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* Play/Pause */}
