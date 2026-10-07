@@ -46,8 +46,36 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
   const page = await context.newPage()
   await page.goto(BASE_URL)
   await page.getByRole('button', { name: 'Files' }).waitFor()
-  await page.waitForTimeout(500)
+  await waitForStableLayout(page)
   return { page, close: () => context.close() }
+}
+
+// Plain JS string (tsx would inject a __name helper the page lacks). Resolves once the bounding
+// boxes of all visible interactive elements and landmarks are unchanged over two consecutive
+// animation frames AND have not changed for QUIET_MS, so late-rendering content (transcript rows,
+// panels animating in) is measured only after it exists. Rejects after the timeout.
+const QUIET_MS = 750
+const STABLE_SCRIPT = `new Promise((resolve, reject) => {
+  const sel = 'button, a[href], input, select, textarea, [role], [tabindex], main, aside, section, nav'
+  const snap = () => Array.from(document.querySelectorAll(sel)).map(el => {
+    const r = el.getBoundingClientRect()
+    return [el.tagName, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)].join(',')
+  }).join('|')
+  const start = performance.now()
+  let prev = snap(), lastChange = start, same = 0
+  const tick = () => {
+    const now = performance.now()
+    const cur = snap()
+    if (cur === prev) same++; else { same = 0; lastChange = now; prev = cur }
+    if (same >= 2 && now - lastChange >= ${QUIET_MS}) return resolve(true)
+    if (now - start > 15000) return reject(new Error('layout did not settle within 15 s'))
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+})`
+
+async function waitForStableLayout(page: Page) {
+  await page.evaluate(STABLE_SCRIPT)
 }
 
 async function axeFailures(page: Page, scenario: string) {
@@ -80,7 +108,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
       try {
         if (button) {
           await page.getByRole('button', { name: new RegExp(`^${button.replace('$', '\\$')}`) }).first().click()
-          await page.waitForTimeout(400)
+          await waitForStableLayout(page)
         }
         expectClean(`e2e:${name}`, await axeFailures(page, `e2e:${name}`))
       } finally { await close() }
@@ -140,10 +168,33 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     }
   })()`
   type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
-  const check = (width: number, where: string, m: Measure) => {
-    assert.ok(m.doc <= m.inner && m.body <= m.inner, `[${where}] page overflows at ${width}px: doc=${m.doc} body=${m.body}`)
-    assert.deepEqual(m.clippedContainers, [], `[${where}] containers clip content horizontally at ${width}px`)
-    assert.deepEqual(m.outside, [], `[${where}] interactive elements outside the viewport at ${width}px`)
+  // Findings are collected over every step (initial, review mode, panels) and compared with the
+  // allow-list once, so a known defect does not hide a new one in a later step.
+  type Findings = { rules: Set<string>; details: string[] }
+  const record = (f: Findings, width: number, where: string, m: Measure) => {
+    const add = (rule: string, detail: string) => { f.rules.add(rule); f.details.push(`[${where} @${width}px] ${rule}: ${detail}`) }
+    if (m.doc > m.inner || m.body > m.inner) add('page-overflow', `doc=${m.doc} body=${m.body}`)
+    if (m.clippedContainers.length) add('clipped-container', m.clippedContainers.join('; '))
+    if (m.outside.length) add('outside-viewport', m.outside.join('; '))
+  }
+
+  // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
+  // so the remaining steps still run.
+  async function openPanelChecked(page: Page, name: RegExp, f: Findings, where: string) {
+    const btn = page.getByRole('button', { name }).first()
+    try {
+      await btn.click({ timeout: 3000 })
+    } catch {
+      f.rules.add('pointer-obstructed')
+      f.details.push(`[${where}] pointer-obstructed: a panel covers the "${name.source}" button`)
+      await btn.focus()
+      await page.keyboard.press('Space')
+    }
+    await page.waitForFunction(
+      (source: string) => Array.from(document.querySelectorAll('button[aria-pressed="true"]')).some(b => new RegExp(source, 'i').test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? ''))),
+      name.source,
+    )
+    await waitForStableLayout(page)
   }
 
   // 320 CSS px is 400 % zoom of a 1280 px window; 640 CSS px is 200 % zoom.
@@ -152,10 +203,20 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
       if (skipReason) return t.skip(skipReason)
       const { page, close } = await open({ width, height: 700 })
       try {
-        check(width, 'initial', await page.evaluate<Measure>(MEASURE))
+        const f: Findings = { rules: new Set(), details: [] }
+        record(f, width, 'initial', await page.evaluate<Measure>(MEASURE))
         await page.getByRole('button', { name: 'Pause and review history' }).click()
         await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
-        check(width, 'review mode', await page.evaluate<Measure>(MEASURE))
+        await waitForStableLayout(page)
+        record(f, width, 'review mode', await page.evaluate<Measure>(MEASURE))
+        for (const [label, re] of [['files panel', /^Files/], ['chat panel', /^Chat/]] as const) {
+          await openPanelChecked(page, re, f, `${label} @${width}px`)
+          record(f, width, label, await page.evaluate<Measure>(MEASURE))
+        }
+        const scenario = `e2e:reflow-${width}`
+        const { unexpected, stale } = compareViolations(scenario, [...f.rules], known)
+        assert.deepEqual(unexpected, [], `[${scenario}] new reflow defects (fix them or allow-list in known-violations.json with an issue number):\n${f.details.join('\n')}`)
+        assert.deepEqual(stale, [], `[${scenario}] allow-listed reflow defects no longer occur: remove them from known-violations.json`)
       } finally { await close() }
     })
   }
@@ -216,7 +277,7 @@ describe('demo mode: keyboard', () => {
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
       await page.getByRole('button', { name: 'Chat' }).click()
-      await page.waitForTimeout(400)
+      await waitForStableLayout(page)
       const hidden = (await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)).filter(h => !h.startsWith('nextjs-portal'))
       const { unexpected, stale } = compareViolations(
         'e2e:tab-order', hidden.length ? ['invisible-focusable'] : [], known,
