@@ -132,6 +132,16 @@ Other scripts:
 | `pnpm run build:extension` | Build the extension |
 | `pnpm run build:webview` | Build the webview assets |
 
+## Accessibility testing
+
+Accessibility checks run in CI without any browser download:
+
+- `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset) on `web/`. Known violations are allow-listed per file in `web/eslint.config.mjs`, each with the issue that will fix it.
+- `pnpm run test:a11y` renders the key components (top bar, control bar, session tabs, transcript, feed, file attention, chat, popups, context menu, shortcuts dialog, timeline canvas and table view) in jsdom and runs axe-core on them, plus keyboard scenarios (shortcut filter, tab/menu/scrubber key models). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number. The test fails on a new violation and also when an allow-listed one disappears, so the list can only shrink.
+- jsdom has no layout engine, so axe cannot compute color contrast here. Contrast is covered at the token level by `scripts/contrast.test.ts` (part of `pnpm test`).
+
+Follow-up (not done yet): a Playwright + `@axe-core/playwright` smoke run against `pnpm run dev:demo` for layout-dependent checks (320 px reflow, 200 % zoom, `prefers-reduced-motion`, full-page Tab order). It needs a downloaded browser, so it is not part of CI today.
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/chart?repos=patoles/agent-flow&type=date&legend=bottom-right)](https://www.star-history.com/?repos=patoles%2Fagent-flow&type=date&legend=bottom-right)

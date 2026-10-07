@@ -1,0 +1,14 @@
+[
+  {
+    "scenario": "top-bar",
+    "rule": "aria-required-children",
+    "issue": 7,
+    "note": "Close button sits inside role=tablist next to the tab; move it out of the tablist"
+  },
+  {
+    "scenario": "session-tabs",
+    "rule": "aria-required-children",
+    "issue": 7,
+    "note": "Close button sits inside role=tablist next to the tab; move it out of the tablist"
+  }
+]

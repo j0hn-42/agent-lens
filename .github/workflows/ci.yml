@@ -34,3 +34,9 @@ jobs:
 
       - name: Web typecheck
         run: pnpm --dir web exec tsc --noEmit
+
+      - name: Web accessibility lint (jsx-a11y)
+        run: pnpm --dir web run lint:a11y
+
+      - name: Web accessibility tests (axe-core, keyboard)
+        run: pnpm run test:a11y
