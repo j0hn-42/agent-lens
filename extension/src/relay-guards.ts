@@ -47,6 +47,12 @@ export function isStatusPath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
 }
 
+/** True when the URL path is exactly /issue-links (query ignored). */
+export function isIssueLinksPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/issue-links' } catch { return false }
+}
+
 /** True when a client's unsent backlog is large enough that it should be dropped. */
 export function isBackedUp(writableLength: number, limit = RELAY_MAX_CLIENT_BACKLOG_BYTES): boolean {
   return writableLength > limit

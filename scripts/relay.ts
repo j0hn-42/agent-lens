@@ -22,6 +22,7 @@ import {
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
+  RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   SESSION_TAG_MAX,
 } from '../extension/src/constants'
 import { setLogLevel } from '../extension/src/logger'
@@ -32,6 +33,7 @@ import {
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
+import { fetchIssueLinks, resolveRepoUrl, sanitizeRole, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -487,6 +489,8 @@ export interface Relay {
   handleSSE: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /status: small JSON snapshot (loopback only, rate-limited) */
   handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle GET /issue-links?role=<role>: open PRs/issues labelled agent:<role> through gh (loopback only, rate-limited, cached) */
+  handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
@@ -509,6 +513,9 @@ export interface RelayOptions {
   /** Reads whether the hooks are configured for the workspace (GET /status). Injectable for tests;
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
+  /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
+   *  workspace's GitHub `origin`. Must resolve to [] (not reject) when nothing can be proven, but a rejection is tolerated. */
+  issueLinksProbe?: (role: string) => Promise<IssueLink[]>
 }
 
 /** Yield to the event loop first, so the settings read never blocks the request that triggered it. */
@@ -665,7 +672,71 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
+  // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once
+  const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const issueLinksCoalescer = new KeyedCoalescer<IssueLink[]>()
+  const issueLinksCache = new Map<string, { at: number; links: IssueLink[] }>()
+  let repoUrlPromise: Promise<string | undefined> | undefined
+  const issueLinksProbe = options.issueLinksProbe ?? (async (role: string): Promise<IssueLink[]> => {
+    repoUrlPromise ??= resolveRepoUrl(workspace)
+    const repoUrl = await repoUrlPromise
+    return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
+  })
+
   return {
+    async handleIssueLinks(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
+        res.end('Method not allowed')
+        return
+      }
+      if (!issueLinksLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+        res.end('Too many requests')
+        return
+      }
+      let roles: string[] = []
+      try { roles = new URL(req.url ?? '', 'http://localhost').searchParams.getAll('role') } catch { /* 400 below */ }
+      const role = roles.length === 1 ? sanitizeRole(roles[0]) : undefined
+      if (!role) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('Invalid role parameter')
+        return
+      }
+      const now = Date.now()
+      let links: IssueLink[]
+      const cached = issueLinksCache.get(role)
+      if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
+        links = cached.links
+      } else {
+        try {
+          links = await issueLinksCoalescer.run(role, () => issueLinksProbe(role))
+        } catch {
+          links = [] // gh absent, unauthenticated or failing: no link, no error
+        }
+        if (issueLinksCache.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) {
+          const oldest = issueLinksCache.keys().next().value
+          if (oldest !== undefined) issueLinksCache.delete(oldest)
+        }
+        issueLinksCache.set(role, { at: Date.now(), links })
+      }
+      if (res.destroyed || res.headersSent) return
+      const body = JSON.stringify({ role, links })
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(body),
+        'X-Content-Type-Options': 'nosniff',
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
     async handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
