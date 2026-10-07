@@ -43,7 +43,10 @@ export function detectTeamChanges(
     if (!current) continue
     activity.set(id, current)
     const before = prev.activity.get(id)
-    if (prev.primed && before && before !== current) {
+    // A teammate that finished (state 'complete') is already announced as "Agent X completed" by the state
+    // detection: a second "X is done" would read the same event twice
+    const alreadyCompleted = current === 'done' && agent.state === 'complete'
+    if (prev.primed && before && before !== current && !alreadyCompleted) {
       transitions.push({ kind: 'agent_activity', id, name: cleanText(agent.name, 80), activity: current })
     }
   }

@@ -1,16 +1,18 @@
 import { Agent, NODE, ANIM } from '@/lib/agent-types'
 import { COLORS, contextSegments } from '@/lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW,
 } from '@/lib/canvas-constants'
 import { alphaHex, formatTokens } from '@/lib/utils'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
+import { hasContextPercentFor } from './overlay-metrics'
+import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
-  isTeammate,
+  isTeammate, isOrchestrator, orchestratorInfo, ellipsize, type OrchestratorInfo,
 } from './team-style'
 
 let _claudeSparkPath: Path2D | null = null
@@ -329,20 +331,36 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
 }
 
 /**
- * Name, status text and (with several sessions on screen) session label under the node.
- * Teammates get up to two name lines; the hover tooltip carries the full name.
- * Returns the number of extra lines so the context bar can move down.
+ * Name, status text, the orchestrator badge ('LEAD' / 'MAIN' + team or session name) and (with several
+ * sessions on screen) the session label under the node. Teammates get up to two name lines; the hover
+ * tooltip carries the full name. `place` comes from the overlay plan: hidden, shifted to a free spot,
+ * or collapsed to one line. Returns the number of extra lines so the context bar can move down.
  */
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
+  orch: OrchestratorInfo | null, place: ResolvedPlacement,
 ): number {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
-  const layout = layoutAgentLabel(agent, r, t => measureTextCached(ctx, t), showSession)
-  ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
+  const measure = (t: string) => measureTextCached(ctx, t)
+  const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
+  if (!place.visible) return layout.extraLines
+
+  ctx.save()
+  ctx.translate(place.dx, place.dy)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   const gap = AGENT_DRAW.stateLabelGap
   let y = agent.y + r + AGENT_DRAW.labelYOffset
+
+  if (place.collapsed) {
+    // Crowded: one line "name · status" (the full label is in the tooltip and the outline)
+    ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
+    ctx.fillText(ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
+    ctx.restore()
+    return layout.extraLines
+  }
+
+  ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
   for (const line of layout.nameLines) {
     ctx.fillText(line, agent.x, y)
     y += gap
@@ -353,11 +371,65 @@ function drawAgentLabel(
   ctx.fillText(layout.statusLine, agent.x, y)
   y += gap
 
+  if (layout.badgeText && layout.groupLine) {
+    // Orchestrator: a filled 'LEAD' / 'MAIN' pill followed by its team or session name
+    const rest = layout.groupLine.slice(layout.badgeText.length).trim()
+    ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
+    const bw = ctx.measureText(layout.badgeText).width + 10
+    ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+    const rw = rest ? measure(rest) + 6 : 0
+    const x0 = agent.x - (bw + rw) / 2
+    ctx.beginPath()
+    ctx.roundRect(x0, y - 1, bw, gap + 1, 4)
+    ctx.fillStyle = ORCHESTRATOR_DRAW.accent
+    ctx.fill()
+    ctx.textAlign = 'left'
+    ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
+    ctx.fillStyle = '#11161c'
+    ctx.fillText(layout.badgeText, x0 + 5, y)
+    if (rest) {
+      ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+      ctx.fillStyle = COLORS.textPrimary
+      ctx.fillText(rest, x0 + bw + 6, y)
+    }
+    ctx.textAlign = 'center'
+    y += gap
+  }
+
   if (layout.sessionLine) {
     ctx.fillStyle = COLORS.textMuted
     ctx.fillText(layout.sessionLine, agent.x, y)
   }
+  ctx.restore()
   return layout.extraLines
+}
+
+/**
+ * Crown badge of the orchestrator on the upper-right rim of its node: a crown SHAPE (so the role does
+ * not rely on colour) on a dark disc. The text badge ('LEAD' / 'MAIN') is drawn in the label.
+ */
+export function drawCrownBadge(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const k = size * 0.5
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(x, y, size + 2, 0, Math.PI * 2)
+  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fill()
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = ORCHESTRATOR_DRAW.accent
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(x - k, y + k * 0.6)
+  ctx.lineTo(x - k, y - k * 0.5)
+  ctx.lineTo(x - k * 0.5, y + k * 0.05)
+  ctx.lineTo(x, y - k * 0.75)
+  ctx.lineTo(x + k * 0.5, y + k * 0.05)
+  ctx.lineTo(x + k, y - k * 0.5)
+  ctx.lineTo(x + k, y + k * 0.6)
+  ctx.closePath()
+  ctx.fillStyle = ORCHESTRATOR_DRAW.accent
+  ctx.fill()
+  ctx.restore()
 }
 
 /**
@@ -403,9 +475,7 @@ function drawTeammateDecor(ctx: CanvasRenderingContext2D, agent: Agent, r: numbe
 
 /** Does the main agent draw its context percentage label above the ring? */
 export function hasContextPercent(agent: Agent): boolean {
-  if (!agent.isMain || agent.tokensUsed <= 0 || agent.tokensMax <= 0) return false
-  if (agent.state === 'complete' && agent.opacity <= 0.5) return false
-  return agent.tokensUsed / agent.tokensMax > CONTEXT_RING.percentLabelThreshold
+  return hasContextPercentFor(agent)
 }
 
 function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number) {
@@ -462,6 +532,7 @@ export function drawAgents(
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion)
     drawCenterIcon(ctx, agent, r, color, isWaiting)
     if (isTeammate(agent)) drawTeammateDecor(ctx, agent, r, time, reducedMotion)
+    if (isOrchestrator(agent)) drawCrownBadge(ctx, agent.x + r * 0.8, agent.y - r * 0.8, ORCHESTRATOR_DRAW.badgeFontSize - 1)
 
     if (agent.state === 'thinking' && !reducedMotion && live) {
       drawOrbitingParticles(ctx, agent, r, color, time)
@@ -471,8 +542,12 @@ export function drawAgents(
       drawWaitingRipples(ctx, agent, r, color, time)
     }
 
+    const priorityAgent = isSelected || isHovered || id === opts.focusedAgentId
     const extraLines = lod.labels
-      ? drawAgentLabel(ctx, agent, r, isHovered, color, !!opts.showSessionLabels)
+      ? drawAgentLabel(
+        ctx, agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
+        orchestratorInfo(agent, opts.teams), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
+      )
       : 0
 
     // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)
@@ -486,7 +561,13 @@ export function drawAgents(
     if (lod.details && showStats && agent.state !== 'complete') {
       // Stacked layout shared with the cost pill: stats, cost and the % label never overlap
       const layout = computeOverlayLayout({ hasPercent: hasContextPercent(agent), showStats: true, showCost: opts.showCost })
-      if (layout.statsTop != null) drawStatsOverlay(ctx, agent, r, layout.statsTop)
+      const place = resolvePlacement(opts.plan, planKey.stats(id), opts.zoom)
+      if (layout.statsTop != null && place.visible) {
+        ctx.save()
+        ctx.translate(place.dx, place.dy)
+        drawStatsOverlay(ctx, agent, r, layout.statsTop)
+        ctx.restore()
+      }
     }
 
     ctx.restore()

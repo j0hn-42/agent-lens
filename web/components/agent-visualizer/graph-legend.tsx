@@ -5,6 +5,7 @@ import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { STATE_LABEL_SHORT, STATE_LABEL_LONG, LEGEND_OPEN_KEY } from '@/lib/canvas-constants'
 import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
+import { TEAM_DEFAULT_COLOR } from './canvas/team-style'
 import type { A11yTeamItem } from './canvas/a11y-model'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
@@ -113,14 +114,16 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Teams</Heading>
           <ul>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(8, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><polygon points={hexPoints(10.5, 12, 12)} fill="none" stroke="#b794f6" strokeWidth="2" /></svg>}>Coloured outer ring: teammate (team colour)</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(8, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><polygon points={hexPoints(10.5, 12, 12)} fill="none" stroke={TEAM_DEFAULT_COLOR} strokeWidth="2" /></svg>}>Coloured outer ring: teammate (team colour)</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Hollow ring: teammate idle</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 6 A6 6 0 1 1 6 12" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Open arc: teammate working</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill={COLORS.holoBase} /></svg>}>Filled dot: teammate done</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>Faded dashed outline: archived agent (still clickable)</Row>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#b794f61a" stroke="#b794f6" strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team with several members</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${TEAM_DEFAULT_COLOR}1a`} stroke={TEAM_DEFAULT_COLOR} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team. Its label names the team</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="1 4" strokeLinecap="round" /></svg>}>Dotted halo: session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill="#ffd166" /></svg>}>Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator</Row>
             {teams.map(team => (
-              <Row key={team.name} icon={<Swatch color={team.color} round />}>
+              <Row key={team.key} icon={<Swatch color={team.color} round />}>
                 <span className="font-semibold">{team.name}</span>
                 <span style={{ color: COLORS.textMuted }}> ({team.memberNames.length} members)</span>
               </Row>
@@ -133,6 +136,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.return} strokeWidth="2.5" /></svg>}>Solid green: recent message</Row>
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.error} strokeWidth="2.5" strokeDasharray="2 4" /></svg>}>Dotted red, badge starts with !: error</Row>
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="1.75" opacity="0.5" /></svg>}>Thin faded line: quiet link. Badge: message count. Click a link to read it</Row>
+            <Row icon={<svg width="24" height="16" viewBox="0 0 24 16"><rect x="1" y="1" width="22" height="11" rx="2" fill="none" stroke={COLORS.dispatch} strokeWidth="1.5" /><line x1="8" y1="12" x2="8" y2="15" stroke={COLORS.dispatch} strokeWidth="1.5" /></svg>}>Bubble on a link: latest message (three lines). Click it to open the link panel</Row>
           </ul>
 
           <Heading>Context usage</Heading>

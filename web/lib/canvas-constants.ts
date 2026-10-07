@@ -554,3 +554,55 @@ export function isExpiryHeld(kind: 'agent' | 'tool' | 'discovery', id: string, h
   if (kind === 'tool') return hold.toolIds.has(id)
   return hold.discoveryIds.has(id)
 }
+
+// ─── canvas-fleet draw constants (orchestrator, cluster halos, edge bubbles, label placement) ──
+// Layout constants (cluster anchors, spacing) live in a separate block, owned by the fleet-layout package.
+
+export const ORCHESTRATOR_DRAW = {
+  /** Draw / hit scale of the orchestrator node relative to a regular main node */
+  scale: 1.2,
+  /** Badge text of the orchestrator of a team */
+  leadText: 'LEAD',
+  /** Badge text of the main agent of a session */
+  mainText: 'MAIN',
+  badgeFontSize: 11,
+  badgeHeight: 16,
+  /** Gap between the node top and the badge */
+  badgeGap: 14,
+  /** Accent of the crown badge (the crown SHAPE and the text carry the meaning, not the colour) */
+  accent: '#ffd166',
+} as const
+
+export const EDGE_BUBBLE = {
+  /** Lines of text shown in an edge bubble */
+  maxLines: 3,
+  maxWidth: 200,
+  fontSize: 11,
+  lineHeight: 14,
+  padding: 6,
+  /** Simulation seconds an edge bubble stays after its message */
+  visibleS: 8,
+  /** Fraction of the curve from the SENDER where the bubble is anchored */
+  anchorT: 1 / 3,
+  /** Chars of message text kept for a bubble (before wrapping) */
+  maxChars: 240,
+} as const
+
+export const CLUSTER_DRAW = {
+  labelFontSize: 12,
+  detailFontSize: 11,
+  labelHeight: 36,
+  labelMaxWidth: 260,
+  /** Padding between members and the halo edge (world px) */
+  padding: 56,
+} as const
+
+export const PLACEMENT = {
+  /** Gap kept between two placed labels (screen px) */
+  gap: 3,
+  /** Above this number of live items, secondary overlays are hidden (screen crowding) */
+  crowdedItems: 60,
+  /** Size of the collapsed bubble count chip (screen px) */
+  chipW: 28,
+  chipH: 20,
+} as const

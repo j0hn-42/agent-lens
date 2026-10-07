@@ -5,6 +5,10 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import {
   type ResolvedLink, type LinkState, linkCurve, curvePoint, curveTangent,
 } from './link-geometry'
+import type { EdgeBubble } from './edge-bubbles'
+import { EDGE_BUBBLE } from '@/lib/canvas-constants'
+import { planKey } from './overlay-plan'
+import { overlayHits } from './overlay-state'
 
 /** Badge font size (px): never below the 11px floor */
 const BADGE_FONT = 11
@@ -120,6 +124,67 @@ export function drawLinks(
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(text, mid.x, mid.y + 0.5)
+    }
+    ctx.restore()
+  }
+}
+
+/**
+ * Message bubbles anchored on communication edges (issue #41): a third of the way from the sender (near
+ * the parent for a dispatch, near the child for a return), three lines at most. The bubble sits where
+ * the overlay plan put it (collision-free); a short stem joins it to its anchor. Clicking it opens the
+ * link panel (hit rectangles come from the overlay plan).
+ */
+export function drawEdgeBubbles(
+  ctx: CanvasRenderingContext2D,
+  bubbles: EdgeBubble[],
+  selectedLinkId: string | null | undefined,
+  hoveredLinkId: string | null | undefined,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
+) {
+  if (!lodForZoom(opts.zoom).details) return
+  const scale = opts.zoom > 0 ? opts.zoom : 1
+  for (const b of bubbles) {
+    const rect = overlayHits.edgeBubbles.get(b.linkId)
+    const place = opts.plan?.get(planKey.edgeBubble(b.linkId))
+    if (!rect || !place || place.hidden) continue
+    const color = b.isError ? COLORS.error : b.type === 'return' ? COLORS.return : b.type === 'dispatch' ? COLORS.dispatch : COLORS.holoBase
+    const emphasised = b.linkId === selectedLinkId || b.linkId === hoveredLinkId
+
+    ctx.save()
+    // Stem to the anchor on the edge
+    const sx = Math.min(Math.max(b.anchor.x, rect.x + 6), rect.x + rect.w - 6)
+    const sy = b.anchor.y < rect.y ? rect.y : rect.y + rect.h
+    ctx.beginPath()
+    ctx.moveTo(sx, sy)
+    ctx.lineTo(b.anchor.x, b.anchor.y)
+    ctx.strokeStyle = color
+    ctx.globalAlpha = 0.7
+    ctx.lineWidth = 1 / scale + 0.5
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(b.anchor.x, b.anchor.y, 2.5, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.globalAlpha = 1
+
+    ctx.beginPath()
+    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 5)
+    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fill()
+    ctx.strokeStyle = color
+    // Error bubbles are dotted: the state is not carried by colour alone
+    ctx.setLineDash(b.isError ? [2, 3] : [])
+    ctx.lineWidth = emphasised ? 2 : 1
+    ctx.stroke()
+    ctx.setLineDash([])
+
+    ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    ctx.fillStyle = COLORS.textPrimary
+    for (let i = 0; i < b.lines.length; i++) {
+      ctx.fillText(b.lines[i], rect.x + EDGE_BUBBLE.padding, rect.y + EDGE_BUBBLE.padding + i * EDGE_BUBBLE.lineHeight)
     }
     ctx.restore()
   }

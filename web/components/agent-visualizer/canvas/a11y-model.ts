@@ -11,8 +11,9 @@ import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
 import {
-  cleanText, teammateActivity, hasSeveralSessions, computeTeamHalos, TEAM_DEFAULT_COLOR,
+  cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
+import { computeClusters, clusterAnnouncement, type SessionMeta } from './cluster-model'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -144,9 +145,27 @@ export interface A11yAgentItem {
   archived: boolean
   /** Session label, only when several sessions are on screen */
   sessionLabel?: string
+  /** 'lead' (leads an Agent Team) or 'main' (main agent of a session): announced as the orchestrator */
+  orchestrator?: 'lead' | 'main'
+  /** Cluster (session / team) the agent belongs to, when that cluster is shown */
+  clusterKey?: string
+}
+
+/** A session or team cluster: a heading of the outline, with the agents it holds */
+export interface A11yClusterItem {
+  key: string
+  kind: 'session' | 'team'
+  title: string
+  /** "Session X, 3 agents, Claude, workspace w, working, cost $0.12" */
+  text: string
+  memberIds: string[]
+  /** Validated '#rrggbb' */
+  color: string
 }
 
 export interface A11yTeamItem {
+  /** Unique key (two sessions can both have a team of the same name) */
+  key: string
   name: string
   /** Validated '#rrggbb' */
   color: string
@@ -184,6 +203,8 @@ export interface A11yModel {
   teams: A11yTeamItem[]
   /** Communication links (every one is a button in the DOM list) */
   links: A11yLinkItem[]
+  /** Session / team clusters, in outline order; agents without a cluster are listed first */
+  clusters: A11yClusterItem[]
 }
 
 /** Optional inputs of the team-aware DOM model */
@@ -191,6 +212,8 @@ export interface A11yExtras {
   links?: Map<string, AgentLink>
   teams?: Map<string, TeamSummary>
   simTime?: number
+  /** Workspace / label / runtime of the sessions (cluster headings) */
+  sessions?: ReadonlyMap<string, SessionMeta>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -232,6 +255,9 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
+  const clusterOf = new Map<string, string>()
+  for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -256,16 +282,21 @@ export function buildA11yModel(
       activityText: teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
+      orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
+      clusterKey: clusterOf.get(a.id),
     })
   }
 
-  const teams = buildTeamItems(agents, extras.teams)
+  const teams = buildTeamItems(agents, extras.teams, extras.sessions)
   const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
 
   return {
     summary: buildGraphLabel(agents.values(), teams.length),
     teams,
     links,
+    clusters: clusterList.map(c => ({
+      key: c.key, kind: c.kind, title: c.title, text: clusterAnnouncement(c), memberIds: c.memberIds, color: c.color,
+    })),
     agents: agentItems,
     discoveries: discoveries.map(d => ({
       id: d.id,
@@ -279,22 +310,31 @@ export function buildA11yModel(
 
 // ─── Teams and links ─────────────────────────────────────────────────────────
 
-/** Teams with at least two visible members, with their members and activities. */
-export function buildTeamItems(agents: Map<string, Agent>, teams?: Map<string, TeamSummary>): A11yTeamItem[] {
-  return computeTeamHalos(agents.values(), teams).map(h => {
-    const members = h.memberIds.map(id => agents.get(id)).filter((a): a is Agent => !!a)
-    const parts = members.map(m => {
-      const activity = teammateActivity(m)
-      return `${cleanText(m.name, 60)}${activity ? ` (${activity})` : m.archived ? ' (archived)' : ''}`
+/** Teams with at least two visible members, with their members and activities. One entry per team and lead session. */
+export function buildTeamItems(
+  agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>,
+): A11yTeamItem[] {
+  return computeClusters(agents.values(), teams, { sessions })
+    .map(c => ({
+      c,
+      // The team itself: its teammates and its lead (not the other agents of the hosting session)
+      members: c.memberIds.map(id => agents.get(id)).filter((a): a is Agent => !!a && (!!cleanText(a.teamName) || isOrchestrator(a))),
+    }))
+    .filter(({ c, members }) => c.kind === 'team' && members.length >= 2)
+    .map(({ c, members }) => {
+      const parts = members.map(m => {
+        const activity = teammateActivity(m)
+        return `${cleanText(m.name, 60)}${activity ? ` (${activity})` : m.archived ? ' (archived)' : ''}`
+      })
+      return {
+        key: c.key,
+        name: c.title,
+        color: c.color || TEAM_DEFAULT_COLOR,
+        memberIds: members.map(m => m.id),
+        memberNames: members.map(m => cleanText(m.name, 60)),
+        text: `Team ${c.title}: ${parts.join(', ')}`,
+      }
     })
-    return {
-      name: h.name,
-      color: h.color || TEAM_DEFAULT_COLOR,
-      memberIds: h.memberIds,
-      memberNames: members.map(m => cleanText(m.name, 60)),
-      text: `Team ${h.name}: ${parts.join(', ')}`,
-    }
-  })
 }
 
 /** One entry per link whose ends exist as agents; names are resolved through the agents map. */
