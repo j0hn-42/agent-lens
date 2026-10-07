@@ -118,6 +118,28 @@ test('buildFreshnessAnnouncement: one aggregated message for stale and closed, n
   assert.deepEqual([...freshnessMap([ag('a', { lastEventAt: T0 })], T0)], [['a', 'fresh']])
 })
 
+test('carryFreshness carries the SOURCE of the stamp too (history stays history after a seek)', () => {
+  const prev = new Map([
+    ['h', ag('h', { lastEventAt: T0, freshnessSource: 'history' })],
+    ['l', ag('l', { lastEventAt: T0, freshnessSource: 'live' })],
+  ])
+  const out = carryFreshness(prev, new Map([['h', ag('h')], ['l', ag('l')]]))
+  assert.equal(out.get('h')!.freshnessSource, 'history')
+  assert.equal(out.get('l')!.freshnessSource, 'live')
+})
+
+test('buildFreshnessAnnouncement: an agent first seen already stale or closed is a baseline, not an announcement', () => {
+  const names = new Map([['n', 'Newcomer'], ['m', 'Mover']])
+  const prev = new Map<string, Freshness>([['m', 'fresh']])
+  assert.equal(buildFreshnessAnnouncement(prev, new Map<string, Freshness>([['m', 'fresh'], ['n', 'stale']]), names), null, 'new + stale')
+  assert.equal(buildFreshnessAnnouncement(prev, new Map<string, Freshness>([['m', 'fresh'], ['n', 'closed']]), names), null, 'new + closed')
+  assert.equal(
+    buildFreshnessAnnouncement(prev, new Map<string, Freshness>([['m', 'stale'], ['n', 'stale']]), names),
+    'Mover is no longer reporting, showing the last known state.',
+    'only the agent that was known before is announced',
+  )
+})
+
 // ─── Shared clock ────────────────────────────────────────────────────────────
 
 function fakeEnv() {

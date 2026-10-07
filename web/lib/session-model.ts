@@ -107,7 +107,13 @@ export class ObservedSessionsTracker {
 
   /** Record that an event was received for the session; true when it was new. */
   mark(sessionId: unknown): boolean {
-    if (typeof sessionId !== 'string' || !sessionId || this.ids.has(sessionId)) return false
+    if (typeof sessionId !== 'string' || !sessionId) return false
+    if (this.ids.has(sessionId)) {
+      // Still receiving events: refresh its recency so the FIFO eviction drops quieter sessions first
+      this.ids.delete(sessionId)
+      this.ids.add(sessionId)
+      return false
+    }
     this.ids.add(sessionId)
     if (this.ids.size > MAX_OBSERVED_SESSIONS) {
       const oldest = this.ids.values().next().value
@@ -146,4 +152,24 @@ export function deriveSessionObservation(
 ): SessionObservation {
   if (session.status !== 'active') return 'observed'
   return hasLiveFlag || isObserved(session.id) ? 'observed' : 'not-observed'
+}
+
+/** True when the session is heard from (or not an active one), per the app-wide tracker by default. */
+export function isSessionObserved(
+  session: { id: string; status: 'active' | 'completed' },
+  hasLiveFlag = false,
+  isObservedId: (sessionId: string) => boolean = observedSessions.has,
+): boolean {
+  return deriveSessionObservation(session, isObservedId, hasLiveFlag) === 'observed'
+}
+
+/** Number of listed sessions whose activity is not observed (shown in the top bar and announced). */
+export function countUnobservedSessions(
+  sessions: ReadonlyArray<{ id: string; status: 'active' | 'completed' }>,
+  hasLiveFlag: (sessionId: string) => boolean = () => false,
+  isObservedId: (sessionId: string) => boolean = observedSessions.has,
+): number {
+  let n = 0
+  for (const s of sessions) if (!isSessionObserved(s, hasLiveFlag(s.id), isObservedId)) n++
+  return n
 }

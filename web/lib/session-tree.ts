@@ -4,6 +4,7 @@
  */
 import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
+import { isSessionObserved } from './session-model'
 
 /** The slice of an Agent the panel needs. */
 export interface AgentLike {
@@ -137,16 +138,18 @@ export function formatRelativeTime(timestamp: number, now: number): string {
 }
 
 /**
- * Sessions kept by the 'Active only' filter: the active ones, plus the selected session so the
- * current selection never vanishes from the list.
+ * Sessions kept by the 'Active only' filter: the active ones that are actually observed (a session
+ * listed from disk without any received event is not counted as active, issue #52), plus the selected
+ * session so the current selection never vanishes from the list. By default observation comes from the
+ * app-wide tracker; pass `isObserved` to include other evidence (e.g. a live hook flag).
  */
 export function filterActiveSessions(
   sessions: ReadonlyArray<SessionInfo>,
   selectedId: string | null,
-  /** When given, an active session that is not observed (issue #52) does not count as active */
-  isObserved?: (session: SessionInfo) => boolean,
+  /** Whether an active session has been heard from; defaults to the app-wide observation tracker */
+  isObserved: (session: SessionInfo) => boolean = s => isSessionObserved(s),
 ): SessionInfo[] {
-  return sessions.filter(s => (s.status === 'active' && (!isObserved || isObserved(s))) || s.id === selectedId)
+  return sessions.filter(s => (s.status === 'active' && isObserved(s)) || s.id === selectedId)
 }
 
 /** Teams kept by the 'Active only' filter: those with a remaining session or a member still working. */

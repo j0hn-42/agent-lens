@@ -12,7 +12,7 @@ import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
-import { observedSessions, deriveSessionObservation, SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
+import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, freshnessKey, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { FreshnessAnnouncer } from './freshness-announcer'
@@ -156,14 +156,14 @@ export function SessionListPanel({
   // Sessions listed on disk but never heard from (issue #52)
   const observedVersion = useSyncExternalStore(observedSessions.subscribe, observedSessions.getVersion, observedSessions.getVersion)
   const isObservedId = (id: string) => (observedSessionIds ? observedSessionIds.has(id) : observedSessions.has(id))
-  const isObserved = (s: SessionInfo) => deriveSessionObservation(s, isObservedId, sessionsWithActivity.has(s.id)) === 'observed'
+  const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
   const [activeOnly, setActiveOnly] = useState(false)
   const rows = useMemo(() => {
-    // 'Active only' hides finished sessions: a listed-but-unobserved one may well be live, so it stays
-    // (it is just never counted as active, see activeCount)
-    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId) : sessions
+    // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved
+    // session is not counted as active, so it is hidden too
+    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
     const teamNames = teams ? teams.keys() : []
     return buildSessionRows(shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, isObserved)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
@@ -328,8 +328,8 @@ export function SessionListPanel({
               }
 
               const session = row.session!
-              const unobserved = !isObserved(session)
-              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected)
+              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
+              const unobserved = kind === 'unobserved'
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const model = modelId ? formatModelName(modelId) : null
@@ -362,14 +362,14 @@ export function SessionListPanel({
                         ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
                         : <SessionMarker kind={kind} />}
                       <span className="sr-only">
-                        {unobserved ? `${SESSION_NOT_OBSERVED_TEXT}. ${SESSION_NOT_OBSERVED_HELP}` : SESSION_STATUS_TEXT[kind]}
+                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${SESSION_NOT_OBSERVED_HELP}` : SESSION_STATUS_TEXT[kind]}
                         ,{' '}
                       </span>
                       {badge && <span className="sr-only">{badge.label} session, </span>}
                       <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       {unobserved && (
                         <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
-                          {SESSION_NOT_OBSERVED_TEXT}
+                          {SESSION_STATUS_TEXT[kind]}
                         </span>
                       )}
                       {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
