@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   sessionStatusKind, nextTabIndex, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
-  emptyStateChecklist, shouldRestoreFocus,
+  emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -80,4 +80,28 @@ test('focus is restored only from inside the panel or from body', () => {
   assert.equal(shouldRestoreFocus(body, panel, body), true)
   assert.equal(shouldRestoreFocus(null, panel, body), true)
   assert.equal(shouldRestoreFocus(outside, panel, body), false)
+})
+
+test('toast remaining time shrinks while running and never goes negative', () => {
+  assert.equal(toastRemaining(5000, 1000, 3000), 3000)
+  assert.equal(toastRemaining(5000, 1000, 9000), 0)
+  assert.equal(toastRemaining(5000, 1000, 500), 5000)
+})
+
+test('keyboard context menu falls back to the focused element centre', () => {
+  const rect = { left: 100, top: 50, width: 40, height: 20 }
+  assert.deepEqual(contextMenuPosition(0, 0, rect), { x: 120, y: 60 })
+  assert.deepEqual(contextMenuPosition(0, 0, null), { x: 0, y: 0 })
+  assert.deepEqual(contextMenuPosition(7, 9, rect), { x: 7, y: 9 })
+})
+
+test('escape handlers run newest first and stop at the first that closes something', () => {
+  const calls: string[] = []
+  const h = (name: string, result: boolean) => () => { calls.push(name); return result }
+  assert.equal(runEscapeHandlers([h('a', true), h('b', false)]), true)
+  assert.deepEqual(calls, ['b', 'a'])
+  calls.length = 0
+  assert.equal(runEscapeHandlers([h('a', false), h('b', false)]), false)
+  assert.deepEqual(calls, ['b', 'a'])
+  assert.equal(runEscapeHandlers([]), false)
 })

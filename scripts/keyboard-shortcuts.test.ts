@@ -49,3 +49,18 @@ test('Escape works from a button but not from an input or dialog', () => {
   assert.equal(shouldHandleShortcut(ev('Escape', target('INPUT')), true), false)
   assert.equal(shouldHandleShortcut(ev('Escape', target('DIV', ['[role="dialog"]'])), true), false)
 })
+
+test('? always works (even with single-key shortcuts off) and from buttons, never from inputs or dialogs', () => {
+  assert.equal(shouldHandleShortcut(ev('?'), false), true)
+  assert.equal(shouldHandleShortcut(ev('?', target('BUTTON')), false), true)
+  assert.equal(shouldHandleShortcut(ev('?', target('A')), true), true)
+  assert.equal(shouldHandleShortcut(ev('?', target('INPUT')), true), false)
+  assert.equal(shouldHandleShortcut(ev('?', target('DIV', ['[role="dialog"]'])), true), false)
+  assert.equal(shouldHandleShortcut(ev('?', body, { ctrlKey: true }), true), false)
+})
+
+test('undo key is a single-key shortcut: needs the preference and is ignored on buttons', () => {
+  assert.equal(shouldHandleShortcut(ev('u'), true), true)
+  assert.equal(shouldHandleShortcut(ev('u'), false), false)
+  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true), false)
+})

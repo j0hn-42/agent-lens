@@ -143,3 +143,38 @@ export function shouldRestoreFocus(active: unknown, panel: ContainsLike | null, 
   if (active == null || active === body) return true
   return !!panel && panel.contains(active)
 }
+
+// ─── Toasts ──────────────────────────────────────────────────────────────────
+
+/** Key that runs the action (Undo) of the newest toast. Subject to the single-key shortcut preference. */
+export const UNDO_SHORTCUT_KEY = 'u'
+
+/** Time left on a toast timer after it ran from `startedAt` until `now` (never negative). */
+export function toastRemaining(remainingMs: number, startedAt: number, now: number): number {
+  return Math.max(0, remainingMs - Math.max(0, now - startedAt))
+}
+
+// ─── Escape stack ────────────────────────────────────────────────────────────
+
+/** Ask handlers (newest registered first) to close something; stops at the first that does. */
+export function runEscapeHandlers(handlers: ReadonlyArray<() => boolean>): boolean {
+  for (let i = handlers.length - 1; i >= 0; i--) {
+    if (handlers[i]()) return true
+  }
+  return false
+}
+
+// ─── Context menu ────────────────────────────────────────────────────────────
+
+interface RectLike { left: number; top: number; width: number; height: number }
+
+/**
+ * Position for a context menu. Keyboard-triggered contextmenu events report clientX/Y = 0,0:
+ * fall back to the centre of the element that has focus instead of the page corner.
+ */
+export function contextMenuPosition(clientX: number, clientY: number, rect: RectLike | null): { x: number; y: number } {
+  if (clientX === 0 && clientY === 0 && rect) {
+    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+  }
+  return { x: clientX, y: clientY }
+}

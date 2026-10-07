@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, memo } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo } from 'react'
 import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatDuration, pluralize } from '@/lib/utils'
@@ -85,12 +85,47 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
   return fullEventsRef.current
 }
 
+/** Progress fill: opaque from the first pixel so it keeps >= 3:1 against COLORS.controlTrack
+ *  (COLORS.scrubberFill starts at 30% alpha, which fails that ratio at the left end). */
+const SCRUBBER_FILL = 'linear-gradient(90deg, #66ccff, #99e0ff)'
+
 const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
 
+/**
+ * Swaps between the live and review bars. The control that was just activated (Review, LIVE,
+ * Confirm clear) unmounts with the swap, so focus is moved to the primary control of the new bar
+ * when it would otherwise be dropped on <body>.
+ */
 export function ControlBar(props: ControlBarProps) {
   const { isReviewing = false } = props
-  return isReviewing ? <ReviewControlBar {...props} /> : <LiveControlBar {...props} />
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const hadFocusRef = useRef(false)
+  const prevReviewingRef = useRef(isReviewing)
+
+  useLayoutEffect(() => {
+    if (prevReviewingRef.current === isReviewing) return
+    prevReviewingRef.current = isReviewing
+    const active = document.activeElement
+    const dropped = !active || active === document.body
+    if (hadFocusRef.current && dropped) {
+      wrapperRef.current?.querySelector<HTMLElement>('[data-primary-control]')?.focus({ preventScroll: true })
+    }
+  }, [isReviewing])
+
+  return (
+    <div
+      ref={wrapperRef}
+      style={{ display: 'contents' }}
+      onFocus={() => { hadFocusRef.current = true }}
+      onBlur={(e) => {
+        const to = e.relatedTarget as Node | null
+        if (to && !wrapperRef.current?.contains(to)) hadFocusRef.current = false
+      }}
+    >
+      {isReviewing ? <ReviewControlBar {...props} /> : <LiveControlBar {...props} />}
+    </div>
+  )
 }
 
 // ─── Live Mode Control Bar ───────────────────────────────────────────────────
@@ -151,12 +186,13 @@ function LiveControlBar({
         <button
           type="button"
           onClick={onEnterReview}
+          data-primary-control=""
           aria-label="Pause and review history"
           aria-keyshortcuts="Space"
           className={`${BTN_BASE} px-2.5 py-1 transition-all motion-safe:hover:scale-105`}
           style={{
             background: COLORS.holoBg10,
-            border: `1px solid ${COLORS.reviewBtnBorder}`,
+            border: `1px solid ${COLORS.controlBorder}`,
             color: COLORS.textPrimary,
           }}
         >
@@ -180,6 +216,11 @@ function ReviewControlBar({
   const scrubberRef = useRef<HTMLDivElement>(null)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [confirmingClear, setConfirmingClear] = useState(false)
+  const confirmBtnRef = useRef<HTMLButtonElement>(null)
+  const clearBtnRef = useRef<HTMLButtonElement>(null)
+  const confirmGroupRef = useRef<HTMLSpanElement>(null)
+  /** Set when the prompt closes while focus should land back on the Clear history button */
+  const refocusClearRef = useRef(false)
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
   const progress = totalDuration > 0 ? Math.max(0, Math.min(1, currentTime / totalDuration)) : 0
 
@@ -190,11 +231,25 @@ function ReviewControlBar({
   }, [onSeek, totalDuration])
 
   // The destructive action needs a second click; the prompt disarms itself after a few seconds.
+  // Keyboard focus follows the prompt: onto "Confirm clear" when it opens, back to "Clear history" when it closes.
   useEffect(() => {
-    if (!confirmingClear) return
-    const t = setTimeout(() => setConfirmingClear(false), CONFIRM_TIMEOUT_MS)
+    if (!confirmingClear) {
+      if (refocusClearRef.current) {
+        refocusClearRef.current = false
+        clearBtnRef.current?.focus({ preventScroll: true })
+      }
+      return
+    }
+    confirmBtnRef.current?.focus({ preventScroll: true })
+    const t = setTimeout(() => {
+      const active = document.activeElement
+      refocusClearRef.current = !active || active === document.body || !!confirmGroupRef.current?.contains(active)
+      setConfirmingClear(false)
+    }, CONFIRM_TIMEOUT_MS)
     return () => clearTimeout(t)
   }, [confirmingClear])
+
+  const cancelClear = () => { refocusClearRef.current = true; setConfirmingClear(false) }
 
   const handleScrubberKeyDown = (e: React.KeyboardEvent) => {
     const target = scrubberKeyTarget(e.key, e.shiftKey, currentTime, totalDuration)
@@ -215,12 +270,13 @@ function ReviewControlBar({
         <button
           type="button"
           onClick={onPlayPause}
+          data-primary-control=""
           aria-label={isPlaying ? 'Pause' : 'Play'}
           aria-keyshortcuts="Space"
           className={`${BTN_BASE} w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110`}
           style={{
             background: isPlaying ? COLORS.playBtnActiveBg : COLORS.playBtnBg,
-            border: `1.5px solid ${COLORS.playBtnBorder}`,
+            border: `1.5px solid ${COLORS.controlBorder}`,
             boxShadow: COLORS.playBtnGlow,
           }}
         >
@@ -269,7 +325,7 @@ function ReviewControlBar({
               className="h-full rounded-full motion-safe:transition-[width]"
               style={{
                 width: `${progress * 100}%`,
-                background: COLORS.scrubberFill,
+                background: SCRUBBER_FILL,
               }}
             />
             <EventMarkers
@@ -342,8 +398,15 @@ function ReviewControlBar({
 
         {/* Clear history (destructive: two-step confirmation) */}
         {isReviewing && (confirmingClear ? (
-          <span role="group" aria-label="Confirm clearing history" className="flex items-center gap-1 shrink-0">
+          <span
+            ref={confirmGroupRef}
+            role="group"
+            aria-label="Confirm clearing history"
+            className="flex items-center gap-1 shrink-0"
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelClear() } }}
+          >
             <button
+              ref={confirmBtnRef}
               type="button"
               onClick={() => { setConfirmingClear(false); onRestart() }}
               className={`${BTN_BASE} px-2 py-1 font-semibold`}
@@ -353,7 +416,7 @@ function ReviewControlBar({
             </button>
             <button
               type="button"
-              onClick={() => setConfirmingClear(false)}
+              onClick={cancelClear}
               className={`${BTN_BASE} px-2 py-1`}
               style={{ color: COLORS.textMuted }}
             >
@@ -362,12 +425,13 @@ function ReviewControlBar({
           </span>
         ) : (
           <button
+            ref={clearBtnRef}
             type="button"
             onClick={() => setConfirmingClear(true)}
             aria-label="Clear history"
             title="Clear history (keeps active agents)"
             className={`${BTN_BASE} px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0`}
-            style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.toggleBorder}` }}
+            style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
           >
             <span aria-hidden="true">⟲ </span>Clear history
           </button>

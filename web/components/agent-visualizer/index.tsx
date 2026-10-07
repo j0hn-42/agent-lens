@@ -28,7 +28,9 @@ import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
-import { FOCUS_RING, buildAnnouncement, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { ShortcutsDialog } from "./shortcuts-dialog"
+import { PanelRegistryContext, type PanelEscapeHandler, type RegisterPanel } from "@/hooks/use-panel-registry"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, connectionDisplay, emptyStateChecklist, formatMissedEvents, runEscapeHandlers } from "@/lib/chrome-utils"
 
 const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-flow:single-key-shortcuts'
 
@@ -71,7 +73,20 @@ export function AgentVisualizer() {
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
-  const { toasts, push: pushToast, dismiss: dismissToast, runAction: runToastAction } = useToasts()
+  const { toasts, push: pushToast, dismiss: dismissToast, runAction, runLatestAction, setPaused: setToastsPaused } = useToasts()
+  // Confirm that an undo happened (also announced to screen readers through the toast live region)
+  const runToastAction = useCallback((id: number) => {
+    runAction(id)
+    pushToast({ message: 'Undone', durationMs: 3000 })
+  }, [runAction, pushToast])
+  const undoLast = useCallback((): boolean => {
+    const ran = runLatestAction()
+    if (ran) pushToast({ message: 'Undone', durationMs: 3000 })
+    return ran
+  }, [runLatestAction, pushToast])
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const openShortcuts = useCallback(() => setShowShortcuts(true), [])
+  const closeShortcuts = useCallback(() => setShowShortcuts(false), [])
 
   // Surface bridge notices (relay down/up, malformed data, session reset) as non-blocking toasts
   const lastNoticeIdRef = useRef(0)
@@ -250,9 +265,17 @@ export function AgentVisualizer() {
     panelStackRef.current = stack
   }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats])
 
+  // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
+  const extraPanelsRef = useRef<Array<{ id: string; onEscape: PanelEscapeHandler }>>([])
+  const registerPanel = useCallback<RegisterPanel>((id, onEscape) => {
+    const entry = { id, onEscape }
+    extraPanelsRef.current = [...extraPanelsRef.current.filter(p => p.id !== id), entry]
+    return () => { extraPanelsRef.current = extraPanelsRef.current.filter(p => p !== entry) }
+  }, [])
+
   const closeTopPanel = useCallback((): boolean => {
     const top = panelStackRef.current[panelStackRef.current.length - 1]
-    if (!top) return false
+    if (!top) return runEscapeHandlers(extraPanelsRef.current.map(p => p.onEscape))
     panelStackRef.current = panelStackRef.current.slice(0, -1)
     if (top === 'files') setShowFileAttention(false)
     else if (top === 'transcript') setShowTranscript(false)
@@ -273,7 +296,6 @@ export function AgentVisualizer() {
     setSingleKeyShortcuts(enabled)
     try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
   }, [])
-  void updateSingleKeyShortcuts // TODO(#29): wire to the keyboard-shortcuts help dialog
 
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
@@ -289,8 +311,10 @@ export function AgentVisualizer() {
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
+    openShortcuts,
+    undoLast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -380,6 +404,7 @@ export function AgentVisualizer() {
   })
 
   return (
+    <PanelRegistryContext.Provider value={registerPanel}>
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
     <div className="h-screen w-full relative overflow-hidden" style={{ background: COLORS.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
@@ -407,6 +432,7 @@ export function AgentVisualizer() {
         onTogglePanel={toggleExclusivePanel}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
+        onOpenShortcuts={openShortcuts}
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
@@ -416,7 +442,6 @@ export function AgentVisualizer() {
       {isEmpty && (
         <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none">
           <div
-            role="status"
             className="text-center max-w-[calc(100vw-24px)] pointer-events-auto"
             style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
           >
@@ -437,7 +462,7 @@ export function AgentVisualizer() {
                 type="button"
                 onClick={bridge.loadDemo}
                 className={`min-h-6 min-w-6 px-3 py-1 rounded text-xs font-semibold ${FOCUS_RING}`}
-                style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.toggleBorder}`, color: COLORS.textPrimary }}
+                style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
               >
                 Load demo
               </button>
@@ -584,9 +609,23 @@ export function AgentVisualizer() {
         />
       </div>
 
-      <ToastRegion toasts={toasts} onAction={runToastAction} onDismiss={dismissToast} />
+      <ToastRegion
+        toasts={toasts}
+        onAction={runToastAction}
+        onDismiss={dismissToast}
+        onPause={setToastsPaused}
+        undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
+      />
       </main>
+
+      <ShortcutsDialog
+        open={showShortcuts}
+        onClose={closeShortcuts}
+        singleKeyEnabled={singleKeyShortcuts}
+        onSingleKeyEnabledChange={updateSingleKeyShortcuts}
+      />
     </div>
     </OpenFileProvider>
+    </PanelRegistryContext.Provider>
   )
 }

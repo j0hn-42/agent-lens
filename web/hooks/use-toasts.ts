@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toastRemaining } from '@/lib/chrome-utils'
 
 export interface ToastItem {
   id: number
@@ -12,27 +13,43 @@ export interface ToastItem {
 
 export type ToastInput = Omit<ToastItem, 'id' | 'durationMs'> & { durationMs?: number }
 
+export type PauseSource = 'hover' | 'focus'
+
 const DEFAULT_DURATION_MS = 5000
 const MAX_TOASTS = 3
 
-/** Minimal non-blocking toast queue. Rendered by <ToastRegion>. */
+interface TimerState { handle: ReturnType<typeof setTimeout> | null; startedAt: number; remaining: number }
+
+/**
+ * Minimal non-blocking toast queue. Rendered by <ToastRegion>.
+ * Timers pause while the pointer hovers or keyboard focus is inside the region (WCAG 2.2.1)
+ * and resume with the time they had left.
+ */
 export function useToasts() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const idRef = useRef(0)
-  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const timersRef = useRef<Map<number, TimerState>>(new Map())
   const toastsRef = useRef<ToastItem[]>([])
+  const pausedRef = useRef<Set<PauseSource>>(new Set())
   toastsRef.current = toasts
 
   const remove = useCallback((id: number, expired: boolean) => {
     const timer = timersRef.current.get(id)
-    if (timer) clearTimeout(timer)
+    if (timer?.handle) clearTimeout(timer.handle)
     timersRef.current.delete(id)
     const item = toastsRef.current.find(t => t.id === id)
     if (!item) return
     toastsRef.current = toastsRef.current.filter(t => t.id !== id)
     setToasts(toastsRef.current)
+    if (toastsRef.current.length === 0) pausedRef.current.clear()
     if (expired) item.onExpire?.()
   }, [])
+
+  const startTimer = useCallback((id: number, remaining: number) => {
+    const state: TimerState = { handle: null, startedAt: Date.now(), remaining }
+    state.handle = setTimeout(() => remove(id, true), remaining)
+    timersRef.current.set(id, state)
+  }, [remove])
 
   const dismiss = useCallback((id: number) => remove(id, true), [remove])
 
@@ -41,6 +58,33 @@ export function useToasts() {
     remove(id, false)
     item?.onAction?.()
   }, [remove])
+
+  /** Run the action of the newest toast that has one (keyboard Undo). Returns true if one ran. */
+  const runLatestAction = useCallback((): boolean => {
+    for (let i = toastsRef.current.length - 1; i >= 0; i--) {
+      const t = toastsRef.current[i]
+      if (t.onAction) { runAction(t.id); return true }
+    }
+    return false
+  }, [runAction])
+
+  const setPaused = useCallback((source: PauseSource, paused: boolean) => {
+    const before = pausedRef.current.size > 0
+    if (paused) pausedRef.current.add(source)
+    else pausedRef.current.delete(source)
+    const after = pausedRef.current.size > 0
+    if (before === after) return
+    const now = Date.now()
+    for (const [id, state] of Array.from(timersRef.current.entries())) {
+      if (after && state.handle) {
+        clearTimeout(state.handle)
+        state.handle = null
+        state.remaining = toastRemaining(state.remaining, state.startedAt, now)
+      } else if (!after && !state.handle) {
+        startTimer(id, state.remaining)
+      }
+    }
+  }, [startTimer])
 
   const push = useCallback((input: ToastInput): number => {
     const id = ++idRef.current
@@ -52,14 +96,19 @@ export function useToasts() {
     }
     toastsRef.current = [...toastsRef.current, item]
     setToasts(toastsRef.current)
-    timersRef.current.set(id, setTimeout(() => remove(id, true), item.durationMs))
+    if (pausedRef.current.size > 0) {
+      // Region is hovered/focused right now: the timer starts when the user leaves
+      timersRef.current.set(id, { handle: null, startedAt: Date.now(), remaining: item.durationMs })
+    } else {
+      startTimer(id, item.durationMs)
+    }
     return id
-  }, [remove])
+  }, [remove, startTimer])
 
   useEffect(() => {
     const timers = timersRef.current
-    return () => { for (const t of timers.values()) clearTimeout(t) }
+    return () => { for (const t of timers.values()) if (t.handle) clearTimeout(t.handle) }
   }, [])
 
-  return { toasts, push, dismiss, runAction }
+  return { toasts, push, dismiss, runAction, runLatestAction, setPaused }
 }

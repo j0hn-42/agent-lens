@@ -4,6 +4,8 @@
  * These types mirror extension/src/protocol.ts and are kept separate
  * to avoid cross-project imports. When updating these, also update
  * the canonical definitions in extension/src/protocol.ts.
+ * Exception: ConnectionStatus adds the web-only 'connecting' value (initial state
+ * before the relay answers); the extension never sends it.
  */
 
 export interface AgentEvent {
@@ -28,4 +30,33 @@ export interface BridgeNotice {
   id: number
   kind: 'parse-error' | 'reset' | 'relay-down' | 'relay-up'
   message: string
+}
+
+// ─── Runtime validation (messages are untrusted: relay, hooks and window.postMessage) ───
+
+const CONNECTION_STATUSES: readonly string[] = ['connected', 'disconnected', 'watching', 'connecting']
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+export function isAgentEvent(v: unknown): v is AgentEvent {
+  return isRecord(v)
+    && typeof v.time === 'number' && Number.isFinite(v.time)
+    && typeof v.type === 'string'
+    && isRecord(v.payload)
+    && (v.sessionId === undefined || typeof v.sessionId === 'string')
+}
+
+export function isSessionInfo(v: unknown): v is SessionInfo {
+  return isRecord(v)
+    && typeof v.id === 'string'
+    && typeof v.label === 'string'
+    && (v.status === 'active' || v.status === 'completed')
+    && typeof v.startTime === 'number'
+    && typeof v.lastActivityTime === 'number'
+}
+
+export function isConnectionStatus(v: unknown): v is ConnectionStatus {
+  return typeof v === 'string' && CONNECTION_STATUSES.includes(v)
 }

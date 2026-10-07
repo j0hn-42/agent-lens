@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react"
+import { UNDO_SHORTCUT_KEY } from "../lib/chrome-utils"
 
 const IGNORED_TARGET_SELECTOR =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="dialog"], button, a, [role="tab"]'
@@ -25,21 +26,24 @@ interface TargetLike {
  * - Ctrl/Meta/Alt combos are never ours (browser/OS shortcuts, WCAG 2.1.4).
  * - Events from interactive widgets are left alone (Space on a button only activates the button).
  * - Space is only handled when focus is on <body> (or nothing).
- * - Single-key shortcuts require the user preference; Escape always works.
+ * - Single-key shortcuts require the user preference; Escape and `?` always work.
+ *   Both may also fire from buttons/links/tabs (so they work after Tab navigation) but never
+ *   from text fields or dialogs.
  */
 export function shouldHandleShortcut(e: ShortcutEventLike, singleKeyEnabled: boolean): boolean {
   if (e.ctrlKey || e.metaKey || e.altKey) return false
   const t = (e.target ?? null) as TargetLike | null
   const isEscape = e.key === 'Escape'
+  const isAlways = isEscape || e.key === '?'
   if (t) {
     if (t.isContentEditable) return false
     if (typeof t.closest === 'function' && t.closest(IGNORED_TARGET_SELECTOR)) {
-      // Escape may still close panels from buttons/links/tabs, but never from text fields or dialogs.
-      if (!isEscape || t.closest(TEXT_ENTRY_SELECTOR)) return false
+      // Escape and ? may still work from buttons/links/tabs, but never from text fields or dialogs.
+      if (!isAlways || t.closest(TEXT_ENTRY_SELECTOR)) return false
     }
     if (e.key === ' ' && t.tagName !== undefined && t.tagName !== 'BODY') return false
   }
-  if (isEscape) return true
+  if (isAlways) return true
   return singleKeyEnabled
 }
 
@@ -57,6 +61,10 @@ export function useKeyboardShortcuts(actions: {
   clearSelection: () => void
   toggleMute: () => void
   setSpeed: (speed: number) => void
+  /** Open the keyboard shortcuts dialog (`?`) */
+  openShortcuts: () => void
+  /** Run the action of the newest toast (Undo); returns true if one ran */
+  undoLast: () => boolean
   singleKeyEnabled: boolean
 }): void {
   const actionsRef = useRef(actions)
@@ -103,6 +111,14 @@ export function useKeyboardShortcuts(actions: {
         case 'm':
         case 'M':
           a.toggleMute()
+          break
+        case '?':
+          e.preventDefault()
+          a.openShortcuts()
+          break
+        case UNDO_SHORTCUT_KEY:
+        case UNDO_SHORTCUT_KEY.toUpperCase():
+          a.undoLast()
           break
         case '1': a.setSpeed(0.5); break
         case '2': a.setSpeed(1); break
