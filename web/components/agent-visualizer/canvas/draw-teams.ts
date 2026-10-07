@@ -59,7 +59,9 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
 export function drawClusterHalos(
   ctx: CanvasRenderingContext2D, clusters: Cluster[], selectedKey?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  void opts
+  // At tiny scales (fit of dozens of clusters) a world-space stroke would fall under one device pixel:
+  // below zoom 1 the outline keeps its 1.5 px on-screen width and the dashes scale with it.
+  const k = Math.max(1, 1 / Math.max(opts.zoom || 1, 1e-3))
   for (const c of clusters) {
     const selected = c.key === selectedKey
     ctx.save()
@@ -67,9 +69,9 @@ export function drawClusterHalos(
     ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2)
     ctx.fillStyle = c.color + (selected ? '22' : '12')
     ctx.fill()
-    ctx.setLineDash(c.kind === 'team' ? [10, 6] : [2, 5])
+    ctx.setLineDash(c.kind === 'team' ? [10 * k, 6 * k] : [2 * k, 5 * k])
     ctx.strokeStyle = c.color + (selected ? 'cc' : '88')
-    ctx.lineWidth = selected ? 2.5 : 1.5
+    ctx.lineWidth = (selected ? 2.5 : 1.5) * k
     ctx.stroke()
     ctx.restore()
   }

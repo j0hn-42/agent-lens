@@ -1,13 +1,17 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import {
-  computeFitBounds, fitToView, fitInsets, circleBounds, clusterSetSignature, shouldResumeAutoFit,
+  computeFitBounds, fitToView, fitInsets, circleBounds, clusterSetSignature, shouldResumeAutoFit, contentStamp,
   type Transform, type Insets, type AutoFitState,
 } from '@/components/agent-visualizer/canvas/camera-fit'
 import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
 import { CAMERA } from '@/lib/canvas-constants'
 
 export type { Transform }
+
+const EMPTY_CLUSTERS: Cluster[] = []
+/** While auto-fitting, the fit target is refreshed this often (frames) to follow the settling simulation */
+const FIT_EVERY_N_FRAMES = 4
 
 interface CameraOptions {
   mainCanvasRef: MutableRefObject<HTMLCanvasElement | null>
@@ -47,6 +51,10 @@ export function useCanvasCamera({
   const targetTransformRef = useRef<Transform | null>(null)
   const panVelocityRef = useRef({ vx: 0, vy: 0, active: false })
   const autoFitStateRef = useRef<AutoFitState>({ signature: null, width: 0, height: 0 })
+  // Cheap per-frame change detection: the heavy signature is only built when the stamp changes
+  const stampRef = useRef<number | null>(null)
+  const fitFrameRef = useRef(0)
+  const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
 
   // Initialize transform centered on first agents
   useEffect(() => {
@@ -202,29 +210,47 @@ export function useCanvasCamera({
       }
     }
 
-    // Resume following the content when the clusters / sessions changed (tab or cluster selection) or the
-    // canvas was resized; a manual pan / zoom is otherwise respected.
-    {
-      const { agents, dimensions } = drawPropsRef.current
+    // Auto-fit rule (see classifyContentChange): a manual pan / zoom is respected when the content
+    // changes; auto-fit resumes only on the first content, a tab / scope change and the Fit button.
+    // The content set is fingerprinted without allocation every frame; the signature (sorted keys and
+    // sessions) is built only when that fingerprint changes.
+    const { agents, dimensions } = drawPropsRef.current
+    const clusters = clustersRef?.current ?? EMPTY_CLUSTERS
+    const stamp = agents.size > 0 ? contentStamp(clusters, agents.values()) : null
+    let contentChanged = false
+    if (stamp !== stampRef.current) {
+      stampRef.current = stamp
+      contentChanged = true
       let signature: string | null = null
-      if (agents.size > 0) {
-        const sessions: Array<string | undefined> = []
-        for (const a of agents.values()) sessions.push(a.sessionId)
-        signature = clusterSetSignature((clustersRef?.current ?? []).map(c => c.key), sessions)
+      let sessions: string[] | undefined
+      if (stamp !== null) {
+        const ids: Array<string | undefined> = []
+        for (const a of agents.values()) ids.push(a.sessionId)
+        signature = clusterSetSignature(clusters.map(c => c.key), ids)
+        sessions = Array.from(new Set(ids.map(s => s ?? ''))).sort()
       }
-      const next: AutoFitState = { signature, width: dimensions.width, height: dimensions.height }
-      const prev = autoFitStateRef.current
-      if (shouldResumeAutoFit(prev, next)) {
+      const next: AutoFitState = { signature, sessions, width: dimensions.width, height: dimensions.height }
+      if (shouldResumeAutoFit(autoFitStateRef.current, next)) {
         userHasNavigatedRef.current = false
         targetTransformRef.current = null
       }
       autoFitStateRef.current = next
     }
 
-    // Auto-fit
+    // Auto-fit: the fit is recomputed when the content set, the canvas size or the insets change, and
+    // every few frames while the simulation moves the nodes; the lerp below runs every frame.
     if (!userHasNavigatedRef.current && !isDragging && !pauseAutoFit) {
-      const fit = computeFitTransform()
-      if (fit) targetTransformRef.current = fit
+      const ins = getInsets?.()
+      const k = lastFitKeyRef.current
+      const keyChanged = k.w !== dimensions.width || k.h !== dimensions.height
+        || k.t !== (ins?.top ?? 0) || k.r !== (ins?.right ?? 0) || k.b !== (ins?.bottom ?? 0) || k.l !== (ins?.left ?? 0)
+      fitFrameRef.current++
+      if (contentChanged || keyChanged || fitFrameRef.current % FIT_EVERY_N_FRAMES === 0) {
+        k.w = dimensions.width; k.h = dimensions.height
+        k.t = ins?.top ?? 0; k.r = ins?.right ?? 0; k.b = ins?.bottom ?? 0; k.l = ins?.left ?? 0
+        const fit = computeFitTransform()
+        if (fit) targetTransformRef.current = fit
+      }
     }
 
     // Smooth lerp toward target
@@ -242,7 +268,7 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform, drawPropsRef, clustersRef])
+  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets])
 
   return {
     transformRef,

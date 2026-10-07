@@ -233,8 +233,19 @@ export function AgentCanvas({
   const insetsRef = useRef<Insets>({ ...NO_INSETS })
   const insetsFrameRef = useRef(0)
   const getInsets = useCallback(() => insetsRef.current, [])
+  const insetsSizeRef = useRef({ w: 0, h: 0 })
+  const safeAreaCacheRef = useRef<{ insets: Insets; w: number; h: number; rect: ReturnType<typeof safeRect> } | null>(null)
   const refreshInsets = useCallback(() => {
     insetsRef.current = measureOverlayInsets(mainCanvasRef.current)
+  }, [])
+  /** Safe area of the viewport, recomputed only when the insets or the viewport change (not per frame) */
+  const getSafeArea = useCallback((w: number, h: number) => {
+    const c = safeAreaCacheRef.current
+    const i = insetsRef.current
+    if (c && c.insets === i && c.w === w && c.h === h) return c.rect
+    const rect = safeRect({ width: w, height: h }, i)
+    safeAreaCacheRef.current = { insets: i, w, h, rect }
+    return rect
   }, [])
 
   // ─── Camera ─────────────────────────────────────────────────────────────
@@ -475,7 +486,13 @@ export function AgentCanvas({
       opts.focusedAgentId = hasFocusRef.current && focusedNodeRef.current?.type === 'agent' ? focusedNodeRef.current.id : null
       opts.edgeBubbles = true
 
-      if (timestamp - insetsFrameRef.current > 250 || insetsFrameRef.current === 0) { insetsFrameRef.current = timestamp || 1; refreshInsets() }
+      // Overlay insets are cached: re-measured when the canvas is resized and, for panels opening or
+      // closing without a resize, once per second (DOM reads force layout, so never per frame)
+      if (insetsFrameRef.current === 0 || insetsSizeRef.current.w !== w || insetsSizeRef.current.h !== h || timestamp - insetsFrameRef.current > 1000) {
+        insetsFrameRef.current = timestamp || 1
+        insetsSizeRef.current = { w, h }
+        refreshInsets()
+      }
       // Camera physics (inertia + auto-fit)
       updateCamera(isDragging, pauseAutoFit)
 
@@ -499,7 +516,7 @@ export function AgentCanvas({
       }
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles, transform, viewport: { w, h }, safeArea: safeRect({ width: w, height: h }, insetsRef.current), lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: simTimeRef.current, teams: teamsRef.current,
