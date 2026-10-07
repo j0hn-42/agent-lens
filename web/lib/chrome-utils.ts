@@ -52,6 +52,9 @@ export function buildTabModel(
   /** Team map key -> display name and lead session: lets two teams with the same name under different
    *  lead sessions (keys "alpha" and "alpha@L3") each get their own member sessions. */
   teamMeta?: ReadonlyMap<string, { name: string; leadSessionId?: string }>,
+  /** Sessions tagged with a team that is not in `teamNames` are listed as plain sessions instead of
+   *  creating a team tab (used to hide lead-only teams: every Claude Code session has one). */
+  opts?: { hideUnlistedTeams?: boolean },
 ): TabItem[] {
   const teams: string[] = []
   const add = (name: string | undefined) => { if (name && !teams.includes(name)) teams.push(name) }
@@ -70,7 +73,7 @@ export function buildTabModel(
       }
       if (first !== undefined) return first
     }
-    return s.teamName
+    return opts?.hideUnlistedTeams ? undefined : s.teamName
   }
   for (const s of sessions) add(keyOfSession(s))
   const items: TabItem[] = [{ id: ALL_SESSIONS_ID, kind: 'all' }]
@@ -78,7 +81,7 @@ export function buildTabModel(
     items.push({ id: teamSelectionId(team), kind: 'team', teamName: team })
     for (const s of sessions) if (keyOfSession(s) === team) items.push({ id: s.id, kind: 'session', teamName: team })
   }
-  for (const s of sessions) if (!s.teamName) items.push({ id: s.id, kind: 'session' })
+  for (const s of sessions) if (keyOfSession(s) === undefined) items.push({ id: s.id, kind: 'session' })
   return items
 }
 

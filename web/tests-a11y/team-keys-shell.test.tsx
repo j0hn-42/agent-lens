@@ -68,3 +68,19 @@ test('a session tab under a second same-named team announces the display name an
   assert.ok(sr.includes('team alpha,'), sr)
   assert.ok(!sr.includes('@L3'), `the sr-only text leaks the raw key: ${sr}`)
 })
+
+test('a lead-only team (no teammates) gets no team tab and its session is listed as a plain session', () => {
+  const solo = new Map<string, TeamSummary>([
+    ['session-ab12', { name: 'session-ab12', leadSessionId: 'S1', members: [] }],
+  ])
+  const r = render(
+    <SessionTabs
+      sessions={[{ id: 'S1', label: 'solo work', status: 'active', spawnTime: 0, teamName: 'session-ab12' }] as never}
+      selectedSessionId={null} sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}}
+      teams={solo} teamMemberCounts={new Map([['session-ab12', 0]])} teamWorking={new Map([['session-ab12', 0]])}
+    />,
+  )
+  assert.deepEqual(r.getAllByRole('tab').map(t => t.id), ['session-tab-__all__', 'session-tab-S1'])
+  assert.ok(!(r.container.textContent ?? '').includes('0 members'))
+})

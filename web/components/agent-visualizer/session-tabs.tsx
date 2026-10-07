@@ -78,7 +78,11 @@ export function SessionTabs({
   // after a short grace period, so an unrelated later change never steals focus.
   const pendingFocusRef = useRef<PendingTabFocus | null>(null)
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const tabItems = buildTabModel(sessions, teams ? teams.keys() : [], teams)
+  // A team tab only makes sense with teammates: every Claude Code session owns a team that holds just its lead
+  const listedTeams = teams
+    ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
+    : undefined
+  const tabItems = buildTabModel(sessions, listedTeams ? listedTeams.keys() : [], listedTeams, { hideUnlistedTeams: true })
   const tabIds = tabItems.map(t => t.id)
   const closeTab = (id: string) => {
     const at = tabIds.indexOf(id)
