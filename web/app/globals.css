@@ -133,7 +133,8 @@
   background: rgba(10, 15, 30, 0.7);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(102, 204, 255, 0.5);
+  /* decorative edge; control boundaries inside use their own 3:1 borders */
+  border: 1px solid rgba(102, 204, 255, 0.22);
   border-radius: 8px;
   padding: 12px;
   box-shadow:
