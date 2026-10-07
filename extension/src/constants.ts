@@ -424,3 +424,23 @@ export const NORM_KEY_MAX = 128
 export const NORM_MAX_KNOWN_AGENTS = 1024
 /** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
 export const NORM_MAX_TRACKED_SESSIONS = 256
+
+// ─── Shared state snapshots (#71) and observations (#72) ─────────────────────
+
+/** Version of the snapshot envelope; a reader refuses any other value */
+export const SNAPSHOT_SCHEMA_VERSION = 1
+/** A snapshot file (and its payload once serialized) never exceeds this; bigger files are refused on read */
+export const SNAPSHOT_MAX_BYTES = 256 * 1024
+/** Nesting / array / key bounds of a snapshot payload */
+export const SNAPSHOT_MAX_DEPTH = 8
+export const SNAPSHOT_MAX_ARRAY_LENGTH = 1000
+export const SNAPSHOT_MAX_KEYS = 200
+/** A snapshot older than this is stale (same threshold as a silent agent on the canvas) */
+export const SNAPSHOT_STALE_AFTER_MS = 30_000
+/** A snapshot dated further than this in the future is rejected (clock skew we cannot prove) */
+export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5_000
+
+/** Observations action: caps on what is returned to Claude */
+export const OBSERVATIONS_MAX_SESSIONS = 25
+export const OBSERVATIONS_MAX_AGENTS_PER_SESSION = 50
+export const OBSERVATIONS_NAME_MAX = 64
