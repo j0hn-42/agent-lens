@@ -7,6 +7,8 @@ import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
+import { useIssueLinks } from '@/hooks/use-issue-links'
+import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-links'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 
 interface AgentDetailCardProps {
@@ -28,12 +30,17 @@ interface AgentDetailCardProps {
     teamName?: string
     teamColor?: string
     activity?: 'working' | 'idle' | 'done'
+    subagentType?: string
+    agentType?: string
   }
+  /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
+  relayOrigin?: string | null
   onClose: () => void
 }
 
 export function AgentDetailCard({
   agent,
+  relayOrigin = null,
   onClose,
 }: AgentDetailCardProps) {
   const titleId = useId()
@@ -42,6 +49,8 @@ export function AgentDetailCard({
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   const badge = modelBadge(agent)
+  const role = agentRoleOf(agent)
+  const issueLinks = useIssueLinks(relayOrigin, role)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -154,6 +163,32 @@ export function AgentDetailCard({
           >
             <span className="animate-spin motion-reduce:animate-none inline-block" aria-hidden="true">⚙</span>
             {agent.currentTool}
+          </div>
+        )}
+
+        {/* Issues / PRs carrying the agent:<role> label of this node (silent when gh is unavailable) */}
+        {role && issueLinks.length > 0 && (
+          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
+            <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
+            <ul className="flex flex-col gap-0.5" aria-label={`Issues and pull requests labelled agent:${role}`}>
+              {issueLinks.slice(0, ISSUE_LINKS_SHOWN).map(link => (
+                <li key={link.url} className="min-w-0">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    style={{ color: COLORS.textPrimary }}
+                    title={issueLinkLabel(link)}
+                  >
+                    {issueLinkLabel(link)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            {issueLinks.length > ISSUE_LINKS_SHOWN && (
+              <div style={{ color: COLORS.textDim }}>+{issueLinks.length - ISSUE_LINKS_SHOWN} more</div>
+            )}
           </div>
         )}
       </GlassCard>

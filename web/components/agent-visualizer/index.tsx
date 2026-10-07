@@ -588,6 +588,7 @@ export function AgentVisualizer() {
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
             agent={selectedAgent}
+            relayOrigin={bridge.relayOrigin}
             onClose={selection.clearAgent}
           />
         </div>
