@@ -6,10 +6,10 @@ import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
-  isTruthyFlag, listProjectDirs, discoverSessionFiles,
+  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle,
 } from '../src/relay-guards'
 
-const ev = (n: number, sessionId = 's'): AgentEvent => ({ time: n, type: 'agent_spawn', payload: { n }, sessionId }) as unknown as AgentEvent
+const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
 
 describe('session id / query validation', () => {
   it('validates ids', () => {
@@ -85,6 +85,32 @@ describe('appendBounded', () => {
     const total = [...m.values()].reduce((n, b) => n + b.length, 0)
     assert.ok(total <= 6, `total ${total}`)
     assert.ok(m.has('c'))
+  })
+})
+
+describe('lifecycle events survive replay-buffer overflow', () => {
+  it('appendBounded evicts chatter before agent_spawn / team_info', () => {
+    const m = new Map<string, AgentEvent[]>()
+    const lim = { perSession: 6, sessions: 10, total: 100 }
+    appendBounded(m, 's', ev(0, 's', 'agent_spawn'), lim)
+    appendBounded(m, 's', ev(1, 's', 'team_info'), lim)
+    for (let i = 2; i < 40; i++) appendBounded(m, 's', ev(i, 's', 'message_sent'), lim)
+    const buf = m.get('s')!
+    assert.equal(buf.length, 6)
+    assert.deepEqual(buf.slice(0, 2).map(e => e.type), ['agent_spawn', 'team_info'])
+    assert.deepEqual(buf.slice(2).map(e => e.time), [36, 37, 38, 39])
+  })
+  it('trimKeepingLifecycle falls back to the oldest event when only lifecycle events remain', () => {
+    const buf = Array.from({ length: 5 }, (_, i) => ev(i, 's', 'agent_spawn'))
+    trimKeepingLifecycle(buf, 3)
+    assert.deepEqual(buf.map(e => e.time), [2, 3, 4])
+  })
+  it('capReplayBatches re-adds the lifecycle events cut off by the per-session cap', () => {
+    const events = [ev(0, 'a', 'agent_spawn'), ...Array.from({ length: 20 }, (_, i) => ev(i + 1, 'a', 'message_sent'))]
+    const out = capReplayBatches([{ type: 'agent-event-batch', events }], { perSession: 4, total: 100, batchSize: 100 })
+    const flat = out.flatMap(b => b.events)
+    assert.equal(flat[0].type, 'agent_spawn')
+    assert.equal(flat.length, 5)
   })
 })
 

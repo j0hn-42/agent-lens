@@ -7,13 +7,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { TeamInfoPayload } from '../src/protocol'
 import {
-  TeamWatcher, parseTeamConfig, parseInbox, inboxKeys, matchMemberSession, toTeamInfoPayload,
+  TeamWatcher, parseTeamConfig, parseInbox, parseInboxTail, inboxKeys, matchMemberSession, toTeamInfoPayload,
   readSessionHeader, type TeamWatcherHost, type TeamSessionTags,
 } from '../src/team-watcher'
 import { MessageDeduper, extractToolUseLinks } from '../src/team-links'
 import {
   TEAM_MAX_MEMBERS, TEAM_CONFIG_MAX_BYTES, TEAM_INBOX_MAX_BYTES, TEAM_INBOX_MAX_MESSAGES, TEAM_MESSAGE_MAX,
-  TEAM_MAX_TEAMS, TEAM_INBOX_SEEN_MAX, TEAM_JOIN_MATCH_WINDOW_MS,
+  TEAM_MAX_TEAMS, TEAM_INBOX_SEEN_MAX, TEAM_JOIN_MATCH_WINDOW_MS, TEAM_INBOX_FIRST_SCAN_MAX,
 } from '../src/constants'
 import { TranscriptParser } from '../src/transcript-parser'
 import type { AgentEvent } from '../src/protocol'
@@ -49,7 +49,7 @@ describe('parseTeamConfig', () => {
     assert.equal(cfg.leadSessionId, LEAD_SESSION)
     assert.equal(cfg.leadName, 'team-lead')
     assert.deepEqual(cfg.members.map(m => m.name), ['alice'])
-    assert.equal(cfg.members[0].color, '#10b981')
+    assert.equal(cfg.members[0].color, '#22c55e')
     assert.equal(cfg.members[0].backendType, 'in-process')
   })
 
@@ -60,7 +60,7 @@ describe('parseTeamConfig', () => {
   })
 
   it('tolerates hostile members: non-objects, missing names, duplicates, bad colors/cwd, huge rosters', () => {
-    const members: unknown[] = [null, 'str', 7, [], {}, { name: '' }, { name: 'ok', color: 'red', cwd: 'bad\u0000cwd', joinedAt: 'nope' }, { name: 'ok' }]
+    const members: unknown[] = [null, 'str', 7, [], {}, { name: '' }, { name: 'ok', color: 'not-a-color', cwd: 'bad\u0000cwd', joinedAt: 'nope' }, { name: 'ok' }]
     for (let i = 0; i < TEAM_MAX_MEMBERS + 20; i++) members.push({ name: `m${i}` })
     const cfg = parseTeamConfig({ ...teamConfig(), members }, 'd')!
     assert.equal(cfg.members.length, TEAM_MAX_MEMBERS)
@@ -400,13 +400,53 @@ describe('TeamWatcher scan', () => {
       assert.deepEqual(rec.inbox.map(m => m.content), ['in messages'])
     })
 
-    it('ignores an oversized inbox file', () => {
+    it('ignores an oversized inbox file whose single message exceeds the whole window', () => {
       root = tmpDir()
       const teams = path.join(root, 'teams')
       writeTeam(teams, 'demo-team', teamConfig(), { alice: [{ from: 'bob', text: 'y'.repeat(TEAM_INBOX_MAX_BYTES + 10) }] })
       const rec = recorder()
       make(rec).scan()
       assert.equal(rec.inbox.length, 0)
+    })
+
+    it('reads the TAIL of an inbox larger than TEAM_INBOX_MAX_BYTES instead of skipping it', () => {
+      root = tmpDir()
+      const teams = path.join(root, 'teams')
+      const msgs = Array.from({ length: 6000 }, (_, i) => ({ from: 'bob', text: `message number ${i} ${'x'.repeat(100)}`, timestamp: '2025-01-01T00:00:00Z' }))
+      writeTeam(teams, 'demo-team', teamConfig(), { alice: JSON.stringify(msgs, null, 2) })
+      const file = path.join(teams, 'demo-team', 'inboxes', 'alice.json')
+      assert.ok(fs.statSync(file).size > TEAM_INBOX_MAX_BYTES)
+      const rec = recorder()
+      make(rec).scan()
+      assert.ok(rec.inbox.length > 0, 'the newest messages are delivered')
+      assert.ok(rec.inbox[rec.inbox.length - 1].content.startsWith('message number 5999 '))
+      assert.ok(rec.inbox.every(m => !m.content.startsWith('message number 0 ')))
+    })
+
+    it('replays only the newest messages of an inbox seen for the first time, then every new one', () => {
+      root = tmpDir()
+      const teams = path.join(root, 'teams')
+      const history = Array.from({ length: 150 }, (_, i) => ({ from: 'bob', text: `old ${i}` }))
+      writeTeam(teams, 'demo-team', teamConfig(), { alice: history })
+      const rec = recorder()
+      const w = make(rec)
+      w.scan()
+      assert.equal(rec.inbox.length, TEAM_INBOX_FIRST_SCAN_MAX)
+      assert.equal(rec.inbox[rec.inbox.length - 1].content, 'old 149')
+      const file = path.join(teams, 'demo-team', 'inboxes', 'alice.json')
+      fs.writeFileSync(file, JSON.stringify([...history, { from: 'bob', text: 'fresh' }]))
+      w.scan()
+      assert.equal(rec.inbox.length, TEAM_INBOX_FIRST_SCAN_MAX + 1, 'old messages are remembered, not replayed again')
+      assert.equal(rec.inbox[rec.inbox.length - 1].content, 'fresh')
+    })
+
+    it('parseInboxTail drops the cut head and tolerates garbage', () => {
+      const whole = JSON.stringify(Array.from({ length: 10 }, (_, i) => ({ from: 'a', text: `m${i}` })))
+      const cut = whole.slice(whole.indexOf('"m4"'))
+      const parsed = parseInboxTail(cut) as Array<{ text: string }>
+      assert.deepEqual(parsed.map(m => m.text), ['m5', 'm6', 'm7', 'm8', 'm9'])
+      assert.equal(parseInboxTail('no objects here'), undefined)
+      assert.equal(parseInboxTail('{"a":1}, {"b": '), undefined)
     })
 
     it('remembers a bounded number of keys per inbox', () => {

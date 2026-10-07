@@ -10,6 +10,7 @@ import {
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
+  RELAY_REPLAY_LIFECYCLE_RESERVE,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -72,8 +73,10 @@ export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Par
     const events = batches[i].events
     const take = Math.min(events.length, perSession, budget)
     if (take <= 0) { continue }
-    kept.unshift(events.slice(events.length - take))
-    budget -= take
+    // Lifecycle events cut off by the cap are re-added in front (bounded), so the graph still builds
+    const head = events.slice(0, events.length - take).filter(e => LIFECYCLE_TYPES.has(e.type)).slice(-RELAY_REPLAY_LIFECYCLE_RESERVE)
+    kept.unshift([...head, ...events.slice(events.length - take)])
+    budget -= take + head.length
   }
   const out: ReplayBatchMsg[] = []
   for (const events of kept) {
@@ -87,6 +90,25 @@ export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Par
 export interface BufferLimits { perSession: number; sessions: number; total: number }
 export const DEFAULT_BUFFER_LIMITS: BufferLimits = {
   perSession: RELAY_MAX_EVENTS_PER_SESSION, sessions: RELAY_MAX_BUFFERED_SESSIONS, total: RELAY_MAX_BUFFERED_EVENTS_TOTAL,
+}
+
+/** Event types that rebuild the graph on replay: chatter is evicted before these. */
+const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'])
+
+/** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
+ *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
+export function trimKeepingLifecycle(buf: AgentEvent[], max: number): void {
+  while (buf.length > max) {
+    let lifecycle = 0
+    let victim = -1
+    for (let i = 0; i < buf.length; i++) {
+      if (LIFECYCLE_TYPES.has(buf[i].type)) { lifecycle++; continue }
+      victim = i
+      break
+    }
+    if (victim < 0 || lifecycle > RELAY_REPLAY_LIFECYCLE_RESERVE) victim = 0
+    buf.splice(victim, 1)
+  }
 }
 
 /**
@@ -103,7 +125,7 @@ export function appendBounded(
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
   buf.push(event)
-  if (buf.length > lim.perSession) { buf.splice(0, buf.length - lim.perSession) }
+  trimKeepingLifecycle(buf, lim.perSession)
   // Re-insert so Map order reflects recency of writes
   buffers.delete(sessionId)
   buffers.set(sessionId, buf)
@@ -182,4 +204,18 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
     }
   }
   return out
+}
+
+/**
+ * Rate-limit key for GET /status. Every local client shares the loopback address, so the address
+ * alone would let one noisy local process exhaust the budget of the UI. The Origin / User-Agent
+ * (capped, untrusted) separates the clients without letting a caller mint unlimited keys cheaply:
+ * the limiter still bounds the number of keys.
+ */
+export function statusRateKey(remoteAddress: string | undefined, headers: Record<string, string | string[] | undefined>): string {
+  const pick = (name: string) => {
+    const v = headers[name]
+    return (Array.isArray(v) ? v[0] : v ?? '').slice(0, 80)
+  }
+  return `${remoteAddress ?? ''}|${pick('origin')}|${pick('user-agent')}`
 }

@@ -43,7 +43,7 @@ export interface TeammateFixture {
 export function teammateMeta(name: string, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     agentType: name, description: `${name} task`, name, model: 'claude-sonnet-4-5',
-    taskKind: 'in_process_teammate', teamName: 'demo-team', color: '#3b82f6',
+    taskKind: 'in_process_teammate', teamName: 'demo-team', color: 'blue',
     spawnedAgentType: 'general-purpose', permissionMode: 'default', spawnDepth: 1,
     ...over,
   }
@@ -106,7 +106,7 @@ export function teamConfig(over: Record<string, unknown> = {}): Record<string, u
     leadSessionId: LEAD_SESSION,
     members: [
       { agentId: 'team-lead@demo-team', name: 'team-lead', agentType: 'team-lead', joinedAt: 1_700_000_000_000, tmuxPaneId: 'leader', cwd: '/work/demo', subscriptions: [], backendType: 'in-process' },
-      { agentId: 'alice@demo-team', name: 'alice', agentType: 'general-purpose', joinedAt: 1_700_000_001_000, tmuxPaneId: 'in-process', cwd: '/work/demo', subscriptions: [], backendType: 'in-process', color: '#10b981' },
+      { agentId: 'alice@demo-team', name: 'alice', agentType: 'general-purpose', joinedAt: 1_700_000_001_000, tmuxPaneId: 'in-process', cwd: '/work/demo', subscriptions: [], backendType: 'in-process', color: 'green' },
     ],
     ...over,
   }
