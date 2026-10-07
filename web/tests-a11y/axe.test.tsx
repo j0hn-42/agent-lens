@@ -96,7 +96,7 @@ const topBarProps: TopBarProps = {
   onSelectSession: noop, onCloseSession: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 1000, totalCost: 0.12,
   showFileAttention: false, showTranscript: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
