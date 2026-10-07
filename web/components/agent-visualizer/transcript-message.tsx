@@ -57,7 +57,7 @@ function TruncatedText({ text, limit, query, color }: { text: string; limit: num
   )
 }
 
-export function TranscriptMessage({ message, compact = false, searchQuery, assistantLabel = 'CLAUDE', fromName, toName, accent }: {
+export function TranscriptMessage({ message, compact = false, searchQuery, assistantLabel = 'CLAUDE', fromName, toName, accent, onFilterPair }: {
   message: ConversationMessage
   compact?: boolean
   searchQuery?: string
@@ -67,6 +67,8 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
   toName?: string
   /** Validated '#rrggbb' team color */
   accent?: string
+  /** Communication rows: filter the transcript and the feed on this pair of agents */
+  onFilterPair?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const thinkingId = useId()
@@ -91,6 +93,17 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
           <div style={{ color: style.text }} className="whitespace-pre-wrap break-words">
             <TruncatedText text={message.content} limit={compact ? 200 : COMM_PREVIEW_MAX} query={searchQuery} color={COLORS.textMuted} />
           </div>
+          {onFilterPair && (
+            <button
+              type="button"
+              aria-label={`Filter pair ${from} and ${to}`}
+              onClick={onFilterPair}
+              className={`mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING}`}
+              style={{ color: COLORS.textMuted }}
+            >
+              Filter pair
+            </button>
+          )}
         </div>
       )
     }
