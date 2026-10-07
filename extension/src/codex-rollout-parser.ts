@@ -80,6 +80,8 @@ export interface CodexRolloutState {
   spawnEmitted: boolean
   /** Last emitted model id, so we only emit model_detected when it changes. */
   lastEmittedModel: string | null
+  /** Last emitted reasoning effort (re-emit model_detected when it changes) */
+  lastEmittedEffort?: string
   /** Authoritative total tokens from the last event_msg.token_count, if any. */
   lastReportedTokens: number | null
   /** Authoritative model_context_window from event_msg.token_count, if any. */
@@ -171,6 +173,8 @@ interface SessionMetaPayload {
 
 interface TurnContextPayload {
   model?: string
+  /** Reasoning effort configured for the turn, when the rollout records one */
+  effort?: string
   cwd?: string
   personality?: string
 }
@@ -342,13 +346,15 @@ export class CodexRolloutParser {
   private handleTurnContext(payload: TurnContextPayload | undefined, state: CodexRolloutState): void {
     if (!payload) return
     if (typeof payload.cwd === 'string') state.cwd = payload.cwd
-    if (typeof payload.model === 'string' && payload.model !== state.lastEmittedModel) {
+    const effort = typeof payload.effort === 'string' && payload.effort.length > 0 ? payload.effort.slice(0, 16) : undefined
+    if (typeof payload.model === 'string' && (payload.model !== state.lastEmittedModel || effort !== state.lastEmittedEffort)) {
       state.model = payload.model
       state.lastEmittedModel = payload.model
+      state.lastEmittedEffort = effort
       this.delegate.emit({
         time: this.delegate.elapsed(),
         type: 'model_detected',
-        payload: { agent: ORCHESTRATOR_NAME, model: payload.model },
+        payload: { agent: ORCHESTRATOR_NAME, model: payload.model, ...(effort ? { effort } : {}) },
       })
     }
   }

@@ -7,6 +7,7 @@ import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
 import { agentCost } from '../../../lib/cost'
+import { describeModel } from '../../../lib/model-provenance'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
@@ -267,7 +268,7 @@ export function buildA11yModel(
       name: a.name,
       state: a.state,
       stateText: stateText(a.state),
-      model: a.model ? formatModelName(a.model) : 'unknown model',
+      model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : 'Claude',
       tokens: `${formatTokens(a.tokensUsed)} / ${formatTokens(a.tokensMax)} tokens`,
       cost: formatCost(agentCost(a.tokensUsed, a.model)),

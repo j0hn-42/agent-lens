@@ -276,6 +276,10 @@ export function emitSubagentSpawn(
       name: child, parent, task,
       ...(extra?.toolUseId ? { toolUseId: extra.toolUseId } : {}),
       ...(extra?.label ? { label: extra.label } : {}),
+      // What the dispatching call asked for; the UI ranks it below configured and runtime models (#60)
+      ...(extra?.model ? { requestedModel: extra.model } : {}),
+      // The role behind the agent:<role> issue labels (#63)
+      ...(extra?.subagentType ? { subagentType: extra.subagentType } : {}),
       ...(spawnExtras ?? {}),
     },
   }, sessionId)

@@ -6,6 +6,7 @@ import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
+import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 
 interface AgentDetailCardProps {
@@ -14,6 +15,10 @@ interface AgentDetailCardProps {
     name: string
     state: AgentState
     model?: string
+    modelSource?: ModelSource
+    requestedModel?: string
+    modelsUsed?: string[]
+    effort?: string
     tokensUsed: number
     tokensMax: number
     toolCalls: number
@@ -36,6 +41,7 @@ export function AgentDetailCard({
   useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
+  const badge = modelBadge(agent)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -71,12 +77,35 @@ export function AgentDetailCard({
               {agent.name}
             </span>
             {agent.model && (
-              <span className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-                {formatModelName(agent.model)}
+              <span className="flex flex-wrap items-center gap-x-2 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+                <span>{formatModelName(agent.model)}</span>
+                {badge && (
+                  <span
+                    data-testid="model-badge"
+                    data-kind={badge.kind}
+                    className="rounded px-1 text-[10px]"
+                    style={{ border: `1px solid ${COLORS.glassBorder}`, color: badge.kind === 'mismatch' ? COLORS.toolIndicatorText : COLORS.textMuted }}
+                  >
+                    {badge.label}
+                  </span>
+                )}
+                {agent.effort && <span data-testid="model-effort">effort {agent.effort}</span>}
               </span>
             )}
           </span>
         </PanelHeader>
+
+        {/* Models that really ran (runtime-reported), and the requested one when it differs */}
+        {(agent.modelsUsed?.length || (badge?.kind === 'mismatch' && agent.requestedModel)) && (
+          <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-testid="models-used">
+            {badge?.kind === 'mismatch' && agent.requestedModel && (
+              <div>Requested: {formatModelName(agent.requestedModel)}</div>
+            )}
+            {agent.modelsUsed && agent.modelsUsed.length > 0 && (
+              <div>Used: {agent.modelsUsed.map(formatModelName).join(', ')}</div>
+            )}
+          </div>
+        )}
 
         {/* Context bar */}
         <div className="mb-3">

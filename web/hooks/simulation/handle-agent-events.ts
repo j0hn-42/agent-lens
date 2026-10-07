@@ -4,12 +4,14 @@ import {
   emptyContextBreakdown,
 } from '../../lib/agent-types'
 import { COLORS } from '../../lib/colors'
+import type { ModelSource } from '../../lib/model-provenance'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
 import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
 import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
+import { mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -38,6 +40,11 @@ export function handleAgentSpawn(
   const isMain = asBoolean(payload.isMain)
   const task = typeof payload.task === 'string' ? cappedString(payload.task) : undefined
   const model = typeof payload.model === 'string' ? cappedString(payload.model, MAX_ID_LEN) : undefined
+  // A model without a (valid) source is only what was asked for, never "what ran"
+  const modelSource = parseModelSource(payload.modelSource) ?? 'requested'
+  const requestedModel = typeof payload.requestedModel === 'string' ? cappedString(payload.requestedModel, MAX_ID_LEN) || undefined : undefined
+  const effort = parseEffort(payload.effort)
+  const subagentType = typeof payload.subagentType === 'string' ? cappedString(payload.subagentType, MAX_ID_LEN) || undefined : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
 
   const team = parseTeammateExtras(payload)
@@ -65,7 +72,9 @@ export function handleAgentSpawn(
       // A returning teammate may carry a team name it did not have: keep the cached cluster key right
       ...(team ? { clusterKey: clusterKeyOf({ sessionId, teamName: team.teamName }, state.teams) } : {}),
       ...(task ? { task } : {}),
-      ...(model ? { model, tokensMax: ctx.getContextWindowSize(model) } : {}),
+      ...spawnModelFields(existing, { model, modelSource, requestedModel }, ctx),
+      ...(effort ? { effort } : {}),
+      ...(subagentType ? { subagentType } : {}),
       ...(runtime ? { runtime } : {}),
       ...(toolUseId && !existing.toolUseId ? { toolUseId } : {}),
     })
@@ -80,18 +89,22 @@ export function handleAgentSpawn(
   const { x, y } = spawnPosition(state.agents, { id: name, sessionId, teamName: team?.teamName, clusterKey, isMain, localId, parentId: parentId ?? null }, state.teams)
 
   const displayName = label || localId
+  const initialModel = mergeModel({}, { model: model ?? requestedModel ?? '', source: model ? modelSource : 'requested' }) ?? undefined
   const agent: Agent = {
     id: name, agentKey: name, sessionId, localId, displayName, name: displayName, state: 'idle',
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: 0, tokensMax: ctx.getContextWindowSize(model),
+    tokensUsed: 0, tokensMax: ctx.getContextWindowSize(initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,
     pinned: false, isMain,
     ...(runtime ? { runtime } : {}),
-    ...(model ? { model } : {}),
+    ...(initialModel ?? {}),
+    ...(requestedModel ? { requestedModel } : {}),
+    ...(effort ? { effort } : {}),
+    ...(subagentType ? { subagentType } : {}),
     ...teamFields,
     clusterKey,
     task,
@@ -208,12 +221,37 @@ export function handleModelDetected(
 ): void {
   const agentName = agentKeyOf(sessionId, idString(payload.agent))
   const model = cappedString(payload.model, MAX_ID_LEN)
+  const effort = parseEffort(payload.effort)
   const agent = state.agents.get(agentName)
-  if (agent) {
+  if (agent && model) {
+    // Reported by the transcript itself: the strongest source
+    const merged = mergeModel(agent, { model, source: 'runtime' })
     state.agents.set(agentName, {
       ...agent,
-      model,
+      ...merged,
+      modelsUsed: recordModelUsed(agent.modelsUsed, model),
       tokensMax: ctx.getContextWindowSize(model),
+      ...(effort ? { effort } : {}),
     })
   }
+}
+
+/** Model fields to merge into a returning agent: the requested model is remembered, the shown model follows priority. */
+function spawnModelFields(
+  agent: Agent,
+  incoming: { model?: string; modelSource: ModelSource; requestedModel?: string },
+  ctx: ProcessEventContext,
+): Partial<Agent> {
+  const out: Partial<Agent> = {}
+  if (incoming.requestedModel) out.requestedModel = incoming.requestedModel
+  const candidate = incoming.model
+    ? { model: incoming.model, source: incoming.modelSource }
+    : incoming.requestedModel ? { model: incoming.requestedModel, source: 'requested' as const } : undefined
+  const merged = candidate ? mergeModel(agent, candidate) : null
+  if (merged) {
+    out.model = merged.model
+    out.modelSource = merged.modelSource
+    if (merged.model !== agent.model) out.tokensMax = ctx.getContextWindowSize(merged.model)
+  }
+  return out
 }

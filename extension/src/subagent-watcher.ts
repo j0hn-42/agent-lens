@@ -285,7 +285,7 @@ function startTeammate(
     ...(meta.color ? { color: meta.color } : {}),
     ...(meta.agentType ? { agentType: meta.agentType } : {}),
     backendType: 'in-process',
-    ...(meta.model ? { model: meta.model } : {}),
+    ...(meta.model ? { model: meta.model, modelSource: 'configured' } : {}),
   }
   const parent = record.parentName ?? ORCHESTRATOR_NAME
   record.spawned = true
