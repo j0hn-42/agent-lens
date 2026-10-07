@@ -47,6 +47,15 @@ test('signature: separators prevent collisions between neighbouring fields', () 
   assert.notEqual(x, y)
 })
 
+test('signature: selection anywhere in the subtree changes it (the highlighted row must update)', () => {
+  const child = { ...base, id: 'a:sub', parentKey: 'a:main', name: 'sub' }
+  const tree = node(base, [node(child)])
+  const none = agentTreeSignature(tree, 1500, null)
+  assert.notEqual(agentTreeSignature(tree, 1500, 'a:sub'), none)
+  assert.notEqual(agentTreeSignature(tree, 1500, 'a:main'), none)
+  assert.equal(agentTreeSignature(tree, 1500, 'elsewhere'), none)
+})
+
 // ─── focus ──────────────────────────────────────────────────────────────────
 
 type FakeEl = { dataset: Record<string, string | undefined>; focused?: boolean; focus: (o?: unknown) => void; closest: (s: string) => FakeEl | null }

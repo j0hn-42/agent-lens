@@ -29,14 +29,14 @@ export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
 
 /**
  * Signature of an agent row and its whole subtree: equal signatures mean the DOM would be identical,
- * so the row can be kept as is. Fields are separated by a control character that no label contains.
+ * so the row can be kept as is. The selected id is part of it: the highlighted row must update. Fields are separated by a control character that no label contains.
  */
-export function agentTreeSignature(node: AgentNode, freshnessNow: number): string {
+export function agentTreeSignature(node: AgentNode, freshnessNow: number, selectedId: string | null = null): string {
   const a = node.agent
   const view = agentRowView(a, freshnessNow)
-  const own = [a.id, a.name, a.state, a.kind ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed].join('\u0001')
+  const own = [a.id, a.name, a.state, a.kind ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed, a.id === selectedId ? 'sel' : ''].join('\u0001')
   if (node.children.length === 0) return own
-  return `${own}\u0002${node.children.map(c => agentTreeSignature(c, freshnessNow)).join('\u0003')}\u0004`
+  return `${own}\u0002${node.children.map(c => agentTreeSignature(c, freshnessNow, selectedId)).join('\u0003')}\u0004`
 }
 
 // ─── Focus ──────────────────────────────────────────────────────────────────
