@@ -8,8 +8,9 @@ import { useClickOutside } from '@/hooks/use-click-outside'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import {
   stateLabel, truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex,
-  EMPTY_MESSAGES, FOCUS_RING,
-} from './feed-utils'
+  markUnread, activeTabIndexOf, EMPTY_MESSAGES, FOCUS_RING,
+} from '@/lib/feed-utils'
+import { ChevronIcon, ArrowDownIcon } from './feed-icons'
 
 interface MessageFeedPanelProps {
   conversations: Map<string, ConversationMessage[]>
@@ -49,6 +50,8 @@ export function MessageFeedPanel({
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const [tabOverflow, setTabOverflow] = useState({ left: false, right: false })
   const baseId = useId()
+  const regionId = `${baseId}-region`
+  const listId = `${baseId}-list`
   const tabPanelId = `${baseId}-panel`
   const tabId = (i: number) => `${baseId}-tab-${i}`
   const agentsRef = useRef(agents)
@@ -158,13 +161,8 @@ export function MessageFeedPanel({
     const { increased, nextLens } = agentsWithNewText(prevLensRef.current, conversations, TEXT_TYPES)
     prevLensRef.current = nextLens
     if (!expanded || activeTab === 'all') return
-    const toMark = increased.filter(id => id !== activeTab)
-    if (toMark.length === 0) return
-    setUnread(prev => {
-      const next = new Set(prev)
-      for (const id of toMark) next.add(id)
-      return next
-    })
+    if (increased.length === 0) return
+    setUnread(prev => markUnread(prev, increased, activeTab))
   }, [conversations, expanded, activeTab])
 
   useEffect(() => {
@@ -219,7 +217,7 @@ export function MessageFeedPanel({
 
   const showTabs = agentsWithMessages.length > 1
   const tabKeys = ['all', ...agentsWithMessages]
-  const activeTabIndex = Math.max(0, tabKeys.indexOf(activeTab))
+  const activeTabIndex = activeTabIndexOf(tabKeys, activeTab)
 
   const onTabKeyDown = (e: React.KeyboardEvent) => {
     const next = nextTabIndex(e.key, activeTabIndex, tabKeys.length)
@@ -248,7 +246,8 @@ export function MessageFeedPanel({
           ref={pillRef}
           type="button"
           aria-expanded={false}
-          aria-label={`Expand messages. Latest from ${agentName}: ${preview}`}
+          aria-controls={regionId}
+          aria-label={`Expand messages. Latest ${role.label.toLowerCase()} message from ${agentName}: ${preview}`}
           title={agentName}
           onClick={() => setExpanded(true)}
           className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING}`}
@@ -261,7 +260,7 @@ export function MessageFeedPanel({
           <span className="text-[11px] font-mono truncate" style={{ color: role.text }}>
             {preview}{latestMessage.content.length > PREVIEW_MAX ? '...' : ''}
           </span>
-          <span aria-hidden="true" className="text-[11px] shrink-0" style={{ color: COLORS.textMuted }}>▾</span>
+          <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }}><ChevronIcon direction="down" /></span>
         </button>
       </div>
     )
@@ -271,6 +270,7 @@ export function MessageFeedPanel({
   const messageList = (
     <div
       ref={logRef}
+      id={listId}
       onScroll={handleScroll}
       role="log"
       aria-live="off"
@@ -302,8 +302,9 @@ export function MessageFeedPanel({
                   agentName={agents.get(msg.agentId)?.name ?? msg.agentId}
                   showAgent={activeTab === 'all'}
                   isSelected={selectedAgentId === msg.agentId}
-                  onClick={() => { onAgentClick(msg.agentId); setExpanded(false) }}
+                  onClick={() => { onAgentClick(msg.agentId); restoreFocusRef.current = true; setExpanded(false) }}
                   runtime={agents.get(msg.agentId)?.runtime}
+                  contentId={`${baseId}-msg-${msg.id}`}
                 />
               </div>
             ))}
@@ -316,6 +317,7 @@ export function MessageFeedPanel({
   return (
     <div
       ref={panelRef}
+      id={regionId}
       role="region"
       aria-label="Messages"
       className="absolute"
@@ -339,12 +341,13 @@ export function MessageFeedPanel({
             type="button"
             aria-label="Collapse messages"
             aria-expanded={true}
+            aria-controls={regionId}
             title="Collapse messages (Esc)"
             onClick={() => { restoreFocusRef.current = true; setExpanded(false) }}
             className={`min-h-6 min-w-6 inline-flex items-center justify-center rounded text-[11px] motion-safe:transition-colors ${FOCUS_RING}`}
             style={{ color: COLORS.textMuted }}
           >
-            <span aria-hidden="true">▴</span>
+            <ChevronIcon direction="up" />
           </button>
         </div>
 
@@ -374,7 +377,7 @@ export function MessageFeedPanel({
                     label={name.length > TAB_AGENT_NAME_MAX ? name.slice(0, TAB_AGENT_NAME_MAX) + '..' : name}
                     fullName={name}
                     stateText={agent ? stateLabel(agent.state) : undefined}
-                    active={activeTab === key}
+                    active={i === activeTabIndex}
                     onClick={() => setActiveTab(key)}
                     color={color}
                     hasUnread={key !== 'all' && unread.has(key)}
@@ -383,12 +386,12 @@ export function MessageFeedPanel({
               })}
             </div>
             {tabOverflow.left && (
-              <span aria-hidden="true" className="pointer-events-none absolute left-0 top-0 bottom-1.5 w-4 flex items-center text-[11px]"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(90deg, ${COLORS.panelBg}, transparent)` }}>‹</span>
+              <span aria-hidden="true" className="pointer-events-none absolute left-0 top-0 bottom-1.5 w-4 flex items-center"
+                style={{ color: COLORS.textMuted, background: `linear-gradient(90deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="left" size={10} /></span>
             )}
             {tabOverflow.right && (
-              <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 bottom-1.5 w-4 flex items-center justify-end text-[11px]"
-                style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}>›</span>
+              <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 bottom-1.5 w-4 flex items-center justify-end"
+                style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
             )}
           </div>
         )}
@@ -409,11 +412,13 @@ export function MessageFeedPanel({
           <div className="flex justify-center pt-1">
             <button
               type="button"
+              aria-controls={listId}
               onClick={scrollToBottom}
               className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING}`}
               style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.scrollBtnText }}
             >
-              {newCount > 0 ? `↓ ${newCount} new message${newCount === 1 ? '' : 's'}` : '↓ Jump to latest'}
+              <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
+              {newCount > 0 ? `${newCount} new message${newCount === 1 ? '' : 's'}` : 'Jump to latest'}
             </button>
           </div>
         )}
@@ -474,13 +479,14 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
 
 // ── Message Row ──
 
-function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtime }: {
+function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtime, contentId }: {
   message: ConversationMessage
   agentName: string
   showAgent: boolean
   isSelected: boolean
   onClick: () => void
   runtime?: Agent['runtime']
+  contentId: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const role = ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant
@@ -522,6 +528,7 @@ function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtim
 
         {/* Content */}
         <span
+          id={contentId}
           className="block text-xs font-mono leading-relaxed whitespace-pre-wrap break-words"
           style={{ color: role.text }}
         >
@@ -534,11 +541,13 @@ function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtim
         <button
           type="button"
           aria-expanded={expanded}
+          aria-controls={contentId}
           className={`text-[11px] font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
           style={{ color: COLORS.textMuted }}
           onClick={() => setExpanded(prev => !prev)}
         >
-          {expanded ? '▴ Show less' : `▾ Show all (+${truncated.hidden} chars)`}
+          <ChevronIcon direction={expanded ? 'up' : 'down'} size={10} className="mr-1" />
+          {expanded ? 'Show less' : `Show all (+${truncated.hidden} chars)`}
         </button>
       )}
     </div>

@@ -3,7 +3,8 @@
 import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
-import { truncateWithMarker, FOCUS_RING } from './feed-utils'
+import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
+import { SearchIcon, GlobeIcon, CheckIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
 type OpenFileCallback = (filePath: string, line?: number) => void
@@ -71,6 +72,21 @@ function ClampedText({ text, max }: { text: string; max: number }) {
   )
 }
 
+function ShowAllToggle({ visible, showAll, onToggle }: { visible: boolean; showAll: boolean; onToggle: () => void }) {
+  if (!visible) return null
+  return (
+    <button
+      type="button"
+      aria-expanded={showAll}
+      onClick={onToggle}
+      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING}`}
+      style={{ color: COLORS.textMuted }}
+    >
+      {showAll ? 'Show less' : 'Show all'}
+    </button>
+  )
+}
+
 function FilePath({ path: filePath }: { path: string }) {
   const openFile = useContext(OpenFileContext)
   if (!filePath) return null
@@ -97,39 +113,37 @@ function FilePath({ path: filePath }: { path: string }) {
 }
 
 function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
-  const oldStr = String(data.old_string || '')
-  const newStr = String(data.new_string || '')
-  const maxLines = compact ? 4 : 8
-
-  const oldAll = oldStr.split('\n')
-  const newAll = newStr.split('\n')
-  const oldLines = oldAll.slice(0, maxLines)
-  const newLines = newAll.slice(0, maxLines)
+  const maxLines = showAll ? Infinity : (compact ? 4 : 8)
+  const old = truncateLines(String(data.old_string || ''), maxLines)
+  const next = truncateLines(String(data.new_string || ''), maxLines)
+  const hiddenTotal = old.hidden + next.hidden
 
   return (
     <div>
       <FilePath path={filePath} />
       <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
-        {oldLines.map((line, i) => (
+        {old.lines.map((line, i) => (
           <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
             <span className="sr-only">Removed: </span>
             <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
           </div>
         ))}
-        {oldAll.length > maxLines && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{oldAll.length - maxLines} lines removed)</div>
+        {old.hidden > 0 && (
+          <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
         )}
-        {newLines.map((line, i) => (
+        {next.lines.map((line, i) => (
           <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
             <span className="sr-only">Added: </span>
             <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
           </div>
         ))}
-        {newAll.length > maxLines && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{newAll.length - maxLines} lines added)</div>
+        {next.hidden > 0 && (
+          <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
         )}
       </div>
+      <ShowAllToggle visible={hiddenTotal > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
   )
 }
@@ -157,7 +171,7 @@ function TodoContent({ data }: { data: Record<string, unknown> }) {
   return (
     <ul className="space-y-0.5 list-none p-0 m-0" aria-label="Todo list">
       {todos.map((todo, i) => {
-        const icon = todo.status === 'completed' ? '✓' :
+        const icon = todo.status === 'completed' ? <CheckIcon /> :
           todo.status === 'in_progress' ? '●' : '○'
         const color = todo.status === 'completed' ? COLORS.todoCompleted :
           todo.status === 'in_progress' ? COLORS.tool_calling : COLORS.todoPending
@@ -199,23 +213,22 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
 }
 
 function WriteContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
-  const content = String(data.content || '')
-  const maxLines = compact ? 4 : 8
-  const all = content.split('\n')
-  const lines = all.slice(0, maxLines)
+  const t = truncateLines(String(data.content || ''), showAll ? Infinity : (compact ? 4 : 8))
 
   return (
     <div>
       <FilePath path={filePath} />
       <div className="rounded px-1.5 py-1 text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim }}>
-        {lines.map((line, i) => (
-          <div key={i} className="truncate" title={line.length > 60 ? line : undefined}>{line || ' '}</div>
+        {t.lines.map((line, i) => (
+          <div key={i} className={showAll ? 'whitespace-pre-wrap break-words' : 'truncate'} title={!showAll && line.length > 60 ? line : undefined}>{line || ' '}</div>
         ))}
-        {all.length > maxLines && (
-          <div>… (+{all.length - maxLines} lines)</div>
+        {t.hidden > 0 && (
+          <div>… (+{t.hidden} lines)</div>
         )}
       </div>
+      <ShowAllToggle visible={t.hidden > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
   )
 }
@@ -268,7 +281,7 @@ function WebSearchContent({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="rounded px-1.5 py-1 text-xs font-mono flex items-center gap-1.5" style={{ background: COLORS.codeBlockBg }}>
-      <span aria-hidden="true" style={{ color: COLORS.searchIcon }}>🔍</span>
+      <span aria-hidden="true" style={{ color: COLORS.searchIcon }}><SearchIcon /></span>
       <span className="sr-only">Web search:</span>
       <span style={{ color: COLORS.assistantText }}>{query}</span>
     </div>
@@ -278,17 +291,16 @@ function WebSearchContent({ data }: { data: Record<string, unknown> }) {
 function WebFetchContent({ data }: { data: Record<string, unknown> }) {
   const url = String(data.url || '')
   const prompt = String(data.prompt || '')
-  let displayUrl = url
-  try { const u = new URL(url); displayUrl = u.hostname + u.pathname.slice(0, 50) } catch { /* keep full */ }
 
   return (
     <div>
-      <div className="rounded px-1.5 py-1 text-xs font-mono truncate" title={url} style={{ background: COLORS.codeBlockBg, color: COLORS.filePathActive }}>
-        <span aria-hidden="true">🌐 </span><span className="sr-only">Fetch: </span>{displayUrl}
+      <div className="rounded px-1.5 py-1 text-xs font-mono break-all" style={{ background: COLORS.codeBlockBg, color: COLORS.filePathActive }}>
+        <span aria-hidden="true" className="mr-1"><GlobeIcon /></span><span className="sr-only">Fetch: </span>
+        <ClampedText text={url} max={80} />
       </div>
       {prompt && (
-        <div className="mt-1 text-[11px] truncate" title={prompt} style={{ color: COLORS.contentDim }}>
-          {prompt.slice(0, 120)}
+        <div className="mt-1 text-[11px] break-words" style={{ color: COLORS.contentDim }}>
+          <ClampedText text={prompt} max={120} />
         </div>
       )}
     </div>

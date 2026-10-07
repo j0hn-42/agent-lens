@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { AUTO_SCROLL_THRESHOLD } from '@/lib/canvas-constants'
-import { VIRTUALIZE_THRESHOLD } from '@/components/agent-visualizer/feed-utils'
+import { resolveRenderWindow } from '@/lib/feed-utils'
 
 const OVERSCAN = 10
 
@@ -128,24 +128,20 @@ export function useVirtualList<T extends { id: string }>(
     else break
   }
 
-  // Small lists are rendered in full: no windowing, no absolute positioning
-  const virtualized = items.length >= VIRTUALIZE_THRESHOLD
-  if (!virtualized) {
-    startIdx = 0
-    endIdx = items.length
-  } else if (typeof document !== 'undefined' && document.activeElement) {
-    // Never unmount the item that holds keyboard focus
+  // Small lists render in full; large ones are windowed but keep the focused item mounted
+  let focusedIdx = -1
+  if (typeof document !== 'undefined' && document.activeElement) {
     const active = document.activeElement
     for (const [id, el] of elementsRef.current) {
       if (!el.contains(active)) continue
-      const idx = items.findIndex(it => it.id === id)
-      if (idx >= 0) {
-        if (idx < startIdx) startIdx = idx
-        if (idx >= endIdx) endIdx = idx + 1
-      }
+      focusedIdx = items.findIndex(it => it.id === id)
       break
     }
   }
+  const win = resolveRenderWindow(items.length, startIdx, endIdx, focusedIdx)
+  startIdx = win.start
+  endIdx = win.end
+  const virtualized = win.virtualized
 
   const visibleItems = items.slice(startIdx, endIdx)
   const offsetTop = virtualized && startIdx < offsets.length ? offsets[startIdx] : 0

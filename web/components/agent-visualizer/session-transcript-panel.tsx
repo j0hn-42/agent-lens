@@ -7,7 +7,8 @@ import { TranscriptMessage } from './transcript-message'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { CloseButton, SlidingPanel, stopPropagationHandlers } from './shared-ui'
 import { useVirtualList } from '@/hooks/use-virtual-list'
-import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING } from './feed-utils'
+import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING } from '@/lib/feed-utils'
+import { SearchIcon, ArrowDownIcon } from './feed-icons'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -32,6 +33,8 @@ export function SessionTranscriptPanel({
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const toggleRef = useRef<HTMLButtonElement>(null)
+  const logId = useId()
   const scrollRef = useRef<HTMLDivElement>(null)
   const searchId = useId()
 
@@ -91,6 +94,7 @@ export function SessionTranscriptPanel({
           </div>
           <div className="flex items-center gap-1">
             <button
+              ref={toggleRef}
               type="button"
               onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery('') }}
               aria-label="Filter messages"
@@ -103,7 +107,7 @@ export function SessionTranscriptPanel({
                 color: showSearch ? COLORS.assistantText : COLORS.textMuted,
               }}
             >
-              <span aria-hidden="true">/</span>
+              <SearchIcon size={12} />
             </button>
             <CloseButton onClick={onClose} className="px-1" />
           </div>
@@ -119,7 +123,7 @@ export function SessionTranscriptPanel({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') { setShowSearch(false); setSearchQuery('') }
+                if (e.key === 'Escape') { setShowSearch(false); setSearchQuery(''); toggleRef.current?.focus() }
                 e.stopPropagation()
               }}
               placeholder="Filter messages..."
@@ -137,6 +141,7 @@ export function SessionTranscriptPanel({
         {/* Virtualized message list */}
         <div
           ref={scrollRef}
+          id={logId}
           onScroll={handleScroll}
           role="log"
           aria-live="off"
@@ -176,6 +181,7 @@ export function SessionTranscriptPanel({
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
             <button
               type="button"
+              aria-controls={logId}
               onClick={scrollToBottom}
               className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING}`}
               style={{
@@ -184,7 +190,8 @@ export function SessionTranscriptPanel({
                 color: COLORS.scrollBtnText,
               }}
             >
-              {newCount > 0 ? `↓ ${newCount} new message${newCount === 1 ? '' : 's'}` : '↓ Jump to latest'}
+              <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
+              {newCount > 0 ? `${newCount} new message${newCount === 1 ? '' : 's'}` : 'Jump to latest'}
             </button>
           </div>
         )}

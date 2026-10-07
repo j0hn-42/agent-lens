@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { COLORS, ROLE_COLORS } from '../web/lib/colors'
 import {
   truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex, stateLabel, STATE_LABELS,
-} from '../web/components/agent-visualizer/feed-utils'
+} from '../web/lib/feed-utils'
 
 // ─── Pure helpers ───────────────────────────────────────────────────────────
 

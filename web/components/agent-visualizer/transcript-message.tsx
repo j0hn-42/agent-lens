@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useId } from 'react'
 import { COLORS } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
-import { truncateWithMarker, FOCUS_RING } from './feed-utils'
+import { truncateWithMarker, FOCUS_RING } from '@/lib/feed-utils'
+import { ChevronIcon, CheckIcon, GearIcon } from './feed-icons'
 
 // ─── Shared message rendering utilities ──────────────────────────────────────
 
@@ -47,6 +48,7 @@ function TruncatedText({ text, limit, query, color }: { text: string; limit: num
 
 export function TranscriptMessage({ message, compact = false, searchQuery, assistantLabel = 'CLAUDE' }: { message: ConversationMessage; compact?: boolean; searchQuery?: string; assistantLabel?: string }) {
   const [expanded, setExpanded] = useState(false)
+  const thinkingId = useId()
 
   switch (message.type) {
     case 'user':
@@ -96,12 +98,13 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
           <button
             type="button"
             aria-expanded={expanded}
+            aria-controls={thinkingId}
             onClick={() => setExpanded(!expanded)}
             title={expanded ? 'Collapse thinking' : message.content.slice(0, 200)}
             className={`flex items-center gap-1.5 w-full min-h-6 text-left rounded ${FOCUS_RING}`}
           >
             <span className="text-[11px] font-semibold tracking-wider" style={{ color: COLORS.thinkingLabel }}>THINKING</span>
-            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.thinkingArrow }}>{expanded ? '▾' : '▸'}</span>
+            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.thinkingArrow }}><ChevronIcon direction={expanded ? 'down' : 'right'} size={10} /></span>
             {!expanded && (
               <span className="text-[11px] font-mono truncate" style={{ color: COLORS.thinkingPreview }}>
                 {preview.text}{preview.hidden > 0 ? preview.marker : ''}
@@ -110,6 +113,7 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
           </button>
           {expanded && (
             <div
+              id={thinkingId}
               className="mt-1.5 text-xs font-mono leading-relaxed whitespace-pre-wrap break-words"
               style={{ color: COLORS.thinkingTextExpanded, borderLeft: `2px solid ${COLORS.thinkingBorderLeft}`, paddingLeft: 8 }}
             >
@@ -132,7 +136,7 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
           }}
         >
           <div className="flex items-center gap-1.5 mb-1">
-            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.userLabel }}>⚙</span>
+            <span aria-hidden="true" className="text-[11px]" style={{ color: COLORS.userLabel }}><GearIcon size={11} /></span>
             <span className="sr-only">Tool call:</span>
             <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
               {message.toolName || 'Tool'}
@@ -167,7 +171,7 @@ export function TranscriptMessage({ message, compact = false, searchQuery, assis
           }}
         >
           <div className="flex items-center gap-1.5 mb-0.5">
-            <span aria-hidden="true" className="text-[11px]">{isBash ? '$' : '✓'}</span>
+            <span aria-hidden="true" className="text-[11px]">{isBash ? '$' : <CheckIcon size={11} />}</span>
             <span className="sr-only">Tool result:</span>
             {message.toolName && (
               <span className="text-[11px]">{message.toolName}</span>
