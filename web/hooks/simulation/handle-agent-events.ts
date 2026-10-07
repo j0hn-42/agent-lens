@@ -8,6 +8,8 @@ import { AGENT_SPAWN_DISTANCE } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
 import { idString, resolveChildLocalId } from './agent-keys'
+import { parseTeammateExtras } from './team-info'
+import { evictArchived } from './archive'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -38,6 +40,16 @@ export function handleAgentSpawn(
   const model = typeof payload.model === 'string' ? cappedString(payload.model, MAX_ID_LEN) : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
 
+  const team = parseTeammateExtras(payload)
+  const teamFields = team ? {
+    kind: 'teammate' as const,
+    teamName: team.teamName,
+    ...(team.teamColor ? { teamColor: team.teamColor } : {}),
+    activity: 'working' as const,
+    ...(team.agentType ? { agentType: team.agentType } : {}),
+    ...(team.backend ? { backend: team.backend } : {}),
+  } : {}
+
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
   const existing = state.agents.get(name)
@@ -45,6 +57,11 @@ export function handleAgentSpawn(
     state.agents.set(name, {
       ...existing,
       state: 'idle',
+      // A returning agent is live again: undo archiving
+      archived: false,
+      completeTime: undefined,
+      ...(existing.kind === 'teammate' ? { activity: 'working' as const } : {}),
+      ...teamFields,
       ...(task ? { task } : {}),
       ...(model ? { model, tokensMax: ctx.getContextWindowSize(model) } : {}),
       ...(runtime ? { runtime } : {}),
@@ -104,6 +121,7 @@ export function handleAgentSpawn(
     pinned: false, isMain,
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
+    ...teamFields,
     task,
     spawnTime: currentTime,
     opacity: 0, scale: 0.3,
@@ -144,7 +162,7 @@ export function handleAgentComplete(
   const name = agentKeyOf(sessionId, idString(payload.name))
   const agent = state.agents.get(name)
   if (agent && agent.state !== 'complete') {
-    state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime })
+    state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
 
     const entry = state.timelineEntries.get(name)
     if (entry) {
@@ -155,7 +173,7 @@ export function handleAgentComplete(
     const agentsToComplete = [name]
     for (const [childId, childAgent] of state.agents) {
       if (childAgent.parentId === name && childAgent.state !== 'complete') {
-        state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime })
+        state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime, archived: true })
         agentsToComplete.push(childId)
         const childEntry = state.timelineEntries.get(childId)
         if (childEntry) {
@@ -170,6 +188,9 @@ export function handleAgentComplete(
         state.toolCalls.set(tcId, { ...tc, state: 'complete', completeTime: currentTime })
       }
     }
+
+    // Finished agents are kept (archived), never dropped: only the per-session cap evicts the oldest
+    evictArchived(state, sessionId)
   }
 }
 

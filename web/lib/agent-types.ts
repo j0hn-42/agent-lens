@@ -38,6 +38,10 @@ export interface Agent {
   teamName?: string
   /** Team color, validated '#rrggbb' only */
   teamColor?: string
+  /** Role reported by the team config (e.g. 'general-purpose'), for teammates */
+  agentType?: string
+  /** Teammate backend ('in-process' | 'tmux' | ...) */
+  backend?: string
   /** Teammate activity; idle teammates stay visible */
   activity?: 'working' | 'idle' | 'done'
   /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */

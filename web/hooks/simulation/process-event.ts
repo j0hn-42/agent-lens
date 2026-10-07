@@ -3,6 +3,7 @@ import {
   ToolCallNode,
   Edge,
   SimulationEvent,
+  type TeamSummary,
   type TimelineEntry,
   type TimelineBlock,
 } from '../../lib/agent-types'
@@ -13,6 +14,7 @@ import { handleToolCallStart, handleToolCallEnd } from './handle-tool-events'
 import { handleMessage, handleContextUpdate } from './handle-message-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
+import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
 
 export interface ProcessEventContext {
   syncForceSimulation: (agents: Map<string, Agent>, edges: Edge[]) => void
@@ -33,6 +35,7 @@ export interface MutableEventState {
   timelineEntries: SimulationState['timelineEntries']
   conversations: Map<string, ConversationMessage[]>
   links: Map<string, AgentLink>
+  teams: Map<string, TeamSummary>
   droppedMessages: Map<string, number>
 }
 
@@ -78,6 +81,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         timelineEntries: new Map(prev.timelineEntries),
         conversations: new Map(prev.conversations),
         links: new Map(prev.links),
+        teams: new Map(prev.teams),
         droppedMessages: new Map(prev.droppedMessages),
       }
       const sid = eventSessionId(event)
@@ -95,6 +99,8 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'subagent_return':   handleSubagentReturn(event.payload, prev.currentTime, state, sid); break
         case 'agent_link':        handleAgentLink(event.payload, prev.currentTime, state, sid); break
         case 'message_sent':      handleMessageSent(event.payload, prev.currentTime, state, sid); break
+        case 'team_info':         handleTeamInfo(event.payload, state); break
+        case 'agent_activity':    handleAgentActivity(event.payload, prev.currentTime, state, ctx, sid); break
         case 'permission_requested': handlePermissionRequested(event.payload, prev.currentTime, state, ctx, sid); break
       }
 
@@ -109,6 +115,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         timelineEntries: mapsEqual(prev.timelineEntries, state.timelineEntries) ? prev.timelineEntries : state.timelineEntries,
         conversations: mapsEqual(prev.conversations, state.conversations) ? prev.conversations : state.conversations,
         links: mapsEqual(prev.links, state.links) ? prev.links : state.links,
+        teams: mapsEqual(prev.teams, state.teams) ? prev.teams : state.teams,
         droppedMessages: mapsEqual(prev.droppedMessages, state.droppedMessages) ? prev.droppedMessages : state.droppedMessages,
       }
 }

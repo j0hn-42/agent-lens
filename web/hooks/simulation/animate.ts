@@ -4,13 +4,16 @@ import {
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
   ANIM_SPEED, isExpiryHeld,
-} from '@/lib/canvas-constants'
-import { a11yRecorder, recordFrame } from '@/components/agent-visualizer/canvas/a11y-recorder'
+} from '../../lib/canvas-constants'
+import { ARCHIVED_OPACITY } from './archive'
+import { a11yRecorder, recordFrame } from '../../components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
   useMockData: boolean
   mockScenarioLength: number
   mockScenarioEndTime: number
+  /** Playback speed to animate with (already forced to 1 outside review); defaults to the state's speed */
+  speed?: number
 }
 
 function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
@@ -25,7 +28,10 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
     if (agent.state !== 'complete' && opacity < 1) { opacity = Math.min(1, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
     if (agent.state !== 'complete' && scale < 1) { scale = Math.min(1, scale + deltaTime * ANIM_SPEED.agentScaleIn); updated = true }
     if (agent.state === 'complete' && !agent.isMain) {
-      if (opacity > 0) { opacity = Math.max(0, opacity - deltaTime * ANIM_SPEED.agentFadeOut); updated = true }
+      // Archived agents are kept: they fade to a reduced opacity instead of vanishing
+      const floor = agent.archived ? ARCHIVED_OPACITY : 0
+      if (opacity > floor) { opacity = Math.max(floor, opacity - deltaTime * ANIM_SPEED.agentFadeOut); updated = true }
+      else if (opacity < floor) { opacity = Math.min(floor, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
       if (scale > 0.8) { scale = Math.max(0.8, scale - deltaTime * ANIM_SPEED.agentScaleOut); updated = true }
     }
     if (agent.state !== 'complete') { timeAlive += deltaTime; updated = true }
@@ -95,7 +101,7 @@ function cleanupFaded(
   // Cleanup faded agents (completed sub-agents) and their edges
   const fadedAgentIds: string[] = []
   for (const [id, agent] of newAgents) {
-    if (!agent.isMain && agent.state === 'complete' && agent.opacity <= 0) {
+    if (!agent.isMain && !agent.archived && agent.state === 'complete' && agent.opacity <= 0) {
       fadedAgentIds.push(id)
     }
   }
@@ -169,7 +175,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
         cleanupFaded(newAgentsRaw, newToolCallsRaw, newEdgesRaw, currentState.agents, currentState.toolCalls)
 
       const newDiscoveries = animateDiscoveries(currentState.discoveries, deltaTime, newTime)
-      const newParticles = animateParticles(currentState.particles, deltaTime, currentState.speed)
+      const newParticles = animateParticles(currentState.particles, deltaTime, options.speed ?? currentState.speed)
 
       // Stop playback when mock scenario ends (user can restart manually)
       if (options.useMockData && currentState.eventIndex >= options.mockScenarioLength && newTime > options.mockScenarioEndTime + MOCK_END_BUFFER_S) {

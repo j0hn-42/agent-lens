@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
+import { createTeamTracker, teamSessionIds } from '@/hooks/simulation/team-info'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
-import { SimulationEvent } from '@/lib/agent-types'
+import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 
 interface BridgeHookResult {
   isVSCode: boolean
@@ -32,6 +33,12 @@ interface BridgeHookResult {
   selectedSessionIdRef: React.RefObject<string | null>
   /** True while the 'All' tab (union of every session) is selected */
   isAllSelected: boolean
+  /** Agent Teams seen in any session (selected or not), by team name */
+  teams: Map<string, TeamSummary>
+  /** Members currently working, per team name */
+  teamWorking: Map<string, number>
+  /** Members known per team (team config or teammates seen) */
+  teamMemberCounts: Map<string, number>
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
   /** Remove a session from the list */
@@ -73,6 +80,28 @@ export function useVSCodeBridge(): BridgeHookResult {
 
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const sessionsRef = useRef<SessionInfo[]>([])
+  sessionsRef.current = sessions
+  // Teams are tracked over the whole event stream so tabs stay correct whichever tab is selected
+  const teamTrackerRef = useRef(createTeamTracker())
+  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
+    () => ({ teams: new Map(), working: new Map(), members: new Map() }),
+  )
+  const refreshTeamView = useCallback(() => {
+    const tracker = teamTrackerRef.current
+    const working = new Map<string, number>()
+    const members = new Map<string, number>()
+    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)) }
+    setTeamView({ teams: new Map(tracker.teams), working, members })
+  }, [])
+  /** Whether an event of `sessionId` belongs to the selected view (session, All, or team pseudo selection) */
+  const eventMatchesSelection = useCallback((selected: string | null, sessionId: string | undefined): boolean => {
+    if (!selected) return false
+    if (selected === ALL_SESSIONS_ID) return true
+    const team = parseTeamSelection(selected)
+    if (team !== null) return !!sessionId && teamSessionIds(team, teamTrackerRef.current, sessionsRef.current).has(sessionId)
+    return sessionId === selected
+  }, [])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const selectedSessionIdRef = useRef<string | null>(null)
   const sessionEventsRef = useRef<Map<string, SimulationEvent[]>>(new Map())
@@ -173,6 +202,8 @@ export function useVSCodeBridge(): BridgeHookResult {
         sessionId: event.sessionId,
       }
 
+      if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
+
       // Always buffer by session (for replay on session switch)
       if (event.sessionId) {
         const buf = sessionEventsRef.current.get(event.sessionId) || []
@@ -191,7 +222,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       // Skip if a session switch is pending — useLayoutEffect will flush
       // from the session buffer once the simulation state is swapped.
       const selected = selectedSessionIdRef.current
-      const matches = selected === ALL_SESSIONS_ID || (!!selected && event.sessionId === selected)
+      const matches = eventMatchesSelection(selected, event.sessionId)
       if (selected && matches && !sessionSwitchPendingRef.current) {
         pendingEventsRef.current.push(simEvent)
         setEventVersion(v => v + 1)
@@ -243,6 +274,8 @@ export function useVSCodeBridge(): BridgeHookResult {
         sessionEventsRef.current.clear()
         allEventsRef.current = []
         allBaseRef.current = 0
+        teamTrackerRef.current.clear()
+        refreshTeamView()
         setSessionsWithActivity(new Set())
         dismissedSessionsRef.current.clear()
         setEventVersion(v => v + 1)
@@ -317,7 +350,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [pushNotice])
+  }, [pushNotice, refreshTeamView, eventMatchesSelection])
 
   const consumeEvents = useCallback(() => {
     // Clear in-place so stale closures in animation callbacks
@@ -336,6 +369,15 @@ export function useVSCodeBridge(): BridgeHookResult {
     if (sessionId === ALL_SESSIONS_ID) {
       // The union view shows every session: nothing is unseen any more
       setSessionsWithActivity(prev => (prev.size === 0 ? prev : new Set()))
+    } else if (parseTeamSelection(sessionId) !== null) {
+      // A team view shows the team's sessions: they are no longer unseen
+      const ids = teamSessionIds(parseTeamSelection(sessionId)!, teamTrackerRef.current, sessionsRef.current)
+      setSessionsWithActivity(prev => {
+        if (![...ids].some(id => prev.has(id))) return prev
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
     } else if (sessionId) {
       setSessionsWithActivity(prev => {
         if (!prev.has(sessionId)) return prev
@@ -351,19 +393,22 @@ export function useVSCodeBridge(): BridgeHookResult {
   const flushSessionEvents = useCallback((sessionId: string, fromIndex = 0) => {
     sessionSwitchPendingRef.current = false
     pendingEventsRef.current.length = 0
-    if (sessionId === ALL_SESSIONS_ID) {
-      // fromIndex is an absolute position: subtract what the cap already trimmed
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) {
+      // fromIndex is an absolute position: subtract what the cap already trimmed.
+      // A team selection takes the events of the team's sessions out of the same arrival-order buffer.
       const all = allEventsRef.current
-      for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) pendingEventsRef.current.push(all[i])
+      for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) {
+        if (sessionId === ALL_SESSIONS_ID || eventMatchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
+      }
     } else {
       const buffered = sessionEventsRef.current.get(sessionId) || []
       pendingEventsRef.current.push(...buffered.slice(fromIndex))
     }
     setEventVersion(v => v + 1)
-  }, [])
+  }, [eventMatchesSelection])
 
   const getSessionEventCount = useCallback((sessionId: string): number => {
-    if (sessionId === ALL_SESSIONS_ID) return allBaseRef.current + allEventsRef.current.length
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return allBaseRef.current + allEventsRef.current.length
     return sessionEventsRef.current.get(sessionId)?.length ?? 0
   }, [])
 
@@ -412,6 +457,9 @@ export function useVSCodeBridge(): BridgeHookResult {
     flushSessionEvents,
     getSessionEventCount,
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
+    teams: teamView.teams,
+    teamWorking: teamView.working,
+    teamMemberCounts: teamView.members,
     sessionsWithActivity,
     removeSession,
     restoreSession,

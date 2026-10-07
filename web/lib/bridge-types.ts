@@ -27,10 +27,34 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory of the session, when known */
   cwd?: string
+  /** Agent Team this session belongs to (tmux teammate sessions), when known */
+  teamName?: string
+  /** Teammate name inside the team, when the session is a team member */
+  memberName?: string
 }
 
 /** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
 export const ALL_SESSIONS_ID = '__all__'
+
+/** Prefix of the pseudo session ids that select one whole Agent Team ('team:<name>'). */
+export const TEAM_SELECTION_PREFIX = 'team:'
+
+/** Pseudo session id selecting the union of a team's sessions (never sent to or by the extension). */
+export function teamSelectionId(teamName: string): string {
+  return `${TEAM_SELECTION_PREFIX}${teamName}`
+}
+
+/** Team name when `id` is a team pseudo selection, else null. */
+export function parseTeamSelection(id: string | null | undefined): string | null {
+  return typeof id === 'string' && id.startsWith(TEAM_SELECTION_PREFIX) && id.length > TEAM_SELECTION_PREFIX.length
+    ? id.slice(TEAM_SELECTION_PREFIX.length)
+    : null
+}
+
+/** True for the 'All' tab and for team pseudo selections: views that union several sessions. */
+export function isUnionSelection(id: string | null | undefined): boolean {
+  return id === ALL_SESSIONS_ID || parseTeamSelection(id) !== null
+}
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'watching' | 'connecting'
 
@@ -67,6 +91,8 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
+    && (v.teamName === undefined || typeof v.teamName === 'string')
+    && (v.memberName === undefined || typeof v.memberName === 'string')
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {

@@ -20,6 +20,12 @@ export function findAgentByToolUseId(agents: Map<string, Agent>, sessionId: stri
  * - an agent already registered for this tool_use_id keeps its local id;
  * - if the name is taken by an agent dispatched by a different tool_use_id, a disambiguated
  *   local id `${name}@${toolUseId}` is used so both agents coexist.
+ *
+ * Addressing rule (tested): only dispatch/return/spawn carry the tool_use_id. Later events
+ * (tool_call_*, message, context_update, ...) address an agent by its local id, so a plain name
+ * always reaches the FIRST holder of that name; the second agent is reached by its disambiguated
+ * local id `${name}@${toolUseId}`. Producers that can collide on names must therefore make the names
+ * unique per session (the extension appends ' #n') or address the later agent by that local id.
  */
 export function resolveChildLocalId(
   agents: Map<string, Agent>,
