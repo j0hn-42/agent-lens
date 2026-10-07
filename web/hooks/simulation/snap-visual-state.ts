@@ -1,4 +1,5 @@
 import type { SimulationState } from './types'
+import { ARCHIVED_OPACITY } from './archive'
 import { TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '../../lib/canvas-constants'
 
 /** Snap visual properties to their analytically correct values at a given time (used during seek) */
@@ -6,8 +7,8 @@ export function snapVisualState(state: SimulationState, targetTime: number): Sim
 
   const newAgents = new Map(state.agents)
   for (const [id, agent] of newAgents) {
-    if (agent.state === 'complete' && !agent.isMain) {
-      // Remove completed sub-agents entirely during seek
+    if (agent.state === 'complete' && !agent.isMain && !agent.archived) {
+      // Remove completed (non-archived) sub-agents entirely during seek
       newAgents.delete(id)
       continue
     }
@@ -17,8 +18,8 @@ export function snapVisualState(state: SimulationState, targetTime: number): Sim
       snapped.scale = 1
       snapped.timeAlive = targetTime - agent.spawnTime
     } else {
-      // Main agent that completed
-      snapped.opacity = 0.5
+      // Main agent or archived agent that completed
+      snapped.opacity = ARCHIVED_OPACITY
       snapped.scale = 1
     }
     snapped.messageBubbles = agent.messageBubbles.filter(b => targetTime - b.time <= BUBBLE_VISIBLE_S)

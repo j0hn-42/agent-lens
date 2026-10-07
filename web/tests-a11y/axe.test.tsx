@@ -153,6 +153,25 @@ test('shell: session tabs', async () => {
   await check('session-tabs', container)
 })
 
+test('shell: session tabs with a team and runtime badges', async () => {
+  const teamSessions = [
+    { ...sessions[0], runtime: 'codex' as const },
+    { ...sessions[1], teamName: 'alpha', runtime: 'claude' as const },
+  ]
+  const teams = new Map([['alpha', { name: 'alpha', leadSessionId: 's1', members: [{ name: 'a' }, { name: 'b' }] }]])
+  const { container } = render(
+    <>
+      <SessionTabs
+        sessions={teamSessions} selectedSessionId="team:alpha" sessionsWithActivity={new Set()}
+        onSelectSession={noop} onCloseSession={noop}
+        teams={teams} teamWorking={new Map([['alpha', 1]])}
+      />
+      <main id="visualizer-main" />
+    </>,
+  )
+  await check('session-tabs-team', container)
+})
+
 test('panel: transcript', async () => {
   const { container } = render(
     <SessionTranscriptPanel visible conversation={messages} onClose={noop} />,

@@ -5,6 +5,7 @@ import type {
   Edge,
   Discovery,
   FileAttention,
+  TeamSummary,
   TimelineEntry,
   SimulationEvent,
 } from '../../lib/agent-types'
@@ -21,6 +22,8 @@ export interface SimulationState {
   conversations: Map<string, ConversationMessage[]>
   /** Communication links between agents (spawn / teammate), keyed by link id */
   links: Map<string, AgentLink>
+  /** Agent Teams seen in this view (from team_info events), keyed by team name */
+  teams: Map<string, TeamSummary>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
@@ -46,6 +49,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     timelineEntries: new Map(),
     conversations: new Map(),
     links: new Map(),
+    teams: new Map(),
     droppedMessages: new Map(),
     droppedEvents: 0,
     currentTime: 0,
@@ -184,6 +188,11 @@ export interface UseAgentSimulationOptions {
   sessionFilter?: string | null
   /** Ref updated synchronously when session changes (avoids stale closure in rAF) */
   sessionFilterRef?: React.RefObject<string | null>
+  /** True while the user reviews history (paused/scrubbing). Speed other than 1 only applies then. */
+  isReviewing?: boolean
+  /** Seconds to add to the event time of each session in union views ('All' / team), keyed by session id.
+   *  Events carry time relative to their own session start; offsets put them on a common wall-clock axis. */
+  sessionOffsetsRef?: React.RefObject<ReadonlyMap<string, number> | undefined>
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
 }

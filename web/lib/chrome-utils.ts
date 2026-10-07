@@ -3,7 +3,7 @@
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
 import { formatDuration, formatCost, pluralize } from './utils'
-import { ALL_SESSIONS_ID, type ConnectionStatus, type SessionInfo } from './bridge-types'
+import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
 export const FOCUS_RING =
@@ -32,6 +32,47 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
 /** Ids of the tabs in order: the 'All' tab first, then one per session. */
 export function sessionTabIds(sessions: ReadonlyArray<Pick<SessionInfo, 'id'>>): string[] {
   return [ALL_SESSIONS_ID, ...sessions.map(s => s.id)]
+}
+
+export interface TabItem {
+  /** Selection id: ALL_SESSIONS_ID, a session id or a team pseudo selection ('team:<name>') */
+  id: string
+  kind: 'all' | 'team' | 'session'
+  /** team tab: the team; session tab: the team the session belongs to (grouped under its team tab) */
+  teamName?: string
+}
+
+/**
+ * Tabs in order: 'All', then every team (its tab followed by its member sessions), then the sessions
+ * that belong to no team. Teams come from team events and from sessions tagged with a team name.
+ */
+export function buildTabModel(
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id'> & { teamName?: string }>,
+  teamNames: Iterable<string>,
+): TabItem[] {
+  const teams: string[] = []
+  const add = (name: string | undefined) => { if (name && !teams.includes(name)) teams.push(name) }
+  for (const n of teamNames) add(n)
+  for (const s of sessions) add(s.teamName)
+  const items: TabItem[] = [{ id: ALL_SESSIONS_ID, kind: 'all' }]
+  for (const team of teams) {
+    items.push({ id: teamSelectionId(team), kind: 'team', teamName: team })
+    for (const s of sessions) if (s.teamName === team) items.push({ id: s.id, kind: 'session', teamName: team })
+  }
+  for (const s of sessions) if (!s.teamName) items.push({ id: s.id, kind: 'session' })
+  return items
+}
+
+/** "Team X: 3 members, 2 working" */
+export function formatTeamSummary(teamName: string, members: number, working: number): string {
+  return `Team ${teamName}: ${pluralize(members, 'member')}, ${working} working`
+}
+
+/** Short visible tag + full name for the runtime of a session tab; null when the runtime is unknown. */
+export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; label: string } | null {
+  if (runtime === 'codex') return { short: 'CX', label: 'Codex' }
+  if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
+  return null
 }
 
 /** Which tab owns the roving tabindex: the selected one, else the first ('All'). */

@@ -19,6 +19,8 @@ import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers } from "./shared-ui"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
+import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
+import { ALL_SESSIONS_ID, parseTeamSelection } from "@/lib/bridge-types"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
@@ -38,6 +40,14 @@ type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
 
+  // Review mode: when in live mode and user pauses to scrub through history.
+  // Declared before the simulation: speed other than 1x only applies while reviewing.
+  const [isReviewing, setIsReviewing] = useState(false)
+
+  // Union views ('All' / team) put every session on one wall-clock axis (offsets in seconds per session)
+  const sessionOffsetsRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
+  sessionOffsetsRef.current = useMemo(() => computeSessionOffsets(bridge.sessions), [bridge.sessions])
+
   const {
     frameRef,
     agents,
@@ -53,6 +63,9 @@ export function AgentVisualizer() {
     maxTimeReached,
     conversations,
     droppedEvents,
+    droppedMessages,
+    links,
+    teams,
     play,
     pause,
     restart,
@@ -70,6 +83,8 @@ export function AgentVisualizer() {
     // so the animation frame never uses a stale filter value.
     sessionFilterRef: bridge.selectedSessionIdRef,
     disable1MContext: bridge.disable1MContext,
+    isReviewing,
+    sessionOffsetsRef,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -112,7 +127,14 @@ export function AgentVisualizer() {
   }, [])
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
-  const [isReviewing, setIsReviewing] = useState(false)
+  // Selected agent link (canvas edge between teammates); the link panel is mounted by the integration
+  const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null)
+  const handleLinkClick = useCallback((linkId: string) => {
+    setSelectedLinkId(prev => (prev === linkId ? null : linkId))
+  }, [])
+  useEffect(() => {
+    if (selectedLinkId && !links.has(selectedLinkId)) setSelectedLinkId(null)
+  }, [links, selectedLinkId])
 
   // Focus management: move focus into a panel when it opens, back to its trigger when it closes
   const filesPanelRef = useRef<HTMLDivElement>(null)
@@ -192,8 +214,6 @@ export function AgentVisualizer() {
     return cache.events
   }, [conversations])
 
-  // Review mode: when in live mode and user pauses to scrub through history
-
   const announceReview = useCallback(() => {
     pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })
   }, [pushToast])
@@ -225,11 +245,13 @@ export function AgentVisualizer() {
     const missed = formatMissedEvents(bridge.pendingEvents.length)
     if (missed) pushToast({ message: `Resumed live: ${missed.replace(' while reviewing', '')}`, durationMs: 5000 })
     setIsReviewing(false)
+    // Speed chosen in review must not leak into live playback (no speed control there)
+    setSpeed(1)
     seekToTime(maxTimeReached)
     setZoomToFitTrigger(n => n + 1)
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
     resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; play() }, TIMING.resumeLiveDelayMs)
-  }, [seekToTime, maxTimeReached, play, bridge.pendingEvents, pushToast])
+  }, [seekToTime, setSpeed, maxTimeReached, play, bridge.pendingEvents, pushToast])
   useEffect(() => () => { if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current) }, [])
 
   // "Clear history": keeps active agents, drops the scrubbable history. Undo restores a snapshot.
@@ -364,8 +386,9 @@ export function AgentVisualizer() {
     const wasSelected = bridge.selectedSessionId === id
     const remaining = bridge.sessions.filter(s => s.id !== id)
     removeSession(id)
-    if (wasSelected && remaining.length > 0) {
-      selectSession(remaining[remaining.length - 1].id)
+    if (wasSelected) {
+      // Never leave a stale id selected: fall back to the last remaining session, else the 'All' tab
+      selectSession(remaining.length > 0 ? remaining[remaining.length - 1].id : ALL_SESSIONS_ID)
     }
     pushToast({
       message: `Session closed${closed ? `: ${closed.label}` : ''}`,
@@ -383,6 +406,10 @@ export function AgentVisualizer() {
     bridge.bridgeOpenFile(filePath, line)
   }, [bridge])
 
+  // Team props are spread so each panel picks the ones it declares
+  const canvasTeamProps = { links, teams, onLinkClick: handleLinkClick, selectedLinkId }
+  const feedTeamProps = { links, droppedMessages, teams }
+
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
   const { activeAgentCount, doneAgentCount } = useMemo(() => {
@@ -392,9 +419,12 @@ export function AgentVisualizer() {
   }, [agents])
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
+  const selectedTeam = parseTeamSelection(bridge.selectedSessionId)
   const selectedSessionLabel = bridge.isAllSelected
     ? 'All sessions'
-    : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
+    : selectedTeam !== null
+      ? `Team ${selectedTeam}`
+      : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
@@ -419,6 +449,9 @@ export function AgentVisualizer() {
         sessionsWithActivity={bridge.sessionsWithActivity}
         onSelectSession={bridge.selectSession}
         onCloseSession={handleCloseSession}
+        teams={bridge.teams}
+        teamWorking={bridge.teamWorking}
+        teamMemberCounts={bridge.teamMemberCounts}
         isVSCode={bridge.isVSCode}
         connectionStatus={bridge.connectionStatus}
         isDemo={bridge.useMockData}
@@ -475,6 +508,7 @@ export function AgentVisualizer() {
 
       {/* Canvas fills everything */}
       <AgentCanvas
+        {...canvasTeamProps}
         simulationRef={frameRef}
         selectedAgentId={selection.selectedAgentId}
         hoveredAgentId={selection.hoveredAgentId}
@@ -495,6 +529,7 @@ export function AgentVisualizer() {
 
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel
+        {...feedTeamProps}
         conversations={conversations}
         agents={labelledAgents}
         onAgentClick={selection.handleAgentClick}

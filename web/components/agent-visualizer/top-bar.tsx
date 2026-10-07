@@ -7,6 +7,7 @@ import { formatTokens, formatCost } from "@/lib/utils"
 import { FOCUS_RING, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { SessionTabs } from "./session-tabs"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
+import type { TeamSummary } from "@/lib/agent-types"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
@@ -116,6 +117,10 @@ export interface TopBarProps {
   sessionsWithActivity: Set<string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
+  /** Agent Teams seen so far (team tabs), working counts and known member counts per team name */
+  teams?: ReadonlyMap<string, TeamSummary>
+  teamWorking?: ReadonlyMap<string, number>
+  teamMemberCounts?: ReadonlyMap<string, number>
   // Connection
   isVSCode: boolean
   connectionStatus: ConnectionStatus
@@ -142,7 +147,7 @@ export interface TopBarProps {
 
 export const TopBar = memo(function TopBar({
   sessions, selectedSessionId, sessionsWithActivity,
-  onSelectSession, onCloseSession,
+  onSelectSession, onCloseSession, teams, teamWorking, teamMemberCounts,
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
@@ -174,7 +179,7 @@ export const TopBar = memo(function TopBar({
       style={{ zIndex: Z.info }}
     >
       {/* Session tabs — scrollable, always shown (even with one session) */}
-      {sessions.length > 0 && (
+      {(sessions.length > 0 || (teams?.size ?? 0) > 0) && (
         <div className="min-w-0 max-w-full flex-shrink overflow-x-auto scrollbar-hide -m-1 p-1">
           <SessionTabs
             sessions={sessions}
@@ -182,6 +187,9 @@ export const TopBar = memo(function TopBar({
             sessionsWithActivity={sessionsWithActivity}
             onSelectSession={onSelectSession}
             onCloseSession={onCloseSession}
+            teams={teams}
+            teamWorking={teamWorking}
+            teamMemberCounts={teamMemberCounts}
           />
         </div>
       )}
