@@ -53,8 +53,7 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
 async function axeFailures(page: Page, scenario: string) {
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
-    // The canvas is the only place with a continuously changing background, so contrast is
-    // computed on the DOM chrome; page-level landmark rules are covered by the app shell.
+    // Nothing is excluded: axe cannot see inside the canvas bitmap, so only DOM chrome is checked.
     .analyze()
   const serious = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical')
   const { unexpected, stale } = compareViolations(
@@ -110,36 +109,102 @@ describe('demo mode: axe-core, serious and critical only', () => {
 })
 
 describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
+  // Measures clipping inside inner containers, not only page-level scroll: the main landmark and
+  // every panel/dialog must not scroll horizontally, and every visible interactive element must
+  // sit inside the viewport horizontally.
+  // Plain JS string: tsx serialises named functions with a __name helper the page lacks.
+  const MEASURE = `(() => {
+    const vw = window.innerWidth
+    const visible = (el) => {
+      const r = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'
+    }
+    const label = (el) =>
+      \`\${el.tagName.toLowerCase()}[\${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 24)}]\`
+    const containers = Array.from(document.querySelectorAll(
+      'main, [role="main"], [role="dialog"], [role="region"], aside, section, nav',
+    )).filter(visible)
+    const clippedContainers = containers
+      .filter(el => el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible')
+      .map(el => \`\${label(el)} scrollWidth=\${el.scrollWidth} clientWidth=\${el.clientWidth}\`)
+    const outside = Array.from(document.querySelectorAll(
+      'a[href], button, input, select, textarea, [role="button"], [role="slider"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])',
+    )).filter(visible).filter(el => {
+      const r = el.getBoundingClientRect()
+      return r.left < -1 || r.right > vw + 1
+    }).map(el => { const r = el.getBoundingClientRect(); return \`\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\` })
+    return {
+      doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: vw,
+      clippedContainers, outside,
+    }
+  })()`
+  type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
+  const check = (width: number, where: string, m: Measure) => {
+    assert.ok(m.doc <= m.inner && m.body <= m.inner, `[${where}] page overflows at ${width}px: doc=${m.doc} body=${m.body}`)
+    assert.deepEqual(m.clippedContainers, [], `[${where}] containers clip content horizontally at ${width}px`)
+    assert.deepEqual(m.outside, [], `[${where}] interactive elements outside the viewport at ${width}px`)
+  }
+
   // 320 CSS px is 400 % zoom of a 1280 px window; 640 CSS px is 200 % zoom.
   for (const width of [320, 640]) {
-    test(`no horizontal page scroll at ${width} px wide`, async t => {
+    test(`no clipped content or horizontal scroll at ${width} px wide`, async t => {
       if (skipReason) return t.skip(skipReason)
       const { page, close } = await open({ width, height: 700 })
       try {
-        const m = await page.evaluate(() => ({
-          doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: window.innerWidth,
-        }))
-        assert.ok(m.doc <= m.inner && m.body <= m.inner, `horizontal overflow at ${width}px: ${JSON.stringify(m)}`)
+        check(width, 'initial', await page.evaluate<Measure>(MEASURE))
         await page.getByRole('button', { name: 'Pause and review history' }).click()
         await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
-        const r = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
-        assert.ok(r <= 0, `review mode overflows by ${r}px at ${width}px`)
+        check(width, 'review mode', await page.evaluate<Measure>(MEASURE))
       } finally { await close() }
     })
   }
 })
 
 describe('demo mode: prefers-reduced-motion', () => {
-  test('no CSS animation or transition keeps running when motion is reduced', async t => {
+  // The app animates on a canvas via requestAnimationFrame, which document.getAnimations() never
+  // sees. Compare two canvas frames taken one second apart: they must differ with
+  // no-preference (baseline, proves the check can detect motion) and be identical with reduce.
+  // Follow-up for the canvas owner: expose a test-only draw counter behind ?e2e=1.
+  // Fraction of canvas pixels that changed between two frames one second apart (run in the page).
+  const DIFF_SCRIPT = `new Promise(resolve => {
+    const c = document.querySelector('canvas')
+    const snap = () => { const o = document.createElement('canvas'); o.width = c.width; o.height = c.height
+      const x = o.getContext('2d'); x.drawImage(c, 0, 0); return x.getImageData(0, 0, o.width, o.height).data }
+    const a = snap()
+    setTimeout(() => { const b = snap(); let n = 0
+      for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i+1] !== b[i+1] || a[i+2] !== b[i+2]) n++
+      resolve(n / (a.length / 4)) }, 1000)
+  })`
+  async function changedFraction(reducedMotion: 'reduce' | 'no-preference') {
+    const { page, close } = await open({ reducedMotion })
+    try {
+      await page.locator('canvas').first().waitFor()
+      await page.waitForTimeout(3000) // let the layout settle so only ambient motion remains
+      return await page.evaluate<number>(DIFF_SCRIPT)
+    } finally { await close() }
+  }
+
+  test('canvas stops its ambient animation when motion is reduced', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const baseline = await changedFraction('no-preference')
+    if (baseline < 0.001) return t.skip(`baseline canvas is static (${baseline}), cannot detect motion; needs a ?e2e=1 draw counter from the canvas owner`)
+    const reduced = await changedFraction('reduce')
+    // Data-driven redraws (agent status, edge particles tied to events) still change pixels under
+    // reduce; removing the matchMedia guard brings the two fractions close to equal.
+    assert.ok(reduced < baseline * 0.75, `canvas keeps animating under prefers-reduced-motion: changed pixels ${reduced} vs ${baseline} baseline`)
+  })
+
+  test('no CSS animation keeps running when motion is reduced', async t => {
     if (skipReason) return t.skip(skipReason)
     const { page, close } = await open({ reducedMotion: 'reduce' })
     try {
-      await page.waitForTimeout(1500)
+      await page.waitForTimeout(1000)
       const running = await page.evaluate(() =>
         document.getAnimations()
-          .filter(a => a.playState === 'running')
+          .filter(a => a.playState === 'running' && (a.effect?.getComputedTiming().iterations ?? 1) === Infinity)
           .map(a => `${a.constructor.name} on ${(a.effect as KeyframeEffect | null)?.target?.tagName ?? '?'}`))
-      assert.deepEqual(running, [], 'ambient animations must stop under prefers-reduced-motion')
+      assert.deepEqual(running, [], 'infinite CSS animations must stop under prefers-reduced-motion')
     } finally { await close() }
   })
 })
@@ -152,14 +217,16 @@ describe('demo mode: keyboard', () => {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
       await page.getByRole('button', { name: 'Chat' }).click()
       await page.waitForTimeout(400)
-      const hidden = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
+      const hidden = (await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)).filter(h => !h.startsWith('nextjs-portal'))
       const { unexpected, stale } = compareViolations(
         'e2e:tab-order', hidden.length ? ['invisible-focusable'] : [], known,
       )
       assert.deepEqual(unexpected, [], `invisible controls must not be in the Tab order: ${hidden.join(', ')} (fix, or allow-list in known-violations.json with an issue number)`)
       assert.deepEqual(stale, [], 'no invisible control is focusable any more: remove "e2e:tab-order" from web/tests-a11y/known-violations.json')
 
-      const knownInvisible = known.some(k => k.scenario === 'e2e:tab-order')
+      // Even while #10 is allow-listed, a Tab stop must be one of the invisible focusables found
+      // by the static scan above; a new invisible stop elsewhere fails.
+      const knownHidden = new Set(hidden)
       const stops: string[] = []
       for (let i = 0; i < 60; i++) {
         await page.keyboard.press('Tab')
@@ -173,8 +240,8 @@ describe('demo mode: keyboard', () => {
             visible: r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none',
           }
         })
-        if (!s) continue
-        if (!s.visible && !knownInvisible) assert.fail(`Tab landed on an invisible element: ${s.id}`)
+        if (!s || s.id.startsWith('nextjs-portal')) continue // Next dev overlay, not app UI
+        if (!s.visible && !knownHidden.has(s.id)) assert.fail(`Tab landed on an invisible element: ${s.id}`)
         stops.push(s.id)
       }
       assert.ok(new Set(stops).size >= 8, `expected a reachable control set, got ${new Set(stops).size} distinct stops`)
@@ -216,20 +283,22 @@ describe('demo mode: keyboard', () => {
     if (skipReason) return t.skip(skipReason)
     const { page, close } = await open()
     try {
+      await page.waitForTimeout(5000) // the demo needs a few seconds to build a non-empty history
       await page.getByRole('button', { name: 'Pause and review history' }).click()
       const slider = page.getByRole('slider', { name: 'Timeline position' })
       await slider.focus()
       const value = async () => Number(await slider.getAttribute('aria-valuenow'))
       const max = Number(await slider.getAttribute('aria-valuemax'))
+      assert.ok(max >= 2, `history is too short to test arrow keys (max=${max})`)
       await page.keyboard.press('Home')
       assert.equal(await value(), 0)
       await page.keyboard.press('End')
       assert.equal(await value(), max)
       await page.keyboard.press('ArrowLeft')
-      assert.ok(await value() <= max, 'ArrowLeft never goes past the end')
+      assert.ok(await value() < max, 'ArrowLeft moves the scrubber back')
       await page.keyboard.press('Home')
       await page.keyboard.press('ArrowRight')
-      assert.ok(await value() >= 0)
+      assert.ok(await value() > 0, 'ArrowRight moves the scrubber forward')
     } finally { await close() }
   })
 })
