@@ -180,7 +180,7 @@ test('D4: the pill and the expanded panel are positioned below the top bar varia
   const pillWrap = r.getByRole('button', { name: /Expand messages/ }).parentElement!
   assert.equal(pillWrap.style.top, FEED_TOP)
   expand(r)
-  assert.equal(r.getByRole('region', { name: 'Messages' }).style.top, FEED_TOP)
+  assert.equal(r.getByRole('region', { name: 'Messages' }).parentElement!.style.top, FEED_TOP)
 })
 
 test('pair picker lists the chosen agents even without messages', () => {

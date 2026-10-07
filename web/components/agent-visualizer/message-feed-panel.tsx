@@ -337,14 +337,14 @@ export function MessageFeedPanel({
   )
 
   return (
+    // Presentation wrapper: it only keeps clicks from reaching the canvas behind the panel; the region inside owns the semantics
     <div
-      id={regionId}
-      role="region"
-      aria-label="Messages"
+      role="presentation"
       className="absolute"
       style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       onClick={(e) => e.stopPropagation()}
     >
+      <div id={regionId} role="region" aria-label="Messages">
       <div className="glass-card flex flex-col" style={{ width: PANEL_WIDTH, maxWidth: 'calc(100vw - 24px)', maxHeight: 420 }}>
         {/* Header */}
         <div className="flex items-center justify-between px-3 pt-2 pb-1">
@@ -473,6 +473,7 @@ export function MessageFeedPanel({
             </button>
           </div>
         )}
+      </div>
       </div>
     </div>
   )

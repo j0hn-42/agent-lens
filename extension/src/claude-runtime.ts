@@ -84,8 +84,15 @@ export async function startClaudeRuntime(
   const watcher = new SessionWatcher()
   context.subscriptions.push(watcher)
 
-  // Route hook events → panel, but filter out events the watcher already owns
+  // Route hook events → panel, but filter out events the watcher already owns.
+  // Every hook event goes through the watcher's EventReconciler (issue #53): a copy the transcript
+  // already reported (or reports later) is dropped, and events arriving while a session history is
+  // loaded are held and replayed deduplicated. Survivors come back on watcher.onHookEvent.
   if (hookPort !== HOOK_SERVER_NOT_STARTED) {
+    context.subscriptions.push(watcher.onHookEvent((event) => {
+      const panel = VisualizerPanel.getCurrent()
+      if (panel && panel.isReady) panel.sendEvent(event)
+    }))
     hookServer.onEvent((event) => {
       const panel = VisualizerPanel.getCurrent()
       if (!panel || !panel.isReady) return
@@ -104,7 +111,7 @@ export async function startClaudeRuntime(
 
         if (isOrchestrator) {
           const filtered = filterOrchestratorCompletion(event)
-          if (filtered) panel.sendEvent(filtered)
+          if (filtered) watcher.submitHookEvent(filtered)
           return
         }
 
@@ -113,11 +120,11 @@ export async function startClaudeRuntime(
         if (SUBAGENT_LIFECYCLE_EVENTS.has(event.type)) return
 
         // Subagent tool/message events — pass through
-        panel.sendEvent(event)
+        watcher.submitHookEvent(event)
         return
       }
 
-      panel.sendEvent(event)
+      watcher.submitHookEvent(event)
       panel.setConnectionStatus('watching', `Claude Code hooks (:${hookPort})`)
     })
   }
