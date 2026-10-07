@@ -123,6 +123,44 @@ test('sessions panel: arrows move between rows, one row is in the tab order, cli
   getByRole('button', { name: 'Expand agents of Sa' })
 })
 
+test('sessions panel: the Active only toggle hides finished sessions and keeps the selected one', () => {
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+    { id: 'sel', label: 'Selected old', status: 'completed' as const, startTime: 0, lastActivityTime: 2 },
+  ]
+  const { getByRole, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="sel" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+    />,
+  )
+  assert.ok(queryByText('Old one'))
+  const toggle = getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false')
+  fireEvent.click(toggle)
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true')
+  assert.equal(queryByText('Old one'), null)
+  assert.ok(queryByText('Live one'))
+  assert.ok(queryByText('Selected old'), 'the selected session stays listed')
+})
+
+test('sessions panel: a session row shows only its name, model and time', () => {
+  const sessions = [{ id: 's1', label: 'Refactor payments', status: 'active' as const, startTime: 0, lastActivityTime: 0, workspace: 'shop', runtime: 'claude' as const }]
+  const { getByText, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      sessionModels={new Map([['s1', 'claude-opus-4-6-20250514']])}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={180_000}
+    />,
+  )
+  getByText('Refactor payments')
+  getByText('Opus 4.6')
+  getByText('3 min ago')
+  assert.equal(queryByText('shop'), null)
+  assert.equal(queryByText('CC'), null)
+})
+
 test('known-violation helpers: new violations and stale entries are both reported', () => {
   const known = [{ scenario: 's', rule: 'old-rule', issue: 1 }, { scenario: 's', rule: 'kept', issue: 2 }]
   assert.deepEqual(compareViolations('s', ['kept', 'brand-new'], known), { unexpected: ['brand-new'], stale: ['old-rule'] })

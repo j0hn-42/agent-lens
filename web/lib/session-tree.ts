@@ -130,3 +130,20 @@ export function formatRelativeTime(timestamp: number, now: number): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)} h ago`
   return `${Math.floor(sec / 86400)} d ago`
 }
+
+/**
+ * Sessions kept by the 'Active only' filter: the active ones, plus the selected session so the
+ * current selection never vanishes from the list.
+ */
+export function filterActiveSessions(sessions: ReadonlyArray<SessionInfo>, selectedId: string | null): SessionInfo[] {
+  return sessions.filter(s => s.status === 'active' || s.id === selectedId)
+}
+
+/** Teams kept by the 'Active only' filter: those with a remaining session or a member still working. */
+export function filterActiveTeams(
+  teamNames: Iterable<string>,
+  remainingSessions: ReadonlyArray<Pick<SessionInfo, 'teamName'>>,
+  teamWorking?: ReadonlyMap<string, number>,
+): string[] {
+  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || (teamWorking?.get(n) ?? 0) > 0)
+}

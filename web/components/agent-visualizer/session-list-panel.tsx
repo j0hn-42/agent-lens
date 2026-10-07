@@ -4,12 +4,12 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, pluralize } from '@/lib/utils'
+import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
 import {
-  buildAgentForests, buildSessionRows, formatRelativeTime,
+  buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
 import { PanelHeader, SlidingPanel } from './shared-ui'
@@ -22,6 +22,8 @@ interface SessionListPanelProps {
   sessions: SessionInfo[]
   selectedSessionId: string | null
   sessionsWithActivity: ReadonlySet<string>
+  /** Model ID per session id (sessions that reported one) */
+  sessionModels?: ReadonlyMap<string, string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
   /** Agents of the current view (the selected session, team or all sessions) */
@@ -113,7 +115,7 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
 }
 
 export function SessionListPanel({
-  visible, onClose, sessions, selectedSessionId, sessionsWithActivity,
+  visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamMemberCounts, allSessionCount, now,
 }: SessionListPanelProps) {
@@ -129,10 +131,13 @@ export function SessionListPanel({
   const currentTime = now ?? clock
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const rows = useMemo(
-    () => buildSessionRows(sessions, teams ? teams.keys() : [], forests),
-    [sessions, teams, forests],
-  )
+  const [activeOnly, setActiveOnly] = useState(false)
+  const rows = useMemo(() => {
+    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId) : sessions
+    const teamNames = teams ? teams.keys() : []
+    return buildSessionRows(shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests)
+  }, [sessions, teams, teamWorking, forests, activeOnly, selectedSessionId])
+  const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active').length
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
@@ -197,13 +202,32 @@ export function SessionListPanel({
       visible={visible}
       position={{ top: 48, left: 12 }}
       axis="X"
-      offset={-20}
+      offset={-8}
       zIndex={Z.sidePanel}
       width={380}
       labelledBy="session-list-title"
     >
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
-        <PanelHeader onClose={onClose} titleId="session-list-title">
+        <PanelHeader
+          onClose={onClose}
+          titleId="session-list-title"
+          actions={(
+            <button
+              type="button"
+              aria-pressed={activeOnly}
+              onClick={() => setActiveOnly(v => !v)}
+              title="Hide sessions that are finished"
+              className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+              style={{
+                background: activeOnly ? COLORS.toggleActive : COLORS.toggleInactive,
+                border: `1px solid ${COLORS.controlBorder}`,
+                color: activeOnly ? COLORS.holoBright : COLORS.textMuted,
+              }}
+            >
+              Active only
+            </button>
+          )}
+        >
           <span className="text-[11px] tracking-wider" style={{ color: COLORS.textPrimary }}>
             SESSIONS
           </span>
@@ -217,8 +241,10 @@ export function SessionListPanel({
           className="overflow-y-auto"
           style={{ maxHeight: 'calc(100vh - var(--topbar-h, 60px) - 40px)' }}
         >
-          {rows.length === 0 && (
-            <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>No session yet</div>
+          {shownSessionCount === 0 && (
+            <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
+              {activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+            </div>
           )}
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
@@ -271,6 +297,8 @@ export function SessionListPanel({
               const session = row.session!
               const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected)
               const badge = runtimeBadge(session.runtime)
+              const modelId = sessionModels?.get(session.id)
+              const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
               const showAgents = hasAgents && !isCollapsed
@@ -298,17 +326,10 @@ export function SessionListPanel({
                     >
                       <SessionMarker kind={kind} />
                       <span className="sr-only">{SESSION_STATUS_TEXT[kind]}, </span>
-                      {badge && (
-                        <>
-                          <span aria-hidden="true" title={badge.label} className="shrink-0 rounded px-1 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}` }}>{badge.short}</span>
-                          <span className="sr-only">{badge.label} session, </span>
-                        </>
-                      )}
-                      <span className="truncate min-w-0 flex-1">{session.label}</span>
-                      {session.workspace && <span className="truncate max-w-[90px] shrink" style={{ color: COLORS.textDim }}>{session.workspace}</span>}
-                      <span className="shrink-0" style={{ color: COLORS.textDim }}>
-                        {hasAgents ? `${pluralize(row.agentCount, 'agent')} · ` : ''}{formatRelativeTime(session.lastActivityTime, currentTime)}
-                      </span>
+                      {badge && <span className="sr-only">{badge.label} session, </span>}
+                      <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                      {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
+                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                     </button>
                     <button
                       type="button"
