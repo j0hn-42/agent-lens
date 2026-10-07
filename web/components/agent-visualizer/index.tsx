@@ -36,7 +36,7 @@ import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-reg
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
 type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
 
@@ -462,6 +462,14 @@ export function AgentVisualizer() {
   // An agent that left the simulation cannot stay in the pair
   useEffect(() => { prunePairStore(key => agents.has(key)) }, [agents])
 
+  // The canvas draws from the simulation ref: hand it agents that carry their session label and runtime
+  const sessionsForCanvasRef = useRef(bridge.sessions)
+  sessionsForCanvasRef.current = bridge.sessions
+  const labelledSimulationRef = useMemo(
+    () => createLabelledSimulationRef(frameRef, () => sessionsForCanvasRef.current),
+    [frameRef],
+  )
+
   // Team props are spread so each panel picks the ones it declares
   const canvasTeamProps = {
     links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '',
@@ -580,7 +588,7 @@ export function AgentVisualizer() {
       {/* Canvas fills everything */}
       <AgentCanvas
         {...canvasTeamProps}
-        simulationRef={frameRef}
+        simulationRef={labelledSimulationRef}
         selectedAgentId={selection.selectedAgentId}
         hoveredAgentId={selection.hoveredAgentId}
         showStats={showStats}

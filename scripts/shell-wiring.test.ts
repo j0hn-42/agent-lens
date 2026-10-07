@@ -22,32 +22,20 @@ const session = (id: string, over: Partial<SessionInfo> = {}): SessionInfo => ({
 
 // ─── D2: replayed history must not make a finished session active ────────────
 
-test('replay batch: a session finished 3 hours ago stays out of "All" (naive reception-time stamping did not)', () => {
+// The end-to-end replay behaviour (list + events in one tick) is tested through the real useVSCodeBridge in
+// web/tests-a11y/bridge-ref-sync.test.tsx; here only the pure window rules.
+test('visibility window: a finished session without a stamp stays out of "All", a replay-only stamp ages out', () => {
   const sessions = [session('live'), session('old', { status: 'completed', lastActivityTime: NOW - 3 * HOUR })]
-  const events = [{ sessionId: 'old' }, { sessionId: 'old' }, { sessionId: 'live' }]
-
-  // Old behaviour: every received event stamps "now" -> the finished session counts as active
-  const naive = new Map<string, number>()
-  for (const e of events) naive.set(e.sessionId, NOW)
-  assert.ok(activeSessionIds({ sessions, lastEventAt: naive, now: NOW }).has('old'), 'documents the defect')
-
-  // New behaviour: the replay is judged against the session list
-  const stamps = new Map<string, number>()
-  for (const e of events) {
-    const s = sessions.find(x => x.id === e.sessionId)
-    if (shouldStampActivity(s, NOW)) stamps.set(e.sessionId, NOW)
-  }
+  const stamps = new Map<string, number>([['live', NOW]])
   const active = activeSessionIds({ sessions, lastEventAt: stamps, now: NOW })
   assert.deepEqual([...active].sort(), ['live'])
   assert.deepEqual(finishedSessionIds(sessions, active), ['old'])
-
-  // 11 minutes later (fake clock) the finished one is still hidden, and the live one stays by its status
   const later = NOW + ACTIVE_WINDOW_MS + 60_000
   assert.deepEqual([...activeSessionIds({ sessions, lastEventAt: stamps, now: later })], ['live'])
-  // A session whose only evidence is a replay stamp ages out normally
-  const onlyStamp = new Map([['live', NOW]])
   const completedLive = [session('live', { status: 'completed', lastActivityTime: NOW - 1000 })]
-  assert.deepEqual([...activeSessionIds({ sessions: completedLive, lastEventAt: onlyStamp, now: later })], [])
+  assert.deepEqual([...activeSessionIds({ sessions: completedLive, lastEventAt: stamps, now: later })], [])
+  // and a stamp for the finished one WOULD make it active: the bridge must not create it (see bridge-ref-sync)
+  assert.ok(activeSessionIds({ sessions, lastEventAt: new Map([['old', NOW]]), now: NOW }).has('old'))
 })
 
 test('events replayed before the session list are undone when the list shows the session finished', () => {
