@@ -6,6 +6,8 @@
  */
 
 import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import {
   AgentEvent, PendingToolCall, WatchedSession,
   TranscriptEntry, ToolUseBlock, ToolResultBlock,
@@ -632,6 +634,31 @@ export class TranscriptParser {
     session.label = this.truncateLabel(text)
     session.labelSet = true
     this.delegate.fireSessionLifecycle({ type: 'updated', sessionId, label: session.label })
+  }
+}
+
+/** Default root that hook-supplied transcript paths must resolve inside. */
+export const DEFAULT_TRANSCRIPT_ROOT = path.join(os.homedir(), '.claude', 'projects')
+
+/**
+ * True when a path supplied by an untrusted source (e.g. an HTTP hook payload) is a
+ * regular `.jsonl` file whose real path (symlinks and `..` resolved) lies inside one
+ * of the allowed roots. Prevents arbitrary file reads through `agent_transcript_path`.
+ */
+export function isAllowedTranscriptPath(filePath: unknown, roots: string[] = [DEFAULT_TRANSCRIPT_ROOT]): boolean {
+  if (typeof filePath !== 'string' || !filePath || filePath.includes('\0')) { return false }
+  try {
+    if (!path.isAbsolute(filePath) || path.extname(filePath).toLowerCase() !== '.jsonl') { return false }
+    const real = fs.realpathSync(filePath)
+    if (path.extname(real).toLowerCase() !== '.jsonl' || !fs.statSync(real).isFile()) { return false }
+    return roots.some(root => {
+      let realRoot: string
+      try { realRoot = fs.realpathSync(root) } catch { return false }
+      const rel = path.relative(realRoot, real)
+      return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+    })
+  } catch {
+    return false
   }
 }
 

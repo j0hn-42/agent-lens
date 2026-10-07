@@ -8,7 +8,7 @@ import {
   generateSubagentFallbackName,
 } from './constants'
 import { summarizeInput, summarizeResult, extractFilePath, extractInputData, buildDiscovery } from './tool-summarizer'
-import { extractLastAssistantText } from './transcript-parser'
+import { extractLastAssistantText, isAllowedTranscriptPath } from './transcript-parser'
 import { estimateTokenCost } from './token-estimator'
 import { createLogger } from './logger'
 
@@ -279,7 +279,7 @@ export class HookServer implements vscode.Disposable {
     const sessionAgents = this.sessionState.get(payload.session_id)?.agentNames
     const childName = sessionAgents?.get(agentId) || 'subagent'
     const parentName = this.resolveAgentName(payload)
-    const report = payload.agent_transcript_path
+    const report = isAllowedTranscriptPath(payload.agent_transcript_path)
       ? extractLastAssistantText(String(payload.agent_transcript_path))
       : undefined
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { TranscriptParser, extractLastAssistantText } from '../src/transcript-parser'
+import { TranscriptParser, extractLastAssistantText, isAllowedTranscriptPath } from '../src/transcript-parser'
 import { extractInputData } from '../src/tool-summarizer'
 import type { AgentEvent, PendingToolCall } from '../src/protocol'
 
@@ -63,5 +63,29 @@ describe('Task/Agent subagent communications', () => {
     assert.equal(extractLastAssistantText(file), 'final report')
     assert.equal(extractLastAssistantText(path.join(dir, 'missing.jsonl')), undefined)
     fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('isAllowedTranscriptPath only accepts real .jsonl files inside the allowed root', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-root-'))
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-out-'))
+    const inside = path.join(root, 'proj', 'sub.jsonl')
+    fs.mkdirSync(path.dirname(inside), { recursive: true })
+    fs.writeFileSync(inside, '{}\n')
+    const secret = path.join(outside, 'secret.jsonl')
+    fs.writeFileSync(secret, '{"message":{"role":"assistant","content":"leak"}}\n')
+    fs.writeFileSync(path.join(outside, 'passwd'), 'x')
+    fs.symlinkSync(secret, path.join(root, 'proj', 'link.jsonl'))
+    const roots = [root]
+    assert.equal(isAllowedTranscriptPath(inside, roots), true)
+    assert.equal(isAllowedTranscriptPath(secret, roots), false)
+    assert.equal(isAllowedTranscriptPath(path.join(root, 'proj', '..', '..', path.basename(outside), 'secret.jsonl'), roots), false)
+    assert.equal(isAllowedTranscriptPath(path.join(root, 'proj', 'link.jsonl'), roots), false)
+    assert.equal(isAllowedTranscriptPath(path.join(outside, 'passwd'), roots), false)
+    assert.equal(isAllowedTranscriptPath('/etc/passwd', roots), false)
+    assert.equal(isAllowedTranscriptPath('relative.jsonl', roots), false)
+    assert.equal(isAllowedTranscriptPath(undefined, roots), false)
+    assert.equal(isAllowedTranscriptPath(root, roots), false)
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
   })
 })
