@@ -122,6 +122,24 @@ test('shell: control bar', async () => {
   await check('control-bar', container)
 })
 
+test('shell: control bar in review mode (play button, scrubber, resume)', async () => {
+  const { container, getByRole } = render(
+    <ControlBar
+      isPlaying={false} speed={1} currentTime={3} totalDuration={10} isReviewing eventCount={4}
+      onPlayPause={noop} onRestart={noop} onSpeedChange={noop} onSeek={noop} onResumeLive={noop}
+      timelineEvents={timelineEvents}
+    />,
+  )
+  // Guard against checking the wrong bar: these only exist in review mode.
+  getByRole('button', { name: 'Play' })
+  getByRole('slider', { name: 'Timeline position' })
+  await check('control-bar-review', container)
+  const clear = getByRole('button', { name: 'Clear history' })
+  await act(async () => { fireEvent.click(clear) })
+  getByRole('group', { name: 'Confirm clearing history' })
+  await check('control-bar-review-confirm', container)
+})
+
 test('shell: session tabs', async () => {
   const { container } = render(
     <>
