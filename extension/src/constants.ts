@@ -344,6 +344,15 @@ export const SESSION_HEADER_MAX_BYTES = 16 * 1024
 /** Max chars of team/member/runtime/workspace tags on session list entries */
 export const SESSION_TAG_MAX = 256
 
+// ─── Optional session index (read-only adapter) ─────────────────────────────
+
+/** Rows read from the index when the configuration gives no bound */
+export const SESSION_INDEX_DEFAULT_MAX_ROWS = 200
+/** Upper bound of the configurable row limit */
+export const SESSION_INDEX_HARD_MAX_ROWS = 5000
+/** Busy timeout when opening / reading the index (ms) */
+export const SESSION_INDEX_TIMEOUT_MS = 1000
+
 // ─── Relay /status endpoint ──────────────────────────────────────────────────
 
 /** Token bucket per client address for GET /status: burst and sustained refill (tokens/s) */
