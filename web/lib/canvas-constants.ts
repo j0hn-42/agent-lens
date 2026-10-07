@@ -585,6 +585,16 @@ export const EDGE_BUBBLE = {
   anchorT: 1 / 3,
   /** Chars of message text kept for a bubble (before wrapping) */
   maxChars: 240,
+  /** Max bubbles shown per link (the newest messages): bounds memory and DOM buttons */
+  maxPerLink: 3,
+  /** Max bubbles shown on the whole canvas (the newest win) */
+  maxTotal: 12,
+  /** Fraction of the curve where a peer (teammate) message is anchored */
+  peerT: 0.5,
+  /** Words of the message kept in the accessible name of a bubble button */
+  ariaWords: 10,
+  /** Messages per link mirrored in the DOM list */
+  listedPerLink: 5,
 } as const
 
 export const CLUSTER_DRAW = {

@@ -26,8 +26,8 @@ import {
   detectStateChanges as detectStateChangesPure,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
   drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, resolveLinks, hasSeveralSessions,
-  computeClusters, planOverlays, selectEdgeBubble, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
-  type Cluster, type SessionMeta, type EdgeBubble, type OverlayPlanResult,
+  computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
+  type Cluster, type SessionMeta, type OverlayPlanResult,
   detectTeamChanges, createTeamPrev, type TeamPrev, type ResolvedLink,
   createFlashLimiter, buildA11yModel, enqueueAnnouncements, createAnnouncementQueue, a11yRecorder,
   type AnnouncementItem, type AnnouncementQueue,
@@ -38,6 +38,9 @@ import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
+import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
+import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './canvas/edge-bubble-dom'
+import { planKey } from './canvas/overlay-plan'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
@@ -184,6 +187,13 @@ export function AgentCanvas({
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const announcementsRef = useRef<AnnouncementQueue>(createAnnouncementQueue())
   const a11ySignatureRef = useRef('')
+  const [linkMessages, setLinkMessages] = useState<LinkMessageItem[]>([])
+  const linkMessagesSigRef = useRef('')
+  /** DOM layer holding the focusable buttons of the edge bubbles, and the message ids hovered / focused in it */
+  const bubbleLayerRef = useRef<HTMLDivElement>(null)
+  const heldBubbleIdsRef = useRef<ReadonlySet<string>>(new Set())
+  const onLinkClickRef = useRef(onLinkClick)
+  onLinkClickRef.current = onLinkClick
   const teamPrevRef = useRef<TeamPrev>(createTeamPrev())
   // Props read by the draw loop and the snapshot timer without re-subscribing
   const linksPropRef = useRef(linksProp)
@@ -330,6 +340,17 @@ export function AgentCanvas({
     }
   }, [])
 
+  // ─── Edge bubble buttons: click / Enter opens the link panel; hover and focus keep a bubble alive ───
+  useEffect(() => {
+    const layer = bubbleLayerRef.current
+    if (!layer) return
+    const dispose = attachBubbleLayer(layer, {
+      onOpen: linkId => onLinkClickRef.current?.(linkId),
+      onHoldChange: ids => { heldBubbleIdsRef.current = ids },
+    })
+    return () => { dispose(); heldBubbleIdsRef.current = new Set() }
+  }, [])
+
   // ─── Accessible mirror: throttled snapshot of the simulation ───────────
   useEffect(() => {
     const snapshot = () => {
@@ -347,6 +368,12 @@ export function AgentCanvas({
       a11ySignatureRef.current = signature
       setA11yModel(model)
       setCommunications(comms)
+      const items = buildLinkMessageItems(linksPropRef.current ?? s.links, s.agents)
+      const itemsSig = items.map(i => `${i.id}:${i.text}`).join('\n')
+      if (itemsSig !== linkMessagesSigRef.current) {
+        linkMessagesSigRef.current = itemsSig
+        setLinkMessages(items)
+      }
     }
     snapshot()
     const timer = window.setInterval(snapshot, A11Y_SNAPSHOT_MS)
@@ -506,19 +533,22 @@ export function AgentCanvas({
       clustersRef.current = clusters
       const hoverTarget = hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
-      const edgeBubbles: EdgeBubble[] = []
+      const edgeBubbles: KeyedEdgeBubble[] = []
       {
         ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
         const measure = (t: string) => measureTextCached(ctx, t)
+        const heldMessageIds = heldBubbleIdsRef.current
         for (const r of resolvedLinks) {
           const held = expiryHold.neverHide || expiryHold.paused || r.id === selectedLinkId || r.id === hoveredLinkId
-          const b = selectEdgeBubble(r, agents, simTime, held, measure)
-          if (b) edgeBubbles.push(b)
+          edgeBubbles.push(...selectEdgeBubbles(r, agents, simTime, { held, heldMessageIds, measure }))
         }
       }
+      const cappedEdgeBubbles = capEdgeBubbles(edgeBubbles)
+      const heldBubbleKeys = new Set<string>()
+      for (const b of cappedEdgeBubbles) if (heldBubbleIdsRef.current.has(b.messageId)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: simTimeRef.current, teams: teamsRef.current,
@@ -592,7 +622,7 @@ export function AgentCanvas({
         timeRef.current, opts,
       )
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
-      drawEdgeBubbles(ctx, edgeBubbles, selectedLinkId, hoveredLinkId, opts)
+      drawEdgeBubbles(ctx, cappedEdgeBubbles, selectedLinkId, hoveredLinkId, opts)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId, opts)
@@ -623,6 +653,23 @@ export function AgentCanvas({
 
       // Cluster labels live in screen space: readable at any zoom, placed without overlap
       drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey)
+
+      // Focusable buttons over the edge bubbles, at the places the overlay plan chose
+      if (bubbleLayerRef.current) {
+        const specs: BubbleButtonSpec[] = []
+        if (opts.plan && lodForZoom(transform.scale).details) {
+          for (const b of cappedEdgeBubbles) {
+            const place = opts.plan.get(planKey.edgeBubble(b.key))
+            if (!place || place.hidden || !place.rect) continue
+            specs.push({
+              key: b.key, linkId: b.linkId, messageId: b.messageId,
+              label: place.collapsed && b.groupCount > 1 ? `${b.ariaLabel}, and ${b.groupCount - 1} more on this link` : b.ariaLabel,
+              x: place.rect.x, y: place.rect.y, w: place.rect.w, h: place.rect.h, collapsed: place.collapsed,
+            })
+          }
+        }
+        syncBubbleButtons(bubbleLayerRef.current, specs)
+      }
 
       if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
@@ -738,6 +785,12 @@ export function AgentCanvas({
           className="w-full h-full"
         />
       </div>
+      {/* Focusable buttons of the bubbles anchored on the edges (positioned each frame by the draw loop) */}
+      <div
+        ref={bubbleLayerRef}
+        data-edge-bubble-layer=""
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
+      />
       <p id="graph-keyboard-help" className="sr-only">
         Arrow keys move between nodes. Enter opens details. Plus and minus zoom, zero fits the graph.
         Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
@@ -746,6 +799,7 @@ export function AgentCanvas({
       <GraphA11yList
         model={a11yModel}
         onLinkClick={onLinkClick}
+        linkMessages={linkMessages}
         selectedLinkId={selectedLinkId}
         onClusterClick={selectCluster}
         selectedClusterKey={selectedClusterKey}
