@@ -897,10 +897,21 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       })
       // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
       const replay = capReplayBatches(buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }))
-      for (const batch of replay) {
-        if (res.destroyed) break
-        sendSSE(res, batch)
-      }
+      // The replay can exceed the slow-client backlog limit in one go, so wait for the socket to
+      // drain between batches instead of dropping a healthy client before its first byte.
+      void (async () => {
+        for (const batch of replay) {
+          if (res.destroyed || closed) return
+          sendSSE(res, batch)
+          if (res.writableNeedDrain) {
+            await new Promise<void>(resolve => {
+              const done = () => { res.off('drain', done); res.off('close', done); resolve() }
+              res.once('drain', done)
+              res.once('close', done)
+            })
+          }
+        }
+      })()
     },
 
     debugState: () => ({
