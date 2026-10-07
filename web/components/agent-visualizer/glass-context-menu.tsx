@@ -36,8 +36,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const rect = el.getBoundingClientRect()
-    setPos(clampMenuPosition(position, { width: rect.width, height: rect.height }, {
+    // offsetWidth/Height ignore the open animation's scale(0.95) transform
+    setPos(clampMenuPosition(position, { width: el.offsetWidth, height: el.offsetHeight }, {
       width: window.innerWidth,
       height: window.innerHeight,
     }))
@@ -53,6 +53,20 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Escape arbitration: while the menu is the topmost layer it consumes Escape in the
+  // capture phase, whatever has focus, so the global handler (closeTopPanel /
+  // clearSelection) never also fires. See the note above dialogEscapeHandler in shared-ui.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
   const focusAt = (pos: number) => {
     setActive(pos)
     itemRefs.current[actionable[pos]]?.focus({ preventScroll: true })
@@ -66,6 +80,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
       return
     }
     if (e.key === 'Tab') {
+      // Menus are not part of the tab sequence: close and return focus to the trigger.
+      e.preventDefault()
       onCloseRef.current()
       return
     }
@@ -104,11 +120,12 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 type="button"
                 role="menuitem"
                 tabIndex={rovingPos === active ? 0 : -1}
+                onFocus={() => setActive(rovingPos)}
                 onClick={() => {
                   item.onClick()
                   onClose()
                 }}
-                className="min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-white/5 focus-visible:bg-white/10"
+                className="min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-white/5 focus-visible:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#99e0ff]"
                 style={{ color: item.danger ? COLORS.error : COLORS.textPrimary }}
               >
                 {item.label}

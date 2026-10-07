@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
@@ -16,6 +17,16 @@ export const stopPropagationHandlers = {
   onClick: (e: React.MouseEvent) => e.stopPropagation(),
 } as const
 
+/**
+ * Same as stopPropagationHandlers but lets mousedown bubble, so useClickOutside
+ * (a document mousedown listener) still closes open popups/menus when the user
+ * clicks inside a sliding panel.
+ */
+export const panelStopPropagationHandlers = {
+  onMouseUp: stopPropagationHandlers.onMouseUp,
+  onClick: stopPropagationHandlers.onClick,
+} as const
+
 // ─── Close Button ───────────────────────────────────────────────────────────
 
 interface CloseButtonProps {
@@ -29,7 +40,8 @@ export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
       type="button"
       onClick={onClick}
       aria-label="Close"
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-white/10 ${className}`}
+      data-panel-close
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff] ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -98,7 +110,20 @@ export function useDialogBehavior(
   }, [ref, closeOnFocusOutside, ignoreSelector])
 }
 
-/** Escape handler for the dialog container; stops propagation so one Esc closes one thing. */
+/**
+ * Escape arbitration (see use-keyboard-shortcuts.ts):
+ * - The global handler is a window keydown listener (bubble phase). It ignores
+ *   Escape coming from text fields and from inside role="dialog" elements
+ *   (shouldHandleShortcut), and otherwise runs closeTopPanel() (LIFO stack of
+ *   panels) and falls back to clearSelection().
+ * - Dialogs and menus handle Escape locally on their own container and call
+ *   stopPropagation(). React's synthetic stopPropagation also stops the native
+ *   event before it reaches window, so one Escape closes exactly one layer:
+ *   topmost menu/popup first, then panels (LIFO), then the selection.
+ * - Panels (SlidingPanel) deliberately do NOT handle Escape themselves; they
+ *   rely on the global LIFO stack.
+ *
+ * Escape handler for the dialog container; stops propagation so one Esc closes one thing. */
 export function dialogEscapeHandler(onClose: () => void) {
   return (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
@@ -171,14 +196,51 @@ export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
   zIndex, width, className = '', style, labelledBy, children,
 }: SlidingPanelProps) {
+  const ref = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+  const wasVisibleRef = useRef(false)
+
+  // Focus management lives here (not in the parent) so it works for every panel and does
+  // not depend on wrapper elements such as display:contents divs.
+  useEffect(() => {
+    const was = wasVisibleRef.current
+    wasVisibleRef.current = visible
+    if (visible === was) return
+
+    if (visible) {
+      const active = document.activeElement
+      triggerRef.current = active instanceof HTMLElement && active !== document.body && !ref.current?.contains(active) ? active : null
+      // Wait a frame so the slide-in has been laid out (and `inert` removed) before focusing.
+      const raf = requestAnimationFrame(() => {
+        const el = ref.current
+        if (!el) return
+        const target = el.querySelector<HTMLElement>('[data-panel-close]')
+          ?? el.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
+          ?? el
+        target.focus({ preventScroll: true })
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+
+    const trigger = triggerRef.current
+    triggerRef.current = null
+    // `inert` has already dropped focus to <body> by now; only restore when focus was
+    // lost or still inside the panel, never steal it from something the user moved to.
+    if (trigger && trigger.isConnected && shouldRestoreFocus(document.activeElement, ref.current, document.body)) {
+      trigger.focus({ preventScroll: true })
+    }
+  }, [visible])
+
   return (
     <div
-      role="region"
+      ref={ref}
+      role={labelledBy ? 'region' : undefined}
       aria-labelledby={labelledBy}
       aria-hidden={!visible}
       inert={!visible}
-      {...stopPropagationHandlers}
-      className={`absolute max-w-[calc(100vw-24px)] transition-all duration-300 motion-reduce:transition-none ${className}`}
+      tabIndex={-1}
+      {...panelStopPropagationHandlers}
+      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-all duration-300 motion-reduce:transition-none ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,
