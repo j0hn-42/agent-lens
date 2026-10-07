@@ -1,6 +1,6 @@
 {
-  "name": "hivewatch",
-  "displayName": "Hivewatch",
+  "name": "agent-lens",
+  "displayName": "Agent Lens",
   "description": "Real-time visualization of Claude Code and Codex agent orchestration",
   "version": "0.9.1",
   "publisher": "jobailla",
@@ -23,23 +23,23 @@
     "commands": [
       {
         "command": "agentVisualizer.open",
-        "title": "Open Hivewatch",
-        "category": "Hivewatch"
+        "title": "Open Agent Lens",
+        "category": "Agent Lens"
       },
       {
         "command": "agentVisualizer.openToSide",
-        "title": "Open Hivewatch to Side",
-        "category": "Hivewatch"
+        "title": "Open Agent Lens to Side",
+        "category": "Agent Lens"
       },
       {
         "command": "agentVisualizer.connectToAgent",
         "title": "Connect to Running Agent",
-        "category": "Hivewatch"
+        "category": "Agent Lens"
       },
       {
         "command": "agentVisualizer.configureHooks",
         "title": "Configure Claude Code Hooks",
-        "category": "Hivewatch"
+        "category": "Agent Lens"
       }
     ],
     "keybindings": [
@@ -50,7 +50,7 @@
       }
     ],
     "configuration": {
-      "title": "Hivewatch",
+      "title": "Agent Lens",
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",

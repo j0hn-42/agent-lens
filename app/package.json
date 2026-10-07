@@ -1,9 +1,9 @@
 {
-  "name": "hivewatch-app",
+  "name": "agent-lens-app",
   "version": "0.9.1",
   "description": "Real-time visualization of AI agent orchestration — standalone web app",
   "bin": {
-    "hivewatch": "dist/app.js"
+    "agent-lens": "dist/app.js"
   },
   "files": [
     "dist/"
@@ -21,6 +21,6 @@
     "visualization",
     "ai",
     "llm",
-    "hivewatch"
+    "agent-lens"
   ]
 }

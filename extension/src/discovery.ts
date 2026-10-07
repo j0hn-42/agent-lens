@@ -143,7 +143,7 @@ function ensureDir(): void {
 
 function getHookScriptContent(): string {
   return `#!/usr/bin/env node
-// Hivewatch hook forwarder v3 — installed by the Hivewatch VS Code extension.
+// Agent Lens hook forwarder v3 — installed by the Agent Lens VS Code extension.
 // Claude Code invokes this as a command hook. It reads a discovery directory to
 // find live extension instances, checks their PIDs, and forwards the event via
 // HTTP POST. Dead instances are cleaned up automatically.

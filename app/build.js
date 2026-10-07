@@ -14,7 +14,7 @@ const ROOT = path.join(__dirname, '..')
 const APP_DIR = __dirname
 const APP_PKG = require(path.join(APP_DIR, 'package.json'))
 
-console.log('Building Hivewatch app...\n')
+console.log('Building Agent Lens app...\n')
 
 // 1. Build the webview UI
 console.log('[1/2] Building webview...')

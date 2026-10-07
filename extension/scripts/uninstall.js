@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * vscode:uninstall script — runs when the extension is uninstalled.
- * Removes Hivewatch hooks from ALL known Claude Code settings files,
+ * Removes Agent Lens hooks from ALL known Claude Code settings files,
  * then deletes the entire ~/.claude/agent-flow/ directory.
  *
  * Sources for workspace discovery (checked in order, deduplicated):

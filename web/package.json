@@ -1,5 +1,5 @@
 {
-  "name": "hivewatch-web",
+  "name": "agent-lens-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
