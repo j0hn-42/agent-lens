@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { SessionInfo } from '@/lib/vscode-bridge'
+import { FOCUS_RING, SESSION_STATUS_TEXT, nextTabIndex, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
 
 interface SessionTabsProps {
   sessions: SessionInfo[]
@@ -12,6 +13,27 @@ interface SessionTabsProps {
   onCloseSession: (id: string) => void
 }
 
+/** Status marker: shape differs per status (filled disc / ring / check) so colour is never the only cue. */
+function StatusMarker({ kind }: { kind: SessionStatusKind }) {
+  if (kind === 'completed') {
+    return (
+      <span aria-hidden="true" className="shrink-0 text-[11px] leading-none" style={{ color: COLORS.idle }}>✓</span>
+    )
+  }
+  const isNew = kind === 'new-activity'
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block w-2 h-2 rounded-full shrink-0 ${isNew ? 'motion-safe:animate-pulse' : ''}`}
+      style={{
+        background: isNew ? 'transparent' : COLORS.complete,
+        border: `2px solid ${COLORS.complete}`,
+        boxShadow: `0 0 4px ${COLORS.complete}`,
+      }}
+    />
+  )
+}
+
 export function SessionTabs({
   sessions,
   selectedSessionId,
@@ -19,62 +41,82 @@ export function SessionTabs({
   onSelectSession,
   onCloseSession,
 }: SessionTabsProps) {
-  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
 
-  const setButtonRef = useCallback((id: string, el: HTMLButtonElement | null) => {
-    if (el) buttonRefs.current.set(id, el)
-    else buttonRefs.current.delete(id)
+  const setTabRef = useCallback((id: string, el: HTMLButtonElement | null) => {
+    if (el) tabRefs.current.set(id, el)
+    else tabRefs.current.delete(id)
   }, [])
 
   // Scroll selected tab into view whenever it changes
   useEffect(() => {
     if (!selectedSessionId) return
-    const el = buttonRefs.current.get(selectedSessionId)
+    const el = tabRefs.current.get(selectedSessionId)
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
   }, [selectedSessionId])
 
+  // Roving tabindex: if the selection is not among the sessions, the first tab stays reachable.
+  const tabStopId = sessions.some(s => s.id === selectedSessionId) ? selectedSessionId : sessions[0]?.id
+
+  const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (e.key === 'Delete') {
+      e.preventDefault()
+      onCloseSession(sessions[index].id)
+      return
+    }
+    const next = nextTabIndex(index, e.key, sessions.length)
+    if (next === null) return
+    e.preventDefault()
+    const target = sessions[next]
+    tabRefs.current.get(target.id)?.focus()
+    onSelectSession(target.id)
+  }
+
   return (
-    <div className="flex gap-1">
-      {sessions.map(session => {
+    <div role="tablist" aria-label="Sessions" className="flex gap-1">
+      {sessions.map((session, index) => {
         const isSelected = session.id === selectedSessionId
-        const isActive = session.status === 'active'
-        const hasActivity = sessionsWithActivity.has(session.id)
-        // Green dot: session is active, OR has unseen background activity
-        const showGreen = isActive || hasActivity
+        const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), isSelected)
         return (
-          <button
+          <div
             key={session.id}
-            ref={(el) => setButtonRef(session.id, el)}
-            onClick={() => onSelectSession(session.id)}
-            className="group px-1.5 py-0.5 rounded transition-all flex items-center gap-1"
+            role="presentation"
+            className="group flex items-center shrink-0 rounded"
             style={{
-              flexShrink: 0,
               whiteSpace: 'nowrap',
               background: isSelected ? COLORS.tabSelectedBg : COLORS.tabInactiveBg,
               border: `1px solid ${isSelected ? COLORS.tabSelectedBorder : COLORS.tabInactiveBorder}`,
-              color: isSelected ? COLORS.holoBright : COLORS.textMuted,
+              borderBottomWidth: isSelected ? 3 : 1,
             }}
           >
-            <span
-              className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{
-                background: showGreen ? COLORS.complete : COLORS.idle + '40',
-                boxShadow: showGreen ? `0 0 4px ${COLORS.complete}` : 'none',
-                animation: hasActivity && !isSelected ? 'pulse 1.5s infinite' : 'none',
-              }}
-            />
-            {session.label}
-            <span
-              className="ml-0.5 opacity-0 group-hover:opacity-60 transition-opacity cursor-pointer"
-              style={{ color: COLORS.tabClose, fontSize: 8, lineHeight: '10px' }}
-              onClick={(e) => {
-                e.stopPropagation()
-                onCloseSession(session.id)
-              }}
+            <button
+              type="button"
+              role="tab"
+              id={`session-tab-${session.id}`}
+              aria-selected={isSelected}
+              aria-controls="visualizer-main"
+              tabIndex={session.id === tabStopId ? 0 : -1}
+              ref={(el) => setTabRef(session.id, el)}
+              onClick={() => onSelectSession(session.id)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              className={`min-h-6 min-w-6 pl-2 pr-1 py-1 rounded-l flex items-center gap-1.5 text-[11px] ${isSelected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+              style={{ color: isSelected ? COLORS.holoBright : COLORS.textMuted }}
             >
-              ✕
-            </span>
-          </button>
+              <StatusMarker kind={kind} />
+              <span className="sr-only">{SESSION_STATUS_TEXT[kind]}, </span>
+              {session.label}
+            </button>
+            <button
+              type="button"
+              aria-label={`Close session ${session.label}`}
+              title="Close session"
+              onClick={() => onCloseSession(session.id)}
+              className={`min-h-6 min-w-6 rounded-r text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+              style={{ color: COLORS.tabClose }}
+            >
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
         )
       })}
     </div>
