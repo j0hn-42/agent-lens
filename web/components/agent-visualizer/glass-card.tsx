@@ -11,7 +11,7 @@ interface GlassCardProps {
 }
 
 export function GlassCard({ children, className = '', style, visible }: GlassCardProps) {
-  const [mounted, setMounted] = useState(false)
+  const [mounted, setMounted] = useState(visible)
   const [animating, setAnimating] = useState(false)
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export function GlassCard({ children, className = '', style, visible }: GlassCar
 
   return (
     <div
-      className={`glass-card ${className}`}
+      className={`glass-card motion-reduce:transition-none! ${className}`}
       style={{
         ...style,
         opacity: animating ? 1 : 0,
