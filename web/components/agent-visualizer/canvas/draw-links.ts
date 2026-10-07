@@ -5,10 +5,8 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import {
   type ResolvedLink, type LinkState, linkCurve, curvePoint, curveTangent,
 } from './link-geometry'
-import type { EdgeBubble } from './edge-bubbles'
-import { EDGE_BUBBLE } from '@/lib/canvas-constants'
-import { planKey } from './overlay-plan'
-import { overlayHits } from './overlay-state'
+import { EDGE_BUBBLE, PLACEMENT } from '@/lib/canvas-constants'
+import { planKey, worldOffset, edgeBubblePlanId, type PlannableEdgeBubble } from './overlay-plan'
 
 /** Badge font size (px): never below the 11px floor */
 const BADGE_FONT = 11
@@ -137,7 +135,7 @@ export function drawLinks(
  */
 export function drawEdgeBubbles(
   ctx: CanvasRenderingContext2D,
-  bubbles: EdgeBubble[],
+  bubbles: PlannableEdgeBubble[],
   selectedLinkId: string | null | undefined,
   hoveredLinkId: string | null | undefined,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
@@ -145,9 +143,16 @@ export function drawEdgeBubbles(
   if (!lodForZoom(opts.zoom).details) return
   const scale = opts.zoom > 0 ? opts.zoom : 1
   for (const b of bubbles) {
-    const rect = overlayHits.edgeBubbles.get(b.linkId)
-    const place = opts.plan?.get(planKey.edgeBubble(b.linkId))
-    if (!rect || !place || place.hidden) continue
+    const place = opts.plan?.get(planKey.edgeBubble(edgeBubblePlanId(b)))
+    if (!place || place.hidden) continue
+    // Where the planner put it: the preferred spot (above the anchor) moved by the placement offset
+    const off = worldOffset(place, scale)
+    const baseX = b.anchor.x - b.w / 2
+    const baseY = b.anchor.y - b.h - 10
+    const collapsed = place.collapsed
+    const rect = collapsed
+      ? { x: baseX + off.dx, y: baseY + b.h - PLACEMENT.chipH / scale + off.dy, w: PLACEMENT.chipW / scale, h: PLACEMENT.chipH / scale }
+      : { x: baseX + off.dx, y: baseY + off.dy, w: b.w, h: b.h }
     const color = b.isError ? COLORS.error : b.type === 'return' ? COLORS.return : b.type === 'dispatch' ? COLORS.dispatch : COLORS.holoBase
     const emphasised = b.linkId === selectedLinkId || b.linkId === hoveredLinkId
 
@@ -169,7 +174,7 @@ export function drawEdgeBubbles(
     ctx.globalAlpha = 1
 
     ctx.beginPath()
-    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 5)
+    ctx.roundRect(rect.x, rect.y, rect.w, rect.h, collapsed ? 8 / scale : 5)
     ctx.fillStyle = COLORS.cardBgDark
     ctx.fill()
     ctx.strokeStyle = color
@@ -180,9 +185,18 @@ export function drawEdgeBubbles(
     ctx.setLineDash([])
 
     ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
+    ctx.fillStyle = COLORS.textPrimary
+    if (collapsed) {
+      // Count chip: how many messages the link shows; the text is the number only
+      ctx.font = `${EDGE_BUBBLE.fontSize / scale}px monospace`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(String(b.groupCount ?? 1), rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5)
+      ctx.restore()
+      continue
+    }
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.fillStyle = COLORS.textPrimary
     for (let i = 0; i < b.lines.length; i++) {
       ctx.fillText(b.lines[i], rect.x + EDGE_BUBBLE.padding, rect.y + EDGE_BUBBLE.padding + i * EDGE_BUBBLE.lineHeight)
     }

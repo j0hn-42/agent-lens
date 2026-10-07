@@ -1,17 +1,22 @@
 'use client'
 
-import { useMemo, useRef, useState, useEffect } from 'react'
+import { useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, pluralize } from '@/lib/utils'
+import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
 import {
-  buildAgentForests, buildSessionRows, formatRelativeTime,
+  buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
+import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
+import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
+import { deriveFreshness, freshnessKey, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 
 export type SessionListAgent = AgentLike
@@ -22,6 +27,8 @@ interface SessionListPanelProps {
   sessions: SessionInfo[]
   selectedSessionId: string | null
   sessionsWithActivity: ReadonlySet<string>
+  /** Model ID per session id (sessions that reported one) */
+  sessionModels?: ReadonlyMap<string, string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
   /** Agents of the current view (the selected session, team or all sessions) */
@@ -30,11 +37,16 @@ interface SessionListPanelProps {
   onSelectAgent: (agentId: string) => void
   teams?: ReadonlyMap<string, TeamSummary>
   teamWorking?: ReadonlyMap<string, number>
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
   /** Clock override for tests */
   now?: number
+  /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
+  observedSessionIds?: ReadonlySet<string>
+  /** Freshness clock override for tests */
+  freshnessClock?: FreshnessClock
 }
 
 const STATE_COLOR: Record<string, string> = {
@@ -72,16 +84,24 @@ function SessionMarker({ kind }: { kind: SessionStatusKind }) {
   )
 }
 
-function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
+function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: {
   node: AgentNode<SessionListAgent>
   depth: number
   selectedAgentId: string | null
   onSelectAgent: (id: string) => void
+  freshnessNow: number
 }) {
   const a = node.agent
   const selected = a.id === selectedAgentId
   const stateText = getStateLabel(a.state)
-  const detail = a.currentTool && a.state === 'tool_calling' ? a.currentTool : stateText
+  const freshness: Freshness = deriveFreshness(a, freshnessNow)
+  const stale = freshness === 'stale'
+  // A stale status is only the last known one: said in words, and the marker is greyed
+  const detail = stale
+    ? lastKnownStateText(a.state)
+    : freshness === 'closed' && a.state !== 'complete'
+      ? `closed, ${lastKnownStateText(a.state)}`
+      : a.currentTool && a.state === 'tool_calling' ? a.currentTool : stateText
   const role = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
   return (
     <li>
@@ -95,16 +115,16 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
         <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
-        <StateMarker state={a.state} />
+        <StateMarker state={stale ? 'idle' : a.state} />
         <span className="sr-only">{role}, </span>
         <span className="truncate min-w-0 flex-1">{a.name}</span>
-        <span className="shrink-0" style={{ color: STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
+        <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
         <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokens(a.tokensUsed)}</span>
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
           {node.children.map(c => (
-            <AgentItem key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} />
+            <AgentItem key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow} />
           ))}
         </ul>
       )}
@@ -113,9 +133,9 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
 }
 
 export function SessionListPanel({
-  visible, onClose, sessions, selectedSessionId, sessionsWithActivity,
+  visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamMemberCounts, allSessionCount, now,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -128,12 +148,38 @@ export function SessionListPanel({
   }, [visible, now])
   const currentTime = now ?? clock
 
+  // Freshness: one shared clock; this panel re-renders only when an agent crosses a threshold
+  const freshClock = freshnessClock ?? getFreshnessClock()
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  useFreshnessValue(t => freshnessKey(agentsRef.current.values(), t), freshClock)
+  const freshnessNow = freshClock.getNow()
+
+  // Sessions listed on disk but never heard from (issue #52)
+  const observedVersion = useSyncExternalStore(observedSessions.subscribe, observedSessions.getVersion, observedSessions.getVersion)
+  const isObservedId = (id: string) => (observedSessionIds ? observedSessionIds.has(id) : observedSessions.has(id))
+  const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
+
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const rows = useMemo(
-    () => buildSessionRows(sessions, teams ? teams.keys() : [], forests),
-    [sessions, teams, forests],
-  )
-  const activeCount = sessions.filter(s => s.status === 'active').length
+  const [activeOnly, setActiveOnly] = useState(false)
+  const rows = useMemo(() => {
+    // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved
+    // session is not counted as active, so it is hidden too
+    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
+    // A team row only makes sense with teammates: every Claude Code session owns a team holding just its lead,
+    // and listing it would add a "Team session-xxxx: 0 members" row per session
+    const listed = teams
+      ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
+      : undefined
+    const teamNames = listed ? [...listed.keys()] : []
+    return buildSessionRows(
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
+      { hideUnlistedTeams: true }, isObserved,
+    )
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  const shownSessionCount = rows.filter(r => r.kind === 'session').length
+  const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
     setCollapsed(prev => {
@@ -193,17 +239,38 @@ export function SessionListPanel({
   const stopId = rows.some(r => r.id === selectedSessionId) ? selectedSessionId : firstTabStop
 
   return (
+    <>
+    <FreshnessAnnouncer agents={agents} clock={freshnessClock} />
     <SlidingPanel
       visible={visible}
       position={{ top: 48, left: 12 }}
       axis="X"
-      offset={-20}
+      offset={-8}
       zIndex={Z.sidePanel}
       width={380}
       labelledBy="session-list-title"
     >
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
-        <PanelHeader onClose={onClose} titleId="session-list-title">
+        <PanelHeader
+          onClose={onClose}
+          titleId="session-list-title"
+          actions={(
+            <button
+              type="button"
+              aria-pressed={activeOnly}
+              onClick={() => setActiveOnly(v => !v)}
+              title="Hide sessions that are finished"
+              className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+              style={{
+                background: activeOnly ? COLORS.toggleActive : COLORS.toggleInactive,
+                border: `1px solid ${COLORS.controlBorder}`,
+                color: activeOnly ? COLORS.holoBright : COLORS.textMuted,
+              }}
+            >
+              Active only
+            </button>
+          )}
+        >
           <span className="text-[11px] tracking-wider" style={{ color: COLORS.textPrimary }}>
             SESSIONS
           </span>
@@ -217,8 +284,10 @@ export function SessionListPanel({
           className="overflow-y-auto"
           style={{ maxHeight: 'calc(100vh - var(--topbar-h, 60px) - 40px)' }}
         >
-          {rows.length === 0 && (
-            <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>No session yet</div>
+          {shownSessionCount === 0 && (
+            <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
+              {activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+            </div>
           )}
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
@@ -241,7 +310,7 @@ export function SessionListPanel({
                     {row.roots.length > 0 && (
                       <ul className="list-none p-0 m-0 pl-6" aria-label="Agents without a listed session">
                         {row.roots.map(n => (
-                          <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} />
+                          <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow} />
                         ))}
                       </ul>
                     )}
@@ -250,9 +319,10 @@ export function SessionListPanel({
               }
 
               if (row.kind === 'team') {
-                const name = row.teamName!
-                const members = Math.max(teamMemberCounts?.get(name) ?? 0, teams?.get(name)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(name) ?? 0)
+                const key = row.teamName!
+                const name = teams?.get(key)?.name ?? key
+                const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
                 return (
                   <li key={row.id}>
                     <button
@@ -269,8 +339,11 @@ export function SessionListPanel({
               }
 
               const session = row.session!
-              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected)
+              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
+              const unobserved = kind === 'unobserved'
               const badge = runtimeBadge(session.runtime)
+              const modelId = sessionModels?.get(session.id)
+              const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
               const showAgents = hasAgents && !isCollapsed
@@ -296,19 +369,22 @@ export function SessionListPanel({
                       onClick={() => onSelectSession(session.id)}
                       className={`${rowBase} min-w-0 flex-1`} style={rowStyle}
                     >
-                      <SessionMarker kind={kind} />
-                      <span className="sr-only">{SESSION_STATUS_TEXT[kind]}, </span>
-                      {badge && (
-                        <>
-                          <span aria-hidden="true" title={badge.label} className="shrink-0 rounded px-1 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}` }}>{badge.short}</span>
-                          <span className="sr-only">{badge.label} session, </span>
-                        </>
-                      )}
-                      <span className="truncate min-w-0 flex-1">{session.label}</span>
-                      {session.workspace && <span className="truncate max-w-[90px] shrink" style={{ color: COLORS.textDim }}>{session.workspace}</span>}
-                      <span className="shrink-0" style={{ color: COLORS.textDim }}>
-                        {hasAgents ? `${pluralize(row.agentCount, 'agent')} · ` : ''}{formatRelativeTime(session.lastActivityTime, currentTime)}
+                      {unobserved
+                        ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
+                        : <SessionMarker kind={kind} />}
+                      <span className="sr-only">
+                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${SESSION_NOT_OBSERVED_HELP}` : SESSION_STATUS_TEXT[kind]}
+                        ,{' '}
                       </span>
+                      {badge && <span className="sr-only">{badge.label} session, </span>}
+                      <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                      {unobserved && (
+                        <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
+                          {SESSION_STATUS_TEXT[kind]}
+                        </span>
+                      )}
+                      {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
+                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                     </button>
                     <button
                       type="button"
@@ -326,7 +402,7 @@ export function SessionListPanel({
                       {row.roots.map(n => (
                         <AgentItem
                           key={n.agent.id} node={n} depth={0}
-                          selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+                          selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow}
                         />
                       ))}
                     </ul>
@@ -341,5 +417,6 @@ export function SessionListPanel({
         </div>
       </div>
     </SlidingPanel>
+    </>
   )
 }

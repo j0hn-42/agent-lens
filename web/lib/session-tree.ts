@@ -4,6 +4,10 @@
  */
 import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
+import { groupHeading } from './ui-glossary'
+import type { TeamSummary } from './agent-types'
+import { isGroupActive, type GroupSummary } from '../hooks/simulation/team-info'
+import { isSessionObserved } from './session-model'
 
 /** The slice of an Agent the panel needs. */
 export interface AgentLike {
@@ -17,6 +21,9 @@ export interface AgentLike {
   currentTool?: string
   tokensUsed: number
   spawnTime: number
+  /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
+  lastEventAt?: number
+  freshnessSource?: 'live' | 'history'
 }
 
 export interface AgentNode<A extends AgentLike = AgentLike> {
@@ -88,11 +95,17 @@ export function buildSessionRows(
   sessions: ReadonlyArray<SessionInfo>,
   teamNames: Iterable<string>,
   forests: ReadonlyMap<string, AgentNode[]>,
+  /** Team map key -> display name and lead session; lets two same-named teams keep their own sessions */
+  teamMeta?: ReadonlyMap<string, { name: string; leadSessionId?: string }>,
+  /** Sessions tagged with a team missing from `teamNames` are listed as plain sessions (lead-only teams) */
+  opts?: { hideUnlistedTeams?: boolean },
+  /** Active sessions that are not observed (issue #52) are listed after the proven ones */
+  isObserved?: (session: SessionInfo) => boolean,
 ): SessionRow[] {
   const byId = new Map(sessions.map(s => [s.id, s]))
-  const rank = (s: SessionInfo) => (s.status === 'active' ? 0 : 1)
+  const rank = (s: SessionInfo) => (s.status !== 'active' ? 2 : isObserved && !isObserved(s) ? 1 : 0)
   const sortedSessions = [...sessions].sort((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
-  const items = buildTabModel(sortedSessions, teamNames)
+  const items = buildTabModel(sortedSessions, teamNames, teamMeta, opts)
   // buildTabModel keeps the input order inside each block, which is the sorted order
   const rows: SessionRow[] = []
   // Agents whose session is not (yet) listed, e.g. the demo or events without a session id: kept visible under 'All'
@@ -115,9 +128,15 @@ export function buildSessionRows(
 export function selectionLabel(
   selectedId: string | null,
   sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label'>>,
+  teams?: ReadonlyMap<string, TeamSummary>,
 ): string {
   if (selectedId === null || selectedId === ALL_SESSIONS_ID) return 'All sessions'
-  if (selectedId.startsWith('team:')) return `Team ${selectedId.slice('team:'.length)}`
+  if (selectedId.startsWith('team:')) {
+    // The selection carries a team key (or a plain name); the summary gives the display name and the kind
+    const key = selectedId.slice('team:'.length)
+    const team = teams?.get(key)
+    return groupHeading(team?.kind, team?.name ?? key)
+  }
   return sessions.find(s => s.id === selectedId)?.label ?? 'Session'
 }
 
@@ -129,4 +148,29 @@ export function formatRelativeTime(timestamp: number, now: number): string {
   if (sec < 3600) return `${Math.floor(sec / 60)} min ago`
   if (sec < 86400) return `${Math.floor(sec / 3600)} h ago`
   return `${Math.floor(sec / 86400)} d ago`
+}
+
+/**
+ * Sessions kept by the 'Active only' filter: the active ones that are actually observed (a session
+ * listed from disk without any received event is not counted as active, issue #52), plus the selected
+ * session so the current selection never vanishes from the list. By default observation comes from the
+ * app-wide tracker; pass `isObserved` to include other evidence (e.g. a live hook flag).
+ */
+export function filterActiveSessions(
+  sessions: ReadonlyArray<SessionInfo>,
+  selectedId: string | null,
+  /** Whether an active session has been heard from; defaults to the app-wide observation tracker */
+  isObserved: (session: SessionInfo) => boolean = s => isSessionObserved(s),
+): SessionInfo[] {
+  return sessions.filter(s => (s.status === 'active' && isObserved(s)) || s.id === selectedId)
+}
+
+/** Teams kept by the 'Active only' filter: those with a remaining session or a member still working. */
+export function filterActiveTeams(
+  teamNames: Iterable<string>,
+  remainingSessions: ReadonlyArray<Pick<SessionInfo, 'teamName'>>,
+  teamWorking?: ReadonlyMap<string, number>,
+  teamSummaries?: ReadonlyMap<string, GroupSummary>,
+): string[] {
+  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || isGroupActive(teamSummaries?.get(n), teamWorking?.get(n)))
 }

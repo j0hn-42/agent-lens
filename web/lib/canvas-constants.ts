@@ -139,7 +139,6 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  centerStrength: 0.03,
   collideRadius: 140,
   linkDistance: 350,
   linkStrength: 0.4,
@@ -158,8 +157,8 @@ export const CLUSTER_LAYOUT = {
   gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
-  /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.6,
+  /** Share of the distance a lead (orchestrator) covers towards its anchor, per tick */
+  holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
@@ -167,8 +166,6 @@ export const CLUSTER_LAYOUT = {
   ringStrength: 0.06,
   /** Members are kept within this fraction of the cluster radius */
   containFactor: 0.95,
-  containStrength: 0.08,
-  separationStrength: 0.5,
 } as const
 
 // ─── Tool slot placement config ─────────────────────────────────────────────
@@ -613,6 +610,16 @@ export const EDGE_BUBBLE = {
   anchorT: 1 / 3,
   /** Chars of message text kept for a bubble (before wrapping) */
   maxChars: 240,
+  /** Max bubbles shown per link (the newest messages): bounds memory and DOM buttons */
+  maxPerLink: 3,
+  /** Max bubbles shown on the whole canvas (the newest win) */
+  maxTotal: 12,
+  /** Fraction of the curve where a peer (teammate) message is anchored */
+  peerT: 0.5,
+  /** Words of the message kept in the accessible name of a bubble button */
+  ariaWords: 10,
+  /** Messages per link mirrored in the DOM list */
+  listedPerLink: 5,
 } as const
 
 export const CLUSTER_DRAW = {
@@ -620,6 +627,8 @@ export const CLUSTER_DRAW = {
   detailFontSize: 11,
   labelHeight: 36,
   labelMaxWidth: 260,
+  /** The title starts this many px right of the detail line (room for the colour dot) */
+  titleIndent: 10,
   /** Padding between members and the halo edge (world px) */
   padding: 56,
 } as const
@@ -632,4 +641,26 @@ export const PLACEMENT = {
   /** Size of the collapsed bubble count chip (screen px) */
   chipW: 28,
   chipH: 20,
+} as const
+
+// ─── Freshness (issues #48, #52) ────────────────────────────────────────────
+
+/** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
+export const STALE_AFTER_MS = 30_000
+/** A status that comes from history (not seen live) expires after this long (ms) */
+export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
+/** A terminal status (error / interrupted) stays visible this long (ms), then the agent reads "closed" */
+export const TERMINAL_STATUS_VISIBLE_MS = 2 * 60_000
+/** Period (ms) of the one shared freshness clock */
+export const FRESHNESS_TICK_MS = 1000
+/** Max agent names listed in one screen reader announcement */
+export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
+
+export const FRESHNESS_DRAW = {
+  /** Neutral grey of a stale node (state colours say "live") */
+  staleColor: '#8a94a0',
+  /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
+  staleAlpha: 0.45,
+  /** Max width (px) of the "last known state" line */
+  labelMaxWidth: 240,
 } as const

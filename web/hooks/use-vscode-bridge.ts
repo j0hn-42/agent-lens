@@ -2,12 +2,19 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
-import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
+import { SessionModelTracker } from '@/lib/session-model'
+import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, parseShowFinished, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
+  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
+import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
+
+export interface UseVSCodeBridgeOptions {
+  /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
+  relaySessionId?: string | null
+}
 
 interface BridgeHookResult {
   isVSCode: boolean
@@ -40,6 +47,8 @@ interface BridgeHookResult {
   teams: Map<string, TeamSummary>
   /** Members currently working, per team name */
   teamWorking: Map<string, number>
+  /** Tracked members and done members per team key (feeds isGroupActive) */
+  teamSummaries: Map<string, GroupSummary>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
   /** 'All' also shows the finished sessions (persisted preference) */
@@ -53,6 +62,8 @@ interface BridgeHookResult {
   finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
+  /** Model ID of each session (main agent's model), for the sessions that reported one */
+  sessionModels: ReadonlyMap<string, string>
   /** Remove a session from the list */
   removeSession: (sessionId: string) => void
   /** Undo a removeSession call (re-adds the dismissed session). Returns true if it was restored. */
@@ -63,11 +74,17 @@ interface BridgeHookResult {
   relayPort: string
   /** True after the relay SSE connection failed and until it reconnects */
   relayUnreachable: boolean
+  /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
+  connectionDetail: string | null
+  /** Consecutive relay connection failures (0 when connected) */
+  reconnectAttempt: number
+  /** 'polling' after repeated SSE failures: only reachability is probed until the relay answers */
+  relayLinkMode: 'sse' | 'polling'
   /** Latest non-blocking notice (parse failure, session reset, relay state); consumers toast it */
   notice: BridgeNotice | null
 }
 
-const PARSE_NOTICE_INTERVAL_MS = 10_000
+export const PARSE_NOTICE_INTERVAL_MS = 10_000
 
 /** How often the 'active session' rule is re-evaluated for the passage of time */
 const VISIBILITY_TICK_MS = 30_000
@@ -85,7 +102,7 @@ const MAX_ALL_BUFFER = 50_000
  * Supports multi-session: events are buffered per-session so switching
  * sessions replays the correct event history.
  */
-export function useVSCodeBridge(): BridgeHookResult {
+export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [useMockData, setUseMockData] = useState(
@@ -98,18 +115,27 @@ export function useVSCodeBridge(): BridgeHookResult {
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const sessionsRef = useRef<SessionInfo[]>([])
-  sessionsRef.current = sessions
+  /** Every change of the session list goes through here so the ref is current before React re-renders
+   *  (the relay sends the list and the replayed events in the same tick). */
+  const updateSessions = useCallback((update: (prev: SessionInfo[]) => SessionInfo[]) => {
+    const next = update(sessionsRef.current)
+    sessionsRef.current = next
+    setSessions(next)
+  }, [])
   // Teams are tracked over the whole event stream so tabs stay correct whichever tab is selected
   const teamTrackerRef = useRef(createTeamTracker())
-  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
-    () => ({ teams: new Map(), working: new Map(), members: new Map() }),
+  const modelTrackerRef = useRef(new SessionModelTracker())
+  const [sessionModels, setSessionModels] = useState<ReadonlyMap<string, string>>(new Map())
+  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number>; summaries: Map<string, GroupSummary> }>(
+    () => ({ teams: new Map(), working: new Map(), members: new Map(), summaries: new Map() }),
   )
   const refreshTeamView = useCallback(() => {
     const tracker = teamTrackerRef.current
     const working = new Map<string, number>()
     const members = new Map<string, number>()
-    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)) }
-    setTeamView({ teams: new Map(tracker.teams), working, members })
+    const summaries = new Map<string, GroupSummary>()
+    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)); summaries.set(name, tracker.summary(name)) }
+    setTeamView({ teams: new Map(tracker.teams), working, members, summaries })
   }, [])
   // 'All' shows only the active sessions unless the user asked for the finished ones too
   const [showFinished, setShowFinishedState] = useState(false)
@@ -143,6 +169,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       selectedId: selectedSessionIdRef.current,
       teamSessions: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.sessionsOf(name)] as const)),
       teamWorking: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.working(name)] as const)),
+      teamSummaries: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.summary(name)] as const)),
       now: Date.now(),
     })
     finished = finishedSessionIds(sessionsRef.current, active).length
@@ -184,65 +211,55 @@ export function useVSCodeBridge(): BridgeHookResult {
     setNotice({ id: ++noticeIdRef.current, kind, message })
   }, [])
 
-  // Connect to standalone dev relay server via SSE when not in VS Code
+  // Relay mode: dev server or standalone CLI, outside VS Code (the extension feeds events by postMessage there)
+  const isRelayMode = process.env.AGENT_LENS_STANDALONE === '1'
+    || (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEMO === '0')
+  const relayEnabled = isRelayMode && !!vscodeBridge && !vscodeBridge.isVSCode
+  const lastParseNoticeRef = useRef(0)
+  const wasDownRef = useRef(false)
+  const source = useReconnectingSource({
+    enabled: relayEnabled,
+    origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
+    sessionId: options?.relaySessionId ?? null,
+    onMessage: data => window.postMessage(data, '*'),
+    onParseError: () => {
+      // Surface malformed relay payloads without spamming: at most one notice per interval
+      const now = Date.now()
+      if (now - lastParseNoticeRef.current > PARSE_NOTICE_INTERVAL_MS) {
+        lastParseNoticeRef.current = now
+        pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
+      }
+    },
+  })
+
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const bridge = vscodeBridge
-    if (!bridge) return
-
-    // Skip in VS Code — extension handles events via postMessage
-    if (bridge.isVSCode) return
-
-    // Connect to relay in dev mode or standalone CLI mode
-    const isStandalone = process.env.AGENT_LENS_STANDALONE === '1'
-    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) {
-      // No relay to wait for: unless the VS Code init message arrives, we are offline.
-      const t = setTimeout(() => {
-        setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
-      }, 1500)
-      return () => clearTimeout(t)
-    }
-
-    setConnectionStatus('connecting')
-    const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
-    let wasDown = false
-    let lastParseNotice = 0
-
-    es.onopen = () => {
-      setConnectionStatus('connected')
+    if (!relayEnabled) return
+    setConnectionStatus(source.status)
+    if (source.status === 'connected') {
       setRelayUnreachable(false)
       setUseMockData(false)
-      if (wasDown) {
-        wasDown = false
+      if (wasDownRef.current) {
+        wasDownRef.current = false
         pushNotice('relay-up', 'Relay reconnected')
       }
-    }
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        window.postMessage(data, '*')
-      } catch {
-        // Surface malformed relay payloads without spamming: at most one notice per interval
-        const now = Date.now()
-        if (now - lastParseNotice > PARSE_NOTICE_INTERVAL_MS) {
-          lastParseNotice = now
-          pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
-        }
-      }
-    }
-    es.onerror = () => {
-      setConnectionStatus('disconnected')
+    } else if (source.status === 'disconnected') {
       setRelayUnreachable(true)
-      if (!wasDown) {
-        wasDown = true
+      if (!wasDownRef.current) {
+        wasDownRef.current = true
         pushNotice('relay-down', relayPort ? `Relay unreachable on :${relayPort}` : 'Relay unreachable')
       }
     }
+  }, [relayEnabled, source, pushNotice, relayPort])
 
-    return () => {
-      es.close()
-    }
-  }, [pushNotice, relayPort])
+  // Without a relay to wait for: unless the VS Code init message arrives, we are offline.
+  useEffect(() => {
+    const bridge = vscodeBridge
+    if (!bridge || bridge.isVSCode || isRelayMode) return
+    const t = setTimeout(() => {
+      setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [isRelayMode])
 
   useEffect(() => {
     const bridge = vscodeBridge
@@ -266,12 +283,15 @@ export function useVSCodeBridge(): BridgeHookResult {
       }
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
+      if (modelTrackerRef.current.ingest(simEvent)) setSessionModels(modelTrackerRef.current.snapshot())
 
       // Remember when each session last spoke (bounded), and re-evaluate when a hidden one wakes up
       if (event.sessionId) {
         const last = lastEventAtRef.current
         last.delete(event.sessionId)
-        last.set(event.sessionId, Date.now())
+        // Replayed history of a finished session is not activity: only stamp what can be live
+        const now = Date.now()
+        if (shouldStampActivity(sessionsRef.current.find(s => s.id === event.sessionId), now)) last.set(event.sessionId, now)
         if (last.size > MAX_LAST_EVENT_SESSIONS) {
           const oldest = last.keys().next().value
           if (oldest !== undefined) last.delete(oldest)
@@ -316,7 +336,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         const saved = dismissedSessionsRef.current.get(event.sessionId)
         dismissedSessionsRef.current.delete(event.sessionId)
         if (saved) {
-          setSessions(prev => {
+          updateSessions(prev => {
             if (prev.find(s => s.id === saved.id)) return prev
             return [...prev, { ...saved, status: 'active' as const, lastActivityTime: Date.now() }]
           })
@@ -342,11 +362,13 @@ export function useVSCodeBridge(): BridgeHookResult {
         // Panel was reopened — clear all stale state (and tell the user, non-blocking)
         // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
         if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
-        setSessions([])
+        updateSessions(() => [])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
         pendingEventsRef.current.length = 0
         sessionEventsRef.current.clear()
+        modelTrackerRef.current.clear()
+        setSessionModels(new Map())
         allEventsRef.current = []
         allBaseRef.current = 0
         lastEventAtRef.current.clear()
@@ -359,7 +381,9 @@ export function useVSCodeBridge(): BridgeHookResult {
       }
       if (type === 'list') {
         const sessionList = data as SessionInfo[]
-        setSessions(sessionList)
+        // Events replayed before the list arrived were stamped with the reception time: undo that for finished sessions
+        pruneReplayStamps(lastEventAtRef.current, sessionList, Date.now())
+        updateSessions(() => sessionList)
         // Auto-select: prefer active sessions, then most recently active.
         // Only set selection — useLayoutEffect handles flushing events.
         if (!selectedSessionIdRef.current && sessionList.length > 0) {
@@ -377,7 +401,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         }
       } else if (type === 'started') {
         const session = data as SessionInfo
-        setSessions(prev => {
+        updateSessions(prev => {
           const existing = prev.find(s => s.id === session.id)
           if (existing) {
             // Session resumed after inactivity — mark active again
@@ -408,12 +432,12 @@ export function useVSCodeBridge(): BridgeHookResult {
         }
       } else if (type === 'updated') {
         const { sessionId, label } = data as { sessionId: string; label: string }
-        setSessions(prev => prev.map(s =>
+        updateSessions(prev => prev.map(s =>
           s.id === sessionId ? { ...s, label } : s
         ))
       } else if (type === 'ended') {
         const sessionId = data as string
-        setSessions(prev => prev.map(s =>
+        updateSessions(prev => prev.map(s =>
           s.id === sessionId ? { ...s, status: 'completed' as const } : s
         ))
       }
@@ -426,7 +450,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
+  }, [updateSessions, pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
 
   // The rule depends on the session list, the teams, the selection and the clock
   useEffect(() => { recomputeVisible() }, [sessions, teamView, selectedSessionId, recomputeVisible])
@@ -499,7 +523,7 @@ export function useVSCodeBridge(): BridgeHookResult {
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
   const removeSession = useCallback((sessionId: string) => {
-    setSessions(prev => {
+    updateSessions(prev => {
       const session = prev.find(s => s.id === sessionId)
       if (session) { dismissedSessionsRef.current.set(sessionId, session) }
       return prev.filter(s => s.id !== sessionId)
@@ -510,15 +534,15 @@ export function useVSCodeBridge(): BridgeHookResult {
       next.delete(sessionId)
       return next
     })
-  }, [])
+  }, [updateSessions])
 
   const restoreSession = useCallback((sessionId: string): boolean => {
     const saved = dismissedSessionsRef.current.get(sessionId)
     if (!saved) return false
     dismissedSessionsRef.current.delete(sessionId)
-    setSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
+    updateSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
     return true
-  }, [])
+  }, [updateSessions])
 
   const loadDemo = useCallback(() => { setUseMockData(true) }, [])
 
@@ -543,6 +567,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,
+    teamSummaries: teamView.summaries,
     teamMemberCounts: teamView.members,
     showFinished,
     setShowFinished,
@@ -550,11 +575,15 @@ export function useVSCodeBridge(): BridgeHookResult {
     allViewKey: visibility.key,
     finishedSessionCount: visibility.finished,
     sessionsWithActivity,
+    sessionModels,
     removeSession,
     restoreSession,
     loadDemo,
     relayPort,
     relayUnreachable,
+    connectionDetail: relayEnabled ? source.detail : null,
+    reconnectAttempt: relayEnabled ? source.attempt : 0,
+    relayLinkMode: source.mode,
     notice,
   }
 }

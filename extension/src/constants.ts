@@ -339,6 +339,29 @@ export const TEAM_DEDUPE_WINDOW_MS = 60_000
 export const TEAM_DEDUPE_MAX_ENTRIES = 512
 /** A tmux member session is matched to a config member when it started within this window after joinedAt */
 export const TEAM_JOIN_MATCH_WINDOW_MS = 120_000
+// ─── Workflow groups (Workflow tool runs, #79) ───────────────────────────────
+// subagents/workflows/<wf_id>/ is untrusted local input like everything else under ~/.claude.
+// Every limit below is covered by extension/test/workflow-group.test.ts.
+
+/** Workflow agents: a transcript written less than this many ms ago is 'working' */
+export const WORKFLOW_RECENT_WRITE_MS = 15_000
+/** Workflow agents: a finished turn (final text, no pending tool) with no write for this long is 'done' */
+export const WORKFLOW_DONE_QUIET_MS = 60_000
+/** Max agents announced per workflow (the most recently written transcripts win) */
+export const WORKFLOW_MAX_AGENTS = 200
+/** Max workflows followed per session (the most recently written folders win) */
+export const WORKFLOW_MAX_PER_SESSION = 20
+/** Max bytes read from the END of a workflow journal.jsonl */
+export const WORKFLOW_JOURNAL_MAX_BYTES = 1024 * 1024
+/** Max agent ids remembered from one journal */
+export const WORKFLOW_JOURNAL_MAX_IDS = 1000
+/** Max chars of a workflow phase label */
+export const WORKFLOW_PHASE_MAX = 40
+/** Max entries read from workflows/scripts to find the workflow name */
+export const WORKFLOW_SCRIPTS_MAX_ENTRIES = 500
+/** Agent type reported for every workflow agent */
+export const WORKFLOW_AGENT_TYPE = 'workflow-subagent'
+
 /** Bytes read from the head of a session transcript to learn its cwd / start time */
 export const SESSION_HEADER_MAX_BYTES = 16 * 1024
 /** Max chars of team/member/runtime/workspace tags on session list entries */
@@ -356,3 +379,71 @@ export const RELAY_STATUS_RATE_MAX_KEYS = 64
 
 /** Max size of a Claude settings.json read to detect configured hooks (bigger files are ignored) */
 export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024
+
+// ─── Source reconciliation (hooks vs JSONL) and hardened local server ────────
+// Block owned by the relay-sources package (issues #53, #68).
+
+/** Time bucket (seconds) used to derive a stable id for lifecycle events that carry no tool_use_id / explicit id */
+export const EVENT_ID_TIME_BUCKET_S = 2
+/** Max chars of a payload fed to the content hash of a derived event id */
+export const EVENT_ID_HASH_INPUT_MAX = 2000
+/** Max length of an explicit event id taken from a payload */
+export const EVENT_ID_EXPLICIT_MAX = 128
+/** Delivered event ids remembered per session for cross-source deduplication (oldest forgotten first) */
+export const EVENT_DEDUP_MAX_PER_SESSION = 4096
+/** Max sessions whose delivered ids are remembered */
+export const EVENT_DEDUP_MAX_SESSIONS = 64
+/** Max events held while a history load is in progress (the hold is flushed early beyond this) */
+export const EVENT_HOLD_MAX = 50000
+
+/** Env var selecting the relay/app port: "0" asks the OS for an ephemeral port */
+export const ENV_AGENT_LENS_PORT = 'AGENT_LENS_PORT'
+/** Port value that asks the OS for an ephemeral port */
+export const EPHEMERAL_PORT = 0
+/** Loopback address every local server binds to */
+export const LOOPBACK_HOST = '127.0.0.1'
+/** HTTP methods the local servers accept (anything else gets 405) */
+export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
+/** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
+export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+/** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */
+export const CSP_STATIC_APP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+// ─── Input normalization caps (event-normalize.ts, mirrored by web/lib/event-normalize.ts) ──
+
+/** Longest free-text field (message, result, task, ...) kept after normalization. */
+export const NORM_TEXT_MAX = 4096
+/** Longest identifier-like field (agent name, tool_use id, link id, ...). */
+export const NORM_ID_MAX = 160
+/** Largest absolute value kept for a number (tokens, cost, ...); beyond it the value is clamped. */
+export const NORM_NUM_MAX = 1e12
+/** Largest event time kept (seconds since session start): about ten years. */
+export const NORM_EVENT_TIME_MAX_S = 10 * 365 * 24 * 3600
+/** Largest epoch-ms timestamp considered plausible (2100-01-01). */
+export const NORM_TS_MAX_MS = 4_102_444_800_000
+/** Deepest nesting kept inside a payload; deeper values are dropped. */
+export const NORM_MAX_DEPTH = 6
+/** Longest array kept inside a payload. */
+export const NORM_MAX_ARRAY = 256
+/** Most keys kept per object inside a payload. */
+export const NORM_MAX_KEYS = 128
+/** Children one agent may have per session; further spawns are dropped. */
+export const NORM_MAX_CHILDREN_PER_AGENT = 256
+/** Nodes (agents) one session may have; further spawns are dropped. */
+export const NORM_MAX_NODES_PER_SESSION = 512
+/** Events accepted from one batch; the rest of the batch is ignored. */
+export const NORM_MAX_EVENTS_PER_BATCH = 1000
+/** Longest JSONL line parsed (UTF-16 units); longer lines count as malformed. */
+export const NORM_MAX_LINE_CHARS = 4 * 1024 * 1024
+/** Remembered keys for duplicate detection, per session (oldest forgotten first). */
+export const NORM_MAX_SEEN_KEYS = 4096
+/** Dropped node names remembered per session so their later events are ignored too. */
+export const NORM_MAX_DROPPED_NAMES = 1024
+/** Minimum delay between two normalization_stats events of one session (ms). */
+export const NORM_STATS_MIN_INTERVAL_MS = 1000
+/** Longest object key kept inside a payload; entries with a longer key are dropped (counted). */
+export const NORM_KEY_MAX = 128
+/** Known agent names remembered per session (valid parents), spawned or seen acting. */
+export const NORM_MAX_KNOWN_AGENTS = 1024
+/** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
+export const NORM_MAX_TRACKED_SESSIONS = 256

@@ -1,9 +1,10 @@
 import { Agent, NODE, ANIM } from '@/lib/agent-types'
 import { COLORS, contextSegments } from '@/lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW,
 } from '@/lib/canvas-constants'
 import { parseMcpTool } from '@/lib/mcp-tool'
+import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { alphaHex, formatTokens, formatDuration, pluralize } from '@/lib/utils'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
@@ -351,11 +352,13 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
  */
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
-  orch: OrchestratorInfo | null, place: ResolvedPlacement,
+  orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
 ): { extraLines: number; dx: number; dy: number } {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
+  // A stale node says so in words ("last known state: Working"): the state is no longer proven
+  if (staleText) layout.statusLine = ellipsize(staleText, FRESHNESS_DRAW.labelMaxWidth, measure)
   if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0 }
 
   ctx.save()
@@ -380,7 +383,7 @@ function drawAgentLabel(
   }
 
   // Short status text for every agent: state never relies on colour alone (WCAG 1.4.1)
-  ctx.fillStyle = color
+  ctx.fillStyle = staleText ? COLORS.textMuted : color
   ctx.fillText(layout.statusLine, agent.x, y)
   y += gap
 
@@ -515,13 +518,16 @@ export function drawAgents(
   showStats: boolean,
   time: number,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
+  /** Wall clock (ms) used to age the states; injectable for tests */
+  now: number = Date.now(),
 ) {
   const { reducedMotion } = opts
   const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
-    const color = stateColor(agent.state)
+    const stale = deriveFreshness(agent, now) === 'stale'
+    const color = stale ? FRESHNESS_DRAW.staleColor : stateColor(agent.state)
     const isHovered = id === hoveredAgentId
     const isSelected = id === selectedAgentId
 
@@ -537,7 +543,9 @@ export function drawAgents(
     const live = !agent.archived
 
     ctx.save()
-    ctx.globalAlpha = agentDrawOpacity(agent)
+    const baseAlpha = agentDrawOpacity(agent)
+    const nodeAlpha = stale ? baseAlpha * FRESHNESS_DRAW.staleAlpha : baseAlpha
+    ctx.globalAlpha = nodeAlpha
 
     drawDepthShadow(ctx, agent, r)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting)
@@ -556,12 +564,16 @@ export function drawAgents(
     }
 
     const priorityAgent = isSelected || isHovered || id === opts.focusedAgentId
+    // The label stays fully readable on a dimmed node
+    ctx.globalAlpha = baseAlpha
     const labelDrawn = lod.labels
       ? drawAgentLabel(
         ctx, agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         orchestratorInfo(agent, opts.teams), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
+        stale ? lastKnownStateText(agent.state) : undefined,
       )
       : { extraLines: 0, dx: 0, dy: 0 }
+    ctx.globalAlpha = nodeAlpha
     const extraLines = labelDrawn.extraLines
 
     // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)

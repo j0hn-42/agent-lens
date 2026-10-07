@@ -13,10 +13,15 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent, SubagentState, WatchedSession, emitSubagentSpawn } from './protocol'
 import {
+  workflowRefFromPath, workflowIdOf, parseWorkflowMeta, workflowFallbackLabel, selectWorkflowTranscripts,
+  isSafeTranscript, getWorkflowRegistry, WorkflowAgentTracker,
+  type WorkflowGroup, type WorkflowEnv,
+} from './workflow-group'
+import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
-  SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES,
+  SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
 } from './constants'
-import { readNewFileLines, readJsonFileSafe } from './fs-utils'
+import { readNewFileLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -91,6 +96,18 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
   const metaPath = jsonlPath.replace(/\.jsonl$/, '.meta.json')
   // Size-capped, symlinks refused; the file may not exist for older Claude Code versions
   const meta = readJsonFileSafe(metaPath, TEAMMATE_META_MAX_BYTES)
+  const wf = workflowRefFromPath(jsonlPath)
+  if (wf) {
+    // Workflow agent (#79): identity comes from the path; the label only from the sidecar's description
+    // (never from transcript content), and no spawn hints: the parent is always the orchestrator.
+    const wm = parseWorkflowMeta(meta)
+    label = wm.label ?? workflowFallbackLabel(agentId)
+    teammate = {
+      name: label, teamName: wf.name, agentType: WORKFLOW_AGENT_TYPE, teamKind: 'workflow',
+      ...(wm.phase ? { phase: wm.phase } : {}),
+    }
+    return { label, agentId, teammate }
+  }
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
     const rec = meta as Record<string, unknown>
     teammate = parseTeammateMeta(rec) ?? undefined
@@ -131,16 +148,20 @@ export function scanSubagentsDir(
   if (!fs.existsSync(subDir)) return
 
   try {
-    const fresh = fs.readdirSync(subDir)
-      .filter(file => file.endsWith('.jsonl'))
-      .map(file => path.join(subDir, file))
+    // Includes workflows/<wf_id>/agent-*.jsonl (Workflow tool agents); the dir watch is not recursive,
+    // the periodic rescan picks the workflow files up. Workflow transcripts are capped per workflow and
+    // per session, and must be regular files that stay inside the subagents directory.
+    const selection = selectWorkflowTranscripts(listSubagentTranscripts(subDir), subDir)
+    const fresh = selection.files
       .filter(filePath => !session.subagentWatchers.has(filePath))
+      .filter(filePath => !workflowIdOf(filePath) || isSafeTranscript(filePath, subDir))
     // Start parents before children so a nested subagent can resolve its parent's name
     const isNested = (filePath: string) => (fresh.length > 1 && resolveSubagentFileInfo(filePath, 0).parentAgentId) ? 1 : 0
     const ordered = fresh.map(filePath => ({ filePath, rank: isNested(filePath) })).sort((x, y) => x.rank - y.rank)
     for (const { filePath } of ordered) {
       startWatchingSubagentFile(delegate, parser, filePath, sessionId)
     }
+    tickWorkflowGroups(delegate, session, sessionId, selection.workflows)
   } catch (err) { log.debug('Subagent dir scan failed:', err) }
 }
 
@@ -176,7 +197,9 @@ function startWatchingSubagentFile(
     toolUseId: info.toolUseId,
     parentName: parentRecord?.name,
   })
-  const isTeammate = !!info.teammate && countTeammates(session) < TEAMMATE_MAX_PER_SESSION
+  const isWorkflow = info.teammate?.teamKind === 'workflow'
+  // Workflow agents are bounded by the per-workflow / per-session selection instead
+  const isTeammate = !!info.teammate && (isWorkflow || countTeammates(session) < TEAMMATE_MAX_PER_SESSION)
   if (isTeammate && (record.name !== info.label || info.label === ORCHESTRATOR_NAME)) {
     // Name collision (a respawned teammate, an ordinary subagent with the same label): keep names unique
     record.name = `${info.label}-${info.agentId.slice(-SUBAGENT_ID_SUFFIX_LENGTH)}`
@@ -198,6 +221,14 @@ function startWatchingSubagentFile(
   session.subagentWatchers.set(filePath, state)
 
   if (isTeammate && info.teammate) {
+    const ref = isWorkflow ? workflowRefFromPath(filePath) : null
+    if (ref) {
+      const group = getWorkflowRegistry(session)!.groupFor(ref, info.teammate.teamName)
+      group.members.set(filePath, state)
+      // The group name is unique within the session: members must carry it, not the raw script name
+      startTeammate(delegate, parser, session, state, record, { ...info.teammate, teamName: group.name }, info, filePath, sessionId, group)
+      return
+    }
     startTeammate(delegate, parser, session, state, record, info.teammate, info, filePath, sessionId)
     return
   }
@@ -248,7 +279,7 @@ function startWatchingSubagentFile(
 
 function countTeammates(session: WatchedSession): number {
   let n = 0
-  for (const sub of session.subagentWatchers.values()) if (sub.teammate) n++
+  for (const sub of session.subagentWatchers.values()) if (sub.teammate && sub.teammate.meta.teamKind !== 'workflow') n++
   return n
 }
 
@@ -267,10 +298,11 @@ function startTeammate(
   info: SubagentFileInfo,
   filePath: string,
   sessionId: string,
+  workflow?: WorkflowGroup,
 ): void {
   let mtimeMs = Date.now()
   try { mtimeMs = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }
-  const tracker = new TeammateTracker(mtimeMs)
+  const tracker = workflow ? new WorkflowAgentTracker(mtimeMs, workflow, info.agentId) : new TeammateTracker(mtimeMs)
   state.teammate = { meta, tracker, spawned: false }
 
   const tail = readTranscriptTail(filePath)
@@ -282,12 +314,14 @@ function startTeammate(
   const spawnExtras = {
     kind: 'teammate',
     teamName: meta.teamName,
+    ...(meta.teamKind ? { teamKind: meta.teamKind } : {}),
     ...(meta.color ? { color: meta.color } : {}),
     ...(meta.agentType ? { agentType: meta.agentType } : {}),
     backendType: 'in-process',
     ...(meta.model ? { model: meta.model } : {}),
   }
-  const parent = record.parentName ?? ORCHESTRATOR_NAME
+  // Workflow agents hang off the orchestrator; teammates off whoever dispatched them
+  const parent = workflow ? ORCHESTRATOR_NAME : record.parentName ?? ORCHESTRATOR_NAME
   record.spawned = true
   session.spawnedSubagents.add(agentName)
   if (alreadySpawned) {
@@ -305,7 +339,7 @@ function startTeammate(
   }
   state.spawnEmitted = true
   state.teammate.spawned = true
-  log.info(`Teammate "${agentName}" (team ${meta.teamName}) discovered from ${info.agentId}`)
+  log.info(`${workflow ? 'Workflow agent' : 'Teammate'} "${agentName}" (${meta.teamName}) discovered from ${info.agentId}`)
 
   for (const line of selectReplayLines(tail.lines)) {
     parser.processTranscriptLine(line, agentName, state.pendingToolCalls, state.seenToolUseIds, sessionId)
@@ -352,7 +386,8 @@ export function markTeammatesDone(
   for (const state of session.subagentWatchers.values()) {
     const tm = state.teammate
     if (!tm) continue
-    if (names && !names.has(state.agentName) && !names.has(tm.meta.name)) continue
+    // The team config knows nothing about workflow agents: only the session end finishes them
+    if (names && (tm.meta.teamKind === 'workflow' || (!names.has(state.agentName) && !names.has(tm.meta.name)))) continue
     tm.tracker.done = true
     emitTeammateActivity(delegate, state, sessionId)
   }
@@ -364,6 +399,41 @@ export function replayTeammates(delegate: SubagentWatcherDelegate, session: Watc
     if (state.teammate) state.teammate.lastActivity = undefined
     emitTeammateActivity(delegate, state, sessionId)
   }
+  const registry = getWorkflowRegistry(session, false)
+  if (registry) registry.replay(workflowEnv(delegate, session, sessionId))
+}
+
+function workflowEnv(delegate: SubagentWatcherDelegate, session: WatchedSession, sessionId: string): WorkflowEnv {
+  return {
+    sessionId,
+    alive: () => delegate.getSession(sessionId) === session,
+    emitTeamInfo: payload => delegate.emit({
+      time: delegate.elapsed(sessionId), type: 'team_info', payload: { ...payload },
+    }, sessionId),
+    emitActivity: (state, now) => emitTeammateActivity(delegate, state, sessionId, now),
+  }
+}
+
+/**
+ * Periodic pass over the workflow groups of a session (runs from every directory scan, which the
+ * poll timers drive): member activity, journal changes, debounced team_info, and release of finished
+ * workflows that fell out of the per-session cap.
+ */
+function tickWorkflowGroups(
+  delegate: SubagentWatcherDelegate,
+  session: WatchedSession,
+  sessionId: string,
+  selected: ReadonlySet<string>,
+): void {
+  const registry = getWorkflowRegistry(session, false)
+  if (!registry || registry.groups.size === 0) return
+  for (const group of registry.prune(selected)) {
+    for (const filePath of group.members.keys()) {
+      session.subagentWatchers.get(filePath)?.watcher?.close()
+      session.subagentWatchers.delete(filePath)
+    }
+  }
+  registry.tick(workflowEnv(delegate, session, sessionId))
 }
 
 export function readSubagentNewLines(

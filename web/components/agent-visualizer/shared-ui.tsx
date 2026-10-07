@@ -1,11 +1,14 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
 import { shouldRestoreFocus } from '@/lib/chrome-utils'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
-import { clampPopupPosition } from '@/lib/clamp-popup-position'
+import {
+  dockStore, dockServerSnapshot, placePopup, dockWidthBounds, dockWidthForDrag, clampDockWidth,
+  SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
+} from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { GlassCard } from './glass-card'
 
@@ -140,7 +143,9 @@ interface DetailPopupProps {
 
 export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const { left, top } = clampPopupPosition(position, width, estimatedHeight)
+  const { env } = useDockSnapshot()
+  // Between the top bar and the control bar, inside the viewport (never over either bar)
+  const placed = placePopup(position, { w: width, h: estimatedHeight }, env)
 
   useClickOutside(ref, onClose)
   useDialogBehavior(ref, onClose)
@@ -153,12 +158,174 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
       tabIndex={-1}
       onKeyDown={dialogEscapeHandler(onClose)}
       {...stopPropagationHandlers}
-      className="max-w-[calc(100vw-24px)] outline-none"
-      style={{ position: 'absolute', left, top, width, zIndex: Z.detailCard }}
+      className="outline-none"
+      style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
     >
-      <GlassCard visible={true}>
+      <GlassCard visible={true} style={{ maxHeight: placed.maxHeight, overflowY: 'auto' }}>
         {children}
       </GlassCard>
+    </div>
+  )
+}
+
+// ─── Dock layout ────────────────────────────────────────────────────────────
+// Docked panels (agent card, link, files, timeline, conversation) get their rectangle from the shared
+// layout in lib/panel-layout.ts, so no two panels overlap and none covers the bars.
+
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+const serverSnapshot = () => dockServerSnapshot
+
+/** The current dock layout and measured environment (viewport, bars, foreign panels). */
+export function useDockSnapshot(): DockSnapshot {
+  return useSyncExternalStore(dockStore.subscribe, dockStore.getSnapshot, serverSnapshot)
+}
+
+export interface DockPlacement {
+  /** Rectangle assigned to this panel; null until the layout has run (use a CSS fallback then). */
+  rect: Rect | null
+  /** True when a sheet is showing another panel: render nothing for this one. */
+  hidden: boolean
+  /** True when panels are full-width sheets (narrow viewport or no room). */
+  sheet: boolean
+  /** Distance from the viewport bottom to the bottom of `rect` (for bottom-anchored panels). */
+  bottomOffset: number
+  /** Current right dock width (resizable). */
+  rightWidth: number
+}
+
+/**
+ * Register a panel in a dock while `open` is true and read its placement. A panel that mounts only
+ * while open passes `true`; one that stays mounted passes its visibility.
+ */
+export function useDockPanel(id: PanelId, open: boolean): DockPlacement {
+  useIsoLayoutEffect(() => {
+    dockStore.setOpen(id, open)
+    return () => dockStore.setOpen(id, false)
+  }, [id, open])
+  const { layout, env } = useDockSnapshot()
+  const rect = open ? layout.rects[id] ?? null : null
+  return {
+    rect,
+    hidden: open && layout.hidden.includes(id),
+    sheet: layout.mode === 'sheet',
+    bottomOffset: rect ? Math.max(0, env.viewport.h - rectBottom(rect)) : 0,
+    rightWidth: layout.rightWidth,
+  }
+}
+
+/** DOM id of a docked panel's root (target of the resizer's aria-controls). */
+export const dockPanelDomId = (id: PanelId) => `dock-panel-${id}`
+
+/** data-* attributes every docked panel carries: the dock it lives in (for the camera-fit reader). */
+export function dockAttrs(id: PanelId, edge: 'left' | 'right' | 'bottom', placement: Pick<DockPlacement, 'sheet'>, visible = true) {
+  return {
+    id: dockPanelDomId(id),
+    'data-dock-panel': id,
+    'data-canvas-inset': visible && !placement.sheet ? edge : 'auto',
+  }
+}
+
+export function useRightDockWidth(): [number, (w: number) => void] {
+  const { layout } = useDockSnapshot()
+  return [layout.rightWidth, (w: number) => dockStore.setRightWidth(w)]
+}
+
+// Listeners told when the USER resized the right dock (drag or keyboard), so the width can be persisted
+// without persisting widths that were only clamped by a narrow viewport.
+const userResizeListeners = new Set<(width: number) => void>()
+export function subscribeDockUserResize(listener: (width: number) => void): () => void {
+  userResizeListeners.add(listener)
+  return () => { userResizeListeners.delete(listener) }
+}
+
+/** Keyboard step of the range input (px); 380, the default width, and 720, the largest, sit on its grid. */
+export const RESIZER_STEP = 10
+
+/** Native range step close to RESIZER_STEP that divides [min, max] into equal notches (max is reachable). */
+export function dockResizerStep(min: number, max: number): number {
+  const span = max - min
+  if (!(span > 0)) return RESIZER_STEP
+  return span / Math.max(1, Math.ceil(span / RESIZER_STEP))
+}
+
+interface DockResizerProps {
+  /** Current width of the dock; defaults to the shared right dock width. */
+  width?: number
+  /** Called with the new (already clamped) width; defaults to updating the shared right dock width. */
+  onWidthChange?: (width: number) => void
+  /** Accessible name of the control. */
+  label?: string
+  /** id of the panel it resizes (aria-controls). */
+  controls?: string
+}
+
+/**
+ * Resizer for the right dock. Mount it as the FIRST child of the panel's positioned root (it hugs the
+ * panel's left edge).
+ * - Keyboard / assistive technology: a native <input type="range"> (width in px) laid over the handle with
+ *   opacity 0, so it keeps its native semantics and keys: ArrowRight/ArrowUp widen, ArrowLeft/ArrowDown
+ *   narrow, PageUp/PageDown take big steps, Home/End jump to the bounds. Its focus ring is drawn on the
+ *   visible handle (peer-focus-visible).
+ * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
+ * Renders nothing in sheet mode (narrow viewports have no resizable dock).
+ */
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls }: DockResizerProps) {
+  const { layout, env } = useDockSnapshot()
+  const vw = env.viewport.w
+  const current = Math.round(width ?? layout.rightWidth)
+  const { min, max } = dockWidthBounds(vw)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+  const apply = (w: number) => {
+    const next = clampDockWidth(w, vw)
+    if (onWidthChange) { onWidthChange(next); return }
+    dockStore.setRightWidth(next)
+    userResizeListeners.forEach(l => l(next))
+  }
+  if (vw < SHEET_BREAKPOINT) return null
+  // The step divides the range exactly, so End lands on the real maximum (a fixed step from `min` can
+  // miss `max` by up to step-1 px at some viewport widths and then input and layout disagree)
+  const step = dockResizerStep(min, max)
+
+  return (
+    <div data-dock-resizer className="absolute inset-y-0 left-0 z-10 w-0">
+      <input
+        type="range"
+        aria-label={label}
+        aria-controls={controls}
+        aria-orientation="horizontal"
+        aria-valuetext={`${current} pixels wide`}
+        min={min}
+        max={max}
+        step={step}
+        value={Math.min(max, Math.max(min, current))}
+        onChange={(e) => apply(Number(e.currentTarget.value))}
+        onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}
+        className="peer absolute left-0 top-1/2 m-0 h-12 w-6 -translate-x-1/2 -translate-y-1/2 opacity-0 pointer-events-none"
+      />
+      <div
+        aria-hidden="true"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          dragRef.current = { startX: e.clientX, startW: current }
+          try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* not capturable */ }
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current
+          if (d) apply(dockWidthForDrag(d.startW, d.startX, e.clientX, vw))
+        }}
+        onPointerUp={(e) => {
+          dragRef.current = null
+          try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+        }}
+        onPointerCancel={() => { dragRef.current = null }}
+        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[#99e0ff] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[#99e0ff]"
+      >
+        <span
+          className="my-auto h-12 w-1 rounded-full bg-white/30 transition-colors group-hover:bg-white/60"
+        />
+      </div>
     </div>
   )
 }
@@ -183,12 +350,14 @@ interface SlidingPanelProps {
   /** Move focus to the panel (Close button) when it opens. Skipped automatically when a
    *  dialog elsewhere already owns focus (e.g. the agent detail card on agent selection). */
   autoFocus?: boolean
+  /** Extra attributes on the root, e.g. dockAttrs(...) */
+  attrs?: Record<string, string>
   children: ReactNode
 }
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, labelledBy, autoFocus = true, children,
+  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PanelFocusController | null>(null)
@@ -236,8 +405,9 @@ export function SlidingPanel({
       aria-hidden={!visible}
       inert={!visible}
       tabIndex={-1}
+      {...attrs}
       {...panelStopPropagationHandlers}
-      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-all duration-300 motion-reduce:transition-none ${className}`}
+      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,

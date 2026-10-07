@@ -24,6 +24,7 @@ export type AgentEventType =
   | 'message_sent'
   | 'team_info'
   | 'agent_activity'
+  | 'normalization_stats'
 
 /** Why two agents are linked (agent_link event) */
 export type AgentLinkKind = 'teammate' | 'spawn'
@@ -57,10 +58,15 @@ export type AgentKind = 'main' | 'subagent' | 'teammate'
 /** What a teammate is doing right now. Idle teammates stay on screen. */
 export type AgentActivity = 'working' | 'idle' | 'done'
 
+/** 'team' = Claude Code Agent Team (default); 'workflow' = one Workflow tool run (#79). */
+export type TeamKind = 'team' | 'workflow'
+
 /** Extra fields an `agent_spawn` payload carries for teammates (all optional, untrusted strings). */
 export interface TeammateSpawnExtras {
   kind: 'teammate'
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   /** Team color as '#rrggbb' only; anything else must be dropped by the consumer */
   color?: string
   /** Role reported by the team config (e.g. 'general-purpose', 'team-lead') */
@@ -79,6 +85,8 @@ export interface AgentActivityPayload {
 /** Payload of `team_info`: one Agent Team as read from ~/.claude/teams/<team>/config.json. */
 export interface TeamInfoPayload {
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   leadSessionId: string
   leadName?: string
   members: Array<{
@@ -89,7 +97,27 @@ export interface TeamInfoPayload {
     /** Session id when the member is a separate session */
     sessionId?: string
     joinedAt?: number
+    /** Workflow groups only: phase label of the agent (capped at 40 chars) */
+    phase?: string
   }>
+}
+
+/**
+ * Counters of what the input normalizer discarded or altered for one session. Carried as the
+ * payload of the `normalization_stats` event; a counter is only incremented for something that
+ * really happened, so a non-zero value proves that data was left out.
+ */
+export interface NormalizationStats {
+  /** Well-formed events discarded in whole (unsupported type, event of a dropped node, events past the batch cap) */
+  ignoredEvents: number
+  /** Fields altered in place: text truncated or stripped of control characters, number or timestamp clamped, forbidden key removed */
+  clampedFields: number
+  /** Nodes (agent spawns) dropped because the per-session node cap or the per-agent children cap was reached */
+  droppedByCap: number
+  /** Lines or events that could not be understood (invalid JSON, not an object, oversized line, invalid shape) */
+  malformed: number
+  /** Exact repeats of an already-seen event (harmless: they never truncate the graph) */
+  duplicateEvents: number
 }
 
 export interface AgentEvent {

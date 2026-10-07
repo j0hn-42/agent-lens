@@ -9,11 +9,12 @@ import {
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
-import { readNewFileLines, foldPathCase } from './fs-utils'
+import { readNewFileLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
 import { createLogger } from './logger'
+import { EventReconciler } from './event-source-priority'
 
 const log = createLogger('SessionWatcher')
 
@@ -77,7 +78,20 @@ export class SessionWatcher implements AgentSessionWatcher {
     resetInactivityTimer: (sessionId: string) => this.resetInactivityTimer(sessionId),
   }
 
+  /** Hook events that survived reconciliation against the transcript (see event-source-priority.ts) */
+  private readonly _onHookEvent = new vscode.EventEmitter<AgentEvent>()
+
+  /**
+   * Single funnel for the two event sources (issue #53): transcript events (`emit`) and hook events
+   * (`submitHookEvent`) are deduplicated here. The survivor is delivered on the channel of its source,
+   * so the runtime keeps its own routing for hook events.
+   */
+  readonly reconciler = new EventReconciler({
+    deliver: (event, source) => (source === 'hook' ? this._onHookEvent : this._onEvent).fire(event),
+  })
+
   readonly onEvent = this._onEvent.event
+  readonly onHookEvent = this._onHookEvent.event
   readonly onSessionDetected = this._onSessionDetected.event
   readonly onSessionLifecycle = this._onSessionLifecycle.event
 
@@ -118,6 +132,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     session.subagentsDirWatcher?.close()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
     this.sessionCwd.delete(sessionId)
+    this.reconciler.forgetSession(sessionId)
     this.sessions.delete(sessionId)
     this.teamWatcher?.forgetSession(sessionId)
   }
@@ -184,6 +199,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           const tm = sub.teammate?.meta
           const teammateExtras = tm ? {
             kind: 'teammate', teamName: tm.teamName, backendType: 'in-process',
+            ...(tm.teamKind ? { teamKind: tm.teamKind } : {}),
             ...(tm.color ? { color: tm.color } : {}),
             ...(tm.agentType ? { agentType: tm.agentType } : {}),
           } : {}
@@ -441,12 +457,9 @@ export class SessionWatcher implements AgentSessionWatcher {
             const sessionId = path.basename(file, '.jsonl')
             const subagentsDir = path.join(projectPath, sessionId, 'subagents')
             try {
-              if (fs.existsSync(subagentsDir)) {
-                for (const subFile of fs.readdirSync(subagentsDir)) {
-                  if (!subFile.endsWith('.jsonl')) continue
-                  const subStat = fs.statSync(path.join(subagentsDir, subFile))
-                  if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-                }
+              for (const subPath of listSubagentTranscripts(subagentsDir)) {
+                const subStat = fs.statSync(subPath)
+                if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
               }
             } catch { /* expected if subagents dir doesn't exist yet */ }
 
@@ -512,40 +525,44 @@ export class SessionWatcher implements AgentSessionWatcher {
     const header = readSessionHeader(filePath)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
 
-    const stat = fs.statSync(filePath)
+    // The live flow (hooks) is already subscribed: events arriving while the history is read are held
+    // and replayed, deduplicated against the history, when the load ends (issue #53).
+    this.reconciler.withHistory(() => {
+      const stat = fs.statSync(filePath)
 
-    // Pre-scan existing content for dedup IDs + collect recent entries for catch-up
-    const catchUpEntries = this.parser.prescanExistingContent(filePath, stat.size, session)
+      // Pre-scan existing content for dedup IDs + collect recent entries for catch-up
+      const catchUpEntries = this.parser.prescanExistingContent(filePath, stat.size, session)
 
-    // Start from current end — only process NEW events going forward
-    session.fileSize = stat.size
+      // Start from current end — only process NEW events going forward
+      session.fileSize = stat.size
 
-    // Extract session label from the first user message in catch-up entries
-    this.parser.extractSessionLabel(catchUpEntries, session)
+      // Extract session label from the first user message in catch-up entries
+      this.parser.extractSessionLabel(catchUpEntries, session)
 
-    // Emit session start
-    this._onSessionDetected.fire(sessionId)
-    this.fireLifecycle('started', sessionId, session.label)
+      // Emit session start
+      this._onSessionDetected.fire(sessionId)
+      this.fireLifecycle('started', sessionId, session.label)
 
-    this.emit({
-      time: 0,
-      type: 'agent_spawn',
-      payload: {
-        name: ORCHESTRATOR_NAME,
-        isMain: true,
-        task: session.label,
-        ...(session.model ? { model: session.model } : {}),
-      },
-    }, sessionId)
-    session.sessionDetected = true
+      this.emit({
+        time: 0,
+        type: 'agent_spawn',
+        payload: {
+          name: ORCHESTRATOR_NAME,
+          isMain: true,
+          task: session.label,
+          ...(session.model ? { model: session.model } : {}),
+        },
+      }, sessionId)
+      session.sessionDetected = true
 
-    // Emit initial context breakdown from prescan so the webview shows accumulated tokens
-    this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+      // Emit initial context breakdown from prescan so the webview shows accumulated tokens
+      this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
 
-    // Emit catch-up messages for content that was already in the file when we detected
-    // the session (e.g. the first user message). These were pre-scanned for dedup/tokens
-    // but never emitted as events. Emit them now so the webview shows the full history.
-    this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
+      // Emit catch-up messages for content that was already in the file when we detected
+      // the session (e.g. the first user message). These were pre-scanned for dedup/tokens
+      // but never emitted as events. Emit them now so the webview shows the full history.
+      this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
+    })
 
     // Watch for new content
     session.fileWatcher = fs.watch(filePath, (eventType) => {
@@ -685,7 +702,12 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private emit(event: AgentEvent, sessionId?: string): void {
-    this._onEvent.fire(sessionId ? { ...event, sessionId } : event)
+    this.reconciler.submit(sessionId ? { ...event, sessionId } : event, { source: 'jsonl' })
+  }
+
+  /** Submit an event received from the Claude Code hooks; delivered on `onHookEvent` unless the transcript already reported it. */
+  submitHookEvent(event: AgentEvent): void {
+    this.reconciler.submit(event, { source: 'hook' })
   }
 
   dispose(): void {
@@ -715,7 +737,9 @@ export class SessionWatcher implements AgentSessionWatcher {
       clearInterval(this.scanInterval)
       this.scanInterval = null
     }
+    this.reconciler.clear()
     this._onEvent.dispose()
+    this._onHookEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
   }
