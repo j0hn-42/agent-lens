@@ -7,7 +7,7 @@ import { useSelectionState } from "@/hooks/use-selection-state"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { AgentCanvas } from "./canvas"
 import { ControlBar } from "./control-bar"
-import { AgentDetailCard } from "./agent-detail-card"
+import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
@@ -29,6 +29,7 @@ import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
 import { totalAgentCost } from "@/lib/cost"
+import { nextInspectorMemory, countAgentToolErrors, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -382,6 +383,14 @@ export function AgentVisualizer() {
   const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
+  // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
+  const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
+  inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
+  const selectedGone = !!selection.selectedAgentId && !selectedAgent
+  const selectedToolErrors = useMemo(
+    () => (selectedAgent ? countAgentToolErrors(selectedAgent.id, toolCalls) : 0),
+    [selectedAgent, toolCalls],
+  )
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
 
   // Session runtime — drives the assistant label (CLAUDE vs CODEX) in transcript panels
@@ -588,7 +597,18 @@ export function AgentVisualizer() {
       {selectedAgent && selection.selectedAgentWorldPos && (
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
+            key={selectedAgent.id}
             agent={selectedAgent}
+            toolErrors={selectedToolErrors}
+            onClose={selection.clearAgent}
+          />
+        </div>
+      )}
+      {selectedGone && selection.selectedAgentWorldPos && (
+        <div {...stopPropagationHandlers}>
+          <AgentGoneCard
+            key={selection.selectedAgentId}
+            name={inspectorMemoryRef.current?.name ?? null}
             onClose={selection.clearAgent}
           />
         </div>
@@ -632,7 +652,7 @@ export function AgentVisualizer() {
         agentName={selectedAgent?.name ?? ''}
         agentState={selectedAgent?.state ?? 'idle'}
         conversation={selectedConversation}
-        runtime={selectedAgent?.runtime ?? sessionRuntime}
+        runtime={selectedAgent?.runtime ?? 'claude'}
         onClose={selection.clearAgent}
       />
 

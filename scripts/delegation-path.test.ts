@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  delegationPathEdges, hopProgress, pathDurationMs, createPathAnimation, strokeDelegationPath,
+  delegationPathEdges, hopProgress, pathDurationMs, createPathAnimation, strokeDelegationPath, drawDelegationPath,
   PATH_MAX_DURATION_MS, PATH_HOP_MS,
 } from '../web/components/agent-visualizer/canvas/delegation-path'
 import type { Edge } from '../web/lib/agent-types'
@@ -64,6 +64,21 @@ test('animation: restarts on a new target, keeps its start while the target is u
   assert.equal(a.elapsed('n2', 1350), 50)
   assert.equal(a.elapsed(null, 1400), null)
   assert.equal(a.elapsed('n2', 1500), 0, 'selecting again after a deselection replays it')
+})
+
+test('draw: every visible hop is stroked in full under reduced motion, hidden ends are skipped', () => {
+  let strokes = 0
+  const ctx = new Proxy({}, {
+    get: (_t, k) => (k === 'stroke' ? () => { strokes++ } : typeof k === 'string' ? () => {} : undefined),
+    set: () => true,
+  }) as unknown as CanvasRenderingContext2D
+  const ag = (id: string, x: number, opacity = 1) => [id, { id, x, y: 0, opacity }] as const
+  const agents = new Map(([ag('root', 0), ag('a', 100), ag('a1', 200, 0)] as const)) as never
+  drawDelegationPath(ctx, [e('root', 'a'), e('a', 'a1')], agents, new Map(), 0, true)
+  assert.equal(strokes, 1, 'the hop to the hidden node is skipped')
+  strokes = 0
+  drawDelegationPath(ctx, [e('root', 'a')], agents, new Map(), 0, false)
+  assert.equal(strokes, 0, 'animated: nothing at t=0')
 })
 
 test('stroke: draws a partial curve per hop and nothing for a zero progress', () => {
