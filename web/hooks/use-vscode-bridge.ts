@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, parseShowFinished, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
+  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
@@ -271,7 +271,9 @@ export function useVSCodeBridge(): BridgeHookResult {
       if (event.sessionId) {
         const last = lastEventAtRef.current
         last.delete(event.sessionId)
-        last.set(event.sessionId, Date.now())
+        // Replayed history of a finished session is not activity: only stamp what can be live
+        const now = Date.now()
+        if (shouldStampActivity(sessionsRef.current.find(s => s.id === event.sessionId), now)) last.set(event.sessionId, now)
         if (last.size > MAX_LAST_EVENT_SESSIONS) {
           const oldest = last.keys().next().value
           if (oldest !== undefined) last.delete(oldest)
@@ -359,6 +361,8 @@ export function useVSCodeBridge(): BridgeHookResult {
       }
       if (type === 'list') {
         const sessionList = data as SessionInfo[]
+        // Events replayed before the list arrived were stamped with the reception time: undo that for finished sessions
+        pruneReplayStamps(lastEventAtRef.current, sessionList, Date.now())
         setSessions(sessionList)
         // Auto-select: prefer active sessions, then most recently active.
         // Only set selection — useLayoutEffect handles flushing events.
