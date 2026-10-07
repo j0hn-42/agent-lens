@@ -7,13 +7,14 @@ import { formatTokens, formatCost } from "@/lib/utils"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
+import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
   sessions: 'topbar-toggle-sessions',
   files: 'topbar-toggle-files',
-  transcript: 'topbar-toggle-transcript',
+  conversation: 'topbar-toggle-conversation',
   cost: 'topbar-toggle-cost',
   timeline: 'topbar-toggle-timeline',
 } as const
@@ -142,11 +143,11 @@ export interface TopBarProps {
   totalCost: number
   // Panel toggles
   showFileAttention: boolean
-  showTranscript: boolean
+  showConversation: boolean
   showCostOverlay: boolean
   showTimeline: boolean
   isMuted: boolean
-  onTogglePanel: (panel: 'files' | 'transcript' | 'cost') => void
+  onTogglePanel: (panel: 'files' | 'conversation' | 'cost') => void
   onToggleTimeline: () => void
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
@@ -160,7 +161,7 @@ export const TopBar = memo(function TopBar({
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
-  showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
+  showFileAttention, showConversation, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
@@ -246,24 +247,24 @@ export const TopBar = memo(function TopBar({
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,
           }}>
-            <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title="Files (F)" shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>Files</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.transcript} active={showTranscript} pressed={showTranscript} onClick={() => onTogglePanel('transcript')} title="Chat transcript (C)" shortcut="c" style={{ background: showTranscript ? undefined : 'transparent', border: 'none' }}>Chat</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
               pressed={showCostOverlay}
               onClick={() => onTogglePanel('cost')}
-              title="Cost overlay ($)"
+              title={`${PANEL_NAMES.cost} overlay ($)`}
               shortcut="$"
               activeColor={{ bg: COLORS.costActiveBg, text: COLORS.complete }}
               style={{ background: showCostOverlay ? undefined : 'transparent', border: 'none' }}
             >
-              $Cost
+              ${PANEL_NAMES.cost}
             </ToggleButton>
           </div>
 
           {/* Independent toggles */}
-          <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title="Timeline (T)" shortcut="t">Timeline</ToggleButton>
+          <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}

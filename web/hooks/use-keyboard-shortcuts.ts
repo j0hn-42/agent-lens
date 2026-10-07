@@ -58,7 +58,7 @@ export function useKeyboardShortcuts(actions: {
   togglePlayPause: () => void
   toggleFilePanel: () => void
   toggleSessionList: () => void
-  toggleTranscript: () => void
+  toggleConversation: () => void
   toggleTimeline: () => void
   toggleHexGrid: () => void
   toggleStats: () => void
@@ -109,7 +109,7 @@ export function useKeyboardShortcuts(actions: {
           break
         case 'c':
         case 'C':
-          a.toggleTranscript()
+          a.toggleConversation()
           break
         case 'g':
         case 'G':

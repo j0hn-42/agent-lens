@@ -14,8 +14,6 @@ import { DiscoveryDetailPopup } from "./discovery-detail-popup"
 import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
-import { AgentChatPanel } from "./chat-panel"
-import { SessionTranscriptPanel } from "./session-transcript-panel"
 import { SessionListPanel } from "./session-list-panel"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers } from "./shared-ui"
@@ -25,7 +23,7 @@ import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
-import { MessageFeedPanel } from "./message-feed-panel"
+import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { totalAgentCost } from "@/lib/cost"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
@@ -39,7 +37,7 @@ import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/li
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
-type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions'
+type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
@@ -122,14 +120,21 @@ export function AgentVisualizer() {
   const [showTimeline, setShowTimeline] = useState(false)
   const [showFileAttention, setShowFileAttention] = useState(false)
   const [showSessions, setShowSessions] = useState(false)
-  const [showTranscript, setShowTranscript] = useState(false)
+  const [showConversation, setShowConversation] = useState(false)
 
-  // Mutually exclusive panel toggling — opening one closes the others
-  const toggleExclusivePanel = useCallback((panel: 'files' | 'transcript' | 'cost') => {
+  // Mutually exclusive panel toggling: Conversation and Files share the right dock, Cost is an overlay
+  // on the same group; opening one closes the others
+  const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost') => {
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
-    setShowTranscript(prev => panel === 'transcript' ? !prev : false)
+    setShowConversation(prev => panel === 'conversation' ? !prev : false)
     setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
   }, [])
+  const openConversation = useCallback(() => {
+    setShowFileAttention(false)
+    setShowCostOverlay(false)
+    setShowConversation(true)
+  }, [])
+  const closeConversation = useCallback(() => setShowConversation(false), [])
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
   // Selected agent link (canvas edge between teammates); the link panel is mounted by the integration
@@ -143,11 +148,10 @@ export function AgentVisualizer() {
 
   // Focus management: move focus into a panel when it opens, back to its trigger when it closes
   const filesPanelRef = useRef<HTMLDivElement>(null)
-  const transcriptPanelRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
   useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
-  useFocusReturn(showTranscript, transcriptPanelRef, PANEL_BUTTON_IDS.transcript)
+  // The Conversation panel restores focus itself (to its pill or its top bar button)
   useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
   useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
@@ -301,7 +305,7 @@ export function AgentVisualizer() {
   const panelStackRef = useRef<PanelId[]>([])
   useEffect(() => {
     const open: Record<PanelId, boolean> = {
-      files: showFileAttention, transcript: showTranscript, cost: showCostOverlay,
+      files: showFileAttention, conversation: showConversation, cost: showCostOverlay,
       timeline: showTimeline, stats: showStats, sessions: showSessions,
     }
     const stack = panelStackRef.current.filter(id => open[id])
@@ -309,7 +313,7 @@ export function AgentVisualizer() {
       if (open[id] && !stack.includes(id)) stack.push(id)
     }
     panelStackRef.current = stack
-  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats, showSessions])
+  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
   const panelRegistry = useMemo(() => createPanelRegistry(), [])
@@ -320,7 +324,7 @@ export function AgentVisualizer() {
     if (!top) return panelRegistry.escape()
     panelStackRef.current = panelStackRef.current.slice(0, -1)
     if (top === 'files') setShowFileAttention(false)
-    else if (top === 'transcript') setShowTranscript(false)
+    else if (top === 'conversation') setShowConversation(false)
     else if (top === 'cost') setShowCostOverlay(false)
     else if (top === 'timeline') setShowTimeline(false)
     else if (top === 'sessions') setShowSessions(false)
@@ -355,7 +359,7 @@ export function AgentVisualizer() {
     togglePlayPause: handlePlayPause,
     toggleFilePanel: () => toggleExclusivePanel('files'),
     toggleSessionList: () => { setShowSessions(prev => !prev) },
-    toggleTranscript: () => toggleExclusivePanel('transcript'),
+    toggleConversation: () => toggleExclusivePanel('conversation'),
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
@@ -382,23 +386,12 @@ export function AgentVisualizer() {
   const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
-  const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
 
-  // Session runtime — drives the assistant label (CLAUDE vs CODEX) in transcript panels
-  const sessionRuntime = useMemo(() => {
-    for (const a of agents.values()) {
-      if (a.runtime === 'codex') return 'codex' as const
-    }
-    return 'claude' as const
-  }, [agents])
-
-  // Session-wide conversation (all agents merged chronologically)
-  // Only compute when the transcript panel is visible to avoid O(n log n) sort every frame
-  const sessionConversation = useMemo(() => {
-    if (!showTranscript) return []
-    const all = Array.from(conversations.values()).flat()
-    return all.sort((a, b) => a.timestamp - b.timestamp)
-  }, [conversations, showTranscript])
+  // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
+  // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
+  useEffect(() => {
+    if (selection.selectedAgentId) openConversation()
+  }, [selection.selectedAgentId, openConversation])
 
   // Context menu items
   const contextMenuItems = selection.contextMenu ? (
@@ -543,7 +536,7 @@ export function AgentVisualizer() {
         totalTokens={totalTokens}
         totalCost={totalCost}
         showFileAttention={showFileAttention}
-        showTranscript={showTranscript}
+        showConversation={showConversation}
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
@@ -611,9 +604,12 @@ export function AgentVisualizer() {
         hideInactive={hideInactive}
       />
 
-      {/* Message feed panel (top-left) */}
-      <MessageFeedPanel
+      {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
+      <ConversationPanel
         {...feedTeamProps}
+        open={showConversation}
+        onOpen={openConversation}
+        onClose={closeConversation}
         conversations={conversations}
         agents={labelledAgents}
         onAgentClick={selection.handleAgentClick}
@@ -661,16 +657,6 @@ export function AgentVisualizer() {
           onClose={() => setSelectedLinkId(null)}
         />
       )}
-
-      {/* Chat panel (bottom-right, shown when agent selected) */}
-      <AgentChatPanel
-        visible={!!selectedAgent}
-        agentName={selectedAgent?.name ?? ''}
-        agentState={selectedAgent?.state ?? 'idle'}
-        conversation={selectedConversation}
-        runtime={selectedAgent?.runtime ?? sessionRuntime}
-        onClose={selection.clearAgent}
-      />
 
       {/* Context menu */}
       {selection.contextMenu && (
@@ -738,16 +724,6 @@ export function AgentVisualizer() {
           teams={bridge.teams}
           teamWorking={bridge.teamWorking}
           teamMemberCounts={bridge.teamMemberCounts}
-        />
-      </div>
-
-      {/* Session transcript panel (slide-in from right) */}
-      <div ref={transcriptPanelRef} style={{ display: 'contents' }}>
-        <SessionTranscriptPanel
-          visible={showTranscript}
-          conversation={sessionConversation}
-          runtime={sessionRuntime}
-          onClose={() => setShowTranscript(false)}
         />
       </div>
 
