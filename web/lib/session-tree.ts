@@ -17,6 +17,9 @@ export interface AgentLike {
   currentTool?: string
   tokensUsed: number
   spawnTime: number
+  /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
+  lastEventAt?: number
+  freshnessSource?: 'live' | 'history'
 }
 
 export interface AgentNode<A extends AgentLike = AgentLike> {
@@ -88,9 +91,11 @@ export function buildSessionRows(
   sessions: ReadonlyArray<SessionInfo>,
   teamNames: Iterable<string>,
   forests: ReadonlyMap<string, AgentNode[]>,
+  /** Active sessions that are not observed (issue #52) are listed after the proven ones */
+  isObserved?: (session: SessionInfo) => boolean,
 ): SessionRow[] {
   const byId = new Map(sessions.map(s => [s.id, s]))
-  const rank = (s: SessionInfo) => (s.status === 'active' ? 0 : 1)
+  const rank = (s: SessionInfo) => (s.status !== 'active' ? 2 : isObserved && !isObserved(s) ? 1 : 0)
   const sortedSessions = [...sessions].sort((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
   const items = buildTabModel(sortedSessions, teamNames)
   // buildTabModel keeps the input order inside each block, which is the sorted order
@@ -135,8 +140,13 @@ export function formatRelativeTime(timestamp: number, now: number): string {
  * Sessions kept by the 'Active only' filter: the active ones, plus the selected session so the
  * current selection never vanishes from the list.
  */
-export function filterActiveSessions(sessions: ReadonlyArray<SessionInfo>, selectedId: string | null): SessionInfo[] {
-  return sessions.filter(s => s.status === 'active' || s.id === selectedId)
+export function filterActiveSessions(
+  sessions: ReadonlyArray<SessionInfo>,
+  selectedId: string | null,
+  /** When given, an active session that is not observed (issue #52) does not count as active */
+  isObserved?: (session: SessionInfo) => boolean,
+): SessionInfo[] {
+  return sessions.filter(s => (s.status === 'active' && (!isObserved || isObserved(s))) || s.id === selectedId)
 }
 
 /** Teams kept by the 'Active only' filter: those with a remaining session or a member still working. */
