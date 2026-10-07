@@ -154,6 +154,8 @@ export class KeyedCoalescer<T> {
 export class SharedTicker {
   private timer: NodeJS.Timeout | null = null
   private clients = 0
+  /** Bumped by stop(): release functions handed out before it become no-ops */
+  private generation = 0
 
   constructor(private readonly tick: () => void, private readonly intervalMs: number) {}
 
@@ -164,8 +166,9 @@ export class SharedTicker {
     this.clients++
     if (!this.timer) this.timer = setInterval(() => { try { this.tick() } catch { /* a failing tick must not kill the timer */ } }, this.intervalMs)
     let released = false
+    const generation = this.generation
     return () => {
-      if (released) return
+      if (released || generation !== this.generation) return
       released = true
       this.clients--
       if (this.clients <= 0) this.stop()
@@ -174,6 +177,7 @@ export class SharedTicker {
 
   /** Stop unconditionally (dispose). */
   stop(): void {
+    this.generation++
     this.clients = 0
     if (this.timer) clearInterval(this.timer)
     this.timer = null

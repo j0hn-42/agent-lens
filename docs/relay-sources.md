@@ -18,6 +18,20 @@ reconciles them:
 4. Delivered ids are remembered (bounded). A copy arriving later from the other source is dropped; a
    delivered event cannot be retracted, so for late arrivals the first delivery stands.
 
+Both runtimes use the same `EventReconciler`:
+
+- **Relay** (dev relay and standalone app, `scripts/relay.ts`): every event goes through `broadcastEvent`.
+- **VS Code extension**: `SessionWatcher` owns the reconciler. Transcript events enter as `jsonl`, the
+  runtime submits hook events with `watcher.submitHookEvent` (source `hook`), and the survivors come back
+  on `watcher.onEvent` (transcript) or `watcher.onHookEvent` (hook), so the runtime keeps its own routing.
+  The session prescan runs inside `withHistory`.
+
+Caveat: reading a transcript history is synchronous, so a hook cannot interleave with it in practice. The
+hold is a guarantee, but the deduplication that does the work is the "already delivered" memory: when both
+copies arrive live, the first delivery stands, so `resolveConflict` decides only inside a held batch.
+Lifecycle copies (no tool_use_id) are matched by a 2 s time bucket; two copies on either side of a bucket
+boundary are not merged.
+
 ### Which source wins on contradiction (`resolveConflict`)
 
 | Kind of fact | Authority | Why |
@@ -36,4 +50,7 @@ reconciles them:
 - `?session=` / `?sessionId=` are validated (`400`).
 - One in-flight refresh per key (`KeyedCoalescer`): 50 concurrent `GET /status` share one computation.
 - One shared scan interval for all SSE clients (`SharedTicker`), stopped when the last client leaves.
+  With no client connected, a new transcript is discovered by the project-dir watcher (only if the dir
+  existed at startup) or by the scan that runs when the next client connects. That scan runs before the
+  client joins the broadcast, so the client receives the session once (session list + replay).
 - The earlier limits (SSE client cap, replay caps, `/status` rate limit) are unchanged.

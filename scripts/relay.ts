@@ -490,7 +490,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
-  debugState: () => { sseClients: number; scanTimerActive: boolean; scanRuns: number; statusRuns: number }
+  debugState: () => { sseClients: number; scanTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'auto'
@@ -574,7 +574,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     scanForActiveSessions(workspace, allWorkspaces)
     // One shared interval for all SSE clients, stopped when the last one leaves (issue #68).
     // Without a client, new transcripts are still picked up by the project dir watcher and on connect.
-    scanNow = () => { void scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces)) }
+    scanNow = () => {
+      scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces))
+        .catch(e => log('[scan] Failed:', e))
+    }
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
@@ -743,11 +746,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       res.flushHeaders()
 
       if (sessionParam) clientSessionFilter.set(res, sessionParam)
+      // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
+      // session list and the replay below, and not a second time as a live broadcast (issue #53).
+      scanNow?.()
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
       // First client starts the shared scan timer; the last one leaving stops it
       const releaseTicker = scanTicker?.acquire()
-      scanNow?.()
 
       // Clean up on every way a connection can end; idempotent.
       let closed = false
@@ -795,6 +800,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanTimerActive: scanTicker?.active ?? false,
       scanRuns: scanCoalescer.runs,
       statusRuns: statusComputations,
+      dedupSessions: reconciler.rememberedSessions,
     }),
 
     dispose() {

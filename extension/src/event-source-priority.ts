@@ -93,8 +93,8 @@ export function deriveEventId(event: AgentEvent, bucketS = EVENT_ID_TIME_BUCKET_
 }
 
 export interface ReconcilerOptions {
-  /** Receives every event that survives deduplication, in order. */
-  deliver: (event: AgentEvent) => void
+  /** Receives every event that survives deduplication, in order, with the source of the surviving copy. */
+  deliver: (event: AgentEvent, source: EventSource) => void
   maxPerSession?: number
   maxSessions?: number
   maxHeld?: number
@@ -105,7 +105,7 @@ export interface SubmitOptions {
 }
 
 export class EventReconciler {
-  private readonly deliverFn: (event: AgentEvent) => void
+  private readonly deliverFn: (event: AgentEvent, source: EventSource) => void
   private readonly maxPerSession: number
   private readonly maxSessions: number
   private readonly maxHeld: number
@@ -124,6 +124,8 @@ export class EventReconciler {
   /** Number of events currently held (history load in progress). */
   get heldCount(): number { return this.held.length }
   get isLoading(): boolean { return this.loading > 0 }
+  /** Number of sessions whose delivered ids are remembered (diagnostics and tests). */
+  get rememberedSessions(): number { return this.delivered.size }
 
   /** Submit one event from a source. Delivered now, or held while history loads. */
   submit(event: AgentEvent, opts: SubmitOptions): void {
@@ -179,7 +181,7 @@ export class EventReconciler {
     for (const item of out) {
       if (this.alreadyDelivered(item)) continue
       this.remember(item)
-      this.deliverFn(item.event)
+      this.deliverFn(item.event, item.source)
     }
   }
 
@@ -201,9 +203,9 @@ export class EventReconciler {
         this.delivered.delete(oldest)
       }
     }
-    const id = deriveEventId(item.event)
-    // Keep the FIRST source: the copy of the other source is the one that must be dropped
-    if (!ids.has(id)) ids.set(id, item.source)
+    // alreadyDelivered() has dropped any copy of a different source, so an id seen here is either new
+    // or a same-source repeat: recording the source of this copy never changes a remembered source.
+    ids.set(deriveEventId(item.event), item.source)
     while (ids.size > this.maxPerSession) {
       const oldest = ids.keys().next().value
       if (oldest === undefined) break

@@ -59,6 +59,10 @@ To restrict to one runtime:
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable.
 
+### Event sources and the local server
+
+Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).
+
 ### JSONL Event Log
 
 You can also point Agent Lens at a JSONL event log file:
