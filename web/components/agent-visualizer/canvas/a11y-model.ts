@@ -3,11 +3,16 @@
  * No React and no canvas here, so everything is unit-testable under node:test.
  * Imports are relative (not "@/") on purpose: the root test runner has no path aliases.
  */
-import type { Agent, ToolCallNode, Discovery, Particle, Edge } from '../../../lib/agent-types'
+import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
+import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
 import { agentCost } from '../../../lib/cost'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
+import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
+import {
+  cleanText, teammateActivity, hasSeveralSessions, computeTeamHalos, TEAM_DEFAULT_COLOR,
+} from './team-style'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -131,6 +136,35 @@ export interface A11yAgentItem {
   relation: string
   childNames: string[]
   tools: A11yToolItem[]
+  kind: NonNullable<Agent['kind']>
+  /** Team name of a teammate (cleaned) */
+  teamName?: string
+  /** 'working' | 'idle' | 'done' for teammates */
+  activityText?: string
+  archived: boolean
+  /** Session label, only when several sessions are on screen */
+  sessionLabel?: string
+}
+
+export interface A11yTeamItem {
+  name: string
+  /** Validated '#rrggbb' */
+  color: string
+  memberIds: string[]
+  memberNames: string[]
+  /** "Team X: a (working), b (idle)" */
+  text: string
+}
+
+export interface A11yLinkItem {
+  id: string
+  fromName: string
+  toName: string
+  kind: AgentLink['kind']
+  count: number
+  stateText: string
+  /** "main to Explorer, spawn, 3 messages, in flight" */
+  text: string
 }
 
 export interface A11yDiscoveryItem {
@@ -146,10 +180,21 @@ export interface A11yModel {
   summary: string
   agents: A11yAgentItem[]
   discoveries: A11yDiscoveryItem[]
+  /** Teams with at least two members on screen */
+  teams: A11yTeamItem[]
+  /** Communication links (every one is a button in the DOM list) */
+  links: A11yLinkItem[]
+}
+
+/** Optional inputs of the team-aware DOM model */
+export interface A11yExtras {
+  links?: Map<string, AgentLink>
+  teams?: Map<string, TeamSummary>
+  simTime?: number
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
-export function buildGraphLabel(agents: Iterable<Pick<Agent, 'state'>>): string {
+export function buildGraphLabel(agents: Iterable<Pick<Agent, 'state'>>, teamCount = 0): string {
   let total = 0, running = 0, waiting = 0, errored = 0
   for (const a of agents) {
     total++
@@ -160,6 +205,7 @@ export function buildGraphLabel(agents: Iterable<Pick<Agent, 'state'>>): string 
   if (total === 0) return 'Agent graph: no agents yet'
   const parts = [`${total} ${total === 1 ? 'agent' : 'agents'}`, `${running} running`, `${waiting} waiting for permission`]
   if (errored > 0) parts.push(`${errored} in error`)
+  if (teamCount > 0) parts.push(`${teamCount} ${teamCount === 1 ? 'team' : 'teams'}`)
   return `Agent graph: ${parts.join(', ')}`
 }
 
@@ -168,6 +214,7 @@ export function buildA11yModel(
   toolCalls: Map<string, ToolCallNode>,
   discoveries: Discovery[],
   history: Map<string, ToolHistoryEntry>,
+  extras: A11yExtras = {},
 ): A11yModel {
   const toolsByAgent = new Map<string, A11yToolItem[]>()
   for (const entry of history.values()) {
@@ -184,6 +231,7 @@ export function buildA11yModel(
     }
   }
 
+  const showSession = hasSeveralSessions(agents.values())
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -203,11 +251,21 @@ export function buildA11yModel(
       relation: parent ? `child of ${parent.name}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
+      kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
+      teamName: cleanText(a.teamName) || undefined,
+      activityText: teammateActivity(a),
+      archived: !!a.archived,
+      sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
     })
   }
 
+  const teams = buildTeamItems(agents, extras.teams)
+  const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
+
   return {
-    summary: buildGraphLabel(agents.values()),
+    summary: buildGraphLabel(agents.values(), teams.length),
+    teams,
+    links,
     agents: agentItems,
     discoveries: discoveries.map(d => ({
       id: d.id,
@@ -217,6 +275,45 @@ export function buildA11yModel(
       agentName: agents.get(d.agentId)?.name ?? 'unknown agent',
     })),
   }
+}
+
+// ─── Teams and links ─────────────────────────────────────────────────────────
+
+/** Teams with at least two visible members, with their members and activities. */
+export function buildTeamItems(agents: Map<string, Agent>, teams?: Map<string, TeamSummary>): A11yTeamItem[] {
+  return computeTeamHalos(agents.values(), teams).map(h => {
+    const members = h.memberIds.map(id => agents.get(id)).filter((a): a is Agent => !!a)
+    const parts = members.map(m => {
+      const activity = teammateActivity(m)
+      return `${cleanText(m.name, 60)}${activity ? ` (${activity})` : m.archived ? ' (archived)' : ''}`
+    })
+    return {
+      name: h.name,
+      color: h.color || TEAM_DEFAULT_COLOR,
+      memberIds: h.memberIds,
+      memberNames: members.map(m => cleanText(m.name, 60)),
+      text: `Team ${h.name}: ${parts.join(', ')}`,
+    }
+  })
+}
+
+/** One entry per link whose ends exist as agents; names are resolved through the agents map. */
+export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, AgentLink> | undefined, simTime: number): A11yLinkItem[] {
+  return resolveLinks(links, agents, simTime).map(r => {
+    const fromName = cleanText(agents.get(r.fromKey)?.name, 60) || 'agent'
+    const toName = cleanText(agents.get(r.toKey)?.name, 60) || 'agent'
+    const stateText = LINK_STATE_LABEL_TEXT[r.state]
+    const noun = r.count === 1 ? 'message' : 'messages'
+    return {
+      id: r.id,
+      fromName,
+      toName,
+      kind: r.link.kind,
+      count: r.count,
+      stateText,
+      text: `${fromName} to ${toName}, ${r.link.kind}, ${r.count} ${noun}, ${stateText}`,
+    }
+  })
 }
 
 // ─── Live-region announcements ───────────────────────────────────────────────
@@ -229,6 +326,8 @@ export function describeTransition(t: StateTransition): string | null {
     case 'agent_error': return `Agent ${t.name} failed`
     case 'agent_waiting_permission': return `Agent ${t.name} is waiting for permission`
     case 'tool_error': return `Tool ${t.name} failed`
+    case 'agent_activity': return `${t.name} is ${t.activity}`
+    case 'message_sent': return `${t.from} sent a message to ${t.to}`
     // Tool start/complete are too chatty for a polite live region; they live in the list.
     default: return null
   }

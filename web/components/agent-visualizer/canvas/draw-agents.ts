@@ -1,13 +1,17 @@
 import { Agent, NODE, ANIM } from '@/lib/agent-types'
 import { COLORS, contextSegments } from '@/lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, STATE_LABEL_SHORT, MIN_VISIBLE_OPACITY,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY,
 } from '@/lib/canvas-constants'
 import { alphaHex, formatTokens } from '@/lib/utils'
-import { truncateText, drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
+import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
-import { getAgentGlowSprite } from './render-cache'
+import { getAgentGlowSprite, measureTextCached } from './render-cache'
+import {
+  isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
+  isTeammate,
+} from './team-style'
 
 let _claudeSparkPath: Path2D | null = null
 export function getClaudeSparkPath() {
@@ -63,6 +67,8 @@ export function drawContextComposition(
   agent: Agent,
   radius: number,
   showLabel = true,
+  /** Extra offset (world px) when the label above uses more than the standard two lines */
+  yShift = 0,
 ) {
   const bd = agent.contextBreakdown
   const total = agent.tokensUsed
@@ -71,7 +77,7 @@ export function drawContextComposition(
   const barWidth = Math.max(CONTEXT_BAR.minWidth, radius * CONTEXT_BAR.widthMultiplier)
   const barHeight = CONTEXT_BAR.barHeight
   const barX = agent.x - barWidth / 2
-  const barY = agent.y + radius + CONTEXT_BAR.yOffset
+  const barY = agent.y + radius + CONTEXT_BAR.yOffset + yShift
 
   // Background
   ctx.fillStyle = COLORS.cardBgDark
@@ -234,7 +240,7 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
   drawHexagon(ctx, agent.x, agent.y, r)
   ctx.strokeStyle = color
   ctx.lineWidth = (isSelected || isHovered) ? 2.5 : 2
-  if (agent.state === 'complete') {
+  if (agent.state === 'complete' || agent.archived) {
     ctx.setLineDash([4, 4])
     ctx.strokeStyle = color + '60'
   } else if (isWaiting) {
@@ -264,6 +270,12 @@ function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, 
     ctx.arc(agent.x, agent.y - s * 0.15, s * 0.4, Math.PI, 0)
     ctx.stroke()
     ctx.restore()
+  } else if (isTeammate(agent) && !agent.isMain) {
+    ctx.fillStyle = color + '90'
+    ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('\u25C6', agent.x, agent.y)
   } else if (agent.isMain) {
     drawAgentBrand(ctx, agent.x, agent.y, r, color + '90', agent.runtime)
   } else {
@@ -316,19 +328,77 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
   }
 }
 
-function drawAgentLabel(ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string) {
-  ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
+/**
+ * Name, status text and (with several sessions on screen) session label under the node.
+ * Teammates get up to two name lines; the hover tooltip carries the full name.
+ * Returns the number of extra lines so the context bar can move down.
+ */
+function drawAgentLabel(
+  ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
+): number {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+  const layout = layoutAgentLabel(agent, r, t => measureTextCached(ctx, t), showSession)
+  ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  const maxLabelW = r * AGENT_DRAW.labelWidthMultiplier
-  const agentLabel = truncateText(ctx, agent.name, maxLabelW)
-  const labelY = agent.y + r + AGENT_DRAW.labelYOffset
-  ctx.fillText(agentLabel, agent.x, labelY)
+  const gap = AGENT_DRAW.stateLabelGap
+  let y = agent.y + r + AGENT_DRAW.labelYOffset
+  for (const line of layout.nameLines) {
+    ctx.fillText(line, agent.x, y)
+    y += gap
+  }
 
-  // Short state text for every agent: state never relies on colour alone (WCAG 1.4.1)
+  // Short status text for every agent: state never relies on colour alone (WCAG 1.4.1)
   ctx.fillStyle = color
-  ctx.fillText(STATE_LABEL_SHORT[agent.state] ?? agent.state, agent.x, labelY + AGENT_DRAW.stateLabelGap)
+  ctx.fillText(layout.statusLine, agent.x, y)
+  y += gap
+
+  if (layout.sessionLine) {
+    ctx.fillStyle = COLORS.textMuted
+    ctx.fillText(layout.sessionLine, agent.x, y)
+  }
+  return layout.extraLines
+}
+
+/**
+ * Teammate decoration: an accent ring in the (validated) team colour plus an activity badge whose
+ * SHAPE carries the activity: hollow ring = idle, arc (spinning when motion is allowed) = working,
+ * filled dot = done.
+ */
+function drawTeammateDecor(ctx: CanvasRenderingContext2D, agent: Agent, r: number, time: number, reducedMotion: boolean) {
+  const accent = teammateAccent(agent)
+  drawHexagon(ctx, agent.x, agent.y, r + AGENT_DRAW.outerRingOffset + 3)
+  ctx.strokeStyle = accent
+  ctx.lineWidth = 2.5
+  ctx.setLineDash(agent.archived ? [3, 4] : [])
+  ctx.stroke()
+  ctx.setLineDash([])
+
+  const activity = teammateActivity(agent)
+  const bx = agent.x + r * 0.8
+  const by = agent.y - r * 0.8
+  const br = 6
+  ctx.beginPath()
+  ctx.arc(bx, by, br + 2, 0, Math.PI * 2)
+  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = accent
+  if (activity === 'idle') {
+    ctx.beginPath()
+    ctx.arc(bx, by, br, 0, Math.PI * 2)
+    ctx.stroke()
+  } else if (activity === 'working') {
+    const start = reducedMotion ? -Math.PI / 2 : time * 4
+    ctx.beginPath()
+    ctx.arc(bx, by, br, start, start + (reducedMotion ? Math.PI * 1.5 : Math.PI * 1.2))
+    ctx.stroke()
+  } else {
+    ctx.beginPath()
+    ctx.arc(bx, by, br - 1, 0, Math.PI * 2)
+    ctx.fillStyle = accent
+    ctx.fill()
+  }
 }
 
 /** Does the main agent draw its context percentage label above the ring? */
@@ -366,7 +436,7 @@ export function drawAgents(
   const { reducedMotion } = opts
   const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
-    if (agent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (!isAgentVisible(agent)) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const color = stateColor(agent.state)
     const isHovered = id === hoveredAgentId
@@ -374,39 +444,43 @@ export function drawAgents(
 
     const isWaiting = agent.state === 'waiting_permission'
 
-    const breathe = reducedMotion ? 1 : isWaiting
+    const breathe = reducedMotion || agent.archived ? 1 : isWaiting
       ? Math.sin(time * AGENT_DRAW.waitingBreatheSpeed) * AGENT_DRAW.waitingBreatheAmp + 1
       : agent.state === 'thinking'
       ? Math.sin(time * ANIM.breathe.thinkingSpeed) * ANIM.breathe.thinkingAmp + 1
       : agent.state === 'idle' ? Math.sin(time * ANIM.breathe.idleSpeed) * ANIM.breathe.idleAmp + 1 : 1
 
-    const r = radius * breathe * agent.scale
+    const r = radius * breathe * agentDrawScale(agent)
+    const live = !agent.archived
 
     ctx.save()
-    ctx.globalAlpha = agent.opacity
+    ctx.globalAlpha = agentDrawOpacity(agent)
 
     drawDepthShadow(ctx, agent, r)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting)
-    if (!reducedMotion) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
+    if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion)
     drawCenterIcon(ctx, agent, r, color, isWaiting)
+    if (isTeammate(agent)) drawTeammateDecor(ctx, agent, r, time, reducedMotion)
 
-    if (agent.state === 'thinking' && !reducedMotion) {
+    if (agent.state === 'thinking' && !reducedMotion && live) {
       drawOrbitingParticles(ctx, agent, r, color, time)
     }
 
-    if (isWaiting && !reducedMotion) {
+    if (isWaiting && !reducedMotion && live) {
       drawWaitingRipples(ctx, agent, r, color, time)
     }
 
-    if (lod.labels) drawAgentLabel(ctx, agent, r, isHovered, color)
+    const extraLines = lod.labels
+      ? drawAgentLabel(ctx, agent, r, isHovered, color, !!opts.showSessionLabels)
+      : 0
 
-    // Context composition — ring for main agent, bar for sub-agents
-    if (agent.state !== 'complete' || agent.opacity > 0.5) {
+    // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)
+    if (live && (agent.state !== 'complete' || agent.opacity > 0.5)) {
       if (agent.isMain) {
         drawContextRing(ctx, agent, r, time, reducedMotion, lod.details)
       }
-      drawContextComposition(ctx, agent, r, lod.details)
+      drawContextComposition(ctx, agent, r, lod.details, extraLines * AGENT_DRAW.stateLabelGap)
     }
 
     if (lod.details && showStats && agent.state !== 'complete') {

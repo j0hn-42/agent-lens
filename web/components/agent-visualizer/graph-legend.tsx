@@ -5,6 +5,7 @@ import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { STATE_LABEL_SHORT, STATE_LABEL_LONG, LEGEND_OPEN_KEY } from '@/lib/canvas-constants'
 import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
+import type { A11yTeamItem } from './canvas/a11y-model'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -52,7 +53,7 @@ function Swatch({ color, round }: { color: string; round?: boolean }) {
  * context segments, discovery types and runtimes. Lives in the DOM (not the canvas)
  * so it is readable at any zoom and by assistive technology (WCAG 1.4.1, 1.3.3).
  */
-export function GraphLegend() {
+export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
   const [open, setOpen] = useState(false)
 
   // Restore the preference after mount (keeps server and first client render identical)
@@ -108,6 +109,30 @@ export function GraphLegend() {
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.tool} strokeWidth="1.5" /></svg>}>Thin amber line: tool call</Row>
             <Row icon={<Swatch color={COLORS.dispatch} round />}>Purple dot: task dispatched</Row>
             <Row icon={<Swatch color={COLORS.return} round />}>Green dot: result returned</Row>
+          </ul>
+
+          <Heading>Teams</Heading>
+          <ul>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(8, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><polygon points={hexPoints(10.5, 12, 12)} fill="none" stroke="#b794f6" strokeWidth="2" /></svg>}>Coloured outer ring: teammate (team colour)</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Hollow ring: teammate idle</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 6 A6 6 0 1 1 6 12" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Open arc: teammate working</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill={COLORS.holoBase} /></svg>}>Filled dot: teammate done</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>Faded dashed outline: archived agent (still clickable)</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#b794f61a" stroke="#b794f6" strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team with several members</Row>
+            {teams.map(team => (
+              <Row key={team.name} icon={<Swatch color={team.color} round />}>
+                <span className="font-semibold">{team.name}</span>
+                <span style={{ color: COLORS.textMuted }}> ({team.memberNames.length} members)</span>
+              </Row>
+            ))}
+          </ul>
+
+          <Heading>Message links</Heading>
+          <ul>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.dispatch} strokeWidth="3" strokeDasharray="6 3" /></svg>}>Long dashes (purple): message in flight</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.return} strokeWidth="2.5" /></svg>}>Solid green: recent message</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.error} strokeWidth="2.5" strokeDasharray="2 4" /></svg>}>Dotted red, badge starts with !: error</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="1.75" opacity="0.5" /></svg>}>Thin faded line: quiet link. Badge: message count. Click a link to read it</Row>
           </ul>
 
           <Heading>Context usage</Heading>

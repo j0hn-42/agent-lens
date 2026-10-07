@@ -10,9 +10,11 @@ export interface DrawOpts {
   showCost: boolean
   /** The stats overlay is active (affects the stacked overlay layout above agents). */
   showStats: boolean
+  /** Several sessions are on screen: agent labels name their session. */
+  showSessionLabels?: boolean
 }
 
-export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false }
+export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }
 
 export interface LevelOfDetail {
   /** Agent names + state labels */

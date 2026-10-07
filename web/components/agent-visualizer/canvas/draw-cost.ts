@@ -1,12 +1,13 @@
 import { Agent, ToolCallNode, NODE } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
 import { formatTokens, formatCost } from '@/lib/utils'
 import { agentCost, modelCostRate } from '@/lib/cost'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
+import { isAgentVisible, agentDrawOpacity } from './team-style'
 
 export { modelCostRate, agentCost }
 
@@ -42,7 +43,7 @@ export function drawCostLabels(
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
   for (const [, agent] of agents) {
-    if (agent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (!isAgentVisible(agent)) continue
     const cost = agentCost(agent.tokensUsed, agent.model)
     if (cost < COST_DRAW.minDisplayCost) continue
 
@@ -64,7 +65,7 @@ export function drawCostLabels(
     const pillX = agent.x - pillW / 2
 
     ctx.save()
-    ctx.globalAlpha = agent.opacity * 0.9
+    ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background
     ctx.fillStyle = COLORS.costPillBg
@@ -111,7 +112,7 @@ export function drawCostLabels(
           const segW = (tokens / totalToolTokens) * barW
           if (segW < 1) continue
           ctx.fillStyle = toolTypeColor(toolName)
-          ctx.globalAlpha = agent.opacity * 0.7
+          ctx.globalAlpha = agentDrawOpacity(agent) * 0.7
           ctx.beginPath()
           ctx.roundRect(segX, barY, segW, barH, COST_DRAW.miniBarRadius)
           ctx.fill()

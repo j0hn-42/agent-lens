@@ -14,6 +14,10 @@ interface GraphA11yListProps {
   onAgentClick: (agentId: string | null) => void
   onToolCallClick?: (toolCallId: string | null) => void
   onDiscoveryClick?: (discoveryId: string | null) => void
+  /** Open the link panel for a communication link */
+  onLinkClick?: (linkId: string) => void
+  /** Id of the link whose panel is open (aria-current) */
+  selectedLinkId?: string | null
   /** Sync the canvas focus ring / camera with the focused list button */
   onFocusNode: (node: NavNode) => void
 }
@@ -26,7 +30,7 @@ interface GraphA11yListProps {
  */
 export function GraphA11yList({
   model, communications, announcements, focusedNode,
-  onAgentClick, onToolCallClick, onDiscoveryClick, onFocusNode,
+  onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, selectedLinkId, onFocusNode,
 }: GraphA11yListProps) {
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
@@ -76,8 +80,12 @@ export function GraphA11yList({
                   onClick={() => onAgentClick(agent.id)}
                 >
                   {agent.name}, {agent.stateText}
+                  {agent.activityText ? `, ${agent.activityText}` : ''}
+                  {agent.archived ? ', archived' : ''}
                 </button>
                 <p>
+                  {agent.teamName ? `Teammate in team ${agent.teamName}. ` : ''}
+                  {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
                   {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
                 </p>
                 {agent.childNames.length > 0 && (
@@ -111,6 +119,37 @@ export function GraphA11yList({
               </li>
             ))}
           </ul>
+        )}
+
+        {model.teams.length > 0 && (
+          <>
+            <h3>Teams</h3>
+            <ul>
+              {model.teams.map(team => <li key={team.name}>{team.text}</li>)}
+            </ul>
+          </>
+        )}
+
+        {model.links.length > 0 && (
+          <>
+            <h3>Links</h3>
+            <p>Each link opens the list of its messages.</p>
+            <ul>
+              {model.links.map(link => (
+                <li key={link.id}>
+                  <button
+                    type="button"
+                    data-graph-node=""
+                    tabIndex={-1}
+                    aria-current={link.id === selectedLinkId ? 'true' : undefined}
+                    onClick={() => onLinkClick?.(link.id)}
+                  >
+                    {link.text}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
 
         {model.discoveries.length > 0 && (

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import { CAMERA } from '@/lib/canvas-constants'
-import { hitTestAt, type HitTarget } from '@/components/agent-visualizer/canvas/index'
+import { hitTestAt, type HitTarget, type ResolvedLink } from '@/components/agent-visualizer/canvas/index'
 import {
   keyToAction, stepFocus, buildNodeOrder, locateNode, sameNode, type NavNode,
 } from '@/components/agent-visualizer/canvas/keyboard-nav'
@@ -14,6 +14,8 @@ interface InteractionCallbacks {
   onContextMenu: (e: React.MouseEvent, type: 'agent' | 'edge' | 'canvas', id?: string) => void
   onToolCallClick?: (toolCallId: string | null) => void
   onDiscoveryClick?: (discoveryId: string | null) => void
+  /** A communication link was clicked (canvas edge or its count badge) */
+  onLinkClick?: (linkId: string) => void
 }
 
 interface InteractionOptions {
@@ -21,6 +23,8 @@ interface InteractionOptions {
     agents: Map<string, Agent>
     toolCalls: Map<string, ToolCallNode>
     discoveries: Discovery[]
+    /** Resolved communication links, hit-tested last (they are drawn under the nodes) */
+    links?: ResolvedLink[]
   } & InteractionCallbacks>
   transformRef: MutableRefObject<Transform>
   userHasNavigatedRef: MutableRefObject<boolean>
@@ -217,6 +221,8 @@ export function useCanvasInteraction({
         p.onToolCallClick?.(hit.id)
       } else if (hit?.type === 'discovery') {
         p.onDiscoveryClick?.(hit.id)
+      } else if (hit?.type === 'link') {
+        p.onLinkClick?.(hit.id)
       } else {
         p.onAgentClick(null)
         p.onToolCallClick?.(null)

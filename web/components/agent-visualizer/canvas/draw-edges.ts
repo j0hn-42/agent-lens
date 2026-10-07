@@ -3,11 +3,10 @@ import { COLORS } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
+import { bezierPoint, computeControlPoints } from './link-geometry'
+import { isAgentVisible } from './team-style'
 
-export function bezierPoint(t: number, p0: number, p1: number, p2: number, p3: number) {
-  const mt = 1 - t
-  return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3
-}
+export { bezierPoint, computeControlPoints } from './link-geometry'
 
 /** Resolve edge endpoint to {x, y} from either agents or toolCalls map */
 export function resolveEdgeTarget(
@@ -15,24 +14,10 @@ export function resolveEdgeTarget(
   minOpacity = 0,
 ): { x: number; y: number } | null {
   const toAgent = agents.get(edge.to)
-  if (toAgent && toAgent.opacity >= minOpacity) return toAgent
+  if (toAgent && (toAgent.opacity >= minOpacity || isAgentVisible(toAgent))) return toAgent
   const toTool = toolCalls.get(edge.to)
   if (toTool && toTool.opacity >= minOpacity) return toTool
   return null
-}
-
-/** Compute bezier control points for an edge between two positions */
-export function computeControlPoints(fromX: number, fromY: number, toX: number, toY: number) {
-  const dx = toX - fromX, dy = toY - fromY
-  const dist = Math.sqrt(dx * dx + dy * dy)
-  if (dist < 1) return null
-  const curvature = dist * BEAM.curvature
-  const perpX = -dy / dist * curvature, perpY = dx / dist * curvature
-  return {
-    cp1x: fromX + dx * BEAM.cp1 + perpX, cp1y: fromY + dy * BEAM.cp1 + perpY,
-    cp2x: fromX + dx * BEAM.cp2 + perpX, cp2y: fromY + dy * BEAM.cp2 + perpY,
-    dist, dx, dy,
-  }
 }
 
 /** Compute bezier position and perpendicular normal at parameter t */
@@ -110,7 +95,7 @@ export function drawEdges(
 ) {
   for (const edge of edges) {
     const fromAgent = agents.get(edge.from)
-    if (!fromAgent || fromAgent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (!fromAgent || !isAgentVisible(fromAgent)) continue
 
     const target = resolveEdgeTarget(edge, agents, toolCalls, MIN_VISIBLE_OPACITY)
     if (!target) continue

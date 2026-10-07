@@ -6,6 +6,7 @@
  */
 import type { Agent, ToolCallNode, Discovery } from '../../../lib/agent-types'
 import { CAMERA, MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
+import { isAgentVisible } from './team-style'
 
 export type NavNodeType = 'agent' | 'tool' | 'discovery'
 export interface NavNode { type: NavNodeType; id: string }
@@ -21,7 +22,7 @@ export function buildNodeOrder(
   discoveries: Discovery[],
 ): NavNode[] {
   const order: NavNode[] = []
-  for (const [id, a] of agents) if (a.opacity >= MIN_VISIBLE_OPACITY) order.push({ type: 'agent', id })
+  for (const [id, a] of agents) if (isAgentVisible(a)) order.push({ type: 'agent', id })
   for (const [id, t] of toolCalls) if (t.opacity >= MIN_VISIBLE_OPACITY) order.push({ type: 'tool', id })
   for (const d of discoveries) if (d.opacity >= MIN_VISIBLE_OPACITY) order.push({ type: 'discovery', id: d.id })
   return order

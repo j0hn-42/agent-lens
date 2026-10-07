@@ -12,6 +12,10 @@ export type StateTransition =
   | { kind: 'tool_start'; id: string; name: string }
   | { kind: 'tool_complete'; id: string; name: string }
   | { kind: 'tool_error'; id: string; name: string }
+  /** A teammate changed activity ('working' | 'idle' | 'done') */
+  | { kind: 'agent_activity'; id: string; name: string; activity: string }
+  /** A new message travelled on a link */
+  | { kind: 'message_sent'; id: string; name: string; from: string; to: string }
 
 /**
  * Compare previous and current agent/tool states and return both visual effects
