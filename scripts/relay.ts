@@ -28,10 +28,11 @@ import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles,
+  listProjectDirs, discoverSessionFiles, observationsRoute,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
+import { createObservationsAction, parseObservationsInput } from '../extension/src/observations'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -487,6 +488,8 @@ export interface Relay {
   handleSSE: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /status: small JSON snapshot (loopback only, rate-limited) */
   handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle GET /observations and /observations/schema: the typed action Claude can query (loopback only, rate-limited) */
+  handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
@@ -662,6 +665,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   })
 
   const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const observationsLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const observations = createObservationsAction(() => {
+    const list: SessionInfo[] = []
+    for (const session of sessions.values()) if (session.sessionDetected) list.push(toSessionInfo(session))
+    if (codexWatcher) list.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+    return { sessions: list, events: eventBuffer }
+  })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
@@ -715,6 +725,50 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         'X-Content-Type-Options': 'nosniff',
       })
       res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
+    handleObservations(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
+      const sendJson = (status: number, value: unknown) => {
+        const body = JSON.stringify(value)
+        res.writeHead(status, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Length': Buffer.byteLength(body),
+          'X-Content-Type-Options': 'nosniff',
+        })
+        res.end(req.method === 'HEAD' ? undefined : body)
+      }
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
+        res.end('Method not allowed')
+        return
+      }
+      if (!observationsLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+        res.end('Too many requests')
+        return
+      }
+      if (observations.disposed) return sendJson(503, { error: 'observations action is shut down' })
+      const route = observationsRoute(req.url)
+      if (route === 'schema') return sendJson(200, observations.definition)
+      let query: URL
+      try { query = new URL(req.url ?? '/', 'http://localhost') } catch { return sendJson(400, { error: 'bad url' }) }
+      const raw: Record<string, unknown> = {}
+      const session = query.searchParams.get('session')
+      if (session !== null) raw.session = session
+      const agents = query.searchParams.get('agents')
+      if (agents !== null) raw.includeAgents = isTruthyFlag(agents)
+      for (const k of query.searchParams.keys()) if (k !== 'session' && k !== 'agents') return sendJson(400, { error: `unknown query parameter: ${k}` })
+      const parsed = parseObservationsInput(raw)
+      if (!parsed.ok) return sendJson(400, { error: parsed.error })
+      const out = observations.run(parsed.input)
+      return out.ok ? sendJson(200, out.result) : sendJson(500, { error: out.error })
     },
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -808,6 +862,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
+      observations.dispose()
       const models = [...observedModels].sort().join(',').slice(0, 128)
       const runtimes = [wantClaude && 'claude', wantCodex && 'codex'].filter(Boolean).join(',')
       telemetry?.emit({
