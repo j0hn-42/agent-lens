@@ -3,7 +3,7 @@ import { COLORS, contextSegments } from '@/lib/colors'
 import {
   AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW,
 } from '@/lib/canvas-constants'
-import { alphaHex, formatTokens } from '@/lib/utils'
+import { alphaHex, formatTokens, formatDuration, pluralize } from '@/lib/utils'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -491,7 +491,7 @@ function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number
   ctx.font = `${STATS_OVERLAY.fontSize}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.fillText(`${agent.toolCalls} tools \u00B7 ${agent.timeAlive.toFixed(1)}s`, agent.x, sy + STATS_OVERLAY.textPaddingY)
+  ctx.fillText(`${pluralize(agent.toolCalls, 'tool')} \u00B7 ${formatDuration(agent.timeAlive)}`, agent.x, sy + STATS_OVERLAY.textPaddingY)
 }
 
 export function drawAgents(
