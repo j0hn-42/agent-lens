@@ -59,17 +59,39 @@ export interface TabItem {
 export function buildTabModel(
   sessions: ReadonlyArray<Pick<SessionInfo, 'id'> & { teamName?: string }>,
   teamNames: Iterable<string>,
+  /** Team map key -> display name and lead session: lets two teams with the same name under different
+   *  lead sessions (keys "alpha" and "alpha@L3") each get their own member sessions. */
+  teamMeta?: ReadonlyMap<string, { name: string; leadSessionId?: string }>,
+  /** Sessions tagged with a team that is not in `teamNames` are listed as plain sessions instead of
+   *  creating a team tab (used to hide lead-only teams: every Claude Code session has one). */
+  opts?: { hideUnlistedTeams?: boolean },
 ): TabItem[] {
   const teams: string[] = []
   const add = (name: string | undefined) => { if (name && !teams.includes(name)) teams.push(name) }
   for (const n of teamNames) add(n)
-  for (const s of sessions) add(s.teamName)
+  // A session tagged with a team name belongs to the team key whose lead session it is, otherwise to the
+  // first key carrying that name (the tag holds only the name).
+  const keyOfSession = (s: { id: string; teamName?: string }): string | undefined => {
+    if (!s.teamName) return undefined
+    if (teamMeta) {
+      let first: string | undefined
+      for (const key of teams) {
+        const meta = teamMeta.get(key)
+        if (!meta || meta.name !== s.teamName) continue
+        if (meta.leadSessionId === s.id) return key
+        first ??= key
+      }
+      if (first !== undefined) return first
+    }
+    return opts?.hideUnlistedTeams ? undefined : s.teamName
+  }
+  for (const s of sessions) add(keyOfSession(s))
   const items: TabItem[] = [{ id: ALL_SESSIONS_ID, kind: 'all' }]
   for (const team of teams) {
     items.push({ id: teamSelectionId(team), kind: 'team', teamName: team })
-    for (const s of sessions) if (s.teamName === team) items.push({ id: s.id, kind: 'session', teamName: team })
+    for (const s of sessions) if (keyOfSession(s) === team) items.push({ id: s.id, kind: 'session', teamName: team })
   }
-  for (const s of sessions) if (!s.teamName) items.push({ id: s.id, kind: 'session' })
+  for (const s of sessions) if (keyOfSession(s) === undefined) items.push({ id: s.id, kind: 'session' })
   return items
 }
 
@@ -195,6 +217,64 @@ export function labelAgentsWithSession<A extends SessionLabelable>(
     out.set(key, { ...agent, sessionLabel: session.label, ...(runtime ? { runtime } : {}) })
   }
   return out ?? agents
+}
+
+/**
+ * A read-only ref whose `current` is the source frame with its agents labelled by session (label, and
+ * runtime when the agent has none), for the canvas, which draws straight from the simulation ref.
+ * Memoised: the decorated agents map is rebuilt only when the source agents map or the session list
+ * changes, and agents that did not change keep their decorated object (nothing is copied per frame).
+ */
+export function createLabelledSimulationRef<S extends { agents: ReadonlyMap<string, SessionLabelable> }>(
+  source: { readonly current: S },
+  getSessions: () => ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime'>>,
+): { readonly current: S } {
+  let lastSessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime'>> | null = null
+  let byId = new Map<string, Pick<SessionInfo, 'id' | 'label' | 'runtime'>>()
+  let decorated = new WeakMap<object, SessionLabelable>()
+  let lastAgents: ReadonlyMap<string, SessionLabelable> | null = null
+  let lastLabelled: ReadonlyMap<string, SessionLabelable> | null = null
+  let lastFrame: S | null = null
+  let lastResult: S | null = null
+
+  const decorate = (agent: SessionLabelable): SessionLabelable => {
+    const cached = decorated.get(agent)
+    if (cached) return cached
+    const session = byId.get(agent.sessionId)
+    let out = agent
+    if (session) {
+      const runtime = agent.runtime ?? session.runtime
+      if (agent.sessionLabel !== session.label || agent.runtime !== runtime) {
+        out = { ...agent, sessionLabel: session.label, ...(runtime ? { runtime } : {}) }
+      }
+    }
+    decorated.set(agent, out)
+    return out
+  }
+
+  return {
+    get current(): S {
+      const frame = source.current
+      const sessions = getSessions()
+      if (sessions !== lastSessions) {
+        lastSessions = sessions
+        byId = new Map(sessions.map(x => [x.id, x]))
+        decorated = new WeakMap()
+        lastAgents = null
+        lastFrame = null
+      }
+      if (frame === lastFrame && lastResult) return lastResult
+      if (frame.agents !== lastAgents || !lastLabelled) {
+        const next = new Map<string, SessionLabelable>()
+        for (const [key, agent] of frame.agents) next.set(key, decorate(agent))
+        lastAgents = frame.agents
+        lastLabelled = next
+      }
+      lastFrame = frame
+      lastResult = { ...frame, agents: lastLabelled }
+      return lastResult
+    },
+  }
 }
 
 export type ConnectionTone = 'ok' | 'pending' | 'error' | 'demo'
@@ -331,4 +411,72 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
     return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
   }
   return { x: clientX, y: clientY }
+}
+
+// ─── Canvas wiring (#36) ─────────────────────────────────────────────────────
+
+export interface CanvasSessionMeta {
+  label: string
+  runtime?: 'claude' | 'codex'
+  workspace?: string
+  status: 'active' | 'completed'
+}
+
+/** Per-session facts for the cluster halos (title, runtime, workspace, status), keyed by session id. */
+export function buildSessionMeta(
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime' | 'workspace' | 'status'>>,
+): Map<string, CanvasSessionMeta> {
+  const out = new Map<string, CanvasSessionMeta>()
+  for (const s of sessions) {
+    out.set(s.id, {
+      label: s.label,
+      status: s.status,
+      ...(s.runtime ? { runtime: s.runtime } : {}),
+      ...(s.workspace ? { workspace: s.workspace } : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * Selection to apply when a halo label is clicked, or null to leave the current tab alone.
+ * A team cluster selects the team pseudo-tab; a session cluster selects its session, except that 'All'
+ * stays 'All' while several sessions are shown (the canvas already zooms to the cluster).
+ */
+export function clusterSelectionTarget(
+  cluster: { kind: 'session' | 'team'; sessionIds: readonly string[]; teamName?: string },
+  selectedId: string | null,
+  shownSessionCount: number,
+): string | null {
+  let target: string | null = null
+  if (cluster.kind === 'team') {
+    target = cluster.teamName ? teamSelectionId(cluster.teamName) : null
+  } else if (cluster.sessionIds.length === 1) {
+    if (selectedId === ALL_SESSIONS_ID && shownSessionCount > 1) return null
+    target = cluster.sessionIds[0]
+  }
+  return target !== null && target !== selectedId ? target : null
+}
+
+/** Value of --topbar-h: measured bar height (wrapped rows included) + top offset (12px) + breathing room (8px). */
+export function topbarOffsetPx(measuredHeight: number): number {
+  const h = Number.isFinite(measuredHeight) && measuredHeight > 0 ? measuredHeight : 0
+  return Math.ceil(h) + 20
+}
+
+/**
+ * Keep `--topbar-h` in sync with the element height (ResizeObserver, falls back to a single measure).
+ * Returns the cleanup. `root` and `ResizeObserverCtor` are injectable for tests.
+ */
+export function observeTopbarHeight(
+  el: { getBoundingClientRect(): { height: number } },
+  root: { style: { setProperty(name: string, value: string): void } },
+  ResizeObserverCtor: (new (cb: () => void) => { observe(t: never): void; disconnect(): void }) | undefined,
+): () => void {
+  const publish = () => root.style.setProperty('--topbar-h', `${topbarOffsetPx(el.getBoundingClientRect().height)}px`)
+  publish()
+  if (!ResizeObserverCtor) return () => {}
+  const ro = new ResizeObserverCtor(publish)
+  ro.observe(el as never)
+  return () => ro.disconnect()
 }

@@ -69,7 +69,7 @@ export function useCanvasInteraction({
   /** True while the pointer is over something clickable (drives the `pointer` cursor) */
   const [overInteractive, setOverInteractive] = useState(false)
   const isDraggingRef = useRef(false)
-  const dragTargetRef = useRef<{ type: 'canvas' | 'agent'; id?: string; startX: number; startY: number } | null>(null)
+  const dragTargetRef = useRef<{ type: 'canvas' | 'agent'; id?: string; startX: number; startY: number; originX: number; originY: number } | null>(null)
   isDraggingRef.current = isDragging
 
   // Floaty agent drag
@@ -136,9 +136,9 @@ export function useCanvasInteraction({
     panVelocityRef.current = { vx: 0, vy: 0, active: false }
     setIsDragging(true)
     if (hit?.type === 'agent') {
-      dragTargetRef.current = { type: 'agent', id: hit.id, startX: e.clientX, startY: e.clientY }
+      dragTargetRef.current = { type: 'agent', id: hit.id, startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
     } else {
-      dragTargetRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY }
+      dragTargetRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
       lastPanPosRef.current = { x: e.clientX, y: e.clientY, time: performance.now() }
     }
   }, [hitTest, panVelocityRef])
@@ -212,8 +212,9 @@ export function useCanvasInteraction({
         panVelocityRef.current.active = true
       }
     }
+    // Distance from where the press began: a pan re-bases startX/startY on every move, so it cannot tell a pan from a click
     const screenDist = dt_
-      ? Math.abs(e.clientX - dt_.startX) + Math.abs(e.clientY - dt_.startY)
+      ? Math.abs(e.clientX - dt_.originX) + Math.abs(e.clientY - dt_.originY)
       : 0
     if (screenDist < ANIM.dragThresholdPx) {
       const hit = hitTest(e.clientX, e.clientY)

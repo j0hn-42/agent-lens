@@ -165,10 +165,18 @@ export function SessionListPanel({
     // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved
     // session is not counted as active, so it is hidden too
     const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
-    const teamNames = teams ? teams.keys() : []
-    return buildSessionRows(shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, isObserved)
+    // A team row only makes sense with teammates: every Claude Code session owns a team holding just its lead,
+    // and listing it would add a "Team session-xxxx: 0 members" row per session
+    const listed = teams
+      ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
+      : undefined
+    const teamNames = listed ? [...listed.keys()] : []
+    return buildSessionRows(
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, listed,
+      { hideUnlistedTeams: true }, isObserved,
+    )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
-  }, [sessions, teams, teamWorking, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  }, [sessions, teams, teamWorking, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
@@ -310,9 +318,10 @@ export function SessionListPanel({
               }
 
               if (row.kind === 'team') {
-                const name = row.teamName!
-                const members = Math.max(teamMemberCounts?.get(name) ?? 0, teams?.get(name)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(name) ?? 0)
+                const key = row.teamName!
+                const name = teams?.get(key)?.name ?? key
+                const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
                 return (
                   <li key={row.id}>
                     <button

@@ -4,13 +4,16 @@ import { idString } from './agent-keys'
 import { MAX_TEAMS, parseActivity, sanitizeTeamInfo } from './team-info'
 import { handleAgentComplete } from './handle-agent-events'
 import { restampClusterKeys } from './fleet-layout'
+import { teamKeyFor } from './team-key'
 
-/** team_info: store (sanitised) the team summary. Existing teams are replaced, new ones are capped. */
+/** team_info: store (sanitised) the team summary. The team of the same name and lead is replaced, new ones are capped. */
 export function handleTeamInfo(payload: Record<string, unknown>, state: MutableEventState): void {
   const info = sanitizeTeamInfo(payload)
   if (!info) return
-  if (!state.teams.has(info.name) && state.teams.size >= MAX_TEAMS) return
-  state.teams.set(info.name, info)
+  // Keyed per (lead session, name): same-named teams under different leads coexist
+  const key = teamKeyFor(state.teams, info.name, info.leadSessionId)
+  if (!state.teams.has(key) && state.teams.size >= MAX_TEAMS) return
+  state.teams.set(key, info)
   // Sessions may now belong to a team: regroup their agents into its cluster
   restampClusterKeys(state.agents, state.teams)
 }
