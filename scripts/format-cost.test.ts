@@ -19,7 +19,7 @@ test('formatTokens', () => {
 test('formatCost uses one consistent format', () => {
   assert.equal(formatCost(0), '$0.00')
   assert.equal(formatCost(0.0004), '$0.0004')
-  assert.equal(formatCost(0.0123), '$0.01')
+  assert.equal(formatCost(0.0123), '$0.012')
   assert.equal(formatCost(1.234), '$1.23')
 })
 
@@ -50,3 +50,28 @@ test('total cost equals the sum of per-agent costs priced by model', () => {
   const flat = agentCost(agents.reduce((s, a) => s + a.tokensUsed, 0))
   assert.notEqual(totalAgentCost(agents), flat)
 })
+
+const table = <I, O>(name: string, fn: (i: I) => O, rows: [I, O][]) =>
+  test(name, () => { for (const [i, o] of rows) assert.equal(fn(i), o, `${name}(${String(i)})`) })
+
+table('formatTokens table', formatTokens, [
+  [-5, '0'], [Infinity, '0'], [0.4, '0'], [1, '1'], [999, '999'], [999.9, '999'],
+  [1000, '1k'], [1050, '1k'], [9999, '9.9k'], [10_000, '10k'], [289_000, '289k'],
+  [999_999, '999k'], [1_000_000, '1M'], [9_999_999, '9.9M'], [10_000_000, '10M'], [5e12, '5000000M'],
+])
+
+table('formatCost table', formatCost, [
+  [NaN, '$0.00'], [-1, '$0.00'], [Infinity, '$0.00'], [0, '$0.00'],
+  [1e-9, '<$0.0001'], [0.00009, '<$0.0001'], [0.0001, '$0.0001'], [0.0004, '$0.0004'],
+  [0.00994, '$0.0099'], [0.00996, '$0.010'], [0.00999, '$0.010'], [0.01, '$0.010'], [0.1234, '$0.123'],
+  [0.9994, '$0.999'], [0.9996, '$1.00'], [1, '$1.00'], [1.005, '$1.00'], [12.345, '$12.35'], [1234.5, '$1234.50'],
+])
+
+table('formatDuration table', formatDuration, [
+  [NaN, '0:00'], [-1, '0:00'], [Infinity, '0:00'], [0, '0:00'], [0.9, '0:00'], [59.9, '0:59'], [60, '1:00'],
+  [3599, '59:59'], [3599.9, '59:59'], [3600, '1:00:00'], [86_400, '24:00:00'], [360_000, '100:00:00'],
+])
+
+table('pluralize table', (n: number) => pluralize(n, 'session'), [
+  [0, '0 sessions'], [1, '1 session'], [2, '2 sessions'], [-1, '-1 sessions'],
+])
