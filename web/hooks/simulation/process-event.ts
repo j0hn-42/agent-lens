@@ -70,6 +70,9 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
   return true
 }
 
+/** Particles kept at once (oldest dropped) */
+export const MAX_PARTICLES = 500
+
 export function processEvent(event: SimulationEvent, prev: SimulationState, ctx: ProcessEventContext): SimulationState {
       const state: MutableEventState = {
         agents: new Map(prev.agents),
@@ -103,6 +106,9 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'agent_activity':    handleAgentActivity(event.payload, prev.currentTime, state, ctx, sid); break
         case 'permission_requested': handlePermissionRequested(event.payload, prev.currentTime, state, ctx, sid); break
       }
+
+      // Particles normally expire as frames animate; a burst of events between two frames must not pile them up
+      if (state.particles.length > MAX_PARTICLES) state.particles = state.particles.slice(-MAX_PARTICLES)
 
       // Stabilize references for unchanged collections to prevent
       // downstream React useMemo/re-render cascades (O(n log n) sorts etc.)

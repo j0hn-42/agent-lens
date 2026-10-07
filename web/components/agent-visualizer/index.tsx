@@ -21,7 +21,7 @@ import { stopPropagationHandlers } from "./shared-ui"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
-import { ALL_SESSIONS_ID, parseTeamSelection } from "@/lib/bridge-types"
+import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
@@ -156,8 +156,10 @@ export function AgentVisualizer() {
   // so sessions stay up to date and switching is instant.
   // useLayoutEffect ensures restart happens synchronously before any animation
   // frame can consume and discard events from pendingEventsRef.
-  const sessionCacheRef = useRef<Map<string, { snapshot: ReturnType<typeof saveSnapshot>; eventCount: number }>>(new Map())
+  const sessionCacheRef = useRef<Map<string, { snapshot: ReturnType<typeof saveSnapshot>; eventCount: number; viewKey: string }>>(new Map())
   const prevSelectedRef = useRef<string | null>(null)
+  const allViewKeyRef = useRef(bridge.allViewKey)
+  allViewKeyRef.current = bridge.allViewKey
   useLayoutEffect(() => {
     if (bridge.selectedSessionId && bridge.selectedSessionId !== prevSelectedRef.current) {
       // Save outgoing session state (if any)
@@ -165,6 +167,7 @@ export function AgentVisualizer() {
         sessionCacheRef.current.set(prevSelectedRef.current, {
           snapshot: saveSnapshot(),
           eventCount: bridge.getSessionEventCount(prevSelectedRef.current),
+          viewKey: allViewKeyRef.current,
         })
       }
 
@@ -172,7 +175,9 @@ export function AgentVisualizer() {
       // Flushing happens HERE (after state swap) to prevent the animation
       // frame from processing events in the wrong simulation context.
       const cached = sessionCacheRef.current.get(bridge.selectedSessionId)
-      if (cached) {
+      // The union views depend on which sessions 'All' shows: a snapshot of another set is stale
+      const cacheUsable = cached && (!isUnionSelection(bridge.selectedSessionId) || cached.viewKey === allViewKeyRef.current)
+      if (cached && cacheUsable) {
         restoreSnapshot(cached.snapshot)
         bridge.flushSessionEvents(bridge.selectedSessionId, cached.eventCount)
       } else {
@@ -183,6 +188,18 @@ export function AgentVisualizer() {
       prevSelectedRef.current = bridge.selectedSessionId
     }
   }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount])
+
+  // 'All' membership changed (an old session woke up, a session went quiet, the toggle flipped):
+  // rebuild the union from the buffered events of the sessions it now shows.
+  const lastViewKeyRef = useRef(bridge.allViewKey)
+  useLayoutEffect(() => {
+    allViewKeyRef.current = bridge.allViewKey
+    if (lastViewKeyRef.current === bridge.allViewKey) return
+    lastViewKeyRef.current = bridge.allViewKey
+    if (bridge.selectedSessionId !== ALL_SESSIONS_ID) return
+    restart()
+    bridge.flushSessionEvents(ALL_SESSIONS_ID)
+  }, [bridge.allViewKey, bridge.selectedSessionId, restart, bridge.flushSessionEvents])
 
   // Timeline events — incremental: only processes new conversation messages
   const timelineCacheRef = useRef<{
@@ -419,6 +436,12 @@ export function AgentVisualizer() {
     return { activeAgentCount: agents.size - done, doneAgentCount: done }
   }, [agents])
 
+  // 'All' counts only the sessions it shows (all of them while finished ones are included)
+  const allSessionCount = useMemo(() => {
+    const ids = bridge.allViewSessionIds
+    return ids ? bridge.sessions.filter(s => ids.has(s.id)).length : bridge.sessions.length
+  }, [bridge.allViewSessionIds, bridge.sessions])
+
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
   const selectedTeam = parseTeamSelection(bridge.selectedSessionId)
   const selectedSessionLabel = bridge.isAllSelected
@@ -446,6 +469,10 @@ export function AgentVisualizer() {
       {/* Top bar: session tabs + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar
         sessions={bridge.sessions}
+        allSessionCount={allSessionCount}
+        showFinished={bridge.showFinished}
+        finishedSessionCount={bridge.finishedSessionCount}
+        onToggleShowFinished={bridge.setShowFinished}
         selectedSessionId={bridge.selectedSessionId}
         sessionsWithActivity={bridge.sessionsWithActivity}
         onSelectSession={bridge.selectSession}

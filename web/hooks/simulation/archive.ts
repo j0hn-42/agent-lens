@@ -5,12 +5,17 @@
  *   agent nor a teammate);
  * - per team: at most MAX_TEAM_MEMBERS teammates, at most MAX_TEAMS teams (oldest finished teammate first);
  * - overall: MAX_AGENTS_PER_SESSION / MAX_AGENTS_TOTAL agents and MAX_LINKS_* links.
+ * - conversations: those of known agents follow the agent caps; conversations of parties that are NOT
+ *   agents (events for unknown names, a refused spawn, an evicted agent) are kept only up to
+ *   MAX_ORPHAN_CONVERSATIONS, least recently updated first out (see pruneOrphanConversations).
  * A live (non-archived) agent and a lead are never evicted: when nothing can be evicted a new
- * spawn is refused instead (see admitSpawn).
+ * spawn is refused instead (see admitSpawn). Leads (main agents) skip the team gates: they are
+ * only subject to the hard agent cap.
  */
 import type { Agent } from '../../lib/agent-types'
 import type { MutableEventState } from './process-event'
 import { MAX_TEAM_MEMBERS, MAX_TEAMS } from './team-info'
+import { appendConversation } from './types'
 
 /** Archived agents kept per session (oldest completed are evicted first) */
 export const MAX_ARCHIVED_PER_SESSION = 200
@@ -23,6 +28,11 @@ export const MAX_AGENTS_TOTAL = 2000
 export const MAX_LINKS_PER_SESSION = 500
 export const MAX_LINKS_TOTAL = 2000
 
+/** Conversations kept for parties that are not agents (least recently updated are dropped) */
+export const MAX_ORPHAN_CONVERSATIONS = 100
+/** Orphan pruning runs once this many conversations beyond the allowance piled up (amortises the scan) */
+const ORPHAN_SLACK = 32
+
 /** Opacity an archived agent settles at */
 export const ARCHIVED_OPACITY = 0.5
 
@@ -33,6 +43,36 @@ export function archivedToEvict(agents: Iterable<Agent>, sessionId: string, cap 
   if (archived.length <= cap) return []
   archived.sort((a, b) => (a.completeTime ?? 0) - (b.completeTime ?? 0))
   return archived.slice(0, archived.length - cap).map(a => a.id)
+}
+
+/**
+ * Keep the conversations of non-agents bounded. Events can name agents that are not in state.agents
+ * (a message for an unknown name, a dispatch whose spawn was refused, traffic after an eviction):
+ * such conversations are never evicted with an agent, so they are capped here, least recently updated
+ * first out. Conversations of known agents are bounded by the agent caps.
+ */
+export function pruneOrphanConversations(state: MutableEventState): void {
+  if (state.conversations.size <= state.agents.size + MAX_ORPHAN_CONVERSATIONS + ORPHAN_SLACK) return
+  const orphans: Array<{ key: string; last: number }> = []
+  for (const [key, msgs] of state.conversations) {
+    if (!state.agents.has(key)) orphans.push({ key, last: msgs.length > 0 ? msgs[msgs.length - 1].timestamp : 0 })
+  }
+  if (orphans.length <= MAX_ORPHAN_CONVERSATIONS) return
+  orphans.sort((a, b) => a.last - b.last)
+  for (const o of orphans.slice(0, orphans.length - MAX_ORPHAN_CONVERSATIONS)) {
+    state.conversations.delete(o.key)
+    state.droppedMessages.delete(o.key)
+  }
+}
+
+/** Append to a conversation, then keep the conversations of non-agents bounded. */
+export function appendBoundedConversation(
+  state: MutableEventState,
+  agentKey: string,
+  message: Parameters<typeof appendConversation>[2],
+): void {
+  appendConversation(state.conversations, agentKey, message, state.droppedMessages)
+  pruneOrphanConversations(state)
 }
 
 /** Remove evicted agents with everything hanging on them (edges, tool calls, conversation, timeline). */
@@ -71,6 +111,7 @@ export interface SpawnCandidateInfo { sessionId: string; isMain: boolean; teamNa
 /**
  * Decide whether a NEW agent may be added and make room for it. Evicts, oldest finished first,
  * only archived agents: teammates solely beyond their team's cap, never a lead or a live agent.
+ * Leads skip the team gates (MAX_TEAMS / MAX_TEAM_MEMBERS) and the per-session cap; only the hard cap applies.
  * Returns false (spawn refused) when the caps hold and nothing may be evicted.
  */
 export function admitSpawn(state: MutableEventState, c: SpawnCandidateInfo): boolean {
@@ -86,7 +127,7 @@ export function admitSpawn(state: MutableEventState, c: SpawnCandidateInfo): boo
       if (a.teamName === c.teamName && a.kind === 'teammate') team.push(a)
     }
   }
-  if (c.teamName) {
+  if (c.teamName && !c.isMain) {
     if (!teams.has(c.teamName) && teams.size >= MAX_TEAMS) return false
     if (team.length >= MAX_TEAM_MEMBERS) {
       const finished = team.filter(a => a.archived).sort(byAge)

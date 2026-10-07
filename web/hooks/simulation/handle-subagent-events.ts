@@ -1,8 +1,9 @@
 import { COLORS } from '../../lib/colors'
 import type { MutableEventState } from './process-event'
-import { appendConversation, edgeId, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
+import { edgeId, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
 import { idString, resolveChildLocalId } from './agent-keys'
 import { addLinkMessage } from './handle-link-events'
+import { appendBoundedConversation } from './archive'
 
 function optString(v: unknown): string | undefined {
   const s = cappedString(v)
@@ -34,10 +35,10 @@ export function handleSubagentDispatch(
 
   // Full prompt goes into both conversations so it is readable in the transcript/chat
   for (const owner of new Set([parentKey, childKey])) {
-    appendConversation(state.conversations, owner, {
+    appendBoundedConversation(state, owner, {
       type: 'dispatch', content: prompt || task, timestamp: currentTime,
       from: parentKey, to: childKey, linkId: eid, toolUseId,
-    }, state.droppedMessages)
+    })
   }
   addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
     type: 'dispatch', content: prompt || task, timestamp: currentTime,
@@ -72,11 +73,11 @@ export function handleSubagentReturn(
 
   // Full report goes into both conversations (parent receives it, child produced it)
   for (const owner of new Set([parentKey, childKey])) {
-    appendConversation(state.conversations, owner, {
+    appendBoundedConversation(state, owner, {
       type: 'return', content: summary, timestamp: currentTime,
       from: childKey, to: parentKey, linkId: eid, toolUseId,
       ...(isError ? { isError } : {}),
-    }, state.droppedMessages)
+    })
   }
   addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
     type: 'return', content: summary, timestamp: currentTime,

@@ -5,6 +5,7 @@ import { Z } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { FOCUS_RING, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { SessionTabs } from "./session-tabs"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import type { TeamSummary } from "@/lib/agent-types"
@@ -121,6 +122,13 @@ export interface TopBarProps {
   teams?: ReadonlyMap<string, TeamSummary>
   teamWorking?: ReadonlyMap<string, number>
   teamMemberCounts?: ReadonlyMap<string, number>
+  /** Sessions the 'All' view counts (defaults to every session) */
+  allSessionCount?: number
+  /** 'All' also shows finished sessions */
+  showFinished?: boolean
+  /** Sessions currently counted as finished (not active) */
+  finishedSessionCount?: number
+  onToggleShowFinished?: (show: boolean) => void
   // Connection
   isVSCode: boolean
   connectionStatus: ConnectionStatus
@@ -148,6 +156,7 @@ export interface TopBarProps {
 export const TopBar = memo(function TopBar({
   sessions, selectedSessionId, sessionsWithActivity,
   onSelectSession, onCloseSession, teams, teamWorking, teamMemberCounts,
+  allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
@@ -200,9 +209,19 @@ export const TopBar = memo(function TopBar({
       {/* Right-side info/controls */}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} />
+        {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
+          <ToggleButton
+            active={showFinished}
+            pressed={showFinished}
+            onClick={() => onToggleShowFinished(!showFinished)}
+            title="Also show sessions that finished more than 10 minutes ago"
+          >
+            {finishedToggleLabel(finishedSessionCount)}
+          </ToggleButton>
+        )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(sessions.length, activeAgentCount + doneAgentCount, totalCost)}</span>
+          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + doneAgentCount, totalCost)}</span>
         ) : (
           <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
         )}

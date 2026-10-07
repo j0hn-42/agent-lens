@@ -1,8 +1,9 @@
 import type { ContextBreakdown } from '../../lib/agent-types'
 import type { ConversationMessage } from './types'
-import { appendConversation, asNumber, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME, LABEL_LEN_TASK, LABEL_LEN_BUBBLE, MAX_BUBBLES } from './types'
+import { asNumber, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME, LABEL_LEN_TASK, LABEL_LEN_BUBBLE, MAX_BUBBLES } from './types'
 import type { MutableEventState } from './process-event'
 import { idString } from './agent-keys'
+import { appendBoundedConversation } from './archive'
 
 export function handleMessage(
   payload: Record<string, unknown>,
@@ -58,7 +59,7 @@ export function handleMessage(
     }
   }
 
-  appendConversation(state.conversations, agentName, { type: msgType, content, timestamp: currentTime }, state.droppedMessages)
+  appendBoundedConversation(state, agentName, { type: msgType, content, timestamp: currentTime })
 }
 
 export function handleContextUpdate(
