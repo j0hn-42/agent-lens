@@ -12,7 +12,7 @@ import {
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, FOCUS_RING,
   FEED_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair,
-  droppedMarkerFor, agentIdsWithMessages, type FeedMessage, type CommKind,
+  droppedMarkerFor, agentIdsWithMessages, pairFromShiftClick, pairOfMessage, unreadSources, type FeedMessage, type CommKind,
 } from '@/lib/feed-utils'
 import { ChevronIcon, ArrowDownIcon } from './feed-icons'
 import { COMM_STYLE } from './transcript-message'
@@ -128,12 +128,12 @@ export function MessageFeedPanel({
 
   // Track unread messages per agent tab: only agents whose message count increased
   useEffect(() => {
-    const { increased, nextLens } = agentsWithNewText(prevLensRef.current, conversations, TEXT_TYPES)
+    const { increased, nextLens } = agentsWithNewText(prevLensRef.current, unreadSources(conversations, links), TEXT_TYPES)
     prevLensRef.current = nextLens
     if (!expanded || activeTab === 'all') return
     if (increased.length === 0) return
     setUnread(prev => markUnread(prev, increased, activeTab))
-  }, [conversations, expanded, activeTab])
+  }, [conversations, links, expanded, activeTab])
 
   useEffect(() => {
     if (activeTab !== 'all') {
@@ -196,6 +196,21 @@ export function MessageFeedPanel({
   const tabKeys = ['all', ...agentsWithMessages]
   const activeTabIndex = activeTabIndexOf(tabKeys, activeTab)
 
+  const selectPair = (a: string, b: string) => {
+    setPairA(a)
+    setPairB(b)
+    setPairOpen(true)
+  }
+  const onTabClick = (key: string, shift: boolean) => {
+    const anchor = pairActive ? pairA : activeTab
+    const pair = shift ? pairFromShiftClick(anchor, key) : null
+    if (pair) { selectPair(pair[0], pair[1]); return }
+    setPairOpen(false)
+    setPairA('')
+    setPairB('')
+    setActiveTab(key)
+  }
+
   const onTabKeyDown = (e: React.KeyboardEvent) => {
     const next = nextTabIndex(e.key, activeTabIndex, tabKeys.length)
     if (next === null) return
@@ -246,7 +261,12 @@ export function MessageFeedPanel({
   }
 
   // ── Expanded (virtualized) ──
+  const droppedNote = droppedMarker ? (
+    <p className="text-[11px] font-mono px-3 pb-1" style={{ color: COLORS.textMuted }}>{droppedMarker}</p>
+  ) : null
   const messageList = (
+    <>
+    {droppedNote}
     <div
       ref={logRef}
       id={listId}
@@ -266,9 +286,6 @@ export function MessageFeedPanel({
         </div>
       ) : (
         <div style={listStyle}>
-          {droppedMarker && (
-            <p className="text-[11px] font-mono px-1 pb-1" style={{ color: COLORS.textMuted }}>{droppedMarker}</p>
-          )}
           <div role="list" aria-label="Messages" style={windowStyle}>
             {visibleItems.map((msg, i) => (
               <div
@@ -288,7 +305,11 @@ export function MessageFeedPanel({
                   sessionChip={multiSession ? sessionChipOf(agents.get(msg.agentId)) : undefined}
                   showAgent={activeTab === 'all' || pairActive}
                   isSelected={selectedAgentId === msg.agentId}
-                  onClick={() => { onAgentClick(msg.agentId); restoreFocusRef.current = true; setExpanded(false) }}
+                  onClick={(e) => {
+                    const pair = e.shiftKey ? pairOfMessage(msg) : null
+                    if (pair) { selectPair(pair[0], pair[1]); return }
+                    onAgentClick(msg.agentId); restoreFocusRef.current = true; setExpanded(false)
+                  }}
                   runtime={agents.get(msg.agentId)?.runtime}
                   contentId={`${baseId}-msg-${msg.id}`}
                 />
@@ -298,6 +319,7 @@ export function MessageFeedPanel({
         </div>
       )}
     </div>
+    </>
   )
 
   return (
@@ -367,7 +389,7 @@ export function MessageFeedPanel({
                     done={done}
                     accent={teamColorOf(agent, teams)}
                     active={i === activeTabIndex}
-                    onClick={() => setActiveTab(key)}
+                    onClick={(e) => onTabClick(key, e.shiftKey)}
                     color={color}
                     hasUnread={key !== 'all' && unread.has(key)}
                   />
@@ -397,6 +419,7 @@ export function MessageFeedPanel({
             >
               Pair
             </button>
+            <span className="sr-only"> Shift-click a second agent tab or a message row to filter on that pair.</span>
             {pairOpen && (
               <span className="inline-flex flex-wrap items-center gap-1 ml-1 align-middle">
                 {([['First agent', pairA, setPairA], ['Second agent', pairB, setPairB]] as const).map(([label, value, set]) => (
@@ -412,6 +435,11 @@ export function MessageFeedPanel({
                     {agentsWithMessages.map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
                   </select>
                 ))}
+                {pairActive && (
+                  <span role="status" className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+                    {agentNameOf(agents, pairA)} {'\u2194'} {agentNameOf(agents, pairB)}
+                  </span>
+                )}
                 {pairA !== '' && pairA === pairB && (
                   <span role="status" className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>Select two different agents</span>
                 )}
@@ -461,7 +489,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   fullName: string
   stateText?: string
   active: boolean
-  onClick: () => void
+  onClick: (e: React.MouseEvent) => void
   color: string
   hasUnread?: boolean
   /** Finished agent: the tab stays, flagged 'done' */
@@ -525,7 +553,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   sessionChip?: string
   showAgent: boolean
   isSelected: boolean
-  onClick: () => void
+  onClick: (e: React.MouseEvent) => void
   runtime?: Agent['runtime']
   contentId: string
 }) {

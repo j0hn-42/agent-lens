@@ -204,8 +204,25 @@ export function isAgentDone(agent: NamedAgent | undefined): boolean {
 
 export type FeedMessage = ConversationMessage & { agentId: string }
 
-function commDedupeKey(m: ConversationMessage): string {
-  return `${m.type}|${m.from ?? ''}|${m.to ?? ''}|${m.toolUseId ?? m.timestamp}`
+/** Width (simulation seconds) within which two copies of the same message are considered one. */
+export const COMM_DEDUPE_BUCKET_S = 2
+
+/** Whitespace-collapsed, lowercased content used to compare message copies. */
+export function normalizeCommContent(content: string): string {
+  return content.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 500)
+}
+
+/**
+ * Dedupe keys of a communication message. Two copies (conversation + link) of the same message share a
+ * key in at least one bucket; distinct messages never share one (content differs). Messages carrying a
+ * toolUseId dedupe on it. The time bucket is checked in two adjacent buckets so copies a few
+ * milliseconds apart across a bucket edge still merge.
+ */
+export function commDedupeKeys(m: Pick<ConversationMessage, 'type' | 'from' | 'to' | 'content' | 'timestamp' | 'toolUseId'>): string[] {
+  if (m.toolUseId) return [`${m.type}|${m.from ?? ''}|${m.to ?? ''}|id:${m.toolUseId}`]
+  const base = `${m.type}|${m.from ?? ''}|${m.to ?? ''}|${normalizeCommContent(m.content)}`
+  const b = Math.floor(m.timestamp / COMM_DEDUPE_BUCKET_S)
+  return [`${base}|${b}`, `${base}|${b + 1}`, `${base}|${b - 1}`]
 }
 
 /**
@@ -223,9 +240,10 @@ export function buildFeedMessages(
   const push = (m: ConversationMessage, agentId: string) => {
     if (!FEED_MESSAGE_TYPES.has(m.type) || seenIds.has(m.id)) return
     if (COMM_MESSAGE_TYPES.has(m.type)) {
-      const k = commDedupeKey(m)
-      if (seenComm.has(k)) return
-      seenComm.add(k)
+      const keys = commDedupeKeys(m)
+      if (keys.some(k => seenComm.has(k))) return
+      // Register only the own bucket so a later message in the next bucket is judged by its own window.
+      seenComm.add(keys[0])
     }
     seenIds.add(m.id)
     out.push({ ...m, agentId })
@@ -293,4 +311,43 @@ export function groupByTeam<T extends { teamName?: string }>(items: readonly T[]
   const groups: TeamGroup<T>[] = [...byTeam.keys()].sort().map(t => ({ team: t, items: byTeam.get(t)! }))
   if (rest.length) groups.push({ team: null, items: rest })
   return groups
+}
+
+// ─── Pair filter (click an agent, Shift-click another) ───────────────────────
+
+/** Pair selected by Shift-clicking `key` while `anchor` is the current agent; null when not a valid pair. */
+export function pairFromShiftClick(anchor: string | null | undefined, key: string): [string, string] | null {
+  if (!anchor || anchor === 'all' || key === 'all' || anchor === key) return null
+  return [anchor, key]
+}
+
+/** Pair of agents a communication row connects, or null for plain conversation messages. */
+export function pairOfMessage(m: Pick<ConversationMessage, 'type' | 'from' | 'to'>): [string, string] | null {
+  if (!COMM_MESSAGE_TYPES.has(m.type) || !m.from || !m.to || m.from === m.to) return null
+  return [m.from, m.to]
+}
+
+/**
+ * Per-agent message lists used for unread tracking: conversations plus the link messages each agent
+ * sent or received (teammate messages often live only on links).
+ */
+export function unreadSources(
+  conversations: ReadonlyMap<string, readonly { type: string }[]>,
+  links?: ReadonlyMap<string, Pick<AgentLink, 'from' | 'to' | 'messages'>>,
+): Map<string, { type: string }[]> {
+  const out = new Map<string, { type: string }[]>()
+  for (const [id, msgs] of conversations) out.set(id, msgs.slice())
+  if (links) {
+    for (const link of links.values()) {
+      for (const m of link.messages) {
+        for (const id of new Set([m.from ?? link.from, m.to ?? link.to])) {
+          if (!id) continue
+          const list = out.get(id) ?? []
+          list.push(m)
+          out.set(id, list)
+        }
+      }
+    }
+  }
+  return out
 }

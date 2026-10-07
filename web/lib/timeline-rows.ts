@@ -243,3 +243,12 @@ export function hitTestArrow(
   }
   return undefined
 }
+
+/** Most message buttons rendered under the swimlane (the table view lists every one). */
+export const MAX_ARROW_BUTTONS = 40
+
+/** Keep the most recent `max` rows (chronological order preserved) and report how many were left out. */
+export function capMessageRows<T>(rows: readonly T[], max: number = MAX_ARROW_BUTTONS): { rows: T[]; hidden: number } {
+  if (rows.length <= max) return { rows: rows.slice(), hidden: 0 }
+  return { rows: rows.slice(rows.length - max), hidden: rows.length - max }
+}

@@ -165,3 +165,70 @@ test('hitTestArrow finds an arrow near its vertical line', () => {
   assert.equal(hitTestArrow(geo, 120, 30), undefined)
   assert.equal(hitTestArrow(geo, 100, 80), undefined)
 })
+
+// ─── Review fixes: dedupe, pair filter, unread, arrow cap ────────────────────
+
+import { commDedupeKeys, pairFromShiftClick, pairOfMessage, unreadSources, agentsWithNewText } from '../web/lib/feed-utils'
+import { capMessageRows } from '../web/lib/timeline-rows'
+
+test('buildFeedMessages keeps distinct same-timestamp peer messages without toolUseId', () => {
+  const conv = new Map<string, ConversationMessage[]>([['a', [
+    msg({ id: 'p1', type: 'message', content: 'first note', timestamp: 5, from: 'a', to: 'b' }),
+    msg({ id: 'p2', type: 'message', content: 'second note', timestamp: 5, from: 'a', to: 'b' }),
+  ]]])
+  assert.deepEqual(buildFeedMessages(conv).map(m => m.id), ['p1', 'p2'])
+})
+
+test('buildFeedMessages merges the conversation and link copies of one peer message', () => {
+  const conv = new Map<string, ConversationMessage[]>([['a', [
+    msg({ id: 'c1', type: 'message', content: 'Hello  there', timestamp: 5.1, from: 'a', to: 'b' }),
+  ]]])
+  const lk = new Map([['l', { from: 'a', messages: [
+    msg({ id: 'l1', type: 'message', content: 'hello there', timestamp: 5.4, from: 'a', to: 'b' }),
+  ] }]])
+  assert.equal(buildFeedMessages(conv, lk).length, 1)
+  // copies on either side of a bucket edge still merge
+  const k1 = commDedupeKeys({ type: 'message', from: 'a', to: 'b', content: 'x', timestamp: 1.99 })
+  const k2 = commDedupeKeys({ type: 'message', from: 'a', to: 'b', content: 'x', timestamp: 2.01 })
+  assert.ok(k1.some(k => k2.includes(k)))
+})
+
+test('same content from different senders or far apart in time stays distinct', () => {
+  const conv = new Map<string, ConversationMessage[]>([['a', [
+    msg({ id: 'd1', type: 'message', content: 'ok', timestamp: 1, from: 'a', to: 'b' }),
+    msg({ id: 'd2', type: 'message', content: 'ok', timestamp: 1, from: 'b', to: 'a' }),
+    msg({ id: 'd3', type: 'message', content: 'ok', timestamp: 30, from: 'a', to: 'b' }),
+  ]]])
+  assert.equal(buildFeedMessages(conv).length, 3)
+})
+
+test('pairFromShiftClick needs two different real agents', () => {
+  assert.deepEqual(pairFromShiftClick('a', 'b'), ['a', 'b'])
+  assert.equal(pairFromShiftClick('a', 'a'), null)
+  assert.equal(pairFromShiftClick('all', 'b'), null)
+  assert.equal(pairFromShiftClick('a', 'all'), null)
+  assert.equal(pairFromShiftClick(null, 'b'), null)
+})
+
+test('pairOfMessage only for directed communications, and filterByPair uses it', () => {
+  assert.deepEqual(pairOfMessage({ type: 'dispatch', from: 'a', to: 'b' }), ['a', 'b'])
+  assert.equal(pairOfMessage({ type: 'assistant', from: 'a', to: 'b' }), null)
+  assert.equal(pairOfMessage({ type: 'message', from: 'a' }), null)
+  const all = buildFeedMessages(conversations, links)
+  const [x, y] = pairOfMessage(all.find(m => m.type === 'dispatch')!)!
+  const filtered = filterByPair(all, y, x)
+  assert.ok(filtered.length > 0)
+  assert.ok(filtered.every(m => (m.from === x && m.to === y) || (m.from === y && m.to === x)))
+})
+
+test('link-only teammate messages mark both agents unread', () => {
+  const lk = new Map([['l', { from: 'a', to: 'b', messages: [msg({ id: 'u1', type: 'message', content: 'hi', timestamp: 1, from: 'a', to: 'b' })] }]])
+  const src = unreadSources(new Map(), lk)
+  const { increased } = agentsWithNewText(new Map(), src, new Set(['message']))
+  assert.deepEqual(increased.sort(), ['a', 'b'])
+})
+
+test('capMessageRows keeps the latest rows and reports the hidden count', () => {
+  assert.deepEqual(capMessageRows([1, 2, 3], 5), { rows: [1, 2, 3], hidden: 0 })
+  assert.deepEqual(capMessageRows([1, 2, 3, 4, 5], 2), { rows: [4, 5], hidden: 3 })
+})
