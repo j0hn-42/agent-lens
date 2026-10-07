@@ -119,6 +119,8 @@ export interface SwimlaneArrow {
   /** Row indexes in the given order */
   fromRow: number
   toRow: number
+  fromName: string
+  toName: string
   time: number
   /** Full content (shown on hover / focus) */
   content: string
@@ -163,6 +165,7 @@ export function buildSwimlaneArrows(
       const isError = kind === 'return' && m.isError === true
       arrows.push({
         id: m.id, kind, isError, fromAgentId: from, toAgentId: to, fromRow, toRow,
+        fromName: nameOf(from), toName: nameOf(to),
         time: m.timestamp,
         content: m.content.slice(0, ARROW_CONTENT_MAX),
         label: swimlaneArrowLabel(kind, isError, nameOf(from), nameOf(to)),
@@ -216,6 +219,10 @@ export function orderEntriesBySequence<T extends { agentId: string; startTime: n
 export interface MessageTableRow {
   id: string
   kind: SwimlaneArrowKind
+  /** 'Dispatch' | 'Return' | 'Return (error)' | 'Message' */
+  kindLabel: string
+  from: string
+  to: string
   label: string
   time: number
   start: string
@@ -225,7 +232,45 @@ export interface MessageTableRow {
 /** Rows of the table view's message list. */
 export function buildMessageRows(arrows: readonly SwimlaneArrow[]): MessageTableRow[] {
   return arrows.map(a => ({
-    id: a.id, kind: a.kind, label: a.label, time: a.time, start: formatDuration(a.time), content: a.content,
+    id: a.id, kind: a.kind, kindLabel: arrowKindLabel(a.kind, a.isError), from: a.fromName, to: a.toName,
+    label: a.label, time: a.time, start: formatDuration(a.time), content: a.content,
+  }))
+}
+
+export function arrowKindLabel(kind: SwimlaneArrowKind, isError: boolean): string {
+  if (kind === 'dispatch') return 'Dispatch'
+  if (kind === 'return') return isError ? 'Return (error)' : 'Return'
+  return 'Message'
+}
+
+/** Arrows exchanged between exactly two agents (either direction); an incomplete pair keeps every arrow. */
+export function filterArrowsByPair(arrows: readonly SwimlaneArrow[], a: string, b: string): SwimlaneArrow[] {
+  if (!a || !b || a === b) return arrows.slice()
+  return arrows.filter(x => (x.fromAgentId === a && x.toAgentId === b) || (x.fromAgentId === b && x.toAgentId === a))
+}
+
+export interface ArrowGeometry { id: string; x: number; y1: number; y2: number }
+
+export interface SwimlaneLayout { labelWidth: number; headerHeight: number; rowHeight: number }
+
+/**
+ * Pixel geometry of the arrows for a canvas `width` px wide (shared by drawing and hover hit-testing):
+ * x from the message time, y1 / y2 at the middle of the sender and receiver rows.
+ */
+export function arrowGeometry(
+  arrows: readonly SwimlaneArrow[],
+  minTime: number,
+  maxTime: number,
+  width: number,
+  layout: SwimlaneLayout,
+): ArrowGeometry[] {
+  const timeSpan = Math.max(maxTime - minTime, 1)
+  const barWidth = Math.max(width - layout.labelWidth, 0)
+  return arrows.map(a => ({
+    id: a.id,
+    x: layout.labelWidth + Math.min(Math.max((a.time - minTime) / timeSpan, 0), 1) * barWidth,
+    y1: layout.headerHeight + a.fromRow * layout.rowHeight + layout.rowHeight / 2,
+    y2: layout.headerHeight + a.toRow * layout.rowHeight + layout.rowHeight / 2,
   }))
 }
 
