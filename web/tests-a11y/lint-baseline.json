@@ -75,12 +75,6 @@
   },
   {
     "file": "components/agent-visualizer/message-feed-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-element-interactions",
-    "count": 1,
-    "issue": 8
-  },
-  {
-    "file": "components/agent-visualizer/message-feed-panel.tsx",
     "rule": "jsx-a11y/no-noninteractive-tabindex",
     "count": 1,
     "issue": 13

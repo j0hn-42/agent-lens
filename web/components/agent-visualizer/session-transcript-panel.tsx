@@ -7,8 +7,11 @@ import { TranscriptMessage } from './transcript-message'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { CloseButton, SlidingPanel, stopPropagationHandlers } from './shared-ui'
 import { useVirtualList } from '@/hooks/use-virtual-list'
-import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING, agentNameOf, teamColorOf, groupByTeam } from '@/lib/feed-utils'
+import { pairOfMessage as pairOf, EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING, agentNameOf, teamColorOf, groupByTeam } from '@/lib/feed-utils'
 import { SearchIcon, ArrowDownIcon } from './feed-icons'
+import { PairFilterChip } from './pair-filter-chip'
+import { usePairFilter, setPair, clearPair } from '@/lib/pair-filter-store'
+import { applyPair, isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -48,14 +51,20 @@ export function SessionTranscriptPanel({
     if (showSearch) searchRef.current?.focus()
   }, [showSearch])
 
+  // Shared with the message feed: only the dispatch / return / peer messages between the two agents
+  const pair = usePairFilter()
+  const pairActive = isPairComplete(pair)
+  const nameOf = (key: string) => (agents ? agentNameOf(agents, key) : key)
+
+  const pairFiltered = visible ? (pairActive ? applyPair(conversation, pair) : conversation) : []
   const filteredConversation = visible
     ? (searchQuery.trim()
-        ? conversation.filter(msg => {
+        ? pairFiltered.filter(msg => {
             const q = searchQuery.toLowerCase()
             return msg.content.toLowerCase().includes(q)
               || (msg.toolName || '').toLowerCase().includes(q)
           })
-        : conversation)
+        : pairFiltered)
     : []
 
   const {
@@ -148,6 +157,16 @@ export function SessionTranscriptPanel({
           </div>
         )}
 
+        {/* Pair filter chip (shared with the message feed) */}
+        {(isPairSet(pair) || (agents && agents.size > 1)) && (
+          <div className="px-3 py-1 flex flex-wrap items-center gap-1 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+            {agents && agents.size > 1 && (
+              <PairPicker agents={agents} pair={pair} />
+            )}
+            <PairFilterChip pair={pair} nameOf={nameOf} count={filteredConversation.length} onClear={clearPair} />
+          </div>
+        )}
+
         {/* Teammates grouped under their team heading */}
         {teamGroups.length > 0 && (
           <section
@@ -192,7 +211,7 @@ export function SessionTranscriptPanel({
           {filteredConversation.length === 0 ? (
             <div className="flex items-center justify-center h-32">
               <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>
-                {searchQuery ? EMPTY_SEARCH : EMPTY_MESSAGES}
+                {searchQuery ? EMPTY_SEARCH : pairActive ? pairEmptyText(pair, nameOf) : EMPTY_MESSAGES}
               </p>
             </div>
           ) : (
@@ -213,6 +232,7 @@ export function SessionTranscriptPanel({
                       assistantLabel={runtime === 'codex' ? 'CODEX' : 'CLAUDE'}
                       fromName={agents && msg.from ? agentNameOf(agents, msg.from) : undefined}
                       toName={agents && msg.to ? agentNameOf(agents, msg.to) : undefined}
+                      onFilterPair={pairOf(msg) ? () => { const p = pairOf(msg)!; setPair(p[0], p[1]) } : undefined}
                       accent={agents ? teamColorOf(agents.get(msg.from ?? ''), teams) : undefined}
                     />
                   </div>
@@ -243,5 +263,28 @@ export function SessionTranscriptPanel({
         )}
       </div>
     </SlidingPanel>
+  )
+}
+
+/** Keyboard path to the Pair filter: two native selects (Shift-click has no keyboard equivalent). */
+function PairPicker({ agents, pair }: { agents: Map<string, Agent>; pair: { a: string; b: string } }) {
+  const ids = [...agents.keys()]
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>Filter pair</span>
+      {([['First agent', pair.a, (v: string) => setPair(v, pair.b)], ['Second agent', pair.b, (v: string) => setPair(pair.a, v)]] as const).map(([label, value, set]) => (
+        <select
+          key={label}
+          aria-label={label}
+          value={value}
+          onChange={e => set(e.target.value)}
+          className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING}`}
+          style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
+        >
+          <option value="">{label}</option>
+          {ids.map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
+        </select>
+      ))}
+    </span>
   )
 }

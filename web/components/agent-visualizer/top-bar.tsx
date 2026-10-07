@@ -4,7 +4,7 @@ import { memo, useLayoutEffect, useRef } from "react"
 import { Z } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
-import { FOCUS_RING, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
 import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
@@ -174,16 +174,7 @@ export const TopBar = memo(function TopBar({
   useLayoutEffect(() => {
     const el = rootRef.current
     if (!el) return
-    const root = document.documentElement
-    const publish = () => {
-      // top offset (12px) + measured height + 8px breathing room
-      root.style.setProperty('--topbar-h', `${Math.ceil(el.getBoundingClientRect().height) + 20}px`)
-    }
-    publish()
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(publish)
-    ro.observe(el)
-    return () => ro.disconnect()
+    return observeTopbarHeight(el, document.documentElement, typeof ResizeObserver === 'undefined' ? undefined : ResizeObserver)
   }, [])
 
   return (

@@ -44,10 +44,19 @@ function insetRect(r: FitRect, by: number): FitRect {
 
 export interface Transform2D { x: number; y: number; scale: number }
 
+/** An EdgeBubble, optionally one of several on its link. */
+export type PlannableEdgeBubble = EdgeBubble & { key?: string; groupCount?: number; primary?: boolean }
+
+/** Plan id of a bubble: its own key, or its link id for the single-bubble form. */
+export function edgeBubblePlanId(b: PlannableEdgeBubble): string {
+  return b.key ?? b.linkId
+}
+
 export interface OverlayPlanInput {
   agents: Map<string, Agent>
   clusters: Cluster[]
-  edgeBubbles: EdgeBubble[]
+  /** Edge bubbles; a bubble with a `key` (several per link) is planned under it, the others under their link id */
+  edgeBubbles: PlannableEdgeBubble[]
   transform: Transform2D
   viewport: { w: number; h: number }
   /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
@@ -61,6 +70,8 @@ export interface OverlayPlanInput {
   focusedAgentId: string | null
   selectedLinkId?: string | null
   hoveredLinkId?: string | null
+  /** Keys of the edge bubbles that are hovered / focused: planned just below the selected agent's labels (see HELD_BUBBLE_BOOST) */
+  heldBubbleKeys?: ReadonlySet<string>
   simTime: number
   /** Teams, to tell a team lead from a session's main agent in the label layout */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
@@ -72,6 +83,8 @@ export interface OverlayHits {
   /** World rectangles */
   clusterLabels: Map<string, Rect>
   edgeBubbles: Map<string, Rect>
+  /** World rectangle of every placed edge bubble by bubble key (plan id), whether collapsed or not */
+  edgeBubbleRects: Map<string, Rect>
   /** Count chips that replace the bubbles of an agent */
   collapsedBubbles: Map<string, Rect>
 }
@@ -82,6 +95,14 @@ export interface OverlayPlanResult {
   /** Many agents on screen: secondary overlays are limited to the priority agents */
   crowded: boolean
 }
+
+/**
+ * Priority added to a hovered / focused bubble. Kept strictly below the 1000 that a selected / hovered /
+ * focused agent adds to its labels: a bubble the user points at never displaces the selected agent's label.
+ */
+export const HELD_BUBBLE_BOOST = 990
+/** Priority added to a bubble on the selected / hovered link (below the held boost) */
+const EMPHASISED_BUBBLE_BOOST = 900
 
 /** Keys of the plan */
 export const planKey = {
@@ -111,7 +132,7 @@ function onScreen(r: Rect, vp: { w: number; h: number }, margin = 40): boolean {
 /** Sentinel for the empty plan (nothing hidden, nothing moved) */
 export const EMPTY_PLAN: OverlayPlanResult = {
   plan: new Map(),
-  hits: { clusterLabels: new Map(), edgeBubbles: new Map(), collapsedBubbles: new Map() },
+  hits: { clusterLabels: new Map(), edgeBubbles: new Map(), edgeBubbleRects: new Map(), collapsedBubbles: new Map() },
   crowded: false,
 }
 
@@ -276,15 +297,25 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
   }
 
   // ─── Edge bubbles ───
+  // Below the labels of the selected / hovered / focused agent, above agent bubbles. Only the newest bubble
+  // of a link may collapse to a count chip; the older ones are hidden when they do not fit.
+  const bubbleLinkOf = new Map<string, string>()
   for (const b of input.lod.details ? input.edgeBubbles : []) {
     if (b.w <= 0) continue
-    const boost = (b.linkId === input.selectedLinkId || b.linkId === input.hoveredLinkId) ? 1000 : 0
+    const id = edgeBubblePlanId(b)
+    const emphasised = b.linkId === input.selectedLinkId || b.linkId === input.hoveredLinkId
+    const boost = input.heldBubbleKeys?.has(id) ? HELD_BUBBLE_BOOST : emphasised ? EMPHASISED_BUBBLE_BOOST : 0
     const preferred = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
     if (!onScreen(preferred, vp, 0)) continue
+    bubbleLinkOf.set(planKey.edgeBubble(id), b.linkId)
+    const chip = (b.primary ?? true)
+      ? { x: preferred.x, y: preferred.y + preferred.h - PLACEMENT.chipH, w: PLACEMENT.chipW, h: PLACEMENT.chipH }
+      : undefined
     requests.push({
-      id: planKey.edgeBubble(b.linkId),
+      id: planKey.edgeBubble(id),
       priority: PRIORITY.edgeBubble + boost,
       rect: preferred,
+      compact: chip,
       offsets: [
         { dx: 0, dy: b.h * s + 20 }, { dx: (b.w * s) * 0.6, dy: 0 }, { dx: -(b.w * s) * 0.6, dy: 0 },
         { dx: (b.w * s) * 0.6, dy: b.h * s + 20 }, { dx: -(b.w * s) * 0.6, dy: b.h * s + 20 },
@@ -294,12 +325,17 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
   const placements = placeRects(requests, { bounds: { x: 0, y: 0, w: vp.w, h: vp.h }, obstacles })
   const plan = new Map<string, Placement>()
-  const hits: OverlayHits = { clusterLabels: new Map(), edgeBubbles: new Map(), collapsedBubbles: new Map() }
+  const hits: OverlayHits = { clusterLabels: new Map(), edgeBubbles: new Map(), edgeBubbleRects: new Map(), collapsedBubbles: new Map() }
   for (const p of placements) {
     plan.set(p.id, p)
     if (!p.rect || p.hidden) continue
     if (p.id.startsWith('cluster:')) hits.clusterLabels.set(p.id.slice('cluster:'.length), toWorld(t, p.rect))
-    else if (p.id.startsWith('ebub:')) hits.edgeBubbles.set(p.id.slice('ebub:'.length), toWorld(t, p.rect))
+    else if (p.id.startsWith('ebub:')) {
+      const world = toWorld(t, p.rect)
+      hits.edgeBubbleRects.set(p.id.slice('ebub:'.length), world)
+      // Canvas hit-test keeps one rectangle per link; the newest bubble (placed last in request order) wins
+      hits.edgeBubbles.set(bubbleLinkOf.get(p.id) ?? p.id.slice('ebub:'.length), world)
+    }
     else if (p.id.startsWith('bubbles:') && p.collapsed) hits.collapsedBubbles.set(p.id.slice('bubbles:'.length), toWorld(t, p.rect))
   }
   return { plan, hits, crowded }

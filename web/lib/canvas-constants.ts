@@ -139,7 +139,6 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  centerStrength: 0.03,
   collideRadius: 140,
   linkDistance: 350,
   linkStrength: 0.4,
@@ -158,8 +157,8 @@ export const CLUSTER_LAYOUT = {
   gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
-  /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.6,
+  /** Share of the distance a lead (orchestrator) covers towards its anchor, per tick */
+  holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
@@ -167,8 +166,6 @@ export const CLUSTER_LAYOUT = {
   ringStrength: 0.06,
   /** Members are kept within this fraction of the cluster radius */
   containFactor: 0.95,
-  containStrength: 0.08,
-  separationStrength: 0.5,
 } as const
 
 // ─── Tool slot placement config ─────────────────────────────────────────────
@@ -585,6 +582,16 @@ export const EDGE_BUBBLE = {
   anchorT: 1 / 3,
   /** Chars of message text kept for a bubble (before wrapping) */
   maxChars: 240,
+  /** Max bubbles shown per link (the newest messages): bounds memory and DOM buttons */
+  maxPerLink: 3,
+  /** Max bubbles shown on the whole canvas (the newest win) */
+  maxTotal: 12,
+  /** Fraction of the curve where a peer (teammate) message is anchored */
+  peerT: 0.5,
+  /** Words of the message kept in the accessible name of a bubble button */
+  ariaWords: 10,
+  /** Messages per link mirrored in the DOM list */
+  listedPerLink: 5,
 } as const
 
 export const CLUSTER_DRAW = {
