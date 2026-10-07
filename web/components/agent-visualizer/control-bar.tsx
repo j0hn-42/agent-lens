@@ -1,8 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef, memo } from 'react'
-import { TimelineEvent, Z, POPUP, TIMING } from '@/lib/agent-types'
+import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { formatDuration, pluralize } from '@/lib/utils'
+import { FOCUS_RING, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -10,6 +12,7 @@ interface ControlBarProps {
   currentTime: number
   totalDuration: number
   onPlayPause: () => void
+  /** Clears the scrubbable history (keeps active agents). Asks for confirmation first. */
   onRestart: () => void
   onSpeedChange: (speed: number) => void
   onSeek?: (time: number) => void
@@ -18,12 +21,8 @@ interface ControlBarProps {
   eventCount?: number
   onResumeLive?: () => void
   onEnterReview?: () => void
-}
-
-function formatTime(seconds: number) {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${m}:${s.toString().padStart(2, '0')}`
+  /** True while the visualizer shows demo data: the badge reads DEMO instead of LIVE */
+  isDemo?: boolean
 }
 
 function getEventColor(type: TimelineEvent['type']): string {
@@ -40,7 +39,8 @@ function getEventColor(type: TimelineEvent['type']): string {
 /** Max event marker dots rendered on the scrubber (prevents DOM bloat) */
 const MAX_SCRUBBER_DOTS = 120
 
-/** Shared event marker dots on the scrubber track.
+/** Shared event marker dots on the scrubber track. Purely decorative (aria-hidden): the
+ *  event count and the slider value text carry the information for assistive tech.
  *  Memoized to avoid re-rendering every frame when only currentTime changes in the parent. */
 const EventMarkers = memo(function EventMarkers({ events, totalDuration, className = '' }: {
   events: TimelineEvent[]
@@ -58,19 +58,19 @@ const EventMarkers = memo(function EventMarkers({ events, totalDuration, classNa
   const lastEventTime = events.length > 0 ? events[events.length - 1].timestamp : 0
   const effectiveDuration = lastEventTime > 0 ? lastEventTime : totalDuration
   return (
-    <>
+    <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
       {visible.map((event) => {
         const pos = effectiveDuration > 0 ? (event.timestamp / effectiveDuration) * 100 : 0
-        if (pos < 0 || pos > 100) return null
+        if (!(pos >= 0 && pos <= 100)) return null
         return (
           <div
             key={event.id}
-            className={`absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${className}`}
+            className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 -ml-1 rounded-full ${className}`}
             style={{ left: `${pos}%`, background: getEventColor(event.type) }}
           />
         )
       })}
-    </>
+    </div>
   )
 })
 
@@ -85,6 +85,9 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
   return fullEventsRef.current
 }
 
+const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
+const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
+
 export function ControlBar(props: ControlBarProps) {
   const { isReviewing = false } = props
   return isReviewing ? <ReviewControlBar {...props} /> : <LiveControlBar {...props} />
@@ -94,69 +97,70 @@ export function ControlBar(props: ControlBarProps) {
 
 function LiveControlBar({
   currentTime, totalDuration, timelineEvents,
-  eventCount = 0, onEnterReview, isReviewing,
+  eventCount = 0, onEnterReview, isDemo = false,
 }: ControlBarProps) {
-  const [pulseOn, setPulseOn] = useState(true)
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
-
-  useEffect(() => {
-    if (isReviewing) return
-    const interval = setInterval(() => setPulseOn(p => !p), TIMING.livePulseMs)
-    return () => clearInterval(interval)
-  }, [isReviewing])
+  const badgeColor = isDemo ? COLORS.holoBright : COLORS.liveText
 
   return (
     <div
-      className="absolute bottom-4 left-4 right-4 mx-auto"
+      role="toolbar"
+      aria-label="Playback controls"
+      className={BAR_CLASS}
       style={{ pointerEvents: 'auto', maxWidth: POPUP.controlBarMaxWidth, zIndex: Z.controlBar }}
     >
-      <div className="glass-card px-5 py-3 flex items-center gap-3">
-        {/* LIVE badge */}
+      <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        {/* LIVE / DEMO badge */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span
-            className="w-2 h-2 rounded-full transition-opacity duration-500"
+            aria-hidden="true"
+            className={`w-2 h-2 rounded-full ${isDemo ? '' : 'motion-safe:animate-pulse'}`}
             style={{
-              background: COLORS.liveDot,
-              boxShadow: pulseOn ? `0 0 8px ${COLORS.liveDot}, 0 0 16px rgba(255,68,68,0.3)` : `0 0 4px ${COLORS.liveDot}80`,
-              opacity: pulseOn ? 1 : 0.6,
+              background: isDemo ? 'transparent' : COLORS.liveDot,
+              border: isDemo ? `2px solid ${COLORS.holoBright}` : undefined,
+              boxShadow: isDemo ? undefined : `0 0 8px ${COLORS.liveDot}, 0 0 16px rgba(255,68,68,0.3)`,
             }}
           />
-          <span className="text-[10px] font-mono font-semibold tracking-wider" style={{ color: COLORS.liveText }}>
-            LIVE
+          <span className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: badgeColor }}>
+            {isDemo ? 'DEMO' : 'LIVE'}
           </span>
         </div>
 
         {/* Time */}
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary }}>
-          {formatTime(currentTime)}
+          {formatDuration(currentTime)}
         </span>
 
         {/* Read-only event track */}
-        <div className="flex-1 relative h-6 flex items-center">
+        <div className="flex-1 min-w-12 relative h-6 flex items-center">
           <div
+            aria-hidden="true"
             className="w-full rounded-full relative"
-            style={{ height: 3, background: COLORS.holoBg10 }}
+            style={{ height: 4, background: COLORS.controlTrack }}
           >
-            <EventMarkers events={scrubberEvents} totalDuration={totalDuration} eventCount={scrubberEvents.length} className="opacity-80" />
+            <EventMarkers events={scrubberEvents} totalDuration={totalDuration} eventCount={scrubberEvents.length} className="opacity-90" />
           </div>
         </div>
 
         {/* Event count */}
-        <span className="text-[10px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-          {eventCount}
+        <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+          {pluralize(eventCount, 'event')}
         </span>
 
         {/* Review button */}
         <button
+          type="button"
           onClick={onEnterReview}
-          className="px-2.5 py-1 rounded text-[10px] font-mono transition-all hover:scale-105"
+          aria-label="Pause and review history"
+          aria-keyshortcuts="Space"
+          className={`${BTN_BASE} px-2.5 py-1 transition-all motion-safe:hover:scale-105`}
           style={{
             background: COLORS.holoBg10,
             border: `1px solid ${COLORS.reviewBtnBorder}`,
             color: COLORS.textPrimary,
           }}
         >
-          ⏸ Review
+          <span aria-hidden="true">⏸ </span>Review
         </button>
       </div>
     </div>
@@ -166,6 +170,7 @@ function LiveControlBar({
 // ─── Review Mode Control Bar ─────────────────────────────────────────────────
 
 const SPEEDS = [0.5, 1, 2, 4] as const
+const CONFIRM_TIMEOUT_MS = 5000
 
 function ReviewControlBar({
   isPlaying, speed, currentTime, totalDuration,
@@ -174,71 +179,94 @@ function ReviewControlBar({
 }: ControlBarProps) {
   const scrubberRef = useRef<HTMLDivElement>(null)
   const [isScrubbing, setIsScrubbing] = useState(false)
+  const [confirmingClear, setConfirmingClear] = useState(false)
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
-  const progress = totalDuration > 0 ? currentTime / totalDuration : 0
+  const progress = totalDuration > 0 ? Math.max(0, Math.min(1, currentTime / totalDuration)) : 0
 
-  const scrubToClientX = useCallback((clientX: number) => {
+  const seekFromClientX = useCallback((clientX: number) => {
     const rect = scrubberRef.current?.getBoundingClientRect()
     if (!rect || !onSeek) return
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    onSeek(ratio * totalDuration)
+    onSeek(scrubberTimeFromX(clientX, rect.left, rect.width, totalDuration))
   }, [onSeek, totalDuration])
 
+  // The destructive action needs a second click; the prompt disarms itself after a few seconds.
   useEffect(() => {
-    if (!isScrubbing) return
-    const handleMove = (e: MouseEvent) => scrubToClientX(e.clientX)
-    const handleUp = () => setIsScrubbing(false)
-    window.addEventListener('mousemove', handleMove)
-    window.addEventListener('mouseup', handleUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMove)
-      window.removeEventListener('mouseup', handleUp)
-    }
-  }, [isScrubbing, scrubToClientX])
+    if (!confirmingClear) return
+    const t = setTimeout(() => setConfirmingClear(false), CONFIRM_TIMEOUT_MS)
+    return () => clearTimeout(t)
+  }, [confirmingClear])
+
+  const handleScrubberKeyDown = (e: React.KeyboardEvent) => {
+    const target = scrubberKeyTarget(e.key, e.shiftKey, currentTime, totalDuration)
+    if (target === null || !onSeek) return
+    e.preventDefault()
+    onSeek(target)
+  }
 
   return (
     <div
-      className="absolute bottom-4 left-4 right-4 mx-auto"
+      role="toolbar"
+      aria-label="Playback controls"
+      className={BAR_CLASS}
       style={{ pointerEvents: 'auto', maxWidth: POPUP.controlBarMaxWidth, zIndex: Z.controlBar }}
     >
-      <div className="glass-card px-5 py-3 flex items-center gap-3">
+      <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* Play/Pause */}
         <button
+          type="button"
           onClick={onPlayPause}
-          className="w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 hover:scale-110"
+          aria-label={isPlaying ? 'Pause' : 'Play'}
+          aria-keyshortcuts="Space"
+          className={`${BTN_BASE} w-9 h-9 rounded-full flex items-center justify-center transition-all shrink-0 motion-safe:hover:scale-110`}
           style={{
             background: isPlaying ? COLORS.playBtnActiveBg : COLORS.playBtnBg,
             border: `1.5px solid ${COLORS.playBtnBorder}`,
             boxShadow: COLORS.playBtnGlow,
           }}
         >
-          <span style={{ color: COLORS.textPrimary, fontSize: 14, marginLeft: isPlaying ? 0 : 2 }}>
+          <span aria-hidden="true" style={{ color: COLORS.textPrimary, fontSize: 14, marginLeft: isPlaying ? 0 : 2 }}>
             {isPlaying ? '⏸' : '▶'}
           </span>
         </button>
 
         {/* Time */}
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary, minWidth: 42 }}>
-          {formatTime(currentTime)}
+          {formatDuration(currentTime)}
         </span>
 
         {/* Timeline scrubber */}
         <div
           ref={scrubberRef}
-          className="flex-1 relative h-8 flex items-center group cursor-pointer"
-          onMouseDown={(e) => {
+          role="slider"
+          tabIndex={0}
+          aria-label="Timeline position"
+          aria-orientation="horizontal"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(totalDuration)}
+          aria-valuenow={Math.round(Math.min(currentTime, totalDuration))}
+          aria-valuetext={scrubberValueText(currentTime, totalDuration)}
+          className={`flex-1 min-w-12 relative h-8 flex items-center group cursor-pointer rounded touch-none ${FOCUS_RING}`}
+          onKeyDown={handleScrubberKeyDown}
+          onPointerDown={(e) => {
             e.preventDefault()
+            e.currentTarget.setPointerCapture?.(e.pointerId)
             setIsScrubbing(true)
-            scrubToClientX(e.clientX)
+            seekFromClientX(e.clientX)
           }}
+          onPointerMove={(e) => { if (isScrubbing) seekFromClientX(e.clientX) }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture?.(e.pointerId)
+            setIsScrubbing(false)
+          }}
+          onPointerCancel={() => setIsScrubbing(false)}
         >
           <div
             className="w-full rounded-full relative transition-all duration-150 group-hover:h-2"
-            style={{ height: isScrubbing ? 8 : 4, background: COLORS.glassBorder }}
+            style={{ height: isScrubbing ? 8 : 4, background: COLORS.controlTrack }}
           >
             {/* Progress fill */}
             <div
-              className="h-full rounded-full transition-[width]"
+              className="h-full rounded-full motion-safe:transition-[width]"
               style={{
                 width: `${progress * 100}%`,
                 background: COLORS.scrubberFill,
@@ -248,36 +276,43 @@ function ReviewControlBar({
               events={scrubberEvents}
               totalDuration={totalDuration}
               eventCount={scrubberEvents.length}
-              className="opacity-60 group-hover:opacity-100 transition-opacity"
+              className="opacity-90"
             />
           </div>
 
-          {/* Playhead */}
+          {/* Playhead (24px hit area around the visible head) */}
           <div
-            className="absolute top-1/2 -translate-y-1/2 rounded-full transition-all duration-150 group-hover:w-4 group-hover:h-4"
-            style={{
-              left: `${progress * 100}%`,
-              width: isScrubbing ? 16 : 12,
-              height: isScrubbing ? 16 : 12,
-              marginLeft: isScrubbing ? -8 : -6,
-              background: COLORS.textPrimary,
-              boxShadow: COLORS.scrubberHeadGlow,
-            }}
-          />
+            aria-hidden="true"
+            className="absolute top-1/2 -translate-y-1/2 w-6 h-6 -ml-3 flex items-center justify-center pointer-events-none"
+            style={{ left: `${progress * 100}%` }}
+          >
+            <div
+              className="rounded-full transition-all duration-150"
+              style={{
+                width: isScrubbing ? 16 : 12,
+                height: isScrubbing ? 16 : 12,
+                background: COLORS.textPrimary,
+                boxShadow: COLORS.scrubberHeadGlow,
+              }}
+            />
+          </div>
         </div>
 
         {/* Duration */}
-        <span className="text-[10px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-          {formatTime(totalDuration)}
+        <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+          <span className="sr-only">Total duration </span>{formatDuration(totalDuration)}
         </span>
 
         {/* Speed controls */}
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div role="group" aria-label="Playback speed" className="flex items-center gap-0.5 shrink-0">
           {SPEEDS.map((s) => (
             <button
+              type="button"
               key={s}
               onClick={() => onSpeedChange(s)}
-              className="px-2 py-0.5 rounded text-[10px] font-mono transition-all"
+              aria-pressed={speed === s}
+              aria-label={`Speed ${s}x`}
+              className={`${BTN_BASE} px-2 py-1 transition-all ${speed === s ? 'font-bold underline underline-offset-4' : ''}`}
               style={{
                 background: speed === s ? COLORS.playBtnActiveBg : 'transparent',
                 color: speed === s ? COLORS.textPrimary : COLORS.textMuted,
@@ -291,28 +326,52 @@ function ReviewControlBar({
         {/* Resume Live */}
         {isReviewing && (
           <button
+            type="button"
             onClick={onResumeLive}
-            className="px-2.5 py-1 rounded text-[10px] font-mono font-semibold transition-all hover:scale-105 shrink-0"
+            aria-label="Resume live"
+            className={`${BTN_BASE} px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0`}
             style={{
               background: COLORS.liveResumeBg,
               border: `1px solid ${COLORS.liveResumeBorder}`,
               color: COLORS.liveText,
             }}
           >
-            ▶ LIVE
+            <span aria-hidden="true">▶ </span>LIVE
           </button>
         )}
 
-        {/* Restart */}
-        {isReviewing && (
+        {/* Clear history (destructive: two-step confirmation) */}
+        {isReviewing && (confirmingClear ? (
+          <span role="group" aria-label="Confirm clearing history" className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => { setConfirmingClear(false); onRestart() }}
+              className={`${BTN_BASE} px-2 py-1 font-semibold`}
+              style={{ background: COLORS.liveResumeBg, border: `1px solid ${COLORS.liveResumeBorder}`, color: COLORS.liveText }}
+            >
+              Confirm clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingClear(false)}
+              className={`${BTN_BASE} px-2 py-1`}
+              style={{ color: COLORS.textMuted }}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
           <button
-            onClick={onRestart}
-            className="text-sm transition-all shrink-0 hover:scale-110"
-            style={{ color: COLORS.textDim }}
+            type="button"
+            onClick={() => setConfirmingClear(true)}
+            aria-label="Clear history"
+            title="Clear history (keeps active agents)"
+            className={`${BTN_BASE} px-2 py-1 transition-all motion-safe:hover:scale-105 shrink-0`}
+            style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.toggleBorder}` }}
           >
-            ⟲
+            <span aria-hidden="true">⟲ </span>Clear history
           </button>
-        )}
+        ))}
       </div>
     </div>
   )

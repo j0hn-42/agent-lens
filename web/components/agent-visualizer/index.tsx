@@ -25,6 +25,10 @@ import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { totalAgentCost } from "@/lib/cost"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
+import { useToasts } from "@/hooks/use-toasts"
+import { useFocusReturn } from "@/hooks/use-focus-return"
+import { ToastRegion } from "./toast-region"
+import { FOCUS_RING, buildAnnouncement, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
 const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-flow:single-key-shortcuts'
 
@@ -67,6 +71,16 @@ export function AgentVisualizer() {
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
+  const { toasts, push: pushToast, dismiss: dismissToast, runAction: runToastAction } = useToasts()
+
+  // Surface bridge notices (relay down/up, malformed data, session reset) as non-blocking toasts
+  const lastNoticeIdRef = useRef(0)
+  useEffect(() => {
+    const n = bridge.notice
+    if (!n || n.id === lastNoticeIdRef.current) return
+    lastNoticeIdRef.current = n.id
+    pushToast({ message: n.message, durationMs: n.kind === 'relay-down' ? 8000 : 5000 })
+  }, [bridge.notice, pushToast])
 
   const [showStats, setShowStats] = useState(false)
   const [showHexGrid, setShowHexGrid] = useState(true)
@@ -84,6 +98,14 @@ export function AgentVisualizer() {
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
   const [isReviewing, setIsReviewing] = useState(false)
+
+  // Focus management: move focus into a panel when it opens, back to its trigger when it closes
+  const filesPanelRef = useRef<HTMLDivElement>(null)
+  const transcriptPanelRef = useRef<HTMLDivElement>(null)
+  const timelinePanelRef = useRef<HTMLDivElement>(null)
+  useFocusReturn(showFileAttention, filesPanelRef)
+  useFocusReturn(showTranscript, transcriptPanelRef)
+  useFocusReturn(showTimeline, timelinePanelRef)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // Auto-play on mount
@@ -157,34 +179,62 @@ export function AgentVisualizer() {
 
   // Review mode: when in live mode and user pauses to scrub through history
 
+  const announceReview = useCallback(() => {
+    pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })
+  }, [pushToast])
+
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {
       pause()
       setIsReviewing(true)
+      announceReview()
     } else {
       play()
     }
-  }, [isPlaying, play, pause])
+  }, [isPlaying, play, pause, announceReview])
 
   const handleEnterReview = useCallback(() => {
     pause()
     setIsReviewing(true)
-  }, [pause])
+    announceReview()
+  }, [pause, announceReview])
+
+  // Speed only applies in review mode: in live mode it would silently distort the time axis
+  const setSpeedInReview = useCallback((value: number) => {
+    if (isReviewing) setSpeed(value)
+  }, [isReviewing, setSpeed])
 
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleResumeLive = useCallback(() => {
+    // Events that arrived while paused are still queued: report them instead of silently compressing them
+    const missed = formatMissedEvents(bridge.pendingEvents.length)
+    if (missed) pushToast({ message: `Resumed live: ${missed.replace(' while reviewing', '')}`, durationMs: 5000 })
     setIsReviewing(false)
     seekToTime(maxTimeReached)
     setZoomToFitTrigger(n => n + 1)
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
     resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; play() }, TIMING.resumeLiveDelayMs)
-  }, [seekToTime, maxTimeReached, play])
+  }, [seekToTime, maxTimeReached, play, bridge.pendingEvents, pushToast])
   useEffect(() => () => { if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current) }, [])
 
-  const handleRestart = useCallback(() => {
+  // "Clear history": keeps active agents, drops the scrubbable history. Undo restores a snapshot.
+  const handleClearHistory = useCallback(() => {
+    const snapshot = saveSnapshot()
     setIsReviewing(false)
     restart(true)
-  }, [restart])
+    pushToast({
+      message: 'History cleared',
+      actionLabel: 'Undo',
+      onAction: () => restoreSnapshot(snapshot),
+    })
+  }, [restart, saveSnapshot, restoreSnapshot, pushToast])
+
+  // Rebuild the canvas from the buffered events of the selected session (live mode)
+  const handleReloadSessionEvents = useCallback(() => {
+    const id = bridge.selectedSessionIdRef.current
+    restart()
+    if (id) bridge.flushSessionEvents(id)
+  }, [restart, bridge.selectedSessionIdRef, bridge.flushSessionEvents])
 
   // Panel open-order stack (LIFO) so Escape closes the most recently opened panel first
   const panelStackRef = useRef<PanelId[]>([])
@@ -238,9 +288,9 @@ export function AgentVisualizer() {
     closeTopPanel,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
-    setSpeed,
+    setSpeed: setSpeedInReview,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [handlePlayPause, selection.clearAllSelections, setSpeed, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
+  }), [handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -280,20 +330,33 @@ export function AgentVisualizer() {
       { label: '📊  Toggle Stats', onClick: () => setShowStats(prev => !prev) },
       { label: '⬡  Toggle Grid', onClick: () => setShowHexGrid(prev => !prev) },
       { label: '', onClick: () => {}, separator: true },
-      { label: '⟲  Restart', onClick: restart },
+      { label: '⟲  Clear history', onClick: handleClearHistory },
+      ...(!bridge.useMockData && bridge.selectedSessionId
+        ? [{ label: '↻  Reload session events', onClick: handleReloadSessionEvents }]
+        : []),
     ]
   ) : []
 
+  const { removeSession, restoreSession, selectSession } = bridge
   const handleCloseSession = useCallback((id: string) => {
-    bridge.removeSession(id)
-    sessionCacheRef.current.delete(id)
-    if (bridge.selectedSessionId === id) {
-      const remaining = bridge.sessions.filter(s => s.id !== id)
-      if (remaining.length > 0) {
-        bridge.selectSession(remaining[remaining.length - 1].id)
-      }
+    const closed = bridge.sessions.find(s => s.id === id)
+    const wasSelected = bridge.selectedSessionId === id
+    const remaining = bridge.sessions.filter(s => s.id !== id)
+    removeSession(id)
+    if (wasSelected && remaining.length > 0) {
+      selectSession(remaining[remaining.length - 1].id)
     }
-  }, [bridge])
+    pushToast({
+      message: `Session closed${closed ? `: ${closed.label}` : ''}`,
+      actionLabel: 'Undo',
+      durationMs: 5000,
+      onAction: () => {
+        if (restoreSession(id) && wasSelected) selectSession(id)
+      },
+      // The cached simulation state is only needed while undo is possible
+      onExpire: () => { sessionCacheRef.current.delete(id) },
+    })
+  }, [bridge.sessions, bridge.selectedSessionId, removeSession, restoreSession, selectSession, pushToast])
 
   const openFile = useCallback((filePath: string, line?: number) => {
     bridge.bridgeOpenFile(filePath, line)
@@ -301,15 +364,84 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
+  const { activeAgentCount, doneAgentCount } = useMemo(() => {
+    let done = 0
+    for (const a of agents.values()) if (a.state === 'complete') done++
+    return { activeAgentCount: agents.size - done, doneAgentCount: done }
+  }, [agents])
+
+  const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
+  const selectedSessionLabel = bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
+  const announcement = buildAnnouncement({ connection, sessionLabel: selectedSessionLabel, isReviewing, isEmpty })
+  const checklist = emptyStateChecklist({
+    status: bridge.connectionStatus,
+    relayPort: bridge.relayPort || undefined,
+    sessionCount: bridge.sessions.length,
+  })
+
   return (
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
-    <div className="h-screen w-screen relative overflow-hidden" style={{ background: COLORS.void }}>
+    <div className="h-screen w-full relative overflow-hidden" style={{ background: COLORS.void }}>
+      {/* Polite live region: connection, session, review mode and empty state changes */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+
+      {/* Top bar: session tabs + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
+      <TopBar
+        sessions={bridge.sessions}
+        selectedSessionId={bridge.selectedSessionId}
+        sessionsWithActivity={bridge.sessionsWithActivity}
+        onSelectSession={bridge.selectSession}
+        onCloseSession={handleCloseSession}
+        isVSCode={bridge.isVSCode}
+        connectionStatus={bridge.connectionStatus}
+        isDemo={bridge.useMockData}
+        activeAgentCount={activeAgentCount}
+        doneAgentCount={doneAgentCount}
+        totalTokens={totalTokens}
+        totalCost={totalCost}
+        showFileAttention={showFileAttention}
+        showTranscript={showTranscript}
+        showCostOverlay={showCostOverlay}
+        showTimeline={showTimeline}
+        isMuted={isMuted}
+        onTogglePanel={toggleExclusivePanel}
+        onToggleTimeline={() => setShowTimeline(prev => !prev)}
+        onToggleMute={handleToggleMute}
+      />
+
+      <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
+      <h1 className="sr-only">Agent Flow</h1>
+
       {/* Empty state when no demo and no live data */}
       {isEmpty && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-          <div className="text-center" style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}>
-            <div className="text-sm" style={{ color: COLORS.textDim }}>WAITING FOR AGENT SESSION</div>
-            <div className="mt-2 text-xs" style={{ color: COLORS.textDim }}>Start a Claude Code session to see activity</div>
+        <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none">
+          <div
+            role="status"
+            className="text-center max-w-[calc(100vw-24px)] pointer-events-auto"
+            style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
+          >
+            <div className="text-sm font-semibold" style={{ color: COLORS.textPrimary }}>Waiting for an agent session</div>
+            <div className="mt-1 text-xs" style={{ color: COLORS.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
+            <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: COLORS.textMuted }}>
+              {checklist.map(item => (
+                <li key={item.id}>
+                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? COLORS.complete : COLORS.error }}>{item.ok ? '✓' : '✗'}</span>
+                  <span className="sr-only">{item.ok ? 'Done: ' : 'Not done: '}</span>
+                  {item.label}
+                  {item.detail && <span> ({item.detail})</span>}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={bridge.loadDemo}
+                className={`min-h-6 min-w-6 px-3 py-1 rounded text-xs font-semibold ${FOCUS_RING}`}
+                style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.toggleBorder}`, color: COLORS.textPrimary }}
+              >
+                Load demo
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -404,8 +536,9 @@ export function AgentVisualizer() {
           : Math.max(maxTimeReached, currentTime)
         }
         onPlayPause={handlePlayPause}
-        onRestart={handleRestart}
-        onSpeedChange={setSpeed}
+        onRestart={handleClearHistory}
+        onSpeedChange={setSpeedInReview}
+        isDemo={bridge.useMockData}
         onSeek={(time) => {
           seekingRef.current = true
           pause()
@@ -422,50 +555,37 @@ export function AgentVisualizer() {
       />
 
       {/* File attention panel (slide-in from right) */}
-      <FileAttentionPanel
-        visible={showFileAttention}
-        fileAttention={fileAttention}
-        onClose={() => setShowFileAttention(false)}
-        onOpenFile={bridge.isVSCode ? openFile : undefined}
-      />
+      <div ref={filesPanelRef} style={{ display: 'contents' }}>
+        <FileAttentionPanel
+          visible={showFileAttention}
+          fileAttention={fileAttention}
+          onClose={() => setShowFileAttention(false)}
+          onOpenFile={bridge.isVSCode ? openFile : undefined}
+        />
+      </div>
 
       {/* Session transcript panel (slide-in from right) */}
-      <SessionTranscriptPanel
-        visible={showTranscript}
-        conversation={sessionConversation}
-        runtime={sessionRuntime}
-        onClose={() => setShowTranscript(false)}
-      />
+      <div ref={transcriptPanelRef} style={{ display: 'contents' }}>
+        <SessionTranscriptPanel
+          visible={showTranscript}
+          conversation={sessionConversation}
+          runtime={sessionRuntime}
+          onClose={() => setShowTranscript(false)}
+        />
+      </div>
 
       {/* Timeline panel (slide-in from bottom) */}
-      <TimelinePanel
-        visible={showTimeline}
-        timelineEntries={timelineEntries}
-        currentTime={currentTime}
-        onClose={() => setShowTimeline(false)}
-      />
+      <div ref={timelinePanelRef} style={{ display: 'contents' }}>
+        <TimelinePanel
+          visible={showTimeline}
+          timelineEntries={timelineEntries}
+          currentTime={currentTime}
+          onClose={() => setShowTimeline(false)}
+        />
+      </div>
 
-      {/* Top bar: session tabs + info/controls */}
-      <TopBar
-        sessions={bridge.sessions}
-        selectedSessionId={bridge.selectedSessionId}
-        sessionsWithActivity={bridge.sessionsWithActivity}
-        onSelectSession={bridge.selectSession}
-        onCloseSession={handleCloseSession}
-        isVSCode={bridge.isVSCode}
-        connectionStatus={bridge.connectionStatus}
-        agentCount={agents.size}
-        totalTokens={totalTokens}
-        totalCost={totalCost}
-        showFileAttention={showFileAttention}
-        showTranscript={showTranscript}
-        showCostOverlay={showCostOverlay}
-        showTimeline={showTimeline}
-        isMuted={isMuted}
-        onTogglePanel={toggleExclusivePanel}
-        onToggleTimeline={() => setShowTimeline(prev => !prev)}
-        onToggleMute={handleToggleMute}
-      />
+      <ToastRegion toasts={toasts} onAction={runToastAction} onDismiss={dismissToast} />
+      </main>
     </div>
     </OpenFileProvider>
   )

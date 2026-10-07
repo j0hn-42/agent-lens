@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo } from '@/lib/vscode-bridge'
+import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
 import { SimulationEvent } from '@/lib/agent-types'
 
 interface BridgeHookResult {
@@ -33,7 +33,19 @@ interface BridgeHookResult {
   sessionsWithActivity: Set<string>
   /** Remove a session from the list */
   removeSession: (sessionId: string) => void
+  /** Undo a removeSession call (re-adds the dismissed session). Returns true if it was restored. */
+  restoreSession: (sessionId: string) => boolean
+  /** Switch to the built-in demo scenario (empty-state "Load demo" action) */
+  loadDemo: () => void
+  /** Relay port when known (standalone mode), for user-facing messages */
+  relayPort: string
+  /** True after the relay SSE connection failed and until it reconnects */
+  relayUnreachable: boolean
+  /** Latest non-blocking notice (parse failure, session reset, relay state); consumers toast it */
+  notice: BridgeNotice | null
 }
+
+const PARSE_NOTICE_INTERVAL_MS = 10_000
 
 /**
  * Connects the VS Code bridge to the React app.
@@ -45,7 +57,7 @@ interface BridgeHookResult {
  */
 export function useVSCodeBridge(): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [useMockData, setUseMockData] = useState(
     process.env.NEXT_PUBLIC_DEMO !== '0'
   )
@@ -62,6 +74,13 @@ export function useVSCodeBridge(): BridgeHookResult {
    *  Prevents the animation frame from processing events in the wrong simulation context. */
   const sessionSwitchPendingRef = useRef(false)
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
+  const [relayUnreachable, setRelayUnreachable] = useState(false)
+  const [notice, setNotice] = useState<BridgeNotice | null>(null)
+  const noticeIdRef = useRef(0)
+  const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
+  const pushNotice = useCallback((kind: BridgeNotice['kind'], message: string) => {
+    setNotice({ id: ++noticeIdRef.current, kind, message })
+  }, [])
 
   // Connect to standalone dev relay server via SSE when not in VS Code
   useEffect(() => {
@@ -74,29 +93,54 @@ export function useVSCodeBridge(): BridgeHookResult {
 
     // Connect to relay in dev mode or standalone CLI mode
     const isStandalone = process.env.AGENT_FLOW_STANDALONE === '1'
-    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) return
+    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) {
+      // No relay to wait for: unless the VS Code init message arrives, we are offline.
+      const t = setTimeout(() => {
+        setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
+      }, 1500)
+      return () => clearTimeout(t)
+    }
 
-    const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
+    setConnectionStatus('connecting')
     const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
+    let wasDown = false
+    let lastParseNotice = 0
 
     es.onopen = () => {
       setConnectionStatus('connected')
+      setRelayUnreachable(false)
       setUseMockData(false)
+      if (wasDown) {
+        wasDown = false
+        pushNotice('relay-up', 'Relay reconnected')
+      }
     }
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
         window.postMessage(data, '*')
-      } catch {}
+      } catch {
+        // Surface malformed relay payloads without spamming: at most one notice per interval
+        const now = Date.now()
+        if (now - lastParseNotice > PARSE_NOTICE_INTERVAL_MS) {
+          lastParseNotice = now
+          pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
+        }
+      }
     }
     es.onerror = () => {
       setConnectionStatus('disconnected')
+      setRelayUnreachable(true)
+      if (!wasDown) {
+        wasDown = true
+        pushNotice('relay-down', relayPort ? `Relay unreachable on :${relayPort}` : 'Relay unreachable')
+      }
     }
 
     return () => {
       es.close()
     }
-  }, [])
+  }, [pushNotice, relayPort])
 
   useEffect(() => {
     const bridge = vscodeBridge
@@ -171,7 +215,8 @@ export function useVSCodeBridge(): BridgeHookResult {
     // races between auto-flush here and save/restore logic there.
     const unsubSession = bridge.onSession((type, data) => {
       if (type === 'reset') {
-        // Panel was reopened — clear all stale state
+        // Panel was reopened — clear all stale state (and tell the user, non-blocking)
+        pushNotice('reset', 'Session view was reset')
         setSessions([])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
@@ -239,7 +284,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [])
+  }, [pushNotice])
 
   const consumeEvents = useCallback(() => {
     // Clear in-place so stale closures in animation callbacks
@@ -295,6 +340,16 @@ export function useVSCodeBridge(): BridgeHookResult {
     })
   }, [])
 
+  const restoreSession = useCallback((sessionId: string): boolean => {
+    const saved = dismissedSessionsRef.current.get(sessionId)
+    if (!saved) return false
+    dismissedSessionsRef.current.delete(sessionId)
+    setSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
+    return true
+  }, [])
+
+  const loadDemo = useCallback(() => { setUseMockData(true) }, [])
+
   const bridgeOpenFile = useCallback((filePath: string, line?: number) => {
     vscodeBridge?.openFile(filePath, line)
   }, [])
@@ -315,5 +370,10 @@ export function useVSCodeBridge(): BridgeHookResult {
     getSessionEventCount,
     sessionsWithActivity,
     removeSession,
+    restoreSession,
+    loadDemo,
+    relayPort,
+    relayUnreachable,
+    notice,
   }
 }

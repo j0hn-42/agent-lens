@@ -6,7 +6,7 @@
  * between the React app and the extension host.
  */
 
-export type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
+export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
 
 type InitCallback = () => void
@@ -17,7 +17,7 @@ type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset'
 
 class VSCodeBridge {
   private _isVSCode = false
-  private _status: ConnectionStatus = 'disconnected'
+  private _status: ConnectionStatus = 'connecting'
   private _source = ''
 
   private initListeners: InitCallback[] = []
@@ -51,7 +51,7 @@ class VSCodeBridge {
         break
 
       case 'agent-event-batch':
-        for (const event of data.events) {
+        for (const event of Array.isArray(data.events) ? data.events : []) {
           for (const cb of this.eventListeners) {
             cb(event)
           }

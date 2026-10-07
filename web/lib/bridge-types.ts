@@ -21,4 +21,11 @@ export interface SessionInfo {
   lastActivityTime: number
 }
 
-export type ConnectionStatus = 'connected' | 'disconnected' | 'watching'
+export type ConnectionStatus = 'connected' | 'disconnected' | 'watching' | 'connecting'
+
+/** Non-blocking user-facing notice raised by the bridge (parse failure, reset, relay state). */
+export interface BridgeNotice {
+  id: number
+  kind: 'parse-error' | 'reset' | 'relay-down' | 'relay-up'
+  message: string
+}
