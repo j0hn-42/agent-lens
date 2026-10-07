@@ -24,6 +24,8 @@ interface GraphA11yListProps {
   selectedClusterKey?: string | null
   /** Sync the canvas focus ring / camera with the focused list button */
   onFocusNode: (node: NavNode) => void
+  /** Collapse / expand a branch (same action as the canvas badge and the Left / Right keys) */
+  onToggleBranch?: (agentId: string) => void
 }
 
 /**
@@ -35,6 +37,7 @@ interface GraphA11yListProps {
 export function GraphA11yList({
   model, communications, announcements, focusedNode,
   onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
+  onToggleBranch,
 }: GraphA11yListProps) {
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
@@ -99,6 +102,22 @@ export function GraphA11yList({
       </p>
       {agent.childNames.length > 0 && (
         <p>Parent of {agent.childNames.join(', ')}.</p>
+      )}
+      {agent.branch && (
+        <p>
+          {agent.branch.text}.{' '}
+          {onToggleBranch && !agent.branch.pinned && (
+            <button
+              type="button"
+              data-graph-node=""
+              tabIndex={-1}
+              aria-expanded={!agent.branch.collapsed}
+              onClick={() => onToggleBranch(agent.id)}
+            >
+              {agent.branch.collapsed ? `Expand branch of ${agent.name}` : `Collapse branch of ${agent.name}`}
+            </button>
+          )}
+        </p>
       )}
       {agent.tools.length > 0 && (
         <ul aria-label={`Tool calls of ${agent.name}`}>

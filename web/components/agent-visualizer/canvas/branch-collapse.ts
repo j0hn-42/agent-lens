@@ -10,6 +10,7 @@
  */
 import type { Agent } from '../../../lib/agent-types'
 import { isInactiveAgent } from '../../../lib/inactive-agents'
+import { agentDrawRadius } from './team-style'
 
 export type ManualChoice = 'open' | 'closed'
 
@@ -182,4 +183,24 @@ export function treeKeyAction(
     return parent && agents.has(parent) && !view.hidden.has(parent) ? { kind: 'focus', id: parent } : null
   }
   return null
+}
+
+// ─── Badge geometry (shared by drawing and hit testing) ──────────────────────
+
+/** Badge height and per-character width (world px); text is drawn centred in the rect */
+export const BADGE = { h: 14, charW: 6.5, padX: 8, font: 10 } as const
+
+/** Text the badge width is computed from: the active badge also holds its green dot. */
+export function badgeSizeText(badge: Pick<BranchBadge, 'kind' | 'text'>): string {
+  return badge.kind === 'active' ? `  ${badge.text}` : badge.text
+}
+
+/** World rect of the badge of a collapsed node: on its lower right, outside the hexagon. */
+export function badgeRect(
+  agent: Pick<Agent, 'x' | 'y' | 'archived' | 'scale' | 'isMain' | 'kind'>,
+  text: string,
+): { x: number; y: number; w: number; h: number } {
+  const r = agentDrawRadius(agent)
+  const w = Math.round(text.length * BADGE.charW + BADGE.padX)
+  return { x: agent.x + r * 0.55, y: agent.y + r * 0.55, w, h: BADGE.h }
 }
