@@ -8,7 +8,13 @@ import {
   activeSessionIds, finishedSessionIds, parseShowFinished, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
+import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
+
+export interface UseVSCodeBridgeOptions {
+  /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
+  relaySessionId?: string | null
+}
 
 interface BridgeHookResult {
   isVSCode: boolean
@@ -66,6 +72,12 @@ interface BridgeHookResult {
   relayPort: string
   /** True after the relay SSE connection failed and until it reconnects */
   relayUnreachable: boolean
+  /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
+  connectionDetail: string | null
+  /** Consecutive relay connection failures (0 when connected) */
+  reconnectAttempt: number
+  /** 'polling' after repeated SSE failures: only reachability is probed until the relay answers */
+  relayLinkMode: 'sse' | 'polling'
   /** Latest non-blocking notice (parse failure, session reset, relay state); consumers toast it */
   notice: BridgeNotice | null
 }
@@ -88,7 +100,7 @@ const MAX_ALL_BUFFER = 50_000
  * Supports multi-session: events are buffered per-session so switching
  * sessions replays the correct event history.
  */
-export function useVSCodeBridge(): BridgeHookResult {
+export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [useMockData, setUseMockData] = useState(
@@ -189,65 +201,55 @@ export function useVSCodeBridge(): BridgeHookResult {
     setNotice({ id: ++noticeIdRef.current, kind, message })
   }, [])
 
-  // Connect to standalone dev relay server via SSE when not in VS Code
+  // Relay mode: dev server or standalone CLI, outside VS Code (the extension feeds events by postMessage there)
+  const isRelayMode = process.env.AGENT_LENS_STANDALONE === '1'
+    || (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEMO === '0')
+  const relayEnabled = isRelayMode && !!vscodeBridge && !vscodeBridge.isVSCode && !isVSCode
+  const lastParseNoticeRef = useRef(0)
+  const wasDownRef = useRef(false)
+  const source = useReconnectingSource({
+    enabled: relayEnabled,
+    origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
+    sessionId: options?.relaySessionId ?? null,
+    onMessage: data => window.postMessage(data, '*'),
+    onParseError: () => {
+      // Surface malformed relay payloads without spamming: at most one notice per interval
+      const now = Date.now()
+      if (now - lastParseNoticeRef.current > PARSE_NOTICE_INTERVAL_MS) {
+        lastParseNoticeRef.current = now
+        pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
+      }
+    },
+  })
+
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    const bridge = vscodeBridge
-    if (!bridge) return
-
-    // Skip in VS Code — extension handles events via postMessage
-    if (bridge.isVSCode) return
-
-    // Connect to relay in dev mode or standalone CLI mode
-    const isStandalone = process.env.AGENT_LENS_STANDALONE === '1'
-    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) {
-      // No relay to wait for: unless the VS Code init message arrives, we are offline.
-      const t = setTimeout(() => {
-        setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
-      }, 1500)
-      return () => clearTimeout(t)
-    }
-
-    setConnectionStatus('connecting')
-    const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
-    let wasDown = false
-    let lastParseNotice = 0
-
-    es.onopen = () => {
-      setConnectionStatus('connected')
+    if (!relayEnabled) return
+    setConnectionStatus(source.status)
+    if (source.status === 'connected') {
       setRelayUnreachable(false)
       setUseMockData(false)
-      if (wasDown) {
-        wasDown = false
+      if (wasDownRef.current) {
+        wasDownRef.current = false
         pushNotice('relay-up', 'Relay reconnected')
       }
-    }
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data)
-        window.postMessage(data, '*')
-      } catch {
-        // Surface malformed relay payloads without spamming: at most one notice per interval
-        const now = Date.now()
-        if (now - lastParseNotice > PARSE_NOTICE_INTERVAL_MS) {
-          lastParseNotice = now
-          pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
-        }
-      }
-    }
-    es.onerror = () => {
-      setConnectionStatus('disconnected')
+    } else if (source.status === 'disconnected') {
       setRelayUnreachable(true)
-      if (!wasDown) {
-        wasDown = true
+      if (!wasDownRef.current) {
+        wasDownRef.current = true
         pushNotice('relay-down', relayPort ? `Relay unreachable on :${relayPort}` : 'Relay unreachable')
       }
     }
+  }, [relayEnabled, source, pushNotice, relayPort])
 
-    return () => {
-      es.close()
-    }
-  }, [pushNotice, relayPort])
+  // Without a relay to wait for: unless the VS Code init message arrives, we are offline.
+  useEffect(() => {
+    const bridge = vscodeBridge
+    if (!bridge || bridge.isVSCode || isRelayMode) return
+    const t = setTimeout(() => {
+      setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [isRelayMode])
 
   useEffect(() => {
     const bridge = vscodeBridge
@@ -564,6 +566,9 @@ export function useVSCodeBridge(): BridgeHookResult {
     loadDemo,
     relayPort,
     relayUnreachable,
+    connectionDetail: relayEnabled ? source.detail : null,
+    reconnectAttempt: relayEnabled ? source.attempt : 0,
+    relayLinkMode: source.mode,
     notice,
   }
 }
