@@ -27,3 +27,35 @@ export function unseenCount(total: number, seen: number): number {
 export function clampSeen(seen: number, total: number): number {
   return Math.min(seen, Math.max(0, total))
 }
+
+/**
+ * True when `active` sits inside a role=dialog that is not (inside) `panel`.
+ * A sliding panel must not steal focus from such a dialog (e.g. the agent detail card
+ * focused on mount in the same commit that opens the chat panel).
+ */
+export function isFocusInOtherDialog(
+  active: { closest?: (selector: string) => Element | null } | null,
+  panel: { contains: (node: never) => boolean } | null,
+): boolean {
+  if (!active || typeof active.closest !== 'function') return false
+  const dialog = active.closest('[role="dialog"]')
+  if (!dialog) return false
+  return !(panel && panel.contains(dialog as never))
+}
+
+export const stopPropagationHandlers = {
+  onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+  onMouseUp: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+  onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+} as const
+
+/**
+ * Same as stopPropagationHandlers but lets mousedown bubble, so useClickOutside
+ * (a document mousedown listener) still closes open popups/menus when the user
+ * clicks inside a sliding panel.
+ */
+export const panelStopPropagationHandlers = {
+  onMouseUp: stopPropagationHandlers.onMouseUp,
+  onClick: stopPropagationHandlers.onClick,
+} as const
+
