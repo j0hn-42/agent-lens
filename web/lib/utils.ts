@@ -84,3 +84,15 @@ export function formatModelName(model: string): string {
 
   return base
 }
+
+/** Accent colour of a model's tier: red for the largest (Fable/Mythos), orange for Opus,
+ *  amber for Sonnet, blue for Haiku, green for GPT. Unknown models get a neutral grey. */
+export function modelTierColor(model?: string): string {
+  const id = (model ?? '').toLowerCase()
+  if (/fable|mythos/.test(id)) return '#ff5a5a'
+  if (/opus/.test(id)) return '#ff9a3c'
+  if (/sonnet/.test(id)) return '#ffd24a'
+  if (/haiku/.test(id)) return '#5aa9ff'
+  if (/gpt|codex|\bo\d/.test(id)) return '#4fd1a5'
+  return '#8a96a8'
+}
