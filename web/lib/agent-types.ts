@@ -36,6 +36,8 @@ export interface Agent {
   kind?: 'main' | 'subagent' | 'teammate'
   /** Agent Team the agent belongs to */
   teamName?: string
+  /** Layout cluster: team name when the agent belongs to a team, else its session id */
+  clusterKey?: string
   /** Team color, validated '#rrggbb' only */
   teamColor?: string
   /** Role reported by the team config (e.g. 'general-purpose'), for teammates */

@@ -3,6 +3,7 @@ import { agentKeyOf, DEFAULT_SESSION_ID } from './types'
 import { idString } from './agent-keys'
 import { MAX_TEAMS, parseActivity, sanitizeTeamInfo } from './team-info'
 import { handleAgentComplete } from './handle-agent-events'
+import { restampClusterKeys } from './fleet-layout'
 
 /** team_info: store (sanitised) the team summary. Existing teams are replaced, new ones are capped. */
 export function handleTeamInfo(payload: Record<string, unknown>, state: MutableEventState): void {
@@ -10,6 +11,8 @@ export function handleTeamInfo(payload: Record<string, unknown>, state: MutableE
   if (!info) return
   if (!state.teams.has(info.name) && state.teams.size >= MAX_TEAMS) return
   state.teams.set(info.name, info)
+  // Sessions may now belong to a team: regroup their agents into its cluster
+  restampClusterKeys(state.agents, state.teams)
 }
 
 /** agent_activity: record what a teammate is doing. Idle teammates stay on screen; 'done' archives. */

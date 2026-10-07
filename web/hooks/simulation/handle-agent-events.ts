@@ -4,12 +4,12 @@ import {
   emptyContextBreakdown,
 } from '../../lib/agent-types'
 import { COLORS } from '../../lib/colors'
-import { AGENT_SPAWN_DISTANCE } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
 import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
 import { evictArchived } from './archive'
+import { spawnPosition, clusterKeyOf } from './fleet-layout'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -70,43 +70,8 @@ export function handleAgentSpawn(
     return
   }
 
-  let x = 0, y = 0
-  if (parentId) {
-    const parent = state.agents.get(parentId)
-    if (parent) {
-      // Collect angles of existing siblings so we can avoid spawning too close
-      const siblingAngles: number[] = []
-      for (const a of state.agents.values()) {
-        if (a.parentId === parentId && a.id !== name) {
-          siblingAngles.push(Math.atan2(a.y - parent.y, a.x - parent.x))
-        }
-      }
-
-      let angle: number
-      if (siblingAngles.length === 0) {
-        // First child: use hash-based angle
-        const hash = localId.split('').reduce((h, c) => ((h << 5) - h) + c.charCodeAt(0), 0)
-        angle = (Math.abs(hash) % 360) * (Math.PI / 180)
-      } else {
-        // Find the largest angular gap between existing siblings and place in the middle
-        siblingAngles.sort((a, b) => a - b)
-        let bestGap = 0
-        let bestMid = 0
-        for (let i = 0; i < siblingAngles.length; i++) {
-          const next = i + 1 < siblingAngles.length ? siblingAngles[i + 1] : siblingAngles[0] + Math.PI * 2
-          const gap = next - siblingAngles[i]
-          if (gap > bestGap) {
-            bestGap = gap
-            bestMid = siblingAngles[i] + gap / 2
-          }
-        }
-        angle = bestMid
-      }
-
-      x = parent.x + Math.cos(angle) * AGENT_SPAWN_DISTANCE
-      y = parent.y + Math.sin(angle) * AGENT_SPAWN_DISTANCE
-    }
-  }
+  // Position: around the parent / cluster lead, or at the cluster anchor (never a shared origin)
+  const { x, y } = spawnPosition(state.agents, { id: name, sessionId, teamName: team?.teamName, isMain, localId, parentId: parentId ?? null }, state.teams)
 
   const displayName = label || localId
   const agent: Agent = {
@@ -122,6 +87,7 @@ export function handleAgentSpawn(
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
     ...teamFields,
+    clusterKey: clusterKeyOf({ sessionId, teamName: team?.teamName }, state.teams),
     task,
     spawnTime: currentTime,
     opacity: 0, scale: 0.3,
@@ -173,7 +139,7 @@ export function handleAgentComplete(
     const agentsToComplete = [name]
     for (const [childId, childAgent] of state.agents) {
       if (childAgent.parentId === name && childAgent.state !== 'complete') {
-        state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime, archived: true })
+        state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime, archived: true, ...(childAgent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
         agentsToComplete.push(childId)
         const childEntry = state.timelineEntries.get(childId)
         if (childEntry) {

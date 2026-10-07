@@ -12,6 +12,7 @@ import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
 import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
+import { layoutInfo, createClusterForce, type ClusterNodeInfo } from './simulation/fleet-layout'
 
 import type { SimulationState, ForceNode, ForceLink, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
@@ -49,6 +50,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const animationRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
   const forceSimRef = useRef<Simulation<ForceNode, ForceLink> | null>(null)
+  /** Per-agent cluster anchor/role used by the cluster force (rebuilt on every sync) */
+  const clusterInfoRef = useRef<Map<string, ClusterNodeInfo>>(new Map())
   const blockIdCounter = useRef(0)
   const skipForceSyncRef = useRef(false)
   const animateRef = useRef<(timestamp: number) => void>(() => {})
@@ -61,6 +64,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       .force('charge', forceManyBody().strength(FORCE.chargeStrength))
       .force('center', forceCenter(0, 0).strength(FORCE.centerStrength))
       .force('collide', forceCollide(FORCE.collideRadius))
+      .force('cluster', createClusterForce(id => clusterInfoRef.current.get(id)))
       .force('link', forceLink<ForceNode, ForceLink>([]).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
       .alphaDecay(FORCE.alphaDecay)
       .velocityDecay(FORCE.velocityDecay)
@@ -104,6 +108,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const links: ForceLink[] = edges
       .filter(e => e.type === 'parent-child')
       .map(e => ({ id: e.id, source: e.from, target: e.to }))
+
+    // Cluster layout: anchors per team/session, orchestrator held at the center of its cluster
+    const { info } = layoutInfo(agents, frameRef.current.teams)
+    clusterInfoRef.current = info
+    // The mean-centering force would drag the held orchestrators off their anchors
+    const centerForce = sim.force('center') as ReturnType<typeof forceCenter> | undefined
+    if (centerForce) centerForce.strength(0)
 
     sim.nodes(nodes)
     const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
