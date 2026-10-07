@@ -216,3 +216,60 @@ export const SYSTEM_CONTENT_PREFIXES = [
   '<local-command-stdout',
   '<local-command-caveat',
 ] as const
+
+// ─── Resource limits (hook server + relay) ───────────────────────────────────
+// All of these bound memory/CPU for untrusted local input (hook POSTs, SSE
+// clients, transcript files). See hook-guards.ts and relay-guards.ts.
+
+/** Max bytes of request headers accepted by the hook server */
+export const HOOK_MAX_HEADER_BYTES = 8 * 1024
+/** Max simultaneous TCP connections to the hook server */
+export const HOOK_MAX_CONNECTIONS = 64
+/** Max requests served over one keep-alive hook connection */
+export const HOOK_MAX_REQUESTS_PER_SOCKET = 100
+/** Time allowed to receive a full hook request (headers + body) */
+export const HOOK_REQUEST_TIMEOUT_MS = 5000
+/** Token bucket per client address: burst capacity and sustained refill (tokens/s) */
+export const HOOK_RATE_IP_BURST = 200
+export const HOOK_RATE_IP_PER_S = 100
+/** Token bucket per session_id */
+export const HOOK_RATE_SESSION_BURST = 100
+export const HOOK_RATE_SESSION_PER_S = 50
+/** Max distinct rate-limit buckets tracked (oldest evicted) */
+export const HOOK_RATE_MAX_BUCKETS = 512
+/** Max length of session_id / tool_use_id and of agent_id / agent_type in hook payloads */
+export const HOOK_ID_MAX_LENGTH = 128
+export const HOOK_AGENT_FIELD_MAX_LENGTH = 64
+/** Max length of free-text hook fields (message, title, tool_name, paths) */
+export const HOOK_TEXT_MAX_LENGTH = 4096
+/** Max sessions / per-session agents + dispatches tracked by the hook server */
+export const HOOK_MAX_SESSIONS = 256
+export const HOOK_MAX_TRACKED_PER_SESSION = 256
+
+/** SubagentStop transcript read: tail bytes, timeout, concurrency and queue bound */
+export const SUBAGENT_TRANSCRIPT_TAIL_BYTES = 128 * 1024
+export const SUBAGENT_TRANSCRIPT_TIMEOUT_MS = 750
+export const SUBAGENT_TRANSCRIPT_CONCURRENCY = 1
+export const SUBAGENT_TRANSCRIPT_MAX_QUEUE = 16
+
+/** Max simultaneous SSE clients on the relay (extra clients get 503) */
+export const RELAY_MAX_SSE_CLIENTS = 32
+/** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */
+export const RELAY_MAX_CLIENT_BACKLOG_BYTES = 1024 * 1024
+/** Max events replayed to a client per session, and in total, on connect */
+export const RELAY_MAX_REPLAY_PER_SESSION = 2000
+export const RELAY_MAX_REPLAY_TOTAL = 10000
+/** Events per replay batch message */
+export const RELAY_REPLAY_BATCH_SIZE = 500
+/** In-memory event buffer bounds: per session, number of sessions, total events */
+export const RELAY_MAX_EVENTS_PER_SESSION = 5000
+export const RELAY_MAX_BUFFERED_SESSIONS = 50
+export const RELAY_MAX_BUFFERED_EVENTS_TOTAL = 50000
+/** Max sessions with live file watchers / timers */
+export const RELAY_MAX_WATCHED_SESSIONS = 25
+/** Max length of the ?session= query parameter */
+export const RELAY_SESSION_PARAM_MAX_LENGTH = 128
+/** Discovery caps (--all-workspaces): project dirs scanned, files per dir, max transcript size */
+export const RELAY_MAX_PROJECT_DIRS = 200
+export const RELAY_MAX_FILES_PER_DIR = 500
+export const RELAY_MAX_SESSION_FILE_BYTES = 256 * 1024 * 1024

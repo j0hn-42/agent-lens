@@ -19,12 +19,17 @@ import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
+  RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
 } from '../extension/src/constants'
 import { setLogLevel } from '../extension/src/logger'
-import { parseEventsUrl, buildReplayBatches } from '../extension/src/event-replay'
+import { buildReplayBatches } from '../extension/src/event-replay'
+import {
+  parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag,
+  listProjectDirs, discoverSessionFiles,
+} from '../extension/src/relay-guards'
+import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
 import type { TelemetryClient } from './telemetry'
 
-const MAX_EVENT_BUFFER = 5000
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 
@@ -62,22 +67,35 @@ function log(...args: unknown[]) {
 
 const sseClients = new Set<http.ServerResponse>()
 
-function sendSSE(res: http.ServerResponse, data: unknown) {
-  try { res.write(`data: ${JSON.stringify(data)}\n\n`) } catch {
-    sseClients.delete(res)
+/** Drop a client: remove it from the set and destroy its connection (frees its buffers/listeners). */
+function dropClient(res: http.ServerResponse) {
+  sseClients.delete(res)
+  clientSessionFilter.delete(res)
+  try { res.destroy() } catch { /* already closed */ }
+}
+
+/** Write one SSE message; drops the client when it is gone or too slow (res.writableLength backlog). */
+function writeToClient(res: http.ServerResponse, payload: string) {
+  if (res.destroyed || res.writableEnded || isBackedUp(res.writableLength)) {
+    log('[sse] Dropping slow or closed client')
+    dropClient(res)
+    return
   }
+  try { res.write(`data: ${payload}\n\n`) } catch { dropClient(res) }
+}
+
+function sendSSE(res: http.ServerResponse, data: unknown) {
+  writeToClient(res, JSON.stringify(data))
 }
 
 /** Clients that connected with /events?session=<id> only receive that session's events. */
 const clientSessionFilter = new WeakMap<http.ServerResponse, string>()
 
 function broadcast(data: string, sessionId?: string) {
-  for (const res of sseClients) {
+  for (const res of [...sseClients]) {
     const only = clientSessionFilter.get(res)
     if (only && sessionId && only !== sessionId) continue
-    try { res.write(`data: ${data}\n\n`) } catch {
-      sseClients.delete(res)
-    }
+    writeToClient(res, data)
   }
 }
 
@@ -95,12 +113,8 @@ function broadcastEvent(event: AgentEvent) {
   log(`[event] ${event.type} (session ${sid})`)
 
   if (event.sessionId) {
-    let buf = eventBuffer.get(event.sessionId) || []
-    buf.push(event)
-    if (buf.length > MAX_EVENT_BUFFER) {
-      buf = buf.slice(buf.length - MAX_EVENT_BUFFER)
-    }
-    eventBuffer.set(event.sessionId, buf)
+    // Bounded per session, in number of sessions and in total events (see relay-guards.ts)
+    appendBounded(eventBuffer, event.sessionId, event)
   }
 
   broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
@@ -196,6 +210,38 @@ function resetInactivityTimer(sessionId: string) {
   }, INACTIVITY_TIMEOUT_MS)
 }
 
+/** Stop all watchers/timers of a session and forget it. */
+function unwatchSession(sessionId: string) {
+  const session = sessions.get(sessionId)
+  if (!session) return
+  session.fileWatcher?.close()
+  session.subagentsDirWatcher?.close()
+  if (session.pollTimer) clearInterval(session.pollTimer)
+  if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
+  if (session.permissionTimer) clearTimeout(session.permissionTimer)
+  for (const sub of session.subagentWatchers.values()) {
+    sub.watcher?.close()
+    if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
+  }
+  sessions.delete(sessionId)
+}
+
+/**
+ * Make room for one more watched session. Only completed sessions idle for longer than
+ * the discovery window are evicted (they cannot be rediscovered); returns false when full.
+ */
+function ensureWatchCapacity(): boolean {
+  if (sessions.size < RELAY_MAX_WATCHED_SESSIONS) return true
+  let victim: WatchedSession | undefined
+  for (const s of sessions.values()) {
+    if (!s.sessionCompleted || (Date.now() - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+    if (!victim || s.lastActivityTime < victim.lastActivityTime) victim = s
+  }
+  if (!victim) return false
+  unwatchSession(victim.sessionId)
+  return sessions.size < RELAY_MAX_WATCHED_SESSIONS
+}
+
 function watchSession(sessionId: string, filePath: string) {
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
   const session: WatchedSession = {
@@ -273,57 +319,58 @@ function readNewLines(sessionId: string) {
 
 // ─── Session scanner ────────────────────────────────────────────────────────
 
-function scanForActiveSessions(workspace: string) {
+function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
 
-  let resolved = workspace
-  try { resolved = fs.realpathSync(resolved) } catch {}
-  const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
-
-  const dirsToScan: string[] = []
-  // Case-folded on Windows — VS Code/shells report `c:\...` while Claude Code
-  // encodes `C--...`, so exact string matching never found the project dir there.
-  const encodedFolded = foldPathCase(encoded)
-  try {
-    for (const dir of fs.readdirSync(CLAUDE_DIR, { withFileTypes: true })) {
-      if (!dir.isDirectory()) continue
-      const nameFolded = foldPathCase(dir.name)
-      if (nameFolded === encodedFolded || nameFolded.startsWith(encodedFolded + '-')) {
-        dirsToScan.push(path.join(CLAUDE_DIR, dir.name))
-      }
+  let match: ((name: string) => boolean) | null = null
+  if (!allWorkspaces) {
+    let resolved = workspace
+    try { resolved = fs.realpathSync(resolved) } catch {}
+    const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
+    // Case-folded on Windows — VS Code/shells report `c:\...` while Claude Code
+    // encodes `C--...`, so exact string matching never found the project dir there.
+    const encodedFolded = foldPathCase(encoded)
+    match = (name) => {
+      const nameFolded = foldPathCase(name)
+      return nameFolded === encodedFolded || nameFolded.startsWith(encodedFolded + '-')
     }
-  } catch {
-    // readdir failed — fall back to the exact-match dir if it exists
-    const projectDir = path.join(CLAUDE_DIR, encoded)
-    if (fs.existsSync(projectDir)) dirsToScan.push(projectDir)
+  }
+  // --all-workspaces: every real (non-symlink) project dir directly under ~/.claude/projects
+  const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
+
+  const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
+  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES })) {
+    if (sessions.has(f.sessionId)) continue
+    let newestMtime = f.mtimeMs
+    if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
+      // Main file is idle: a running subagent may still be active
+      const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
+      try {
+        let n = 0
+        for (const subFile of fs.readdirSync(subagentsDir)) {
+          if (!subFile.endsWith('.jsonl') || ++n > 100) continue
+          const subStat = fs.statSync(path.join(subagentsDir, subFile))
+          if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
+        }
+      } catch {}
+    }
+    if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
+      candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
+    }
   }
 
-  for (const dirPath of dirsToScan) {
-    try {
-      for (const file of fs.readdirSync(dirPath)) {
-        if (!file.endsWith('.jsonl')) continue
-        const filePath = path.join(dirPath, file)
-        const stat = fs.statSync(filePath)
-        const sessionId = path.basename(file, '.jsonl')
-
-        let newestMtime = stat.mtimeMs
-        const subagentsDir = path.join(dirPath, sessionId, 'subagents')
-        try {
-          if (fs.existsSync(subagentsDir)) {
-            for (const subFile of fs.readdirSync(subagentsDir)) {
-              if (!subFile.endsWith('.jsonl')) continue
-              const subStat = fs.statSync(path.join(subagentsDir, subFile))
-              if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-            }
-          }
-        } catch {}
-
-        const ageSeconds = (Date.now() - newestMtime) / 1000
-        if (ageSeconds <= ACTIVE_SESSION_AGE_S && !sessions.has(sessionId)) {
-          watchSession(sessionId, filePath)
-        }
-      }
-    } catch {}
+  // Newest first so the bounded watcher budget goes to the most recent sessions
+  candidates.sort((a, b) => b.newestMtime - a.newestMtime)
+  for (const c of candidates) {
+    if (sessions.has(c.sessionId)) continue
+    if (!ensureWatchCapacity()) {
+      log(`[session] Watch limit (${RELAY_MAX_WATCHED_SESSIONS}) reached — skipping ${c.sessionId.slice(0, SESSION_ID_DISPLAY)}`)
+      break
+    }
+    try { watchSession(c.sessionId, c.filePath) } catch (e) {
+      unwatchSession(c.sessionId)
+      log('[session] Failed to watch', c.sessionId, e)
+    }
   }
 }
 
@@ -373,6 +420,9 @@ export interface RelayOptions {
    *  Mirrors the extension's `agentVisualizer.runtime` setting so users of the
    *  dev relay and `npx agent-flow-app` have a way to opt out of one runtime. */
   runtime?: RelayRuntimeMode
+  /** Also discover Claude sessions from other workspaces (every project dir under
+   *  ~/.claude/projects). Defaults to the AGENT_FLOW_ALL_WORKSPACES env var (1/true). */
+  allWorkspaces?: boolean
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
@@ -392,6 +442,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
   relayCreated = true
 
+  const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_FLOW_ALL_WORKSPACES)
   const mode = resolveRuntimeMode(options.runtime)
   const wantClaude = mode === 'claude' || mode === 'auto'
   const wantCodex = mode === 'codex' || mode === 'auto'
@@ -421,8 +472,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
     writeDiscoveryFile(hookPort, workspace)
 
-    scanForActiveSessions(workspace)
-    scanInterval = setInterval(() => scanForActiveSessions(workspace), SCAN_INTERVAL_MS)
+    scanForActiveSessions(workspace, allWorkspaces)
+    scanInterval = setInterval(() => scanForActiveSessions(workspace, allWorkspaces), SCAN_INTERVAL_MS)
 
     const resolved = (() => { try { return fs.realpathSync(workspace) } catch { return workspace } })()
     const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
@@ -430,7 +481,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (fs.existsSync(projectDir)) {
       try {
         projectDirWatcher = fs.watch(projectDir, (_eventType, filename) => {
-          if (filename?.endsWith('.jsonl')) scanForActiveSessions(workspace)
+          if (filename?.endsWith('.jsonl')) scanForActiveSessions(workspace, allWorkspaces)
         })
       } catch {}
     }
@@ -484,21 +535,48 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   return {
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
+      // Loopback only: reject non-local peers and foreign Host headers (DNS rebinding)
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      const { session: sessionParam, invalid } = parseSessionParam(req.url)
+      if (invalid) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('Invalid session parameter')
+        return
+      }
+      if (sseClients.size >= RELAY_MAX_SSE_CLIENTS) {
+        res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
+        res.end('Too many clients')
+        return
+      }
+
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
       })
+      // Send headers now so clients see the stream open even before the first event
+      res.flushHeaders()
 
-      const { session: sessionParam } = parseEventsUrl(req.url)
       if (sessionParam) clientSessionFilter.set(res, sessionParam)
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
 
-      req.on('close', () => {
+      // Clean up on every way a connection can end; idempotent.
+      let closed = false
+      const onGone = () => {
+        if (closed) return
+        closed = true
         sseClients.delete(res)
+        clientSessionFilter.delete(res)
         log(`[sse] Client disconnected (${sseClients.size} total)`)
-      })
+      }
+      req.on('close', onGone)
+      res.on('close', onGone)
+      res.on('error', onGone)
 
       // Send current session list (Claude + Codex)
       const sessionList: SessionInfo[] = []
@@ -523,7 +601,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (aActive !== bActive) return bActive - aActive
         return b.lastActivityTime - a.lastActivityTime
       })
-      for (const batch of buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id })) {
+      // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
+      const replay = capReplayBatches(buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }))
+      for (const batch of replay) {
+        if (res.destroyed) break
         sendSSE(res, batch)
       }
     },
@@ -555,6 +636,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         }
       }
       codexWatcher?.dispose()
+      for (const client of [...sseClients]) dropClient(client)
+      for (const id of [...sessions.keys()]) unwatchSession(id)
+      eventBuffer.clear()
     },
   }
 }
