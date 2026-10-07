@@ -316,3 +316,71 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
   }
   return { x: clientX, y: clientY }
 }
+
+// ─── Canvas wiring (#36) ─────────────────────────────────────────────────────
+
+export interface CanvasSessionMeta {
+  label: string
+  runtime?: 'claude' | 'codex'
+  workspace?: string
+  status: 'active' | 'completed'
+}
+
+/** Per-session facts for the cluster halos (title, runtime, workspace, status), keyed by session id. */
+export function buildSessionMeta(
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime' | 'workspace' | 'status'>>,
+): Map<string, CanvasSessionMeta> {
+  const out = new Map<string, CanvasSessionMeta>()
+  for (const s of sessions) {
+    out.set(s.id, {
+      label: s.label,
+      status: s.status,
+      ...(s.runtime ? { runtime: s.runtime } : {}),
+      ...(s.workspace ? { workspace: s.workspace } : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * Selection to apply when a halo label is clicked, or null to leave the current tab alone.
+ * A team cluster selects the team pseudo-tab; a session cluster selects its session, except that 'All'
+ * stays 'All' while several sessions are shown (the canvas already zooms to the cluster).
+ */
+export function clusterSelectionTarget(
+  cluster: { kind: 'session' | 'team'; sessionIds: readonly string[]; teamName?: string },
+  selectedId: string | null,
+  shownSessionCount: number,
+): string | null {
+  let target: string | null = null
+  if (cluster.kind === 'team') {
+    target = cluster.teamName ? teamSelectionId(cluster.teamName) : null
+  } else if (cluster.sessionIds.length === 1) {
+    if (selectedId === ALL_SESSIONS_ID && shownSessionCount > 1) return null
+    target = cluster.sessionIds[0]
+  }
+  return target !== null && target !== selectedId ? target : null
+}
+
+/** Value of --topbar-h: measured bar height (wrapped rows included) + top offset (12px) + breathing room (8px). */
+export function topbarOffsetPx(measuredHeight: number): number {
+  const h = Number.isFinite(measuredHeight) && measuredHeight > 0 ? measuredHeight : 0
+  return Math.ceil(h) + 20
+}
+
+/**
+ * Keep `--topbar-h` in sync with the element height (ResizeObserver, falls back to a single measure).
+ * Returns the cleanup. `root` and `ResizeObserverCtor` are injectable for tests.
+ */
+export function observeTopbarHeight(
+  el: { getBoundingClientRect(): { height: number } },
+  root: { style: { setProperty(name: string, value: string): void } },
+  ResizeObserverCtor: (new (cb: () => void) => { observe(t: never): void; disconnect(): void }) | undefined,
+): () => void {
+  const publish = () => root.style.setProperty('--topbar-h', `${topbarOffsetPx(el.getBoundingClientRect().height)}px`)
+  publish()
+  if (!ResizeObserverCtor) return () => {}
+  const ro = new ResizeObserverCtor(publish)
+  ro.observe(el as never)
+  return () => ro.disconnect()
+}
