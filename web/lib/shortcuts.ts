@@ -21,6 +21,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: '3', display: '3', description: 'Speed 2x', group: 'Playback', singleKey: true },
   { key: '4', display: '4', description: 'Speed 4x', group: 'Playback', singleKey: true },
   { key: 'm', display: 'M', description: 'Mute / unmute audio', group: 'Playback', singleKey: true },
+  { key: 'l', display: 'L', description: 'Toggle Sessions and agents list', group: 'Panels', singleKey: true },
   { key: 'f', display: 'F', description: 'Toggle Files panel', group: 'Panels', singleKey: true },
   { key: 'c', display: 'C', description: 'Toggle Transcript panel', group: 'Panels', singleKey: true },
   { key: 't', display: 'T', description: 'Toggle Timeline panel', group: 'Panels', singleKey: true },

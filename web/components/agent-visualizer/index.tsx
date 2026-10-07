@@ -16,6 +16,7 @@ import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
 import { AgentChatPanel } from "./chat-panel"
 import { SessionTranscriptPanel } from "./session-transcript-panel"
+import { SessionListPanel } from "./session-list-panel"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers } from "./shared-ui"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
@@ -37,7 +38,7 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-age
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
-type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
+type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
@@ -119,6 +120,7 @@ export function AgentVisualizer() {
   const [showCostOverlay, setShowCostOverlay] = useState(false)
   const [showTimeline, setShowTimeline] = useState(false)
   const [showFileAttention, setShowFileAttention] = useState(false)
+  const [showSessions, setShowSessions] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
 
   // Mutually exclusive panel toggling — opening one closes the others
@@ -142,9 +144,11 @@ export function AgentVisualizer() {
   const filesPanelRef = useRef<HTMLDivElement>(null)
   const transcriptPanelRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
+  const sessionsPanelRef = useRef<HTMLDivElement>(null)
   useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
   useFocusReturn(showTranscript, transcriptPanelRef, PANEL_BUTTON_IDS.transcript)
   useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
+  useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // Auto-play on mount
@@ -297,14 +301,14 @@ export function AgentVisualizer() {
   useEffect(() => {
     const open: Record<PanelId, boolean> = {
       files: showFileAttention, transcript: showTranscript, cost: showCostOverlay,
-      timeline: showTimeline, stats: showStats,
+      timeline: showTimeline, stats: showStats, sessions: showSessions,
     }
     const stack = panelStackRef.current.filter(id => open[id])
     for (const id of Object.keys(open) as PanelId[]) {
       if (open[id] && !stack.includes(id)) stack.push(id)
     }
     panelStackRef.current = stack
-  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats])
+  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats, showSessions])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
   const panelRegistry = useMemo(() => createPanelRegistry(), [])
@@ -318,6 +322,7 @@ export function AgentVisualizer() {
     else if (top === 'transcript') setShowTranscript(false)
     else if (top === 'cost') setShowCostOverlay(false)
     else if (top === 'timeline') setShowTimeline(false)
+    else if (top === 'sessions') setShowSessions(false)
     else setShowStats(false)
     return true
   }, [panelRegistry])
@@ -348,6 +353,7 @@ export function AgentVisualizer() {
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
     toggleFilePanel: () => toggleExclusivePanel('files'),
+    toggleSessionList: () => { setShowSessions(prev => !prev) },
     toggleTranscript: () => toggleExclusivePanel('transcript'),
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
@@ -477,7 +483,7 @@ export function AgentVisualizer() {
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
 
-      {/* Top bar: session tabs + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
+      {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar
         sessions={bridge.sessions}
         allSessionCount={allSessionCount}
@@ -488,11 +494,8 @@ export function AgentVisualizer() {
         onToggleHideInactive={updateHideInactive}
         selectedSessionId={bridge.selectedSessionId}
         sessionsWithActivity={bridge.sessionsWithActivity}
-        onSelectSession={bridge.selectSession}
-        onCloseSession={handleCloseSession}
-        teams={bridge.teams}
-        teamWorking={bridge.teamWorking}
-        teamMemberCounts={bridge.teamMemberCounts}
+        showSessions={showSessions}
+        onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode}
         connectionStatus={bridge.connectionStatus}
         isDemo={bridge.useMockData}
@@ -675,6 +678,26 @@ export function AgentVisualizer() {
           fileAttention={fileAttention}
           onClose={() => setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
+        />
+      </div>
+
+      {/* Sessions panel (slide-in from left): sessions with their agent and sub-agent tree */}
+      <div ref={sessionsPanelRef} style={{ display: 'contents' }}>
+        <SessionListPanel
+          visible={showSessions}
+          onClose={() => setShowSessions(false)}
+          sessions={bridge.sessions}
+          allSessionCount={allSessionCount}
+          selectedSessionId={bridge.selectedSessionId}
+          sessionsWithActivity={bridge.sessionsWithActivity}
+          onSelectSession={bridge.selectSession}
+          onCloseSession={handleCloseSession}
+          agents={agents}
+          selectedAgentId={selection.selectedAgentId}
+          onSelectAgent={selection.handleAgentClick}
+          teams={bridge.teams}
+          teamWorking={bridge.teamWorking}
+          teamMemberCounts={bridge.teamMemberCounts}
         />
       </div>
 
