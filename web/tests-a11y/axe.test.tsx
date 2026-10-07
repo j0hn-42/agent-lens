@@ -296,7 +296,7 @@ test('panel: message feed with links and teams', async () => {
 })
 
 test('canvas chrome: graph legend (closed and open, with a team)', async () => {
-  const team = { name: 'alpha', color: '#4488ff', memberIds: ['a1', 'a2'], memberNames: ['main', 'reviewer'], text: 'Team alpha: main (working), reviewer (idle)' }
+  const team = { key: 'alpha', name: 'alpha', color: '#4488ff', memberIds: ['a1', 'a2'], memberNames: ['main', 'reviewer'], text: 'Team alpha: main (working), reviewer (idle)' }
   const { container } = render(<GraphLegend teams={[team]} />)
   await check('legend-closed', container)
   const toggle = container.querySelector('button')
