@@ -134,6 +134,8 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory read from the transcript (untrusted, capped) */
   cwd?: string
+  /** Session that launched this one (Task), when the source declares it (untrusted, capped) */
+  parentSessionId?: string
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────

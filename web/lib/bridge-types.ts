@@ -31,6 +31,8 @@ export interface SessionInfo {
   teamName?: string
   /** Teammate name inside the team, when the session is a team member */
   memberName?: string
+  /** Session that launched this one (Task), when declared by the source; see session-links.ts */
+  parentSessionId?: string
 }
 
 /** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
@@ -93,10 +95,14 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.cwd === undefined || typeof v.cwd === 'string')
     && (v.teamName === undefined || typeof v.teamName === 'string')
     && (v.memberName === undefined || typeof v.memberName === 'string')
+    && (v.parentSessionId === undefined || typeof v.parentSessionId === 'string')
 }
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
+
+/** Max length of a session id taken from an untrusted source (parent links) */
+export const MAX_SESSION_ID_LEN = 128
 
 /** Max length of a team / member name (same as the team tracker) */
 export const MAX_NAME_LEN = 80
@@ -112,10 +118,16 @@ export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
  * cluster keys and tracker names agree); an empty result drops the field.
  */
 export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
-  const { teamName, memberName, ...rest } = s
+  const { teamName, memberName, parentSessionId, ...rest } = s
   const team = cleanLine(teamName)
   const member = cleanLine(memberName)
-  return { ...rest, ...(team ? { teamName: team } : {}), ...(member ? { memberName: member } : {}) }
+  const parent = cleanLine(parentSessionId, MAX_SESSION_ID_LEN)
+  return {
+    ...rest,
+    ...(team ? { teamName: team } : {}),
+    ...(member ? { memberName: member } : {}),
+    ...(parent ? { parentSessionId: parent } : {}),
+  }
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {

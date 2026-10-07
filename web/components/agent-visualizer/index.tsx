@@ -38,6 +38,7 @@ import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-reg
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { deriveSessionLinks } from "@/lib/session-links"
 
 type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions'
 
@@ -442,8 +443,18 @@ export function AgentVisualizer() {
     bridge.bridgeOpenFile(filePath, line)
   }, [bridge])
 
+  // Session facts for the cluster labels, and the proven parent -> child links drawn between session halos
+  const sessionMeta = useMemo(
+    () => new Map(bridge.sessions.map(s => [s.id, { label: s.label, workspace: s.workspace, runtime: s.runtime }])),
+    [bridge.sessions],
+  )
+  const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
+
   // Team props are spread so each panel picks the ones it declares
-  const canvasTeamProps = { links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '' }
+  const canvasTeamProps = {
+    links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '',
+    sessions: sessionMeta, sessionLinks,
+  }
   const feedTeamProps = { links, droppedMessages, teams }
 
   const isEmpty = agents.size === 0 && !bridge.useMockData

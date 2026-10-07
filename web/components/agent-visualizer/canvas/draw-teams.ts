@@ -5,6 +5,7 @@ import { type Cluster, clusterLabelLines } from './cluster-model'
 import { CLUSTER_DRAW } from '@/lib/canvas-constants'
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
+import type { SessionLinkSegment } from './session-link-model'
 
 const HALO_LABEL_FONT = 12
 
@@ -120,6 +121,37 @@ export function drawClusterLabels(
     ctx.fillStyle = COLORS.textMuted
     ctx.fillText(lines.detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
     ctx.restore()
+    ctx.restore()
+  }
+}
+
+/**
+ * Edges between a parent session's halo and the halos of the sessions it launched. Task links are
+ * dotted, worktree links dashed, so the kind reads without colour; an arrowhead marks the child.
+ * Drawn under the nodes, above the halos.
+ */
+export function drawSessionLinks(ctx: CanvasRenderingContext2D, segments: ReadonlyArray<SessionLinkSegment>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
+  if (segments.length === 0) return
+  const k = Math.max(1, 1 / Math.max(opts.zoom || 1, 1e-3))
+  for (const s of segments) {
+    ctx.save()
+    ctx.strokeStyle = COLORS.textMuted
+    ctx.fillStyle = COLORS.textMuted
+    ctx.lineWidth = 1.5 * k
+    ctx.setLineDash(s.kind === 'worktree' ? [8 * k, 5 * k] : [2 * k, 5 * k])
+    ctx.beginPath()
+    ctx.moveTo(s.x1, s.y1)
+    ctx.lineTo(s.x2, s.y2)
+    ctx.stroke()
+    ctx.setLineDash([])
+    const angle = Math.atan2(s.y2 - s.y1, s.x2 - s.x1)
+    const size = 8 * k
+    ctx.beginPath()
+    ctx.moveTo(s.x2, s.y2)
+    ctx.lineTo(s.x2 - size * Math.cos(angle - 0.4), s.y2 - size * Math.sin(angle - 0.4))
+    ctx.lineTo(s.x2 - size * Math.cos(angle + 0.4), s.y2 - size * Math.sin(angle + 0.4))
+    ctx.closePath()
+    ctx.fill()
     ctx.restore()
   }
 }
