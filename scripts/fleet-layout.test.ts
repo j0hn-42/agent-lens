@@ -87,12 +87,12 @@ test('duplicate keys are ignored, empty input gives no anchors', () => {
 })
 
 test('cluster key: team name, team membership of the session, else session id', () => {
-  assert.equal(clusterKeyOf({ sessionId: 's1', teamName: 'alpha' }), 'alpha')
-  assert.equal(clusterKeyOf({ sessionId: 's1' }), 's1')
+  assert.equal(clusterKeyOf({ sessionId: 's1', teamName: 'alpha' }), 'team:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 's1' }), 'session:s1')
   const teams = new Map([['alpha', { name: 'alpha', leadSessionId: 'lead', members: [{ name: 'bob', sessionId: 'tmux1' }] }]])
-  assert.equal(clusterKeyOf({ sessionId: 'lead' }, teams), 'alpha')
-  assert.equal(clusterKeyOf({ sessionId: 'tmux1' }, teams), 'alpha')
-  assert.equal(clusterKeyOf({ sessionId: 'other' }, teams), 'other')
+  assert.equal(clusterKeyOf({ sessionId: 'lead' }, teams), 'team:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 'tmux1' }, teams), 'team:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 'other' }, teams), 'session:other')
 })
 
 test('single session: main spawns at (0,0), children around it, none superimposed', () => {
@@ -103,7 +103,7 @@ test('single session: main spawns at (0,0), children around it, none superimpose
   for (const k of kids) assert.ok(Math.hypot(k.x, k.y) > 100)
   const pts = kids.map(k => `${Math.round(k.x)},${Math.round(k.y)}`)
   assert.equal(new Set(pts).size, 3)
-  assert.equal(m.clusterKey, 's1')
+  assert.equal(m.clusterKey, 'session:s1')
 })
 
 test('several sessions: each main spawns at its own cluster anchor, not at the origin', () => {
@@ -123,8 +123,8 @@ test('team members spawn around the team lead (one cluster), not at a second anc
   ])
   const lead = s.agents.get('lead:main')!
   const tm = s.agents.get('tmux1:main')!
-  assert.equal(lead.clusterKey, 'alpha')
-  assert.equal(tm.clusterKey, 'alpha')
+  assert.equal(lead.clusterKey, 'team:alpha')
+  assert.equal(tm.clusterKey, 'team:alpha')
   const d = Math.hypot(tm.x - lead.x, tm.y - lead.y)
   assert.ok(Math.abs(d - 250) < 1, `teammate main spawned ${d}px from its lead`)
 })
@@ -150,7 +150,7 @@ test('layout roles: lead held, archived agents flagged, others members', () => {
   assert.equal(info.get('s1:main')!.role, 'lead')
   assert.equal(info.get('s1:a')!.role, 'member')
   assert.equal(info.get('s1:b')!.role, 'archived')
-  assert.deepEqual(clustersOf(s.agents.values()), [{ key: 's1', size: 3 }])
+  assert.deepEqual(clustersOf(s.agents.values()), [{ key: 'session:s1', size: 3 }])
 })
 
 test('cluster force holds the lead at its anchor and pulls archived agents to the outer ring', () => {

@@ -4,20 +4,13 @@
  * Pure: no React, no DOM.
  */
 import type { TeamSummary } from '../../lib/agent-types'
+import { ALL_SESSIONS_ID, cleanLine, parseTeamSelection } from '../../lib/bridge-types'
 
 export const MAX_TEAM_NAME_LEN = 80
 export const MAX_TEAM_MEMBERS = 100
-const MAX_FIELD_LEN = 80
 const MAX_ID = 200
 
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
-
-/** Untrusted single-line text: control characters removed, trimmed, capped. */
-export function cleanLine(v: unknown, max = MAX_FIELD_LEN): string {
-  if (typeof v !== 'string') return ''
-  return v.replace(CONTROL_CHARS, '').trim().slice(0, max)
-}
+export { cleanLine }
 
 /** Team color: '#rrggbb' only, anything else is dropped. */
 export function sanitizeColor(v: unknown): string | undefined {
@@ -202,4 +195,21 @@ export function teamSessionIds(
   const ids = new Set(tracker.sessionsOf(teamName))
   for (const s of sessions) if (s.teamName === teamName) ids.add(s.id)
   return ids
+}
+
+/**
+ * Whether an event of `sessionId` belongs to the selected view: the session itself, every event for
+ * 'All', the sessions of the team for a team pseudo selection. Nothing selected matches nothing.
+ */
+export function eventMatchesSelection(
+  selected: string | null | undefined,
+  sessionId: string | undefined,
+  tracker: Pick<TeamTracker, 'sessionsOf'>,
+  sessions: ReadonlyArray<{ id: string; teamName?: string }>,
+): boolean {
+  if (!selected) return false
+  if (selected === ALL_SESSIONS_ID) return true
+  const team = parseTeamSelection(selected)
+  if (team !== null) return !!sessionId && teamSessionIds(team, tracker, sessions).has(sessionId)
+  return sessionId === selected
 }

@@ -95,6 +95,29 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.memberName === undefined || typeof v.memberName === 'string')
 }
 
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
+
+/** Max length of a team / member name (same as the team tracker) */
+export const MAX_NAME_LEN = 80
+
+/** Untrusted single-line text: control characters removed, trimmed, capped. */
+export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
+  if (typeof v !== 'string') return ''
+  return v.replace(CONTROL_CHARS, '').trim().slice(0, max)
+}
+
+/**
+ * SessionInfo with its team fields sanitised exactly like the team tracker does (so team tab ids,
+ * cluster keys and tracker names agree); an empty result drops the field.
+ */
+export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
+  const { teamName, memberName, ...rest } = s
+  const team = cleanLine(teamName)
+  const member = cleanLine(memberName)
+  return { ...rest, ...(team ? { teamName: team } : {}), ...(member ? { memberName: member } : {}) }
+}
+
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {
   return typeof v === 'string' && CONNECTION_STATUSES.includes(v)
 }
