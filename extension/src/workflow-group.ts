@@ -194,7 +194,7 @@ export interface WorkflowSelection {
 }
 
 /**
- * Apply the caps: at most `maxWorkflows` workflows (newest folder mtime first) and `maxAgents`
+ * Apply the caps: at most `maxWorkflows` workflows (newest file mtime inside them first: transcripts and journal, not the folder, whose mtime only moves when files are created) and `maxAgents`
  * transcripts per workflow (newest file mtime first). Ordinary transcripts pass through.
  * `mtimeOf` is only called when a cap actually has to be applied.
  */
@@ -220,7 +220,11 @@ export function selectWorkflowTranscripts(
   }
   let ids = [...byWorkflow.keys()].sort()
   if (ids.length > maxWorkflows) {
-    const mtimes = new Map(ids.map(id => [id, mtimeOf(path.join(root, 'workflows', id))]))
+    const newestInside = (id: string): number => Math.max(
+      mtimeOf(path.join(root, 'workflows', id, 'journal.jsonl')),
+      ...byWorkflow.get(id)!.map(f => mtimeOf(f)),
+    )
+    const mtimes = new Map(ids.map(id => [id, newestInside(id)]))
     ids = ids.sort((a, b) => (mtimes.get(b)! - mtimes.get(a)!) || a.localeCompare(b)).slice(0, maxWorkflows)
   }
   const out = [...ordinary]

@@ -93,8 +93,10 @@ describe('workflow journal', () => {
   })
 
   it('drops the cut first line of a truncated tail', () => {
-    const info = parseWorkflowJournal('"}},{"type":"result","agentId":"cut"}\n{"type":"result","agentId":"a2"}', true)
-    assert.deepEqual([...info.finished], ['a2'])
+    // The cut line is complete, valid JSON: only the shift of the first line can drop it
+    const text = '{"type":"result","agentId":"cut"}\n{"type":"result","agentId":"a2"}'
+    assert.deepEqual([...parseWorkflowJournal(text, true).finished], ['a2'])
+    assert.deepEqual([...parseWorkflowJournal(text, false).finished].sort(), ['a2', 'cut'])
   })
 })
 
@@ -123,9 +125,9 @@ describe('workflow labels and names', () => {
 
   it('derives the workflow name from the script file name before -<wf_id>.js', () => {
     fx = layout()
-    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_b49e2872-6af.js'), '// not read')
+    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_test0001-abc.js'), '// not read')
     fs.writeFileSync(path.join(fx.scripts, 'other-wf_zzz.js'), '')
-    assert.equal(deriveWorkflowName(fx.scripts, 'wf_b49e2872-6af'), 'tempo-wave-a')
+    assert.equal(deriveWorkflowName(fx.scripts, 'wf_test0001-abc'), 'tempo-wave-a')
     assert.equal(deriveWorkflowName(fx.scripts, 'wf_unknown'), 'wf_unknown', 'falls back to the wf_id')
     assert.equal(deriveWorkflowName(path.join(fx.dir, 'missing'), 'wf_q'), 'wf_q')
   })
@@ -214,6 +216,24 @@ describe('selectWorkflowTranscripts', () => {
     assert.deepEqual([...sel.workflows].sort(), ['wf_3', 'wf_4'])
     assert.equal(sel.files.length, 2)
   })
+
+  it('ranks workflows by the newest file inside them, not by the folder mtime', () => {
+    // wf_1: old folder, but its agent wrote a second ago; wf_2 / wf_3: newer folders, silent files
+    const files = [f('wf_1', 'a'), f('wf_2', 'a'), f('wf_3', 'a')]
+    const mtimes: Record<string, number> = {
+      [`${root}/workflows/wf_1`]: 1, [`${root}/workflows/wf_2`]: 900, [`${root}/workflows/wf_3`]: 800,
+      [f('wf_1', 'a')]: 1000, [f('wf_2', 'a')]: 10, [f('wf_3', 'a')]: 20,
+    }
+    const sel = selectWorkflowTranscripts(files, root, p => mtimes[p] ?? 0, 2, 200)
+    assert.deepEqual([...sel.workflows].sort(), ['wf_1', 'wf_3'])
+  })
+
+  it('counts an appended journal as activity of its workflow', () => {
+    const files = [f('wf_1', 'a'), f('wf_2', 'a')]
+    const mtimes: Record<string, number> = { [f('wf_1', 'a')]: 5, [f('wf_2', 'a')]: 6, [`${root}/workflows/wf_1/journal.jsonl`]: 100 }
+    const sel = selectWorkflowTranscripts(files, root, p => mtimes[p] ?? 0, 1, 200)
+    assert.deepEqual([...sel.workflows], ['wf_1'])
+  })
 })
 
 // ─── Discovery through the subagents directory ───────────────────────────────
@@ -230,14 +250,14 @@ describe('workflow agents are always announced', () => {
 
   it('announces idle, working and finished agents as teammates of a group named after the workflow script', () => {
     fx = layout()
-    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_b49e-6af.js'), '')
+    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_test0001-abc.js'), '')
     const now = Date.now()
     // idle: turn not ended, no pending tool, written 30 s ago
-    addAgent(fx, 'wf_b49e-6af', 'idle0001', { entries: [userText('go'), assistantThinking()], mtimeMs: now - 30 * SEC })
+    addAgent(fx, 'wf_test0001-abc', 'idle0001', { entries: [userText('go'), assistantThinking()], mtimeMs: now - 30 * SEC })
     // working: pending tool_use in a file written 5 minutes ago
-    addAgent(fx, 'wf_b49e-6af', 'work0002', { entries: [userText('go'), assistantToolUse('tu-1')], mtimeMs: now - 5 * MIN })
+    addAgent(fx, 'wf_test0001-abc', 'work0002', { entries: [userText('go'), assistantToolUse('tu-1')], mtimeMs: now - 5 * MIN })
     // finished: final text, silent for 3 minutes
-    addAgent(fx, 'wf_b49e-6af', 'fin00003', { entries: [userText('go'), assistantText('All done.')], mtimeMs: now - 3 * MIN })
+    addAgent(fx, 'wf_test0001-abc', 'fin00003', { entries: [userText('go'), assistantText('All done.')], mtimeMs: now - 3 * MIN })
     const { events } = run()
 
     const spawns = ofType(events, 'agent_spawn')
@@ -255,9 +275,9 @@ describe('workflow agents are always announced', () => {
 
   it('reports team_info with teamKind workflow, the orchestrator as lead, members and phases', () => {
     fx = layout()
-    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_b49e-6af.js'), '')
-    addAgent(fx, 'wf_b49e-6af', 'aaaa0001', { meta: { agentType: 'workflow-subagent', description: 'impl:normalize', workflowPhase: 'Implement' } })
-    addAgent(fx, 'wf_b49e-6af', 'bbbb0002', { meta: { agentType: 'workflow-subagent', description: 'review:normalize', workflowPhase: 'P'.repeat(300) } })
+    fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_test0001-abc.js'), '')
+    addAgent(fx, 'wf_test0001-abc', 'aaaa0001', { meta: { agentType: 'workflow-subagent', description: 'impl:normalize', workflowPhase: 'Implement' } })
+    addAgent(fx, 'wf_test0001-abc', 'bbbb0002', { meta: { agentType: 'workflow-subagent', description: 'review:normalize', workflowPhase: 'P'.repeat(300) } })
     const { events } = run()
     const infos = ofType(events, 'team_info')
     assert.equal(infos.length, 1, 'a single team_info for the whole first discovery')
@@ -489,13 +509,11 @@ describe('workflow hostile input', () => {
     assert.ok(!names.has('a0'), 'the oldest transcripts are the ones left out')
   })
 
-  it('caps workflows per session at WORKFLOW_MAX_PER_SESSION (newest folders win)', () => {
+  it('caps workflows per session at WORKFLOW_MAX_PER_SESSION (workflows with the newest files win)', () => {
     fx = layout()
     const total = WORKFLOW_MAX_PER_SESSION + 5
     for (let i = 0; i < total; i++) {
-      addAgent(fx, `wf_n${String(i).padStart(2, '0')}`, `ag${String(i).padStart(5, '0')}`, { entries: [userText('x')] })
-      const when = (Date.now() - (total - i) * MIN) / 1000
-      fs.utimesSync(path.join(fx.subDir, 'workflows', `wf_n${String(i).padStart(2, '0')}`), when, when)
+      addAgent(fx, `wf_n${String(i).padStart(2, '0')}`, `ag${String(i).padStart(5, '0')}`, { entries: [userText('x')], mtimeMs: Date.now() - (total - i) * MIN })
     }
     const { events, session } = run()
     assert.equal(ofType(events, 'team_info').length, WORKFLOW_MAX_PER_SESSION)
