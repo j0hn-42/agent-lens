@@ -74,6 +74,10 @@ export interface Agent {
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
   freshnessSource?: 'live' | 'history'
+  /** Active time of closed working spans, ms (issue #59); absent = never observed working */
+  activeMs?: number
+  /** Wall-clock ms when the running working span started; absent = not working */
+  activeSince?: number
   opacity: number
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */

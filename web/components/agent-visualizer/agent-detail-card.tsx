@@ -5,6 +5,7 @@ import { CARD, Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
 import { GlassCard } from './glass-card'
+import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 
@@ -23,6 +24,10 @@ interface AgentDetailCardProps {
     teamName?: string
     teamColor?: string
     activity?: 'working' | 'idle' | 'done'
+    activeMs?: number
+    activeSince?: number
+    lastEventAt?: number
+    freshnessSource?: 'live' | 'history'
   }
   onClose: () => void
 }
@@ -95,6 +100,9 @@ export function AgentDetailCard({
           <span>{pluralize(agent.toolCalls, 'tool')}</span>
           <span>{formatDuration(agent.timeAlive)} alive</span>
           <span style={{ color: stateColor }}>{getStateLabel(agent.state)}</span>
+        </div>
+        <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+          <ActiveTimeStat agent={agent} />
         </div>
 
         {/* Teammate info */}

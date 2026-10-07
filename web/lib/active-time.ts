@@ -149,3 +149,19 @@ export function activeSinceText(agent: Pick<ActiveTimeFields, 'activeSince'>, fr
   const ms = Math.max(0, now - since)
   return `active for ${formatActiveSince(Math.min(ms, CHRONO_CAP_MS), ms >= CHRONO_CAP_MS)}`
 }
+
+/**
+ * Line of the detail card. Working: "active for 0:12 · 1:35 total" (only while the source is fresh,
+ * `spanMs` being the live chrono of the running span); paused: "1:35 active"; nothing observed or
+ * a stale working agent: the explicit unknown text.
+ */
+export function activeSummaryText(agent: ActiveTimeFields, freshness: Freshness, spanMs: number): string {
+  const closed = typeof agent.activeMs === 'number' && Number.isFinite(agent.activeMs) ? agent.activeMs : undefined
+  if (typeof agent.activeSince === 'number') {
+    if (freshness !== 'fresh') return ACTIVE_UNKNOWN_TEXT
+    const span = Math.min(Math.max(0, spanMs), CHRONO_CAP_MS)
+    const head = `active for ${formatActiveSince(span, spanMs >= CHRONO_CAP_MS)}`
+    return closed ? `${head} · ${formatActiveSince(closed + span)} total` : head
+  }
+  return closed === undefined ? ACTIVE_UNKNOWN_TEXT : `${formatActiveSince(closed)} active`
+}
