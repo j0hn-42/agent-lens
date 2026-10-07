@@ -139,7 +139,6 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  centerStrength: 0.03,
   collideRadius: 140,
   linkDistance: 350,
   linkStrength: 0.4,
