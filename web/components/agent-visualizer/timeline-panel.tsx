@@ -13,6 +13,7 @@ import {
   buildSwimlaneArrows,
   buildMessageRows,
   hitTestArrow,
+  capMessageRows,
   orderEntriesBySequence,
   orderEntriesByStart,
   type SwimlaneArrow,
@@ -311,6 +312,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     return buildSwimlaneArrows(sortedEntries.map(e => e.agentId), links, id => names.get(id) ?? id)
   }, [visible, links, sortedEntries])
   const messageRows = useMemo(() => buildMessageRows(arrows), [arrows])
+  const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
   const ariaLabel = timelineAriaLabel(sortedEntries, currentTime)
 
@@ -488,11 +490,10 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               className="flex flex-wrap gap-1 overflow-auto"
               style={{ maxHeight: 56 }}
             >
-              {messageRows.map(r => (
+              {cappedButtons.rows.map(r => (
                 <button
                   key={r.id}
                   type="button"
-                  aria-pressed={activeArrowId === r.id}
                   onMouseEnter={() => setActiveArrowId(r.id)}
                   onMouseLeave={() => setActiveArrowId(undefined)}
                   onFocus={() => setActiveArrowId(r.id)}
@@ -503,6 +504,11 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                   {r.start} {r.label}
                 </button>
               ))}
+              {cappedButtons.hidden > 0 && (
+                <span className="text-[11px] font-mono self-center" style={{ color: TEXT_MUTED_OPAQUE }}>
+                  +{cappedButtons.hidden} earlier messages, see Table view
+                </span>
+              )}
             </div>
             <div role="status" className="text-[11px] font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
               {activeArrow ? `${activeArrow.label}: ${activeArrow.content.slice(0, 400)}${activeArrow.content.length > 400 ? '…' : ''}` : ''}
