@@ -4,6 +4,7 @@ import {
   type AgentLink, type ConversationMessage, type LinkKind,
 } from './types'
 import { idString } from './agent-keys'
+import { makeRoomForLink } from './archive'
 
 interface LinkIdentity { id: string; from: string; to: string; kind: LinkKind; sessionId: string }
 
@@ -14,6 +15,7 @@ export function addLinkMessage(
   message: Omit<ConversationMessage, 'id'>,
 ): void {
   const existing = state.links.get(link.id)
+  if (!existing) makeRoomForLink(state, link.sessionId)
   const base: AgentLink = existing ?? { ...link, messages: [], dropped: 0 }
   const all = [...base.messages, { id: nextMsgId(), ...message }]
   const over = Math.max(0, all.length - MAX_LINK_MESSAGES)
@@ -26,6 +28,7 @@ export function addLinkMessage(
 
 /** Create the link without adding a message (agent_link without content). */
 function ensureLink(state: MutableEventState, link: LinkIdentity): void {
+  if (!state.links.has(link.id)) makeRoomForLink(state, link.sessionId)
   if (!state.links.has(link.id)) state.links.set(link.id, { ...link, messages: [], dropped: 0 })
 }
 

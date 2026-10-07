@@ -9,7 +9,7 @@
 export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
 export { ALL_SESSIONS_ID } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
-import { isAgentEvent, isSessionInfo, isConnectionStatus } from './bridge-types'
+import { isAgentEvent, isSessionInfo, isConnectionStatus, sanitizeSessionInfo } from './bridge-types'
 
 type InitCallback = () => void
 type EventCallback = (event: AgentEvent) => void
@@ -85,7 +85,7 @@ class VSCodeBridge {
         break
 
       case 'session-list': {
-        const sessions: SessionInfo[] = Array.isArray(data.sessions) ? data.sessions.filter(isSessionInfo) : []
+        const sessions: SessionInfo[] = Array.isArray(data.sessions) ? data.sessions.filter(isSessionInfo).map(sanitizeSessionInfo) : []
         for (const cb of this.sessionListeners) {
           cb('list', sessions)
         }
@@ -95,7 +95,7 @@ class VSCodeBridge {
       case 'session-started':
         if (!isSessionInfo(data.session)) break
         for (const cb of this.sessionListeners) {
-          cb('started', data.session)
+          cb('started', sanitizeSessionInfo(data.session))
         }
         break
 

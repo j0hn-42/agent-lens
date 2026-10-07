@@ -8,7 +8,7 @@ import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } f
 import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
 import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
-import { evictArchived } from './archive'
+import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
 
 export function handleAgentSpawn(
@@ -62,6 +62,8 @@ export function handleAgentSpawn(
       completeTime: undefined,
       ...(existing.kind === 'teammate' ? { activity: 'working' as const } : {}),
       ...teamFields,
+      // A returning teammate may carry a team name it did not have: keep the cached cluster key right
+      ...(team ? { clusterKey: clusterKeyOf({ sessionId, teamName: team.teamName }, state.teams) } : {}),
       ...(task ? { task } : {}),
       ...(model ? { model, tokensMax: ctx.getContextWindowSize(model) } : {}),
       ...(runtime ? { runtime } : {}),
@@ -70,8 +72,12 @@ export function handleAgentSpawn(
     return
   }
 
+  // Bounded state: caps per team / per session / overall; refused when nothing finished can make room
+  if (!admitSpawn(state, { sessionId, isMain, teamName: team?.teamName })) return
+
   // Position: around the parent / cluster lead, or at the cluster anchor (never a shared origin)
-  const { x, y } = spawnPosition(state.agents, { id: name, sessionId, teamName: team?.teamName, isMain, localId, parentId: parentId ?? null }, state.teams)
+  const clusterKey = clusterKeyOf({ sessionId, teamName: team?.teamName }, state.teams)
+  const { x, y } = spawnPosition(state.agents, { id: name, sessionId, teamName: team?.teamName, clusterKey, isMain, localId, parentId: parentId ?? null }, state.teams)
 
   const displayName = label || localId
   const agent: Agent = {
@@ -87,7 +93,7 @@ export function handleAgentSpawn(
     ...(runtime ? { runtime } : {}),
     ...(model ? { model } : {}),
     ...teamFields,
-    clusterKey: clusterKeyOf({ sessionId, teamName: team?.teamName }, state.teams),
+    clusterKey,
     task,
     spawnTime: currentTime,
     opacity: 0, scale: 0.3,

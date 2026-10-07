@@ -11,7 +11,7 @@ import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants
 export interface ClusterInput { key: string; size: number }
 export interface ClusterAnchor { key: string; x: number; y: number; radius: number }
 
-type ClusterAgent = Pick<Agent, 'id' | 'sessionId' | 'teamName' | 'isMain'>
+type ClusterAgent = Pick<Agent, 'id' | 'sessionId' | 'teamName' | 'isMain' | 'clusterKey'>
 
 /** Radius of the disc a cluster of `members` agents occupies. */
 export function clusterRadius(members: number): number {
@@ -19,15 +19,24 @@ export function clusterRadius(members: number): number {
   return CLUSTER_LAYOUT.baseRadius + n * CLUSTER_LAYOUT.memberSpacing
 }
 
-/** Cluster of an agent: its team name, else the team its session belongs to, else its session id. */
+/** Namespaces of the cluster keys: a team called like a session id must not merge with that session. */
+export const TEAM_CLUSTER_PREFIX = 'team:'
+export const SESSION_CLUSTER_PREFIX = 'session:'
+
+/** Cluster of an agent: its team name, else the team its session belongs to, else its session id (namespaced). */
 export function clusterKeyOf(agent: Pick<Agent, 'sessionId' | 'teamName'>, teams?: ReadonlyMap<string, TeamSummary>): string {
-  if (agent.teamName) return agent.teamName
+  if (agent.teamName) return TEAM_CLUSTER_PREFIX + agent.teamName
   if (teams) {
     for (const t of teams.values()) {
-      if (t.leadSessionId === agent.sessionId || t.members.some(m => m.sessionId === agent.sessionId)) return t.name
+      if (t.leadSessionId === agent.sessionId || t.members.some(m => m.sessionId === agent.sessionId)) return TEAM_CLUSTER_PREFIX + t.name
     }
   }
-  return agent.sessionId
+  return SESSION_CLUSTER_PREFIX + agent.sessionId
+}
+
+/** Cluster key stamped on the agent when known (restamped on team changes), else computed. */
+function keyOf(agent: Pick<Agent, 'sessionId' | 'teamName' | 'clusterKey'>, teams?: ReadonlyMap<string, TeamSummary>): string {
+  return agent.clusterKey ?? clusterKeyOf(agent, teams)
 }
 
 function overlaps(placed: ClusterAnchor[], x: number, y: number, radius: number): boolean {
@@ -104,12 +113,12 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Ma
 
 /** Clusters of the agents (first appearance order = Map insertion order) with their member counts. */
 export function clustersOf(
-  agents: Iterable<Pick<Agent, 'sessionId' | 'teamName'>>,
+  agents: Iterable<Pick<Agent, 'sessionId' | 'teamName' | 'clusterKey'>>,
   teams?: ReadonlyMap<string, TeamSummary>,
 ): ClusterInput[] {
   const counts = new Map<string, number>()
   for (const a of agents) {
-    const key = clusterKeyOf(a, teams)
+    const key = keyOf(a, teams)
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   return Array.from(counts, ([key, size]) => ({ key, size }))
@@ -121,7 +130,7 @@ export function leadOfCluster(
   key: string,
   teams?: ReadonlyMap<string, TeamSummary>,
 ): ClusterAgent | undefined {
-  for (const a of agents) if (a.isMain && clusterKeyOf(a, teams) === key) return a
+  for (const a of agents) if (a.isMain && keyOf(a, teams) === key) return a
   return undefined
 }
 
@@ -158,7 +167,7 @@ export function spawnPosition(
   teams?: ReadonlyMap<string, TeamSummary>,
 ): { x: number; y: number } {
   const others = Array.from(agents.values()).filter(a => a.id !== candidate.id)
-  const key = clusterKeyOf(candidate, teams)
+  const key = candidate.clusterKey ?? clusterKeyOf(candidate, teams)
   let around: Agent | undefined = candidate.parentId ? agents.get(candidate.parentId) : undefined
   const viaLead = !around
   if (!around) {
@@ -169,7 +178,7 @@ export function spawnPosition(
     const angles: number[] = []
     for (const a of others) {
       const sibling = a.parentId === around.id
-        || (viaLead && a.id !== around.id && !a.parentId && clusterKeyOf(a, teams) === key)
+        || (viaLead && a.id !== around.id && !a.parentId && keyOf(a, teams) === key)
       if (sibling) angles.push(Math.atan2(a.y - around.y, a.x - around.x))
     }
     const angle = freeAngle(angles, candidate.localId)
@@ -209,12 +218,12 @@ export function layoutInfo(
   const anchors = computeClusterAnchors(clustersOf(agents.values(), teams))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
-    const key = clusterKeyOf(a, teams)
+    const key = keyOf(a, teams)
     if (a.isMain && !leads.has(key)) leads.set(key, a.id)
   }
   const info = new Map<string, ClusterNodeInfo>()
   for (const a of agents.values()) {
-    const key = clusterKeyOf(a, teams)
+    const key = keyOf(a, teams)
     const anchor = anchors.get(key)
     if (!anchor) continue
     const role = leads.get(key) === a.id ? 'lead' : a.archived ? 'archived' : 'member'
