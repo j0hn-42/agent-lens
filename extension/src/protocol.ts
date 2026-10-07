@@ -174,6 +174,8 @@ export interface RelayStatus {
   hooksConfigured: boolean
   sessionCount: number
   allWorkspaces: boolean
+  /** Optional session index (#66): present only when one is configured */
+  sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────

@@ -16,6 +16,7 @@ import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../ex
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
+import { readSessionIndex, indexedToSessionInfo, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -509,6 +510,20 @@ export interface RelayOptions {
   /** Reads whether the hooks are configured for the workspace (GET /status). Injectable for tests;
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
+  /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
+   *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
+  sessionIndex?: RelaySessionIndexOptions
+}
+
+export interface RelaySessionIndexOptions {
+  path: string
+  table?: string
+  maxRows?: number
+  timeoutMs?: number
+  /** Injectable driver (tests); defaults to node:sqlite when available */
+  opener?: IndexOpener | null
+  /** How long a read stays valid (default 30 s) */
+  cacheMs?: number
 }
 
 /** Yield to the event loop first, so the settings read never blocks the request that triggered it. */
@@ -533,6 +548,21 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     throw new Error('createRelay() can only be called once per process')
   }
   relayCreated = true
+
+  // Optional session index: read lazily, cached briefly, never fatal (a degraded index only logs and shows in /status)
+  const indexConfig: RelaySessionIndexOptions | undefined = options.sessionIndex
+    ?? (process.env.AGENT_LENS_SESSION_INDEX ? { path: process.env.AGENT_LENS_SESSION_INDEX } : undefined)
+  let indexCache: { at: number; result: SessionIndexResult } | null = null
+  const readIndex = (): SessionIndexResult | null => {
+    if (!indexConfig) return null
+    const now = Date.now()
+    if (indexCache && now - indexCache.at < (indexConfig.cacheMs ?? 30_000)) return indexCache.result
+    const { opener, cacheMs: _cacheMs, ...rest } = indexConfig
+    const result = opener === undefined ? readSessionIndex(rest) : readSessionIndex(rest, opener)
+    if (result.status !== 'ok' && result.message && result.message !== indexCache?.result.message) log(`[relay] ${result.message}`)
+    indexCache = { at: now, result }
+    return result
+  }
 
   const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
   const mode = resolveRuntimeMode(options.runtime)
@@ -707,6 +737,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         sessionCount: snapshot.sessionCount,
         allWorkspaces,
       }
+      const indexed = readIndex()
+      if (indexed) {
+        status.sessionIndex = {
+          status: indexed.status, count: indexed.sessions.length, truncated: indexed.truncated,
+          ...(indexed.message ? { message: indexed.message } : {}),
+        }
+      }
       const body = JSON.stringify(status)
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
@@ -775,6 +812,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         sessionList.push(toSessionInfo(session))
       }
       if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+      // Indexed sessions complete the list; a session that is also watched live keeps its live entry
+      const indexed = readIndex()
+      if (indexed) {
+        const known = new Set(sessionList.map(s => s.id))
+        for (const s of indexed.sessions) if (!known.has(s.id)) sessionList.push(indexedToSessionInfo(s))
+      }
       if (sessionList.length > 0) {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
