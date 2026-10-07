@@ -1,10 +1,12 @@
 import { Agent, NODE, ANIM } from '@/lib/agent-types'
-import { COLORS, getStateColor, contextSegments } from '@/lib/colors'
+import { COLORS, contextSegments } from '@/lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, STATE_LABEL_SHORT, MIN_VISIBLE_OPACITY,
 } from '@/lib/canvas-constants'
 import { alphaHex, formatTokens } from '@/lib/utils'
-import { truncateText, drawHexagon, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
+import { truncateText, drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { computeOverlayLayout } from './overlay-layout'
 import { getAgentGlowSprite } from './render-cache'
 
 let _claudeSparkPath: Path2D | null = null
@@ -60,6 +62,7 @@ export function drawContextComposition(
   ctx: CanvasRenderingContext2D,
   agent: Agent,
   radius: number,
+  showLabel = true,
 ) {
   const bd = agent.contextBreakdown
   const total = agent.tokensUsed
@@ -73,14 +76,17 @@ export function drawContextComposition(
   // Background
   ctx.fillStyle = COLORS.cardBgDark
   ctx.beginPath()
-  ctx.roundRect(barX - 2, barY - 2, barWidth + 4, barHeight + 14, CONTEXT_BAR.borderRadius)
+  ctx.roundRect(barX - 2, barY - 2, barWidth + 4, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
   ctx.fill()
 
-  // Label
-  ctx.fillStyle = COLORS.textMuted
-  ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
-  ctx.textAlign = 'center'
-  ctx.fillText(`${formatTokens(total)} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+  // Label (hidden at low zoom by the level-of-detail rule)
+  if (showLabel) {
+    ctx.fillStyle = COLORS.textMuted
+    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'alphabetic'
+    ctx.fillText(`${formatTokens(total)} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+  }
 
   // Segments
   const segments = contextSegments(bd)
@@ -112,6 +118,8 @@ export function drawContextRing(
   agent: Agent,
   radius: number,
   time: number,
+  reducedMotion = false,
+  showPercent = true,
 ) {
   const bd = agent.contextBreakdown
   const total = agent.tokensUsed
@@ -147,7 +155,9 @@ export function drawContextRing(
   // Warning glow at high usage
   if (usage > CONTEXT_RING.warningThreshold) {
     const warningColor = usage > CONTEXT_RING.criticalThreshold ? COLORS.error : COLORS.tool
-    const intensity = usage > CONTEXT_RING.criticalThreshold
+    const intensity = reducedMotion
+      ? (usage > CONTEXT_RING.criticalThreshold ? 0.35 : 0.15)
+      : usage > CONTEXT_RING.criticalThreshold
       ? 0.35 + Math.sin(time * 6) * 0.2
       : 0.15 + Math.sin(time * 3) * 0.1
 
@@ -164,7 +174,7 @@ export function drawContextRing(
   }
 
   // Percentage label when usage is high
-  if (usage > CONTEXT_RING.percentLabelThreshold) {
+  if (showPercent && usage > CONTEXT_RING.percentLabelThreshold) {
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
@@ -220,7 +230,7 @@ function drawScanline(ctx: CanvasRenderingContext2D, agent: Agent, r: number, co
   ctx.restore()
 }
 
-function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isHovered: boolean, isSelected: boolean, isWaiting: boolean, time: number) {
+function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isHovered: boolean, isSelected: boolean, isWaiting: boolean, time: number, reducedMotion: boolean) {
   drawHexagon(ctx, agent.x, agent.y, r)
   ctx.strokeStyle = color
   ctx.lineWidth = (isSelected || isHovered) ? 2.5 : 2
@@ -229,7 +239,7 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
     ctx.strokeStyle = color + '60'
   } else if (isWaiting) {
     ctx.setLineDash([6, 4])
-    ctx.lineDashOffset = -time * AGENT_DRAW.waitingDashSpeed
+    ctx.lineDashOffset = reducedMotion ? 0 : -time * AGENT_DRAW.waitingDashSpeed
     ctx.lineWidth = 2.5
   }
   ctx.stroke()
@@ -306,18 +316,30 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
   }
 }
 
-function drawAgentLabel(ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean) {
+function drawAgentLabel(ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string) {
   ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
-  ctx.font = '10px monospace'
+  ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   const maxLabelW = r * AGENT_DRAW.labelWidthMultiplier
   const agentLabel = truncateText(ctx, agent.name, maxLabelW)
-  ctx.fillText(agentLabel, agent.x, agent.y + r + AGENT_DRAW.labelYOffset)
+  const labelY = agent.y + r + AGENT_DRAW.labelYOffset
+  ctx.fillText(agentLabel, agent.x, labelY)
+
+  // Short state text for every agent: state never relies on colour alone (WCAG 1.4.1)
+  ctx.fillStyle = color
+  ctx.fillText(STATE_LABEL_SHORT[agent.state] ?? agent.state, agent.x, labelY + AGENT_DRAW.stateLabelGap)
 }
 
-function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
-  const sy = agent.y - r - STATS_OVERLAY.yOffset
+/** Does the main agent draw its context percentage label above the ring? */
+export function hasContextPercent(agent: Agent): boolean {
+  if (!agent.isMain || agent.tokensUsed <= 0 || agent.tokensMax <= 0) return false
+  if (agent.state === 'complete' && agent.opacity <= 0.5) return false
+  return agent.tokensUsed / agent.tokensMax > CONTEXT_RING.percentLabelThreshold
+}
+
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number) {
+  const sy = agent.y - r - statsTop
   ctx.fillStyle = COLORS.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - STATS_OVERLAY.boxWidth / 2, sy, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
@@ -339,16 +361,20 @@ export function drawAgents(
   hoveredAgentId: string | null,
   showStats: boolean,
   time: number,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  const { reducedMotion } = opts
+  const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
+    if (agent.opacity < MIN_VISIBLE_OPACITY) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
-    const color = getStateColor(agent.state)
+    const color = stateColor(agent.state)
     const isHovered = id === hoveredAgentId
     const isSelected = id === selectedAgentId
 
     const isWaiting = agent.state === 'waiting_permission'
 
-    const breathe = isWaiting
+    const breathe = reducedMotion ? 1 : isWaiting
       ? Math.sin(time * AGENT_DRAW.waitingBreatheSpeed) * AGENT_DRAW.waitingBreatheAmp + 1
       : agent.state === 'thinking'
       ? Math.sin(time * ANIM.breathe.thinkingSpeed) * ANIM.breathe.thinkingAmp + 1
@@ -361,30 +387,32 @@ export function drawAgents(
 
     drawDepthShadow(ctx, agent, r)
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting)
-    drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
-    drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time)
+    if (!reducedMotion) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
+    drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion)
     drawCenterIcon(ctx, agent, r, color, isWaiting)
 
-    if (agent.state === 'thinking') {
+    if (agent.state === 'thinking' && !reducedMotion) {
       drawOrbitingParticles(ctx, agent, r, color, time)
     }
 
-    if (isWaiting) {
+    if (isWaiting && !reducedMotion) {
       drawWaitingRipples(ctx, agent, r, color, time)
     }
 
-    drawAgentLabel(ctx, agent, r, isHovered)
+    if (lod.labels) drawAgentLabel(ctx, agent, r, isHovered, color)
 
     // Context composition — ring for main agent, bar for sub-agents
     if (agent.state !== 'complete' || agent.opacity > 0.5) {
       if (agent.isMain) {
-        drawContextRing(ctx, agent, r, time)
+        drawContextRing(ctx, agent, r, time, reducedMotion, lod.details)
       }
-      drawContextComposition(ctx, agent, r)
+      drawContextComposition(ctx, agent, r, lod.details)
     }
 
-    if (showStats && agent.state !== 'complete') {
-      drawStatsOverlay(ctx, agent, r)
+    if (lod.details && showStats && agent.state !== 'complete') {
+      // Stacked layout shared with the cost pill: stats, cost and the % label never overlap
+      const layout = computeOverlayLayout({ hasPercent: hasContextPercent(agent), showStats: true, showCost: opts.showCost })
+      if (layout.statsTop != null) drawStatsOverlay(ctx, agent, r, layout.statsTop)
     }
 
     ctx.restore()

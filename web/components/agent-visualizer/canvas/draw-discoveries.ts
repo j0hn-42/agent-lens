@@ -1,7 +1,8 @@
 import { Agent, Discovery } from '@/lib/agent-types'
 import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
-import { getDiscoveryCardDimensions } from '@/lib/canvas-constants'
+import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>) {
   for (const disc of discoveries) {
@@ -22,9 +23,10 @@ export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discover
   }
 }
 
-export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, selectedDiscoveryId?: string | null) {
+export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, selectedDiscoveryId?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
+  const showText = lodForZoom(opts.zoom).details
   for (const disc of discoveries) {
-    if (disc.opacity < 0.05) continue
+    if (disc.opacity < MIN_VISIBLE_OPACITY) continue
 
     ctx.save()
     ctx.globalAlpha = disc.opacity
@@ -62,16 +64,18 @@ export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Disc
       ctx.stroke()
     }
 
+    if (!showText) { ctx.restore(); continue }
+
     ctx.fillStyle = typeColor
-    ctx.font = 'bold 8px monospace'
+    ctx.font = 'bold 11px monospace'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     ctx.fillText(truncateText(ctx, disc.label, cardW - 10), cardX + 6, cardY + 3)
 
     ctx.fillStyle = COLORS.textMuted
-    ctx.font = '7px monospace'
+    ctx.font = '11px monospace'
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(truncateText(ctx, lines[i], cardW - 10), cardX + 6, cardY + 14 + i * 11)
+      ctx.fillText(truncateText(ctx, lines[i], cardW - 10), cardX + 6, cardY + 17 + i * 14)
     }
 
     ctx.restore()

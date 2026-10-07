@@ -2,6 +2,7 @@ import { Agent, ToolCallNode, Particle, Edge, BEAM, ANIM } from '@/lib/agent-typ
 import { COLORS } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
 
 export function bezierPoint(t: number, p0: number, p1: number, p2: number, p3: number) {
   const mt = 1 - t
@@ -105,6 +106,7 @@ export function drawEdges(
   toolCalls: Map<string, ToolCallNode>,
   activeEdgeIds: Set<string>,
   time: number,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   for (const edge of edges) {
     const fromAgent = agents.get(edge.from)
@@ -117,7 +119,7 @@ export function drawEdges(
     const fromX = fromAgent.x, fromY = fromAgent.y
     const hasActiveParticles = activeEdgeIds.has(edge.id)
     const baseAlpha = hasActiveParticles ? BEAM.activeAlpha : BEAM.idleAlpha
-    const pulsing = hasActiveParticles ? Math.sin(time * ANIM.pulseSpeed) * 0.1 + 0.9 : 1
+    const pulsing = hasActiveParticles && !opts.reducedMotion ? Math.sin(time * ANIM.pulseSpeed) * 0.1 + 0.9 : 1
 
     const cp = computeControlPoints(fromX, fromY, toX, toY)
     if (!cp) continue

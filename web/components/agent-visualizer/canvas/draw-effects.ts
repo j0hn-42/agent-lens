@@ -11,6 +11,8 @@ export interface VisualEffect {
   age: number
   duration: number
   particles?: Array<{ angle: number; speed: number; size: number }>
+  /** Suppress the bright flash (global flash limiter, WCAG 2.3.1) */
+  noFlash?: boolean
 }
 
 export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect[]) {
@@ -25,7 +27,7 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
         const alpha = (1 - progress) * SPAWN_FX.maxAlpha
 
         // White flash (quick, first 30%)
-        if (progress < SPAWN_FX.flashThreshold) {
+        if (!fx.noFlash && progress < SPAWN_FX.flashThreshold) {
           const flashAlpha = (1 - progress / SPAWN_FX.flashThreshold) * SPAWN_FX.flashAlpha
           ctx.beginPath()
           ctx.arc(fx.x, fx.y, SPAWN_FX.flashBaseRadius * (1 - progress / SPAWN_FX.flashThreshold) + SPAWN_FX.flashMinRadius, 0, Math.PI * 2)
@@ -60,7 +62,7 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
         const alpha = (1 - progress) * COMPLETE_FX.maxAlpha
 
         // Bright white flash (first 20%)
-        if (progress < COMPLETE_FX.flashThreshold) {
+        if (!fx.noFlash && progress < COMPLETE_FX.flashThreshold) {
           const flashAlpha = (1 - progress / COMPLETE_FX.flashThreshold) * COMPLETE_FX.flashAlpha
           const grad = ctx.createRadialGradient(fx.x, fx.y, 0, fx.x, fx.y, COMPLETE_FX.flashRadius)
           grad.addColorStop(0, COLORS.holoHot + alphaHex(flashAlpha))

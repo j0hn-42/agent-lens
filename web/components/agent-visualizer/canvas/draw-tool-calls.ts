@@ -1,19 +1,26 @@
 import { ToolCallNode } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
-import { TOOL_MAX_CARD_W, TOOL_DRAW } from '@/lib/canvas-constants'
+import { TOOL_MAX_CARD_W, TOOL_DRAW, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
-import { measureTextCached } from './render-cache'
+import { measureTextCached, setToolCardSize } from './render-cache'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 export function drawToolCalls(
   ctx: CanvasRenderingContext2D,
   toolCalls: Map<string, ToolCallNode>,
   time: number,
   selectedToolCallId?: string | null,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  const { reducedMotion } = opts
+  const showText = lodForZoom(opts.zoom).details
   for (const [id, tool] of toolCalls) {
+    if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     const isRunning = tool.state === 'running'
     const isError = tool.state === 'error'
-    const pulse = isRunning ? Math.sin(time * 4) * 0.2 + 0.8 : isError ? Math.sin(time * 6) * 0.15 + 0.85 : 0.5
+    const pulse = reducedMotion
+      ? (isRunning || isError ? 0.9 : 0.5)
+      : isRunning ? Math.sin(time * 4) * 0.2 + 0.8 : isError ? Math.sin(time * 6) * 0.15 + 0.85 : 0.5
 
     ctx.save()
     ctx.globalAlpha = tool.opacity
@@ -26,13 +33,15 @@ export function drawToolCalls(
     const cardH = (!isRunning && (tool.tokenCost || isError)) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
     const cardX = tool.x - cardW / 2
     const cardY = tool.y - cardH / 2
+    // Hit-testing reuses the exact drawn size
+    setToolCardSize(id, cardW, cardH)
 
     const isSelected = id === selectedToolCallId
 
     // Error glow
     if (isError) {
       ctx.shadowColor = COLORS.error
-      ctx.shadowBlur = TOOL_DRAW.errorGlowBase + Math.sin(time * 6) * TOOL_DRAW.errorGlowPulse
+      ctx.shadowBlur = TOOL_DRAW.errorGlowBase + (reducedMotion ? 0 : Math.sin(time * 6) * TOOL_DRAW.errorGlowPulse)
     }
 
     ctx.beginPath()
@@ -50,7 +59,7 @@ export function drawToolCalls(
     ctx.shadowBlur = 0
 
     // Spinning ring
-    if (isRunning) {
+    if (isRunning && !reducedMotion) {
       ctx.beginPath()
       ctx.arc(tool.x, tool.y, Math.max(cardW, cardH) / 2 + TOOL_DRAW.spinRingPadding, time * TOOL_DRAW.spinSpeed, time * TOOL_DRAW.spinSpeed + TOOL_DRAW.spinArc)
       ctx.strokeStyle = COLORS.tool + '50'
@@ -72,6 +81,8 @@ export function drawToolCalls(
       }
       ctx.restore()
     }
+
+    if (!showText) { ctx.restore(); continue }
 
     const truncatedLabel = truncateText(ctx, toolLabel, cardW - 8)
 

@@ -45,6 +45,7 @@ export function drawBackground(
   showHexGrid: boolean,
   time: number,
   activeAgentPos?: { x: number; y: number; color: string },
+  reducedMotion = false,
 ): void {
   // Deep void
   ctx.fillStyle = COLORS.void
@@ -61,8 +62,8 @@ export function drawBackground(
     ctx.fillRect(0, 0, width, height)
   }
 
-  // Depth particles (parallax)
-  for (const p of particles) {
+  // Depth particles (parallax) — decorative, disabled in reduced-motion mode
+  for (const p of reducedMotion ? [] : particles) {
     const parallaxFactor = 0.3 + p.depth * 0.7
     const px = p.x + transform.x * parallaxFactor * 0.1
     const py = p.y + transform.y * parallaxFactor * 0.1
@@ -77,7 +78,7 @@ export function drawBackground(
 
   // Hex grid (optional)
   if (showHexGrid) {
-    drawHexGrid(ctx, width, height, transform, time)
+    drawHexGrid(ctx, width, height, transform, time, reducedMotion)
   }
 }
 
@@ -93,6 +94,7 @@ function drawHexGrid(
   height: number,
   transform: { x: number; y: number; scale: number },
   time: number,
+  reducedMotion = false,
 ): void {
   ctx.save()
   ctx.translate(transform.x, transform.y)
@@ -119,7 +121,7 @@ function drawHexGrid(
       const cx = x
       const cy = y + offsetY
       const dist = Math.sqrt(cx * cx + cy * cy)
-      const pulse = Math.sin(timeSin + dist * 0.005) * 0.3 + 0.7
+      const pulse = reducedMotion ? 0.7 : Math.sin(timeSin + dist * 0.005) * 0.3 + 0.7
       // Quantize to 4 alpha levels to batch draws
       const alpha = Math.round(0.15 * pulse * 40) / 40
       let bucket = buckets.get(alpha)

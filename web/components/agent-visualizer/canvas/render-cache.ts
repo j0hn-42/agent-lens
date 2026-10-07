@@ -68,3 +68,19 @@ export function measureTextCached(ctx: CanvasRenderingContext2D, text: string): 
   textWidthCache.set(key, w)
   return w
 }
+
+// ─── Tool card size cache ──────────────────────────────────────────────────
+// The draw pass measures the real card size; hit-testing reuses it so clicks line up
+// with what is drawn (instead of estimating from a per-character width).
+
+const toolCardSizes = new Map<string, { w: number; h: number }>()
+const TOOL_CARD_CACHE_MAX = 1000
+
+export function setToolCardSize(id: string, w: number, h: number): void {
+  if (toolCardSizes.size > TOOL_CARD_CACHE_MAX) toolCardSizes.clear()
+  toolCardSizes.set(id, { w, h })
+}
+
+export function getToolCardSize(id: string): { w: number; h: number } | undefined {
+  return toolCardSizes.get(id)
+}
