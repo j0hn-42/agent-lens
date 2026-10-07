@@ -250,23 +250,16 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
 
-  // Focus moves into the panel on open and returns to the opener on close; Escape closes.
+  // Focus moves into the panel on open and returns to the opener on close.
+  // Escape is owned by the global LIFO handler (use-keyboard-shortcuts); no local listener.
   useEffect(() => {
     if (!visible) return
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     scrollRef.current?.focus({ preventScroll: true })
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) {
-        e.preventDefault()
-        onClose()
-      }
-    }
-    document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('keydown', onKey)
       if (opener && document.contains(opener)) opener.focus({ preventScroll: true })
     }
-  }, [visible, onClose])
+  }, [visible])
 
   useEffect(() => {
     if (!visible || tableView) return
