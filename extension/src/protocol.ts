@@ -134,6 +134,10 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory read from the transcript (untrusted, capped) */
   cwd?: string
+  /** Hash of the repository's git common dir: shared by all worktrees of a repo; absent outside git */
+  projectId?: string
+  /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */
+  projectName?: string
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────

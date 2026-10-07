@@ -168,6 +168,7 @@ export function SessionListPanel({
     return buildSessionRows(shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, isObserved)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
   }, [sessions, teams, teamWorking, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
@@ -285,6 +286,14 @@ export function SessionListPanel({
               const rowBase = `flex w-full min-h-6 items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
+              if (row.kind === 'project') {
+                return (
+                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-[11px] tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={row.projectName}>
+                    <span className="sr-only">Project </span>{row.projectName}
+                  </li>
+                )
+              }
+
               if (row.kind === 'all') {
                 return (
                   <li key={row.id}>
@@ -337,7 +346,7 @@ export function SessionListPanel({
               const hasAgents = row.roots.length > 0
               const showAgents = hasAgents && !isCollapsed
               return (
-                <li key={row.id} className={row.teamName ? 'pl-3' : undefined}>
+                <li key={row.id} className={row.teamName || (hasProjectHeadings && row.projectId) ? 'pl-3' : undefined}>
                   <div className="group flex items-center">
                     <button
                       type="button"

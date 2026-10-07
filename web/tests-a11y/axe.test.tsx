@@ -175,6 +175,22 @@ test('panel: sessions list with a team and runtime badges', async () => {
   await check('session-list-panel-team', container)
 })
 
+test('panel: sessions list grouped by project', async () => {
+  const grouped = [
+    { ...sessions[0], projectId: 'pa', projectName: 'alpha' },
+    { ...sessions[1], projectId: 'pb', projectName: 'beta' },
+  ]
+  const { container, getByText } = render(
+    <SessionListPanel
+      visible onClose={noop} sessions={grouped} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      onSelectSession={noop} onCloseSession={noop} agents={listAgents} selectedAgentId={null} onSelectAgent={noop}
+      now={10_000}
+    />,
+  )
+  assert.ok(getByText('alpha') && getByText('beta'), 'one heading per project')
+  await check('session-list-panel-projects', container)
+})
+
 test('panel: transcript', async () => {
   const { container } = render(
     <SessionTranscriptPanel visible conversation={messages} onClose={noop} />,
