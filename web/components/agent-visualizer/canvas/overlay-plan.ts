@@ -7,7 +7,7 @@
  */
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import {
-  AGENT_DRAW, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
+  AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
 } from '../../../lib/canvas-constants'
 import { agentCost } from '../../../lib/cost'
 import { formatCost } from '../../../lib/utils'
@@ -19,10 +19,28 @@ import {
   orchestratorInfo,
 } from './team-style'
 import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
+import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
 import {
   placeRects, overlayPriority, PRIORITY, type PlacementRequest, type Placement, type Rect, type Obstacle, type OverlayPlan,
 } from './label-placement'
+
+/** The context bar is drawn under the label (live agents that have used tokens). */
+export function contextBarShown(a: Pick<Agent, 'tokensUsed' | 'state' | 'opacity' | 'archived'>): boolean {
+  if (a.archived || !(a.tokensUsed > 0)) return false
+  return a.state !== 'complete' || a.opacity > 0.5
+}
+
+/** Height (world px) from the top of the label block to the bottom of the context bar and its token text. */
+export function contextBlockHeight(radius: number, extraLines: number): number {
+  const barBottom = radius + CONTEXT_BAR.yOffset + extraLines * AGENT_DRAW.stateLabelGap + CONTEXT_BAR.barHeight + CONTEXT_BAR.labelBoxExtra
+  return barBottom - (radius + AGENT_DRAW.labelYOffset)
+}
+
+function insetRect(r: FitRect, by: number): FitRect {
+  const d = Math.min(by, r.w / 4, r.h / 4)
+  return { x: r.x + d, y: r.y + d, w: r.w - d * 2, h: r.h - d * 2 }
+}
 
 export interface Transform2D { x: number; y: number; scale: number }
 
@@ -32,6 +50,8 @@ export interface OverlayPlanInput {
   edgeBubbles: EdgeBubble[]
   transform: Transform2D
   viewport: { w: number; h: number }
+  /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
+  safeArea?: Rect
   lod: { labels: boolean; details: boolean }
   showStats: boolean
   showCost: boolean
@@ -127,6 +147,9 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
   // ─── Cluster labels (essential: never hidden, kept at the least-overlapping spot) ───
   const clusterRects = new Map<string, Rect>()
+  const labelArea = input.safeArea && input.safeArea.w > 0 && input.safeArea.h > 0
+    ? insetRect(input.safeArea, 4)
+    : { x: 4, y: 4, w: Math.max(0, vp.w - 8), h: Math.max(0, vp.h - 8) }
   for (const c of input.clusters) {
     const lines = clusterLabelLines(c)
     const w = Math.min(CLUSTER_DRAW.labelMaxWidth, Math.max(
@@ -137,9 +160,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const ax = a.x * s + t.x
     const ay = a.y * s + t.y
     if (!onScreen({ x: ax - c.r * s, y: ay, w: c.r * 2 * s, h: c.r * 2 * s }, vp, 0)) continue
-    const x = Math.min(Math.max(ax - w / 2, 4), Math.max(4, vp.w - w - 4))
-    const y = Math.min(Math.max(ay - h - 4, 4), Math.max(4, vp.h - h - 4))
-    const rect = { x, y, w, h }
+    const rect = clampRectToSafe({ x: ax - w / 2, y: ay - h - 4, w, h }, labelArea)
     clusterRects.set(c.key, rect)
     requests.push({
       id: planKey.cluster(c.key),
@@ -173,11 +194,16 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       )
       const wW = Math.max(36, widest) + LABEL_PAD * 2
       const top = a.y + r + AGENT_DRAW.labelYOffset
-      const full = toScreen(t, a.x - wW / 2, top, wW, lines * AGENT_DRAW.stateLabelGap)
+      // The context bar hangs under the label block and moves with it: reserve its height so a shifted
+      // label never lands on the bar (or its token text)
+      const barShown = contextBarShown(a)
+      const labelH = lines * AGENT_DRAW.stateLabelGap
+      const blockH = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
+      const full = toScreen(t, a.x - wW / 2, top, wW, blockH)
       const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
       const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
       const cW = measure(compactText) + LABEL_PAD * 2
-      const compact = toScreen(t, a.x - cW / 2, top, cW, AGENT_DRAW.stateLabelGap)
+      const compact = toScreen(t, a.x - cW / 2, top, cW, barShown ? blockH : AGENT_DRAW.stateLabelGap)
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),

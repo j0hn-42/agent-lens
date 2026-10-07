@@ -339,11 +339,11 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement,
-): number {
+): { extraLines: number; dx: number; dy: number } {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
-  if (!place.visible) return layout.extraLines
+  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0 }
 
   ctx.save()
   ctx.translate(place.dx, place.dy)
@@ -357,7 +357,7 @@ function drawAgentLabel(
     ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
     ctx.fillText(ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
     ctx.restore()
-    return layout.extraLines
+    return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
   }
 
   ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
@@ -401,7 +401,7 @@ function drawAgentLabel(
     ctx.fillText(layout.sessionLine, agent.x, y)
   }
   ctx.restore()
-  return layout.extraLines
+  return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
 }
 
 /**
@@ -543,19 +543,24 @@ export function drawAgents(
     }
 
     const priorityAgent = isSelected || isHovered || id === opts.focusedAgentId
-    const extraLines = lod.labels
+    const labelDrawn = lod.labels
       ? drawAgentLabel(
         ctx, agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         orchestratorInfo(agent, opts.teams), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
       )
-      : 0
+      : { extraLines: 0, dx: 0, dy: 0 }
+    const extraLines = labelDrawn.extraLines
 
     // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)
     if (live && (agent.state !== 'complete' || agent.opacity > 0.5)) {
       if (agent.isMain) {
         drawContextRing(ctx, agent, r, time, reducedMotion, lod.details)
       }
+      // The bar hangs under the label: it follows the label when the placement shifted it
+      ctx.save()
+      ctx.translate(labelDrawn.dx, labelDrawn.dy)
       drawContextComposition(ctx, agent, r, lod.details, extraLines * AGENT_DRAW.stateLabelGap)
+      ctx.restore()
     }
 
     if (lod.details && showStats && agent.state !== 'complete') {

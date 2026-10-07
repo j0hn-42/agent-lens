@@ -35,6 +35,8 @@ import {
 } from './canvas/index'
 import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from './canvas/team-style'
 import { measureTextCached } from './canvas/render-cache'
+import { measureOverlayInsets } from './canvas/overlay-insets'
+import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
@@ -226,6 +228,15 @@ export function AgentCanvas({
   const drawPropsRef = useRef(makeDrawProps())
   drawPropsRef.current = makeDrawProps(drawPropsRef.current)
 
+  // Insets of the UI overlaid on the canvas (top bar / tabs, control bar, open panels): re-measured
+  // every few frames and on resize, read by the camera fit and by the cluster label clamp.
+  const insetsRef = useRef<Insets>({ ...NO_INSETS })
+  const insetsFrameRef = useRef(0)
+  const getInsets = useCallback(() => insetsRef.current, [])
+  const refreshInsets = useCallback(() => {
+    insetsRef.current = measureOverlayInsets(mainCanvasRef.current)
+  }, [])
+
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
     transformRef, userHasNavigatedRef, panVelocityRef,
@@ -233,6 +244,7 @@ export function AgentCanvas({
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: sim.agents.size, zoomToFitTrigger, selectedAgentId,
+    clustersRef, getInsets,
   })
 
   // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───
@@ -463,6 +475,7 @@ export function AgentCanvas({
       opts.focusedAgentId = hasFocusRef.current && focusedNodeRef.current?.type === 'agent' ? focusedNodeRef.current.id : null
       opts.edgeBubbles = true
 
+      if (timestamp - insetsFrameRef.current > 250 || insetsFrameRef.current === 0) { insetsFrameRef.current = timestamp || 1; refreshInsets() }
       // Camera physics (inertia + auto-fit)
       updateCamera(isDragging, pauseAutoFit)
 
@@ -486,7 +499,7 @@ export function AgentCanvas({
       }
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles, transform, viewport: { w, h }, lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles, transform, viewport: { w, h }, safeArea: safeRect({ width: w, height: h }, insetsRef.current), lod: lodForZoom(transform.scale),
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: simTimeRef.current, teams: teamsRef.current,
@@ -679,6 +692,7 @@ export function AgentCanvas({
   return (
     <div
       ref={containerRef}
+      data-agent-canvas-root=""
       className="relative w-full h-full overflow-hidden"
       style={{ cursor: rootCursor }}
       onFocus={() => setHasFocus(true)}
