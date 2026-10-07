@@ -26,6 +26,9 @@ import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { LinkPanel } from '@/components/agent-visualizer/link-panel'
+import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
+import type { AgentLink } from '@/hooks/simulation/types'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import type { Agent, FileAttention, TimelineEntry, TimelineEvent } from '@/lib/agent-types'
 import type { SessionInfo } from '@/lib/bridge-types'
@@ -251,4 +254,53 @@ test('timeline: canvas view and table view', async () => {
   await act(async () => { fireEvent.click(toggle) })
   assert.ok(container.querySelector('table'), 'table view renders a <table>')
   await check('timeline-table', container)
+})
+
+// ─── Teams, communication links, legend ──────────────────────────────────────
+
+const teammate = {
+  ...agent, id: 'a2', name: 'reviewer', isMain: false, parentId: 'a1', kind: 'teammate', teamName: 'alpha', teamColor: '#4488ff',
+} as unknown as Agent
+const teamAgents = new Map<string, Agent>([['a1', agent], ['a2', teammate]])
+const teamLink: AgentLink = {
+  id: 'a1->a2', from: 'a1', to: 'a2', kind: 'teammate', sessionId: 's1', dropped: 0,
+  messages: [
+    { id: 'l1', type: 'message', content: 'Please review the diff', timestamp: 1, from: 'a1', to: 'a2' },
+    { id: 'l2', type: 'message', content: 'x'.repeat(900), timestamp: 2, from: 'a2', to: 'a1' },
+  ],
+}
+const teamMap = new Map([['alpha', { name: 'alpha', leadSessionId: 's1', members: [{ name: 'main' }, { name: 'reviewer', color: 'blue' }] }]])
+
+test('panel: link panel (collapsed and expanded long message)', async () => {
+  const { container, getByRole } = render(<LinkPanel link={teamLink} agents={teamAgents} onClose={noop} />)
+  await check('link-panel', container)
+  const showAll = Array.from(container.querySelectorAll('button')).find(b => /show all/i.test(b.textContent ?? ''))
+  if (showAll) await act(async () => { fireEvent.click(showAll) })
+  assert.ok(getByRole('dialog'))
+  await check('link-panel-expanded', container)
+})
+
+test('panel: message feed with links and teams', async () => {
+  const conversations = new Map<string, ConversationMessage[]>([['a1', messages]])
+  const links = new Map<string, AgentLink>([[teamLink.id, teamLink]])
+  const { container } = render(
+    <MessageFeedPanel
+      conversations={conversations} agents={teamAgents} onAgentClick={noop} selectedAgentId={null}
+      links={links} droppedMessages={new Map([['a1', 3]])} teams={teamMap}
+    />,
+  )
+  const pill = container.querySelector('button')
+  assert.ok(pill)
+  await act(async () => { fireEvent.click(pill) })
+  await check('feed-teams', container)
+})
+
+test('canvas chrome: graph legend (closed and open, with a team)', async () => {
+  const team = { name: 'alpha', color: '#4488ff', memberIds: ['a1', 'a2'], memberNames: ['main', 'reviewer'], text: 'Team alpha: main (working), reviewer (idle)' }
+  const { container } = render(<GraphLegend teams={[team]} />)
+  await check('legend-closed', container)
+  const toggle = container.querySelector('button')
+  assert.ok(toggle, 'legend exposes a toggle')
+  if (toggle.getAttribute('aria-expanded') !== 'true') await act(async () => { fireEvent.click(toggle) })
+  await check('legend-open', container)
 })
