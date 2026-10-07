@@ -115,6 +115,33 @@ export function activeTabIndexOf(keys: readonly string[], active: string): numbe
 export const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#aaeeff]'
 
+/** Top offset of the feed pill and panel: just under the top bar, which wraps onto several rows on narrow windows. */
+export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'
+
+/**
+ * Border of a feed tab as longhand properties only (mixing `border` with `borderBottom` / `borderStyle`
+ * makes React log a "conflicting property" error on every re-render). Active tabs get a tinted frame, team
+ * members a 2px accent underline, finished agents a dashed frame.
+ */
+export function tabBorderStyle(opts: { active: boolean; color: string; accent?: string; done?: boolean }): Record<string, string> {
+  const frame = opts.active ? `${opts.color}30` : 'transparent'
+  const bottom = opts.accent ?? frame
+  const style = opts.done ? 'dashed' : 'solid'
+  return {
+    borderTopWidth: '1px', borderRightWidth: '1px', borderLeftWidth: '1px',
+    borderBottomWidth: opts.accent ? '2px' : '1px',
+    borderTopStyle: style, borderRightStyle: style, borderLeftStyle: style, borderBottomStyle: style,
+    borderTopColor: frame, borderRightColor: frame, borderLeftColor: frame, borderBottomColor: bottom,
+  }
+}
+
+/** Agents offered by the pair pickers: those with messages plus the ones already chosen elsewhere. */
+export function pickerAgentIds(withMessages: readonly string[], pair: { a: string; b: string }): string[] {
+  const ids = [...withMessages]
+  for (const k of [pair.a, pair.b]) if (k !== '' && !ids.includes(k)) ids.push(k)
+  return ids
+}
+
 // ─── Agent-to-agent communication (dispatch / return / teammate messages) ────
 
 /** Message types shown as plain conversation text. */
