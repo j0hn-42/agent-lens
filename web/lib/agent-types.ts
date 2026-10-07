@@ -188,6 +188,14 @@ export interface ParticleDetail {
   durationS?: number
 }
 
+/** An Agent Team as the UI sees it (built from team_info events). Strings are untrusted and already sanitised. */
+export interface TeamSummary {
+  name: string
+  leadSessionId: string
+  leadName?: string
+  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string }>
+}
+
 export interface SimulationEvent {
   time: number
   type:
