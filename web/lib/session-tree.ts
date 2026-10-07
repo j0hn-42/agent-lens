@@ -17,6 +17,8 @@ export interface AgentLike {
   kind?: 'main' | 'subagent' | 'teammate'
   currentTool?: string
   tokensUsed: number
+  /** Model ID, to price the tokens with the right family rate (issue #58) */
+  model?: string
   spawnTime: number
   /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
   lastEventAt?: number
