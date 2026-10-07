@@ -117,6 +117,16 @@ export function clusterStatus(states: Iterable<Agent['state']>): ClusterStatus {
   return any && allComplete ? 'complete' : 'idle'
 }
 
+/**
+ * State used for the halo status. A teammate's `activity` (working / idle / done) says more than its
+ * `state` (a teammate idling between turns still has a live session); errors and permission waits always win.
+ */
+export function effectiveClusterState(a: Pick<Agent, 'state' | 'kind' | 'activity'>): Agent['state'] {
+  if (a.kind !== 'teammate' || !a.activity) return a.state
+  if (a.state === 'error' || a.state === 'waiting_permission') return a.state
+  return a.activity === 'working' ? 'thinking' : a.activity === 'done' ? 'complete' : 'idle'
+}
+
 const STATUS_TEXT: Record<ClusterStatus, string> = {
   error: 'error',
   waiting: 'waiting for permission',
@@ -185,7 +195,7 @@ export function computeClusters(
     }
 
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
-    const status = clusterStatus(members.map(m => m.state))
+    const status = clusterStatus(members.map(effectiveClusterState))
     let cost = 0
     for (const m of members) cost += agentCost(m.tokensUsed, m.model)
 

@@ -117,7 +117,7 @@ export interface SpawnCandidateInfo { sessionId: string; isMain: boolean; teamNa
 export function admitSpawn(state: MutableEventState, c: SpawnCandidateInfo): boolean {
   let total = 0
   let inSession = 0
-  const teams = new Set<string>(state.teams.keys())
+  const teams = new Set<string>(Array.from(state.teams.values(), t => t.name))
   const team: Agent[] = []
   for (const a of state.agents.values()) {
     total++
