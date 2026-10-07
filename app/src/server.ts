@@ -13,6 +13,7 @@ import { parseSessionParam, isStatusPath } from '../../extension/src/relay-guard
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
 import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
+import { guardRequest, listenLoopback, resolveListenPort } from '../../scripts/server-hardening'
 
 interface ServerOptions {
   port: number
@@ -23,7 +24,7 @@ interface ServerOptions {
   allWorkspaces?: boolean
 }
 
-export async function startServer(options: ServerOptions) {
+export async function startServer(options: ServerOptions): Promise<{ port: number; close: () => void }> {
   const { port, openBrowser, workspace } = options
 
   const configDir = path.join(os.homedir(), '.agent-lens')
@@ -36,6 +37,11 @@ export async function startServer(options: ServerOptions) {
   const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces })
 
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (req, res) => {
+    // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
+    // GET/HEAD/OPTIONS only (405), session parameter validation (400)
+    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url)
+    if (guardRequest(req, res, { kind: isApi ? 'api' : 'static' })) return
+
     // SSE endpoint
     // Match the path, not the raw URL, so /events?session=<id> reaches the relay
     if (parseSessionParam(req.url).isEvents) {
@@ -47,27 +53,21 @@ export async function startServer(options: ServerOptions) {
       return relay.handleStatus(req, res)
     }
 
-    // Static files (UI)
-    if (req.method === 'GET') {
-      return serveStatic(req, res)
-    }
-
-    res.writeHead(404)
-    res.end('Not found')
+    // Static files (UI): GET/HEAD (other methods were answered 405 above)
+    return serveStatic(req, res)
   })
 
   server.maxConnections = 256
   server.headersTimeout = 10_000
   setConnectionsCheckingInterval(server, HTTP_CONNECTIONS_CHECK_INTERVAL_MS)
-  server.listen(port, '127.0.0.1', () => {
-    const url = `http://127.0.0.1:${port}`
-    console.log(`Server running at ${url}`)
-    console.log('Waiting for agent events...\n')
-
-    if (openBrowser) {
-      openURL(url)
-    }
-  })
+  // `--port 0` or AGENT_LENS_PORT=0 asks the OS for an ephemeral port; the chosen one is printed
+  const boundPort = await listenLoopback(server, resolveListenPort(port))
+  const url = `http://127.0.0.1:${boundPort}`
+  console.log(`Server running at ${url}`)
+  console.log('Waiting for agent events...\n')
+  if (openBrowser) {
+    openURL(url)
+  }
 
   // Cleanup on exit. Idempotent — repeat signals (Ctrl+C spam, SIGTERM+SIGHUP,
   // etc.) would otherwise emit duplicate session_end events and race the
@@ -86,6 +86,7 @@ export async function startServer(options: ServerOptions) {
   // pane killed). Without a handler, Node's default behavior is to terminate
   // without running cleanup — so session_end never flushes.
   process.on('SIGHUP', cleanup)
+  return { port: boundPort, close: cleanup }
 }
 
 function openURL(url: string) {

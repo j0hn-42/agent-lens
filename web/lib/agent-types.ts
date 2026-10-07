@@ -72,6 +72,10 @@ export interface Agent {
   task?: string
   spawnTime: number
   completeTime?: number
+  /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
+  lastEventAt?: number
+  /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
+  freshnessSource?: 'live' | 'history'
   opacity: number
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */

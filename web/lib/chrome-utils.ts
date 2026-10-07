@@ -4,6 +4,7 @@
  */
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
+import { SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
@@ -12,22 +13,30 @@ export const FOCUS_RING =
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved'
 
-/** Status of a session tab. Unseen background activity wins over the plain active state. */
+/**
+ * Status of a session. Unseen background activity wins over the plain active state. An active
+ * session that no event was ever received for (and with no live hook flag) is 'unobserved': it is
+ * listed, but whether it is idle or working is unknown (issue #52), so it never reads 'active'.
+ * `isObservedId` defaults to the app-wide observation tracker.
+ */
 export function sessionStatusKind(
-  session: Pick<SessionInfo, 'status'>,
+  session: Pick<SessionInfo, 'status'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
+  isObservedId: (sessionId: string) => boolean = observedSessions.has,
 ): SessionStatusKind {
   if (hasActivity && !isSelected) return 'new-activity'
-  return session.status === 'active' ? 'active' : 'completed'
+  if (session.status !== 'active') return 'completed'
+  return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
 }
 
 export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   'new-activity': 'new activity',
   active: 'active',
   completed: 'completed',
+  unobserved: SESSION_NOT_OBSERVED_TEXT,
 }
 
 /** Ids of the tabs in order: the 'All' tab first, then one per session. */
@@ -288,11 +297,16 @@ export function buildAnnouncement(opts: {
   sessionLabel: string | null
   isReviewing: boolean
   isEmpty: boolean
+  /** Listed sessions with no received event (issue #52): their activity is unknown */
+  unobservedSessions?: number
 }): string {
   const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
   if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
   parts.push(opts.isReviewing ? 'Review mode' : 'Live mode')
   if (opts.isEmpty) parts.push('Waiting for an agent session')
+  if (opts.unobservedSessions && opts.unobservedSessions > 0) {
+    parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
+  }
   return parts.join('. ')
 }
 

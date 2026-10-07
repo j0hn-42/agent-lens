@@ -8,6 +8,8 @@ import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, 
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
 import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
+import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
+import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
@@ -168,6 +170,8 @@ export const TopBar = memo(function TopBar({
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
+  // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
+  const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
 
   // Publish the measured height so panels can offset themselves below the (wrapping) bar.
   useLayoutEffect(() => {
@@ -194,6 +198,11 @@ export const TopBar = memo(function TopBar({
       >
         <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+        {unobservedCount > 0 && (
+          <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
+            {unobservedCount} {SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}
+          </span>
+        )}
         {sessionsWithActivity.size > 0 && (
           <>
             <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse" style={{ border: `2px solid ${COLORS.complete}` }} />
