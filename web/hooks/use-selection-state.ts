@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react"
 import type { Agent, ToolCallNode, Discovery } from "@/lib/agent-types"
+import { contextMenuPosition } from "@/lib/chrome-utils"
 
 export interface ToolDataSnapshot {
   id: string
@@ -129,10 +130,13 @@ export function useSelectionState(deps: {
   }, [discoveries, clearOtherSelections])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, type: 'agent' | 'edge' | 'canvas', id?: string) => {
+    // Keyboard-triggered menus report clientX/Y = 0: anchor them on the focused element instead
+    const target = e.currentTarget as Element | null
+    const pos = contextMenuPosition(e.clientX, e.clientY, target?.getBoundingClientRect?.() ?? null)
     if (type === 'agent' && id) {
-      setContextMenu({ x: e.clientX, y: e.clientY, agentId: id })
+      setContextMenu({ ...pos, agentId: id })
     } else if (type === 'canvas') {
-      setContextMenu({ x: e.clientX, y: e.clientY })
+      setContextMenu(pos)
     } else {
       setContextMenu(null)
     }

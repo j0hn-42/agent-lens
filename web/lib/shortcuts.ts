@@ -28,7 +28,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: '$', display: '$', description: 'Toggle cost overlay', group: 'Panels', singleKey: true },
   { key: 'F', display: 'Shift+F', description: 'Zoom to fit all agents', group: 'View', singleKey: true },
   { key: 'g', display: 'G', description: 'Toggle hex grid', group: 'View', singleKey: true },
-  { key: 'Escape', display: 'Esc', description: 'Close the top panel or clear selection', group: 'General', singleKey: false },
+  { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
+  { key: 'Escape', display: 'Esc', description: 'Close the top panel, collapse the message feed or clear selection', group: 'General', singleKey: false },
   { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: false },
 ]
 

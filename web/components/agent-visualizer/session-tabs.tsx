@@ -55,13 +55,29 @@ export function SessionTabs({
     el?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
   }, [selectedSessionId])
 
+  // Closing a tab unmounts the focused control: move focus to the neighbouring tab once the list updates.
+  const pendingFocusRef = useRef<string | null>(null)
+  const closeTab = (index: number) => {
+    const neighbour = sessions[index + 1] ?? sessions[index - 1]
+    const active = document.activeElement
+    const focusInTabs = !!active && Array.from(tabRefs.current.values()).some(el => el.parentElement?.contains(active))
+    pendingFocusRef.current = focusInTabs && neighbour ? neighbour.id : null
+    onCloseSession(sessions[index].id)
+  }
+  useEffect(() => {
+    const id = pendingFocusRef.current
+    if (!id) return
+    const el = tabRefs.current.get(id)
+    if (el) { pendingFocusRef.current = null; el.focus({ preventScroll: true }) }
+  }, [sessions])
+
   // Roving tabindex: if the selection is not among the sessions, the first tab stays reachable.
   const tabStopId = sessions.some(s => s.id === selectedSessionId) ? selectedSessionId : sessions[0]?.id
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key === 'Delete') {
       e.preventDefault()
-      onCloseSession(sessions[index].id)
+      closeTab(index)
       return
     }
     const next = nextTabIndex(index, e.key, sessions.length)
@@ -110,7 +126,7 @@ export function SessionTabs({
               type="button"
               aria-label={`Close session ${session.label}`}
               title="Close session"
-              onClick={() => onCloseSession(session.id)}
+              onClick={() => closeTab(index)}
               className={`min-h-6 min-w-6 rounded-r text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
               style={{ color: COLORS.tabClose }}
             >

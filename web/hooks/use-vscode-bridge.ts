@@ -216,7 +216,8 @@ export function useVSCodeBridge(): BridgeHookResult {
     const unsubSession = bridge.onSession((type, data) => {
       if (type === 'reset') {
         // Panel was reopened — clear all stale state (and tell the user, non-blocking)
-        pushNotice('reset', 'Session view was reset')
+        // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
+        if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
         setSessions([])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null

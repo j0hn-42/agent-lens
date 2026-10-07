@@ -32,7 +32,7 @@ function UnmutedIcon() {
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel }: {
+function ToggleButton({ active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog }: {
   /** Visual active state */
   active: boolean
   /** aria-pressed value; omit for buttons whose accessible name already changes with state */
@@ -45,6 +45,8 @@ function ToggleButton({ active, pressed, onClick, children, style, activeColor, 
   /** aria-keyshortcuts value */
   shortcut?: string
   ariaLabel?: string
+  /** True when the button opens a modal dialog */
+  hasDialog?: boolean
 }) {
   return (
     <button
@@ -53,12 +55,13 @@ function ToggleButton({ active, pressed, onClick, children, style, activeColor, 
       aria-pressed={pressed}
       aria-label={ariaLabel}
       aria-keyshortcuts={shortcut}
+      aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
       // Underline + bold is the non-colour cue for the active state
       className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
-        border: `1px solid ${COLORS.toggleBorder}`,
+        border: `1px solid ${COLORS.controlBorder}`,
         color: active ? (activeColor?.text ?? COLORS.holoBright) : COLORS.textMuted,
         ...style,
       }}
@@ -82,7 +85,7 @@ function ConnectionIndicator({ status, isDemo }: { status: ConnectionStatus; isD
   const display = connectionDisplay(status, isDemo)
   const color = TONE_COLOR[display.tone]
   return (
-    <span role="status" title={display.description} className="flex items-center gap-1.5 font-semibold" style={{ color }}>
+    <span title={display.description} className="flex items-center gap-1.5 font-semibold" style={{ color }}>
       <span
         aria-hidden="true"
         className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
@@ -122,6 +125,8 @@ export interface TopBarProps {
   onTogglePanel: (panel: 'files' | 'transcript' | 'cost') => void
   onToggleTimeline: () => void
   onToggleMute: () => void
+  /** Open the keyboard shortcuts dialog (also bound to `?`) */
+  onOpenShortcuts: () => void
 }
 
 export const TopBar = memo(function TopBar({
@@ -130,7 +135,7 @@ export const TopBar = memo(function TopBar({
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleMute,
+  onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
 
@@ -158,7 +163,7 @@ export const TopBar = memo(function TopBar({
     >
       {/* Session tabs — scrollable, always shown (even with one session) */}
       {sessions.length > 0 && (
-        <div className="min-w-0 max-w-full flex-shrink overflow-x-auto scrollbar-hide">
+        <div className="min-w-0 max-w-full flex-shrink overflow-x-auto scrollbar-hide -m-1 p-1">
           <SessionTabs
             sessions={sessions}
             selectedSessionId={selectedSessionId}
@@ -214,6 +219,17 @@ export const TopBar = memo(function TopBar({
             shortcut="m"
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}
+          </ToggleButton>
+          <ToggleButton
+            active={false}
+            onClick={onOpenShortcuts}
+            ariaLabel="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+            shortcut="?"
+            hasDialog
+          >
+            <span aria-hidden="true">?</span>
+            <span aria-hidden="true" className="ml-1 hidden sm:inline">Shortcuts</span>
           </ToggleButton>
         </div>
       </div>
