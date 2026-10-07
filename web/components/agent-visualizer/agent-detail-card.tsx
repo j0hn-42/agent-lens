@@ -7,6 +7,7 @@ import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
+import { groupHeading } from '@/lib/ui-glossary'
 
 interface AgentDetailCardProps {
   agent: {
@@ -22,6 +23,7 @@ interface AgentDetailCardProps {
     kind?: 'main' | 'subagent' | 'teammate'
     teamName?: string
     teamColor?: string
+    teamKind?: 'team' | 'workflow'
     activity?: 'working' | 'idle' | 'done'
   }
   onClose: () => void
@@ -105,13 +107,13 @@ export function AgentDetailCard({
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-            <span>Teammate</span>
+            <span>{agent.teamKind === 'workflow' ? 'Workflow agent' : 'Teammate'}</span>
             {teamName && (
               <span className="flex min-w-0 items-center gap-1">
                 {teamColor && (
                   <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: teamColor }} />
                 )}
-                <span className="truncate">Team {teamName}</span>
+                <span className="truncate">{groupHeading(agent.teamKind, teamName)}</span>
               </span>
             )}
             {agent.activity && <span>{getActivityLabel(agent.activity)}</span>}

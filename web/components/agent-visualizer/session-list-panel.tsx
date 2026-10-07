@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
@@ -36,6 +37,7 @@ interface SessionListPanelProps {
   onSelectAgent: (agentId: string) => void
   teams?: ReadonlyMap<string, TeamSummary>
   teamWorking?: ReadonlyMap<string, number>
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
@@ -133,7 +135,7 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -171,11 +173,11 @@ export function SessionListPanel({
       : undefined
     const teamNames = listed ? [...listed.keys()] : []
     return buildSessionRows(
-      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, listed,
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
       { hideUnlistedTeams: true }, isObserved,
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
-  }, [sessions, teams, teamWorking, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
@@ -320,7 +322,7 @@ export function SessionListPanel({
                 const key = row.teamName!
                 const name = teams?.get(key)?.name ?? key
                 const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
                 return (
                   <li key={row.id}>
                     <button

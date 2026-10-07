@@ -34,8 +34,10 @@ export interface Agent {
   state: AgentState
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
-  /** Agent Team the agent belongs to */
+  /** Agent Team (or Workflow run) the agent belongs to */
   teamName?: string
+  /** What the group is: an Agent Team (default) or a Workflow run */
+  teamKind?: 'team' | 'workflow'
   /** Layout cluster: team name when the agent belongs to a team, else its session id */
   clusterKey?: string
   /** Team color, validated '#rrggbb' only */
@@ -200,10 +202,18 @@ export interface ParticleDetail {
 
 /** An Agent Team as the UI sees it (built from team_info events). Strings are untrusted and already sanitised. */
 export interface TeamSummary {
+  /**
+   * Display name. For a workflow it is the script name, NOT assumed unique: a second run of the same script
+   * in a session is announced as '<script> #<last 4 chars of the wf_id>', and two sessions may run the same one.
+   * Identity is the key of the teams map (team-key.ts), never the name.
+   */
   name: string
   leadSessionId: string
   leadName?: string
-  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string }>
+  /** 'workflow' for a Workflow-tool run whose members are its agents; absent means an Agent Team */
+  kind?: 'team' | 'workflow'
+  /** `phase`: workflow groups only, capped at 40 characters (MAX_PHASE_LEN, the extension's WORKFLOW_PHASE_MAX) */
+  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 
 export interface SimulationEvent {

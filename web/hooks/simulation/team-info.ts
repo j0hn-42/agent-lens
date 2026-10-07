@@ -4,11 +4,14 @@
  * Pure: no React, no DOM.
  */
 import type { TeamSummary } from '../../lib/agent-types'
+import { normalizeGroupKind, type GroupKind } from '../../lib/ui-glossary'
 import { ALL_SESSIONS_ID, cleanLine, parseTeamSelection } from '../../lib/bridge-types'
 import { teamKeyFor } from './team-key'
 
 export const MAX_TEAM_NAME_LEN = 80
 export const MAX_TEAM_MEMBERS = 100
+/** Max length of a workflow phase label */
+export const MAX_PHASE_LEN = 40
 const MAX_ID = 200
 
 export { cleanLine }
@@ -36,6 +39,7 @@ export function sanitizeTeamInfo(payload: Record<string, unknown>): TeamSummary 
     const agentType = cleanLine(rec.agentType)
     const backendType = cleanLine(rec.backendType, 40)
     const sessionId = cleanLine(rec.sessionId, MAX_ID)
+    const phase = cleanLine(rec.phase, MAX_PHASE_LEN)
     const color = sanitizeColor(rec.color)
     members.push({
       name: memberName,
@@ -43,16 +47,21 @@ export function sanitizeTeamInfo(payload: Record<string, unknown>): TeamSummary 
       ...(color ? { color } : {}),
       ...(backendType ? { backendType } : {}),
       ...(sessionId ? { sessionId } : {}),
+      ...(phase ? { phase } : {}),
     })
   }
   const leadSessionId = cleanLine(payload.leadSessionId, MAX_ID)
   const leadName = cleanLine(payload.leadName)
-  return { name, leadSessionId, ...(leadName ? { leadName } : {}), members }
+  // Only 'workflow' is kept: anything else is a plain Agent Team
+  const kind = normalizeGroupKind(payload.teamKind)
+  return { name, leadSessionId, ...(leadName ? { leadName } : {}), ...(kind === 'workflow' ? { kind } : {}), members }
 }
 
 export interface TeammateExtras {
   teamName: string
   teamColor?: string
+  /** 'workflow' for a Workflow-tool agent; absent for an Agent Team member */
+  teamKind?: 'workflow'
   agentType?: string
   backend?: string
   memberSessionId?: string
@@ -69,6 +78,7 @@ export function parseTeammateExtras(payload: Record<string, unknown>): TeammateE
   const memberSessionId = cleanLine(payload.memberSessionId, MAX_ID)
   return {
     teamName,
+    ...(normalizeGroupKind(payload.teamKind) === 'workflow' ? { teamKind: 'workflow' as const } : {}),
     ...(teamColor ? { teamColor } : {}),
     ...(agentType ? { agentType } : {}),
     ...(backend ? { backend } : {}),
@@ -80,6 +90,29 @@ export type Activity = 'working' | 'idle' | 'done'
 
 export function parseActivity(v: unknown): Activity | null {
   return v === 'working' || v === 'idle' || v === 'done' ? v : null
+}
+
+/** What the web knows of a group's members: tracked teammates and how many of them reported 'done'. */
+export interface GroupSummary {
+  kind?: GroupKind
+  /** Teammates the tracker has seen spawn in the group */
+  members: number
+  /** Of those, the ones whose last activity is 'done' */
+  done: number
+}
+
+/**
+ * Whether a team / workflow group counts as active, for 'Show finished' / 'Active only'.
+ *  - any member working: active;
+ *  - a workflow whose tracked agents are not all done stays active: its agents are only idle between
+ *    calls ("all done" is the extension's verdict after a quiet period, so done = no recent activity);
+ *  - otherwise (all done, nothing tracked, or an Agent Team with nobody working): finished.
+ * One rule for every consumer (sessions in 'All', the team rows of the Sessions panel).
+ */
+export function isGroupActive(summary: GroupSummary | undefined, working: number | undefined): boolean {
+  if (typeof working === 'number' && working > 0) return true
+  if (!summary || summary.kind !== 'workflow') return false
+  return summary.members > 0 && summary.done < summary.members
 }
 
 /** Max teams stored by the simulation / followed by a tracker (new teams beyond it are ignored) */
@@ -102,6 +135,8 @@ export interface TeamTracker {
   working(teamName: string): number
   /** Known members: the larger of the team config and the teammates seen spawning */
   memberCount(teamName: string): number
+  /** Tracked teammates and how many are done, for isGroupActive */
+  summary(teamName: string): GroupSummary
   clear(): void
 }
 
@@ -115,6 +150,7 @@ export function createTeamTracker(): TeamTracker {
   /** team key -> number of tracked teammates / of those working: O(1) reads, bounded by MAX_TEAMS * MAX_TEAM_MEMBERS */
   const seenCount = new Map<string, number>()
   const workingCount = new Map<string, number>()
+  const doneCount = new Map<string, number>()
   /** Teams created by a teammate spawn before any team_info named their lead: a team_info of that name adopts them */
   const provisional = new Set<string>()
 
@@ -136,6 +172,8 @@ export function createTeamTracker(): TeamTracker {
     if (prev === next) return false
     if (prev === 'working') bump(workingCount, team, -1)
     if (next === 'working') bump(workingCount, team, 1)
+    if (prev === 'done') bump(doneCount, team, -1)
+    if (next === 'done') bump(doneCount, team, 1)
     activity.set(key, next)
     return true
   }
@@ -180,8 +218,12 @@ export function createTeamTracker(): TeamTracker {
         const known = memberTeam.has(key)
         if (!known && (seenCount.get(team) ?? 0) >= MAX_TEAM_MEMBERS) return false
         if (!teams.has(team)) {
-          teams.set(team, { name: extras.teamName, leadSessionId: sid, members: [] })
+          teams.set(team, { name: extras.teamName, leadSessionId: sid, ...(extras.teamKind ? { kind: extras.teamKind } : {}), members: [] })
           provisional.add(team)
+        } else if (extras.teamKind) {
+          // A spawn that arrives before / without team_info still marks the group as a workflow
+          const cur = teams.get(team)!
+          if (cur.kind !== extras.teamKind) teams.set(team, { ...cur, kind: extras.teamKind })
         }
         if (!known) {
           memberTeam.set(key, team)
@@ -213,7 +255,12 @@ export function createTeamTracker(): TeamTracker {
       const key = resolve(team)
       return Math.max(teams.get(key)?.members.length ?? 0, seenCount.get(key) ?? 0)
     },
-    clear() { teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear(); seenCount.clear(); workingCount.clear(); provisional.clear() },
+    summary(team) {
+      const key = resolve(team)
+      const kind = teams.get(key)?.kind
+      return { ...(kind ? { kind } : {}), members: seenCount.get(key) ?? 0, done: doneCount.get(key) ?? 0 }
+    },
+    clear() { doneCount.clear(); teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear(); seenCount.clear(); workingCount.clear(); provisional.clear() },
   }
 }
 

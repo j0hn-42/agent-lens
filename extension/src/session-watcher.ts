@@ -199,6 +199,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           const tm = sub.teammate?.meta
           const teammateExtras = tm ? {
             kind: 'teammate', teamName: tm.teamName, backendType: 'in-process',
+            ...(tm.teamKind ? { teamKind: tm.teamKind } : {}),
             ...(tm.color ? { color: tm.color } : {}),
             ...(tm.agentType ? { agentType: tm.agentType } : {}),
           } : {}

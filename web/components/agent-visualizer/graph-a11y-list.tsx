@@ -5,6 +5,7 @@ import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
 import type { LinkMessageItem } from './canvas/edge-bubble-set'
+import { clusterNoun, clusterNounLower } from './canvas/cluster-model'
 
 interface GraphA11yListProps {
   model: A11yModel
@@ -97,7 +98,7 @@ export function GraphA11yList({
       </button>
       <p>
         {agent.orchestrator === 'lead' ? 'Orchestrator, lead of the team. ' : agent.orchestrator === 'main' ? 'Orchestrator, main agent of the session. ' : ''}
-        {agent.teamName ? `Teammate in team ${agent.teamName}. ` : ''}
+        {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
         {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
       </p>
@@ -148,7 +149,7 @@ export function GraphA11yList({
             {ungrouped.length > 0 && <ul>{ungrouped.map(agent => renderAgent(agent))}</ul>}
             {groups.map(group => (
               <div key={group.cluster.key}>
-                <h3>{group.cluster.kind === 'team' ? 'Team' : 'Session'} {group.cluster.title}</h3>
+                <h3>{clusterNoun(group.cluster)} {group.cluster.title}</h3>
                 <p>{group.cluster.text}</p>
                 {onClusterClick && (
                   <button
@@ -158,10 +159,10 @@ export function GraphA11yList({
                     aria-current={group.cluster.key === selectedClusterKey ? 'true' : undefined}
                     onClick={() => onClusterClick(group.cluster.key)}
                   >
-                    Zoom to {group.cluster.kind === 'team' ? 'team' : 'session'} {group.cluster.title}
+                    Zoom to {clusterNounLower(group.cluster)} {group.cluster.title}
                   </button>
                 )}
-                <ul aria-label={`Agents of ${group.cluster.kind === 'team' ? 'team' : 'session'} ${group.cluster.title}`}>
+                <ul aria-label={`Agents of ${clusterNounLower(group.cluster)} ${group.cluster.title}`}>
                   {group.agents.map(agent => renderAgent(agent))}
                 </ul>
               </div>

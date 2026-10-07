@@ -5,13 +5,14 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import { newestTranscriptMtime } from '../extension/src/discovery-activity'
 import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { readNewFileLines, foldPathCase } from '../extension/src/fs-utils'
+import { readNewFileLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -424,14 +425,11 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
     if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
       // Main file is idle: a running subagent may still be active
       const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
-      try {
-        let n = 0
-        for (const subFile of fs.readdirSync(subagentsDir)) {
-          if (!subFile.endsWith('.jsonl') || ++n > 100) continue
-          const subStat = fs.statSync(path.join(subagentsDir, subFile))
-          if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-        }
-      } catch {}
+      // Includes Workflow-tool agents (subagents/workflows/<id>/agent-*.jsonl): an orchestrator blocked on
+      // the Workflow tool leaves its own file idle while those keep growing (same listing as the extension)
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(subagentsDir), newestMtime, Date.now() - ACTIVE_SESSION_AGE_S * 1000,
+      )
     }
     if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
       candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })

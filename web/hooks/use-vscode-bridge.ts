@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
 import { SessionModelTracker } from '@/lib/session-model'
-import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
+import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
   activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
@@ -47,6 +47,8 @@ interface BridgeHookResult {
   teams: Map<string, TeamSummary>
   /** Members currently working, per team name */
   teamWorking: Map<string, number>
+  /** Tracked members and done members per team key (feeds isGroupActive) */
+  teamSummaries: Map<string, GroupSummary>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
   /** 'All' also shows the finished sessions (persisted preference) */
@@ -124,15 +126,16 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const teamTrackerRef = useRef(createTeamTracker())
   const modelTrackerRef = useRef(new SessionModelTracker())
   const [sessionModels, setSessionModels] = useState<ReadonlyMap<string, string>>(new Map())
-  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
-    () => ({ teams: new Map(), working: new Map(), members: new Map() }),
+  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number>; summaries: Map<string, GroupSummary> }>(
+    () => ({ teams: new Map(), working: new Map(), members: new Map(), summaries: new Map() }),
   )
   const refreshTeamView = useCallback(() => {
     const tracker = teamTrackerRef.current
     const working = new Map<string, number>()
     const members = new Map<string, number>()
-    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)) }
-    setTeamView({ teams: new Map(tracker.teams), working, members })
+    const summaries = new Map<string, GroupSummary>()
+    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)); summaries.set(name, tracker.summary(name)) }
+    setTeamView({ teams: new Map(tracker.teams), working, members, summaries })
   }, [])
   // 'All' shows only the active sessions unless the user asked for the finished ones too
   const [showFinished, setShowFinishedState] = useState(false)
@@ -166,6 +169,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       selectedId: selectedSessionIdRef.current,
       teamSessions: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.sessionsOf(name)] as const)),
       teamWorking: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.working(name)] as const)),
+      teamSummaries: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.summary(name)] as const)),
       now: Date.now(),
     })
     finished = finishedSessionIds(sessionsRef.current, active).length
@@ -563,6 +567,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,
+    teamSummaries: teamView.summaries,
     teamMemberCounts: teamView.members,
     showFinished,
     setShowFinished,

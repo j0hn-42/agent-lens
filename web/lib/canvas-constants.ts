@@ -599,6 +599,8 @@ export const CLUSTER_DRAW = {
   detailFontSize: 11,
   labelHeight: 36,
   labelMaxWidth: 260,
+  /** The title starts this many px right of the detail line (room for the colour dot) */
+  titleIndent: 10,
   /** Padding between members and the halo edge (world px) */
   padding: 56,
 } as const

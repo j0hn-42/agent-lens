@@ -18,7 +18,7 @@ import {
   FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
   droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
-  pairOfMessage, tabForSelection, groupByTeam, COLLAPSED_TEXT_MAX, type FeedMessage,
+  pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, type FeedMessage,
 } from '@/lib/feed-utils'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
@@ -226,7 +226,7 @@ export function ConversationPanel({
 
   const teamGroups = useMemo(
     () => (open && teams && teams.size > 0
-      ? groupByTeam([...agents.values()].filter(a => a.teamName)).filter(g => g.team !== null)
+      ? teamChipGroups([...agents.values()], teams)
       : []),
     [open, teams, agents],
   )
@@ -532,11 +532,11 @@ export function ConversationPanel({
 
         {/* Teammates grouped under their team heading */}
         {teamGroups.length > 0 && (
-          <section aria-label="Teams" className="px-3 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} className="px-3 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
             {teamGroups.map(g => (
-              <div key={g.team}>
+              <div key={g.key} role="group" aria-label={g.label}>
                 <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
-                  {g.team}
+                  {g.heading}
                 </h3>
                 <ul className="flex flex-wrap gap-x-2 gap-y-0.5 pb-1">
                   {g.items.map(a => (

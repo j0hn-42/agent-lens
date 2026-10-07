@@ -174,7 +174,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
   for (const c of input.clusters) {
     const lines = clusterLabelLines(c)
     const w = Math.min(CLUSTER_DRAW.labelMaxWidth, Math.max(
-      estimateTextWidth(lines.title, CLUSTER_DRAW.labelFontSize), estimateTextWidth(lines.detail, CLUSTER_DRAW.detailFontSize),
+      // The title is drawn after the colour dot (CLUSTER_DRAW.titleIndent px further right than the detail line)
+      estimateTextWidth(lines.title, CLUSTER_DRAW.labelFontSize) + CLUSTER_DRAW.titleIndent, estimateTextWidth(lines.detail, CLUSTER_DRAW.detailFontSize),
     ) + 16)
     const h = CLUSTER_DRAW.labelHeight
     const a = clusterLabelAnchor(c)

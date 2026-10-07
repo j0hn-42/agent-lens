@@ -74,7 +74,11 @@ export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Par
     const take = Math.min(events.length, perSession, budget)
     if (take <= 0) { continue }
     // Lifecycle events cut off by the cap are re-added in front (bounded), so the graph still builds
-    const head = events.slice(0, events.length - take).filter(e => LIFECYCLE_TYPES.has(e.type)).slice(-RELAY_REPLAY_LIFECYCLE_RESERVE)
+    const cut = events.slice(0, events.length - take)
+    const head = [
+      ...cut.filter(e => LIFECYCLE_TYPES.has(e.type)).slice(-RELAY_REPLAY_LIFECYCLE_RESERVE),
+      ...cut.filter(e => e.type === ACTIVITY_TYPE).slice(-RELAY_REPLAY_LIFECYCLE_RESERVE),
+    ]
     kept.unshift([...head, ...events.slice(events.length - take)])
     budget -= take + head.length
   }
@@ -95,6 +99,14 @@ export const DEFAULT_BUFFER_LIMITS: BufferLimits = {
 /** Event types that rebuild the graph on replay: chatter is evicted before these. */
 const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'])
 
+/** Replayed after the lifecycle events, but never counted against their reserve: only the LATEST one
+ *  per agent is kept (see appendBounded), so a long run cannot push spawns / team_info out (#79). */
+const ACTIVITY_TYPE = 'agent_activity'
+
+function agentNameOf(e: AgentEvent): unknown {
+  return (e.payload as { name?: unknown } | undefined)?.name
+}
+
 /** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
  *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
 export function trimKeepingLifecycle(buf: AgentEvent[], max: number): void {
@@ -103,6 +115,7 @@ export function trimKeepingLifecycle(buf: AgentEvent[], max: number): void {
     let victim = -1
     for (let i = 0; i < buf.length; i++) {
       if (LIFECYCLE_TYPES.has(buf[i].type)) { lifecycle++; continue }
+      if (buf[i].type === ACTIVITY_TYPE) continue
       victim = i
       break
     }
@@ -124,7 +137,10 @@ export function appendBounded(
 ): void {
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
-  buf.push(event)
+  const previous = event.type === ACTIVITY_TYPE ? buf.findIndex(e => e.type === ACTIVITY_TYPE && agentNameOf(e) === agentNameOf(event)) : -1
+  // Only the latest activity per (session, agent) is replayed: replace in place, it stays after the spawn
+  if (previous >= 0) buf[previous] = event
+  else buf.push(event)
   trimKeepingLifecycle(buf, lim.perSession)
   // Re-insert so Map order reflects recency of writes
   buffers.delete(sessionId)
