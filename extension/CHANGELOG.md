@@ -1,5 +1,7 @@
 # Changelog
 
+Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written for Agent Flow; Agent Lens changes are summarised in [NOTICE](../NOTICE).
+
 ## 0.9.1
 
 - Fix: Claude Code session discovery on Windows — workspace-to-project-dir matching is now case-insensitive on win32 (#57, part of #4)

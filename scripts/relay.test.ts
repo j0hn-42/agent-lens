@@ -16,7 +16,7 @@ import { RELAY_MAX_SSE_CLIENTS } from '../extension/src/constants'
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
-delete process.env.AGENT_FLOW_ALL_WORKSPACES
+delete process.env.AGENT_LENS_ALL_WORKSPACES
 
 let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
 let server: http.Server
@@ -75,7 +75,7 @@ describe('relay SSE limits', () => {
     fs.mkdirSync(other, { recursive: true })
     fs.writeFileSync(path.join(other, 'foreign-session.jsonl'), JSON.stringify({ type: 'user', message: { role: 'user', content: 'hi' } }) + '\n')
     relay = await createRelay({ workspace: ws, runtime: 'claude' })
-    const discoveryDir = path.join(fakeHome, '.claude', 'agent-flow')
+    const discoveryDir = path.join(fakeHome, '.claude', 'agent-lens')
     const file = fs.readdirSync(discoveryDir).find(f => f.endsWith('.json'))!
     hookPort = JSON.parse(fs.readFileSync(path.join(discoveryDir, file), 'utf8')).port
     server = http.createServer((req, res) => {

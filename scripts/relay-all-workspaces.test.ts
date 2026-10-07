@@ -1,5 +1,5 @@
 /**
- * --all-workspaces / AGENT_FLOW_ALL_WORKSPACES: sessions from other workspaces are
+ * --all-workspaces / AGENT_LENS_ALL_WORKSPACES: sessions from other workspaces are
  * discovered, but only real .jsonl files directly inside real project dirs under
  * ~/.claude/projects (no symlinks, size cap, safe ids).
  */
@@ -15,7 +15,7 @@ const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-all-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
 // Exercise the env var path (no explicit option passed to createRelay)
-process.env.AGENT_FLOW_ALL_WORKSPACES = '1'
+process.env.AGENT_LENS_ALL_WORKSPACES = '1'
 
 const line = JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello from another workspace' } }) + '\n'
 

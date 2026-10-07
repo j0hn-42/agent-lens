@@ -174,7 +174,7 @@ describe('buildSubagentReport', () => {
   afterEach(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }) })
 
   it('never reads a transcript path outside the allow-list', () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-report-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-report-'))
     const file = path.join(dir, 'x.jsonl')
     fs.writeFileSync(file, JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'SECRET FROM FILE' } }) + '\n')
     assert.equal(buildSubagentReport({ agent_transcript_path: file }), undefined)
@@ -260,7 +260,7 @@ describe('subagent file watcher identity and parent', () => {
   afterEach(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }) })
 
   function setup(files: Record<string, { meta?: Record<string, unknown> }>) {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-subs-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-subs-'))
     const pendingLine = JSON.stringify({ message: { role: 'assistant', content: [{ type: 'tool_use', id: 'tu', name: 'Read', input: {} }] } }) + '\n'
     for (const [name, spec] of Object.entries(files)) {
       fs.writeFileSync(path.join(dir, `${name}.jsonl`), pendingLine)
@@ -304,7 +304,7 @@ describe('subagent file watcher identity and parent', () => {
   })
 
   it('reads parentToolUseID from the first transcript entry when no meta exists', () => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-subs-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-subs-'))
     const file = path.join(dir, 'agent-q.jsonl')
     fs.writeFileSync(file, JSON.stringify({ parentToolUseID: 'toolu_x', message: { role: 'user', content: 'hi' } }) + '\n')
     const info = resolveSubagentFileInfo(file, 3)

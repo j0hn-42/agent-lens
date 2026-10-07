@@ -7,7 +7,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jobailla/agent-flow"
+    "url": "https://github.com/jobailla/agent-lens"
   },
   "icon": "media/icon.png",
   "engines": {

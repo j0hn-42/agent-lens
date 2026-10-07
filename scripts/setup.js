@@ -7,7 +7,7 @@
  * to launch the extension in the debugger first.
  *
  * What it does:
- *   1. Installs the hook forwarding script at ~/.claude/agent-flow/hook.js
+ *   1. Installs the hook forwarding script at ~/.claude/agent-lens/hook.js
  *   2. Configures Claude Code hooks in ~/.claude/settings.json
  */
 'use strict'
@@ -17,14 +17,15 @@ const path = require('path')
 const os = require('os')
 const { execFileSync } = require('child_process')
 
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
+const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
 
 const HOOK_TIMEOUT_S = 2
 const HOOK_SAFETY_MARGIN_MS = 500
 const HOOK_FORWARD_TIMEOUT_MS = 1000
-const HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+const HOOK_COMMAND_MARKER = 'agent-lens/hook.js'
+const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js' // hooks installed under the former project name
 
 // ─── Resolve node path ──────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ const os = require('os');
 
 setTimeout(() => process.exit(0), ${HOOK_TIMEOUT_S * 1000 - HOOK_SAFETY_MARGIN_MS});
 
-const DIR = path.join(os.homedir(), '.claude', 'agent-flow');
+const DIR = path.join(os.homedir(), '.claude', 'agent-lens');
 const IS_WIN = process.platform === 'win32';
 
 function normPath(p) {
@@ -151,9 +152,10 @@ function ensureHookScript() {
 
 // ─── Configure Claude Code hooks ────────────────────────────────────────────
 
-function isAgentFlowHook(entry) {
+function isAgentLensHook(entry) {
   return entry.hooks?.some(h =>
     h.command?.includes(HOOK_COMMAND_MARKER) ||
+    h.command?.includes(LEGACY_HOOK_COMMAND_MARKER) ||
     h.url?.startsWith('http://127.0.0.1:'),
   )
 }
@@ -180,7 +182,7 @@ function configureHooks() {
   const existingHooks = settings.hooks || {}
   for (const event of events) {
     const existing = existingHooks[event] || []
-    const filtered = existing.filter(entry => !isAgentFlowHook(entry))
+    const filtered = existing.filter(entry => !isAgentLensHook(entry))
     existingHooks[event] = [...filtered, hookEntry]
   }
   settings.hooks = existingHooks
@@ -207,7 +209,7 @@ function isAlreadySetup() {
     if (!hooks || typeof hooks !== 'object') return false
     return Object.values(hooks).some(entries => {
       if (!Array.isArray(entries)) return false
-      return entries.some(entry => isAgentFlowHook(entry))
+      return entries.some(entry => isAgentLensHook(entry))
     })
   } catch {
     return false

@@ -6,7 +6,7 @@ import * as path from 'path'
 import { createTelemetryClient, isTelemetryEnabled, TELEMETRY_ENDPOINT, TELEMETRY_PUBLISHABLE_KEY } from './telemetry'
 
 function setup() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-tel-'))
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-tel-'))
 }
 
 function makeClient(dir: string) {
@@ -23,7 +23,7 @@ function baseEvent() {
   return {
     event_type: 'session_start' as const,
     session_id: 's-1',
-    agent_flow_version: '0.0.1',
+    agent_lens_version: '0.0.1',
     os: 'darwin',
     arch: 'arm64',
   }
@@ -38,16 +38,16 @@ test('isTelemetryEnabled: default (no env) is true', () => {
   assert.equal(isTelemetryEnabled({}), true)
 })
 
-test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=false disables', () => {
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'false' }), false)
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: '0' }), false)
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'disabled' }), false)
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: '' }), false)
+test('isTelemetryEnabled: AGENT_LENS_TELEMETRY=false disables', () => {
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: 'false' }), false)
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: '0' }), false)
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: 'disabled' }), false)
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: '' }), false)
 })
 
-test('isTelemetryEnabled: AGENT_FLOW_TELEMETRY=true stays enabled', () => {
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'true' }), true)
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: '1' }), true)
+test('isTelemetryEnabled: AGENT_LENS_TELEMETRY=true stays enabled', () => {
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: 'true' }), true)
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: '1' }), true)
 })
 
 test('isTelemetryEnabled: DO_NOT_TRACK=1 disables', () => {
@@ -55,14 +55,14 @@ test('isTelemetryEnabled: DO_NOT_TRACK=1 disables', () => {
   assert.equal(isTelemetryEnabled({ DO_NOT_TRACK: 'true' }), false)
 })
 
-test('isTelemetryEnabled: DO_NOT_TRACK wins even when AGENT_FLOW_TELEMETRY=true', () => {
-  assert.equal(isTelemetryEnabled({ AGENT_FLOW_TELEMETRY: 'true', DO_NOT_TRACK: '1' }), false)
+test('isTelemetryEnabled: DO_NOT_TRACK wins even when AGENT_LENS_TELEMETRY=true', () => {
+  assert.equal(isTelemetryEnabled({ AGENT_LENS_TELEMETRY: 'true', DO_NOT_TRACK: '1' }), false)
 })
 
 test('emit appends to JSONL when enabled', async () => {
   const dir = setup()
   const client = makeClient(dir)
-  delete process.env.AGENT_FLOW_TELEMETRY
+  delete process.env.AGENT_LENS_TELEMETRY
   delete process.env.DO_NOT_TRACK
   await client.init()
   client.emit(baseEvent())
@@ -77,9 +77,9 @@ test('emit appends to JSONL when enabled', async () => {
   assert.match(e.ts, /^\d{4}-\d{2}-\d{2}T/)
 })
 
-test('disabled via AGENT_FLOW_TELEMETRY=false writes nothing to disk', async () => {
+test('disabled via AGENT_LENS_TELEMETRY=false writes nothing to disk', async () => {
   const dir = setup()
-  process.env.AGENT_FLOW_TELEMETRY = 'false'
+  process.env.AGENT_LENS_TELEMETRY = 'false'
   try {
     const client = makeClient(dir)
     await client.init()
@@ -89,7 +89,7 @@ test('disabled via AGENT_FLOW_TELEMETRY=false writes nothing to disk', async () 
     assert.equal(fs.existsSync(path.join(dir, 'telemetry', 'events.jsonl')), false)
     assert.equal(fs.existsSync(path.join(dir, 'installation-id')), false)
   } finally {
-    delete process.env.AGENT_FLOW_TELEMETRY
+    delete process.env.AGENT_LENS_TELEMETRY
   }
 })
 
@@ -110,7 +110,7 @@ test('disabled via DO_NOT_TRACK=1 writes nothing to disk', async () => {
 
 test('install-id persists across init calls', async () => {
   const dir = setup()
-  delete process.env.AGENT_FLOW_TELEMETRY
+  delete process.env.AGENT_LENS_TELEMETRY
   delete process.env.DO_NOT_TRACK
   const client1 = makeClient(dir)
   await client1.init()
@@ -131,7 +131,7 @@ test('install-id persists across init calls', async () => {
 
 test('emit sanitizes session_id', async () => {
   const dir = setup()
-  delete process.env.AGENT_FLOW_TELEMETRY
+  delete process.env.AGENT_LENS_TELEMETRY
   delete process.env.DO_NOT_TRACK
   const client = makeClient(dir)
   await client.init()

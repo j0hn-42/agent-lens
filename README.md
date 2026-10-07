@@ -1,13 +1,12 @@
 # Agent Lens
 
-> **This is a fork of [Agent Flow](https://github.com/patoles/agent-flow)** by Simon Patole, published under the Apache License 2.0 and renamed **Agent Lens** as required by the upstream [trademark policy](TRADEMARK.md). It is not the official Agent Flow project and is not endorsed by its maintainers.
-> The `agent-lens-app` npm package and the VS Code extension are **not published**: run the project from source (see below).
+> Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow) by Simon Patole (Apache License 2.0). See [Origin and credits](#origin-and-credits).
 
 Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. 
 
 ## Why Agent Lens?
 
-The original project was created by Simon Patole while developing [CraftMyGame](https://craftmygame.com), because debugging agent behavior was painful. This fork keeps that goal and focuses on accessibility, a unified multi-agent view and readable agent-to-agent communication.
+Agent Lens started from Agent Flow, a visualizer created by Simon Patole because debugging agent behavior was painful. We took the project over and push it further: accessibility, a single view of all agents across sessions, and readable agent-to-agent communication.
 
 Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Agent Lens makes the invisible visible:
 
@@ -32,7 +31,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 ### Run from source (no VS Code required)
 
 ```bash
-git clone https://github.com/jobailla/agent-flow.git agent-lens
+git clone https://github.com/jobailla/agent-lens.git
 cd agent-lens
 pnpm i
 pnpm run setup      # configure Claude Code hooks (one-time)
@@ -56,7 +55,7 @@ By default Agent Lens watches both Claude Code (`~/.claude/projects/`) and Codex
 To restrict to one runtime:
 
 - **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` in your settings
-- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
+- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable.
 
@@ -130,16 +129,16 @@ Accessibility checks run in CI without any browser download:
 
 Follow-up (not done yet): a Playwright + `@axe-core/playwright` smoke run against `pnpm run dev:demo` for layout-dependent checks (320 px reflow, 200 % zoom, `prefers-reduced-motion`, full-page Tab order). It needs a downloaded browser, so it is not part of CI today.
 
-## Author
+## Origin and credits
 
-Agent Lens is a fork of [Agent Flow](https://github.com/patoles/agent-flow), created by [Simon Patole](https://github.com/patoles) for [CraftMyGame](https://craftmygame.com). The original author is credited under the Apache License 2.0; all upstream copyright notices are kept.
+Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow), created by [Simon Patole](https://github.com/patoles) for [CraftMyGame](https://craftmygame.com). Agent Flow's code, architecture and original visual design are the foundation of this project, and we are grateful to its author.
+
+This repository is an independent continuation with its own name, icon set, roadmap and maintainers. It is not affiliated with or endorsed by the Agent Flow project. Changes made since the fork are listed in [NOTICE](NOTICE) and in the git history; the history before the fork is Agent Flow's.
 
 ## Privacy & Telemetry
 
-This fork sends **no telemetry**. The upstream project's collection endpoint was removed from the code on purpose, so nothing leaves your machine and nothing is written to disk for analytics. If you want telemetry for your own deployment, set your own endpoint and publishable key in `scripts/telemetry.ts` and rebuild. Telemetry also stays off when `DO_NOT_TRACK=1` or `AGENT_FLOW_TELEMETRY=false` is set.
+Agent Lens sends **no telemetry**: the collection endpoint inherited from Agent Flow was removed, so nothing leaves your machine and nothing is written to disk for analytics. If you want telemetry for your own deployment, set your own endpoint and publishable key in `scripts/telemetry.ts` and rebuild. Telemetry also stays off when `DO_NOT_TRACK=1` or `AGENT_LENS_TELEMETRY=false` is set.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
-
-"Agent Flow" and its logos are trademarks of Simon Patole. This fork is an independent project under a different name, uses none of the Agent Flow logos, and is not affiliated with or endorsed by the Agent Flow maintainers. See [TRADEMARK.md](TRADEMARK.md).
+Apache License 2.0, see [LICENSE](LICENSE). The original copyright notices are kept and the modifications are stated in [NOTICE](NOTICE), as the license requires.

@@ -2,7 +2,7 @@
 /**
  * vscode:uninstall script — runs when the extension is uninstalled.
  * Removes Agent Lens hooks from ALL known Claude Code settings files,
- * then deletes the entire ~/.claude/agent-flow/ directory.
+ * then deletes the entire ~/.claude/agent-lens/ directory.
  *
  * Sources for workspace discovery (checked in order, deduplicated):
  * 1. workspaces.json manifest — persists across crashes/restarts
@@ -13,9 +13,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const HOOK_COMMAND_MARKER = 'agent-flow/hook.js';
+const HOOK_COMMAND_MARKER = 'agent-lens/hook.js';
+const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'; // hooks installed under the former project name
 const HOOK_URL_PREFIX = 'http://127.0.0.1:';
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow');
+const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens');
 const MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json');
 
 // ─── Remove hooks from a settings file ─────────────────────────────────────
@@ -33,6 +34,7 @@ function removeHooksFromFile(settingsPath) {
       const filtered = entries.filter(entry => {
         return !entry.hooks?.some(h =>
           h.command?.includes(HOOK_COMMAND_MARKER) ||
+    h.command?.includes(LEGACY_HOOK_COMMAND_MARKER) ||
           h.url?.startsWith(HOOK_URL_PREFIX),
         );
       });
@@ -99,5 +101,5 @@ for (const workspace of collectWorkspaces()) {
   removeHooksFromFile(path.join(workspace, '.claude', 'settings.local.json'));
 }
 
-// 3. Delete entire agent-flow directory (manifest, discovery files, hook script)
+// 3. Delete entire agent-lens directory (manifest, discovery files, hook script)
 try { fs.rmSync(DISCOVERY_DIR, { recursive: true, force: true }); } catch { /* best effort */ }

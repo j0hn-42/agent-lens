@@ -19,7 +19,7 @@ describe('readNewFileLines', () => {
   let file: string
 
   before(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-fs-utils-'))
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-fs-utils-'))
     file = path.join(dir, 'sample.jsonl')
   })
 

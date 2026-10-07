@@ -92,7 +92,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     if (bridge.isVSCode) return
 
     // Connect to relay in dev mode or standalone CLI mode
-    const isStandalone = process.env.AGENT_FLOW_STANDALONE === '1'
+    const isStandalone = process.env.AGENT_LENS_STANDALONE === '1'
     if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) {
       // No relay to wait for: unless the VS Code init message arrives, we are offline.
       const t = setTimeout(() => {

@@ -27,7 +27,7 @@ Options:
   -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT})
   --no-open            Don't open the browser automatically
   --all-workspaces     Also discover Claude sessions from other workspaces
-                       (env: AGENT_FLOW_ALL_WORKSPACES=1)
+                       (env: AGENT_LENS_ALL_WORKSPACES=1)
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)

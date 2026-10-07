@@ -24,7 +24,7 @@ interface ServerOptions {
 export async function startServer(options: ServerOptions) {
   const { port, openBrowser, workspace } = options
 
-  const configDir = path.join(os.homedir(), '.agent-flow')
+  const configDir = path.join(os.homedir(), '.agent-lens')
   const telemetry = createTelemetryClient({
     logDir: path.join(configDir, 'telemetry'),
     installIdPath: path.join(configDir, 'installation-id'),

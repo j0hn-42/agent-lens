@@ -6,7 +6,7 @@ import * as path from 'path'
 import { syncOnce } from './sync'
 
 function setup() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-flow-sync-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-sync-'))
   return {
     jsonlPath: path.join(dir, 'events.jsonl'),
     cursorPath: path.join(dir, '.cursor'),
@@ -20,7 +20,7 @@ function makeEvent(i: number) {
     event_type: 'session_start',
     installation_id: 'a1b2c3d4-5678-4abc-9def-000000000000',
     session_id: `s-${i}`,
-    agent_flow_version: '0.0.1',
+    agent_lens_version: '0.0.1',
     os: 'darwin',
     arch: 'arm64',
   })

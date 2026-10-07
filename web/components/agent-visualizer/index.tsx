@@ -32,7 +32,7 @@ import { ShortcutsDialog } from "./shortcuts-dialog"
 import { PanelRegistryContext, type PanelEscapeHandler, type RegisterPanel } from "@/hooks/use-panel-registry"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, connectionDisplay, emptyStateChecklist, formatMissedEvents, runEscapeHandlers } from "@/lib/chrome-utils"
 
-const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-flow:single-key-shortcuts'
+const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-lens:single-key-shortcuts'
 
 type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
 

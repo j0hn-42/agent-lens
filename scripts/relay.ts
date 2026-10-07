@@ -30,7 +30,7 @@ import {
 import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
 import type { TelemetryClient } from './telemetry'
 
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
+const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
 
 let relayCreated = false
@@ -43,11 +43,11 @@ const observedModels = new Set<string>()
 
 // agent-lens-app version. Inlined by esbuild at bundle time via `define`.
 // In dev (running from source via tsx), falls back to reading app/package.json.
-declare const AGENT_FLOW_APP_VERSION: string | undefined
-function resolveAgentFlowVersion(): string {
+declare const AGENT_LENS_APP_VERSION: string | undefined
+function resolveAgentLensVersion(): string {
   try {
-    if (typeof AGENT_FLOW_APP_VERSION === 'string' && AGENT_FLOW_APP_VERSION) {
-      return AGENT_FLOW_APP_VERSION
+    if (typeof AGENT_LENS_APP_VERSION === 'string' && AGENT_LENS_APP_VERSION) {
+      return AGENT_LENS_APP_VERSION
     }
   } catch { /* ReferenceError in unbundled dev — fall through */ }
   try {
@@ -416,18 +416,18 @@ export interface RelayOptions {
   workspace: string
   verbose?: boolean
   telemetry?: TelemetryClient
-  /** Which runtimes to watch. Defaults to AGENT_FLOW_RUNTIME env var, or 'auto'.
+  /** Which runtimes to watch. Defaults to AGENT_LENS_RUNTIME env var, or 'auto'.
    *  Mirrors the extension's `agentVisualizer.runtime` setting so users of the
    *  dev relay and `npx agent-lens-app` have a way to opt out of one runtime. */
   runtime?: RelayRuntimeMode
   /** Also discover Claude sessions from other workspaces (every project dir under
-   *  ~/.claude/projects). Defaults to the AGENT_FLOW_ALL_WORKSPACES env var (1/true). */
+   *  ~/.claude/projects). Defaults to the AGENT_LENS_ALL_WORKSPACES env var (1/true). */
   allWorkspaces?: boolean
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
   if (explicit === 'claude' || explicit === 'codex' || explicit === 'auto') return explicit
-  const raw = process.env.AGENT_FLOW_RUNTIME
+  const raw = process.env.AGENT_LENS_RUNTIME
   return raw === 'claude' || raw === 'codex' ? raw : 'auto'
 }
 
@@ -442,7 +442,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
   relayCreated = true
 
-  const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_FLOW_ALL_WORKSPACES)
+  const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
   const mode = resolveRuntimeMode(options.runtime)
   const wantClaude = mode === 'claude' || mode === 'auto'
   const wantCodex = mode === 'codex' || mode === 'auto'
@@ -509,11 +509,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const relaySessionId = `relay-${process.pid}-${Math.floor(sessionStart / 1000)}`
   sessionEventCount = 0
 
-  const agentFlowVersion = resolveAgentFlowVersion()
+  const agentFlowVersion = resolveAgentLensVersion()
 
   const baseEvent = () => ({
     session_id: relaySessionId,
-    agent_flow_version: agentFlowVersion,
+    agent_lens_version: agentFlowVersion,
     os: os.platform(),
     arch: os.arch(),
   })

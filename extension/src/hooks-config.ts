@@ -6,6 +6,7 @@ import { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, HOOK_TIMEOUT_S } from './constants'
 import {
   HOOK_COMMAND_MARKER,
+  LEGACY_HOOK_COMMAND_MARKER,
   getHookCommand, ensureHookScript,
   addWorkspaceToManifest,
 } from './discovery'
@@ -27,11 +28,12 @@ function readGlobalSettings(): Record<string, unknown> | null {
 }
 
 /** Check whether a single hook entry belongs to Agent Lens */
-function isAgentFlowHook(entry: ClaudeHookEntry): boolean {
+function isAgentLensHook(entry: ClaudeHookEntry): boolean {
   return !!entry.hooks?.some(h =>
     // Normalize backslashes to forward slashes so Windows paths
-    // (e.g. "C:\\Users\\...\\agent-flow\\hook.js") match HOOK_COMMAND_MARKER.
+    // (e.g. "C:\\Users\\...\\agent-lens\\hook.js") match HOOK_COMMAND_MARKER.
     h.command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER) ||
+    h.command?.replace(/\\/g, '/').includes(LEGACY_HOOK_COMMAND_MARKER) ||
     h.url?.startsWith(HOOK_URL_PREFIX),
   )
 }
@@ -39,12 +41,12 @@ function isAgentFlowHook(entry: ClaudeHookEntry): boolean {
 // ─── Detection ────────────────────────────────────────────────────────────────
 
 function hooksAlreadyConfigured(): boolean {
-  if (hasAgentFlowHooks(GLOBAL_SETTINGS_PATH)) { return true }
+  if (hasAgentLensHooks(GLOBAL_SETTINGS_PATH)) { return true }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
     const projectPath = path.join(workspaceFolder, '.claude', 'settings.local.json')
-    if (hasAgentFlowHooks(projectPath)) {
+    if (hasAgentLensHooks(projectPath)) {
       // Backfill manifest for workspaces configured before the manifest existed
       addWorkspaceToManifest(workspaceFolder)
       return true
@@ -54,7 +56,7 @@ function hooksAlreadyConfigured(): boolean {
   return false
 }
 
-function hasAgentFlowHooks(settingsPath: string): boolean {
+function hasAgentLensHooks(settingsPath: string): boolean {
   try {
     if (!fs.existsSync(settingsPath)) { return false }
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
@@ -62,7 +64,7 @@ function hasAgentFlowHooks(settingsPath: string): boolean {
     if (!hooks || typeof hooks !== 'object') { return false }
     return Object.values(hooks).some((entries: unknown) => {
       if (!Array.isArray(entries)) { return false }
-      return entries.some((entry: unknown) => isAgentFlowHook(entry as ClaudeHookEntry))
+      return entries.some((entry: unknown) => isAgentLensHook(entry as ClaudeHookEntry))
     })
   } catch (err) {
     log.debug('Failed to read hooks settings:', err)
@@ -97,8 +99,8 @@ export async function configureClaudeHooks(): Promise<void> {
   const existingHooks = (settings.hooks || {}) as Record<string, unknown[]>
   for (const [event, entries] of Object.entries(hooksConfig)) {
     const existing = existingHooks[event] || []
-    // Remove previous agent-flow hooks (command or legacy HTTP)
-    const filtered = existing.filter((entry: unknown) => !isAgentFlowHook(entry as ClaudeHookEntry))
+    // Remove previous agent-lens hooks (command or legacy HTTP)
+    const filtered = existing.filter((entry: unknown) => !isAgentLensHook(entry as ClaudeHookEntry))
     existingHooks[event] = [...filtered, ...entries]
   }
 

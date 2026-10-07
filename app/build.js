@@ -35,7 +35,7 @@ esbuild.buildSync({
     'vscode': path.join(ROOT, 'scripts', 'vscode-shim.js'),
   },
   define: {
-    AGENT_FLOW_APP_VERSION: JSON.stringify(APP_PKG.version),
+    AGENT_LENS_APP_VERSION: JSON.stringify(APP_PKG.version),
   },
   banner: {
     js: '#!/usr/bin/env node',
