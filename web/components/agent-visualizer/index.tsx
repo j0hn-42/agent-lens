@@ -17,6 +17,8 @@ import { LinkPanel } from "./link-panel"
 import { AgentChatPanel } from "./chat-panel"
 import { SessionTranscriptPanel } from "./session-transcript-panel"
 import { SessionListPanel } from "./session-list-panel"
+import { ProjectContextPanel } from "./project-context-panel"
+import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers } from "./shared-ui"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
@@ -39,7 +41,7 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-age
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
-type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions'
+type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
@@ -123,9 +125,18 @@ export function AgentVisualizer() {
   const [showFileAttention, setShowFileAttention] = useState(false)
   const [showSessions, setShowSessions] = useState(false)
   const [showTranscript, setShowTranscript] = useState(false)
+  const [showContext, setShowContext] = useState(false)
 
   // Mutually exclusive panel toggling — opening one closes the others
-  const toggleExclusivePanel = useCallback((panel: 'files' | 'transcript' | 'cost') => {
+  // Relay origin for on-demand reads ('' = same origin, standalone app)
+  const contextOrigin = bridge.relayPort ? `http://127.0.0.1:${bridge.relayPort}` : ''
+  const fetchContext = useCallback(
+    (id: string) => fetchProjectContext(contextOrigin, id),
+    [contextOrigin],
+  )
+
+  const toggleExclusivePanel = useCallback((panel: 'files' | 'transcript' | 'cost' | 'context') => {
+    setShowContext(prev => panel === 'context' ? !prev : false)
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
     setShowTranscript(prev => panel === 'transcript' ? !prev : false)
     setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
@@ -146,10 +157,12 @@ export function AgentVisualizer() {
   const transcriptPanelRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
+  const contextPanelRef = useRef<HTMLDivElement>(null)
   useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
   useFocusReturn(showTranscript, transcriptPanelRef, PANEL_BUTTON_IDS.transcript)
   useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
   useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
+  useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // Auto-play on mount
@@ -302,14 +315,14 @@ export function AgentVisualizer() {
   useEffect(() => {
     const open: Record<PanelId, boolean> = {
       files: showFileAttention, transcript: showTranscript, cost: showCostOverlay,
-      timeline: showTimeline, stats: showStats, sessions: showSessions,
+      timeline: showTimeline, stats: showStats, sessions: showSessions, context: showContext,
     }
     const stack = panelStackRef.current.filter(id => open[id])
     for (const id of Object.keys(open) as PanelId[]) {
       if (open[id] && !stack.includes(id)) stack.push(id)
     }
     panelStackRef.current = stack
-  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats, showSessions])
+  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats, showSessions, showContext])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
   const panelRegistry = useMemo(() => createPanelRegistry(), [])
@@ -324,6 +337,7 @@ export function AgentVisualizer() {
     else if (top === 'cost') setShowCostOverlay(false)
     else if (top === 'timeline') setShowTimeline(false)
     else if (top === 'sessions') setShowSessions(false)
+    else if (top === 'context') setShowContext(false)
     else setShowStats(false)
     return true
   }, [panelRegistry])
@@ -508,6 +522,7 @@ export function AgentVisualizer() {
         totalCost={totalCost}
         showFileAttention={showFileAttention}
         showTranscript={showTranscript}
+        showContext={showContext}
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
@@ -702,6 +717,18 @@ export function AgentVisualizer() {
           teams={bridge.teams}
           teamWorking={bridge.teamWorking}
           teamMemberCounts={bridge.teamMemberCounts}
+        />
+      </div>
+
+      {/* Project context panel: CLAUDE.md, memory and cited issues, loaded on demand from the relay */}
+      <div ref={contextPanelRef} style={{ display: 'contents' }}>
+        <ProjectContextPanel
+          visible={showContext}
+          sessionId={bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId) ? bridge.selectedSessionId : null}
+          unavailableReason={bridge.isVSCode ? 'Project context is read through the standalone relay; it is not available inside VS Code.'
+            : bridge.useMockData ? 'Project context is not available in demo mode.' : undefined}
+          fetchContext={fetchContext}
+          onClose={() => setShowContext(false)}
         />
       </div>
 
