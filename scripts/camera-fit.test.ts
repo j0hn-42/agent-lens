@@ -392,3 +392,13 @@ test('contentStamp: order-insensitive, sensitive to the content set, ignores pos
   assert.notEqual(contentStamp(cl('a'), ag('s1')), contentStamp(cl('a'), ag('s2')))
   assert.notEqual(contentStamp(cl('a'), ag('s1')), contentStamp(cl('a'), ag('s1', 's1')))
 })
+
+test('classifyContentChange: a scope key change refits even when the content only looks like growth', () => {
+  const st = (sessions: string[], scopeKey?: string) => ({ signature: sessions.join('|'), sessions, scopeKey, width: 800, height: 600 })
+  // session tab -> All with two sessions: one session "added" would be plain growth without the key
+  assert.equal(classifyContentChange(st(['a'], 'a'), st(['a', 'b'], 'all')), 'scope')
+  // same tab, one live session appears: growth, a manual pan is kept
+  assert.equal(classifyContentChange(st(['a', 'b'], 'all'), st(['a', 'b', 'c'], 'all')), 'growth')
+  // no key supplied: previous behaviour
+  assert.equal(classifyContentChange(st(['a']), st(['a', 'b'])), 'growth')
+})

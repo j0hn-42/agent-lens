@@ -374,23 +374,33 @@ export interface UnreadState {
   convLens: Map<string, number>
   /** Id of the newest conversation message already seen per agent (conversations are capped, so length alone is not monotonic). */
   convLast?: Map<string, string>
+  /** Timestamp of that newest message: tells a replayed history (same times) from a cap flood (later times) when the id is gone. */
+  convLastTs?: Map<string, number>
   /** Ids of link messages already seen. */
   linkSeen: Set<string>
   /** `${agent}|${dedupe key}` of link messages that already flagged an agent, so a late conversation copy does not flag twice. */
   linkKeys?: Set<string>
 }
 
-export const emptyUnreadState = (): UnreadState => ({ convLens: new Map(), convLast: new Map(), linkSeen: new Set(), linkKeys: new Set() })
+export const emptyUnreadState = (): UnreadState => ({ convLens: new Map(), convLast: new Map(), convLastTs: new Map(), linkSeen: new Set(), linkKeys: new Set() })
 
 /**
  * Index of the first message of `msgs` not yet seen. Uses the id of the newest message seen last time
- * (robust to the conversation cap dropping the oldest messages); when that message is gone every
- * message is new; without a stored id it falls back to the stored length.
+ * (robust to the conversation cap dropping the oldest messages). When that message is gone the history
+ * was replaced (timeline seek, restart, session switch: the replay assigns fresh ids), so the list is
+ * compared by event time: only messages later than the last seen one are new. Without a stored id it
+ * falls back to the stored length.
  */
-function firstUnseenIndex(msgs: readonly { id: string }[], lastId: string | undefined, lenBefore: number | undefined): number {
+function firstUnseenIndex(msgs: readonly { id: string; timestamp?: number }[], lastId: string | undefined, lenBefore: number | undefined, lastTs?: number): number {
   if (lastId !== undefined) {
     for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].id === lastId) return i + 1
-    return 0
+    // The id is gone. Either the history was replayed (seek/restart: fresh ids, same event times) or a
+    // flood pushed every seen message out of the cap (later times). Only messages later than the last
+    // seen one are new; without a stored time everything is treated as already seen.
+    if (lastTs === undefined) return msgs.length
+    let i = 0
+    while (i < msgs.length && (msgs[i].timestamp ?? 0) <= lastTs) i++
+    return i
   }
   return Math.min(lenBefore ?? 0, msgs.length)
 }
@@ -410,11 +420,12 @@ export function trackUnread(
   const increased = new Set<string>()
   const convLens = new Map<string, number>()
   const convLast = new Map<string, string>()
+  const convLastTs = new Map<string, number>()
   const prevKeys = prev.linkKeys ?? new Set<string>()
   for (const [id, msgs] of conversations) {
     convLens.set(id, msgs.length)
-    if (msgs.length > 0) convLast.set(id, msgs[msgs.length - 1].id)
-    const start = firstUnseenIndex(msgs, prev.convLast?.get(id), prev.convLens.get(id))
+    if (msgs.length > 0) { convLast.set(id, msgs[msgs.length - 1].id); convLastTs.set(id, msgs[msgs.length - 1].timestamp ?? 0) }
+    const start = firstUnseenIndex(msgs, prev.convLast?.get(id), prev.convLens.get(id), prev.convLastTs?.get(id))
     for (let i = start; i < msgs.length; i++) {
       const m = msgs[i]
       if (!textTypes.has(m.type)) continue
@@ -450,5 +461,5 @@ export function trackUnread(
       }
     }
   }
-  return { increased: [...increased], next: { convLens, convLast, linkSeen, linkKeys: new Set([...prevKeys, ...linkKeys]) } }
+  return { increased: [...increased], next: { convLens, convLast, convLastTs, linkSeen, linkKeys: new Set([...prevKeys, ...linkKeys]) } }
 }

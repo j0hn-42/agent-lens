@@ -307,6 +307,8 @@ export interface AutoFitState {
   signature: string | null
   /** Distinct session ids on screen (the "tab" scope) */
   sessions?: ReadonlyArray<string>
+  /** Identity of the selected tab/scope (session id, 'all', team). A change always counts as a scope change. */
+  scopeKey?: string
   width: number
   height: number
 }
@@ -325,6 +327,9 @@ export type ContentChange = 'none' | 'first' | 'scope' | 'growth'
 export function classifyContentChange(prev: AutoFitState, next: AutoFitState): ContentChange {
   if (next.signature === null) return 'none'
   if (prev.signature === null) return 'first'
+  // An explicit tab/scope change refits even when the cluster set looks like plain growth
+  // (e.g. a session tab to 'All' with two sessions).
+  if (prev.scopeKey !== next.scopeKey && next.scopeKey !== undefined) return 'scope'
   if (prev.signature === next.signature) return 'none'
   const before = prev.sessions
   const after = next.sessions

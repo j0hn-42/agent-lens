@@ -331,3 +331,16 @@ test('link messages: a capped conversation and a link message flag independently
   const out = trackUnread(first.next, new Map([['a', [...full.slice(1), textMsg(300, 'tool_call')]]]), new Map([['l', { from: 'a', to: 'b', messages: [m] }]]), FEED_TYPES)
   assert.deepEqual(out.increased.sort(), ['a', 'b'])
 })
+
+test('trackUnread: a replayed history (timeline seek, fresh ids) does not flag every agent unread', () => {
+  const mk = (id: string, text: string) => ({ id, type: 'assistant', content: text, timestamp: 1 }) as never
+  const before = new Map([['a', [mk('msg-1', 'x'), mk('msg-2', 'y')]], ['b', [mk('msg-3', 'z')]]])
+  const first = trackUnread(emptyUnreadState(), before, undefined, FEED_TYPES)
+  // seekToTime replays the log from scratch: same messages, new ids from the global counter
+  const replay = new Map([['a', [mk('msg-10', 'x'), mk('msg-11', 'y')]], ['b', [mk('msg-12', 'z')]]])
+  const afterSeek = trackUnread(first.next, replay, undefined, FEED_TYPES)
+  assert.deepEqual(afterSeek.increased, [])
+  // and a genuinely new message after the seek is still detected
+  const more = new Map([['a', [mk('msg-10', 'x'), mk('msg-11', 'y'), mk('msg-13', 'new')]], ['b', replay.get('b')!]])
+  assert.deepEqual(trackUnread(afterSeek.next, more, undefined, FEED_TYPES).increased, ['a'])
+})

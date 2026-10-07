@@ -33,6 +33,8 @@ interface CameraOptions {
   clustersRef?: MutableRefObject<Cluster[]>
   /** Insets of the UI overlaid on the canvas (top bar, control bar, panels), in canvas px */
   getInsets?: () => Insets
+  /** Identity of the selected tab/scope; a change refits the camera (see classifyContentChange) */
+  scopeKey?: string
 }
 
 export function useCanvasCamera({
@@ -45,6 +47,7 @@ export function useCanvasCamera({
   selectedAgentId,
   clustersRef,
   getInsets,
+  scopeKey,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
@@ -53,6 +56,8 @@ export function useCanvasCamera({
   const autoFitStateRef = useRef<AutoFitState>({ signature: null, width: 0, height: 0 })
   // Cheap per-frame change detection: the heavy signature is only built when the stamp changes
   const stampRef = useRef<number | null>(null)
+  const scopeKeyRef = useRef<string | undefined>(scopeKey)
+  scopeKeyRef.current = scopeKey
   const fitFrameRef = useRef(0)
   const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
 
@@ -218,7 +223,8 @@ export function useCanvasCamera({
     const clusters = clustersRef?.current ?? EMPTY_CLUSTERS
     const stamp = agents.size > 0 ? contentStamp(clusters, agents.values()) : null
     let contentChanged = false
-    if (stamp !== stampRef.current) {
+    const scopeChanged = autoFitStateRef.current.scopeKey !== scopeKeyRef.current && scopeKeyRef.current !== undefined && stamp !== null
+    if (stamp !== stampRef.current || scopeChanged) {
       stampRef.current = stamp
       contentChanged = true
       let signature: string | null = null
@@ -229,7 +235,7 @@ export function useCanvasCamera({
         signature = clusterSetSignature(clusters.map(c => c.key), ids)
         sessions = Array.from(new Set(ids.map(s => s ?? ''))).sort()
       }
-      const next: AutoFitState = { signature, sessions, width: dimensions.width, height: dimensions.height }
+      const next: AutoFitState = { signature, sessions, scopeKey: scopeKeyRef.current, width: dimensions.width, height: dimensions.height }
       if (shouldResumeAutoFit(autoFitStateRef.current, next)) {
         userHasNavigatedRef.current = false
         targetTransformRef.current = null

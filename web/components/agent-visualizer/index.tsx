@@ -425,7 +425,7 @@ export function AgentVisualizer() {
   }, [bridge])
 
   // Team props are spread so each panel picks the ones it declares
-  const canvasTeamProps = { links, teams, onLinkClick: handleLinkClick, selectedLinkId }
+  const canvasTeamProps = { links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '' }
   const feedTeamProps = { links, droppedMessages, teams }
 
   const isEmpty = agents.size === 0 && !bridge.useMockData

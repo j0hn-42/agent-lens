@@ -44,6 +44,8 @@ import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
 
 interface CanvasProps {
+  /** Identity of the selected tab (session id, 'all', team): a change refits the camera */
+  scopeKey?: string
   /** Ref to simulation state — read every frame without React re-renders */
   simulationRef: React.RefObject<SimulationState>
   selectedAgentId: string | null
@@ -95,7 +97,7 @@ export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay,
-  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect,
+  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect, scopeKey,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -255,7 +257,7 @@ export function AgentCanvas({
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: sim.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets,
+    clustersRef, getInsets, scopeKey,
   })
 
   // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───

@@ -481,7 +481,8 @@ export function useVSCodeBridge(): BridgeHookResult {
       // A team selection takes the events of the team's sessions out of the same arrival-order buffer.
       const all = allEventsRef.current
       for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) {
-        if (sessionId === ALL_SESSIONS_ID || matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
+        // matchesSelection also applies the 'All' finished-sessions filter, so a flush and live delivery agree
+        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
       }
     } else {
       const buffered = sessionEventsRef.current.get(sessionId) || []
