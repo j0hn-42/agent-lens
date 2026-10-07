@@ -219,3 +219,9 @@ export function statusRateKey(remoteAddress: string | undefined, headers: Record
   }
   return `${remoteAddress ?? ''}|${pick('origin')}|${pick('user-agent')}`
 }
+
+/** True when the request path (query ignored) is the relay's GET /context endpoint (project context, #64). */
+export function isContextPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/context' } catch { return false }
+}

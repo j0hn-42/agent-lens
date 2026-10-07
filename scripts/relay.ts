@@ -22,13 +22,14 @@ import {
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
-  SESSION_TAG_MAX,
+  SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
+import { readProjectContext } from '../extension/src/project-context'
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles,
+  listProjectDirs, discoverSessionFiles, isValidSessionId,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -487,6 +488,8 @@ export interface Relay {
   handleSSE: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /status: small JSON snapshot (loopback only, rate-limited) */
   handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle GET /context?session=<id>: project context (CLAUDE.md, memory) of a watched session */
+  handleContext: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
@@ -662,6 +665,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   })
 
   const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const contextLimiter = new KeyedRateLimiter(RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
@@ -708,6 +712,32 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         allWorkspaces,
       }
       const body = JSON.stringify(status)
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(body),
+        'X-Content-Type-Options': 'nosniff',
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
+    /** GET /context?session=<id>: CLAUDE.md + memory of the session's cwd (#64). Read on every call; the client caches. */
+    handleContext(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
+      const plain = (code: number, text: string, extra: http.OutgoingHttpHeaders = {}) => {
+        res.writeHead(code, { 'Content-Type': 'text/plain', ...extra })
+        res.end(text)
+      }
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) return plain(403, 'Forbidden')
+      if (req.method !== 'GET' && req.method !== 'HEAD') return plain(405, 'Method not allowed', { Allow: 'GET, HEAD' })
+      if (!contextLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) return plain(429, 'Too many requests', { 'Retry-After': '1' })
+      let sessionId: string | null = null
+      try { sessionId = new URL(req.url ?? '', 'http://localhost').searchParams.get('session') } catch { /* handled below */ }
+      if (!isValidSessionId(sessionId)) return plain(400, 'Invalid session parameter')
+      // The path comes from the session's transcript header, never from the request
+      const cwd = sessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined
+      if (!cwd) return plain(404, 'No project context for this session')
+      const body = JSON.stringify({ sessionId, loadedAt: Date.now(), ...readProjectContext(cwd, os.homedir()) })
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
