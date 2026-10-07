@@ -1,6 +1,8 @@
-// Integration (#36, D3): real events -> processEvent -> force layout -> computeNextFrame, driven frame by
-// frame like the animation loop of useAgentSimulation. Asserts on the agent positions of the simulation
-// state, not on the pure force.
+// Pure-parts integration (#36): real events -> processEvent -> force layout -> computeNextFrame, driven
+// frame by frame by a hand-written rig that COPIES the wiring of useAgentSimulation.
+// It covers only the pure modules; it cannot detect a wiring regression in the hook itself (e.g. a deleted
+// layout step in animate(), the D3 bug). That wiring is guarded by the test on the real hook:
+// web/tests-a11y/fleet-layout-hook.test.tsx (pnpm test:a11y).
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
