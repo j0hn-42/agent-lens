@@ -108,6 +108,33 @@ export function readTextFileSafe(filePath: string, maxBytes: number, rootDir?: s
   }
 }
 
+/**
+ * Like {@link readTextFileSafe} but for files above `maxBytes`: reads only the FIRST `maxBytes`
+ * bytes. `bytes` is the real file size, `truncated` tells the caller that the tail was cut off
+ * (a multibyte character split by the cut is dropped). Same symlink / containment guards.
+ */
+export function readHeadTextSafe(filePath: string, maxBytes: number, rootDir?: string): { text: string; truncated: boolean; bytes: number } | undefined {
+  try {
+    const st = fs.lstatSync(filePath)
+    if (!st.isFile()) return undefined
+    if (rootDir && !isPathInside(fs.realpathSync(filePath), fs.realpathSync(rootDir))) return undefined
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+    const fd = fs.openSync(filePath, flags)
+    try {
+      const buf = Buffer.alloc(Math.min(st.size, maxBytes))
+      const n = fs.readSync(fd, buf, 0, buf.length, 0)
+      const truncated = st.size > maxBytes
+      let text = buf.toString('utf-8', 0, n)
+      if (truncated) text = text.replace(/�$/, '')
+      return { text, truncated, bytes: st.size }
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+}
+
 /** {@link readTextFileSafe} + JSON.parse; undefined when unreadable or malformed. */
 export function readJsonFileSafe(filePath: string, maxBytes: number, rootDir?: string): unknown {
   const text = readTextFileSafe(filePath, maxBytes, rootDir)
