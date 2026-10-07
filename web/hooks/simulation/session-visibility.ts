@@ -58,6 +58,40 @@ export function finishedSessionIds(
   return sessions.filter(s => !active.has(s.id)).map(s => s.id)
 }
 
+type StampSession = Pick<SessionInfo, 'status' | 'lastActivityTime'>
+
+/**
+ * A session the list already marks completed whose last activity is older than the window. The relay replays
+ * every session buffer on connect, so an event of such a session is history, not activity (#36).
+ */
+export function isStaleCompleted(session: StampSession | undefined, now: number, windowMs: number = ACTIVE_WINDOW_MS): boolean {
+  if (!session || session.status !== 'completed') return false
+  const t = session.lastActivityTime
+  return typeof t === 'number' && Number.isFinite(t) && now - t > windowMs
+}
+
+/** Whether an event received now should stamp its session as recently active. */
+export function shouldStampActivity(session: StampSession | undefined, now: number, windowMs: number = ACTIVE_WINDOW_MS): boolean {
+  return !isStaleCompleted(session, now, windowMs)
+}
+
+/**
+ * Remove the stamps of sessions that turn out to be stale-completed (events replayed before the list arrived).
+ * Mutates `lastEventAt`; returns how many were dropped.
+ */
+export function pruneReplayStamps(
+  lastEventAt: Map<string, number>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'status' | 'lastActivityTime'>>,
+  now: number,
+  windowMs: number = ACTIVE_WINDOW_MS,
+): number {
+  let dropped = 0
+  for (const s of sessions) {
+    if (lastEventAt.has(s.id) && isStaleCompleted(s, now, windowMs)) { lastEventAt.delete(s.id); dropped++ }
+  }
+  return dropped
+}
+
 /** Stable identity of a visibility set (null = everything visible), to detect changes cheaply. */
 export function visibilityKey(visible: ReadonlySet<string> | null): string {
   return visible === null ? '*' : Array.from(visible).sort().join('\u0001')
