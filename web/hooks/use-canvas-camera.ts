@@ -1,16 +1,13 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
-import { agentDrawRadius } from '@/components/agent-visualizer/canvas/team-style'
-import { CAMERA, BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H, DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H } from '@/lib/canvas-constants'
+import {
+  computeFitBounds, fitToView, fitInsets, circleBounds, clusterSetSignature, shouldResumeAutoFit,
+  type Transform, type Insets, type AutoFitState,
+} from '@/components/agent-visualizer/canvas/camera-fit'
+import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
+import { CAMERA } from '@/lib/canvas-constants'
 
-/** Extra padding added to agent node radii for auto-fit bounding box */
-const AUTOFIT_AGENT_PADDING = 22
-
-export interface Transform {
-  x: number
-  y: number
-  scale: number
-}
+export type { Transform }
 
 interface CameraOptions {
   mainCanvasRef: MutableRefObject<HTMLCanvasElement | null>
@@ -28,6 +25,10 @@ interface CameraOptions {
   agentCount: number
   zoomToFitTrigger?: number
   selectedAgentId: string | null
+  /** Clusters of the last drawn frame (halos are part of the fit bounds) */
+  clustersRef?: MutableRefObject<Cluster[]>
+  /** Insets of the UI overlaid on the canvas (top bar, control bar, panels), in canvas px */
+  getInsets?: () => Insets
 }
 
 export function useCanvasCamera({
@@ -38,21 +39,14 @@ export function useCanvasCamera({
   agentCount,
   zoomToFitTrigger,
   selectedAgentId,
+  clustersRef,
+  getInsets,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
   const targetTransformRef = useRef<Transform | null>(null)
   const panVelocityRef = useRef({ vx: 0, vy: 0, active: false })
-
-  // Cache for computeFitTransform — avoids O(n) iteration every frame.
-  // Invalidates on collection reference change (React creates new Map/array on state updates).
-  const fitCacheRef = useRef<{
-    agents: Map<string, Agent> | null
-    toolCalls: Map<string, ToolCallNode> | null
-    discoveries: Discovery[] | null
-    selectedAgentId: string | null
-    result: Transform | null
-  }>({ agents: null, toolCalls: null, discoveries: null, selectedAgentId: null, result: null })
+  const autoFitStateRef = useRef<AutoFitState>({ signature: null, width: 0, height: 0 })
 
   // Initialize transform centered on first agents
   useEffect(() => {
@@ -81,16 +75,6 @@ export function useCanvasCamera({
     const { agents, toolCalls, discoveries, dimensions, selectedAgentId } = drawPropsRef.current
     if (agents.size === 0) return null
 
-    // Return cached result if inputs haven't changed (reference equality —
-    // React creates new Map/array objects on state updates, so same ref = same data)
-    const cache = fitCacheRef.current
-    if (cache.agents === agents
-      && cache.toolCalls === toolCalls
-      && cache.discoveries === discoveries
-      && cache.selectedAgentId === selectedAgentId) {
-      return cache.result
-    }
-
     // Determine focus scope: if a non-main agent is selected, focus on it + descendants
     let focusScope: Set<string> | null = null
     if (selectedAgentId) {
@@ -100,65 +84,16 @@ export function useCanvasCamera({
       }
     }
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const [id, agent] of agents) {
-      if (focusScope && !focusScope.has(id)) continue
-      const r = agentDrawRadius(agent) + AUTOFIT_AGENT_PADDING
-      minX = Math.min(minX, agent.x - r)
-      maxX = Math.max(maxX, agent.x + r)
-      minY = Math.min(minY, agent.y - r)
-      maxY = Math.max(maxY, agent.y + r)
-      if (agent.messageBubbles.length > 0) {
-        const visibleCount = agent.messageBubbles.filter(b => {
-          const age = (simTimeRef.current ?? 0) - b.time
-          return age <= BUBBLE_HOLD + BUBBLE_FADE_OUT
-        }).length
-        if (visibleCount > 0) {
-          maxX = Math.max(maxX, agent.x + r + 14 + BUBBLE_MAX_W * 0.4)
-          minX = Math.min(minX, agent.x - r - BUBBLE_MAX_W * 0.2)
-          const stackH = visibleCount * 46
-          minY = Math.min(minY, agent.y - 20)
-          maxY = Math.max(maxY, agent.y - 20 + stackH)
-        }
-      }
-    }
-    for (const [, tool] of toolCalls) {
-      if (tool.opacity > 0.1 && (!focusScope || focusScope.has(tool.agentId))) {
-        const halfW = TOOL_CARD_W / 2
-        const halfH = TOOL_CARD_H / 2
-        minX = Math.min(minX, tool.x - halfW)
-        maxX = Math.max(maxX, tool.x + halfW)
-        minY = Math.min(minY, tool.y - halfH)
-        maxY = Math.max(maxY, tool.y + halfH)
-      }
-    }
-    for (const disc of discoveries) {
-      if (disc.opacity > 0.1 && (!focusScope || focusScope.has(disc.agentId))) {
-        minX = Math.min(minX, disc.x - DISC_BOUNDS_HALF_W)
-        maxX = Math.max(maxX, disc.x + DISC_BOUNDS_HALF_W)
-        minY = Math.min(minY, disc.y - DISC_BOUNDS_HALF_H)
-        maxY = Math.max(maxY, disc.y + DISC_BOUNDS_HALF_H)
-      }
-    }
-    if (minX === Infinity) {
-      fitCacheRef.current = { agents, toolCalls, discoveries, selectedAgentId, result: null }
-      return null
-    }
-    const padding = ANIM.viewportPadding
-    const boundsW = maxX - minX + padding * 2
-    const boundsH = maxY - minY + padding * 2
-    const centerX = (minX + maxX) / 2
-    const centerY = (minY + maxY) / 2
-    // Never fit smaller than minFitScale: tiny nodes are unreadable and hard to hit (content may overflow instead)
-    const scale = Math.max(CAMERA.minFitScale, Math.min(dimensions.width / boundsW, dimensions.height / boundsH, 2))
-    const result = {
-      x: dimensions.width / 2 - centerX * scale,
-      y: dimensions.height / 2 - centerY * scale,
-      scale,
-    }
-    fitCacheRef.current = { agents, toolCalls, discoveries, selectedAgentId, result }
-    return result
-  }, [getDescendantIds, drawPropsRef, simTimeRef])
+    // No result cache: the simulation mutates its Maps in place, so a reference-keyed cache would keep
+    // the bounds of the first (unsettled) layout forever.
+    const clusters = clustersRef?.current ?? []
+    const bounds = computeFitBounds({
+      agents: agents.values(), toolCalls: toolCalls.values(), discoveries, clusters, focusScope,
+      simTime: simTimeRef.current ?? 0,
+    })
+    const insets = fitInsets(getInsets?.(), !focusScope && clusters.length > 0)
+    return fitToView(bounds, dimensions, insets)
+  }, [getDescendantIds, drawPropsRef, simTimeRef, clustersRef, getInsets])
 
   const doZoomToFit = useCallback(() => {
     userHasNavigatedRef.current = false
@@ -248,10 +183,9 @@ export function useCanvasCamera({
     if (!(r > 0) || width <= 0 || height <= 0) return
     userHasNavigatedRef.current = true
     panVelocityRef.current = { vx: 0, vy: 0, active: false }
-    const pad = ANIM.viewportPadding
-    const scale = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, Math.min(width, height) / (r * 2 + pad * 2), 2))
-    targetTransformRef.current = { x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale }
-  }, [drawPropsRef])
+    const target = fitToView(circleBounds(cx, cy, r), { width, height }, fitInsets(getInsets?.(), true))
+    if (target) targetTransformRef.current = target
+  }, [drawPropsRef, getInsets])
 
   /** Call from draw loop to update inertia and auto-fit lerp */
   const updateCamera = useCallback((isDragging: boolean, pauseAutoFit?: boolean) => {
@@ -266,6 +200,25 @@ export function useCanvasCamera({
       if (Math.abs(inertia.vx) < 0.1 && Math.abs(inertia.vy) < 0.1) {
         inertia.active = false
       }
+    }
+
+    // Resume following the content when the clusters / sessions changed (tab or cluster selection) or the
+    // canvas was resized; a manual pan / zoom is otherwise respected.
+    {
+      const { agents, dimensions } = drawPropsRef.current
+      let signature: string | null = null
+      if (agents.size > 0) {
+        const sessions: Array<string | undefined> = []
+        for (const a of agents.values()) sessions.push(a.sessionId)
+        signature = clusterSetSignature((clustersRef?.current ?? []).map(c => c.key), sessions)
+      }
+      const next: AutoFitState = { signature, width: dimensions.width, height: dimensions.height }
+      const prev = autoFitStateRef.current
+      if (shouldResumeAutoFit(prev, next)) {
+        userHasNavigatedRef.current = false
+        targetTransformRef.current = null
+      }
+      autoFitStateRef.current = next
     }
 
     // Auto-fit
@@ -289,7 +242,7 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform])
+  }, [computeFitTransform, drawPropsRef, clustersRef])
 
   return {
     transformRef,
