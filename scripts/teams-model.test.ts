@@ -287,3 +287,23 @@ test('same-name sub-agents: plain-name events reach the first holder, name@toolU
   assert.equal(s.conversations.get('default:Explore')!.map(m => m.content).join(), 'to first')
   assert.equal(s.conversations.get('default:Explore@tu2')!.map(m => m.content).join(), 'to second')
 })
+
+test('buildTabModel: two teams with the same name under different leads each keep their own sessions', () => {
+  const sessions = [
+    { id: 'L1', teamName: 'alpha' }, { id: 'L3', teamName: 'alpha' }, { id: 'plain' },
+  ]
+  const meta = new Map([
+    ['alpha', { name: 'alpha', leadSessionId: 'L1' }],
+    ['alpha@L3', { name: 'alpha', leadSessionId: 'L3' }],
+  ])
+  const tabs = buildTabModel(sessions, meta.keys(), meta)
+  const under = (team: string) => {
+    const i = tabs.findIndex(t => t.kind === 'team' && t.teamName === team)
+    const out: string[] = []
+    for (let j = i + 1; j < tabs.length && tabs[j].kind === 'session' && tabs[j].teamName === team; j++) out.push(tabs[j].id)
+    return out
+  }
+  assert.deepEqual(under('alpha'), ['L1'])
+  assert.deepEqual(under('alpha@L3'), ['L3'])
+  assert.equal(tabs[tabs.length - 1].id, 'plain')
+})

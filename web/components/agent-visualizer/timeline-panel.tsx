@@ -13,6 +13,8 @@ import {
   buildSwimlaneArrows,
   buildMessageRows,
   hitTestArrow,
+  arrowGeometry,
+  filterArrowsByPair,
   capMessageRows,
   orderEntriesBySequence,
   orderEntriesByStart,
@@ -21,6 +23,9 @@ import {
 } from '@/lib/timeline-rows'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { PanelHeader, SlidingPanel } from './shared-ui'
+import { PairFilterChip } from './pair-filter-chip'
+import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
+import { isPairComplete } from '@/lib/pair-filter'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -38,20 +43,6 @@ function arrowColor(a: SwimlaneArrow): string {
   return a.isError ? ARROW_COLOR.error : ARROW_COLOR[a.kind]
 }
 
-interface ArrowGeometry { id: string; x: number; y1: number; y2: number }
-
-/** Pixel geometry of the arrows (shared by drawing and hover hit-testing). */
-function arrowGeometry(arrows: readonly SwimlaneArrow[], minTime: number, maxTime: number, width: number): ArrowGeometry[] {
-  const timeSpan = Math.max(maxTime - minTime, 1)
-  const barWidth = width - LABEL_WIDTH
-  return arrows.map(a => ({
-    id: a.id,
-    x: LABEL_WIDTH + Math.min(Math.max((a.time - minTime) / timeSpan, 0), 1) * barWidth,
-    y1: HEADER_HEIGHT + a.fromRow * ROW_HEIGHT + ROW_HEIGHT / 2,
-    y2: HEADER_HEIGHT + a.toRow * ROW_HEIGHT + ROW_HEIGHT / 2,
-  }))
-}
-
 // ─── Layout constants ────────────────────────────────────────────────────────
 
 const ROW_HEIGHT = 24
@@ -59,6 +50,7 @@ const HEADER_HEIGHT = 22
 const LABEL_WIDTH = 104
 const FONT = '11px monospace'
 const MAX_NAME_CHARS = 13
+const SWIMLANE_LAYOUT = { labelWidth: LABEL_WIDTH, headerHeight: HEADER_HEIGHT, rowHeight: ROW_HEIGHT }
 /** Opaque, >= 4.5:1 on the glass panel background (COLORS.textMuted is translucent). */
 const TEXT_MUTED_OPAQUE = '#8fcfef'
 
@@ -261,7 +253,7 @@ function drawTimeline(
 
   // ── Arrows between rows: parent -> child at dispatch, child -> parent at return, peers ──
   const byId = new Map(arrows.map(a => [a.id, a]))
-  for (const g of arrowGeometry(arrows, minTime, maxTime, width)) {
+  for (const g of arrowGeometry(arrows, minTime, maxTime, width, SWIMLANE_LAYOUT)) {
     const a = byId.get(g.id)!
     const hovered = g.id === hoveredArrowId
     ctx.strokeStyle = arrowColor(a)
@@ -306,11 +298,13 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   }, [visible, timelineEntries, sequence, links])
 
   const rows = useMemo(() => buildTimelineRows(sortedEntries), [sortedEntries])
+  const pair = usePairFilter()
+  const nameById = useMemo(() => new Map(sortedEntries.map(e => [e.agentId, e.agentName])), [sortedEntries])
   const arrows = useMemo(() => {
     if (!visible || !links) return []
-    const names = new Map(sortedEntries.map(e => [e.agentId, e.agentName]))
-    return buildSwimlaneArrows(sortedEntries.map(e => e.agentId), links, id => names.get(id) ?? id)
-  }, [visible, links, sortedEntries])
+    const all = buildSwimlaneArrows(sortedEntries.map(e => e.agentId), links, id => nameById.get(id) ?? id)
+    return isPairComplete(pair) ? filterArrowsByPair(all, pair.a, pair.b) : all
+  }, [visible, links, sortedEntries, nameById, pair])
   const messageRows = useMemo(() => buildMessageRows(arrows), [arrows])
   const cappedButtons = useMemo(() => capMessageRows(messageRows), [messageRows])
   const activeArrow = arrows.find(a => a.id === activeArrowId)
@@ -357,7 +351,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     setHoveredName(entry?.agentName)
     if (arrows.length > 0) {
       const { minTime, maxTime } = computeTimelineRange(sortedEntries, currentTime)
-      const geo = arrowGeometry(arrows, minTime, maxTime, rect.width)
+      const geo = arrowGeometry(arrows, minTime, maxTime, rect.width, SWIMLANE_LAYOUT)
       setActiveArrowId(hitTestArrow(geo, x, e.clientY - rect.top))
     }
   }
@@ -464,7 +458,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
               <thead>
                 <tr style={{ color: TEXT_MUTED_OPAQUE }}>
                   <th scope="col" className="text-left px-2 py-1 font-normal">Time</th>
-                  <th scope="col" className="text-left px-2 py-1 font-normal">Message</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">Kind</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">From</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">To</th>
                   <th scope="col" className="text-left px-2 py-1 font-normal">Content</th>
                 </tr>
               </thead>
@@ -472,7 +468,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                 {messageRows.map(r => (
                   <tr key={r.id} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
                     <td className="px-2 py-1 whitespace-nowrap">{r.start}</td>
-                    <th scope="row" className="text-left px-2 py-1 font-normal break-words">{r.label}</th>
+                    <th scope="row" className="text-left px-2 py-1 font-normal break-words">{r.kindLabel}</th>
+                    <td className="px-2 py-1 break-words">{r.from}</td>
+                    <td className="px-2 py-1 break-words">{r.to}</td>
                     <td className="px-2 py-1 break-words whitespace-pre-wrap">{r.content.slice(0, 300)}{r.content.length > 300 ? '…' : ''}</td>
                   </tr>
                 ))}
@@ -480,6 +478,12 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </table>
           )}
         </div>
+
+        {isPairComplete(pair) && (
+          <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
+            <PairFilterChip pair={pair} nameOf={id => nameById.get(id) ?? id} count={arrows.length} onClear={clearPair} />
+          </div>
+        )}
 
         {/* Messages between rows: hover or focus an entry to read it (canvas arrows have no focus of their own) */}
         {!tableView && messageRows.length > 0 && (

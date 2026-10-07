@@ -36,7 +36,8 @@ import { ShortcutsDialog } from "./shortcuts-dialog"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
 type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats' | 'sessions'
 
@@ -441,8 +442,46 @@ export function AgentVisualizer() {
     bridge.bridgeOpenFile(filePath, line)
   }, [bridge])
 
+  // Halo titles (session label, runtime, workspace, status) come from the session list
+  const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
+  const allViewSessionIds = bridge.allViewSessionIds
+  const shownSessionCount = allViewSessionIds ? bridge.sessions.filter(s => allViewSessionIds.has(s.id)).length : bridge.sessions.length
+  // A halo label click selects its session / team tab (kept in refs: the canvas holds the latest callback)
+  const clusterStateRef = useRef({ selectedId: bridge.selectedSessionId, shown: shownSessionCount })
+  clusterStateRef.current = { selectedId: bridge.selectedSessionId, shown: shownSessionCount }
+  const handleClusterSelect = useCallback((cluster: { kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => {
+    const target = clusterSelectionTarget(cluster, clusterStateRef.current.selectedId, clusterStateRef.current.shown)
+    if (target !== null) selectSession(target)
+  }, [selectSession])
+
+  // Pair filter: Shift-click on an agent picks it as one end of the pair, a plain click keeps selecting
+  const { handleAgentClick: selectAgent } = selection
+  const selectedAgentIdForPair = selection.selectedAgentId
+  const handleCanvasAgentClick = useCallback((agentId: string | null, modifiers?: { shiftKey: boolean }) => {
+    if (modifiers?.shiftKey && agentId) {
+      // Picking must not change the selection: the feed clears the pair whenever the selected agent
+      // changes (the tab would no longer describe the list), which would wipe the pair just chosen.
+      shiftPickPair(selectedAgentIdForPair, agentId)
+      return
+    }
+    selectAgent(agentId)
+  }, [selectAgent, selectedAgentIdForPair])
+  // An agent that left the simulation cannot stay in the pair
+  useEffect(() => { prunePairStore(key => agents.has(key)) }, [agents])
+
+  // The canvas draws from the simulation ref: hand it agents that carry their session label and runtime
+  const sessionsForCanvasRef = useRef(bridge.sessions)
+  sessionsForCanvasRef.current = bridge.sessions
+  const labelledSimulationRef = useMemo(
+    () => createLabelledSimulationRef(frameRef, () => sessionsForCanvasRef.current),
+    [frameRef],
+  )
+
   // Team props are spread so each panel picks the ones it declares
-  const canvasTeamProps = { links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '' }
+  const canvasTeamProps = {
+    links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '',
+    sessions: sessionMeta, onClusterSelect: handleClusterSelect,
+  }
   const feedTeamProps = { links, droppedMessages, teams }
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
@@ -553,14 +592,14 @@ export function AgentVisualizer() {
       {/* Canvas fills everything */}
       <AgentCanvas
         {...canvasTeamProps}
-        simulationRef={frameRef}
+        simulationRef={labelledSimulationRef}
         selectedAgentId={selection.selectedAgentId}
         hoveredAgentId={selection.hoveredAgentId}
         showStats={showStats}
         showHexGrid={showHexGrid}
         zoomToFitTrigger={zoomToFitTrigger}
         pauseAutoFit={selection.contextMenu !== null}
-        onAgentClick={selection.handleAgentClick}
+        onAgentClick={handleCanvasAgentClick}
         onAgentHover={selection.setHoveredAgentId}
         onAgentDrag={updateAgentPosition}
         onContextMenu={selection.handleContextMenu}

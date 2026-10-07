@@ -9,6 +9,7 @@ import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { agentCost } from '../../../lib/cost'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
+import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import {
   cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, HALO_PADDING, isOrchestrator,
 } from './team-style'
@@ -67,7 +68,8 @@ export function sessionColor(sessionIdIn: string | undefined): string {
  */
 function groupSession(sessionIdIn: string | undefined, teamName: string, teams?: ReadonlyMap<string, TeamSummary>): string {
   const sessionId = sessionIdIn || DEFAULT_SESSION
-  const t = teams?.get(teamName)
+  // The team of that name this session takes part in: two teams may share a name under different leads
+  const t = findTeam(teams, teamName, sessionId)
   if (!t) return sessionId
   if (sessionId === t.leadSessionId || t.members.some(m => m.sessionId === sessionId)) return t.leadSessionId
   return sessionId
@@ -115,6 +117,22 @@ export function clusterStatus(states: Iterable<Agent['state']>): ClusterStatus {
   if (waiting) return 'waiting'
   if (working) return 'working'
   return any && allComplete ? 'complete' : 'idle'
+}
+
+/**
+ * State used for the halo status. A teammate's `activity` (working / idle / done) says more than its
+ * `state` (a teammate idling between turns still has a live session); errors and permission waits always win.
+ */
+export function effectiveClusterState(a: Pick<Agent, 'state' | 'kind' | 'activity'>): Agent['state'] {
+  if (a.kind !== 'teammate' || !a.activity) return a.state
+  if (a.state === 'error' || a.state === 'waiting_permission') return a.state
+  return a.activity === 'working' ? 'thinking' : a.activity === 'done' ? 'complete' : 'idle'
+}
+
+/** Member as teamHaloStatus reads it: a teammate that reports `done` is complete whatever its idle state says. */
+function teamMemberState(a: Agent): Pick<Agent, 'state' | 'activity'> {
+  const done = a.kind === 'teammate' && a.activity === 'done' && a.state !== 'error' && a.state !== 'waiting_permission'
+  return { state: done ? 'complete' : a.state, activity: a.activity }
 }
 
 const STATUS_TEXT: Record<ClusterStatus, string> = {
@@ -178,14 +196,14 @@ export function computeClusters(
     let color: string
     if (isTeam) {
       color = members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
-        ?? teams?.get(teamName ?? '')?.members.map(m => safeTeamColor(m.color)).find(Boolean)
+        ?? members.map(m => teamOfAgent(teams, m)?.members.map(tm => safeTeamColor(tm.color)).find(Boolean)).find(Boolean)
         ?? TEAM_DEFAULT_COLOR
     } else {
       color = sessionColor(members[0].sessionId)
     }
 
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
-    const status = clusterStatus(members.map(m => m.state))
+    const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
     let cost = 0
     for (const m of members) cost += agentCost(m.tokensUsed, m.model)
 
