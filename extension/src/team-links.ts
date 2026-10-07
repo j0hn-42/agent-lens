@@ -10,6 +10,7 @@ import type { AgentLinkKind, AgentLinkPayload, MessageSentPayload } from './prot
 import {
   TEAM_MESSAGE_MAX, TEAM_NAME_MAX, TEAM_LINK_ID_MAX,
   TEAM_NOTIFICATION_SCAN_MAX, TEAM_NOTIFICATIONS_PER_TURN_MAX,
+  TEAM_DEDUPE_WINDOW_MS, TEAM_DEDUPE_MAX_ENTRIES,
 } from './constants'
 
 // C0 controls except \t \n, DEL + C1, zero-width/bidi marks, line/paragraph separators
@@ -45,6 +46,40 @@ export function sanitizeAgentName(value: unknown): string | null {
 /** Stable id of the communication edge from -> to. */
 export function buildLinkId(kind: AgentLinkKind, from: string, to: string): string {
   return capText(`${kind}:${from}>${to}`, TEAM_LINK_ID_MAX)
+}
+
+/** Lower-case, whitespace-collapsed, bounded form of a message used to compare copies of it. */
+export function normalizeForDedupe(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 500)
+}
+
+/**
+ * One message reaches us through several channels (the sender's SendMessage tool_use, the
+ * recipient's <teammate-message> turn, the inbox file). The same normalized text on the same
+ * link inside the window is ONE message. Memory is bounded (oldest keys evicted).
+ */
+export class MessageDeduper {
+  private seen = new Map<string, number>()
+  constructor(private windowMs = TEAM_DEDUPE_WINDOW_MS, private maxEntries = TEAM_DEDUPE_MAX_ENTRIES) {}
+
+  /** True when the message is new (it is remembered now); false for a duplicate inside the window. */
+  accept(linkId: string, content: string, now = Date.now()): boolean {
+    const norm = normalizeForDedupe(content)
+    if (!norm) return true
+    const key = `${linkId}\u0000${norm}`
+    const at = this.seen.get(key)
+    if (at !== undefined && now - at < this.windowMs) return false
+    this.seen.delete(key)
+    this.seen.set(key, now)
+    while (this.seen.size > this.maxEntries) {
+      const oldest = this.seen.keys().next().value
+      if (oldest === undefined) break
+      this.seen.delete(oldest)
+    }
+    return true
+  }
+
+  get size(): number { return this.seen.size }
 }
 
 export interface TeamLinkEvents {
@@ -87,6 +122,8 @@ export function extractToolUseLinks(
     if (!to || to === '*') return null
     const linkId = buildLinkId('teammate', sender, to)
     const content = messageText(rec)
+    // No usable text: keep the edge, but there is no message to show
+    if (!content) return { link: { from: sender, to, kind: 'teammate', linkId } }
     return {
       link: { from: sender, to, kind: 'teammate', linkId },
       message: {

@@ -12,8 +12,15 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent, SubagentState, WatchedSession, emitSubagentSpawn } from './protocol'
-import { SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName } from './constants'
-import { readNewFileLines } from './fs-utils'
+import {
+  SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
+  SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES,
+} from './constants'
+import { readNewFileLines, readJsonFileSafe } from './fs-utils'
+import {
+  parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
+  type TeammateMeta,
+} from './teammate'
 import { TranscriptParser } from './transcript-parser'
 import type { SubagentRecord } from './subagent-registry'
 import { handlePermissionDetection, PermissionDetectionDelegate } from './permission-detection'
@@ -36,6 +43,8 @@ export interface SubagentFileInfo {
   toolUseId?: string
   /** agent_id of the spawning subagent, when the files expose it (nested subagents) */
   parentAgentId?: string
+  /** Set when the .meta.json describes an Agent Team teammate (in_process_teammate / teamName) */
+  teammate?: TeammateMeta
 }
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
@@ -78,14 +87,18 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
   let label = ''
   let toolUseId: string | undefined
   let parentAgentId: string | undefined
+  let teammate: TeammateMeta | undefined
   const metaPath = jsonlPath.replace(/\.jsonl$/, '.meta.json')
-  try {
-    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>
-    const name = resolveSubagentChildName(meta)
+  // Size-capped, symlinks refused; the file may not exist for older Claude Code versions
+  const meta = readJsonFileSafe(metaPath, TEAMMATE_META_MAX_BYTES)
+  if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
+    const rec = meta as Record<string, unknown>
+    teammate = parseTeammateMeta(rec) ?? undefined
+    const name = teammate ? teammate.name : resolveSubagentChildName(rec)
     if (name && name !== 'subagent') label = name
-    toolUseId = pickString(meta, TOOL_USE_HINT_KEYS)
-    parentAgentId = pickString(meta, PARENT_AGENT_HINT_KEYS)
-  } catch { /* meta file may not exist for older Claude Code versions */ }
+    toolUseId = pickString(rec, TOOL_USE_HINT_KEYS)
+    parentAgentId = pickString(rec, PARENT_AGENT_HINT_KEYS)
+  }
   if (!toolUseId || !parentAgentId) {
     const first = readFirstEntry(jsonlPath)
     if (first) {
@@ -93,7 +106,7 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
       parentAgentId = parentAgentId ?? pickString(first, PARENT_AGENT_HINT_KEYS)
     }
   }
-  return { label: label || generateSubagentFallbackName('', fallbackIndex), agentId, toolUseId, parentAgentId }
+  return { label: label || generateSubagentFallbackName('', fallbackIndex), agentId, toolUseId, parentAgentId, ...(teammate ? { teammate } : {}) }
 }
 
 /** Scan the subagents directory for new JSONL files and start tailing them */
@@ -163,6 +176,11 @@ function startWatchingSubagentFile(
     toolUseId: info.toolUseId,
     parentName: parentRecord?.name,
   })
+  const isTeammate = !!info.teammate && countTeammates(session) < TEAMMATE_MAX_PER_SESSION
+  if (isTeammate && (record.name !== info.label || info.label === ORCHESTRATOR_NAME)) {
+    // Name collision (a respawned teammate, an ordinary subagent with the same label): keep names unique
+    record.name = `${info.label}-${info.agentId.slice(-SUBAGENT_ID_SUFFIX_LENGTH)}`
+  }
   const agentName = record.name
   log.info(`Tailing subagent: ${path.basename(filePath)} as "${agentName}" (session ${sessionId.slice(0, SESSION_ID_DISPLAY)})`)
 
@@ -178,6 +196,11 @@ function startWatchingSubagentFile(
     agentId: info.agentId,
   }
   session.subagentWatchers.set(filePath, state)
+
+  if (isTeammate && info.teammate) {
+    startTeammate(delegate, parser, session, state, record, info.teammate, info, filePath, sessionId)
+    return
+  }
 
   // Pre-scan existing content for dedup IDs and determine if the subagent
   // is still active (has unmatched tool_use blocks = pending work).
@@ -223,6 +246,126 @@ function startWatchingSubagentFile(
   } catch (err) { log.debug('Subagent file watch failed:', err) }
 }
 
+function countTeammates(session: WatchedSession): number {
+  let n = 0
+  for (const sub of session.subagentWatchers.values()) if (sub.teammate) n++
+  return n
+}
+
+/**
+ * First discovery of an in-process teammate: ALWAYS announce it (also when idle or finished),
+ * replay its recent history (last TEAMMATE_REPLAY_MAX_MESSAGES entries, at most
+ * TEAMMATE_REPLAY_MAX_BYTES read from the end of the file), report its activity, then tail it.
+ */
+function startTeammate(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  session: WatchedSession,
+  state: SubagentState,
+  record: SubagentRecord,
+  meta: TeammateMeta,
+  info: SubagentFileInfo,
+  filePath: string,
+  sessionId: string,
+): void {
+  let mtimeMs = Date.now()
+  try { mtimeMs = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }
+  const tracker = new TeammateTracker(mtimeMs)
+  state.teammate = { meta, tracker, spawned: false }
+
+  const tail = readTranscriptTail(filePath)
+  state.fileSize = tail.size
+  for (const line of tail.lines) tracker.feed(line, mtimeMs)
+
+  const agentName = state.agentName
+  const alreadySpawned = record.spawned || session.spawnedSubagents.has(agentName)
+  const spawnExtras = {
+    kind: 'teammate',
+    teamName: meta.teamName,
+    ...(meta.color ? { color: meta.color } : {}),
+    ...(meta.agentType ? { agentType: meta.agentType } : {}),
+    backendType: 'in-process',
+    ...(meta.model ? { model: meta.model } : {}),
+  }
+  const parent = record.parentName ?? ORCHESTRATOR_NAME
+  record.spawned = true
+  session.spawnedSubagents.add(agentName)
+  if (alreadySpawned) {
+    // The transcript parser announced the dispatch already; upgrade the node with teammate fields
+    delegate.emit({
+      time: delegate.elapsed(sessionId),
+      type: 'agent_spawn',
+      payload: { name: agentName, parent, task: meta.name, label: meta.name, ...(record.toolUseId ? { toolUseId: record.toolUseId } : {}), ...spawnExtras },
+    }, sessionId)
+  } else {
+    emitSubagentSpawn(delegate, parent, agentName, meta.name, sessionId, {
+      label: meta.name,
+      ...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
+    }, spawnExtras)
+  }
+  state.spawnEmitted = true
+  state.teammate.spawned = true
+  log.info(`Teammate "${agentName}" (team ${meta.teamName}) discovered from ${info.agentId}`)
+
+  for (const line of selectReplayLines(tail.lines)) {
+    parser.processTranscriptLine(line, agentName, state.pendingToolCalls, state.seenToolUseIds, sessionId)
+  }
+  emitTeammateActivity(delegate, state, sessionId)
+
+  try {
+    state.watcher = fs.watch(filePath, () => {
+      readSubagentNewLines(delegate, parser, filePath, sessionId)
+    })
+  } catch (err) { log.debug('Teammate file watch failed:', err) }
+}
+
+/** Emit agent_activity when a teammate's activity changed since the last emission. */
+export function emitTeammateActivity(
+  delegate: SubagentWatcherDelegate,
+  state: SubagentState,
+  sessionId: string,
+  now = Date.now(),
+): void {
+  const tm = state.teammate
+  if (!tm) return
+  const activity = tm.tracker.activity(now)
+  if (tm.lastActivity === activity) return
+  tm.lastActivity = activity
+  delegate.emit({
+    time: delegate.elapsed(sessionId),
+    type: 'agent_activity',
+    payload: { name: state.agentName, activity },
+  }, sessionId)
+}
+
+/**
+ * Mark teammates 'done' (team config dropped the member, or the lead session ended).
+ * Never emits agent_complete: a teammate stays visible. Any new transcript line revives it.
+ * With `names` only the matching teammates (by display name) are marked.
+ */
+export function markTeammatesDone(
+  delegate: SubagentWatcherDelegate,
+  session: WatchedSession,
+  sessionId: string,
+  names?: ReadonlySet<string>,
+): void {
+  for (const state of session.subagentWatchers.values()) {
+    const tm = state.teammate
+    if (!tm) continue
+    if (names && !names.has(state.agentName) && !names.has(tm.meta.name)) continue
+    tm.tracker.done = true
+    emitTeammateActivity(delegate, state, sessionId)
+  }
+}
+
+/** Re-announce teammate activity (replay for a newly connected webview). */
+export function replayTeammates(delegate: SubagentWatcherDelegate, session: WatchedSession, sessionId: string): void {
+  for (const state of session.subagentWatchers.values()) {
+    if (state.teammate) state.teammate.lastActivity = undefined
+    emitTeammateActivity(delegate, state, sessionId)
+  }
+}
+
 export function readSubagentNewLines(
   delegate: SubagentWatcherDelegate,
   parser: TranscriptParser,
@@ -235,8 +378,17 @@ export function readSubagentNewLines(
   if (!state) return
 
   const result = readNewFileLines(filePath, state.fileSize)
-  if (!result) return
+  if (!result) {
+    // No new bytes: a teammate may still turn idle once the recent-write window passes
+    emitTeammateActivity(delegate, state, sessionId)
+    return
+  }
   state.fileSize = result.newSize
+  if (state.teammate) {
+    let mtime = Date.now()
+    try { mtime = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }
+    for (const line of result.lines) state.teammate.tracker.feed(line, mtime)
+  }
 
   // If inline progress events are handling this subagent, skip event emission
   // from the file watcher to avoid duplicates. We still advance fileSize above
@@ -244,6 +396,7 @@ export function readSubagentNewLines(
   // correct position without re-emitting old events.
   if (session.inlineProgressAgents.has(state.agentName)) {
     // Still keep the session alive — the subagent is working
+    emitTeammateActivity(delegate, state, sessionId)
     delegate.resetInactivityTimer(sessionId)
     return
   }
@@ -266,6 +419,7 @@ export function readSubagentNewLines(
 
   // Permission detection for subagent tools
   handlePermissionDetection(delegate, state.agentName, state.pendingToolCalls, state, sessionId)
+  emitTeammateActivity(delegate, state, sessionId)
 
   // Keep main session alive while subagents are working
   delegate.resetInactivityTimer(sessionId)

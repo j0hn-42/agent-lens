@@ -30,7 +30,11 @@ import {
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { SubagentRegistry } from './subagent-registry'
-import { buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, type TeamLinkEvents } from './team-links'
+import {
+  buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
+  MessageDeduper, type TeamLinkEvents,
+} from './team-links'
+import { sanitizeTeamField } from './teammate'
 import { createLogger } from './logger'
 
 const log = createLogger('TranscriptParser')
@@ -97,14 +101,58 @@ export class TranscriptParser {
   /** Per-session agent_link ids already emitted (bounded) — one link event per edge */
   private emittedLinks = new Map<string, Set<string>>()
 
+  /** Per-session message dedupe across SendMessage tool_use, <teammate-message> echo and inbox files */
+  private deduppers = new Map<string, MessageDeduper>()
+
+  /** Per-session names that denote the lead (they are drawn as the orchestrator node) */
+  private leadAliases = new Map<string, Set<string>>()
+
+  /** tool_use ids of Agent calls that spawned a teammate: their (immediate) result must not complete the node */
+  private teammateSpawnIds = new Set<string>()
+
   constructor(private delegate: TranscriptParserDelegate) {}
+
+  /** Declare the lead's team name for a session (e.g. 'team-lead'); it maps to the orchestrator node. */
+  setLeadAlias(sessionId: string, name: string): void {
+    const clean = sanitizeAgentName(name)
+    if (!clean || clean === ORCHESTRATOR_NAME) return
+    let set = this.leadAliases.get(sessionId)
+    if (!set) { set = new Set(); this.leadAliases.set(sessionId, set) }
+    if (set.size < 8) set.add(clean)
+  }
+
+  private canonicalName(sessionId: string, name: string): string {
+    if (name === 'team-lead' || this.leadAliases.get(sessionId)?.has(name)) return ORCHESTRATOR_NAME
+    return name
+  }
+
+  /** A message read from ~/.claude/teams/<team>/inboxes: same edge/message pipeline as transcripts, source 'inbox'. */
+  emitInboxMessage(sessionId: string, from: string, to: string, content: string): void {
+    const f = sanitizeAgentName(from)
+    const t = sanitizeAgentName(to)
+    const text = sanitizeMessageContent(content)
+    if (!f || !t || !text || f === t) return
+    this.emitTeamEvents({
+      link: { from: f, to: t, kind: 'teammate', linkId: buildLinkId('teammate', f, t) },
+      message: { from: f, to: t, linkId: buildLinkId('teammate', f, t), content: text, source: 'inbox' },
+    }, sessionId)
+  }
 
   /** Emit agent_link (once per edge per session) and message_sent for a tool use or notification. */
   private emitTeamEvents(events: TeamLinkEvents, sessionId?: string): void {
     const sid = sessionId ?? ''
     let seen = this.emittedLinks.get(sid)
     if (!seen) { seen = new Set(); this.emittedLinks.set(sid, seen) }
-    const { link, message } = events
+    let { link, message } = events
+    // The lead is drawn as the orchestrator: team-lead / lead name -> orchestrator, edges follow
+    const from = this.canonicalName(sid, link.from)
+    const to = this.canonicalName(sid, link.to)
+    if (from === to) return
+    if (from !== link.from || to !== link.to) {
+      const linkId = buildLinkId(link.kind, from, to)
+      link = { ...link, from, to, linkId }
+      if (message) message = { ...message, from, to, linkId }
+    }
     if (!seen.has(link.linkId)) {
       if (seen.size >= TEAM_MAX_LINKS_PER_SESSION) {
         const oldest = seen.values().next().value
@@ -118,6 +166,9 @@ export class TranscriptParser {
       }, sessionId)
     }
     if (message) {
+      let dedupe = this.deduppers.get(sid)
+      if (!dedupe) { dedupe = new MessageDeduper(); this.deduppers.set(sid, dedupe) }
+      if (!dedupe.accept(link.linkId, message.content)) return
       this.delegate.emit({
         time: this.delegate.elapsed(sessionId),
         type: 'message_sent',
@@ -162,10 +213,16 @@ export class TranscriptParser {
   /** Clean up state associated with a completed session to prevent unbounded Map growth.
    *  Pass the session's pending tool_use_ids so we can remove orphaned entries. */
   clearSessionState(pendingToolUseIds: Iterable<string>, sessionId?: string): void {
-    if (sessionId !== undefined) { this.registries.delete(sessionId); this.emittedLinks.delete(sessionId) }
+    if (sessionId !== undefined) {
+      this.registries.delete(sessionId)
+      this.emittedLinks.delete(sessionId)
+      this.deduppers.delete(sessionId)
+      this.leadAliases.delete(sessionId)
+    }
     for (const toolUseId of pendingToolUseIds) {
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
+      this.teammateSpawnIds.delete(toolUseId)
     }
   }
 
@@ -372,19 +429,38 @@ export class TranscriptParser {
         record.spawned = true
         session?.spawnedSubagents.add(childName)
         const inputData = extractInputData(toolName, block.input)
+        const teamName = sanitizeTeamField(block.input.team_name)
         emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId, {
           label,
           prompt: typeof inputData?.prompt === 'string' ? inputData.prompt : undefined,
           subagentType: typeof inputData?.subagent_type === 'string' ? inputData.subagent_type : undefined,
           model: typeof inputData?.model === 'string' ? inputData.model : undefined,
           toolUseId: block.id,
-        })
+        }, teamName ? {
+          kind: 'teammate',
+          teamName,
+          ...(sanitizeTeamField(block.input.subagent_type) ? { agentType: sanitizeTeamField(block.input.subagent_type) } : {}),
+        } : undefined)
+      }
+      if (sanitizeTeamField(block.input.team_name) && label === String(block.input.name ?? '').trim().slice(0, CHILD_NAME_MAX)) {
+        if (this.teammateSpawnIds.size >= 256) this.teammateSpawnIds.clear()
+        this.teammateSpawnIds.add(block.id)
       }
       const links = extractToolUseLinks(toolName, block.input, agentName, block.id, childName)
       if (links) this.emitTeamEvents(links, sessionId)
     } else if (toolName === 'SendMessage') {
       const links = extractToolUseLinks(toolName, block.input, agentName, block.id)
       if (links) this.emitTeamEvents(links, sessionId)
+    } else if (toolName === 'TeamCreate') {
+      // The config watcher sends the full roster; this announces the team as soon as it is created
+      const teamName = sanitizeTeamField(block.input.team_name ?? block.input.name)
+      if (teamName && sessionId) {
+        this.delegate.emit({
+          time: this.delegate.elapsed(sessionId),
+          type: 'team_info',
+          payload: { teamName, leadSessionId: sessionId, members: [] },
+        }, sessionId)
+      }
     }
 
     this.delegate.emit({
@@ -439,8 +515,16 @@ export class TranscriptParser {
     const isError = block.is_error === true || (!isSubagentTool && detectError(result))
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
+    // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
+    // returns nor completes here.
+    const spawnedTeammate = isSubagentTool && this.teammateSpawnIds.delete(block.tool_use_id)
+    if (spawnedTeammate) {
+      this.subagentChildNames.delete(block.tool_use_id)
+      this.inlineSubagentState.delete(block.tool_use_id)
+    }
+
     // If it was a subagent call completing, emit subagent return
-    if (isSubagentTool) {
+    if (isSubagentTool && !spawnedTeammate) {
       const childName = this.subagentChildNames.get(block.tool_use_id) || pending?.args?.slice(0, CHILD_NAME_MAX) || 'subagent'
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
@@ -561,6 +645,9 @@ export class TranscriptParser {
                   record.spawned = true
                   session.spawnedSubagents.add(record.name)
                   this.subagentChildNames.set(toolBlock.id, record.name)
+                  if (sanitizeTeamField(toolBlock.input?.team_name) && this.teammateSpawnIds.size < 256) {
+                    this.teammateSpawnIds.add(toolBlock.id)
+                  }
                 }
                 // Track pending tool calls so handleToolResult works after reconnect
                 const args = summarizeInput(toolBlock.name, toolBlock.input)
