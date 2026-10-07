@@ -8,16 +8,17 @@ import { syncOnce } from './telemetry/sync'
  * Hardcoded telemetry endpoint + publishable key.
  *
  * These ship inside every published binary. No env var override, no runtime
- * fallback. All enabled installs send events to Agent Flow's Supabase project.
- * Forks that republish under a different name must edit these constants and
- * rebuild.
+ * fallback. This fork ships with EMPTY constants, so telemetry is disabled and
+ * nothing is sent to (or written for) any backend. The upstream project's
+ * endpoint was removed on purpose (see TRADEMARK.md). To enable telemetry,
+ * set your own endpoint and publishable key here and rebuild.
  *
  * Safe to commit: publishable keys are designed to be public. Postgres RLS
  * denies the anon role everything; the only write path is the telemetry-ingest
  * edge function, which runs under the secret key and validates every event.
  */
-export const TELEMETRY_ENDPOINT = 'https://dxwtgqdkyunfhbywqmrz.supabase.co'
-export const TELEMETRY_PUBLISHABLE_KEY = 'sb_publishable_AgJ_DIUH9zm8E0yHC9KsRw_WsIv4qc8'
+export const TELEMETRY_ENDPOINT = ''
+export const TELEMETRY_PUBLISHABLE_KEY = ''
 
 /**
  * Progressive sync schedule. After init(), fire syncs at these offsets:
@@ -114,7 +115,7 @@ export function createTelemetryClient(opts: TelemetryClientOptions): TelemetryCl
   let syncInFlight: Promise<unknown> | null = null
 
   function enabled(): boolean {
-    return isTelemetryEnabled(getEnv())
+    return Boolean(endpoint && apiKey) && isTelemetryEnabled(getEnv())
   }
 
   function serialize(event: TelemetryEvent): string {

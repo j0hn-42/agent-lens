@@ -29,9 +29,9 @@ function baseEvent() {
   }
 }
 
-test('hardcoded constants are present', () => {
-  assert.match(TELEMETRY_ENDPOINT, /^https:\/\/.+\.supabase\.co$/)
-  assert.match(TELEMETRY_PUBLISHABLE_KEY, /^sb_publishable_/)
+test('fork ships without a telemetry backend (nothing is sent upstream)', () => {
+  assert.equal(TELEMETRY_ENDPOINT, '')
+  assert.equal(TELEMETRY_PUBLISHABLE_KEY, '')
 })
 
 test('isTelemetryEnabled: default (no env) is true', () => {
