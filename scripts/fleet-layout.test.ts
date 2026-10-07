@@ -87,11 +87,11 @@ test('duplicate keys are ignored, empty input gives no anchors', () => {
 })
 
 test('cluster key: team name, team membership of the session, else session id', () => {
-  assert.equal(clusterKeyOf({ sessionId: 's1', teamName: 'alpha' }), 'team:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 's1', teamName: 'alpha' }), 'team:s1:alpha')
   assert.equal(clusterKeyOf({ sessionId: 's1' }), 'session:s1')
   const teams = new Map([['alpha', { name: 'alpha', leadSessionId: 'lead', members: [{ name: 'bob', sessionId: 'tmux1' }] }]])
-  assert.equal(clusterKeyOf({ sessionId: 'lead' }, teams), 'team:alpha')
-  assert.equal(clusterKeyOf({ sessionId: 'tmux1' }, teams), 'team:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 'lead' }, teams), 'team:lead:alpha')
+  assert.equal(clusterKeyOf({ sessionId: 'tmux1' }, teams), 'team:lead:alpha')
   assert.equal(clusterKeyOf({ sessionId: 'other' }, teams), 'session:other')
 })
 
@@ -123,8 +123,8 @@ test('team members spawn around the team lead (one cluster), not at a second anc
   ])
   const lead = s.agents.get('lead:main')!
   const tm = s.agents.get('tmux1:main')!
-  assert.equal(lead.clusterKey, 'team:alpha')
-  assert.equal(tm.clusterKey, 'team:alpha')
+  assert.equal(lead.clusterKey, 'team:lead:alpha')
+  assert.equal(tm.clusterKey, 'team:lead:alpha')
   const d = Math.hypot(tm.x - lead.x, tm.y - lead.y)
   assert.ok(Math.abs(d - 250) < 1, `teammate main spawned ${d}px from its lead`)
 })

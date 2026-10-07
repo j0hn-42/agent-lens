@@ -23,12 +23,29 @@ export function clusterRadius(members: number): number {
 export const TEAM_CLUSTER_PREFIX = 'team:'
 export const SESSION_CLUSTER_PREFIX = 'session:'
 
-/** Cluster of an agent: its team name, else the team its session belongs to, else its session id (namespaced). */
+/**
+ * Session a team's agent is grouped under: the team's lead session when the agent's session is the
+ * lead session or one of the members' sessions, its own session otherwise. Mirrors the canvas
+ * cluster model so the simulation and the halos agree on what one cluster is.
+ */
+function groupSession(sessionId: string, teamName: string, teams?: ReadonlyMap<string, TeamSummary>): string {
+  const t = teams?.get(teamName)
+  if (!t) return sessionId
+  return sessionId === t.leadSessionId || t.members.some(m => m.sessionId === sessionId) ? t.leadSessionId : sessionId
+}
+
+/**
+ * Cluster of an agent (namespaced, same format as the canvas cluster model): `team:<leadSession>:<name>`
+ * for its team, else for the team its session belongs to, else `session:<id>`. Two teams with the same
+ * name under different lead sessions are two clusters.
+ */
 export function clusterKeyOf(agent: Pick<Agent, 'sessionId' | 'teamName'>, teams?: ReadonlyMap<string, TeamSummary>): string {
-  if (agent.teamName) return TEAM_CLUSTER_PREFIX + agent.teamName
+  if (agent.teamName) return `${TEAM_CLUSTER_PREFIX}${groupSession(agent.sessionId, agent.teamName, teams)}:${agent.teamName}`
   if (teams) {
     for (const t of teams.values()) {
-      if (t.leadSessionId === agent.sessionId || t.members.some(m => m.sessionId === agent.sessionId)) return TEAM_CLUSTER_PREFIX + t.name
+      if (t.leadSessionId === agent.sessionId || t.members.some(m => m.sessionId === agent.sessionId)) {
+        return `${TEAM_CLUSTER_PREFIX}${t.leadSessionId}:${t.name}`
+      }
     }
   }
   return SESSION_CLUSTER_PREFIX + agent.sessionId

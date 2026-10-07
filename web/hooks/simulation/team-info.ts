@@ -206,9 +206,11 @@ export function eventMatchesSelection(
   sessionId: string | undefined,
   tracker: Pick<TeamTracker, 'sessionsOf'>,
   sessions: ReadonlyArray<{ id: string; teamName?: string }>,
+  /** 'All' only: the sessions it shows (null/undefined = every session); events without a session pass */
+  visibleInAll?: ReadonlySet<string> | null,
 ): boolean {
   if (!selected) return false
-  if (selected === ALL_SESSIONS_ID) return true
+  if (selected === ALL_SESSIONS_ID) return !visibleInAll || !sessionId || visibleInAll.has(sessionId)
   const team = parseTeamSelection(selected)
   if (team !== null) return !!sessionId && teamSessionIds(team, tracker, sessions).has(sessionId)
   return sessionId === selected

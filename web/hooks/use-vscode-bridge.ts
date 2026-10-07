@@ -3,6 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
+import {
+  activeSessionIds, finishedSessionIds, parseShowFinished, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
+} from '@/hooks/simulation/session-visibility'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 
@@ -39,6 +42,15 @@ interface BridgeHookResult {
   teamWorking: Map<string, number>
   /** Members known per team (team config or teammates seen) */
   teamMemberCounts: Map<string, number>
+  /** 'All' also shows the finished sessions (persisted preference) */
+  showFinished: boolean
+  setShowFinished: (show: boolean) => void
+  /** Sessions the 'All' view shows (null = every session); changes whenever the shown set changes */
+  allViewSessionIds: ReadonlySet<string> | null
+  /** Identity of the 'All' view's shown set: a change means the union simulation must be rebuilt */
+  allViewKey: string
+  /** Sessions of the list that count as finished (hidden from 'All' unless showFinished) */
+  finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
   /** Remove a session from the list */
@@ -56,6 +68,11 @@ interface BridgeHookResult {
 }
 
 const PARSE_NOTICE_INTERVAL_MS = 10_000
+
+/** How often the 'active session' rule is re-evaluated for the passage of time */
+const VISIBILITY_TICK_MS = 30_000
+/** Sessions remembered for their last event time (oldest dropped) */
+const MAX_LAST_EVENT_SESSIONS = 1000
 
 /** Max events kept in the arrival-order buffer that feeds the 'All' tab (oldest are dropped) */
 const MAX_ALL_BUFFER = 50_000
@@ -94,9 +111,16 @@ export function useVSCodeBridge(): BridgeHookResult {
     for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)) }
     setTeamView({ teams: new Map(tracker.teams), working, members })
   }, [])
+  // 'All' shows only the active sessions unless the user asked for the finished ones too
+  const [showFinished, setShowFinishedState] = useState(false)
+  const showFinishedRef = useRef(false)
+  const lastEventAtRef = useRef<Map<string, number>>(new Map())
+  /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
+  const visibleRef = useRef<ReadonlySet<string> | null>(null)
+  const [visibility, setVisibility] = useState<{ key: string; ids: ReadonlySet<string> | null; finished: number }>({ key: '*', ids: null, finished: 0 })
   /** Whether an event of `sessionId` belongs to the selected view (session, All, or team pseudo selection) */
   const matchesSelection = useCallback((selected: string | null, sessionId: string | undefined): boolean =>
-    eventMatchesSelection(selected, sessionId, teamTrackerRef.current, sessionsRef.current), [])
+    eventMatchesSelection(selected, sessionId, teamTrackerRef.current, sessionsRef.current, visibleRef.current), [])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const selectedSessionIdRef = useRef<string | null>(null)
   const sessionEventsRef = useRef<Map<string, SimulationEvent[]>>(new Map())
@@ -107,6 +131,50 @@ export function useVSCodeBridge(): BridgeHookResult {
   /** True while a session switch is pending (between auto-select and useLayoutEffect).
    *  Prevents the animation frame from processing events in the wrong simulation context. */
   const sessionSwitchPendingRef = useRef(false)
+
+  /** Re-evaluate which sessions 'All' shows; publishes a change (and parks event delivery while the union is rebuilt). */
+  const recomputeVisible = useCallback(() => {
+    let next: Set<string> | null = null
+    let finished = 0
+    const tracker = teamTrackerRef.current
+    const active = activeSessionIds({
+      sessions: sessionsRef.current,
+      lastEventAt: lastEventAtRef.current,
+      selectedId: selectedSessionIdRef.current,
+      teamSessions: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.sessionsOf(name)] as const)),
+      teamWorking: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.working(name)] as const)),
+      now: Date.now(),
+    })
+    finished = finishedSessionIds(sessionsRef.current, active).length
+    if (!showFinishedRef.current) next = active
+    const key = visibilityKey(next)
+    const prevKey = visibilityKey(visibleRef.current)
+    visibleRef.current = next
+    setVisibility(prev => (prev.key === key && prev.finished === finished ? prev : { key, ids: next, finished }))
+    if (key !== prevKey && selectedSessionIdRef.current === ALL_SESSIONS_ID) {
+      // The union changes: hold events until the consumer rebuilds it from the buffer
+      sessionSwitchPendingRef.current = true
+      pendingEventsRef.current.length = 0
+    }
+  }, [])
+
+  const setShowFinished = useCallback((show: boolean) => {
+    showFinishedRef.current = show
+    setShowFinishedState(show)
+    try { localStorage.setItem(SHOW_FINISHED_STORAGE_KEY, String(show)) } catch { /* storage unavailable */ }
+    recomputeVisible()
+  }, [recomputeVisible])
+
+  // Restore the persisted preference once on mount
+  useEffect(() => {
+    try {
+      if (parseShowFinished(localStorage.getItem(SHOW_FINISHED_STORAGE_KEY))) {
+        showFinishedRef.current = true
+        setShowFinishedState(true)
+      }
+    } catch { /* storage unavailable */ }
+    recomputeVisible()
+  }, [recomputeVisible])
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
   const [relayUnreachable, setRelayUnreachable] = useState(false)
   const [notice, setNotice] = useState<BridgeNotice | null>(null)
@@ -199,6 +267,18 @@ export function useVSCodeBridge(): BridgeHookResult {
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
 
+      // Remember when each session last spoke (bounded), and re-evaluate when a hidden one wakes up
+      if (event.sessionId) {
+        const last = lastEventAtRef.current
+        last.delete(event.sessionId)
+        last.set(event.sessionId, Date.now())
+        if (last.size > MAX_LAST_EVENT_SESSIONS) {
+          const oldest = last.keys().next().value
+          if (oldest !== undefined) last.delete(oldest)
+        }
+        if (visibleRef.current && !visibleRef.current.has(event.sessionId)) recomputeVisible()
+      }
+
       // Always buffer by session (for replay on session switch)
       if (event.sessionId) {
         const buf = sessionEventsRef.current.get(event.sessionId) || []
@@ -269,6 +349,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         sessionEventsRef.current.clear()
         allEventsRef.current = []
         allBaseRef.current = 0
+        lastEventAtRef.current.clear()
         teamTrackerRef.current.clear()
         refreshTeamView()
         setSessionsWithActivity(new Set())
@@ -345,7 +426,14 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [pushNotice, refreshTeamView, matchesSelection])
+  }, [pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
+
+  // The rule depends on the session list, the teams, the selection and the clock
+  useEffect(() => { recomputeVisible() }, [sessions, teamView, selectedSessionId, recomputeVisible])
+  useEffect(() => {
+    const t = setInterval(recomputeVisible, VISIBILITY_TICK_MS)
+    return () => clearInterval(t)
+  }, [recomputeVisible])
 
   const consumeEvents = useCallback(() => {
     // Clear in-place so stale closures in animation callbacks
@@ -455,6 +543,11 @@ export function useVSCodeBridge(): BridgeHookResult {
     teams: teamView.teams,
     teamWorking: teamView.working,
     teamMemberCounts: teamView.members,
+    showFinished,
+    setShowFinished,
+    allViewSessionIds: visibility.ids,
+    allViewKey: visibility.key,
+    finishedSessionCount: visibility.finished,
     sessionsWithActivity,
     removeSession,
     restoreSession,

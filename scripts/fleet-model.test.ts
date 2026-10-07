@@ -107,7 +107,7 @@ test('links are capped per session and drop the oldest', () => {
 // ─── cluster keys ───────────────────────────────────────────────────────────
 
 test('cluster keys are namespaced: a team called like a session never merges with it', () => {
-  assert.equal(clusterKeyOf({ sessionId: 'x', teamName: 'x' }), 'team:x')
+  assert.equal(clusterKeyOf({ sessionId: 'x', teamName: 'x' }), 'team:x:x')
   assert.equal(clusterKeyOf({ sessionId: 'x' }), 'session:x')
   assert.notEqual(clusterKeyOf({ sessionId: 'a', teamName: 'b' }), clusterKeyOf({ sessionId: 'b' }))
   const s = run([main('beta'), { type: 'agent_spawn', sessionId: 'other', payload: { name: 'main', isMain: true, kind: 'teammate', teamName: 'beta' } }])
@@ -116,24 +116,22 @@ test('cluster keys are namespaced: a team called like a session never merges wit
 
 test('the cluster key is cached on the agent, also for a returning teammate', () => {
   let s = run([main('s'), teammate('s', 'tm', 'alpha')])
-  assert.equal(s.agents.get('s:tm')!.clusterKey, 'team:alpha')
+  assert.equal(s.agents.get('s:tm')!.clusterKey, 'team:s:alpha')
   s = run([done('s', 'tm'), teammate('s', 'tm', 'beta')], s)
-  assert.equal(s.agents.get('s:tm')!.clusterKey, 'team:beta')
+  assert.equal(s.agents.get('s:tm')!.clusterKey, 'team:s:beta')
 })
 
-test('spawn stream is processed in bounded time (400 sessions, 3000 teammate events)', () => {
-  const t0 = Date.now()
+test('spawn streams leave bounded state (400 sessions, 3000 teammate events)', () => {
+  // Sizes, not wall-clock time: a timing assertion is flaky on slow CI machines
   const evs: Ev[] = []
   for (let i = 0; i < 400; i++) evs.push(main(`b${i}`))
   const a = run(evs)
-  const t1 = Date.now()
   const tm: Ev[] = [main('lead')]
   for (let i = 0; i < 3000; i++) tm.push(teammate('lead', `m${i % 90}`, 'alpha'), { type: 'agent_activity', sessionId: 'lead', payload: { name: `m${i % 90}`, activity: i % 2 ? 'idle' : 'working' } })
   const b = run(tm)
-  const t2 = Date.now()
-  assert.ok(a.agents.size > 0 && b.agents.size > 0)
-  assert.ok(t1 - t0 < 3000, `400 sessions took ${t1 - t0} ms`)
-  assert.ok(t2 - t1 < 3000, `3000 teammate events took ${t2 - t1} ms`)
+  assert.equal(a.agents.size, 400)
+  assert.ok(b.agents.size <= MAX_TEAM_MEMBERS + 1, `${b.agents.size} agents for one team`)
+  assert.ok(b.conversations.size <= b.agents.size)
 })
 
 // ─── real d3 simulation ─────────────────────────────────────────────────────

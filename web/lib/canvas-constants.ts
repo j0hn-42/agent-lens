@@ -152,15 +152,15 @@ export const FORCE = {
 
 export const CLUSTER_LAYOUT = {
   /** Disc radius of a cluster = baseRadius + members * memberSpacing */
-  baseRadius: 360,
-  memberSpacing: 45,
+  baseRadius: 300,
+  memberSpacing: 30,
   maxMembers: 100,
   /** Free space kept between two cluster discs */
-  gap: 120,
+  gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
   /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.35,
+  holdStrength: 0.6,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
