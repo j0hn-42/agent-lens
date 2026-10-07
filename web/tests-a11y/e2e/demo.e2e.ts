@@ -167,6 +167,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
       clippedContainers, outside,
     }
   })()`
+  const KNOWN_OUTSIDE = /^(div\[Agent graph|button\[Refactor the payment)/
   type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
   // Findings are collected over every step (initial, review mode, panels) and compared with the
   // allow-list once, so a known defect does not hide a new one in a later step.
@@ -175,7 +176,12 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const add = (rule: string, detail: string) => { f.rules.add(rule); f.details.push(`[${where} @${width}px] ${rule}: ${detail}`) }
     if (m.doc > m.inner || m.body > m.inner) add('page-overflow', `doc=${m.doc} body=${m.body}`)
     if (m.clippedContainers.length) add('clipped-container', m.clippedContainers.join('; '))
-    if (m.outside.length) add('outside-viewport', m.outside.join('; '))
+    // The allow-list entry covers only the elements tracked in issue #23 (transcript row buttons and
+    // the Agent graph region); any other clipped control is a new, never allow-listed rule.
+    const tracked = m.outside.filter(o => KNOWN_OUTSIDE.test(o))
+    const untracked = m.outside.filter(o => !KNOWN_OUTSIDE.test(o))
+    if (tracked.length) add('outside-viewport', tracked.join('; '))
+    if (untracked.length) add('outside-viewport-untracked', untracked.join('; '))
   }
 
   // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
@@ -360,6 +366,120 @@ describe('demo mode: keyboard', () => {
       await page.keyboard.press('Home')
       await page.keyboard.press('ArrowRight')
       assert.ok(await value() > 0, 'ArrowRight moves the scrubber forward')
+    } finally { await close() }
+  })
+})
+
+describe('demo mode: context menu and tool popup (issue #43)', () => {
+  const GRAPH = '[role="img"][tabindex="0"]'
+  const activeLabel = (page: Page) =>
+    page.evaluate(() => {
+      const el = document.activeElement as HTMLElement | null
+      return el ? `${el.getAttribute('role') ?? el.tagName.toLowerCase()}:${(el.textContent ?? '').trim()}` : ''
+    })
+  const graphHasFocus = (page: Page) =>
+    page.evaluate(sel => document.activeElement === document.querySelector(sel), GRAPH)
+
+  async function openMenuByKeyboard(page: Page) {
+    await page.locator(GRAPH).focus()
+    await page.keyboard.press('Shift+F10')
+    const menu = page.getByRole('menu', { name: 'Context menu' })
+    await menu.waitFor()
+    return menu
+  }
+
+  // The tool card lives on the canvas bitmap, but every card also has a button in the graph outline
+  // (same callback as a canvas click). Cards fade out after a few seconds, so click as soon as one exists.
+  async function openToolPopup(page: Page) {
+    const sel = 'ul[aria-label^="Tool calls of"] button[data-graph-node]'
+    await page.waitForSelector(sel, { state: 'attached', timeout: 20000 })
+    await page.evaluate(s => (document.querySelector(s) as HTMLButtonElement | null)?.click(), sel)
+    const dialog = page.getByRole('dialog')
+    await dialog.waitFor({ timeout: 5000 })
+    return dialog
+  }
+
+  test('e2e: context menu opened with a right click has no serious axe violation', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
+      await page.getByRole('menu', { name: 'Context menu' }).waitFor()
+      expectClean('e2e:context-menu', await axeFailures(page, 'e2e:context-menu'))
+    } finally { await close() }
+  })
+
+  test('e2e: tool popup has no serious axe violation', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      await openToolPopup(page)
+      expectClean('e2e:tool-popup', await axeFailures(page, 'e2e:tool-popup'))
+    } finally { await close() }
+  })
+
+  test('context menu: right click, arrow keys, Home, End and Escape', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      // Right click on empty canvas: the canvas menu has several items (the agent menu has one).
+      await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
+      const menu = page.getByRole('menu', { name: 'Context menu' })
+      await menu.waitFor()
+      const items = menu.getByRole('menuitem')
+      const count = await items.count()
+      assert.ok(count >= 2, `expected at least two menu items, got ${count}`)
+      const labels = (await items.allTextContents()).map(s => s.trim())
+      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'first item is focused on open')
+      await page.keyboard.press('ArrowDown')
+      assert.equal(await activeLabel(page), `menuitem:${labels[1]}`, 'ArrowDown moves to the next item')
+      await page.keyboard.press('ArrowUp')
+      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'ArrowUp moves back')
+      await page.keyboard.press('End')
+      assert.equal(await activeLabel(page), `menuitem:${labels[count - 1]}`, 'End focuses the last item')
+      await page.keyboard.press('Home')
+      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'Home focuses the first item')
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+    } finally { await close() }
+  })
+
+  test('context menu: Shift+F10 opens it, Escape closes it and focus returns to the graph', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      const menu = await openMenuByKeyboard(page)
+      assert.ok(await menu.getByRole('menuitem').count() >= 1)
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+      assert.equal(await graphHasFocus(page), true, 'focus returns to the graph surface that opened the menu')
+    } finally { await close() }
+  })
+
+  test('context menu: the ContextMenu key opens it and Tab closes it with focus returned', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      await page.locator(GRAPH).focus()
+      await page.keyboard.press('ContextMenu')
+      const menu = page.getByRole('menu', { name: 'Context menu' })
+      await menu.waitFor()
+      await page.keyboard.press('Tab')
+      await menu.waitFor({ state: 'detached' })
+      assert.equal(await graphHasFocus(page), true, 'focus returns to the graph surface')
+    } finally { await close() }
+  })
+
+  test('tool popup: Escape closes it and focus is not lost to a detached node', async t => {
+    if (skipReason) return t.skip(skipReason)
+    const { page, close } = await open()
+    try {
+      const dialog = await openToolPopup(page)
+      assert.ok(await dialog.getByRole('button', { name: /close/i }).count() >= 1, 'popup has a named close button')
+      await page.keyboard.press('Escape')
+      await dialog.waitFor({ state: 'detached' })
+      const connected = await page.evaluate(() => !!document.activeElement && document.activeElement.isConnected)
+      assert.ok(connected, 'focus is on a live element')
     } finally { await close() }
   })
 })
