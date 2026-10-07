@@ -121,6 +121,7 @@ export function handleToolCallEnd(
       ...agent,
       state: isError ? 'error' : 'thinking',
       currentTool: undefined,
+      ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
       tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
     })
 

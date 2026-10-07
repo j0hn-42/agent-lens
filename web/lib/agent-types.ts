@@ -53,6 +53,8 @@ export interface Agent {
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
+  /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
+  toolErrors?: number
   timeAlive: number
   x: number
   y: number

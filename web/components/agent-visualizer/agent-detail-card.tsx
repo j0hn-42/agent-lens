@@ -31,7 +31,7 @@ interface AgentDetailCardProps {
     freshnessSource?: 'live' | 'history'
     sessionLabel?: string
   }
-  /** Tool errors of this node only (see countAgentToolErrors) */
+  /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
   onClose: () => void
   /** Freshness clock override for tests */
@@ -137,7 +137,7 @@ export function AgentDetailCard({
               ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
               : 'no event observed'}
           </span>
-          {toolErrors !== undefined && (
+          {typeof toolErrors === 'number' && (
             <span data-testid="inspector-errors" style={{ color: toolErrors > 0 ? COLORS.error : undefined }}>
               {pluralize(toolErrors, 'tool error')}
             </span>

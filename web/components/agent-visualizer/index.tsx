@@ -29,7 +29,7 @@ import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
 import { totalAgentCost } from "@/lib/cost"
-import { nextInspectorMemory, countAgentToolErrors, type InspectorMemory } from "@/lib/inspector-model"
+import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -387,10 +387,6 @@ export function AgentVisualizer() {
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
   inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
   const selectedGone = !!selection.selectedAgentId && !selectedAgent
-  const selectedToolErrors = useMemo(
-    () => (selectedAgent ? countAgentToolErrors(selectedAgent.id, toolCalls) : 0),
-    [selectedAgent, toolCalls],
-  )
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
 
   // Session runtime — drives the assistant label (CLAUDE vs CODEX) in transcript panels
@@ -599,7 +595,7 @@ export function AgentVisualizer() {
           <AgentDetailCard
             key={selectedAgent.id}
             agent={selectedAgent}
-            toolErrors={selectedToolErrors}
+            toolErrors={selectedAgent.toolErrors}
             onClose={selection.clearAgent}
           />
         </div>

@@ -6,7 +6,7 @@
  * the view is opened on) or from any other node. When the selection is no longer in the graph the view
  * says so explicitly instead of substituting another node's values.
  */
-import type { Agent, ToolCallNode } from './agent-types'
+import type { Agent } from './agent-types'
 import { deriveFreshness, type Freshness } from '../hooks/simulation/freshness'
 
 /** Last name the selected id had while it was listed, so "no longer listed" can still name it. */
@@ -21,8 +21,8 @@ export type InspectorView =
     freshness: Freshness
     /** Wall-clock ms of this agent's own last event; null = never observed */
     lastEventAt: number | null
-    /** Tool calls of this agent (not of the session) that ended in error */
-    toolErrors: number
+    /** Cumulative tool calls of this agent (not of the session) that ended in error; null = not counted, never shown as 0 */
+    toolErrors: number | null
   }
 
 /** Memory follows the selection: it never carries a name over from a previously selected node. */
@@ -34,16 +34,9 @@ export function nextInspectorMemory(
   return prev && prev.id === selectedId ? prev : null
 }
 
-export function countAgentToolErrors(agentId: string, toolCalls: ReadonlyMap<string, Pick<ToolCallNode, 'agentId' | 'state'>>): number {
-  let n = 0
-  for (const t of toolCalls.values()) if (t.agentId === agentId && t.state === 'error') n++
-  return n
-}
-
 export function deriveInspectorView(
   selectedId: string | null,
   agents: ReadonlyMap<string, Agent>,
-  toolCalls: ReadonlyMap<string, Pick<ToolCallNode, 'agentId' | 'state'>>,
   memory: InspectorMemory | null,
   now: number,
 ): InspectorView {
@@ -55,7 +48,7 @@ export function deriveInspectorView(
     agent,
     freshness: deriveFreshness(agent, now),
     lastEventAt: typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt) ? agent.lastEventAt : null,
-    toolErrors: countAgentToolErrors(agent.id, toolCalls),
+    toolErrors: typeof agent.toolErrors === 'number' && Number.isFinite(agent.toolErrors) ? agent.toolErrors : null,
   }
 }
 
