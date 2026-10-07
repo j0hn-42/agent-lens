@@ -1,13 +1,13 @@
 'use client'
 
 import { useRef, useEffect, useState, useId } from 'react'
-import { Z, CARD } from '@/lib/agent-types'
+import { Z, CARD, type Agent, type TeamSummary } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { TranscriptMessage } from './transcript-message'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { CloseButton, SlidingPanel, stopPropagationHandlers } from './shared-ui'
 import { useVirtualList } from '@/hooks/use-virtual-list'
-import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING } from '@/lib/feed-utils'
+import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING, agentNameOf, teamColorOf, groupByTeam } from '@/lib/feed-utils'
 import { SearchIcon, ArrowDownIcon } from './feed-icons'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -22,6 +22,10 @@ interface TranscriptPanelProps {
   conversation: ConversationMessage[]
   runtime?: 'claude' | 'codex'
   onClose: () => void
+  /** Agents by key (optional): resolves display names for dispatch / return / teammate rows */
+  agents?: Map<string, Agent>
+  /** Agent Teams (optional): teammates are listed under their team heading */
+  teams?: Map<string, TeamSummary>
 }
 
 export function SessionTranscriptPanel({
@@ -29,6 +33,8 @@ export function SessionTranscriptPanel({
   conversation,
   runtime,
   onClose,
+  agents,
+  teams,
 }: TranscriptPanelProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearch, setShowSearch] = useState(false)
@@ -60,6 +66,10 @@ export function SessionTranscriptPanel({
     initialViewportHeight: TRANSCRIPT_INITIAL_VIEWPORT,
     autoScroll: true,
   })
+
+  const teamGroups = (teams && teams.size > 0 && agents)
+    ? groupByTeam([...agents.values()].filter(a => a.teamName)).filter(g => g.team !== null)
+    : []
 
   if (!visible) return null
 
@@ -138,6 +148,35 @@ export function SessionTranscriptPanel({
           </div>
         )}
 
+        {/* Teammates grouped under their team heading */}
+        {teamGroups.length > 0 && (
+          <section
+            aria-label="Teams"
+            className="px-3 py-1.5 flex-shrink-0"
+            style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}
+          >
+            {teamGroups.map(g => (
+              <div key={g.team}>
+                <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
+                  {g.team}
+                </h3>
+                <ul className="flex flex-wrap gap-x-2 gap-y-0.5 pb-1">
+                  {g.items.map(a => (
+                    <li key={a.id} className="text-[11px] font-mono flex items-center gap-1" style={{ color: COLORS.textMuted }}>
+                      <span
+                        aria-hidden="true"
+                        className="inline-block w-2 h-2 rounded-full"
+                        style={{ background: teamColorOf(a, teams) ?? COLORS.textMuted }}
+                      />
+                      {a.name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        )}
+
         {/* Virtualized message list */}
         <div
           ref={scrollRef}
@@ -168,7 +207,14 @@ export function SessionTranscriptPanel({
                     ref={(el) => itemMeasureRef(msg.id, el)}
                     style={{ marginBottom: TRANSCRIPT_GAP }}
                   >
-                    <TranscriptMessage message={msg} searchQuery={searchQuery} assistantLabel={runtime === 'codex' ? 'CODEX' : 'CLAUDE'} />
+                    <TranscriptMessage
+                      message={msg}
+                      searchQuery={searchQuery}
+                      assistantLabel={runtime === 'codex' ? 'CODEX' : 'CLAUDE'}
+                      fromName={agents && msg.from ? agentNameOf(agents, msg.from) : undefined}
+                      toName={agents && msg.to ? agentNameOf(agents, msg.to) : undefined}
+                      accent={agents ? teamColorOf(agents.get(msg.from ?? ''), teams) : undefined}
+                    />
                   </div>
                 ))}
               </div>

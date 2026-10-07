@@ -1,26 +1,39 @@
 'use client'
 
 import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
-import { Agent, Z, type AgentState } from '@/lib/agent-types'
+import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
-import type { ConversationMessage } from '@/hooks/simulation/types'
+import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import { useVirtualList } from '@/hooks/use-virtual-list'
+import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
   stateLabel, truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex,
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, FOCUS_RING,
+  FEED_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
+  hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair,
+  droppedMarkerFor, agentIdsWithMessages, type FeedMessage, type CommKind,
 } from '@/lib/feed-utils'
 import { ChevronIcon, ArrowDownIcon } from './feed-icons'
+import { COMM_STYLE } from './transcript-message'
 
 interface MessageFeedPanelProps {
   conversations: Map<string, ConversationMessage[]>
   agents: Map<string, Agent>
   onAgentClick: (agentId: string | null) => void
   selectedAgentId: string | null
+  /** Communication links between agents (dispatch / return / teammate messages) */
+  links?: Map<string, AgentLink>
+  /** Messages dropped per agent key (shows '... N older messages dropped') */
+  droppedMessages?: Map<string, number>
+  /** Agent Teams, used for team accents */
+  teams?: Map<string, TeamSummary>
 }
 
-// Only show text messages (assistant, user, thinking) — tool calls visible via agent selection
-const TEXT_TYPES = new Set(['assistant', 'user', 'thinking'])
+// Text messages plus agent-to-agent communications; tool calls are visible via agent selection
+const TEXT_TYPES = FEED_MESSAGE_TYPES
+
+const COMM_TRUNCATE_MAX = 200
 
 // Truncation limits for compact display
 const COLLAPSED_AGENT_NAME_MAX = 12
@@ -38,10 +51,16 @@ export function MessageFeedPanel({
   agents,
   onAgentClick,
   selectedAgentId,
+  links,
+  droppedMessages,
+  teams,
 }: MessageFeedPanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState<string>('all')
   const [unread, setUnread] = useState<Set<string>>(new Set())
+  const [pairOpen, setPairOpen] = useState(false)
+  const [pairA, setPairA] = useState('')
+  const [pairB, setPairB] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
   const prevLensRef = useRef<Map<string, number>>(new Map())
   const pillRef = useRef<HTMLButtonElement>(null)
@@ -57,19 +76,11 @@ export function MessageFeedPanel({
   const agentsRef = useRef(agents)
   agentsRef.current = agents
 
-  // Stable key that only changes when agent set membership or names change
-  const agentKey = useMemo(() => {
-    const parts: string[] = []
-    for (const [id, a] of agents) parts.push(`${id}:${a.name}:${a.isMain}`)
-    return parts.sort().join('|')
-  }, [agents])
-
   // ── Latest message (cheap — used by collapsed view) ──
   const latestMessage = useMemo(() => {
-    const currentAgents = agentsRef.current
-    let latest: (ConversationMessage & { agentId: string }) | null = null
+    let latest: FeedMessage | null = null
+    // Finished agents keep their messages: no filtering on live agents
     for (const [agentId, msgs] of conversations) {
-      if (!currentAgents.has(agentId)) continue
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (!TEXT_TYPES.has(msgs[i].type)) continue
         if (!latest || msgs[i].timestamp > latest.timestamp) {
@@ -78,77 +89,36 @@ export function MessageFeedPanel({
         break
       }
     }
+    if (links) {
+      for (const link of links.values()) {
+        const last = link.messages[link.messages.length - 1]
+        if (last && TEXT_TYPES.has(last.type) && (!latest || last.timestamp > latest.timestamp)) {
+          latest = { ...last, agentId: last.from ?? link.from }
+        }
+      }
+    }
     return latest
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversations, agentKey])
+  }, [conversations, links])
 
   // ── Expensive memos — only compute when expanded ──
 
-  const agentsWithMessages = useMemo(() => {
-    if (!expanded) return []
-    const currentAgents = agentsRef.current
-    const ids: string[] = []
-    for (const [agentId, msgs] of conversations) {
-      if (!currentAgents.has(agentId)) continue
-      if (msgs.some(m => TEXT_TYPES.has(m.type))) ids.push(agentId)
-    }
-    return ids.sort((a, b) => {
-      const agA = currentAgents.get(a)
-      const agB = currentAgents.get(b)
-      if (agA?.isMain) return -1
-      if (agB?.isMain) return 1
-      return (agA?.name ?? a).localeCompare(agB?.name ?? b)
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded ? conversations : null, expanded, agentKey])
+  const allMessages = useMemo<FeedMessage[]>(
+    () => (expanded ? buildFeedMessages(conversations, links) : []),
+    [expanded, conversations, links],
+  )
 
-  // Incremental message cache
-  const messagesCacheRef = useRef<{
-    key: string
-    counts: Map<string, number>
-    result: (ConversationMessage & { agentId: string })[]
-  }>({ key: '', counts: new Map(), result: [] })
+  const agentsWithMessages = useMemo(
+    () => agentIdsWithMessages(allMessages, agents),
+    [allMessages, agents],
+  )
 
-  const messages = useMemo(() => {
-    if (!expanded) return []
-    const currentAgents = agentsRef.current
-    const cache = messagesCacheRef.current
-    const cacheKey = `${activeTab}:${agentKey}`
-
-    if (cache.key !== cacheKey) {
-      cache.key = cacheKey
-      cache.counts = new Map()
-      cache.result = []
-    }
-
-    if (activeTab === 'all') {
-      let appended = false
-      for (const [agentId, msgs] of conversations) {
-        if (!currentAgents.has(agentId)) continue
-        const prevLen = cache.counts.get(agentId) ?? 0
-        if (msgs.length > prevLen) {
-          for (let i = prevLen; i < msgs.length; i++) {
-            if (TEXT_TYPES.has(msgs[i].type)) cache.result.push({ ...msgs[i], agentId })
-          }
-          cache.counts.set(agentId, msgs.length)
-          appended = true
-        }
-      }
-      if (appended) cache.result.sort((a, b) => a.timestamp - b.timestamp)
-      return cache.result
-    }
-
-    const msgs = conversations.get(activeTab) ?? []
-    const prevLen = cache.counts.get(activeTab) ?? 0
-    if (msgs.length > prevLen) {
-      for (let i = prevLen; i < msgs.length; i++) {
-        if (TEXT_TYPES.has(msgs[i].type)) cache.result.push({ ...msgs[i], agentId: activeTab })
-      }
-      cache.counts.set(activeTab, msgs.length)
-    }
-    return cache.result
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expanded ? conversations : null, expanded, activeTab, agentKey])
+  const pairActive = pairOpen && pairA !== '' && pairB !== '' && pairA !== pairB
+  const messages = useMemo(
+    () => (pairActive ? filterByPair(allMessages, pairA, pairB) : filterByTab(allMessages, activeTab)),
+    [allMessages, activeTab, pairActive, pairA, pairB],
+  )
+  const droppedMarker = droppedMarkerFor(droppedMessages, pairActive ? 'none' : activeTab)
+  const multiSession = hasMultipleSessions(agents)
 
   // Virtual list with auto-scroll
   const {
@@ -174,8 +144,8 @@ export function MessageFeedPanel({
   }, [activeTab])
 
   useEffect(() => {
-    if (activeTab !== 'all' && !conversations.has(activeTab)) setActiveTab('all')
-  }, [conversations, activeTab])
+    if (expanded && activeTab !== 'all' && agentsWithMessages.length > 0 && !agentsWithMessages.includes(activeTab)) setActiveTab('all')
+  }, [expanded, agentsWithMessages, activeTab])
 
   useEffect(() => {
     if (selectedAgentId) {
@@ -189,6 +159,13 @@ export function MessageFeedPanel({
 
   const panelRef = useRef<HTMLDivElement>(null)
   const collapsePanel = useCallback(() => setExpanded(false), [])
+  // Escape stack: close the feed (returning focus to its pill) when it is open
+  usePanelRegistration('message-feed', () => {
+    if (!expanded) return false
+    restoreFocusRef.current = true
+    setExpanded(false)
+    return true
+  })
   useClickOutside(panelRef, collapsePanel)
 
   const updateTabOverflow = useCallback(() => {
@@ -232,9 +209,11 @@ export function MessageFeedPanel({
   // ── Collapsed ──
   if (!expanded) {
     if (!latestMessage) return null
-    const agent = agents.get(latestMessage.agentId)
-    const agentName = agent?.name ?? latestMessage.agentId
-    const role = ROLE_COLORS[latestMessage.type] ?? ROLE_COLORS.assistant
+    const agentName = agentNameOf(agents, latestMessage.agentId)
+    const latestKind = commKindOf(latestMessage)
+    const role = latestKind
+      ? { ...COMM_STYLE[latestKind], label: COMM_LABELS[latestKind] }
+      : (ROLE_COLORS[latestMessage.type] ?? ROLE_COLORS.assistant)
     const preview = latestMessage.content.replace(/\n/g, ' ').slice(0, PREVIEW_MAX)
 
     return (
@@ -274,7 +253,7 @@ export function MessageFeedPanel({
       onScroll={handleScroll}
       role="log"
       aria-live="off"
-      aria-label={activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agents.get(activeTab)?.name ?? activeTab}`}
+      aria-label={activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
       tabIndex={0}
       className={`flex-1 overflow-y-auto px-2 pb-2 ${FOCUS_RING}`}
       style={{ maxHeight: 340, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
@@ -287,6 +266,9 @@ export function MessageFeedPanel({
         </div>
       ) : (
         <div style={listStyle}>
+          {droppedMarker && (
+            <p className="text-[11px] font-mono px-1 pb-1" style={{ color: COLORS.textMuted }}>{droppedMarker}</p>
+          )}
           <div role="list" aria-label="Messages" style={windowStyle}>
             {visibleItems.map((msg, i) => (
               <div
@@ -299,8 +281,12 @@ export function MessageFeedPanel({
               >
                 <MessageRow
                   message={msg}
-                  agentName={agents.get(msg.agentId)?.name ?? msg.agentId}
-                  showAgent={activeTab === 'all'}
+                  agentName={agentNameOf(agents, msg.agentId)}
+                  fromName={msg.from ? agentNameOf(agents, msg.from) : undefined}
+                  toName={msg.to ? agentNameOf(agents, msg.to) : undefined}
+                  accent={teamColorOf(agents.get(msg.from ?? msg.agentId), teams)}
+                  sessionChip={multiSession ? sessionChipOf(agents.get(msg.agentId)) : undefined}
+                  showAgent={activeTab === 'all' || pairActive}
                   isSelected={selectedAgentId === msg.agentId}
                   onClick={() => { onAgentClick(msg.agentId); restoreFocusRef.current = true; setExpanded(false) }}
                   runtime={agents.get(msg.agentId)?.runtime}
@@ -366,8 +352,9 @@ export function MessageFeedPanel({
             >
               {tabKeys.map((key, i) => {
                 const agent = key === 'all' ? undefined : agents.get(key)
-                const name = key === 'all' ? 'All' : (agent?.name ?? key)
+                const name = key === 'all' ? 'All' : agentNameOf(agents, key)
                 const color = key === 'all' ? COLORS.holoBase : (agent ? getStateColor(agent.state) : COLORS.idle)
+                const done = key !== 'all' && isAgentDone(agent)
                 return (
                   <TabButton
                     key={key}
@@ -376,7 +363,9 @@ export function MessageFeedPanel({
                     buttonRef={(el) => { tabRefs.current[i] = el }}
                     label={name.length > TAB_AGENT_NAME_MAX ? name.slice(0, TAB_AGENT_NAME_MAX) + '..' : name}
                     fullName={name}
-                    stateText={agent ? stateLabel(agent.state) : undefined}
+                    stateText={key === 'all' ? undefined : (done ? 'done' : stateLabel(agent!.state))}
+                    done={done}
+                    accent={teamColorOf(agent, teams)}
                     active={i === activeTabIndex}
                     onClick={() => setActiveTab(key)}
                     color={color}
@@ -392,6 +381,41 @@ export function MessageFeedPanel({
             {tabOverflow.right && (
               <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 bottom-1.5 w-4 flex items-center justify-end"
                 style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
+            )}
+          </div>
+        )}
+
+        {/* Pair filter: the communications exchanged between two agents */}
+        {agentsWithMessages.length > 1 && (
+          <div className="px-2 pb-1.5">
+            <button
+              type="button"
+              aria-pressed={pairOpen}
+              onClick={() => setPairOpen(v => !v)}
+              className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
+              style={{ color: pairOpen ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+            >
+              Pair
+            </button>
+            {pairOpen && (
+              <span className="inline-flex flex-wrap items-center gap-1 ml-1 align-middle">
+                {([['First agent', pairA, setPairA], ['Second agent', pairB, setPairB]] as const).map(([label, value, set]) => (
+                  <select
+                    key={label}
+                    aria-label={label}
+                    value={value}
+                    onChange={e => set(e.target.value)}
+                    className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING}`}
+                    style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
+                  >
+                    <option value="">{label}</option>
+                    {agentsWithMessages.map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
+                  </select>
+                ))}
+                {pairA !== '' && pairA === pairB && (
+                  <span role="status" className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>Select two different agents</span>
+                )}
+              </span>
             )}
           </div>
         )}
@@ -429,7 +453,7 @@ export function MessageFeedPanel({
 
 // ── Tab Button ──
 
-function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread }: {
+function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread, done, accent }: {
   id: string
   panelId: string
   buttonRef: (el: HTMLButtonElement | null) => void
@@ -440,6 +464,10 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   onClick: () => void
   color: string
   hasUnread?: boolean
+  /** Finished agent: the tab stays, flagged 'done' */
+  done?: boolean
+  /** Validated team color */
+  accent?: string
 }) {
   const accessibleName = [fullName, stateText ? `(${stateText})` : '', hasUnread ? ', unread messages' : '']
     .filter(Boolean).join(' ')
@@ -460,9 +488,12 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
         background: active ? color + '20' : 'transparent',
         color: active ? color : COLORS.textMuted,
         border: active ? `1px solid ${color}30` : '1px solid transparent',
+        borderBottom: accent ? `2px solid ${accent}` : undefined,
+        borderStyle: done ? 'dashed' : undefined,
       }}
     >
       {label}
+      {done && <span aria-hidden="true" className="ml-1 text-[11px]">done</span>}
       {hasUnread && (
         <>
           <span className="sr-only"> unread</span>
@@ -479,9 +510,19 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
 
 // ── Message Row ──
 
-function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtime, contentId }: {
+/** Short session label for the chip shown when several sessions are present. */
+function sessionChipOf(agent: Agent | undefined): string | undefined {
+  if (!agent) return undefined
+  return (agent.sessionLabel ?? agent.sessionId).slice(0, 24)
+}
+
+function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, onClick, runtime, contentId }: {
   message: ConversationMessage
   agentName: string
+  fromName?: string
+  toName?: string
+  accent?: string
+  sessionChip?: string
   showAgent: boolean
   isSelected: boolean
   onClick: () => void
@@ -489,36 +530,60 @@ function MessageRow({ message, agentName, showAgent, isSelected, onClick, runtim
   contentId: string
 }) {
   const [expanded, setExpanded] = useState(false)
-  const role = ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant
-  const roleLabel = message.type === 'assistant' && runtime === 'codex' ? 'CODEX' : role.label
-  const truncated = truncateWithMarker(message.content, MESSAGE_TRUNCATE_MAX)
+  const commKind = commKindOf(message)
+  const role = commKind ? COMM_STYLE[commKind] : (ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant)
+  const roleLabel = commKind
+    ? COMM_LABELS[commKind]
+    : message.type === 'assistant' && runtime === 'codex' ? 'CODEX' : (ROLE_COLORS[message.type] ?? ROLE_COLORS.assistant).label
+  const truncated = truncateWithMarker(message.content, commKind ? COMM_TRUNCATE_MAX : MESSAGE_TRUNCATE_MAX)
   const isLong = truncated.hidden > 0
   const displayText = expanded || !isLong ? message.content : truncated.text + truncated.marker
   const time = formatElapsed(message.timestamp)
+  const from = fromName ?? agentName
+  const to = toName ?? ''
+  const direction = commKind && to ? directionText(from, to) : null
+  const borderColor = accent ?? (isSelected ? role.text : 'transparent')
 
   return (
     <div
       className="rounded px-2 py-1.5 motion-safe:transition-all"
       style={{
         background: isSelected ? role.bgSelected : role.bg,
-        borderLeft: isSelected ? `2px solid ${role.text}` : '2px solid transparent',
+        borderLeft: `${accent || isSelected ? 3 : 2}px solid ${borderColor}`,
       }}
     >
       <button
         type="button"
         aria-pressed={isSelected}
         onClick={onClick}
-        title={showAgent ? `${agentName}: show this agent` : 'Show this agent'}
+        title={direction ? `${direction} - ${roleLabel}` : (showAgent ? `${agentName}: show this agent` : 'Show this agent')}
         className={`block w-full min-h-6 text-left rounded ${FOCUS_RING}`}
       >
         {/* Header row */}
-        <span className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
-            {roleLabel}
-          </span>
-          {showAgent && (
+        <span className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+          {direction ? (
+            <>
+              <span className="text-[11px] font-mono font-semibold break-all" style={{ color: role.text }}>
+                {from}<span aria-hidden="true"> {'\u2192'} </span><span className="sr-only"> to </span>{to}
+              </span>
+              <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+                <span aria-hidden="true">- </span><span className="sr-only">, </span>{roleLabel}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] font-mono font-semibold" style={{ color: role.text }}>
+              {roleLabel}
+            </span>
+          )}
+          {showAgent && !direction && (
             <span className="text-[11px] font-mono truncate" title={agentName} style={{ color: COLORS.textMuted }}>
               {agentName}
+            </span>
+          )}
+          {sessionChip && (
+            <span className="text-[11px] font-mono truncate max-w-[96px] px-1 rounded" title={`Session ${sessionChip}`}
+              style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}>
+              {sessionChip}
             </span>
           )}
           <time dateTime={time.iso} className="text-[11px] font-mono ml-auto shrink-0" style={{ color: COLORS.textMuted }}>
