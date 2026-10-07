@@ -236,20 +236,35 @@ export function buildFeedMessages(
 ): FeedMessage[] {
   const out: FeedMessage[] = []
   const seenIds = new Set<string>()
+  // Dispatch/return merge on content. Peer 'message' rows merge only with a copy held by ANOTHER source
+  // (another agent's conversation, or a link); each copy is consumed once, so identical acks sent in a
+  // burst by one sender are all kept.
   const seenComm = new Set<string>()
-  const push = (m: ConversationMessage, agentId: string) => {
+  const peerCopies = new Map<string, string[]>()
+  const push = (m: ConversationMessage, agentId: string, source: string) => {
     if (!FEED_MESSAGE_TYPES.has(m.type) || seenIds.has(m.id)) return
     if (COMM_MESSAGE_TYPES.has(m.type)) {
       const keys = commDedupeKeys(m)
-      if (keys.some(k => seenComm.has(k))) return
-      // Register only the own bucket so a later message in the next bucket is judged by its own window.
-      seenComm.add(keys[0])
+      if (m.type === 'message' && !m.toolUseId) {
+        for (const k of keys) {
+          const list = peerCopies.get(k)
+          const i = list ? list.findIndex(src => src !== source) : -1
+          if (list && i >= 0) { list.splice(i, 1); return }
+        }
+        const own = peerCopies.get(keys[0]) ?? []
+        own.push(source)
+        peerCopies.set(keys[0], own)
+      } else {
+        if (keys.some(k => seenComm.has(k))) return
+        // Register only the own bucket so a later message in the next bucket is judged by its own window.
+        seenComm.add(keys[0])
+      }
     }
     seenIds.add(m.id)
     out.push({ ...m, agentId })
   }
-  for (const [agentId, msgs] of conversations) for (const m of msgs) push(m, agentId)
-  if (links) for (const link of links.values()) for (const m of link.messages) push(m, m.from ?? link.from)
+  for (const [agentId, msgs] of conversations) for (const m of msgs) push(m, agentId, `conv:${agentId}`)
+  if (links) for (const [linkId, link] of links) for (const m of link.messages) push(m, m.from ?? link.from, `link:${linkId}`)
   return out.sort((a, b) => a.timestamp - b.timestamp)
 }
 
@@ -350,4 +365,64 @@ export function unreadSources(
     }
   }
   return out
+}
+
+// ─── Unread tracking (per source, never by position across merged lists) ─────
+
+export interface UnreadState {
+  /** Conversation length already seen per agent. */
+  convLens: Map<string, number>
+  /** Ids of link messages already seen. */
+  linkSeen: Set<string>
+}
+
+export const emptyUnreadState = (): UnreadState => ({ convLens: new Map(), linkSeen: new Set() })
+
+/**
+ * Agents that received a new text message since `prev`. Conversations are compared by their own length
+ * (new tail only); link messages by id, and a link copy of a message already present in an endpoint's
+ * conversation is not new. Non-text events never flag an agent.
+ */
+export function trackUnread(
+  prev: UnreadState,
+  conversations: ReadonlyMap<string, readonly ConversationMessage[]>,
+  links: ReadonlyMap<string, Pick<AgentLink, 'from' | 'to' | 'messages'>> | undefined,
+  textTypes: ReadonlySet<string>,
+): { increased: string[]; next: UnreadState } {
+  const increased = new Set<string>()
+  const convLens = new Map<string, number>()
+  for (const [id, msgs] of conversations) {
+    const before = prev.convLens.get(id) ?? 0
+    convLens.set(id, msgs.length)
+    for (let i = Math.min(before, msgs.length); i < msgs.length; i++) {
+      if (textTypes.has(msgs[i].type)) { increased.add(id); break }
+    }
+  }
+  const linkSeen = new Set<string>()
+  if (links) {
+    const convKeys = new Map<string, Set<string>>()
+    const keysOf = (id: string) => {
+      let set = convKeys.get(id)
+      if (!set) {
+        set = new Set()
+        for (const m of conversations.get(id) ?? []) {
+          if (COMM_MESSAGE_TYPES.has(m.type)) for (const k of commDedupeKeys(m)) set.add(k)
+        }
+        convKeys.set(id, set)
+      }
+      return set
+    }
+    for (const link of links.values()) {
+      for (const m of link.messages) {
+        linkSeen.add(m.id)
+        if (prev.linkSeen.has(m.id) || !textTypes.has(m.type)) continue
+        const ck = commDedupeKeys(m)
+        const ends = [...new Set([m.from ?? link.from, m.to ?? link.to])].filter((id): id is string => !!id)
+        // A copy of a message already held by either endpoint's conversation is not new.
+        if (ends.some(id => ck.some(k => keysOf(id).has(k)))) continue
+        for (const id of ends) increased.add(id)
+      }
+    }
+  }
+  return { increased: [...increased], next: { convLens, linkSeen } }
 }
