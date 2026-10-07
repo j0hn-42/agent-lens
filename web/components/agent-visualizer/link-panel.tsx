@@ -1,5 +1,6 @@
 'use client'
 
+import { emptyState } from '@/lib/ui-glossary'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Agent } from '@/lib/agent-types'
 import { Z } from '@/lib/agent-types'
@@ -132,7 +133,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
         </p>
 
         {model.entries.length === 0 ? (
-          <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>No message on this link yet.</p>
+          <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>{emptyState('messages on this link')}</p>
         ) : (
           <ol
             ref={listRef}

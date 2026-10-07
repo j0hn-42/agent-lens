@@ -25,11 +25,14 @@ interface AgentDetailCardProps {
     activity?: 'working' | 'idle' | 'done'
   }
   onClose: () => void
+  /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
+  onEscape?: () => void
 }
 
 export function AgentDetailCard({
   agent,
   onClose,
+  onEscape,
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
@@ -49,7 +52,7 @@ export function AgentDetailCard({
       role="dialog"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onClose)}
+      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
       {...dockAttrs('detail', 'left', dock)}
       className="agent-detail-card outline-none"
       style={{

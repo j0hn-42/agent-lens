@@ -122,8 +122,6 @@ export const FOCUS_RING =
 
 /** Top offset of the Conversation pill: just under the top bar, which wraps onto several rows on narrow windows. */
 export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'
-/** Top offset of the right dock (the open Conversation panel): flush under the top bar. */
-export const DOCK_TOP = 'var(--topbar-h, 48px)'
 
 /**
  * Border of a feed tab as longhand properties only (mixing `border` with `borderBottom` / `borderStyle`

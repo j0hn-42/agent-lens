@@ -9,7 +9,7 @@ import { PairFilterChip } from '@/components/agent-visualizer/pair-filter-chip'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 import { clearPair, getPair, setPair } from '@/lib/pair-filter-store'
-import { FEED_TOP, DOCK_TOP, pickerAgentIds } from '@/lib/feed-utils'
+import { FEED_TOP, pickerAgentIds } from '@/lib/feed-utils'
 import type { Agent, TeamSummary } from '@/lib/agent-types'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 
@@ -169,14 +169,16 @@ test('D9: a mousedown outside does not close the panel; Escape does and returns 
   act(() => { assert.equal(r.registry.escape(), false) })
 })
 
-test('D4: the pill and the open panel are positioned below the top bar variable', () => {
+test('D4: the pill is positioned below the top bar variable and the open panel starts under the top bar', () => {
   assert.match(FEED_TOP, /var\(--topbar-h,\s*48px\)/)
-  assert.match(DOCK_TOP, /var\(--topbar-h,\s*48px\)/)
   const r = feed()
   const pillWrap = r.getByRole('button', { name: /Open Conversation/ }).parentElement!
   assert.equal(pillWrap.style.top, FEED_TOP)
   expand(r)
-  assert.equal(r.getByRole('region', { name: 'Conversation' }).style.top, DOCK_TOP)
+  // the open panel is a dock panel: its rectangle starts under the top bar (measured, 60px fallback here)
+  const open = r.getByRole('region', { name: 'Conversation' })
+  assert.equal(open.getAttribute('data-dock-panel'), 'conversation')
+  assert.ok(parseFloat(open.style.top) >= 48, `panel top ${open.style.top} is under the top bar`)
 })
 
 test('pair picker lists the chosen agents even without messages', () => {

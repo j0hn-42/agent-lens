@@ -86,6 +86,25 @@ test('cross-tab: a storage event from another tab updates the UI; foreign keys a
   }
 })
 
+test('pagehide flushes a pending write at once (the frame that would have written it never comes)', async () => {
+  const store = createBrowserPrefsStore()
+  const { getByRole } = render(<Probe store={store} />)
+  fireEvent.click(getByRole('button', { name: 'stats' }))
+  assert.equal(window.localStorage.getItem(UI_PREFS_STORAGE_KEY), null, 'batched: nothing written yet')
+  act(() => { window.dispatchEvent(new window.Event('pagehide')) })
+  assert.equal(JSON.parse(window.localStorage.getItem(UI_PREFS_STORAGE_KEY)!).prefs.showStats, true, 'written synchronously by pagehide')
+})
+
+test('cross-tab: localStorage.clear() in another tab (storage event with key null) resets this tab to the defaults', () => {
+  const store = createBrowserPrefsStore()
+  const { getByTestId } = render(<Probe store={store} />)
+  const next = serializePrefs({ ...DEFAULT_UI_PREFS, showStats: true })
+  act(() => { window.dispatchEvent(new window.StorageEvent('storage', { key: UI_PREFS_STORAGE_KEY, newValue: next })) })
+  assert.equal(getByTestId('stats').textContent, 'true')
+  act(() => { window.dispatchEvent(new window.StorageEvent('storage', { key: null, newValue: null })) })
+  assert.equal(getByTestId('stats').textContent, 'false')
+})
+
 test('batching: several setPref calls in one handler write localStorage exactly once, with the final state', async () => {
   const store = createBrowserPrefsStore()
   const { getByRole, getByTestId } = render(<Probe store={store} />)

@@ -132,6 +132,79 @@ export function restoreSelectedSessionId(
   return found && found.status !== 'completed' ? found.id : null
 }
 
+// --- remembered session: restore / persist state machine ------------------------------------------
+//
+// Why a state machine: the naive "persist on every change + restore once" pair is racy. The bridge starts
+// with no selection (null) and auto-selects a session the moment the list arrives, so a persist effect
+// would overwrite the stored id with null (mount) or with the auto-selected id BEFORE the restore could
+// read it. Here the decision is taken once, when the session list first arrives, and nothing is persisted
+// before that.
+//
+//   waiting   : no session list yet. Never persists (a null here is only "startup").
+//   restoring : the stored session was asked for (select); persists nothing until the selection shows it
+//               (or the session disappears).
+//   ready     : the user is in charge. A selected session is persisted, 'All' / a team view persists null
+//               (explicit choice: the next start opens the default), no selection persists nothing.
+
+export interface SessionMemoryState {
+  phase: 'waiting' | 'restoring' | 'ready'
+  /** Value read from the preferences when the machine was created (what the previous visit left) */
+  stored: string | null
+  /** Session being restored (phase 'restoring') */
+  target: string | null
+  /** Last value handed to `persist` (null = cleared); undefined = nothing persisted yet */
+  persisted: string | null | undefined
+}
+
+export interface SessionMemoryInput {
+  sessions: ReadonlyArray<{ id: string; status: 'active' | 'completed' }>
+  /** Current selection of the bridge ('All', a team pseudo id, a session id, or null) */
+  selectedId: string | null
+}
+
+export interface SessionMemoryStep {
+  state: SessionMemoryState
+  /** Select this session now (restore) */
+  select: string | null
+  /** Write this value to lastSelectedSessionId; undefined = leave the stored value alone */
+  persist: string | null | undefined
+}
+
+export function initSessionMemory(stored: string | null | undefined): SessionMemoryState {
+  return { phase: 'waiting', stored: typeof stored === 'string' && stored.length > 0 ? stored : null, target: null, persisted: undefined }
+}
+
+/** Value to persist for the current selection; undefined = nothing (no selection). */
+function persistableSelection(input: SessionMemoryInput): string | null | undefined {
+  if (input.selectedId === null) return undefined
+  return input.sessions.some(s => s.id === input.selectedId) ? input.selectedId : null
+}
+
+export function stepSessionMemory(state: SessionMemoryState, input: SessionMemoryInput): SessionMemoryStep {
+  const settle = (next: SessionMemoryState, value: string | null | undefined): SessionMemoryStep => {
+    if (value === undefined || value === next.persisted) return { state: next, select: null, persist: undefined }
+    return { state: { ...next, persisted: value }, select: null, persist: value }
+  }
+  switch (state.phase) {
+    case 'waiting': {
+      if (input.sessions.length === 0) return { state, select: null, persist: undefined }
+      const target = restoreSelectedSessionId(state.stored, input.sessions)
+      if (target && target !== input.selectedId) {
+        return { state: { ...state, phase: 'restoring', target }, select: target, persist: undefined }
+      }
+      return settle({ ...state, phase: 'ready' }, persistableSelection(input))
+    }
+    case 'restoring': {
+      if (input.selectedId === state.target) return settle({ ...state, phase: 'ready', target: null }, state.target)
+      // The session vanished before the restore landed: give up, the bridge's own choice stands
+      if (!input.sessions.some(s => s.id === state.target)) return settle({ ...state, phase: 'ready', target: null }, persistableSelection(input))
+      return { state, select: null, persist: undefined }
+    }
+    default:
+      return settle(state, persistableSelection(input))
+  }
+}
+
 // --- storage with in-memory fallback -----------------------------------------------------------
 
 export interface StorageLike {
@@ -146,8 +219,11 @@ export interface StorageLike {
  */
 export function createSafeStorage(getStorage: () => StorageLike | null | undefined): StorageLike {
   const memory = new Map<string, string>()
+  // Keys whose last write did not reach the backing storage (quota): memory is newer than the storage
+  const unsynced = new Set<string>()
   return {
     getItem(key) {
+      if (unsynced.has(key)) return memory.get(key) ?? null
       try {
         const s = getStorage()
         if (s) {
@@ -159,10 +235,11 @@ export function createSafeStorage(getStorage: () => StorageLike | null | undefin
     },
     setItem(key, value) {
       memory.set(key, value)
-      try { getStorage()?.setItem(key, value) } catch { /* memory copy remains */ }
+      try { getStorage()?.setItem(key, value); unsynced.delete(key) } catch { unsynced.add(key) }
     },
     removeItem(key) {
       memory.delete(key)
+      unsynced.delete(key)
       try { getStorage()?.removeItem(key) } catch { /* ignore */ }
     },
   }

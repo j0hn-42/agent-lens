@@ -1,5 +1,6 @@
 'use client'
 
+import { emptyState } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
@@ -151,7 +152,7 @@ function drawTimeline(
     ctx.font = FONT
     ctx.fillStyle = TEXT_MUTED_OPAQUE
     ctx.textAlign = 'center'
-    ctx.fillText('No timeline data', width / 2, height / 2)
+    ctx.fillText(emptyState('timeline data'), width / 2, height / 2)
     ctx.restore()
     return
   }
@@ -445,7 +446,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-2 py-1">No timeline data</td></tr>
+                <tr><td colSpan={4} className="px-2 py-1">{emptyState('timeline data')}</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={`${r.agentId}-${i}`} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>

@@ -3,7 +3,8 @@
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
-import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs } from './shared-ui'
+import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
+import { emptyState } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/feed-utils'
 
 interface FileAttentionPanelProps {
@@ -33,7 +34,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       attrs={dockAttrs('files', 'right', dock)}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
-      <DockResizer label="Resize files panel" />
+      <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
         <PanelHeader onClose={onClose}>
           <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
@@ -50,7 +51,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
         >
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              No files yet
+              {emptyState('files')}
             </div>
           )}
           <ul className="space-y-1 list-none p-0 m-0">

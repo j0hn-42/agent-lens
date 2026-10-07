@@ -7,39 +7,11 @@
  * - Batched: any number of setPref calls inside one tick/frame produce a single localStorage write;
  *   a pending write is flushed on `pagehide`.
  *
- * INTEGRATION SNIPPET for web/components/agent-visualizer/index.tsx (mechanical replacement):
- *
- *   import { useUiPreferences } from '@/hooks/use-ui-preferences'
- *   import { restoreSelectedSessionId } from '@/lib/ui-preferences'
- *
- *   const { prefs, setPref } = useUiPreferences()
- *
- *   // replaces: const [showStats, setShowStats] = useState(false)   (and the 5 siblings below)
- *   const showStats = prefs.showStats
- *   const showHexGrid = prefs.showHexGrid
- *   const showCostOverlay = prefs.showCostOverlay
- *   const showTimeline = prefs.showTimeline
- *   const showFileAttention = prefs.showFiles          // key is `showFiles`
- *   const showTranscript = prefs.showConversation      // key is `showConversation`
- *
- *   // replaces setShowStats(v) / setShowStats(p => !p) at every call site (toggles, panel close handlers,
- *   // the Escape stack closeTopPanel):  setPref('showStats', v)  /  setPref('showStats', !showStats)
- *   // (setPref takes a value, not an updater: read the current value from `prefs`)
- *
- *   // Selected session: persist on change ...
- *   useEffect(() => { setPref('lastSelectedSessionId', isRealSession(selectedSessionId) ? selectedSessionId : null) }, [selectedSessionId])
- *   // ... and restore once, when the first session list arrives (only if still listed and not completed):
- *   const restoredRef = useRef(false)
- *   useEffect(() => {
- *     if (restoredRef.current || sessions.length === 0) return
- *     restoredRef.current = true
- *     const id = restoreSelectedSessionId(prefs.lastSelectedSessionId, sessions)
- *     if (id) bridge.selectSession(id)
- *   }, [sessions])
- *   // (never persist ALL_SESSIONS_ID or a team pseudo selection: pass null)
- *
- *   // Right dock width: const [width, setWidth] = [prefs.dockRightWidth, (w: number) => setPref('dockRightWidth', w)]
- *   // (values are clamped to 280..720; call it on drag end, not on every pointermove, to keep writes cheap)
+ * Integration (see components/agent-visualizer/index.tsx): the panel flags are read from `prefs` and written with
+ * `setPref(key, value)` (a value, not an updater). The remembered session does NOT use a plain persist effect
+ * plus a restore effect: that pair is racy (the startup null and the bridge's auto-selection overwrite the
+ * stored id before it is read). Use the state machine of lib/ui-preferences.ts (initSessionMemory /
+ * stepSessionMemory), seeded from `getPrefs()` and stepped when the session list or the selection changes.
  *
  * Already persisted elsewhere, do NOT add here: mute, hide-inactive, single-key shortcuts,
  * show-finished-sessions (SHOW_FINISHED_STORAGE_KEY). Speed is deliberately not persisted.
@@ -78,8 +50,21 @@ function getDefaultStore(): PrefsStore {
 
 const getServerSnapshot = (): UiPrefs => DEFAULT_UI_PREFS as UiPrefs
 
+/**
+ * Drop the shared store: for tests that mount the app several times in one process. By default what it wrote
+ * is erased too; `{ keepStorage: true }` simulates a page reload (new store, same localStorage).
+ */
+export function resetDefaultUiPreferencesStore(opts: { keepStorage?: boolean } = {}): void {
+  defaultStore?.flush()
+  defaultStore = null
+  if (opts.keepStorage) return
+  try { window.localStorage.removeItem(UI_PREFS_STORAGE_KEY) } catch { /* storage unavailable */ }
+}
+
 export interface UseUiPreferences {
   prefs: UiPrefs
+  /** The latest stored values, read now (not the render snapshot): for decisions taken inside effects */
+  getPrefs: () => UiPrefs
   setPref: <K extends UiPrefKey>(key: K, value: UiPrefs[K]) => void
   resetPrefs: () => void
 }
@@ -108,5 +93,6 @@ export function useUiPreferences(store: PrefsStore = getDefaultStore()): UseUiPr
     [store],
   )
   const resetPrefs = useCallback(() => store.reset(), [store])
-  return { prefs, setPref, resetPrefs }
+  const getPrefs = useCallback(() => store.getSnapshot(), [store])
+  return { prefs, getPrefs, setPref, resetPrefs }
 }

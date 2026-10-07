@@ -94,6 +94,15 @@ test('a throwing handler counts as "nothing to close" and the next panel is aske
   const reg = createPanelRegistry()
   reg.register('a', panel(log, 'a').handler)
   reg.register('bad', () => { throw new Error('boom') })
-  assert.equal(reg.escape(), true)
+  const logged: unknown[][] = []
+  const original = console.error
+  console.error = (...args: unknown[]) => { logged.push(args) }
+  try {
+    assert.equal(reg.escape(), true)
+  } finally {
+    console.error = original
+  }
   assert.deepEqual(log, ['a'])
+  assert.equal(logged.length, 1, 'the failure leaves a trace (a panel bug must not become invisible)')
+  assert.match(String(logged[0][0]), /"bad"/)
 })

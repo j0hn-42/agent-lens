@@ -7,7 +7,7 @@
 // of this panel: selecting an agent opens it with that agent's tab selected.
 
 import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
-import { Agent, Z, CARD, type TeamSummary } from '@/lib/agent-types'
+import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 import { useVirtualList } from '@/hooks/use-virtual-list'
@@ -17,7 +17,7 @@ import {
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING,
   FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
-  droppedMarkerFor, agentIdsWithMessages, FEED_TOP, DOCK_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
+  droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
   pairOfMessage, tabForSelection, groupByTeam, COLLAPSED_TEXT_MAX, type FeedMessage,
 } from '@/lib/feed-utils'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
@@ -26,7 +26,7 @@ import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
 import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
-import { CloseButton, SlidingPanel } from './shared-ui'
+import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { PANEL_BUTTON_IDS } from './top-bar'
 
 export interface ConversationPanelProps {
@@ -169,7 +169,10 @@ export function ConversationPanel({
     if (open || !wasOpen) return
     const active = document.activeElement
     if (active && active !== document.body) return
-    const target = pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation)
+    // An open agent card (the panel was opened by selecting that agent) keeps focus: moving it to the pill or
+    // the top bar button would close the card, so one Escape would close two things.
+    const target = document.querySelector<HTMLElement>('[data-dock-panel="detail"]')
+      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation)
     target?.focus({ preventScroll: true })
   }, [open])
 
@@ -228,6 +231,10 @@ export function ConversationPanel({
     [open, teams, agents],
   )
 
+  // Right dock (resizable): the open panel is placed by the shared layout, like Files
+  const dock = useDockPanel('conversation', open)
+  const { rect } = dock
+
   // ── Collapsed pill ──
   if (!open) {
     if (!latestMessage) return null
@@ -241,6 +248,9 @@ export function ConversationPanel({
 
     return (
       <div
+        // Companion of the agent card: an obstacle for the dock layout (the card is placed beside / below
+        // it), and focus moving to the pill (focus return) must not close the card
+        data-companion-panel=""
         className="absolute"
         style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       >
@@ -348,11 +358,14 @@ export function ConversationPanel({
   return (
     <SlidingPanel
       visible
-      position={{ right: 0, bottom: 0, top: DOCK_TOP }}
-      zIndex={Z.transcriptPanel}
-      width={CARD.transcript.width}
+      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12, bottom: 72 }}
+      zIndex={Z.sidePanel}
+      width={rect?.w ?? dock.rightWidth}
       labelledBy={titleId}
+      attrs={dockAttrs('conversation', 'right', dock)}
+      style={{ height: rect?.h, display: dock.hidden ? 'none' : undefined }}
     >
+      <DockResizer label="Resize conversation panel" controls={dockPanelDomId('conversation')} />
       <div
         id={regionId}
         className="h-full flex flex-col"

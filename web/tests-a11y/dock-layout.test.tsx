@@ -1,5 +1,5 @@
 // Dock layout wiring (issue #32): the real panels read their rectangle from the shared layout, expose
-// data-canvas-inset, and the right dock is resizable by keyboard and pointer (role="separator").
+// data-canvas-inset, and the right dock is resizable by keyboard and pointer (a native range input for keyboard and assistive technology, a pointer-only handle for dragging).
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -63,7 +63,7 @@ test('the agent card sits in the left dock, under the expanded feed (it used to 
   assert.ok(top >= 68, 'never under the top bar')
 })
 
-test('files panel: right dock rect, data-canvas-inset=right, resizer follows the shared width', () => {
+test('files panel: right dock rect, data-canvas-inset=right, the range control follows the shared width', () => {
   const { getByRole, container } = render(
     <FileAttentionPanel visible fileAttention={new Map()} onClose={() => {}} />,
   )
@@ -71,50 +71,86 @@ test('files panel: right dock rect, data-canvas-inset=right, resizer follows the
   assert.equal(root.getAttribute('data-canvas-inset'), 'right')
   assert.equal(root.style.width, '380px')
   assert.equal(parseFloat(root.style.left), 1600 - 12 - 380)
-  const sep = getByRole('separator', { name: 'Resize files panel' })
-  assert.equal(sep.getAttribute('aria-orientation'), 'vertical')
-  assert.equal(sep.getAttribute('aria-valuenow'), '380')
-  assert.equal(sep.getAttribute('aria-valuemin'), '280')
-  assert.equal(sep.getAttribute('aria-valuemax'), '720')
-  assert.equal(sep.getAttribute('tabindex'), '0')
-  fireEvent.keyDown(sep, { key: 'ArrowLeft' })
-  assert.equal(sep.getAttribute('aria-valuenow'), '396')
-  assert.equal(root.style.width, '396px')
-  fireEvent.keyDown(sep, { key: 'ArrowLeft', shiftKey: true })
+  const input = getByRole('slider', { name: 'Resize files panel' }) as HTMLInputElement
+  assert.equal(input.type, 'range', 'a native range input, not a div with a tabindex')
+  assert.equal(input.getAttribute('aria-controls'), root.id, 'it controls the panel root')
+  assert.ok(root.id.length > 0)
+  assert.equal(input.value, '380')
+  assert.equal(input.getAttribute('aria-valuetext'), '380 pixels wide')
+  assert.equal(input.min, '280')
+  assert.equal(input.max, '720')
+  assert.ok(Number(input.step) >= 1)
+  // a native change (arrow keys, Page keys, Home/End, drags of the thumb all end here) widens the panel
+  fireEvent.change(input, { target: { value: '460' } })
+  assert.equal(input.value, '460')
+  assert.equal(input.getAttribute('aria-valuetext'), '460 pixels wide')
   assert.equal(root.style.width, '460px')
-  fireEvent.keyDown(sep, { key: 'ArrowRight', shiftKey: true })
-  fireEvent.keyDown(sep, { key: 'ArrowRight' })
-  assert.equal(root.style.width, '380px')
-  fireEvent.keyDown(sep, { key: 'Home' })
+  assert.equal(parseFloat(root.style.left), 1600 - 12 - 460)
+  fireEvent.change(input, { target: { value: '280' } })
   assert.equal(root.style.width, '280px')
-  fireEvent.keyDown(sep, { key: 'End' })
+  fireEvent.change(input, { target: { value: '720' } })
   assert.equal(root.style.width, '720px')
+  fireEvent.change(input, { target: { value: '9999' } })
+  assert.ok(root.style.width === '720px', 'never wider than the maximum')
 })
 
-test('DockResizer calls onWidthChange with clamped widths for keys and pointer drags', () => {
+test('the panel width equals the layout width right after a resize step (no transition on width / left)', () => {
+  const { getByRole, container } = render(
+    <FileAttentionPanel visible fileAttention={new Map()} onClose={() => {}} />,
+  )
+  const root = container.querySelector<HTMLElement>('[data-dock-panel="files"]')!
+  const input = getByRole('slider', { name: 'Resize files panel' })
+  for (const w of [400, 420, 500]) {
+    fireEvent.change(input, { target: { value: String(w) } })
+    // the rendered width IS the layout width (what the no-overlap guarantee is computed on) ...
+    assert.equal(root.style.width, `${w}px`)
+    // ... and nothing animates it: the transition is limited to transform and opacity
+    assert.match(root.className, /transition-\[transform,opacity\]/)
+    assert.doesNotMatch(root.className, /\btransition-all\b/)
+  }
+})
+
+test('DockResizer reports clamped widths for the range control and for pointer drags on the visible handle', () => {
   const widths: number[] = []
-  const { getByRole } = render(
+  const { getByRole, container } = render(
     <div style={{ position: 'relative' }}><DockResizer width={400} onWidthChange={w => widths.push(w)} label="Resize conversation" /></div>,
   )
-  const sep = getByRole('separator', { name: 'Resize conversation' })
-  fireEvent.keyDown(sep, { key: 'ArrowLeft' })
-  fireEvent.keyDown(sep, { key: 'ArrowRight', shiftKey: true })
-  fireEvent.keyDown(sep, { key: 'Tab' })
-  assert.deepEqual(widths, [416, 336])
+  const input = getByRole('slider', { name: 'Resize conversation' })
+  fireEvent.change(input, { target: { value: '410' } })
+  fireEvent.change(input, { target: { value: '100' } })
+  assert.deepEqual(widths, [410, 280], 'the range control reports clamped widths')
   widths.length = 0
-  fireEvent.pointerDown(sep, { button: 0, clientX: 1000, pointerId: 1 })
-  fireEvent.pointerMove(sep, { clientX: 900, pointerId: 1 })
-  fireEvent.pointerMove(sep, { clientX: 5000, pointerId: 1 })
-  fireEvent.pointerMove(sep, { clientX: -5000, pointerId: 1 })
-  fireEvent.pointerUp(sep, { pointerId: 1 })
-  fireEvent.pointerMove(sep, { clientX: 100, pointerId: 1 })
+  const handle = container.querySelector<HTMLElement>('[data-dock-resizer] [aria-hidden="true"]')!
+  assert.equal(handle.getAttribute('tabindex'), null, 'the pointer handle is not a tab stop')
+  fireEvent.pointerDown(handle, { button: 0, clientX: 1000, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientX: 900, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientX: 5000, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientX: -5000, pointerId: 1 })
+  fireEvent.pointerUp(handle, { pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientX: 100, pointerId: 1 })
   assert.deepEqual(widths, [500, 280, 720], 'drag left widens, widths are clamped, nothing after pointerup')
+})
+
+test('the resizer keeps its keys to itself: arrows on the range control do not reach the global shortcuts', () => {
+  let seen = 0
+  const onKey = () => { seen++ }
+  window.addEventListener('keydown', onKey)
+  try {
+    const { getByRole } = render(<div style={{ position: 'relative' }}><DockResizer width={400} onWidthChange={() => {}} label="Resize x" /></div>)
+    const input = getByRole('slider', { name: 'Resize x' })
+    fireEvent.keyDown(input, { key: 'ArrowRight' })
+    assert.equal(seen, 0, 'ArrowRight stays inside the control')
+    fireEvent.keyDown(input, { key: 'Escape' })
+    assert.equal(seen, 1, 'Escape still bubbles so it can close the panel')
+  } finally {
+    window.removeEventListener('keydown', onKey)
+  }
 })
 
 test('the resizer is not rendered on narrow viewports (sheets)', () => {
   setViewport(600, 800)
   const { queryByRole } = render(<DockResizer width={380} onWidthChange={() => {}} />)
-  assert.equal(queryByRole('separator'), null)
+  assert.equal(queryByRole('slider'), null)
 })
 
 test('the timeline docks at the bottom, narrowed beside the chat, and exposes the bottom inset only while open', () => {

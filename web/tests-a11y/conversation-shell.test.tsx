@@ -6,6 +6,7 @@ import React from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
+import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clearPair } from '@/lib/pair-filter-store'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
@@ -13,7 +14,7 @@ const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k =
 ;(globalThis as Record<string, unknown>).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} }
 
 beforeEach(() => { clearPair() })
-afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair() })
+afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair(); resetDefaultUiPreferencesStore() })
 
 const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
 const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
@@ -125,4 +126,94 @@ test('selecting an agent opens the Conversation panel on that agent (no second c
   assert.equal(conversationRegion(r), null)
   await wait(100)
   assert.equal(conversationRegion(r), null)
+})
+
+// --- Escape order and the right dock, through the real UI (selection by the agent outline) -----------------
+
+const session = (id: string, label: string, extra: Record<string, unknown> = {}) =>
+  ({ id, label, status: 'active', startTime: Date.now() - 1000, lastActivityTime: Date.now(), workspace: '/w', runtime: 'claude', ...extra })
+
+async function mountWithAgents() {
+  const r = render(<AgentVisualizer />)
+  await act(async () => {
+    post({ type: '__vscode-bridge-init' })
+    post({ type: 'session-list', sessions: [session('sa', 'payments-api')] })
+  })
+  await wait(100)
+  await act(async () => {
+    post(spawn('sa', 'main-a', { isMain: true }))
+    post(spawn('sa', 'worker-a', { parent: 'main-a' }))
+  })
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
+  await wait(1500)
+  return r
+}
+
+async function selectAgentNamed(r: ReturnType<typeof render>, name: string) {
+  const button = Array.from(r.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] li > button'))
+    .find(b => (b.textContent ?? '').startsWith(name))
+  assert.ok(button, 'the outline exposes the agent to select')
+  await act(async () => { fireEvent.click(button!) })
+  await wait(100)
+}
+const selectWorker = (r: ReturnType<typeof render>) => selectAgentNamed(r, 'worker-a')
+
+const agentCard = (r: ReturnType<typeof render>) => r.container.querySelector<HTMLElement>('[data-dock-panel="detail"]')
+const escapeOn = (el: Element) => act(async () => { fireEvent.keyDown(el, { key: 'Escape' }) })
+
+test('Escape after selecting an agent: the newest panel closes first, one thing per press, the selection last (focus in the agent card)', async () => {
+  const r = await mountWithAgents()
+  await key('t')
+  assert.ok(timelineRegion(r), 'Timeline opened first (older)')
+  await selectWorker(r)
+  assert.ok(conversationRegion(r), 'selecting opened Conversation (newer than Timeline)')
+  const card = agentCard(r)
+  assert.ok(card, 'the agent card shows the selection')
+  assert.ok(card!.contains(document.activeElement), 'focus sits in the agent card, which handles Escape itself')
+
+  await escapeOn(document.activeElement!)
+  assert.ok(conversationRegion(r) === null, 'press 1 closes the newest panel (Conversation)')
+  assert.ok(timelineRegion(r), 'press 1 leaves the older panel')
+  assert.ok(agentCard(r), 'press 1 leaves the selection')
+
+  await escapeOn(document.activeElement!)
+  assert.ok(timelineRegion(r) === null, 'press 2 closes the older panel (Timeline)')
+  assert.ok(agentCard(r), 'press 2 still leaves the selection')
+
+  await escapeOn(document.activeElement!)
+  assert.ok(agentCard(r) === null, 'press 3 clears the selection (fails when clearSelection is a no-op)')
+})
+
+test('Escape with focus on the page: Conversation first, the selection second (closing the panel must not close the card)', async () => {
+  const r = await mountWithAgents()
+  await selectWorker(r)
+  assert.ok(conversationRegion(r))
+  assert.ok(agentCard(r))
+  await act(async () => { (document.activeElement as HTMLElement).blur() })
+  await key('Escape')
+  assert.ok(conversationRegion(r) === null, 'press 1 closes the panel')
+  assert.ok(agentCard(r), 'press 1 does not clear the selection')
+  await wait(100)
+  assert.ok(agentCard(r), 'nor does the focus return of the closed panel')
+  await act(async () => { (document.activeElement as HTMLElement | null)?.blur() })
+  await key('Escape')
+  assert.ok(agentCard(r) === null, 'press 2 clears the selection')
+})
+
+test('selecting an agent closes Files and the Cost overlay like the C / F toggles do: they share the right dock', async () => {
+  const r = await mountWithAgents()
+  await key('f')
+  assert.ok(filesRegion(r), 'Files open')
+  await selectWorker(r)
+  assert.ok(conversationRegion(r), 'selection opened Conversation')
+  assert.ok(filesRegion(r) === null, 'Files closed by the selection path (openConversation)')
+
+  // Cost overlay open (the toggle path closes Conversation); selecting ANOTHER agent must close Cost again
+  const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!
+  await key('$')
+  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'control: the Cost overlay opened')
+  assert.ok(conversationRegion(r) === null, 'control: the toggle path closed Conversation')
+  await selectAgentNamed(r, 'main-a')
+  assert.ok(conversationRegion(r), 'the new selection opened Conversation')
+  assert.equal(cost.getAttribute('aria-pressed'), 'false', 'Cost closed by the selection path (openConversation)')
 })

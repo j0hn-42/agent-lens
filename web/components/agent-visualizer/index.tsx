@@ -16,7 +16,10 @@ import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
 import { SessionListPanel } from "./session-list-panel"
 import { OpenFileProvider } from "./tool-content-renderer"
-import { stopPropagationHandlers } from "./shared-ui"
+import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
+import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
+import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiPrefs } from "@/lib/ui-preferences"
+import { dockStore } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
@@ -38,6 +41,21 @@ import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions'
+
+type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
+
+/**
+ * A persisted on/off flag with the useState setter shape (value or updater). The updater reads the live
+ * stored value (getPrefs), so two toggles in one tick compose correctly. The first render is the server
+ * render (defaults); the stored value is applied right after mount.
+ */
+function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs' | 'getPrefs' | 'setPref'>) {
+  const { prefs, getPrefs, setPref } = prefsApi
+  const set = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setPref(key, typeof value === 'function' ? value((getPrefs() as UiPrefs)[key]) : value)
+  }, [key, getPrefs, setPref])
+  return [prefs[key], set] as const
+}
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
@@ -114,13 +132,22 @@ export function AgentVisualizer() {
     pushToast({ message: n.message, durationMs: n.kind === 'relay-down' ? 8000 : 5000 })
   }, [bridge.notice, pushToast])
 
-  const [showStats, setShowStats] = useState(false)
-  const [showHexGrid, setShowHexGrid] = useState(true)
-  const [showCostOverlay, setShowCostOverlay] = useState(false)
-  const [showTimeline, setShowTimeline] = useState(false)
-  const [showFileAttention, setShowFileAttention] = useState(false)
+  // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
+  // Speed is deliberately not persisted; the Sessions panel is not in the schema.
+  const uiPrefs = useUiPreferences()
+  const { prefs, setPref, getPrefs } = uiPrefs
+  const [showStats, setShowStats] = usePersistedFlag('showStats', uiPrefs)
+  const [showHexGrid, setShowHexGrid] = usePersistedFlag('showHexGrid', uiPrefs)
+  const [showCostOverlay, setShowCostOverlay] = usePersistedFlag('showCostOverlay', uiPrefs)
+  const [showTimeline, setShowTimeline] = usePersistedFlag('showTimeline', uiPrefs)
+  const [showFileAttention, setShowFileAttention] = usePersistedFlag('showFiles', uiPrefs)
   const [showSessions, setShowSessions] = useState(false)
-  const [showConversation, setShowConversation] = useState(false)
+  const [showConversation, setShowConversation] = usePersistedFlag('showConversation', uiPrefs)
+
+  // Right dock width: the stored width is applied after mount (and when another tab changes it); a resize
+  // by the user is stored. A width that was only clamped by a narrow viewport is never written back.
+  useEffect(() => { dockStore.setRightWidth(prefs.dockRightWidth) }, [prefs.dockRightWidth])
+  useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
 
   // Mutually exclusive panel toggling: Conversation and Files share the right dock, Cost is an overlay
   // on the same group; opening one closes the others
@@ -128,13 +155,13 @@ export function AgentVisualizer() {
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
     setShowConversation(prev => panel === 'conversation' ? !prev : false)
     setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
-  }, [])
+  }, [setShowFileAttention, setShowConversation, setShowCostOverlay])
   const openConversation = useCallback(() => {
     setShowFileAttention(false)
     setShowCostOverlay(false)
     setShowConversation(true)
-  }, [])
-  const closeConversation = useCallback(() => setShowConversation(false), [])
+  }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
+  const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
   // Selected agent link (canvas edge between teammates); the link panel is mounted by the integration
@@ -330,7 +357,15 @@ export function AgentVisualizer() {
     else if (top === 'sessions') setShowSessions(false)
     else setShowStats(false)
     return true
-  }, [panelRegistry])
+  }, [panelRegistry, setShowFileAttention, setShowConversation, setShowCostOverlay, setShowTimeline, setShowStats])
+
+  // Focus sits in the agent card right after a selection, and the card handles Escape itself: route it through
+  // the same order as the global handler so one Escape closes exactly one thing (newest panel first, then
+  // the selection), instead of clearing the selection while the panel it opened stays.
+  const { clearAgent } = selection
+  const escapeFromDetailCard = useCallback(() => {
+    if (!closeTopPanel()) clearAgent()
+  }, [closeTopPanel, clearAgent])
 
   // "Enable single-key shortcuts" preference (WCAG 2.1.4), persisted in localStorage
   const [singleKeyShortcuts, setSingleKeyShortcuts] = useState(true)
@@ -410,6 +445,18 @@ export function AgentVisualizer() {
   ) : []
 
   const { removeSession, restoreSession, selectSession } = bridge
+
+  // Remembered session: restored once when the session list first arrives, persisted only afterwards
+  // (state machine in lib/ui-preferences.ts: a persist effect on mount would overwrite the stored id with
+  // the startup null, and the bridge's own auto-selection would overwrite it again).
+  const sessionMemoryRef = useRef<SessionMemoryState | null>(null)
+  useEffect(() => {
+    if (!sessionMemoryRef.current) sessionMemoryRef.current = initSessionMemory(getPrefs().lastSelectedSessionId)
+    const step = stepSessionMemory(sessionMemoryRef.current, { sessions: bridge.sessions, selectedId: bridge.selectedSessionId })
+    sessionMemoryRef.current = step.state
+    if (step.select) selectSession(step.select)
+    if (step.persist !== undefined) setPref('lastSelectedSessionId', step.persist)
+  }, [bridge.sessions, bridge.selectedSessionId, selectSession, setPref, getPrefs])
   const handleCloseSession = useCallback((id: string) => {
     const closed = bridge.sessions.find(s => s.id === id)
     const wasSelected = bridge.selectedSessionId === id
@@ -622,6 +669,7 @@ export function AgentVisualizer() {
           <AgentDetailCard
             agent={selectedAgent}
             onClose={selection.clearAgent}
+            onEscape={escapeFromDetailCard}
           />
         </div>
       )}

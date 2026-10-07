@@ -6,6 +6,8 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
 import { clearPair } from '@/lib/pair-filter-store'
+import { measureOverlayInsets } from '@/components/agent-visualizer/canvas/overlay-insets'
+import { dockStore } from '@/lib/panel-layout'
 import { COLLAPSED_TEXT_MAX } from '@/lib/feed-utils'
 import type { Agent } from '@/lib/agent-types'
 import type { ConversationMessage } from '@/hooks/simulation/types'
@@ -233,4 +235,46 @@ test('a new message while scrolled up shows a "new messages" jump button that is
   assert.equal(r.container.querySelector('[role="status"]:not([aria-live])')?.textContent, '1 new message')
   fireEvent.click(r.getByRole('button', { name: '1 new message' }))
   assert.equal(r.queryByRole('button', { name: /new message/ }), null)
+})
+
+// --- dock integration -------------------------------------------------------------------------------
+
+const rectOf = (x: number, y: number, w: number, h: number) => ({ left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, x, y, toJSON() { return this } }) as DOMRect
+
+test('the open panel is measured by the camera fit: the REAL overlay measurement reserves the right dock', () => {
+  const win = window as unknown as { innerWidth: number; innerHeight: number }
+  win.innerWidth = 1600
+  win.innerHeight = 900
+  act(() => dockStore.measure())
+  const r = panel({ initialOpen: true })
+  const root = r.getByRole('region', { name: 'Conversation' })
+  assert.equal(root.getAttribute('data-canvas-inset'), 'right')
+  // jsdom has no layout: give the panel the rectangle the dock assigned to it
+  const x = parseFloat(root.style.left)
+  const w = parseFloat(root.style.width)
+  root.getBoundingClientRect = () => rectOf(x, parseFloat(root.style.top), w, parseFloat(root.style.height))
+  const canvas = document.createElement('div')
+  canvas.getBoundingClientRect = () => rectOf(0, 0, 1600, 900)
+  document.body.appendChild(canvas)
+  const insets = measureOverlayInsets(canvas, document)
+  assert.ok(insets.right >= w, `the camera keeps ${w}px (+margin) clear on the right, got ${insets.right}`)
+  assert.equal(insets.right, 1600 - x, 'from the left edge of the panel to the canvas edge')
+})
+
+test('the open panel sits in the right dock: placed by the layout, resizable, with a labelled range control', () => {
+  const win = window as unknown as { innerWidth: number; innerHeight: number }
+  win.innerWidth = 1600
+  win.innerHeight = 900
+  dockStore.setRightWidth(380)
+  act(() => dockStore.measure())
+  const r = panel({ initialOpen: true })
+  const root = r.getByRole('region', { name: 'Conversation' })
+  assert.equal(root.getAttribute('data-dock-panel'), 'conversation')
+  assert.equal(root.style.width, '380px')
+  assert.equal(parseFloat(root.style.left), 1600 - 12 - 380)
+  const input = r.getByRole('slider', { name: 'Resize conversation panel' })
+  assert.equal(input.getAttribute('aria-controls'), root.id)
+  fireEvent.change(input, { target: { value: '500' } })
+  assert.equal(root.style.width, '500px', 'the panel follows the dock width')
+  dockStore.setRightWidth(380)
 })

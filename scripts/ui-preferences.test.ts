@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   DEFAULT_UI_PREFS, DOCK_RIGHT_WIDTH_MAX, DOCK_RIGHT_WIDTH_MIN, SESSION_ID_MAX_LENGTH, UI_PREFS_STORAGE_KEY,
-  createPrefsStore, createSafeStorage, parsePrefs, restoreSelectedSessionId, sanitizePref, sanitizePrefs,
+  createPrefsStore, createSafeStorage, initSessionMemory, stepSessionMemory, parsePrefs, restoreSelectedSessionId, sanitizePref, sanitizePrefs,
   serializePrefs, type StorageLike, type UiPrefs,
 } from '../web/lib/ui-preferences'
 
@@ -65,13 +65,15 @@ test('parsePrefs: prototype pollution payloads are inert', () => {
 })
 
 test('sanitizePrefs never throws on hostile shapes', () => {
-  const hostile: unknown[] = [undefined, null, 1, 'x', [], () => 1, Symbol('s'), { v: 1, get prefs(): never { throw new Error('boom') } }]
-  for (const h of hostile) {
-    // a throwing getter is the one shape JSON can never produce; the contract is about decoded JSON
-    if (typeof h === 'object' && h !== null && !Array.isArray(h) && 'v' in h) continue
-    assert.doesNotThrow(() => sanitizePrefs(h))
-  }
-  assert.deepEqual(parsePrefs('x'.repeat(200_000)), D)
+  // shapes JSON.parse can produce, plus non-JSON values a caller might hand over by mistake
+  const hostile: unknown[] = [undefined, null, 1, 'x', [], () => 1, Symbol('s'), { v: 1, prefs: null }, { v: 1, prefs: [] }, { v: {}, prefs: {} }]
+  for (const h of hostile) assert.doesNotThrow(() => sanitizePrefs(h))
+})
+
+test('parsePrefs refuses an oversized blob even when it is valid JSON', () => {
+  const valid = JSON.stringify({ v: 1, prefs: { showStats: true } })
+  assert.equal(parsePrefs(valid).showStats, true, 'control: the same blob is accepted when small')
+  assert.deepEqual(parsePrefs(valid + ' '.repeat(100_001)), D)
 })
 
 test('serializePrefs round-trips and writes the versioned envelope', () => {
@@ -225,6 +227,24 @@ test('safe storage: throwing storage falls back to memory, never throws', () => 
   none.setItem('a', 'b'); assert.equal(none.getItem('a'), 'b')
 })
 
+test('safe storage: when only the write fails (quota), the newer in-memory value wins over the stale stored one', () => {
+  const data = new Map<string, string>([['k', 'old']])
+  const quota: StorageLike = {
+    getItem: k => data.get(k) ?? null,
+    setItem() { throw new Error('QuotaExceededError') },
+    removeItem: k => { data.delete(k) },
+  }
+  const safe = createSafeStorage(() => quota)
+  assert.equal(safe.getItem('k'), 'old', 'control: nothing written yet, the stored value is read')
+  safe.setItem('k', 'new')
+  assert.equal(safe.getItem('k'), 'new')
+  // a working write clears the flag again
+  quota.setItem = (k, v) => { data.set(k, v) }
+  safe.setItem('k', 'newer')
+  assert.equal(data.get('k'), 'newer')
+  assert.equal(safe.getItem('k'), 'newer')
+})
+
 test('store on a throwing storage keeps working in memory', () => {
   const broken: StorageLike = { getItem() { throw new Error('no') }, setItem() { throw new Error('no') }, removeItem() { throw new Error('no') } }
   const s = manualSchedule()
@@ -232,4 +252,114 @@ test('store on a throwing storage keeps working in memory', () => {
   store.set('showStats', true)
   assert.doesNotThrow(() => s.tick())
   assert.equal(store.getSnapshot().showStats, true)
+})
+
+// --- remembered session: restore / persist state machine ----------------------------------------
+
+type Sess = { id: string; status: 'active' | 'completed' }
+const A: Sess = { id: 'a', status: 'active' }
+const B: Sess = { id: 'b', status: 'active' }
+const DONE: Sess = { id: 'done', status: 'completed' }
+
+/** Drive the machine over a timeline of inputs, collecting what it asks for. */
+function run(stored: string | null, timeline: Array<{ sessions: Sess[]; selectedId: string | null }>) {
+  let state = initSessionMemory(stored)
+  const selects: Array<string | null> = []
+  const persists: Array<string | null | undefined> = []
+  for (const input of timeline) {
+    const step = stepSessionMemory(state, input)
+    state = step.state
+    selects.push(step.select)
+    persists.push(step.persist)
+  }
+  return { state, selects, persists }
+}
+
+test('session memory, fresh start: nothing is persisted before the list arrives; the auto-selected session is then remembered', () => {
+  const r = run(null, [
+    { sessions: [], selectedId: null },
+    { sessions: [], selectedId: null },
+    { sessions: [A, B], selectedId: 'a' },
+  ])
+  assert.deepEqual(r.persists, [undefined, undefined, 'a'])
+  assert.deepEqual(r.selects, [null, null, null])
+  assert.equal(r.state.phase, 'ready')
+})
+
+test('session memory: the startup null never reaches the stored value (the race of the naive persist effect)', () => {
+  const r = run('b', [{ sessions: [], selectedId: null }, { sessions: [], selectedId: null }])
+  assert.deepEqual(r.persists, [undefined, undefined])
+  assert.equal(r.state.stored, 'b', 'what the previous visit left is still known')
+})
+
+test('session memory: a stored session that is still listed and active is restored, even after the bridge auto-selected another', () => {
+  // the bridge auto-selects 'a' in the same batch that delivers the list
+  const r = run('b', [
+    { sessions: [], selectedId: null },
+    { sessions: [A, B], selectedId: 'a' },
+    { sessions: [A, B], selectedId: 'a' },
+    { sessions: [A, B], selectedId: 'b' },
+  ])
+  assert.deepEqual(r.selects, [null, 'b', null, null])
+  // while the restore is in flight 'a' (the auto-selection) must NOT overwrite the stored 'b'
+  assert.deepEqual(r.persists, [undefined, undefined, undefined, 'b'])
+  assert.equal(r.state.phase, 'ready')
+})
+
+test('session memory: a stored session that is missing or completed is not restored; the bridge choice is kept and remembered', () => {
+  for (const sessions of [[A, B], [A, B, DONE]]) {
+    const stored = sessions.includes(DONE) ? 'done' : 'gone'
+    const r = run(stored, [{ sessions, selectedId: 'a' }])
+    assert.deepEqual(r.selects, [null], `${stored}: no restore`)
+    assert.deepEqual(r.persists, ['a'], `${stored}: the selection replaces the stale value`)
+  }
+})
+
+test('session memory: the stored session already selected by the bridge needs no restore', () => {
+  const r = run('a', [{ sessions: [A, B], selectedId: 'a' }])
+  assert.deepEqual(r.selects, [null])
+  assert.deepEqual(r.persists, ['a'])
+})
+
+test('session memory: after the restore the user is in charge; All and team views persist null once, a session persists its id', () => {
+  const r = run('a', [
+    { sessions: [A, B], selectedId: 'a' },
+    { sessions: [A, B], selectedId: 'b' },
+    { sessions: [A, B], selectedId: 'b' },
+    { sessions: [A, B], selectedId: '__all__' },
+    { sessions: [A, B], selectedId: '__all__' },
+    { sessions: [A, B], selectedId: 'team:alpha' },
+    { sessions: [A, B], selectedId: 'a' },
+  ])
+  assert.deepEqual(r.persists, ['a', 'b', undefined, null, undefined, undefined, 'a'])
+})
+
+test('session memory: a cleared selection (bridge reset) persists nothing', () => {
+  const r = run('a', [
+    { sessions: [A], selectedId: 'a' },
+    { sessions: [], selectedId: null },
+  ])
+  assert.deepEqual(r.persists, ['a', undefined])
+})
+
+test('session memory: the restore gives up when the session vanishes before it lands', () => {
+  const r = run('b', [
+    { sessions: [A, B], selectedId: 'a' },
+    { sessions: [A], selectedId: 'a' },
+  ])
+  assert.deepEqual(r.selects, ['b', null])
+  assert.deepEqual(r.persists, [undefined, 'a'])
+  assert.equal(r.state.phase, 'ready')
+})
+
+test('session memory, reload: the value persisted by one visit is what the next visit restores', () => {
+  const visit1 = run(null, [{ sessions: [A, B], selectedId: 'a' }, { sessions: [A, B], selectedId: 'b' }])
+  const stored = visit1.persists.filter(p => p !== undefined).pop() as string
+  assert.equal(stored, 'b')
+  const visit2 = run(stored, [{ sessions: [], selectedId: null }, { sessions: [A, B], selectedId: 'a' }, { sessions: [A, B], selectedId: 'b' }])
+  assert.deepEqual(visit2.selects, [null, 'b', null])
+  assert.equal(visit2.persists.filter(p => p !== undefined).pop(), 'b')
+  // and after the user chose All, the next visit starts from the default
+  const visit3 = run(stored, [{ sessions: [A, B], selectedId: 'a' }, { sessions: [A, B], selectedId: 'b' }, { sessions: [A, B], selectedId: '__all__' }])
+  assert.equal(visit3.persists.filter(p => p !== undefined).pop(), null)
 })

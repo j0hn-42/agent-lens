@@ -6,7 +6,7 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import {
-  dockStore, dockServerSnapshot, placePopup, dockWidthBounds, dockWidthForKey, dockWidthForDrag, clampDockWidth,
+  dockStore, dockServerSnapshot, placePopup, dockWidthBounds, dockWidthForDrag, clampDockWidth,
   SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
@@ -213,9 +213,13 @@ export function useDockPanel(id: PanelId, open: boolean): DockPlacement {
   }
 }
 
+/** DOM id of a docked panel's root (target of the resizer's aria-controls). */
+export const dockPanelDomId = (id: PanelId) => `dock-panel-${id}`
+
 /** data-* attributes every docked panel carries: the dock it lives in (for the camera-fit reader). */
 export function dockAttrs(id: PanelId, edge: 'left' | 'right' | 'bottom', placement: Pick<DockPlacement, 'sheet'>, visible = true) {
   return {
+    id: dockPanelDomId(id),
     'data-dock-panel': id,
     'data-canvas-inset': visible && !placement.sheet ? edge : 'auto',
   }
@@ -226,74 +230,92 @@ export function useRightDockWidth(): [number, (w: number) => void] {
   return [layout.rightWidth, (w: number) => dockStore.setRightWidth(w)]
 }
 
+// Listeners told when the USER resized the right dock (drag or keyboard), so the width can be persisted
+// without persisting widths that were only clamped by a narrow viewport.
+const userResizeListeners = new Set<(width: number) => void>()
+export function subscribeDockUserResize(listener: (width: number) => void): () => void {
+  userResizeListeners.add(listener)
+  return () => { userResizeListeners.delete(listener) }
+}
+
+/** Keyboard step of the range input (px); 380, the default width, and 720, the largest, sit on its grid. */
+export const RESIZER_STEP = 10
+
 interface DockResizerProps {
   /** Current width of the dock; defaults to the shared right dock width. */
   width?: number
   /** Called with the new (already clamped) width; defaults to updating the shared right dock width. */
   onWidthChange?: (width: number) => void
-  /** Accessible name of the handle. */
+  /** Accessible name of the control. */
   label?: string
   /** id of the panel it resizes (aria-controls). */
   controls?: string
 }
 
 /**
- * Drag handle + keyboard resizer for the right dock. Mount it as the FIRST child of the panel's
- * positioned root (it hugs the panel's left edge: `absolute left-0 inset-y-0`). Pointer: drag left to
- * widen. Keyboard: Left/Right (Shift = big steps), Home/End. role="separator" with aria-valuenow/min/max.
+ * Resizer for the right dock. Mount it as the FIRST child of the panel's positioned root (it hugs the
+ * panel's left edge).
+ * - Keyboard / assistive technology: a native <input type="range"> (width in px) laid over the handle with
+ *   opacity 0, so it keeps its native semantics and keys: ArrowRight/ArrowUp widen, ArrowLeft/ArrowDown
+ *   narrow, PageUp/PageDown take big steps, Home/End jump to the bounds. Its focus ring is drawn on the
+ *   visible handle (peer-focus-visible).
+ * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
- * Conversation panel owner: `<DockResizer controls={panelId} />` inside the root, and size the panel
- * with `useDockPanel('conversation', open).rect` (x / y / w / h) so it follows the dock width.
  */
 export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls }: DockResizerProps) {
   const { layout, env } = useDockSnapshot()
   const vw = env.viewport.w
-  const current = width ?? layout.rightWidth
+  const current = Math.round(width ?? layout.rightWidth)
   const { min, max } = dockWidthBounds(vw)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
-  const apply = (w: number) => { (onWidthChange ?? ((x: number) => dockStore.setRightWidth(x)))(clampDockWidth(w, vw)) }
+  const apply = (w: number) => {
+    const next = clampDockWidth(w, vw)
+    if (onWidthChange) { onWidthChange(next); return }
+    dockStore.setRightWidth(next)
+    userResizeListeners.forEach(l => l(next))
+  }
   if (vw < SHEET_BREAKPOINT) return null
 
   return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={label}
-      aria-controls={controls}
-      aria-valuenow={Math.round(current)}
-      aria-valuemin={min}
-      aria-valuemax={max}
-      tabIndex={0}
-      data-dock-resizer
-      onKeyDown={(e) => {
-        const next = dockWidthForKey(current, e.key, e.shiftKey, vw)
-        if (next === null) return
-        e.preventDefault()
-        e.stopPropagation()
-        apply(next)
-      }}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return
-        e.preventDefault()
-        e.stopPropagation()
-        dragRef.current = { startX: e.clientX, startW: current }
-        try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* not capturable */ }
-      }}
-      onPointerMove={(e) => {
-        const d = dragRef.current
-        if (d) apply(dockWidthForDrag(d.startW, d.startX, e.clientX, vw))
-      }}
-      onPointerUp={(e) => {
-        dragRef.current = null
-        try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
-      }}
-      onPointerCancel={() => { dragRef.current = null }}
-      className="group absolute inset-y-0 left-0 z-10 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center outline-none"
-    >
-      <span
-        aria-hidden="true"
-        className="my-auto h-12 w-1 rounded-full bg-white/30 transition-colors group-hover:bg-white/60 group-focus-visible:bg-[#99e0ff] group-focus-visible:outline group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-[#99e0ff]"
+    <div data-dock-resizer className="absolute inset-y-0 left-0 z-10 w-0">
+      <input
+        type="range"
+        aria-label={label}
+        aria-controls={controls}
+        aria-orientation="horizontal"
+        aria-valuetext={`${current} pixels wide`}
+        min={min}
+        max={max}
+        step={RESIZER_STEP}
+        value={Math.min(max, Math.max(min, current))}
+        onChange={(e) => apply(Number(e.currentTarget.value))}
+        onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}
+        className="peer absolute left-0 top-1/2 m-0 h-12 w-6 -translate-x-1/2 -translate-y-1/2 opacity-0 pointer-events-none"
       />
+      <div
+        aria-hidden="true"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          dragRef.current = { startX: e.clientX, startW: current }
+          try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* not capturable */ }
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current
+          if (d) apply(dockWidthForDrag(d.startW, d.startX, e.clientX, vw))
+        }}
+        onPointerUp={(e) => {
+          dragRef.current = null
+          try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+        }}
+        onPointerCancel={() => { dragRef.current = null }}
+        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[#99e0ff] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[#99e0ff]"
+      >
+        <span
+          className="my-auto h-12 w-1 rounded-full bg-white/30 transition-colors group-hover:bg-white/60"
+        />
+      </div>
     </div>
   )
 }
@@ -375,7 +397,7 @@ export function SlidingPanel({
       tabIndex={-1}
       {...attrs}
       {...panelStopPropagationHandlers}
-      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-all duration-300 motion-reduce:transition-none ${className}`}
+      className={`absolute max-w-[calc(100vw-24px)] outline-none transition-[transform,opacity] duration-300 motion-reduce:transition-none ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,
