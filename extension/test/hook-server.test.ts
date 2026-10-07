@@ -10,6 +10,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../src/constants'
+
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-hook-home-'))
 process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
@@ -101,6 +103,8 @@ describe('HookServer hardening', () => {
       // Either the 413 arrived, or the server already destroyed the socket mid-upload
       assert.ok(r.status === 413 || r.status === -1, `status ${r.status}`)
       assert.equal(events.length, 0)
+      // The server must stay healthy after rejecting the body
+      assert.equal((await post(port, { session_id: 'after-big', hook_event_name: 'SessionStart' })).status, 200)
     } finally { server.dispose() }
   })
 
@@ -199,8 +203,11 @@ describe('HookServer hardening', () => {
 
   it('a flood of SubagentStop hooks keeps the event loop responsive', async () => {
     const dir = path.join(fakeHome, '.claude', 'projects', 'proj')
-    const file = path.join(dir, 'agent-1.jsonl')
-    const { server, port } = await startServer()
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, 'agent-flood.jsonl')
+    const filler = JSON.stringify({ type: 'user', message: { role: 'user', content: 'x'.repeat(1000) } }) + '\n'
+    fs.writeFileSync(file, filler.repeat(2000) + JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'flood report' }] } }) + '\n')
+    const { server, port, events } = await startServer()
     try {
       let maxGap = 0
       let last = Date.now()
@@ -208,20 +215,74 @@ describe('HookServer hardening', () => {
       await Promise.all(Array.from({ length: 60 }, (_, i) =>
         post(port, { session_id: `f${i % 3}`, hook_event_name: 'SubagentStop', agent_id: `a${i}`, agent_type: 'x', agent_transcript_path: file }).catch(() => undefined)))
       clearInterval(timer)
-      assert.ok(maxGap < 1000, `event loop stalled ${maxGap}ms`)
+      assert.ok(maxGap < 500, `event loop stalled ${maxGap}ms`)
+      // The transcript path was really exercised: at least one report came from the tail read
+      await waitFor(() => events.some(e => e.type === 'subagent_return' && e.payload.summary === 'flood report'))
+      assert.ok(events.some(e => e.type === 'subagent_return' && e.payload.summary === 'flood report'))
     } finally { server.dispose() }
   })
 
-  it('bounds per-session tracked state', async () => {
+  it('bounds per-session tracked state: sessions evict LRU at HOOK_MAX_SESSIONS', async () => {
+    const { server } = await startServer()
+    try {
+      const internal = server as unknown as {
+        sessionState: Map<string, unknown>
+        getOrCreateSession(id: string): unknown
+      }
+      internal.getOrCreateSession('keep-me')
+      for (let i = 0; i < HOOK_MAX_SESSIONS + 50; i++) {
+        internal.getOrCreateSession(`bound-${i}`)
+        internal.getOrCreateSession('keep-me') // still active: must survive eviction
+      }
+      assert.equal(internal.sessionState.size, HOOK_MAX_SESSIONS)
+      assert.ok(internal.sessionState.has('keep-me'), 'active session was evicted')
+      assert.ok(!internal.sessionState.has('bound-0'), 'oldest idle session should be evicted')
+      assert.ok(internal.sessionState.has(`bound-${HOOK_MAX_SESSIONS + 49}`))
+    } finally { server.dispose() }
+  })
+
+  it('bounds per-session agentNames / dispatches / links at HOOK_MAX_TRACKED_PER_SESSION', async () => {
     const { server, port } = await startServer()
     try {
-      // Spread across sessions to stay under the per-session rate limit
-      for (let i = 0; i < 150; i++) {
-        await post(port, { session_id: `bound-${i}`, hook_event_name: 'SessionStart' })
+      // PreToolUse(Agent) registers a dispatch; spread over sessions to stay under the rate limit
+      const sid = 'tracked'
+      for (let i = 0; i < 90; i++) {
+        await post(port, { session_id: sid, hook_event_name: 'PreToolUse', tool_name: 'Agent', tool_use_id: `t${i}`, tool_input: { description: `d${i}`, prompt: 'p' } })
       }
-      const state = (server as unknown as { sessionState: Map<string, unknown> }).sessionState
-      assert.ok(state.size <= 256)
-      assert.equal(state.size, 150)
+      const internal = server as unknown as { sessionState: Map<string, { dispatches: Map<string, unknown> }> }
+      assert.equal(internal.sessionState.get(sid)?.dispatches.size, 90)
+      // Direct fill past the bound
+      const state = (server as unknown as { getOrCreateSession(id: string): { dispatches: Map<string, unknown>; agentNames: Map<string, string> } }).getOrCreateSession(sid)
+      const setBounded = (server as unknown as { setBounded<K, V>(m: Map<K, V>, k: K, v: V): void }).setBounded.bind(server)
+      for (let i = 0; i < HOOK_MAX_TRACKED_PER_SESSION + 40; i++) setBounded(state.agentNames, `a${i}`, `n${i}`)
+      assert.equal(state.agentNames.size, HOOK_MAX_TRACKED_PER_SESSION)
+      assert.ok(!state.agentNames.has('a0'))
+    } finally { server.dispose() }
+  })
+
+  it('emits agent_link + message_sent once per link for SendMessage (hooks)', async () => {
+    const { server, port, events } = await startServer()
+    try {
+      const send = (id: string, msg: string) => post(port, {
+        session_id: 'team', hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_use_id: id,
+        tool_input: { to: 'researcher', message: msg },
+      })
+      await send('tu1', 'hello\u0007 there')
+      await send('tu2', 'again')
+      assert.equal(events.filter(e => e.type === 'agent_link').length, 1)
+      const sent = events.filter(e => e.type === 'message_sent')
+      assert.equal(sent.length, 2)
+      assert.equal(sent[0].payload.content, 'hello there')
+      assert.equal(sent[0].payload.to, 'researcher')
+      assert.equal(sent[0].payload.toolUseId, 'tu1')
+    } finally { server.dispose() }
+  })
+
+  it('applies a short connection sweep interval (slowloris window)', async () => {
+    const { server } = await startServer()
+    try {
+      const raw = (server as unknown as { server: { connectionsCheckingInterval?: number } }).server
+      assert.equal(raw.connectionsCheckingInterval, HTTP_CONNECTIONS_CHECK_INTERVAL_MS)
     } finally { server.dispose() }
   })
 })

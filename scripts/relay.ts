@@ -9,7 +9,7 @@ import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
-import { AgentEvent, SessionInfo, WatchedSession } from '../extension/src/protocol'
+import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
 import { readNewFileLines, foldPathCase } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines } from '../extension/src/subagent-watcher'
@@ -20,6 +20,7 @@ import {
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
+  RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
 } from '../extension/src/constants'
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
@@ -27,7 +28,8 @@ import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag,
   listProjectDirs, discoverSessionFiles,
 } from '../extension/src/relay-guards'
-import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
+import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
+import { isHooksConfigured } from '../extension/src/claude-settings'
 import type { TelemetryClient } from './telemetry'
 
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
@@ -307,6 +309,12 @@ function readNewLines(sessionId: string) {
 
   const result = readNewFileLines(session.filePath, session.fileSize)
   if (!result) return
+  // The size cap is also enforced after discovery: a transcript that grows past it is dropped
+  if (result.newSize > RELAY_MAX_SESSION_FILE_BYTES) {
+    log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${RELAY_MAX_SESSION_FILE_BYTES} bytes — no longer watched`)
+    unwatchSession(sessionId)
+    return
+  }
   session.fileSize = result.newSize
   for (const line of result.lines) {
     parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
@@ -406,6 +414,8 @@ function removeDiscoveryFile() {
 export interface Relay {
   /** Handle an incoming SSE connection */
   handleSSE: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  /** Handle GET /status: small JSON snapshot (loopback only, rate-limited) */
+  handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Clean up all resources */
   dispose: () => void
 }
@@ -462,10 +472,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     // Go through broadcastEvent so hook events are buffered and replayed like transcript events
     // Subagent lifecycle for watched sessions is owned by the transcript parser (it has the
     // real names and ids); hook copies would duplicate nodes with divergent names.
+    const TEAM_EVENTS = new Set(['agent_link', 'message_sent'])
     const SUBAGENT_LIFECYCLE = new Set(['agent_spawn', 'subagent_dispatch', 'subagent_return', 'agent_complete'])
     hookServer.onEvent((event: AgentEvent) => {
       const who = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
       const isOrchestrator = !who || who === ORCHESTRATOR_NAME
+      // The transcript parser emits agent_link/message_sent for watched sessions; hook copies would duplicate them
+      if (TEAM_EVENTS.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
       if (!isOrchestrator && SUBAGENT_LIFECYCLE.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
       broadcastEvent(event)
     })
@@ -533,7 +546,47 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     process.exit(1)
   })
 
+  const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
+
   return {
+    handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
+        res.end('Method not allowed')
+        return
+      }
+      if (!statusLimiter.allow(req.socket.remoteAddress ?? '')) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+        res.end('Too many requests')
+        return
+      }
+      let sessionCount = 0
+      for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
+      if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
+      const status: RelayStatus = {
+        relayVersion: agentFlowVersion,
+        workspace: normalizePath(workspace),
+        runtimes: runtimeList,
+        hooksConfigured: wantClaude ? isHooksConfigured(workspace) : false,
+        sessionCount,
+        allWorkspaces,
+      }
+      const body = JSON.stringify(status)
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(body),
+        'X-Content-Type-Options': 'nosniff',
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       // Loopback only: reject non-local peers and foreign Host headers (DNS rebinding)
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {

@@ -4,6 +4,7 @@ import {
   ExtensionToWebviewMessage,
   WebviewToExtensionMessage,
   AgentEvent,
+  ConnectionStatus,
 } from './protocol'
 import {
   BRIDGE_INIT_MAX_RETRIES, BRIDGE_INIT_RETRY_MS, DEFAULT_DEV_PORT, NONCE_LENGTH, NONCE_CHARS,
@@ -121,7 +122,7 @@ export class VisualizerPanel implements vscode.Disposable {
   }
 
   /** Update connection status display */
-  setConnectionStatus(status: 'connected' | 'disconnected' | 'watching', source: string): void {
+  setConnectionStatus(status: ConnectionStatus, source: string): void {
     this.postMessage({ type: 'connection-status', status, source })
   }
 

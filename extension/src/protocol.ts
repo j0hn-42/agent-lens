@@ -20,6 +20,32 @@ export type AgentEventType =
   | 'subagent_return'
   | 'permission_requested'
   | 'error'
+  | 'agent_link'
+  | 'message_sent'
+
+/** Why two agents are linked (agent_link event) */
+export type AgentLinkKind = 'teammate' | 'spawn'
+
+/** Payload of an `agent_link` event: a communication/spawn edge between two agents. */
+export interface AgentLinkPayload {
+  from: string
+  to: string
+  kind: AgentLinkKind
+  /** Stable id of the link, shared with the message_sent events travelling on it */
+  linkId: string
+  sessionId: string
+}
+
+/** Payload of a `message_sent` event: one message from an agent to a teammate. */
+export interface MessageSentPayload {
+  from: string
+  to: string
+  linkId: string
+  /** Untrusted text: control characters stripped, capped at TEAM_MESSAGE_MAX chars */
+  content: string
+  toolUseId?: string
+  sessionId: string
+}
 
 export interface AgentEvent {
   time: number
@@ -38,8 +64,12 @@ export interface SessionInfo {
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────
 
+/** Connection status shown in the UI. 'connecting' is the initial state before the first attempt
+ *  (web only mirrors it; the extension may also send it while a source is being attached). */
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'watching'
+
 export type ExtensionToWebviewMessage =
-  | { type: 'connection-status'; status: 'connected' | 'disconnected' | 'watching'; source: string }
+  | { type: 'connection-status'; status: ConnectionStatus; source: string }
   | { type: 'agent-event'; event: AgentEvent }
   | { type: 'agent-event-batch'; events: AgentEvent[] }
   | { type: 'reset'; reason: string }
@@ -54,6 +84,20 @@ export interface VisualizerConfig {
   autoPlay: boolean
   showMockData: boolean
   disable1MContext: boolean
+  /** True when Agent Lens hooks are present in ~/.claude/settings.json (or the workspace's
+   *  .claude/settings.local.json). Drives the empty-state checklist. */
+  hooksConfigured: boolean
+}
+
+/** Response of the relay's GET /status endpoint (small, no secrets, no paths beyond the workspace). */
+export interface RelayStatus {
+  relayVersion: string
+  workspace: string
+  /** Runtimes the relay is watching, e.g. ['claude', 'codex'] */
+  runtimes: string[]
+  hooksConfigured: boolean
+  sessionCount: number
+  allWorkspaces: boolean
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────

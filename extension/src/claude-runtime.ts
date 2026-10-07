@@ -99,6 +99,9 @@ export async function startClaudeRuntime(
         const agentName = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
         const isOrchestrator = agentName === ORCHESTRATOR_NAME || !agentName
 
+        // Teammate links/messages are emitted by the watcher's transcript parser too
+        if (event.type === 'agent_link' || event.type === 'message_sent') return
+
         if (isOrchestrator) {
           const filtered = filterOrchestratorCompletion(event)
           if (filtered) panel.sendEvent(filtered)
