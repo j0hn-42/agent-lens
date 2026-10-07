@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { ALL_SESSIONS_ID, type SessionInfo } from '../web/lib/bridge-types'
 import {
-  buildAgentForests, buildSessionRows, countAgents, formatRelativeTime, selectionLabel, type AgentLike,
+  buildAgentForests, buildSessionRows, countAgents, filterActiveSessions, filterActiveTeams, formatRelativeTime, selectionLabel, type AgentLike,
 } from '../web/lib/session-tree'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 
@@ -53,6 +53,15 @@ test('session rows: agents of an unlisted session stay visible under the All row
   assert.deepEqual(all.roots.map(n => n.agent.id), ['x:main'])
   assert.equal(all.agentCount, 1)
   assert.equal(rows.find(r => r.id === 's1')!.agentCount, 1)
+})
+
+test('active-only filter keeps active sessions and the selected one; teams need a remaining session or a working member', () => {
+  const sessions = [session('a', 'active', 3), session('done', 'completed', 2), session('sel', 'completed', 1, 'beta'), session('m', 'completed', 1, 'alpha')]
+  assert.deepEqual(filterActiveSessions(sessions, 'sel').map(s => s.id), ['a', 'sel'])
+  assert.deepEqual(filterActiveSessions(sessions, null).map(s => s.id), ['a'])
+  const kept = filterActiveSessions(sessions, 'sel')
+  assert.deepEqual(filterActiveTeams(['alpha', 'beta', 'gamma'], kept, new Map([['gamma', 2]])), ['beta', 'gamma'])
+  assert.deepEqual(filterActiveTeams(['alpha'], kept), [])
 })
 
 test('selection label and relative time', () => {
