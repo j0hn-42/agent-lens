@@ -6,7 +6,7 @@ import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration } from '@/lib/utils'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
-import { getStateLabel } from '@/lib/state-labels'
+import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 
 interface AgentDetailCardProps {
   agent: {
@@ -19,6 +19,10 @@ interface AgentDetailCardProps {
     toolCalls: number
     timeAlive: number
     currentTool?: string
+    kind?: 'main' | 'subagent' | 'teammate'
+    teamName?: string
+    teamColor?: string
+    activity?: 'working' | 'idle' | 'done'
   }
   onClose: () => void
 }
@@ -32,6 +36,8 @@ export function AgentDetailCard({
   useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
+  const teamName = safeLabel(agent.teamName)
+  const teamColor = safeTeamColor(agent.teamColor)
 
   // Fixed position: middle-left of the screen (below message feed panel)
   const left = CARD.margin
@@ -90,6 +96,22 @@ export function AgentDetailCard({
           <span>{formatDuration(agent.timeAlive)} alive</span>
           <span style={{ color: stateColor }}>{getStateLabel(agent.state)}</span>
         </div>
+
+        {/* Teammate info */}
+        {agent.kind === 'teammate' && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+            <span>Teammate</span>
+            {teamName && (
+              <span className="flex min-w-0 items-center gap-1">
+                {teamColor && (
+                  <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: teamColor }} />
+                )}
+                <span className="truncate">Team {teamName}</span>
+              </span>
+            )}
+            {agent.activity && <span>{getActivityLabel(agent.activity)}</span>}
+          </div>
+        )}
 
         {/* Current tool */}
         {agent.currentTool && (

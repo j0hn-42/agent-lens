@@ -6,7 +6,7 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import { clampPopupPosition } from '@/lib/clamp-popup-position'
-import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers } from '@/lib/menu-utils'
+import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
@@ -76,9 +76,13 @@ export function useDialogBehavior(
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
-    ref.current?.focus({ preventScroll: true })
+    const node = ref.current
+    node?.focus({ preventScroll: true })
     return () => {
-      if (previous && previous !== document.body && previous.isConnected) {
+      // Restore only when focus was dropped (Escape/Close unmount) or is still inside the
+      // dialog; never pull it back from a control the user moved to.
+      if (previous && previous !== document.body && previous.isConnected
+        && shouldRestoreFocus(document.activeElement, node, document.body)) {
         previous.focus({ preventScroll: true })
       }
     }
@@ -187,45 +191,41 @@ export function SlidingPanel({
   zIndex, width, className = '', style, labelledBy, autoFocus = true, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLElement | null>(null)
-  const wasVisibleRef = useRef(false)
+  const controllerRef = useRef<PanelFocusController | null>(null)
+  const autoFocusRef = useRef(autoFocus)
+  autoFocusRef.current = autoFocus
 
   // Focus management lives here (not in the parent) so it works for every panel and does
-  // not depend on wrapper elements such as display:contents divs.
+  // not depend on wrapper elements such as display:contents divs. The decision logic is the
+  // pure createPanelFocusController (two-frame delay, single focus owner, trigger restore).
   useEffect(() => {
-    const was = wasVisibleRef.current
-    wasVisibleRef.current = visible
-    if (visible === was) return
+    const controller = createPanelFocusController<HTMLElement>({
+      captureTrigger: () => {
+        const active = document.activeElement
+        const el = ref.current
+        return active instanceof HTMLElement && active !== document.body && !el?.contains(active) && !isFocusInOtherDialog(active, el) ? active : null
+      },
+      isConnected: (t) => t.isConnected,
+      focus: (t) => t.focus({ preventScroll: true }),
+      isFocusInOtherDialog: () => isFocusInOtherDialog(document.activeElement, ref.current),
+      // `inert` has already dropped focus to <body> by now; never steal it from something the user moved to.
+      canRestoreFocus: () => shouldRestoreFocus(document.activeElement, ref.current, document.body),
+      focusPanel: () => {
+        const el = ref.current
+        if (!el) return
+        const target = el.querySelector<HTMLElement>('[data-panel-close]')
+          ?? el.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
+          ?? el
+        target.focus({ preventScroll: true })
+      },
+    }, { request: (cb) => requestAnimationFrame(cb), cancel: (id) => cancelAnimationFrame(id) },
+    { get autoFocus() { return autoFocusRef.current } })
+    controllerRef.current = controller
+    return () => { controller.dispose(); controllerRef.current = null }
+  }, [])
 
-    if (visible) {
-      const active = document.activeElement
-      triggerRef.current = active instanceof HTMLElement && active !== document.body && !ref.current?.contains(active) && !isFocusInOtherDialog(active, ref.current) ? active : null
-      if (!autoFocus) return
-      // Two frames: the parent's useFocusReturn (index.tsx) registers its own focus-on-open
-      // rAF after ours; running one frame later makes the Close button the final target.
-      let raf2 = 0
-      const raf = requestAnimationFrame(() => {
-        raf2 = requestAnimationFrame(() => {
-          const el = ref.current
-          if (!el) return
-          // A dialog (role=dialog) focused in the meantime keeps focus: one focus owner.
-          if (isFocusInOtherDialog(document.activeElement, el)) return
-          const target = el.querySelector<HTMLElement>('[data-panel-close]')
-            ?? el.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
-            ?? el
-          target.focus({ preventScroll: true })
-        })
-      })
-      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2) }
-    }
-
-    const trigger = triggerRef.current
-    triggerRef.current = null
-    // `inert` has already dropped focus to <body> by now; only restore when focus was
-    // lost or still inside the panel, never steal it from something the user moved to.
-    if (trigger && trigger.isConnected && shouldRestoreFocus(document.activeElement, ref.current, document.body)) {
-      trigger.focus({ preventScroll: true })
-    }
+  useEffect(() => {
+    controllerRef.current?.setVisible(visible)
   }, [visible])
 
   return (
