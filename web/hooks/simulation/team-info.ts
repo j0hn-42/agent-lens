@@ -90,6 +90,8 @@ export function parseActivity(v: unknown): Activity | null {
 
 /** Max teams stored by the simulation / followed by a tracker (new teams beyond it are ignored) */
 export const MAX_TEAMS = 50
+/** Sessions remembered per team */
+const MAX_TEAM_SESSIONS = 200
 
 /**
  * Follows teams over the whole event stream (all sessions, selected or not) so the tabs can show
@@ -114,12 +116,24 @@ export function createTeamTracker(): TeamTracker {
   /** `${sessionId}:${localName}` -> team */
   const memberTeam = new Map<string, string>()
   const activity = new Map<string, Activity>()
+  /** team -> number of tracked teammates / of those working: O(1) reads, bounded by MAX_TEAMS * MAX_TEAM_MEMBERS */
+  const seenCount = new Map<string, number>()
+  const workingCount = new Map<string, number>()
 
   const addSession = (team: string, sid: string | undefined): void => {
     if (!sid) return
     let set = sessions.get(team)
     if (!set) { set = new Set(); sessions.set(team, set) }
-    set.add(sid)
+    if (set.size < MAX_TEAM_SESSIONS) set.add(sid)
+  }
+  const bump = (m: Map<string, number>, team: string, by: number): void => { m.set(team, Math.max(0, (m.get(team) ?? 0) + by)) }
+  const setActivity = (key: string, team: string, next: Activity): boolean => {
+    const prev = activity.get(key)
+    if (prev === next) return false
+    if (prev === 'working') bump(workingCount, team, -1)
+    if (next === 'working') bump(workingCount, team, 1)
+    activity.set(key, next)
+    return true
   }
 
   return {
@@ -140,11 +154,17 @@ export function createTeamTracker(): TeamTracker {
         const name = cleanLine(event.payload.name, MAX_ID)
         if (!extras || !name) return false
         if (!teams.has(extras.teamName) && teams.size >= MAX_TEAMS) return false
+        const key = `${sid}:${name}`
+        const known = memberTeam.has(key)
+        if (!known && (seenCount.get(extras.teamName) ?? 0) >= MAX_TEAM_MEMBERS) return false
         if (!teams.has(extras.teamName)) {
           teams.set(extras.teamName, { name: extras.teamName, leadSessionId: sid, members: [] })
         }
-        memberTeam.set(`${sid}:${name}`, extras.teamName)
-        if (!activity.has(`${sid}:${name}`)) activity.set(`${sid}:${name}`, 'working')
+        if (!known) {
+          memberTeam.set(key, extras.teamName)
+          bump(seenCount, extras.teamName, 1)
+          setActivity(key, extras.teamName, 'working')
+        }
         addSession(extras.teamName, sid)
         addSession(extras.teamName, extras.memberSessionId)
         return true
@@ -152,30 +172,24 @@ export function createTeamTracker(): TeamTracker {
       if (event.type === 'agent_activity') {
         const act = parseActivity(event.payload.activity)
         const key = `${sid}:${cleanLine(event.payload.name, MAX_ID)}`
-        if (!act || !memberTeam.has(key) || activity.get(key) === act) return false
-        activity.set(key, act)
-        return true
+        const team = memberTeam.get(key)
+        if (!act || !team) return false
+        return setActivity(key, team, act)
       }
       if (event.type === 'agent_complete') {
         const key = `${sid}:${cleanLine(event.payload.name, MAX_ID)}`
-        if (!memberTeam.has(key) || activity.get(key) === 'done') return false
-        activity.set(key, 'done')
-        return true
+        const team = memberTeam.get(key)
+        if (!team) return false
+        return setActivity(key, team, 'done')
       }
       return false
     },
     sessionsOf(teamName) { return sessions.get(teamName) ?? new Set() },
-    working(teamName) {
-      let n = 0
-      for (const [key, act] of activity) if (act === 'working' && memberTeam.get(key) === teamName) n++
-      return n
-    },
+    working(teamName) { return workingCount.get(teamName) ?? 0 },
     memberCount(teamName) {
-      let seen = 0
-      for (const t of memberTeam.values()) if (t === teamName) seen++
-      return Math.max(teams.get(teamName)?.members.length ?? 0, seen)
+      return Math.max(teams.get(teamName)?.members.length ?? 0, seenCount.get(teamName) ?? 0)
     },
-    clear() { teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear() },
+    clear() { teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear(); seenCount.clear(); workingCount.clear() },
   }
 }
 

@@ -1,6 +1,7 @@
 /**
  * Archived agents: a finished agent is kept (reduced) instead of being removed, so its
- * conversation stays reachable. A per-session cap evicts the oldest ones.
+ * conversation stays reachable. A per-session cap evicts the oldest ones, never a main agent or
+ * a teammate (teammates stay visible when finished; their number is bounded by MAX_TEAM_MEMBERS).
  */
 import type { Agent } from '../../lib/agent-types'
 import type { MutableEventState } from './process-event'
@@ -14,7 +15,7 @@ export const ARCHIVED_OPACITY = 0.5
 /** Agents of `sessionId` to evict so that at most `cap` archived ones remain (oldest completeTime first). */
 export function archivedToEvict(agents: Iterable<Agent>, sessionId: string, cap = MAX_ARCHIVED_PER_SESSION): string[] {
   const archived: Agent[] = []
-  for (const a of agents) if (a.archived && a.sessionId === sessionId && !a.isMain) archived.push(a)
+  for (const a of agents) if (a.archived && a.sessionId === sessionId && !a.isMain && a.kind !== 'teammate') archived.push(a)
   if (archived.length <= cap) return []
   archived.sort((a, b) => (a.completeTime ?? 0) - (b.completeTime ?? 0))
   return archived.slice(0, archived.length - cap).map(a => a.id)
@@ -31,6 +32,7 @@ export function evictArchived(state: MutableEventState, sessionId: string, cap =
     state.timelineEntries.delete(id)
     state.droppedMessages.delete(id)
   }
+  for (const [id, l] of state.links) if (gone.has(l.from) || gone.has(l.to)) state.links.delete(id)
   state.edges = state.edges.filter(e => !gone.has(e.from) && !gone.has(e.to))
   for (const [tcId, tc] of state.toolCalls) if (gone.has(tc.agentId)) state.toolCalls.delete(tcId)
 }

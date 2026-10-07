@@ -148,6 +148,30 @@ export const FORCE = {
   velocityDecay: 0.4,
 } as const
 
+// ─── Fleet layout (clusters of agents in the 'All' view) ────────────────────
+
+export const CLUSTER_LAYOUT = {
+  /** Disc radius of a cluster = baseRadius + members * memberSpacing */
+  baseRadius: 360,
+  memberSpacing: 45,
+  maxMembers: 100,
+  /** Free space kept between two cluster discs */
+  gap: 120,
+  /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
+  maxRingClusters: 8,
+  /** Lead (orchestrator) held at its anchor, per tick */
+  holdStrength: 0.35,
+  /** Weak pull of members to the anchor (times alpha) */
+  pullStrength: 0.02,
+  /** Archived agents drift to this fraction of the cluster radius */
+  archivedRingFactor: 0.85,
+  ringStrength: 0.06,
+  /** Members are kept within this fraction of the cluster radius */
+  containFactor: 0.95,
+  containStrength: 0.08,
+  separationStrength: 0.5,
+} as const
+
 // ─── Tool slot placement config ─────────────────────────────────────────────
 
 export const TOOL_SLOT = {
