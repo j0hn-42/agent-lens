@@ -269,6 +269,32 @@ describe('HookServer: wiring through the real http entry point', () => {
     }
   }
 
+  it('production wiring: a HookServer and a TranscriptParser built with NO registry share one counter object per session', async () => {
+    // claude-runtime.ts calls new HookServer() and session-watcher.ts new TranscriptParser(delegate): the defaults
+    // are what make "one counter object per session" true in the real app, so the test must not inject any.
+    const server = new HookServer()
+    const port = await server.start()
+    const events: AgentEvent[] = []
+    server.onEvent(e => events.push(e as AgentEvent))
+    try {
+      const delegate: TranscriptParserDelegate = {
+        emit: e => { events.push(e) }, elapsed: () => 1,
+        getSession: () => makeSession(), fireSessionLifecycle: () => {}, emitContextUpdate: () => {},
+      }
+      const parser = new TranscriptParser(delegate)
+      const sid = 'prod-default-wiring-1'
+      assert.equal(await post(port, '{"session_id":"' + sid + '","hook_event_name":"PreToolUse","tool_input":"nope"}'), 400)
+      parser.processTranscriptLine(
+        claudeLine([{ type: 'tool_use', id: 'x1', name: 123, input: 'not-an-object' }]),
+        'orchestrator', new Map(), new Set(), sid, new Set(),
+      )
+      const fromHook = server.getNormalizationStats(sid)
+      const fromParser = parser.getNormalizer(sid).stats
+      assert.ok(fromHook.malformed >= 1, 'the hook side counted its rejected request')
+      assert.deepEqual(fromHook, fromParser, 'both producers read the SAME totals (split counters would differ)')
+    } finally { server.dispose() }
+  })
+
   it('one counter object per session: hook server and transcript parser publish MERGED totals, never shrinking', async () => {
     const registry = new CountersRegistry()
     await withServer(registry, async ({ server, port, events }) => {
