@@ -6,8 +6,10 @@
  * between the React app and the extension host.
  */
 
-export type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
+export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
+export { ALL_SESSIONS_ID } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
+import { isAgentEvent, isSessionInfo, isConnectionStatus, sanitizeSessionInfo } from './bridge-types'
 
 type InitCallback = () => void
 type EventCallback = (event: AgentEvent) => void
@@ -17,7 +19,7 @@ type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset'
 
 class VSCodeBridge {
   private _isVSCode = false
-  private _status: ConnectionStatus = 'disconnected'
+  private _status: ConnectionStatus = 'connecting'
   private _source = ''
 
   private initListeners: InitCallback[] = []
@@ -45,13 +47,15 @@ class VSCodeBridge {
         break
 
       case 'agent-event':
+        if (!isAgentEvent(data.event)) break
         for (const cb of this.eventListeners) {
           cb(data.event)
         }
         break
 
       case 'agent-event-batch':
-        for (const event of data.events) {
+        for (const event of Array.isArray(data.events) ? data.events : []) {
+          if (!isAgentEvent(event)) continue
           for (const cb of this.eventListeners) {
             cb(event)
           }
@@ -59,14 +63,16 @@ class VSCodeBridge {
         break
 
       case 'connection-status':
+        if (!isConnectionStatus(data.status)) break
         this._status = data.status
-        this._source = data.source || ''
+        this._source = typeof data.source === 'string' ? data.source : ''
         for (const cb of this.statusListeners) {
           cb(this._status, this._source)
         }
         break
 
       case 'config':
+        if (typeof data.config !== 'object' || data.config === null) break
         for (const cb of this.configListeners) {
           cb(data.config)
         }
@@ -74,29 +80,34 @@ class VSCodeBridge {
 
       case 'reset':
         for (const cb of this.sessionListeners) {
-          cb('reset', data.reason || 'panel-reopened')
+          cb('reset', typeof data.reason === 'string' && data.reason ? data.reason : 'panel-reopened')
         }
         break
 
-      case 'session-list':
+      case 'session-list': {
+        const sessions: SessionInfo[] = Array.isArray(data.sessions) ? data.sessions.filter(isSessionInfo).map(sanitizeSessionInfo) : []
         for (const cb of this.sessionListeners) {
-          cb('list', data.sessions)
+          cb('list', sessions)
         }
         break
+      }
 
       case 'session-started':
+        if (!isSessionInfo(data.session)) break
         for (const cb of this.sessionListeners) {
-          cb('started', data.session)
+          cb('started', sanitizeSessionInfo(data.session))
         }
         break
 
       case 'session-ended':
+        if (typeof data.sessionId !== 'string') break
         for (const cb of this.sessionListeners) {
           cb('ended', data.sessionId)
         }
         break
 
       case 'session-updated':
+        if (typeof data.sessionId !== 'string' || typeof data.label !== 'string') break
         for (const cb of this.sessionListeners) {
           cb('updated', { sessionId: data.sessionId, label: data.label })
         }

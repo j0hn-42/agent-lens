@@ -34,7 +34,7 @@ export const COLORS = {
   message: '#66ccff',
 
   // Context breakdown colors
-  contextSystem: '#555577',     // gray-blue — fixed overhead
+  contextSystem: '#7777a0',     // gray-blue — fixed overhead (>= 3:1 non-text)
   contextUser: '#66ccff',       // blue — user input
   contextToolResults: '#ffbb44', // amber — expensive!
   contextReasoning: '#cc88ff',  // purple — agent thinking
@@ -43,12 +43,14 @@ export const COLORS = {
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
   textPrimary: '#aaeeff',
-  textDim: '#66ccff90',
-  textMuted: '#66ccff50',
+  textDim: '#66ccffa0',      // >= 4.5:1 text on void/glass — headings of empty states, secondary labels
+  textMuted: '#66ccffb0',    // >= 4.5:1 text — muted body copy, brighter than textDim
+  textHint: 'rgba(170, 238, 255, 0.6)', // >= 4.5:1 text — hints below an empty-state heading (second tier)
 
   // Glass card
   glassBg: 'rgba(10, 15, 30, 0.7)',
-  glassBorder: 'rgba(100, 200, 255, 0.15)',
+  controlBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — border of buttons/inputs that are real controls (glassBorder is decoration only)
+  glassBorder: 'rgba(102, 204, 255, 0.22)', // decorative card edge only (not a control boundary, no 3:1 requirement)
   glassHighlight: 'rgba(100, 200, 255, 0.08)',
 
   // Holo background/border opacities (avoids scattered rgba literals)
@@ -67,13 +69,17 @@ export const COLORS = {
   // Toggle button states
   toggleActive: 'rgba(100, 200, 255, 0.15)',
   toggleInactive: 'rgba(100, 200, 255, 0.05)',
-  toggleBorder: 'rgba(100, 200, 255, 0.1)',
+  toggleBorder: 'rgba(102, 204, 255, 0.5)',   // >= 3:1 non-text — inactive toggle boundary
+  toggleBorderActive: '#66ccff',              // >= 3:1 non-text — pressed toggle, fully opaque so it reads stronger than toggleBorder
+
+  // Non-text tracks (scrubber, progress bars), >= 3:1 on glass/void
+  controlTrack: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — scrubber/progress track
 
   // Live indicator
   liveDot: '#ff4444',
   liveText: '#ff6666',
   liveResumeBg: 'rgba(255, 68, 68, 0.15)',
-  liveResumeBorder: 'rgba(255, 68, 68, 0.35)',
+  liveResumeBorder: 'rgba(255, 68, 68, 0.7)', // >= 3:1 non-text — live-resume button boundary
 
   // Discovery type colors
   discoveryFile: '#66ccff',
@@ -84,8 +90,8 @@ export const COLORS = {
   // Session tab states
   tabSelectedBg: 'rgba(100, 200, 255, 0.15)',
   tabInactiveBg: 'rgba(100, 200, 255, 0.03)',
-  tabSelectedBorder: 'rgba(100, 200, 255, 0.3)',
-  tabInactiveBorder: 'rgba(100, 200, 255, 0.08)',
+  tabSelectedBorder: '#66ccff',                     // >= 3:1 non-text — selected tab, fully opaque (use with tabSelectedBg + 2px border)
+  tabInactiveBorder: 'rgba(102, 204, 255, 0.5)',    // >= 3:1 non-text — inactive tab boundary (1px)
   tabClose: '#ff6688',
 
   // Role colors (message bubbles)
@@ -109,13 +115,14 @@ export const COLORS = {
   // Play button
   playBtnBg: 'rgba(102, 204, 255, 0.12)',
   playBtnActiveBg: 'rgba(102, 204, 255, 0.2)',
-  playBtnBorder: 'rgba(102, 204, 255, 0.4)',
+  playBtnBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — play button boundary
   playBtnGlow: '0 0 12px rgba(102, 204, 255, 0.15)',
 
   // Scrubber
-  scrubberFill: 'linear-gradient(90deg, rgba(102,204,255,0.3), rgba(102,204,255,0.6))',
+  // Both stops >= 3:1 against controlTrack (the fill is painted over the track); tested in scripts/contrast.test.ts
+  scrubberFill: 'linear-gradient(90deg, rgba(170,238,255,0.8), rgba(170,238,255,0.95))',
   scrubberHeadGlow: '0 0 10px rgba(102, 204, 255, 0.6), 0 0 20px rgba(102, 204, 255, 0.2)',
-  reviewBtnBorder: 'rgba(102, 204, 255, 0.25)',
+  reviewBtnBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — review button boundary
 
   // Cost overlay
   costActiveBg: 'rgba(102, 255, 170, 0.15)',
@@ -145,7 +152,7 @@ export const COLORS = {
 
   // Canvas drawing — cost labels
   costText: '#66ffaa',
-  costTextDim: '#66ffaa80',
+  costTextDim: '#66ffaaa0',
   costPillBg: 'rgba(10, 20, 40, 0.75)',
   costPillStroke: 'rgba(102, 255, 170, 0.3)',
 
@@ -158,21 +165,21 @@ export const COLORS = {
   // User messages
   userMsgBg: 'rgba(255, 187, 68, 0.06)',
   userMsgBorder: 'rgba(255, 187, 68, 0.12)',
-  userLabel: '#ffbb4490',
+  userLabel: '#ffbb44a0',
   userText: '#ffcc66',
 
   // Assistant messages
-  assistantLabel: '#66ccff80',
+  assistantLabel: '#66ccffa0',
   assistantText: '#aaeeff',
 
   // Thinking messages
   thinkingBgExpanded: 'rgba(180, 140, 255, 0.06)',
   thinkingBgCollapsed: 'rgba(180, 140, 255, 0.03)',
   thinkingBorder: 'rgba(180, 140, 255, 0.08)',
-  thinkingLabel: '#bb99ff70',
-  thinkingArrow: '#bb99ff55',
+  thinkingLabel: '#bb99ffc0',
+  thinkingArrow: '#bb99ffc0',
   thinkingPreview: '#bb99ff',
-  thinkingTextExpanded: '#bb99ff80',
+  thinkingTextExpanded: '#bb99ffc0',
   thinkingBorderLeft: 'rgba(180, 140, 255, 0.15)',
 
   // Tool call messages
@@ -184,9 +191,9 @@ export const COLORS = {
   toolResultBg: 'rgba(102, 255, 170, 0.04)',
   bashResultBorder: 'rgba(255, 187, 68, 0.1)',
   toolResultBorder: 'rgba(102, 255, 170, 0.08)',
-  bashResultText: '#aaeeff80',
-  toolResultText: '#66ffaa80',
-  textFaint: '#aaeeff60',
+  bashResultText: '#aaeeffa0',
+  toolResultText: '#66ffaaa0',
+  textFaint: '#aaeeffa0', // >= 4.5:1 text — faint/tertiary text; use instead of text + opacity
 
   // Search highlight
   searchHighlightBg: 'rgba(255,187,68,0.3)',
@@ -202,19 +209,23 @@ export const COLORS = {
   // ─── Tool content colors ────────────────────────────────────────────────────
 
   filePathActive: '#66ccff',
-  filePathInactive: '#66ccff90',
+  filePathInactive: '#66ccffa0',
   todoCompleted: '#66ffaa',
-  todoCompletedText: '#66ffaa90',
-  todoPending: '#66ccff60',
-  contentDim: '#aaeeff90',
+  todoCompletedText: '#66ffaaa0', // >= 4.5:1 text as rendered — completed todo content, render WITHOUT an extra opacity
+  todoPending: '#66ccffa0', // >= 4.5:1 as rendered — pending todo icon, render WITHOUT an extra opacity
+  contentDim: '#aaeeffa0',
   searchIcon: '#66ccff60',
 
   // ─── Panel header / chrome text ─────────────────────────────────────────────
 
-  panelLabel: '#66ccff90',
-  panelLabelDim: '#66ccff65',
+  panelLabel: '#66ccffa0',
+  panelLabelDim: '#66ccffa0',
   scrollBtnText: '#66ccff',
-  scrollbarThumb: 'rgba(100,200,255,0.15)',
+  scrollbarThumb: 'rgba(102,204,255,0.5)', // >= 3:1 non-text — scrollbar thumb (mirrors globals.css)
+
+  // Status dot rings (non-color-only state cue)
+  statusDotRing: '#aaeeff',      // >= 3:1 non-text — light ring around a status dot on void/glass
+  statusDotRingInner: '#050510', // dark gap between dot and ring; ring-vs-gap contrast >= 3:1
 } as const
 
 // ─── Role Colors (message feed & bubbles) ───────────────────────────────────

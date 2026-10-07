@@ -30,7 +30,54 @@ jobs:
         run: pnpm --dir extension test
 
       - name: Extension typecheck
-        run: pnpm --filter agent-flow run lint
+        run: pnpm --filter agent-lens run lint
 
       - name: Web typecheck
         run: pnpm --dir web exec tsc --noEmit
+
+      - name: Web accessibility lint (jsx-a11y)
+        run: pnpm --dir web run lint:a11y
+
+      - name: Web accessibility tests (axe-core, keyboard)
+        run: pnpm run test:a11y
+
+  e2e-a11y:
+    # Layout-dependent checks jsdom cannot do: axe on the real page (including color
+    # contrast), 320 px / 200 % reflow, prefers-reduced-motion and the full-page Tab order.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium for Playwright
+        run: pnpm --dir web exec playwright install --with-deps chromium
+
+      - name: Start the demo app
+        run: |
+          NEXT_PUBLIC_DEMO=1 pnpm --dir web exec next dev -p 3000 > demo-server.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3000 > /dev/null && exit 0
+            sleep 2
+          done
+          cat demo-server.log
+          exit 1
+
+      - name: Browser accessibility tests (Playwright + axe-core)
+        run: pnpm --dir web run test:e2e
+        env:
+          E2E_BASE_URL: http://localhost:3000
+
+      - name: Demo server log
+        if: failure()
+        run: cat demo-server.log

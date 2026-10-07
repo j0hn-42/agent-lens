@@ -5,11 +5,17 @@ import type { VisualEffect } from './draw-effects'
 
 /** A semantic state transition detected between frames. */
 export type StateTransition =
-  | { kind: 'agent_spawn' }
-  | { kind: 'agent_complete' }
-  | { kind: 'tool_start' }
-  | { kind: 'tool_complete' }
-  | { kind: 'tool_error' }
+  | { kind: 'agent_spawn'; id: string; name: string }
+  | { kind: 'agent_complete'; id: string; name: string }
+  | { kind: 'agent_error'; id: string; name: string }
+  | { kind: 'agent_waiting_permission'; id: string; name: string }
+  | { kind: 'tool_start'; id: string; name: string }
+  | { kind: 'tool_complete'; id: string; name: string }
+  | { kind: 'tool_error'; id: string; name: string }
+  /** A teammate changed activity ('working' | 'idle' | 'done') */
+  | { kind: 'agent_activity'; id: string; name: string; activity: string }
+  /** A new message travelled on a link */
+  | { kind: 'message_sent'; id: string; name: string; from: string; to: string }
 
 /**
  * Compare previous and current agent/tool states and return both visual effects
@@ -43,7 +49,7 @@ export function detectStateChanges(
 
     // Spawn: new agent (wasn't in prev)
     if (!oldState) {
-      transitions.push({ kind: 'agent_spawn' })
+      transitions.push({ kind: 'agent_spawn', id, name: agent.name })
       if (agent.opacity < 0.5) {
         effects.push({
           type: 'spawn', x: agent.x, y: agent.y,
@@ -54,11 +60,17 @@ export function detectStateChanges(
 
     // Complete: just became complete
     if (oldState && oldState !== 'complete' && agent.state === 'complete') {
-      transitions.push({ kind: 'agent_complete' })
+      transitions.push({ kind: 'agent_complete', id, name: agent.name })
       effects.push({
         type: 'complete', x: agent.x, y: agent.y,
         color: COLORS.complete, age: 0, duration: FX.completeDuration,
       })
+    }
+
+    // Error / permission request: just entered that state (announced to screen readers)
+    if (oldState && oldState !== agent.state) {
+      if (agent.state === 'error') transitions.push({ kind: 'agent_error', id, name: agent.name })
+      else if (agent.state === 'waiting_permission') transitions.push({ kind: 'agent_waiting_permission', id, name: agent.name })
     }
   }
 
@@ -68,12 +80,12 @@ export function detectStateChanges(
 
     // Tool just started running
     if (!oldState && tool.state === 'running') {
-      transitions.push({ kind: 'tool_start' })
+      transitions.push({ kind: 'tool_start', id, name: tool.toolName })
     }
 
     // Tool just completed
     if (oldState === 'running' && tool.state === 'complete') {
-      transitions.push({ kind: 'tool_complete' })
+      transitions.push({ kind: 'tool_complete', id, name: tool.toolName })
       const particleData: VisualEffect['particles'] = []
       for (let i = 0; i < FX.shatterCount; i++) {
         particleData.push({
@@ -91,7 +103,7 @@ export function detectStateChanges(
 
     // Tool errored
     if (oldState === 'running' && tool.state === 'error') {
-      transitions.push({ kind: 'tool_error' })
+      transitions.push({ kind: 'tool_error', id, name: tool.toolName })
     }
   }
 

@@ -2,8 +2,9 @@
 
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, truncatePath } from '@/lib/utils'
+import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel } from './shared-ui'
+import { FOCUS_RING } from '@/lib/feed-utils'
 
 interface FileAttentionPanelProps {
   visible: boolean
@@ -29,47 +30,68 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
     >
       <div className="glass-card relative">
         <PanelHeader onClose={onClose}>
-          <span className="text-[10px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+          <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             FILE ATTENTION
           </span>
         </PanelHeader>
 
         {/* File list */}
-        <div className="space-y-1 max-h-[300px] overflow-y-auto">
+        <div
+          role="region"
+          aria-label="Files accessed by agents"
+          tabIndex={0}
+          className={`max-h-[300px] overflow-y-auto ${FOCUS_RING}`}
+        >
           {files.length === 0 && (
-            <div className="text-[9px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              No files accessed yet
+            <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
+              No files yet
             </div>
           )}
+          <ul className="space-y-1 list-none p-0 m-0">
           {files.map((file) => {
             const heatRatio = file.totalTokens / maxTokens
             const heatColor = heatRatio > 0.7 ? COLORS.error :
               heatRatio > 0.4 ? COLORS.tool :
                 COLORS.holoBase
-            const canOpen = onOpenFile && file.path.startsWith('/')
+            const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
+            const tokenText = file.totalTokens > 0 ? formatTokens(file.totalTokens) : '—'
+            const headerInner = (
+              <>
+                <span className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
+                  {displayPath}
+                </span>
+                <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
+                  {tokenText}
+                </span>
+              </>
+            )
 
             return (
-              <div
+              <li
                 key={file.path}
-                className={`rounded px-2 py-1.5 transition-colors ${canOpen ? 'hover:brightness-125' : ''}`}
+                className="rounded px-2 py-1.5 motion-safe:transition-colors"
                 style={{
                   background: `rgba(10, 15, 30, 0.5)`,
                   border: `1px solid ${canOpen ? heatColor + '30' : heatColor + '15'}`,
-                  cursor: canOpen ? 'pointer' : undefined,
                 }}
-                onClick={canOpen ? () => onOpenFile(file.path) : undefined}
-                title={canOpen ? file.path : undefined}
               >
                 {/* Filename */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] font-mono truncate" style={{ color: heatColor, maxWidth: 160 }}>
-                    {displayPath}
-                  </span>
-                  <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}>
-                    {file.totalTokens > 0 ? formatTokens(file.totalTokens) : '—'}
-                  </span>
-                </div>
+                {canOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenFile?.(file.path)}
+                    title={file.path}
+                    aria-label={`Open ${file.path}, ${tokenText} tokens`}
+                    className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING}`}
+                  >
+                    {headerInner}
+                  </button>
+                ) : (
+                  <div className="flex items-center justify-between gap-2 min-h-6" title={file.path}>
+                    {headerInner}
+                  </div>
+                )}
 
                 <div className="mt-1">
                   <ProgressBar percent={heatRatio * 100} color={heatColor} trackColor={COLORS.holoBg05} />
@@ -78,35 +100,36 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 {/* Stats row */}
                 <div className="flex items-center gap-2 mt-1">
                   {file.reads > 0 && (
-                    <span className="text-[9px] font-mono" style={{ color: COLORS.holoBase + '80' }}>
+                    <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
                       {file.reads} read{file.reads > 1 ? 's' : ''}
                     </span>
                   )}
                   {file.edits > 0 && (
-                    <span className="text-[9px] font-mono" style={{ color: COLORS.tool + '80' }}>
+                    <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
                       {file.edits} edit{file.edits > 1 ? 's' : ''}
                     </span>
                   )}
                   {file.agents.length > 0 && (
-                    <span className="text-[9px] font-mono" style={{ color: COLORS.textMuted }}
+                    <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}
                       title={file.agents.join(', ')}
                     >
                       {file.agents.length} agent{file.agents.length > 1 ? 's' : ''}
                     </span>
                   )}
                 </div>
-              </div>
+              </li>
             )
           })}
+          </ul>
         </div>
 
         {/* Summary */}
         {files.length > 0 && (
-          <div className="mt-2 pt-2 flex justify-between text-[9px] font-mono" style={{
+          <div className="mt-2 pt-2 flex justify-between text-[11px] font-mono" style={{
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>
-            <span>{files.length} files</span>
+            <span>{pluralize(files.length, 'file')}</span>
             <span>{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
           </div>
         )}

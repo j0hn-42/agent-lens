@@ -1,19 +1,34 @@
-import { Agent, NODE } from '@/lib/agent-types'
+import { Agent } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
-import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW } from '@/lib/canvas-constants'
+import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, isExpiryHeld } from '@/lib/canvas-constants'
+import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
+import { planKey, resolvePlacement } from './overlay-plan'
+import { overlayHits } from './overlay-state'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
 export function drawMessageBubblesWorld(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   time: number,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  const showText = lodForZoom(opts.zoom).details
   for (const agent of agents.values()) {
-    if (agent.messageBubbles.length === 0) continue
+    if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
+    // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible
+    const held = isExpiryHeld('agent', agent.id)
 
-    const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
+    const radius = agentDrawRadius(agent)
+    // Crowded: the stack collapses to a small count chip (or is hidden when even that does not fit)
+    const place = resolvePlacement(opts.plan, planKey.bubbles(agent.id), opts.zoom)
+    if (!place.visible) continue
+    if (place.collapsed) {
+      drawBubbleChip(ctx, agent, time, held, opts.zoom)
+      continue
+    }
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
     let cursorY = agent.y + AGENT_DRAW.bubbleCursorY
 
@@ -21,7 +36,7 @@ export function drawMessageBubblesWorld(
 
     for (const bubble of agent.messageBubbles) {
       const age = time - bubble.time
-      const alpha = bubbleAlpha(age, agent.opacity)
+      const alpha = bubbleAlpha(age, agentDrawOpacity(agent), held)
       if (alpha < 0.01) continue
 
       const { role, text } = bubble
@@ -30,7 +45,7 @@ export function drawMessageBubblesWorld(
       const bgColor = isThinking ? COLORS.bubbleThinkingBase : role === 'user' ? COLORS.bubbleUserBase : COLORS.bubbleAssistantBase
       const textColor = isThinking ? COLORS.roleThinkingText : role === 'user' ? COLORS.roleUserText : COLORS.roleAssistantText
       const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : 'CLAUDE'
-      const label = isThinking ? '\uD83D\uDCAD THINKING' : role === 'user' ? 'USER' : assistantLabel
+      const label = isThinking ? 'THINKING' : role === 'user' ? 'USER' : assistantLabel
 
       // Thinking bubbles: smaller font, tighter spacing, more translucent
       const style = isThinking ? BUBBLE_DRAW.thinking : BUBBLE_DRAW.normal
@@ -58,7 +73,7 @@ export function drawMessageBubblesWorld(
       bubble._cachedLines = lines.length
 
       ctx.save()
-      ctx.globalAlpha = isThinking ? alpha * 0.7 : alpha
+      ctx.globalAlpha = isThinking ? alpha * 0.85 : alpha
 
       if (firstVisible) {
         const triY = cursorY + bubbleH / 2
@@ -79,20 +94,23 @@ export function drawMessageBubblesWorld(
       ctx.lineWidth = 0.5
       ctx.stroke()
 
-      ctx.font = `${style.labelSize}px monospace`
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = textColor + (isThinking ? '60' : '80')
-      ctx.fillText(label, anchorX + style.padding, cursorY + 3)
+      if (showText) {
+        ctx.font = `${style.labelSize}px monospace`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = textColor + (isThinking ? 'c0' : 'd0')
+        ctx.fillText(label, anchorX + style.padding, cursorY + 3)
 
-      ctx.font = `italic ${style.fontSize}px monospace`
-      ctx.fillStyle = textColor + (isThinking ? 'b0' : '')
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
-      }
-      if (truncated) {
-        ctx.fillStyle = textColor + '80'
-        ctx.fillText('...', anchorX + style.padding, cursorY + style.headerH + lines.length * style.lineH)
+        // Upright text: italics are harder to read at small sizes
+        ctx.font = `${style.fontSize}px monospace`
+        ctx.fillStyle = textColor + (isThinking ? 'e0' : '')
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
+        }
+        if (truncated) {
+          ctx.fillStyle = textColor + 'c0'
+          ctx.fillText('...', anchorX + style.padding, cursorY + style.headerH + lines.length * style.lineH)
+        }
       }
 
       ctx.restore()
@@ -100,6 +118,30 @@ export function drawMessageBubblesWorld(
       cursorY += bubbleH + BUBBLE_GAP
     }
   }
+}
+
+/** Small count chip that stands for the bubbles of an agent when they would overlap other texts. */
+function drawBubbleChip(ctx: CanvasRenderingContext2D, agent: Agent, time: number, held: boolean, zoom: number) {
+  const rect = overlayHits.collapsedBubbles.get(agent.id)
+  if (!rect) return
+  let n = 0
+  for (const b of agent.messageBubbles) if (bubbleAlpha(time - b.time, agentDrawOpacity(agent), held) >= 0.01) n++
+  if (n === 0) return
+  const scale = zoom > 0 ? zoom : 1
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2)
+  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fill()
+  ctx.strokeStyle = COLORS.bubbleAssistantBase
+  ctx.lineWidth = 1 / scale
+  ctx.stroke()
+  ctx.font = `${11 / scale}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = COLORS.textPrimary
+  ctx.fillText(`\u2026${n}`, rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5 / scale)
+  ctx.restore()
 }
 
 /** Word-wrap text into lines that fit within maxW pixels, preserving newlines.

@@ -58,16 +58,16 @@ export const BUBBLE_FADE_IN = 0.3
 /** Seconds for bubble fade-out animation */
 export const BUBBLE_FADE_OUT = 1.5
 /** Maximum width (px) of a message bubble */
-export const BUBBLE_MAX_W = 220
+export const BUBBLE_MAX_W = 260
 /** Vertical gap (px) between stacked bubbles */
 export const BUBBLE_GAP = 6
 /** Max visible lines in a bubble before truncation */
 export const BUBBLE_MAX_LINES = 8
 
 /** Tool card width (px) for overlap detection */
-export const TOOL_CARD_W = 170
+export const TOOL_CARD_W = 210
 /** Tool card height (px) for overlap detection */
-export const TOOL_CARD_H = 36
+export const TOOL_CARD_H = 44
 
 // ─── Animation timing constants ─────────────────────────────────────────────
 
@@ -125,8 +125,13 @@ export const AUTO_SCROLL_THRESHOLD = 60
 export const CAMERA = {
   zoomStepDown: 0.92,
   zoomStepUp: 1.08,
-  minZoom: 0.2,
+  /** Floor of the interactive zoom AND of the zoom-to-fit (FIT_MIN_SCALE): dozens of clusters fit at this scale */
+  minZoom: 0.04,
   maxZoom: 4,
+  /** Pixels moved by one Shift+arrow press */
+  keyboardPanStep: 48,
+  /** Multiplier applied by the keyboard / button zoom controls */
+  keyboardZoomStep: 1.25,
   velocityScale: 0.016,
 } as const
 
@@ -142,6 +147,30 @@ export const FORCE = {
   velocityDecay: 0.4,
 } as const
 
+// ─── Fleet layout (clusters of agents in the 'All' view) ────────────────────
+
+export const CLUSTER_LAYOUT = {
+  /** Disc radius of a cluster = baseRadius + members * memberSpacing */
+  baseRadius: 300,
+  memberSpacing: 30,
+  maxMembers: 100,
+  /** Free space kept between two cluster discs */
+  gap: 80,
+  /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
+  maxRingClusters: 8,
+  /** Lead (orchestrator) held at its anchor, per tick */
+  holdStrength: 0.6,
+  /** Weak pull of members to the anchor (times alpha) */
+  pullStrength: 0.02,
+  /** Archived agents drift to this fraction of the cluster radius */
+  archivedRingFactor: 0.85,
+  ringStrength: 0.06,
+  /** Members are kept within this fraction of the cluster radius */
+  containFactor: 0.95,
+  containStrength: 0.08,
+  separationStrength: 0.5,
+} as const
+
 // ─── Tool slot placement config ─────────────────────────────────────────────
 
 export const TOOL_SLOT = {
@@ -155,18 +184,18 @@ export const TOOL_SLOT = {
 
 // ─── Discovery card dimension helpers ───────────────────────────────────────
 
-export const DISC_CHAR_W = 5.5
-export const DISC_LABEL_CHAR_W = 6
+export const DISC_CHAR_W = 6.6
+export const DISC_LABEL_CHAR_W = 7.2
 export const DISC_MIN_W = 80
-export const DISC_MAX_W = 150
+export const DISC_MAX_W = 200
 export const DISC_PADDING = 16
-export const DISC_HEADER_H = 16
-export const DISC_LINE_H = 11
+export const DISC_HEADER_H = 20
+export const DISC_LINE_H = 14
 
 /** Half-width used for discovery card bounding box in auto-fit calculations */
-export const DISC_BOUNDS_HALF_W = 80
+export const DISC_BOUNDS_HALF_W = 100
 /** Half-height used for discovery card bounding box in auto-fit calculations */
-export const DISC_BOUNDS_HALF_H = 30
+export const DISC_BOUNDS_HALF_H = 36
 
 export function getDiscoveryCardDimensions(label: string, contentLines: string[]) {
   const maxLineWidth = Math.max(...contentLines.map(l => l.length * DISC_CHAR_W), label.length * DISC_LABEL_CHAR_W)
@@ -177,7 +206,7 @@ export function getDiscoveryCardDimensions(label: string, contentLines: string[]
 
 // ─── Tool card dimension constant ───────────────────────────────────────────
 
-export const TOOL_MAX_CARD_W = 160
+export const TOOL_MAX_CARD_W = 200
 
 /** Blended $/M-token rate by model family (0.75 × input + 0.25 × output
  *  per-MTok pricing, the same weighting the original Sonnet-class rate used).
@@ -208,8 +237,12 @@ export const AGENT_DRAW = {
   shadowOffsetY: 5,
   /** Agent name label Y offset from agent radius */
   labelYOffset: 8,
+  /** Font size of agent name and state label (canvas text minimum is 11px) */
+  labelFontSize: 11,
+  /** Vertical distance between the name line and the state-label line */
+  stateLabelGap: 13,
   /** Agent name label width multiplier of radius */
-  labelWidthMultiplier: 3,
+  labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */
   scanlineHalfH: 4,
   /** Scanline width = 2 * scanlineHalfH */
@@ -244,13 +277,15 @@ export const CONTEXT_BAR = {
   /** Bar width multiplier of radius */
   widthMultiplier: 2.2,
   barHeight: 6,
-  /** Y offset from agent radius */
-  yOffset: 22,
+  /** Y offset from agent radius (below the name + state label lines) */
+  yOffset: 36,
   borderRadius: 3,
-  /** Font for token count label */
-  fontSize: 7,
+  /** Font for token count label (canvas text minimum is 11px) */
+  fontSize: 11,
   /** Y padding below bar for label */
-  labelPadding: 9,
+  labelPadding: 13,
+  /** Extra background height below the bar for the label */
+  labelBoxExtra: 18,
 } as const
 
 export const CONTEXT_RING = {
@@ -271,23 +306,23 @@ export const CONTEXT_RING = {
 } as const
 
 export const STATS_OVERLAY = {
-  /** Y offset above agent radius */
+  /** Y offset above agent radius (legacy; the live layout comes from overlay-layout.ts) */
   yOffset: 25,
-  boxWidth: 70,
-  boxHeight: 18,
+  boxWidth: 124,
+  boxHeight: 20,
   borderRadius: 3,
-  fontSize: 8,
+  fontSize: 11,
   textPaddingY: 4,
 } as const
 
 // ─── Tool card drawing constants ────────────────────────────────────────────
 
 export const TOOL_DRAW = {
-  fontSize: 8,
+  fontSize: 11,
   borderRadius: 4,
   /** Extra height for completed/error cards showing token cost */
-  expandedHeight: 30,
-  collapsedHeight: 24,
+  expandedHeight: 40,
+  collapsedHeight: 28,
   /** Error glow base blur + pulse amplitude */
   errorGlowBase: 8,
   errorGlowPulse: 4,
@@ -296,11 +331,11 @@ export const TOOL_DRAW = {
   spinSpeed: 3,
   spinArc: Math.PI * 1.2,
   /** Error detail font size */
-  errorFontSize: 6,
+  errorFontSize: 11,
   /** Token cost font size */
-  tokenFontSize: 6,
+  tokenFontSize: 11,
   /** Y offset for two-line card layout */
-  twoLineOffset: 5,
+  twoLineOffset: 7,
 } as const
 
 // ─── Cost overlay drawing constants ─────────────────────────────────────────
@@ -310,8 +345,8 @@ export const COST_DRAW = {
   minDisplayCost: 0.0001,
   /** Cost pill Y offset above agent radius */
   pillYOffset: 22,
-  pillPadding: 12,
-  pillHeight: 16,
+  pillPadding: 14,
+  pillHeight: 20,
   pillRadius: 8,
   /** Mini bar height below cost pill */
   miniBarHeight: 3,
@@ -322,13 +357,13 @@ export const COST_DRAW = {
 } as const
 
 export const COST_PANEL = {
-  width: 200,
+  width: 232,
   /** X margin from right edge */
   xMargin: 16,
   /** Y position (below top bar) */
   yStart: 48,
-  lineHeight: 16,
-  headerHeight: 28,
+  lineHeight: 18,
+  headerHeight: 30,
   sectionGap: 8,
   maxRows: 5,
   borderRadius: 8,
@@ -340,8 +375,8 @@ export const COST_PANEL = {
 // ─── Bubble drawing constants ───────────────────────────────────────────────
 
 export const BUBBLE_DRAW = {
-  thinking: { fontSize: 5.5, labelSize: 5, lineH: 7.5, padding: 5, headerH: 10 },
-  normal: { fontSize: 7, labelSize: 6, lineH: 10, padding: 6, headerH: 12 },
+  thinking: { fontSize: 11, labelSize: 11, lineH: 14, padding: 6, headerH: 16 },
+  normal: { fontSize: 11, labelSize: 11, lineH: 15, padding: 7, headerH: 17 },
   /** Triangle pointer offsets */
   triOffset: 4,
   triWidth: 5,
@@ -380,9 +415,9 @@ export const COMPLETE_FX = {
 export const PARTICLE_DRAW = {
   glowRadius: 15,
   coreHighlightScale: 0.4,
-  labelMinT: 0.2,
-  labelMaxT: 0.8,
-  labelFontSize: 8,
+  labelMinT: 0.08,
+  labelMaxT: 0.95,
+  labelFontSize: 11,
   labelYOffset: -12,
 } as const
 
@@ -418,11 +453,155 @@ export const PERF_OVERLAY = {
 
 export const HIT_DETECTION = {
   /** Estimated character width for tool card labels */
-  toolCharWidth: 4.5,
+  toolCharWidth: 6.6,
   /** Estimated character width for bubble text */
-  bubbleCharWidth: 4.2,
+  bubbleCharWidth: 6.6,
   /** Tool card expanded height (with result) */
-  toolExpandedH: 34,
-  toolCollapsedH: 24,
+  toolExpandedH: 40,
+  toolCollapsedH: 28,
+  /** Minimum agent hit radius in SCREEN pixels (independent of zoom) */
+  minAgentRadiusPx: 12,
+  /** Minimum width/height of any other hit target in SCREEN pixels (WCAG 2.5.8) */
+  minTargetPx: 24,
+  /** Tolerance (SCREEN pixels) around a link curve for hit-testing */
+  linkTolerancePx: 8,
 } as const
 
+
+// ─── Level of detail (zoom thresholds) ──────────────────────────────────────
+
+export const LOD = {
+  /** Below this zoom, hide secondary text: stats, token labels, tool/discovery/bubble text, cost pills */
+  detailMinZoom: 0.6,
+  /** Below this zoom, hide agent names and state labels too (only shapes remain) */
+  labelMinZoom: 0.35,
+} as const
+
+// ─── State presentation (colour + text, so state never relies on colour alone) ──
+
+/** Canvas-local state colours that differ from colors.ts so that every state is
+ *  visually distinct (WCAG 1.4.1): thinking vs idle, waiting_permission vs tool_calling. */
+export const STATE_COLOR_OVERRIDES: Readonly<Record<string, string>> = {
+  thinking: '#b79cff',
+  waiting_permission: '#ff7ad9',
+}
+
+/** Short state label drawn under every agent name */
+export const STATE_LABEL_SHORT: Readonly<Record<string, string>> = {
+  idle: 'idle',
+  thinking: 'thinking',
+  tool_calling: 'tool call',
+  complete: 'done',
+  error: 'error',
+  paused: 'paused',
+  waiting_permission: 'waiting',
+}
+
+/** Full state text used by the DOM mirror, legend and tooltip */
+export const STATE_LABEL_LONG: Readonly<Record<string, string>> = {
+  idle: 'idle',
+  thinking: 'thinking',
+  tool_calling: 'calling a tool',
+  complete: 'complete',
+  error: 'error',
+  paused: 'paused',
+  waiting_permission: 'waiting for permission',
+}
+
+// ─── Accessibility / motion ─────────────────────────────────────────────────
+
+/** Cadence (ms) of the DOM mirror snapshot of the simulation */
+export const A11Y_SNAPSHOT_MS = 500
+/** Max tool-call history entries kept in the DOM mirror */
+export const A11Y_HISTORY_MAX = 200
+/** Max tool-call entries listed per agent in the DOM mirror */
+export const A11Y_TOOLS_PER_AGENT = 50
+/** Max live-region messages kept (older are dropped) */
+export const A11Y_ANNOUNCE_MAX = 3
+/** Global cap on bright flashes per second (WCAG 2.3.1) */
+export const FLASH_MAX_PER_SECOND = 2
+
+export const ANIM_PAUSE_KEY = 'agent-viz-pause-animations'
+export const NEVER_HIDE_KEY = 'agent-viz-never-hide'
+export const LEGEND_OPEN_KEY = 'agent-viz-legend-open'
+
+// ─── Expiry hold (bubbles / tool cards / discoveries do not expire while hovered, focused, paused) ──
+
+export interface ExpiryHold {
+  /** User setting: never auto-hide bubbles, cards and discoveries */
+  neverHide: boolean
+  /** Playback or animations are paused: nothing expires */
+  paused: boolean
+  /** Agent ids whose bubbles are held (hovered / focused) */
+  agentIds: Set<string>
+  toolIds: Set<string>
+  discoveryIds: Set<string>
+}
+
+/** Mutable singleton written by AgentCanvas, read by the animation step and draw code. */
+export const expiryHold: ExpiryHold = {
+  neverHide: false,
+  paused: false,
+  agentIds: new Set(),
+  toolIds: new Set(),
+  discoveryIds: new Set(),
+}
+
+export function isExpiryHeld(kind: 'agent' | 'tool' | 'discovery', id: string, hold: ExpiryHold = expiryHold): boolean {
+  if (hold.neverHide || hold.paused) return true
+  if (kind === 'agent') return hold.agentIds.has(id)
+  if (kind === 'tool') return hold.toolIds.has(id)
+  return hold.discoveryIds.has(id)
+}
+
+// ─── canvas-fleet draw constants (orchestrator, cluster halos, edge bubbles, label placement) ──
+// Layout constants (cluster anchors, spacing) live in a separate block, owned by the fleet-layout package.
+
+export const ORCHESTRATOR_DRAW = {
+  /** Draw / hit scale of the orchestrator node relative to a regular main node */
+  scale: 1.2,
+  /** Badge text of the orchestrator of a team */
+  leadText: 'LEAD',
+  /** Badge text of the main agent of a session */
+  mainText: 'MAIN',
+  badgeFontSize: 11,
+  badgeHeight: 16,
+  /** Gap between the node top and the badge */
+  badgeGap: 14,
+  /** Accent of the crown badge (the crown SHAPE and the text carry the meaning, not the colour) */
+  accent: '#ffd166',
+} as const
+
+export const EDGE_BUBBLE = {
+  /** Lines of text shown in an edge bubble */
+  maxLines: 3,
+  maxWidth: 200,
+  fontSize: 11,
+  lineHeight: 14,
+  padding: 6,
+  /** Simulation seconds an edge bubble stays after its message */
+  visibleS: 8,
+  /** Fraction of the curve from the SENDER where the bubble is anchored */
+  anchorT: 1 / 3,
+  /** Chars of message text kept for a bubble (before wrapping) */
+  maxChars: 240,
+} as const
+
+export const CLUSTER_DRAW = {
+  labelFontSize: 12,
+  detailFontSize: 11,
+  labelHeight: 36,
+  labelMaxWidth: 260,
+  /** Padding between members and the halo edge (world px) */
+  padding: 56,
+} as const
+
+export const PLACEMENT = {
+  /** Gap kept between two placed labels (screen px) */
+  gap: 3,
+  /** Above this number of live items, secondary overlays are hidden (screen crowding) */
+  crowdedItems: 60,
+  /** Size of the collapsed bubble count chip (screen px) */
+  chipW: 28,
+  chipH: 20,
+} as const

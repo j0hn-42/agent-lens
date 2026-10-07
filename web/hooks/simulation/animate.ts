@@ -3,13 +3,17 @@ import {
   TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S,
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
-  ANIM_SPEED,
-} from '@/lib/canvas-constants'
+  ANIM_SPEED, isExpiryHeld,
+} from '../../lib/canvas-constants'
+import { ARCHIVED_OPACITY } from './archive'
+import { a11yRecorder, recordFrame } from '../../components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
   useMockData: boolean
   mockScenarioLength: number
   mockScenarioEndTime: number
+  /** Playback speed to animate with (already forced to 1 outside review); defaults to the state's speed */
+  speed?: number
 }
 
 function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
@@ -24,12 +28,16 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
     if (agent.state !== 'complete' && opacity < 1) { opacity = Math.min(1, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
     if (agent.state !== 'complete' && scale < 1) { scale = Math.min(1, scale + deltaTime * ANIM_SPEED.agentScaleIn); updated = true }
     if (agent.state === 'complete' && !agent.isMain) {
-      if (opacity > 0) { opacity = Math.max(0, opacity - deltaTime * ANIM_SPEED.agentFadeOut); updated = true }
+      // Archived agents are kept: they fade to a reduced opacity instead of vanishing
+      const floor = agent.archived ? ARCHIVED_OPACITY : 0
+      if (opacity > floor) { opacity = Math.max(floor, opacity - deltaTime * ANIM_SPEED.agentFadeOut); updated = true }
+      else if (opacity < floor) { opacity = Math.min(floor, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
       if (scale > 0.8) { scale = Math.max(0.8, scale - deltaTime * ANIM_SPEED.agentScaleOut); updated = true }
     }
     if (agent.state !== 'complete') { timeAlive += deltaTime; updated = true }
     // Prune expired message bubbles
-    if (messageBubbles.length > 0) {
+    // (skipped while the agent is hovered/focused, playback is paused, or "never hide" is on)
+    if (messageBubbles.length > 0 && !isExpiryHeld('agent', id)) {
       const pruned = messageBubbles.filter(b => currentTime - b.time <= BUBBLE_VISIBLE_S)
       if (pruned.length !== messageBubbles.length) { messageBubbles = pruned; updated = true }
     }
@@ -54,16 +62,18 @@ function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: nu
   let newToolCalls = toolCalls
   for (const [id, tc] of toolCalls) {
     let newOpacity = tc.opacity
+    // Held cards (hovered/focused, paused, "never hide") never start fading out
+    const held = isExpiryHeld('tool', id)
     if (tc.state === 'running') {
       const runningSince = newTime - tc.startTime
-      if (runningSince > TOOL_MAX_RUNNING_S) {
+      if (runningSince > TOOL_MAX_RUNNING_S && !held) {
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
       } else {
         newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
       }
     } else {
       const timeSinceComplete = newTime - (tc.completeTime ?? 0)
-      if (timeSinceComplete < TOOL_MIN_DISPLAY_S) {
+      if (held || timeSinceComplete < TOOL_MIN_DISPLAY_S) {
         newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
       } else {
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
@@ -91,7 +101,7 @@ function cleanupFaded(
   // Cleanup faded agents (completed sub-agents) and their edges
   const fadedAgentIds: string[] = []
   for (const [id, agent] of newAgents) {
-    if (!agent.isMain && agent.state === 'complete' && agent.opacity <= 0) {
+    if (!agent.isMain && !agent.archived && agent.state === 'complete' && agent.opacity <= 0) {
       fadedAgentIds.push(id)
     }
   }
@@ -132,7 +142,7 @@ function animateDiscoveries(discoveries: SimulationState['discoveries'], deltaTi
       const lerpT = Math.min(1, deltaTime * DISCOVERY_LERP_SPEED)
       const x = d.x + (d.targetX - d.x) * lerpT
       const y = d.y + (d.targetY - d.y) * lerpT
-      if (age < DISCOVERY_HOLD_S) {
+      if (age < DISCOVERY_HOLD_S || isExpiryHeld('discovery', d.id)) {
         return { ...d, x, y, opacity: Math.min(0.9, d.opacity + deltaTime * ANIM_SPEED.discoveryFadeIn) }
       } else {
         return { ...d, x, y, opacity: Math.max(0, d.opacity - deltaTime * ANIM_SPEED.discoveryFadeOut) }
@@ -155,6 +165,8 @@ function animateParticles(particles: SimulationState['particles'], deltaTime: nu
 }
 
 export function computeNextFrame(prev: SimulationState, deltaTime: number, newTime: number, maxT: number, currentState: SimulationState, options: AnimateOptions): SimulationState {
+      // Record dispatch/return particles and tool calls the moment they exist (before expiry removes them)
+      recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
       const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
       const newToolCallsRaw = animateToolCalls(currentState.toolCalls, deltaTime, newTime)
@@ -163,7 +175,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
         cleanupFaded(newAgentsRaw, newToolCallsRaw, newEdgesRaw, currentState.agents, currentState.toolCalls)
 
       const newDiscoveries = animateDiscoveries(currentState.discoveries, deltaTime, newTime)
-      const newParticles = animateParticles(currentState.particles, deltaTime, currentState.speed)
+      const newParticles = animateParticles(currentState.particles, deltaTime, options.speed ?? currentState.speed)
 
       // Stop playback when mock scenario ends (user can restart manually)
       if (options.useMockData && currentState.eventIndex >= options.mockScenarioLength && newTime > options.mockScenarioEndTime + MOCK_END_BUFFER_S) {

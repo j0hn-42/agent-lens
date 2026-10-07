@@ -1,7 +1,8 @@
-import { COLORS } from '@/lib/colors'
-import { TOOL_DEDUP_WINDOW_S } from '@/lib/canvas-constants'
+import { COLORS } from '../../lib/colors'
+import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
-import { appendConversation, asString, asBoolean, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
+import { appendConversation, asString, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
+import { idString } from './agent-keys'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -13,20 +14,24 @@ export function handleToolCallStart(
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const agentName = asString(payload.agent)
-  const toolName = asString(payload.tool)
-  const args = asString(payload.args)
+  const agentName = agentKeyOf(sessionId, idString(payload.agent))
+  const toolName = idString(payload.tool)
+  const args = cappedString(payload.args)
   const inputData = (payload.inputData && typeof payload.inputData === 'object' && !Array.isArray(payload.inputData))
     ? payload.inputData as Record<string, unknown> : undefined
+  const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
 
   if (agent) {
     // Dedup: skip if there's already a running tool call for the same agent+tool
-    // created within the last 3 seconds (race between Hook Server and Session Watcher)
+    // created within the last 3 seconds (race between Hook Server and Session Watcher).
+    // Calls with different tool_use_ids are distinct (parallel Agent calls).
     let isDuplicate = false
     for (const tc of state.toolCalls.values()) {
-      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running' && (currentTime - tc.startTime) < TOOL_DEDUP_WINDOW_S) {
+      const distinctIds = toolUseId !== undefined && tc.toolUseId !== undefined && tc.toolUseId !== toolUseId
+      if (!distinctIds && tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running' && (currentTime - tc.startTime) < TOOL_DEDUP_WINDOW_S) {
         isDuplicate = true
         break
       }
@@ -40,7 +45,7 @@ export function handleToolCallStart(
       toolCalls: agent.toolCalls + 1
     })
 
-    const toolId = `tool-${agentName}-${toolName}-${currentTime}`
+    const toolId = `tool-${agentName}-${toolName}-${currentTime}${toolUseId ? `-${toolUseId}` : ''}`
 
     const pos = ctx.findToolSlot(agent, state.agents, state.toolCalls, currentTime)
 
@@ -49,6 +54,7 @@ export function handleToolCallStart(
       state: 'running',
       args,
       inputData,
+      ...(toolUseId ? { toolUseId } : {}),
       x: pos.x,
       y: pos.y,
       startTime: currentTime,
@@ -89,8 +95,8 @@ export function handleToolCallStart(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_call', content: `> ${toolName} ${args}`, timestamp: currentTime,
-      toolName, inputData,
-    })
+      toolName, inputData, toolUseId,
+    }, state.droppedMessages)
   }
 }
 
@@ -99,13 +105,15 @@ export function handleToolCallEnd(
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const agentName = asString(payload.agent)
-  const toolName = asString(payload.tool)
-  const result = asString(payload.result, 'Done')
+  const agentName = agentKeyOf(sessionId, idString(payload.agent))
+  const toolName = idString(payload.tool)
+  const result = cappedString(payload.result, undefined, 'Done')
   const tokenCost = typeof payload.tokenCost === 'number' ? payload.tokenCost : undefined
   const isError = asBoolean(payload.isError)
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
+  const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
 
   if (agent) {
@@ -118,7 +126,8 @@ export function handleToolCallEnd(
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'
     for (const [id, tc] of state.toolCalls) {
-      if (tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running') {
+      const idMatches = toolUseId === undefined || tc.toolUseId === undefined || tc.toolUseId === toolUseId
+      if (idMatches && tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running') {
         state.toolCalls.set(id, { ...tc, state: toolState, completeTime: currentTime, result, tokenCost, errorMessage: isError ? (errorMessage || result) : undefined })
 
         const edgeId = `edge-${id}`
@@ -167,6 +176,8 @@ export function handleToolCallEnd(
       content: `< ${result}${tokenCost ? ` (${tokenCost} tokens)` : ''}`,
       timestamp: currentTime,
       toolName,
-    })
+      toolUseId,
+      ...(isError ? { isError } : {}),
+    }, state.droppedMessages)
   }
 }

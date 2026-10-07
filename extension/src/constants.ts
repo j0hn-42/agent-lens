@@ -194,6 +194,11 @@ export function generateSubagentFallbackName(id: string, index: number): string 
 /** Extract a child agent name from a tool_use input block (Agent or Task tool).
  *  Used by both live processing and prescan to avoid duplicating the extraction logic. */
 export function resolveSubagentChildName(input: Record<string, unknown>): string {
+  // A named Agent call (Agent Team teammates are spawned with `name`; team_name only shows up in the
+  // result): the member name is its identity, the description is just a task label.
+  if (typeof input.name === 'string' && input.name.trim()) {
+    return input.name.trim().slice(0, CHILD_NAME_MAX)
+  }
   return String(input.description || input.subagent_type || 'subagent').slice(0, CHILD_NAME_MAX)
 }
 
@@ -213,6 +218,141 @@ export const SYSTEM_CONTENT_PREFIXES = [
   '<command-name',
   '<system_instruction',
   '<task-notification',
+  '<teammate-message',
   '<local-command-stdout',
   '<local-command-caveat',
 ] as const
+
+// ─── Resource limits (hook server + relay) ───────────────────────────────────
+// All of these bound memory/CPU for untrusted local input (hook POSTs, SSE
+// clients, transcript files). See hook-guards.ts and relay-guards.ts.
+
+/** Max bytes of request headers accepted by the hook server */
+export const HOOK_MAX_HEADER_BYTES = 8 * 1024
+/** Max simultaneous TCP connections to the hook server */
+export const HOOK_MAX_CONNECTIONS = 64
+/** Max requests served over one keep-alive hook connection */
+export const HOOK_MAX_REQUESTS_PER_SOCKET = 100
+/** Time allowed to receive a full hook request (headers + body) */
+export const HOOK_REQUEST_TIMEOUT_MS = 5000
+/** Interval of Node's expired-connection sweep (default 30s) — bounds how long a stalled request holds a socket.
+ *  Applies to the hook server, the standalone app server and the dev relay. */
+export const HTTP_CONNECTIONS_CHECK_INTERVAL_MS = 1000
+/** Token bucket per client address: burst capacity and sustained refill (tokens/s) */
+export const HOOK_RATE_IP_BURST = 200
+export const HOOK_RATE_IP_PER_S = 100
+/** Token bucket per session_id */
+export const HOOK_RATE_SESSION_BURST = 100
+export const HOOK_RATE_SESSION_PER_S = 50
+/** Max distinct rate-limit buckets tracked (oldest evicted) */
+export const HOOK_RATE_MAX_BUCKETS = 512
+/** Max length of session_id / tool_use_id and of agent_id / agent_type in hook payloads */
+export const HOOK_ID_MAX_LENGTH = 128
+export const HOOK_AGENT_FIELD_MAX_LENGTH = 64
+/** Max length of free-text hook fields (message, title, tool_name, paths) */
+export const HOOK_TEXT_MAX_LENGTH = 4096
+/** Max sessions / per-session agents + dispatches tracked by the hook server */
+export const HOOK_MAX_SESSIONS = 256
+export const HOOK_MAX_TRACKED_PER_SESSION = 256
+
+/** SubagentStop transcript read: tail bytes, timeout, concurrency and queue bound */
+export const SUBAGENT_TRANSCRIPT_TAIL_BYTES = 128 * 1024
+export const SUBAGENT_TRANSCRIPT_TIMEOUT_MS = 750
+export const SUBAGENT_TRANSCRIPT_CONCURRENCY = 1
+export const SUBAGENT_TRANSCRIPT_MAX_QUEUE = 16
+
+/** Max simultaneous SSE clients on the relay (extra clients get 503) */
+export const RELAY_MAX_SSE_CLIENTS = 32
+/** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */
+export const RELAY_MAX_CLIENT_BACKLOG_BYTES = 1024 * 1024
+/** Max events replayed to a client per session, and in total, on connect */
+export const RELAY_MAX_REPLAY_PER_SESSION = 2000
+export const RELAY_MAX_REPLAY_TOTAL = 10000
+/** Events per replay batch message */
+export const RELAY_REPLAY_BATCH_SIZE = 500
+/** In-memory event buffer bounds: per session, number of sessions, total events */
+export const RELAY_MAX_EVENTS_PER_SESSION = 5000
+export const RELAY_MAX_BUFFERED_SESSIONS = 50
+export const RELAY_MAX_BUFFERED_EVENTS_TOTAL = 50000
+/** Max sessions with live file watchers / timers */
+export const RELAY_MAX_WATCHED_SESSIONS = 25
+/** Max length of the ?session= query parameter */
+export const RELAY_SESSION_PARAM_MAX_LENGTH = 128
+/** Discovery caps (--all-workspaces): project dirs scanned, files per dir, max transcript size */
+export const RELAY_MAX_PROJECT_DIRS = 200
+export const RELAY_MAX_FILES_PER_DIR = 500
+export const RELAY_MAX_SESSION_FILE_BYTES = 256 * 1024 * 1024
+
+// ─── Teammates / inter-agent messages (agent_link, message_sent) ─────────────
+// Content comes from transcripts (untrusted): it is stripped of control chars and capped.
+
+/** Max chars of a message_sent content field (same cap as MESSAGE_MAX) */
+export const TEAM_MESSAGE_MAX = 2000
+/** Max chars of an agent name taken from teammate data (to, teammate_id, task id) */
+export const TEAM_NAME_MAX = 64
+/** Max length of a generated linkId */
+export const TEAM_LINK_ID_MAX = 160
+/** Max chars of a user-turn text scanned for <teammate-message>/<task-notification> tags */
+export const TEAM_NOTIFICATION_SCAN_MAX = 64 * 1024
+/** Max notifications extracted from a single user turn */
+export const TEAM_NOTIFICATIONS_PER_TURN_MAX = 20
+/** Max distinct links remembered per session for agent_link dedup (oldest evicted) */
+export const TEAM_MAX_LINKS_PER_SESSION = 256
+
+// ─── Agent Teams (teammates, team config, inboxes) ───────────────────────────
+// Everything under ~/.claude/teams and the teammate sidechains is untrusted local input.
+// Every limit below is covered by extension/test/teams-limits.test.ts.
+
+/** In-process teammates: a file written less than this many ms ago still counts as 'working' */
+export const TEAMMATE_RECENT_WRITE_MS = 15_000
+/** A teammate whose turn did not end but that has no pending tool and no write for this long is shown 'idle' */
+export const TEAMMATE_STALE_WORKING_MS = 90_000
+/** History replay on first discovery of a teammate: the last N user/assistant entries only */
+export const TEAMMATE_REPLAY_MAX_MESSAGES = 40
+/** History replay reads at most this many bytes from the END of the teammate transcript */
+export const TEAMMATE_REPLAY_MAX_BYTES = 1024 * 1024
+/** Max teammates announced per session (extra sidechains behave like ordinary subagents) */
+export const TEAMMATE_MAX_PER_SESSION = 64
+/** Max size of a subagent .meta.json sidecar that is read */
+export const TEAMMATE_META_MAX_BYTES = 64 * 1024
+/** Max chars of model / agent type / team name fields copied from sidecars and configs */
+export const TEAM_FIELD_MAX = 64
+
+/** Team config scan: poll interval, debounce of team_info and bounds */
+export const TEAM_SCAN_INTERVAL_MS = 2000
+export const TEAM_INFO_DEBOUNCE_MS = 750
+export const TEAM_MAX_TEAMS = 50
+export const TEAM_MAX_MEMBERS = 64
+export const TEAM_CONFIG_MAX_BYTES = 256 * 1024
+/** Inbox watching: files per team, bytes per file, messages kept per file, remembered keys per inbox */
+export const TEAM_INBOX_MAX_FILES = 64
+export const TEAM_INBOX_MAX_BYTES = 512 * 1024
+export const TEAM_INBOX_MAX_MESSAGES = 200
+export const TEAM_INBOX_SEEN_MAX = 1024
+/** Historical messages replayed from an inbox the first time it is seen (the rest is only remembered) */
+export const TEAM_INBOX_FIRST_SCAN_MAX = 20
+/** Lifecycle events (agent_spawn, team_info...) a replay buffer keeps even when it overflows with chatter */
+export const RELAY_REPLAY_LIFECYCLE_RESERVE = 400
+/** The same text on the same link seen again within this window is one message (transcript + inbox echo) */
+export const TEAM_DEDUPE_WINDOW_MS = 60_000
+/** Max remembered (link, text) keys per session for that dedupe */
+export const TEAM_DEDUPE_MAX_ENTRIES = 512
+/** A tmux member session is matched to a config member when it started within this window after joinedAt */
+export const TEAM_JOIN_MATCH_WINDOW_MS = 120_000
+/** Bytes read from the head of a session transcript to learn its cwd / start time */
+export const SESSION_HEADER_MAX_BYTES = 16 * 1024
+/** Max chars of team/member/runtime/workspace tags on session list entries */
+export const SESSION_TAG_MAX = 256
+
+// ─── Relay /status endpoint ──────────────────────────────────────────────────
+
+/** Token bucket per client address for GET /status: burst and sustained refill (tokens/s) */
+export const RELAY_STATUS_RATE_BURST = 20
+export const RELAY_STATUS_RATE_PER_S = 5
+/** Max distinct clients tracked by the /status rate limiter */
+export const RELAY_STATUS_RATE_MAX_KEYS = 64
+
+// ─── Settings files ──────────────────────────────────────────────────────────
+
+/** Max size of a Claude settings.json read to detect configured hooks (bigger files are ignored) */
+export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024

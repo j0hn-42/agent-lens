@@ -12,6 +12,12 @@ export class BloomRenderer {
   private intensity: number
 
   private enabled: boolean
+  /** Frames since the blurred layer was last recomputed */
+  private frame = 0
+  /** The blur is recomputed every Nth frame; the cached layer is composited on the others */
+  static readonly RECOMPUTE_EVERY = 2
+  /** Bloom resolution relative to the main canvas (it is blurred anyway, so quarter resolution is invisible) */
+  static readonly SCALE = 0.25
 
   constructor(intensity: number = 0.6) {
     this.intensity = intensity
@@ -25,12 +31,14 @@ export class BloomRenderer {
   }
 
   resize(width: number, height: number): void {
-    // Bloom at half resolution for performance
-    const scale = 0.5
-    this.bloomCanvas.width = width * scale
-    this.bloomCanvas.height = height * scale
-    this.tempCanvas.width = width * scale
-    this.tempCanvas.height = height * scale
+    // Bloom at quarter resolution: the CSS blur filter is the most expensive part of a frame without
+    // GPU acceleration, and its cost scales with the pixel count.
+    const scale = BloomRenderer.SCALE
+    this.bloomCanvas.width = Math.max(1, Math.round(width * scale))
+    this.bloomCanvas.height = Math.max(1, Math.round(height * scale))
+    this.tempCanvas.width = this.bloomCanvas.width
+    this.tempCanvas.height = this.bloomCanvas.height
+    this.frame = 0
   }
 
   apply(sourceCanvas: HTMLCanvasElement, targetCtx: CanvasRenderingContext2D): void {
@@ -39,14 +47,19 @@ export class BloomRenderer {
 
     if (w === 0 || h === 0 || !this.enabled) return
 
-    // Draw source at half resolution
-    this.bloomCtx.clearRect(0, 0, w, h)
-    this.bloomCtx.drawImage(sourceCanvas, 0, 0, w, h)
+    // Recompute the blurred layer every Nth frame; the glow moves slowly enough that the cached
+    // layer is indistinguishable on the frames in between.
+    if (this.frame % BloomRenderer.RECOMPUTE_EVERY === 0) {
+      // Draw source at reduced resolution
+      this.bloomCtx.clearRect(0, 0, w, h)
+      this.bloomCtx.drawImage(sourceCanvas, 0, 0, w, h)
 
-    // Apply blur passes (box blur approximation of gaussian)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 8)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 6)
-    this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 4)
+      // Blur passes (box blur approximation of gaussian); radii are halved with the resolution
+      this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 4)
+      this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 3)
+      this.boxBlur(this.bloomCtx, this.tempCtx, w, h, 2)
+    }
+    this.frame++
 
     // Composite bloom over the target with additive blending
     targetCtx.save()

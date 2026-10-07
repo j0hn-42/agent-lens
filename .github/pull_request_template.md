@@ -8,5 +8,5 @@
 
 ## Checklist
 
-- [ ] I have read the [CONTRIBUTING](../CONTRIBUTING.md) guide
-- [ ] I have signed the [CLA](../CLA.md)
+- [ ] `pnpm test`, `pnpm --dir extension test`, `pnpm --dir web exec tsc --noEmit` and `pnpm test:a11y` pass
+- [ ] New UI is keyboard-operable and has accessible names

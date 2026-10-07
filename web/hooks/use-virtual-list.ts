@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { AUTO_SCROLL_THRESHOLD } from '@/lib/canvas-constants'
+import { resolveRenderWindow } from '@/lib/feed-utils'
 
 const OVERSCAN = 10
 
@@ -26,6 +27,8 @@ export function useVirtualList<T extends { id: string }>(
   const [viewportHeight, setViewportHeight] = useState(initialViewportHeight)
   const [measureTick, setMeasureTick] = useState(0)
   const heightsRef = useRef<Map<string, number>>(new Map())
+  const elementsRef = useRef<Map<string, HTMLElement>>(new Map())
+  const seenCountRef = useRef(0)
   const autoScrollRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
 
@@ -125,12 +128,35 @@ export function useVirtualList<T extends { id: string }>(
     else break
   }
 
+  // Small lists render in full; large ones are windowed but keep the focused item mounted
+  let focusedIdx = -1
+  if (typeof document !== 'undefined' && document.activeElement) {
+    const active = document.activeElement
+    for (const [id, el] of elementsRef.current) {
+      if (!el.contains(active)) continue
+      focusedIdx = items.findIndex(it => it.id === id)
+      break
+    }
+  }
+  const win = resolveRenderWindow(items.length, startIdx, endIdx, focusedIdx)
+  startIdx = win.start
+  endIdx = win.end
+  const virtualized = win.virtualized
+
   const visibleItems = items.slice(startIdx, endIdx)
-  const offsetTop = startIdx < offsets.length ? offsets[startIdx] : 0
+  const offsetTop = virtualized && startIdx < offsets.length ? offsets[startIdx] : 0
+  const listStyle: React.CSSProperties = virtualized ? { height: totalHeight, position: 'relative' } : {}
+  const windowStyle: React.CSSProperties = virtualized
+    ? { position: 'absolute', top: offsetTop, left: 0, right: 0 }
+    : {}
 
   // ── Trigger re-render after measurements ──────────────────────────────────
   const measureRef = useCallback((id: string, el: HTMLDivElement | null) => {
-    if (!el) return
+    if (!el) {
+      elementsRef.current.delete(id)
+      return
+    }
+    elementsRef.current.set(id, el)
     const h = el.offsetHeight
     if (heights.get(id) !== h) {
       heights.set(id, h)
@@ -154,9 +180,14 @@ export function useVirtualList<T extends { id: string }>(
     }
   }, [containerRef])
 
+  // Messages that arrived while the user was scrolled away from the bottom
+  if (isAtBottom || items.length < seenCountRef.current) seenCountRef.current = items.length
+  const newCount = Math.max(0, items.length - seenCountRef.current)
+
   return {
     visibleItems, totalHeight, offsetTop,
     handleScroll, measureRef,
     isAtBottom, scrollToBottom,
+    startIndex: startIdx, virtualized, listStyle, windowStyle, newCount,
   }
 }

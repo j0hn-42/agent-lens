@@ -1,4 +1,5 @@
 import * as fs from 'fs'
+import * as path from 'path'
 
 /**
  * Read a chunk of bytes from a file at a given offset.
@@ -55,4 +56,65 @@ export function readNewFileLines(
  *  `c:\...`, Claude Code and most shells report `C:\...`). Identity elsewhere. */
 export function foldPathCase(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p
+}
+
+/** True when `child` is `root` or lies inside it (both absolute, already resolved). */
+export function isPathInside(child: string, root: string): boolean {
+  const rel = path.relative(root, child)
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/**
+ * Read a small regular file defensively: lstat (symlinks are refused), size cap, optional
+ * containment check on the real path (so a symlinked parent directory cannot escape `rootDir`),
+ * O_NOFOLLOW where available. Returns the text, or undefined for anything unexpected.
+ */
+export function readTextFileSafe(filePath: string, maxBytes: number, rootDir?: string): string | undefined {
+  try {
+    const st = fs.lstatSync(filePath)
+    if (!st.isFile() || st.size > maxBytes) return undefined
+    if (rootDir && !isPathInside(fs.realpathSync(filePath), fs.realpathSync(rootDir))) return undefined
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+    const fd = fs.openSync(filePath, flags)
+    try {
+      const buf = Buffer.alloc(Math.min(st.size, maxBytes))
+      const n = fs.readSync(fd, buf, 0, buf.length, 0)
+      return buf.toString('utf-8', 0, n)
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** {@link readTextFileSafe} + JSON.parse; undefined when unreadable or malformed. */
+export function readJsonFileSafe(filePath: string, maxBytes: number, rootDir?: string): unknown {
+  const text = readTextFileSafe(filePath, maxBytes, rootDir)
+  if (text === undefined) return undefined
+  try { return JSON.parse(text) } catch { return undefined }
+}
+
+/**
+ * Like {@link readTextFileSafe} but for files above `maxBytes`: reads only the LAST `maxBytes`
+ * bytes. `truncated` tells the caller that the head was cut off. Same symlink / containment guards.
+ */
+export function readTailTextSafe(filePath: string, maxBytes: number, rootDir?: string): { text: string; truncated: boolean } | undefined {
+  try {
+    const st = fs.lstatSync(filePath)
+    if (!st.isFile()) return undefined
+    if (rootDir && !isPathInside(fs.realpathSync(filePath), fs.realpathSync(rootDir))) return undefined
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+    const fd = fs.openSync(filePath, flags)
+    try {
+      const start = Math.max(0, st.size - maxBytes)
+      const buf = Buffer.alloc(st.size - start)
+      const n = fs.readSync(fd, buf, 0, buf.length, start)
+      return { text: buf.toString('utf-8', 0, n), truncated: start > 0 }
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
 }

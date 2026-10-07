@@ -13,9 +13,41 @@ export interface ContextBreakdown {
 }
 
 export interface Agent {
+  /** Unique key across sessions: equals `agentKey` (sessionId + ':' + localId). Maps and edges use it. */
   id: string
+  /** Same value as `id`; explicit name for code that talks about cross-session identity */
+  agentKey: string
+  /** Session this agent belongs to ('default' for events without a session id) */
+  sessionId: string
+  /** Human-readable session label (set by the app for the feed's session chip) */
+  sessionLabel?: string
+  /** Name the event stream uses for this agent inside its session (unique per session) */
+  localId: string
+  /** Label shown in the UI (description of a sub-agent, first prompt of a main agent) */
+  displayName: string
+  /** Display label; kept equal to `displayName` for existing consumers */
   name: string
+  /** agentKey of the real parent (null for a root agent); kept equal to `parentId` */
+  parentKey: string | null
+  /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
+  toolUseId?: string
   state: AgentState
+  /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
+  kind?: 'main' | 'subagent' | 'teammate'
+  /** Agent Team the agent belongs to */
+  teamName?: string
+  /** Layout cluster: team name when the agent belongs to a team, else its session id */
+  clusterKey?: string
+  /** Team color, validated '#rrggbb' only */
+  teamColor?: string
+  /** Role reported by the team config (e.g. 'general-purpose'), for teammates */
+  agentType?: string
+  /** Teammate backend ('in-process' | 'tmux' | ...) */
+  backend?: string
+  /** Teammate activity; idle teammates stay visible */
+  activity?: 'working' | 'idle' | 'done'
+  /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */
+  archived?: boolean
   parentId: string | null
   tokensUsed: number
   tokensMax: number
@@ -67,6 +99,8 @@ export interface ToolCallNode {
   result?: string       // human-readable result summary
   tokenCost?: number    // how many tokens this result consumed
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
+  /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
+  toolUseId?: string
   errorMessage?: string // error description when state === 'error'
   x: number
   y: number
@@ -145,6 +179,27 @@ export interface Particle {
   size: number
   trailLength: number
   label?: string        // what's flowing (e.g., "auth.ts 142 lines")
+  /** Full subagent dispatch/return data (prompt, report, ...) carried by dispatch/return particles */
+  detail?: ParticleDetail
+}
+
+export interface ParticleDetail {
+  prompt?: string
+  subagentType?: string
+  model?: string
+  /** Full subagent report (return particles) */
+  summary?: string
+  toolUseId?: string
+  isError?: boolean
+  durationS?: number
+}
+
+/** An Agent Team as the UI sees it (built from team_info events). Strings are untrusted and already sanitised. */
+export interface TeamSummary {
+  name: string
+  leadSessionId: string
+  leadName?: string
+  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string }>
 }
 
 export interface SimulationEvent {
@@ -161,6 +216,10 @@ export interface SimulationEvent {
     | 'subagent_dispatch'
     | 'subagent_return'
     | 'permission_requested'
+    | 'agent_link'
+    | 'message_sent'
+    | 'team_info'
+    | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
 }

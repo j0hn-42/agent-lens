@@ -1,24 +1,16 @@
-import { Agent, ToolCallNode, NODE } from '@/lib/agent-types'
+import { Agent, ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { COST_RATE, MODEL_FAMILY_COST, COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
-import { formatTokens } from '@/lib/utils'
+import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
+import { formatTokens, formatCost } from '@/lib/utils'
+import { agentCost, modelCostRate } from '@/lib/cost'
 import { truncateText } from './draw-misc'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { computeOverlayLayout } from './overlay-layout'
+import { hasContextPercent } from './draw-agents'
+import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
+import { planKey, resolvePlacement } from './overlay-plan'
 
-/** Blended $/M-token rate for a model ID — first matching family wins,
- *  unknown models fall back to the Sonnet-class rate. */
-export function modelCostRate(model?: string): number {
-  if (model) {
-    const id = model.toLowerCase()
-    for (const { pattern, rate } of MODEL_FAMILY_COST) {
-      if (pattern.test(id)) return rate
-    }
-  }
-  return COST_RATE
-}
-
-export function agentCost(tokensUsed: number, model?: string): number {
-  return (tokensUsed / 1_000_000) * modelCostRate(model)
-}
+export { modelCostRate, agentCost }
 
 /** Tool name -> color for mini cost bar */
 export function toolTypeColor(toolName: string): string {
@@ -45,27 +37,40 @@ export function drawCostLabels(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  // Cost pills are secondary text: hidden below the level-of-detail zoom threshold
+  if (!lodForZoom(opts.zoom).details) return
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
   for (const [, agent] of agents) {
-    if (agent.opacity < MIN_VISIBLE_OPACITY) continue
+    if (!isAgentVisible(agent)) continue
     const cost = agentCost(agent.tokensUsed, agent.model)
     if (cost < COST_DRAW.minDisplayCost) continue
 
-    const r = agent.isMain ? NODE.radiusMain : NODE.radiusSub
-    const pillY = agent.y - r - COST_DRAW.pillYOffset
+    const r = agentDrawRadius(agent)
+    // Stacked above the stats box and the context % label (see overlay-layout.ts)
+    const layout = computeOverlayLayout({
+      hasPercent: hasContextPercent(agent),
+      showStats: opts.showStats && agent.state !== 'complete',
+      showCost: true,
+    })
+    const pillY = agent.y - r - (layout.costTop ?? COST_DRAW.pillYOffset)
+    // Screen-space placement: hidden or shifted when it would collide with another text
+    const place = resolvePlacement(opts.plan, planKey.cost(agent.id), opts.zoom)
+    if (!place.visible) continue
 
     // Floating cost pill
-    const label = `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`
-    ctx.font = 'bold 9px monospace'
+    const label = formatCost(cost)
+    ctx.font = 'bold 11px monospace'
     const labelW = ctx.measureText(label).width
     const pillW = labelW + COST_DRAW.pillPadding
     const pillH = COST_DRAW.pillHeight
     const pillX = agent.x - pillW / 2
 
     ctx.save()
-    ctx.globalAlpha = agent.opacity * 0.9
+    ctx.translate(place.dx, place.dy)
+    ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background
     ctx.fillStyle = COLORS.costPillBg
@@ -112,7 +117,7 @@ export function drawCostLabels(
           const segW = (tokens / totalToolTokens) * barW
           if (segW < 1) continue
           ctx.fillStyle = toolTypeColor(toolName)
-          ctx.globalAlpha = agent.opacity * 0.7
+          ctx.globalAlpha = agentDrawOpacity(agent) * 0.7
           ctx.beginPath()
           ctx.roundRect(segX, barY, segW, barH, COST_DRAW.miniBarRadius)
           ctx.fill()
@@ -183,15 +188,15 @@ export function drawCostSummaryPanel(
   let y = panelY + 8
 
   // Header: total cost
-  ctx.font = 'bold 11px monospace'
+  ctx.font = 'bold 12px monospace'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  ctx.fillText(`$${totalCost.toFixed(3)}`, panelX + COST_PANEL.contentPadding, y)
+  ctx.fillText(formatCost(totalCost), panelX + COST_PANEL.contentPadding, y)
 
-  ctx.font = '9px monospace'
+  ctx.font = '11px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(`$${totalCost.toFixed(3)}`).width + 14, y + 2)
+  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(formatCost(totalCost)).width + 14, y + 2)
 
   y += headerH
 
@@ -216,7 +221,7 @@ export function drawCostSummaryPanel(
     ctx.fill()
 
     // Agent name
-    ctx.font = '8px monospace'
+    ctx.font = '11px monospace'
     ctx.fillStyle = COLORS.textPrimary
     ctx.textAlign = 'left'
     ctx.fillText(truncateText(ctx, a.name, barW - 50), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
@@ -224,7 +229,7 @@ export function drawCostSummaryPanel(
     // Cost
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
-    ctx.fillText(`$${a.cost.toFixed(3)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(formatCost(a.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
     y += lineH
   }
@@ -233,7 +238,7 @@ export function drawCostSummaryPanel(
   if (toolList.length > 0) {
     y += sectionGap
 
-    ctx.font = '8px monospace'
+    ctx.font = '11px monospace'
     ctx.fillStyle = COLORS.textMuted
     ctx.textAlign = 'left'
     ctx.fillText('BY TOOL', panelX + COST_PANEL.contentPadding, y)
@@ -258,7 +263,7 @@ export function drawCostSummaryPanel(
       ctx.globalAlpha = 1
 
       // Tool name
-      ctx.font = '8px monospace'
+      ctx.font = '11px monospace'
       ctx.fillStyle = toolTypeColor(t.name)
       ctx.textAlign = 'left'
       ctx.fillText(truncateText(ctx, t.name, barW - 50), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
@@ -266,7 +271,7 @@ export function drawCostSummaryPanel(
       // Cost
       ctx.textAlign = 'right'
       ctx.fillStyle = COLORS.costTextDim
-      ctx.fillText(`$${t.cost.toFixed(3)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+      ctx.fillText(formatCost(t.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
       y += lineH
     }

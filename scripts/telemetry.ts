@@ -8,16 +8,17 @@ import { syncOnce } from './telemetry/sync'
  * Hardcoded telemetry endpoint + publishable key.
  *
  * These ship inside every published binary. No env var override, no runtime
- * fallback. All enabled installs send events to Agent Flow's Supabase project.
- * Forks that republish under a different name must edit these constants and
- * rebuild.
+ * fallback. This fork ships with EMPTY constants, so telemetry is disabled and
+ * nothing is sent to (or written for) any backend. The upstream project's
+ * endpoint was removed on purpose. To enable telemetry,
+ * set your own endpoint and publishable key here and rebuild.
  *
  * Safe to commit: publishable keys are designed to be public. Postgres RLS
  * denies the anon role everything; the only write path is the telemetry-ingest
  * edge function, which runs under the secret key and validates every event.
  */
-export const TELEMETRY_ENDPOINT = 'https://dxwtgqdkyunfhbywqmrz.supabase.co'
-export const TELEMETRY_PUBLISHABLE_KEY = 'sb_publishable_AgJ_DIUH9zm8E0yHC9KsRw_WsIv4qc8'
+export const TELEMETRY_ENDPOINT = ''
+export const TELEMETRY_PUBLISHABLE_KEY = ''
 
 /**
  * Progressive sync schedule. After init(), fire syncs at these offsets:
@@ -37,7 +38,7 @@ const FALSY_VALUES = new Set(['false', '0', 'disabled', ''])
 export interface TelemetryEvent {
   event_type: 'session_start' | 'session_end' | 'error'
   session_id: string
-  agent_flow_version: string
+  agent_lens_version: string
   os: string
   arch: string
   source?: string
@@ -53,9 +54,9 @@ export interface TelemetryEvent {
 }
 
 export interface TelemetryClientOptions {
-  /** Directory for events.jsonl and .cursor. Usually `~/.agent-flow/telemetry`. */
+  /** Directory for events.jsonl and .cursor. Usually `~/.agent-lens/telemetry`. */
   logDir: string
-  /** Path to the stable install UUID. Usually `~/.agent-flow/installation-id`. */
+  /** Path to the stable install UUID. Usually `~/.agent-lens/installation-id`. */
   installIdPath: string
   /** Override for tests. Defaults to `process.env`. */
   env?: NodeJS.ProcessEnv
@@ -81,15 +82,15 @@ export interface TelemetryClient {
  *
  * Rules:
  * - `DO_NOT_TRACK` truthy → disabled (wins over everything)
- * - `AGENT_FLOW_TELEMETRY` falsy (`false`, `0`, `disabled`, ``) → disabled
- * - Otherwise enabled (including when AGENT_FLOW_TELEMETRY is unset)
+ * - `AGENT_LENS_TELEMETRY` falsy (`false`, `0`, `disabled`, ``) → disabled
+ * - Otherwise enabled (including when AGENT_LENS_TELEMETRY is unset)
  */
 export function isTelemetryEnabled(env: NodeJS.ProcessEnv): boolean {
   const dnt = env.DO_NOT_TRACK
   if (dnt !== undefined && dnt !== '' && dnt !== '0' && dnt.toLowerCase() !== 'false') {
     return false
   }
-  const flag = env.AGENT_FLOW_TELEMETRY
+  const flag = env.AGENT_LENS_TELEMETRY
   if (flag !== undefined && FALSY_VALUES.has(flag.toLowerCase())) {
     return false
   }
@@ -114,7 +115,7 @@ export function createTelemetryClient(opts: TelemetryClientOptions): TelemetryCl
   let syncInFlight: Promise<unknown> | null = null
 
   function enabled(): boolean {
-    return isTelemetryEnabled(getEnv())
+    return Boolean(endpoint && apiKey) && isTelemetryEnabled(getEnv())
   }
 
   function serialize(event: TelemetryEvent): string {
@@ -124,7 +125,7 @@ export function createTelemetryClient(opts: TelemetryClientOptions): TelemetryCl
       event_type: event.event_type,
       installation_id: installId,
       session_id: sanitizeString(event.session_id),
-      agent_flow_version: sanitizeString(event.agent_flow_version),
+      agent_lens_version: sanitizeString(event.agent_lens_version),
       os: sanitizeString(event.os, 16),
       arch: sanitizeString(event.arch, 16),
       source: sanitizeString(event.source ?? 'npx', 32),

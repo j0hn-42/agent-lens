@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo } from '@/lib/vscode-bridge'
-import { SimulationEvent } from '@/lib/agent-types'
+import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
+import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
+import {
+  activeSessionIds, finishedSessionIds, parseShowFinished, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
+} from '@/hooks/simulation/session-visibility'
+import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
+import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 
 interface BridgeHookResult {
   isVSCode: boolean
@@ -29,11 +34,48 @@ interface BridgeHookResult {
   getSessionEventCount: (sessionId: string) => number
   /** Ref to the currently selected session ID — updated synchronously, not via React state */
   selectedSessionIdRef: React.RefObject<string | null>
+  /** True while the 'All' tab (union of every session) is selected */
+  isAllSelected: boolean
+  /** Agent Teams seen in any session (selected or not), by team name */
+  teams: Map<string, TeamSummary>
+  /** Members currently working, per team name */
+  teamWorking: Map<string, number>
+  /** Members known per team (team config or teammates seen) */
+  teamMemberCounts: Map<string, number>
+  /** 'All' also shows the finished sessions (persisted preference) */
+  showFinished: boolean
+  setShowFinished: (show: boolean) => void
+  /** Sessions the 'All' view shows (null = every session); changes whenever the shown set changes */
+  allViewSessionIds: ReadonlySet<string> | null
+  /** Identity of the 'All' view's shown set: a change means the union simulation must be rebuilt */
+  allViewKey: string
+  /** Sessions of the list that count as finished (hidden from 'All' unless showFinished) */
+  finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
   /** Remove a session from the list */
   removeSession: (sessionId: string) => void
+  /** Undo a removeSession call (re-adds the dismissed session). Returns true if it was restored. */
+  restoreSession: (sessionId: string) => boolean
+  /** Switch to the built-in demo scenario (empty-state "Load demo" action) */
+  loadDemo: () => void
+  /** Relay port when known (standalone mode), for user-facing messages */
+  relayPort: string
+  /** True after the relay SSE connection failed and until it reconnects */
+  relayUnreachable: boolean
+  /** Latest non-blocking notice (parse failure, session reset, relay state); consumers toast it */
+  notice: BridgeNotice | null
 }
+
+const PARSE_NOTICE_INTERVAL_MS = 10_000
+
+/** How often the 'active session' rule is re-evaluated for the passage of time */
+const VISIBILITY_TICK_MS = 30_000
+/** Sessions remembered for their last event time (oldest dropped) */
+const MAX_LAST_EVENT_SESSIONS = 1000
+
+/** Max events kept in the arrival-order buffer that feeds the 'All' tab (oldest are dropped) */
+const MAX_ALL_BUFFER = 50_000
 
 /**
  * Connects the VS Code bridge to the React app.
@@ -45,7 +87,7 @@ interface BridgeHookResult {
  */
 export function useVSCodeBridge(): BridgeHookResult {
   const [isVSCode, setIsVSCode] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected')
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting')
   const [useMockData, setUseMockData] = useState(
     process.env.NEXT_PUBLIC_DEMO !== '0'
   )
@@ -55,13 +97,92 @@ export function useVSCodeBridge(): BridgeHookResult {
 
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const sessionsRef = useRef<SessionInfo[]>([])
+  sessionsRef.current = sessions
+  // Teams are tracked over the whole event stream so tabs stay correct whichever tab is selected
+  const teamTrackerRef = useRef(createTeamTracker())
+  const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
+    () => ({ teams: new Map(), working: new Map(), members: new Map() }),
+  )
+  const refreshTeamView = useCallback(() => {
+    const tracker = teamTrackerRef.current
+    const working = new Map<string, number>()
+    const members = new Map<string, number>()
+    for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)) }
+    setTeamView({ teams: new Map(tracker.teams), working, members })
+  }, [])
+  // 'All' shows only the active sessions unless the user asked for the finished ones too
+  const [showFinished, setShowFinishedState] = useState(false)
+  const showFinishedRef = useRef(false)
+  const lastEventAtRef = useRef<Map<string, number>>(new Map())
+  /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
+  const visibleRef = useRef<ReadonlySet<string> | null>(null)
+  const [visibility, setVisibility] = useState<{ key: string; ids: ReadonlySet<string> | null; finished: number }>({ key: '*', ids: null, finished: 0 })
+  /** Whether an event of `sessionId` belongs to the selected view (session, All, or team pseudo selection) */
+  const matchesSelection = useCallback((selected: string | null, sessionId: string | undefined): boolean =>
+    eventMatchesSelection(selected, sessionId, teamTrackerRef.current, sessionsRef.current, visibleRef.current), [])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const selectedSessionIdRef = useRef<string | null>(null)
   const sessionEventsRef = useRef<Map<string, SimulationEvent[]>>(new Map())
+  /** Every event in arrival order (feeds the 'All' tab). `allBaseRef` counts events trimmed from its front,
+   *  so positions stay absolute and survive the cap. */
+  const allEventsRef = useRef<SimulationEvent[]>([])
+  const allBaseRef = useRef(0)
   /** True while a session switch is pending (between auto-select and useLayoutEffect).
    *  Prevents the animation frame from processing events in the wrong simulation context. */
   const sessionSwitchPendingRef = useRef(false)
+
+  /** Re-evaluate which sessions 'All' shows; publishes a change (and parks event delivery while the union is rebuilt). */
+  const recomputeVisible = useCallback(() => {
+    let next: Set<string> | null = null
+    let finished = 0
+    const tracker = teamTrackerRef.current
+    const active = activeSessionIds({
+      sessions: sessionsRef.current,
+      lastEventAt: lastEventAtRef.current,
+      selectedId: selectedSessionIdRef.current,
+      teamSessions: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.sessionsOf(name)] as const)),
+      teamWorking: new Map(Array.from(tracker.teams.keys(), name => [name, tracker.working(name)] as const)),
+      now: Date.now(),
+    })
+    finished = finishedSessionIds(sessionsRef.current, active).length
+    if (!showFinishedRef.current) next = active
+    const key = visibilityKey(next)
+    const prevKey = visibilityKey(visibleRef.current)
+    visibleRef.current = next
+    setVisibility(prev => (prev.key === key && prev.finished === finished ? prev : { key, ids: next, finished }))
+    if (key !== prevKey && selectedSessionIdRef.current === ALL_SESSIONS_ID) {
+      // The union changes: hold events until the consumer rebuilds it from the buffer
+      sessionSwitchPendingRef.current = true
+      pendingEventsRef.current.length = 0
+    }
+  }, [])
+
+  const setShowFinished = useCallback((show: boolean) => {
+    showFinishedRef.current = show
+    setShowFinishedState(show)
+    try { localStorage.setItem(SHOW_FINISHED_STORAGE_KEY, String(show)) } catch { /* storage unavailable */ }
+    recomputeVisible()
+  }, [recomputeVisible])
+
+  // Restore the persisted preference once on mount
+  useEffect(() => {
+    try {
+      if (parseShowFinished(localStorage.getItem(SHOW_FINISHED_STORAGE_KEY))) {
+        showFinishedRef.current = true
+        setShowFinishedState(true)
+      }
+    } catch { /* storage unavailable */ }
+    recomputeVisible()
+  }, [recomputeVisible])
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
+  const [relayUnreachable, setRelayUnreachable] = useState(false)
+  const [notice, setNotice] = useState<BridgeNotice | null>(null)
+  const noticeIdRef = useRef(0)
+  const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
+  const pushNotice = useCallback((kind: BridgeNotice['kind'], message: string) => {
+    setNotice({ id: ++noticeIdRef.current, kind, message })
+  }, [])
 
   // Connect to standalone dev relay server via SSE when not in VS Code
   useEffect(() => {
@@ -73,30 +194,55 @@ export function useVSCodeBridge(): BridgeHookResult {
     if (bridge.isVSCode) return
 
     // Connect to relay in dev mode or standalone CLI mode
-    const isStandalone = process.env.AGENT_FLOW_STANDALONE === '1'
-    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) return
+    const isStandalone = process.env.AGENT_LENS_STANDALONE === '1'
+    if (!isStandalone && (process.env.NODE_ENV !== 'development' || process.env.NEXT_PUBLIC_DEMO !== '0')) {
+      // No relay to wait for: unless the VS Code init message arrives, we are offline.
+      const t = setTimeout(() => {
+        setConnectionStatus(s => (s === 'connecting' && !bridge.isVSCode ? 'disconnected' : s))
+      }, 1500)
+      return () => clearTimeout(t)
+    }
 
-    const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
+    setConnectionStatus('connecting')
     const es = new EventSource(relayPort ? `http://127.0.0.1:${relayPort}/events` : '/events')
+    let wasDown = false
+    let lastParseNotice = 0
 
     es.onopen = () => {
       setConnectionStatus('connected')
+      setRelayUnreachable(false)
       setUseMockData(false)
+      if (wasDown) {
+        wasDown = false
+        pushNotice('relay-up', 'Relay reconnected')
+      }
     }
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data)
         window.postMessage(data, '*')
-      } catch {}
+      } catch {
+        // Surface malformed relay payloads without spamming: at most one notice per interval
+        const now = Date.now()
+        if (now - lastParseNotice > PARSE_NOTICE_INTERVAL_MS) {
+          lastParseNotice = now
+          pushNotice('parse-error', 'Received malformed data from the relay; some events were skipped')
+        }
+      }
     }
     es.onerror = () => {
       setConnectionStatus('disconnected')
+      setRelayUnreachable(true)
+      if (!wasDown) {
+        wasDown = true
+        pushNotice('relay-down', relayPort ? `Relay unreachable on :${relayPort}` : 'Relay unreachable')
+      }
     }
 
     return () => {
       es.close()
     }
-  }, [])
+  }, [pushNotice, relayPort])
 
   useEffect(() => {
     const bridge = vscodeBridge
@@ -119,21 +265,43 @@ export function useVSCodeBridge(): BridgeHookResult {
         sessionId: event.sessionId,
       }
 
+      if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
+
+      // Remember when each session last spoke (bounded), and re-evaluate when a hidden one wakes up
+      if (event.sessionId) {
+        const last = lastEventAtRef.current
+        last.delete(event.sessionId)
+        last.set(event.sessionId, Date.now())
+        if (last.size > MAX_LAST_EVENT_SESSIONS) {
+          const oldest = last.keys().next().value
+          if (oldest !== undefined) last.delete(oldest)
+        }
+        if (visibleRef.current && !visibleRef.current.has(event.sessionId)) recomputeVisible()
+      }
+
       // Always buffer by session (for replay on session switch)
       if (event.sessionId) {
         const buf = sessionEventsRef.current.get(event.sessionId) || []
         buf.push(simEvent)
         sessionEventsRef.current.set(event.sessionId, buf)
       }
+      // ... and in arrival order for the 'All' tab
+      allEventsRef.current.push(simEvent)
+      if (allEventsRef.current.length > MAX_ALL_BUFFER) {
+        const over = allEventsRef.current.length - MAX_ALL_BUFFER
+        allEventsRef.current.splice(0, over)
+        allBaseRef.current += over
+      }
 
-      // Deliver to pending if session matches (ref is always current).
+      // Deliver to pending if session matches (ref is always current). The 'All' tab receives every event.
       // Skip if a session switch is pending — useLayoutEffect will flush
       // from the session buffer once the simulation state is swapped.
       const selected = selectedSessionIdRef.current
-      if (selected && event.sessionId === selected && !sessionSwitchPendingRef.current) {
+      const matches = matchesSelection(selected, event.sessionId)
+      if (selected && matches && !sessionSwitchPendingRef.current) {
         pendingEventsRef.current.push(simEvent)
         setEventVersion(v => v + 1)
-      } else if (event.sessionId && event.sessionId !== selected) {
+      } else if (event.sessionId && !matches) {
         // Track background activity for unselected sessions
         setSessionsWithActivity(prev => {
           if (prev.has(event.sessionId!)) return prev
@@ -171,12 +339,19 @@ export function useVSCodeBridge(): BridgeHookResult {
     // races between auto-flush here and save/restore logic there.
     const unsubSession = bridge.onSession((type, data) => {
       if (type === 'reset') {
-        // Panel was reopened — clear all stale state
+        // Panel was reopened — clear all stale state (and tell the user, non-blocking)
+        // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
+        if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
         setSessions([])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
         pendingEventsRef.current.length = 0
         sessionEventsRef.current.clear()
+        allEventsRef.current = []
+        allBaseRef.current = 0
+        lastEventAtRef.current.clear()
+        teamTrackerRef.current.clear()
+        refreshTeamView()
         setSessionsWithActivity(new Set())
         dismissedSessionsRef.current.clear()
         setEventVersion(v => v + 1)
@@ -212,13 +387,25 @@ export function useVSCodeBridge(): BridgeHookResult {
           }
           return [...prev, session]
         })
-        // Auto-select newly started session.
-        // Set switch-pending flag to prevent the animation frame from processing
-        // events in the wrong simulation state before useLayoutEffect swaps it.
-        sessionSwitchPendingRef.current = true
-        pendingEventsRef.current.length = 0
-        selectedSessionIdRef.current = session.id
-        setSelectedSessionId(session.id)
+        if (selectedSessionIdRef.current) {
+          // Never yank the user away from what they are watching: pulse the new tab instead.
+          if (selectedSessionIdRef.current !== session.id && selectedSessionIdRef.current !== ALL_SESSIONS_ID) {
+            setSessionsWithActivity(prev => {
+              if (prev.has(session.id)) return prev
+              const next = new Set(prev)
+              next.add(session.id)
+              return next
+            })
+          }
+        } else {
+          // Nothing selected yet: select the new session.
+          // Set switch-pending flag to prevent the animation frame from processing
+          // events in the wrong simulation state before useLayoutEffect swaps it.
+          sessionSwitchPendingRef.current = true
+          pendingEventsRef.current.length = 0
+          selectedSessionIdRef.current = session.id
+          setSelectedSessionId(session.id)
+        }
       } else if (type === 'updated') {
         const { sessionId, label } = data as { sessionId: string; label: string }
         setSessions(prev => prev.map(s =>
@@ -239,7 +426,14 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [])
+  }, [pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
+
+  // The rule depends on the session list, the teams, the selection and the clock
+  useEffect(() => { recomputeVisible() }, [sessions, teamView, selectedSessionId, recomputeVisible])
+  useEffect(() => {
+    const t = setInterval(recomputeVisible, VISIBILITY_TICK_MS)
+    return () => clearInterval(t)
+  }, [recomputeVisible])
 
   const consumeEvents = useCallback(() => {
     // Clear in-place so stale closures in animation callbacks
@@ -255,7 +449,19 @@ export function useVSCodeBridge(): BridgeHookResult {
     pendingEventsRef.current.length = 0
     selectedSessionIdRef.current = sessionId
     setSelectedSessionId(sessionId)
-    if (sessionId) {
+    if (sessionId === ALL_SESSIONS_ID) {
+      // The union view shows every session: nothing is unseen any more
+      setSessionsWithActivity(prev => (prev.size === 0 ? prev : new Set()))
+    } else if (parseTeamSelection(sessionId) !== null) {
+      // A team view shows the team's sessions: they are no longer unseen
+      const ids = teamSessionIds(parseTeamSelection(sessionId)!, teamTrackerRef.current, sessionsRef.current)
+      setSessionsWithActivity(prev => {
+        if (![...ids].some(id => prev.has(id))) return prev
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
+    } else if (sessionId) {
       setSessionsWithActivity(prev => {
         if (!prev.has(sessionId)) return prev
         const next = new Set(prev)
@@ -269,13 +475,24 @@ export function useVSCodeBridge(): BridgeHookResult {
    *  Must be called from useLayoutEffect AFTER simulation state is saved/swapped. */
   const flushSessionEvents = useCallback((sessionId: string, fromIndex = 0) => {
     sessionSwitchPendingRef.current = false
-    const buffered = sessionEventsRef.current.get(sessionId) || []
     pendingEventsRef.current.length = 0
-    pendingEventsRef.current.push(...buffered.slice(fromIndex))
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) {
+      // fromIndex is an absolute position: subtract what the cap already trimmed.
+      // A team selection takes the events of the team's sessions out of the same arrival-order buffer.
+      const all = allEventsRef.current
+      for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) {
+        // matchesSelection also applies the 'All' finished-sessions filter, so a flush and live delivery agree
+        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
+      }
+    } else {
+      const buffered = sessionEventsRef.current.get(sessionId) || []
+      pendingEventsRef.current.push(...buffered.slice(fromIndex))
+    }
     setEventVersion(v => v + 1)
-  }, [])
+  }, [matchesSelection])
 
   const getSessionEventCount = useCallback((sessionId: string): number => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return allBaseRef.current + allEventsRef.current.length
     return sessionEventsRef.current.get(sessionId)?.length ?? 0
   }, [])
 
@@ -295,6 +512,16 @@ export function useVSCodeBridge(): BridgeHookResult {
     })
   }, [])
 
+  const restoreSession = useCallback((sessionId: string): boolean => {
+    const saved = dismissedSessionsRef.current.get(sessionId)
+    if (!saved) return false
+    dismissedSessionsRef.current.delete(sessionId)
+    setSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
+    return true
+  }, [])
+
+  const loadDemo = useCallback(() => { setUseMockData(true) }, [])
+
   const bridgeOpenFile = useCallback((filePath: string, line?: number) => {
     vscodeBridge?.openFile(filePath, line)
   }, [])
@@ -313,7 +540,21 @@ export function useVSCodeBridge(): BridgeHookResult {
     selectSession,
     flushSessionEvents,
     getSessionEventCount,
+    isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
+    teams: teamView.teams,
+    teamWorking: teamView.working,
+    teamMemberCounts: teamView.members,
+    showFinished,
+    setShowFinished,
+    allViewSessionIds: visibility.ids,
+    allViewKey: visibility.key,
+    finishedSessionCount: visibility.finished,
     sessionsWithActivity,
     removeSession,
+    restoreSession,
+    loadDemo,
+    relayPort,
+    relayUnreachable,
+    notice,
   }
 }

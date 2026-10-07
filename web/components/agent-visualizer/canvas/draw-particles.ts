@@ -4,6 +4,7 @@ import { PARTICLE_DRAW } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
 import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edges'
 import { getGlowSprite } from './render-cache'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
 export function buildEdgeMap(edges: Edge[]): Map<string, Edge> {
@@ -19,7 +20,10 @@ export function drawParticles(
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
   time: number,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  const { reducedMotion } = opts
+  const showLabels = lodForZoom(opts.zoom).details
   for (const particle of particles) {
     const edge = edgeMap.get(particle.edgeId)
     if (!edge) continue
@@ -45,7 +49,7 @@ export function drawParticles(
     const normalY = tangentX
     // Use particle id hash for phase offset
     const phase = (particle.id.charCodeAt(5) || 0) * 0.7
-    const wobbleAmt = Math.sin(t * BEAM.wobble.freq + time * BEAM.wobble.timeFreq + phase) * BEAM.wobble.amp * Math.sin(t * Math.PI)
+    const wobbleAmt = reducedMotion ? 0 : Math.sin(t * BEAM.wobble.freq + time * BEAM.wobble.timeFreq + phase) * BEAM.wobble.amp * Math.sin(t * Math.PI)
 
     const baseX = bezierPoint(t, fromX, cp1x, cp2x, toX)
     const baseY = bezierPoint(t, fromY, cp1y, cp2y, toY)
@@ -56,12 +60,12 @@ export function drawParticles(
 
     // Comet trail — flip direction for return particles (progress goes 1→0)
     const isReturn = particle.type === 'return' || particle.type === 'tool_return'
-    for (let i = FX.trailSegments; i >= 0; i--) {
+    for (let i = reducedMotion ? 0 : FX.trailSegments; i >= 0; i--) {
       const offset = (i / FX.trailSegments) * BEAM.wobble.trailOffset
       const tt = isReturn
         ? Math.min(1, t + offset)
         : Math.max(0, t - offset)
-      const wob = Math.sin(tt * BEAM.wobble.freq + time * BEAM.wobble.timeFreq + phase) * BEAM.wobble.amp * Math.sin(tt * Math.PI)
+      const wob = reducedMotion ? 0 : Math.sin(tt * BEAM.wobble.freq + time * BEAM.wobble.timeFreq + phase) * BEAM.wobble.amp * Math.sin(tt * Math.PI)
       const tx = bezierPoint(tt, fromX, cp1x, cp2x, toX) + normalX * wob
       const ty = bezierPoint(tt, fromY, cp1y, cp2y, toY) + normalY * wob
       const alpha = ((FX.trailSegments - i) / FX.trailSegments) * 0.6
@@ -87,7 +91,9 @@ export function drawParticles(
     ctx.fill()
 
     // Label near particle
-    if (particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
+    // Messages are now shown as bubbles anchored on the edge (draw-links.ts); the particle label is
+    // only kept for particles of edges that carry no link (no bubble would show the text).
+    if (showLabels && !opts.edgeBubbles && particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
       ctx.fillStyle = particle.color + 'aa'
       ctx.font = `${PARTICLE_DRAW.labelFontSize}px monospace`
       ctx.textAlign = 'center'

@@ -1,12 +1,15 @@
 {
-  "name": "agent-flow-web",
+  "name": "agent-lens-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "build:webview": "vite build --config vite.config.webview.ts"
+    "build:webview": "vite build --config vite.config.webview.ts",
+    "lint:a11y": "node --import tsx tests-a11y/lint-baseline.ts",
+    "test:a11y": "node --import tsx --import ./tests-a11y/setup.ts --test \"tests-a11y/*.test.tsx\"",
+    "test:e2e": "node --import tsx --test --test-concurrency=1 \"tests-a11y/e2e/*.e2e.ts\""
   },
   "dependencies": {
     "d3-force": "^3.0.0",
@@ -15,17 +18,27 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@tailwindcss/postcss": "^4.2.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@types/d3-force": "^3.0.10",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^22",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "axe-core": "^4.14.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "jsdom": "^30.1.2",
+    "playwright": "^1.63.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",
     "typescript": "5.7.3",
+    "typescript-eslint": "^8.71.1",
     "vite": "^8.0.1"
   }
 }

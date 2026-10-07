@@ -5,14 +5,15 @@
     "dev": "NEXT_PUBLIC_DEMO=0 NEXT_PUBLIC_RELAY_PORT=3001 concurrently -n relay,web -c blue,green \"pnpm run dev:relay\" \"pnpm run dev:web\"",
     "dev:relay": "node scripts/build-relay.js && node scripts/.dev-relay.js",
     "dev:demo": "NEXT_PUBLIC_DEMO=1 pnpm run dev:web",
-    "dev:web": "pnpm --filter agent-flow-web run dev",
-    "dev:extension": "pnpm --filter agent-flow run watch",
-    "build:extension": "pnpm --filter agent-flow run build",
-    "build:web": "pnpm --filter agent-flow-web run build",
-    "build:webview": "pnpm --filter agent-flow-web run build:webview",
+    "dev:web": "pnpm --filter agent-lens-web run dev",
+    "dev:extension": "pnpm --filter agent-lens run watch",
+    "build:extension": "pnpm --filter agent-lens run build",
+    "build:web": "pnpm --filter agent-lens-web run build",
+    "build:webview": "pnpm --filter agent-lens-web run build:webview",
     "build:all": "pnpm run build:webview && pnpm run build:extension",
     "build:app": "node app/build.js",
-    "test": "node --import tsx --test \"scripts/**/*.test.ts\" \"app/src/**/*.test.ts\""
+    "test": "node --import tsx --test \"scripts/**/*.test.ts\" \"app/src/**/*.test.ts\"",
+    "test:a11y": "pnpm --dir web run test:a11y"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

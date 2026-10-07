@@ -4,7 +4,6 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'LLM Agent Visualizer',
   description: 'Real-time visualization of LLM agent execution flows - VS Code extension concept',
-  generator: 'v0.app',
   icons: {
     icon: [
       {
@@ -31,7 +30,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className="font-sans antialiased bg-[#0a0a1a]">
+      <body className="font-sans antialiased bg-[#050510]">
         {children}
       </body>
     </html>

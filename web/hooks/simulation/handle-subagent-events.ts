@@ -1,16 +1,49 @@
-import { COLORS } from '@/lib/colors'
+import { COLORS } from '../../lib/colors'
 import type { MutableEventState } from './process-event'
-import { edgeId, asString, LABEL_LEN_SHORT } from './types'
+import { edgeId, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
+import { idString, resolveChildLocalId } from './agent-keys'
+import { addLinkMessage } from './handle-link-events'
+import { appendBoundedConversation } from './archive'
+
+function optString(v: unknown): string | undefined {
+  const s = cappedString(v)
+  return s || undefined
+}
+
+/** Agent keys of parent and child for a dispatch/return event, identity following the tool_use_id. */
+function resolveParties(
+  payload: Record<string, unknown>,
+  state: MutableEventState,
+  sessionId: string,
+): { parentKey: string; childKey: string; toolUseId: string | undefined } {
+  const toolUseId = idString(payload.toolUseId) || undefined
+  const parentKey = agentKeyOf(sessionId, idString(payload.parent))
+  const childKey = agentKeyOf(sessionId, resolveChildLocalId(state.agents, sessionId, idString(payload.child), toolUseId))
+  return { parentKey, childKey, toolUseId }
+}
 
 export function handleSubagentDispatch(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const parentName = asString(payload.parent)
-  const childName = asString(payload.child)
-  const eid = edgeId(parentName, childName)
-  const task = asString(payload.task)
+  const { parentKey, childKey, toolUseId } = resolveParties(payload, state, sessionId)
+  const eid = edgeId(parentKey, childKey)
+  const task = cappedString(payload.task)
+  const prompt = optString(payload.prompt)
+
+  // Full prompt goes into both conversations so it is readable in the transcript/chat
+  for (const owner of new Set([parentKey, childKey])) {
+    appendBoundedConversation(state, owner, {
+      type: 'dispatch', content: prompt || task, timestamp: currentTime,
+      from: parentKey, to: childKey, linkId: eid, toolUseId,
+    })
+  }
+  addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
+    type: 'dispatch', content: prompt || task, timestamp: currentTime,
+    from: parentKey, to: childKey, linkId: eid, toolUseId,
+  })
 
   state.particles.push({
     id: `p-disp-${currentTime}-${eid}`,
@@ -18,6 +51,12 @@ export function handleSubagentDispatch(
     type: 'dispatch', color: COLORS.dispatch,
     size: 6, trailLength: 0.2,
     label: task.slice(0, LABEL_LEN_SHORT),
+    detail: {
+      prompt,
+      subagentType: optString(payload.subagentType),
+      model: optString(payload.model),
+      toolUseId,
+    },
   })
 }
 
@@ -25,11 +64,26 @@ export function handleSubagentReturn(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const parentName = asString(payload.parent)
-  const childName = asString(payload.child)
-  const eid = edgeId(parentName, childName)
-  const summary = asString(payload.summary)
+  const { parentKey, childKey, toolUseId } = resolveParties(payload, state, sessionId)
+  const eid = edgeId(parentKey, childKey)
+  const summary = cappedString(payload.summary)
+  const isError = asBoolean(payload.isError)
+
+  // Full report goes into both conversations (parent receives it, child produced it)
+  for (const owner of new Set([parentKey, childKey])) {
+    appendBoundedConversation(state, owner, {
+      type: 'return', content: summary, timestamp: currentTime,
+      from: childKey, to: parentKey, linkId: eid, toolUseId,
+      ...(isError ? { isError } : {}),
+    })
+  }
+  addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
+    type: 'return', content: summary, timestamp: currentTime,
+    from: childKey, to: parentKey, linkId: eid, toolUseId,
+    ...(isError ? { isError } : {}),
+  })
 
   state.particles.push({
     id: `p-ret-${currentTime}-${eid}`,
@@ -37,5 +91,11 @@ export function handleSubagentReturn(
     type: 'return', color: COLORS.return,
     size: 5, trailLength: 0.2,
     label: summary.slice(0, LABEL_LEN_SHORT),
+    detail: {
+      summary,
+      toolUseId,
+      isError,
+      durationS: typeof payload.durationS === 'number' ? payload.durationS : undefined,
+    },
   })
 }

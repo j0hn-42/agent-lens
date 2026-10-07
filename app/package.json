@@ -1,9 +1,9 @@
 {
-  "name": "agent-flow-app",
+  "name": "agent-lens-app",
   "version": "0.9.1",
   "description": "Real-time visualization of AI agent orchestration — standalone web app",
   "bin": {
-    "agent-flow": "dist/app.js"
+    "agent-lens": "dist/app.js"
   },
   "files": [
     "dist/"
@@ -14,13 +14,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/patoles/agent-flow"
+    "url": "https://github.com/jobailla/agent-lens"
   },
   "keywords": [
     "agent",
     "visualization",
     "ai",
     "llm",
-    "agent-flow"
+    "agent-lens"
   ]
 }

@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 
 /**
  * Hook that calls `onClose` when a mousedown event occurs outside the referenced element.
@@ -9,10 +9,12 @@ export function useClickOutside(
   onClose: () => void,
   delayMs = 50,
 ): void {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
-        onClose()
+        onCloseRef.current()
       }
     }
     const timer = setTimeout(() => {
@@ -22,5 +24,5 @@ export function useClickOutside(
       clearTimeout(timer)
       document.removeEventListener('mousedown', handleClick)
     }
-  }, [ref, onClose, delayMs])
+  }, [ref, delayMs])
 }

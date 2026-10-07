@@ -1,15 +1,17 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
-import { Agent, ToolCallNode, Discovery, ANIM, NODE } from '@/lib/agent-types'
-import { BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H, DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H } from '@/lib/canvas-constants'
+import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
+import {
+  computeFitBounds, fitToView, fitInsets, circleBounds, clusterSetSignature, shouldResumeAutoFit, contentStamp,
+  type Transform, type Insets, type AutoFitState,
+} from '@/components/agent-visualizer/canvas/camera-fit'
+import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
+import { CAMERA } from '@/lib/canvas-constants'
 
-/** Extra padding added to agent node radii for auto-fit bounding box */
-const AUTOFIT_AGENT_PADDING = 22
+export type { Transform }
 
-export interface Transform {
-  x: number
-  y: number
-  scale: number
-}
+const EMPTY_CLUSTERS: Cluster[] = []
+/** While auto-fitting, the fit target is refreshed this often (frames) to follow the settling simulation */
+const FIT_EVERY_N_FRAMES = 4
 
 interface CameraOptions {
   mainCanvasRef: MutableRefObject<HTMLCanvasElement | null>
@@ -27,6 +29,12 @@ interface CameraOptions {
   agentCount: number
   zoomToFitTrigger?: number
   selectedAgentId: string | null
+  /** Clusters of the last drawn frame (halos are part of the fit bounds) */
+  clustersRef?: MutableRefObject<Cluster[]>
+  /** Insets of the UI overlaid on the canvas (top bar, control bar, panels), in canvas px */
+  getInsets?: () => Insets
+  /** Identity of the selected tab/scope; a change refits the camera (see classifyContentChange) */
+  scopeKey?: string
 }
 
 export function useCanvasCamera({
@@ -37,21 +45,21 @@ export function useCanvasCamera({
   agentCount,
   zoomToFitTrigger,
   selectedAgentId,
+  clustersRef,
+  getInsets,
+  scopeKey,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
   const targetTransformRef = useRef<Transform | null>(null)
   const panVelocityRef = useRef({ vx: 0, vy: 0, active: false })
-
-  // Cache for computeFitTransform — avoids O(n) iteration every frame.
-  // Invalidates on collection reference change (React creates new Map/array on state updates).
-  const fitCacheRef = useRef<{
-    agents: Map<string, Agent> | null
-    toolCalls: Map<string, ToolCallNode> | null
-    discoveries: Discovery[] | null
-    selectedAgentId: string | null
-    result: Transform | null
-  }>({ agents: null, toolCalls: null, discoveries: null, selectedAgentId: null, result: null })
+  const autoFitStateRef = useRef<AutoFitState>({ signature: null, width: 0, height: 0 })
+  // Cheap per-frame change detection: the heavy signature is only built when the stamp changes
+  const stampRef = useRef<number | null>(null)
+  const scopeKeyRef = useRef<string | undefined>(scopeKey)
+  scopeKeyRef.current = scopeKey
+  const fitFrameRef = useRef(0)
+  const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
 
   // Initialize transform centered on first agents
   useEffect(() => {
@@ -80,16 +88,6 @@ export function useCanvasCamera({
     const { agents, toolCalls, discoveries, dimensions, selectedAgentId } = drawPropsRef.current
     if (agents.size === 0) return null
 
-    // Return cached result if inputs haven't changed (reference equality —
-    // React creates new Map/array objects on state updates, so same ref = same data)
-    const cache = fitCacheRef.current
-    if (cache.agents === agents
-      && cache.toolCalls === toolCalls
-      && cache.discoveries === discoveries
-      && cache.selectedAgentId === selectedAgentId) {
-      return cache.result
-    }
-
     // Determine focus scope: if a non-main agent is selected, focus on it + descendants
     let focusScope: Set<string> | null = null
     if (selectedAgentId) {
@@ -99,64 +97,16 @@ export function useCanvasCamera({
       }
     }
 
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const [id, agent] of agents) {
-      if (focusScope && !focusScope.has(id)) continue
-      const r = (agent.isMain ? NODE.radiusMain : NODE.radiusSub) + AUTOFIT_AGENT_PADDING
-      minX = Math.min(minX, agent.x - r)
-      maxX = Math.max(maxX, agent.x + r)
-      minY = Math.min(minY, agent.y - r)
-      maxY = Math.max(maxY, agent.y + r)
-      if (agent.messageBubbles.length > 0) {
-        const visibleCount = agent.messageBubbles.filter(b => {
-          const age = (simTimeRef.current ?? 0) - b.time
-          return age <= BUBBLE_HOLD + BUBBLE_FADE_OUT
-        }).length
-        if (visibleCount > 0) {
-          maxX = Math.max(maxX, agent.x + r + 14 + BUBBLE_MAX_W * 0.4)
-          minX = Math.min(minX, agent.x - r - BUBBLE_MAX_W * 0.2)
-          const stackH = visibleCount * 46
-          minY = Math.min(minY, agent.y - 20)
-          maxY = Math.max(maxY, agent.y - 20 + stackH)
-        }
-      }
-    }
-    for (const [, tool] of toolCalls) {
-      if (tool.opacity > 0.1 && (!focusScope || focusScope.has(tool.agentId))) {
-        const halfW = TOOL_CARD_W / 2
-        const halfH = TOOL_CARD_H / 2
-        minX = Math.min(minX, tool.x - halfW)
-        maxX = Math.max(maxX, tool.x + halfW)
-        minY = Math.min(minY, tool.y - halfH)
-        maxY = Math.max(maxY, tool.y + halfH)
-      }
-    }
-    for (const disc of discoveries) {
-      if (disc.opacity > 0.1 && (!focusScope || focusScope.has(disc.agentId))) {
-        minX = Math.min(minX, disc.x - DISC_BOUNDS_HALF_W)
-        maxX = Math.max(maxX, disc.x + DISC_BOUNDS_HALF_W)
-        minY = Math.min(minY, disc.y - DISC_BOUNDS_HALF_H)
-        maxY = Math.max(maxY, disc.y + DISC_BOUNDS_HALF_H)
-      }
-    }
-    if (minX === Infinity) {
-      fitCacheRef.current = { agents, toolCalls, discoveries, selectedAgentId, result: null }
-      return null
-    }
-    const padding = ANIM.viewportPadding
-    const boundsW = maxX - minX + padding * 2
-    const boundsH = maxY - minY + padding * 2
-    const centerX = (minX + maxX) / 2
-    const centerY = (minY + maxY) / 2
-    const scale = Math.min(dimensions.width / boundsW, dimensions.height / boundsH, 2)
-    const result = {
-      x: dimensions.width / 2 - centerX * scale,
-      y: dimensions.height / 2 - centerY * scale,
-      scale,
-    }
-    fitCacheRef.current = { agents, toolCalls, discoveries, selectedAgentId, result }
-    return result
-  }, [getDescendantIds, drawPropsRef, simTimeRef])
+    // No result cache: the simulation mutates its Maps in place, so a reference-keyed cache would keep
+    // the bounds of the first (unsettled) layout forever.
+    const clusters = clustersRef?.current ?? []
+    const bounds = computeFitBounds({
+      agents: agents.values(), toolCalls: toolCalls.values(), discoveries, clusters, focusScope,
+      simTime: simTimeRef.current ?? 0,
+    })
+    const insets = fitInsets(getInsets?.(), !focusScope && clusters.length > 0)
+    return fitToView(bounds, dimensions, insets)
+  }, [getDescendantIds, drawPropsRef, simTimeRef, clustersRef, getInsets])
 
   const doZoomToFit = useCallback(() => {
     userHasNavigatedRef.current = false
@@ -168,9 +118,10 @@ export function useCanvasCamera({
     if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
   }, [zoomToFitTrigger, doZoomToFit])
 
-  // Re-engage auto-fit when selection changes
+  // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
+  // once the user panned/zoomed manually the camera stays where they put it
+  // (an explicit "Fit" or the fit trigger re-enables it).
   useEffect(() => {
-    userHasNavigatedRef.current = false
     targetTransformRef.current = null
   }, [selectedAgentId])
 
@@ -184,6 +135,70 @@ export function useCanvasCamera({
       y: (screenY - rect.top - t.y) / t.scale,
     }
   }, [mainCanvasRef])
+
+  /** Zoom by `factor` around a point given in canvas-local screen px (defaults to the viewport centre). */
+  const zoomBy = useCallback((factor: number, originX?: number, originY?: number) => {
+    userHasNavigatedRef.current = true
+    targetTransformRef.current = null
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const { width, height } = drawPropsRef.current.dimensions
+    const ox = originX ?? width / 2
+    const oy = originY ?? height / 2
+    const prev = transformRef.current
+    const newScale = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, prev.scale * factor))
+    const ratio = newScale / prev.scale
+    transformRef.current = { scale: newScale, x: ox - (ox - prev.x) * ratio, y: oy - (oy - prev.y) * ratio }
+  }, [drawPropsRef])
+
+  /** Pan by a screen-pixel delta. */
+  const panBy = useCallback((dx: number, dy: number) => {
+    userHasNavigatedRef.current = true
+    targetTransformRef.current = null
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const t = transformRef.current
+    transformRef.current = { ...t, x: t.x + dx, y: t.y + dy }
+  }, [])
+
+  /** Convert a world point to client (viewport) coordinates, e.g. to anchor a context menu. */
+  const canvasToScreen = useCallback((worldX: number, worldY: number) => {
+    const canvas = mainCanvasRef.current
+    const rect = canvas?.getBoundingClientRect()
+    const t = transformRef.current
+    return {
+      x: (rect?.left ?? 0) + worldX * t.scale + t.x,
+      y: (rect?.top ?? 0) + worldY * t.scale + t.y,
+    }
+  }, [mainCanvasRef])
+
+  /**
+   * Pan (without changing zoom) just enough to bring a world point inside the viewport,
+   * keeping `margin` px from the edges. Used when keyboard focus moves to an off-screen node.
+   */
+  const ensureVisible = useCallback((worldX: number, worldY: number, margin = 80) => {
+    const { width, height } = drawPropsRef.current.dimensions
+    const t = transformRef.current
+    const sx = worldX * t.scale + t.x
+    const sy = worldY * t.scale + t.y
+    let dx = 0, dy = 0
+    if (sx < margin) dx = margin - sx
+    else if (sx > width - margin) dx = width - margin - sx
+    if (sy < margin) dy = margin - sy
+    else if (sy > height - margin) dy = height - margin - sy
+    if (dx !== 0 || dy !== 0) {
+      userHasNavigatedRef.current = true
+      targetTransformRef.current = { ...t, x: t.x + dx, y: t.y + dy }
+    }
+  }, [drawPropsRef])
+
+  /** Smoothly frame a world circle (a cluster halo) in the viewport. Counts as a manual navigation. */
+  const zoomToCircle = useCallback((cx: number, cy: number, r: number) => {
+    const { width, height } = drawPropsRef.current.dimensions
+    if (!(r > 0) || width <= 0 || height <= 0) return
+    userHasNavigatedRef.current = true
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const target = fitToView(circleBounds(cx, cy, r), { width, height }, fitInsets(getInsets?.(), true))
+    if (target) targetTransformRef.current = target
+  }, [drawPropsRef, getInsets])
 
   /** Call from draw loop to update inertia and auto-fit lerp */
   const updateCamera = useCallback((isDragging: boolean, pauseAutoFit?: boolean) => {
@@ -200,10 +215,48 @@ export function useCanvasCamera({
       }
     }
 
-    // Auto-fit
+    // Auto-fit rule (see classifyContentChange): a manual pan / zoom is respected when the content
+    // changes; auto-fit resumes only on the first content, a tab / scope change and the Fit button.
+    // The content set is fingerprinted without allocation every frame; the signature (sorted keys and
+    // sessions) is built only when that fingerprint changes.
+    const { agents, dimensions } = drawPropsRef.current
+    const clusters = clustersRef?.current ?? EMPTY_CLUSTERS
+    const stamp = agents.size > 0 ? contentStamp(clusters, agents.values()) : null
+    let contentChanged = false
+    const scopeChanged = autoFitStateRef.current.scopeKey !== scopeKeyRef.current && scopeKeyRef.current !== undefined && stamp !== null
+    if (stamp !== stampRef.current || scopeChanged) {
+      stampRef.current = stamp
+      contentChanged = true
+      let signature: string | null = null
+      let sessions: string[] | undefined
+      if (stamp !== null) {
+        const ids: Array<string | undefined> = []
+        for (const a of agents.values()) ids.push(a.sessionId)
+        signature = clusterSetSignature(clusters.map(c => c.key), ids)
+        sessions = Array.from(new Set(ids.map(s => s ?? ''))).sort()
+      }
+      const next: AutoFitState = { signature, sessions, scopeKey: scopeKeyRef.current, width: dimensions.width, height: dimensions.height }
+      if (shouldResumeAutoFit(autoFitStateRef.current, next)) {
+        userHasNavigatedRef.current = false
+        targetTransformRef.current = null
+      }
+      autoFitStateRef.current = next
+    }
+
+    // Auto-fit: the fit is recomputed when the content set, the canvas size or the insets change, and
+    // every few frames while the simulation moves the nodes; the lerp below runs every frame.
     if (!userHasNavigatedRef.current && !isDragging && !pauseAutoFit) {
-      const fit = computeFitTransform()
-      if (fit) targetTransformRef.current = fit
+      const ins = getInsets?.()
+      const k = lastFitKeyRef.current
+      const keyChanged = k.w !== dimensions.width || k.h !== dimensions.height
+        || k.t !== (ins?.top ?? 0) || k.r !== (ins?.right ?? 0) || k.b !== (ins?.bottom ?? 0) || k.l !== (ins?.left ?? 0)
+      fitFrameRef.current++
+      if (contentChanged || keyChanged || fitFrameRef.current % FIT_EVERY_N_FRAMES === 0) {
+        k.w = dimensions.width; k.h = dimensions.height
+        k.t = ins?.top ?? 0; k.r = ins?.right ?? 0; k.b = ins?.bottom ?? 0; k.l = ins?.left ?? 0
+        const fit = computeFitTransform()
+        if (fit) targetTransformRef.current = fit
+      }
     }
 
     // Smooth lerp toward target
@@ -221,7 +274,7 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform])
+  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets])
 
   return {
     transformRef,
@@ -230,5 +283,10 @@ export function useCanvasCamera({
     screenToCanvas,
     doZoomToFit,
     updateCamera,
+    zoomBy,
+    panBy,
+    canvasToScreen,
+    ensureVisible,
+    zoomToCircle,
   }
 }

@@ -8,13 +8,17 @@ import {
   SimulationEvent,
   type TimelineEntry,
 } from '@/lib/agent-types'
+import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
 import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
+import { layoutInfo, createClusterForce, type ClusterNodeInfo } from './simulation/fleet-layout'
 
 import type { SimulationState, ForceNode, ForceLink, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
-import { processEvent, type ProcessEventContext } from './simulation/process-event'
+import { processEvent, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
+import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 
@@ -22,7 +26,9 @@ import { snapVisualState } from './simulation/snap-visual-state'
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef } = options
+  const reviewingRef = useRef(isReviewing)
+  reviewingRef.current = isReviewing
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
@@ -44,6 +50,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const animationRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
   const forceSimRef = useRef<Simulation<ForceNode, ForceLink> | null>(null)
+  /** Per-agent cluster anchor/role used by the cluster force (rebuilt on every sync) */
+  const clusterInfoRef = useRef<Map<string, ClusterNodeInfo>>(new Map())
   const blockIdCounter = useRef(0)
   const skipForceSyncRef = useRef(false)
   const animateRef = useRef<(timestamp: number) => void>(() => {})
@@ -56,6 +64,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       .force('charge', forceManyBody().strength(FORCE.chargeStrength))
       .force('center', forceCenter(0, 0).strength(FORCE.centerStrength))
       .force('collide', forceCollide(FORCE.collideRadius))
+      .force('cluster', createClusterForce(id => clusterInfoRef.current.get(id)))
       .force('link', forceLink<ForceNode, ForceLink>([]).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
       .alphaDecay(FORCE.alphaDecay)
       .velocityDecay(FORCE.velocityDecay)
@@ -99,6 +108,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const links: ForceLink[] = edges
       .filter(e => e.type === 'parent-child')
       .map(e => ({ id: e.id, source: e.from, target: e.to }))
+
+    // Cluster layout: anchors per team/session, orchestrator held at the center of its cluster
+    const { info } = layoutInfo(agents, frameRef.current.teams)
+    clusterInfoRef.current = info
+    // The mean-centering force would drag the held orchestrators off their anchors
+    const centerForce = sim.force('center') as ReturnType<typeof forceCenter> | undefined
+    if (centerForce) centerForce.strength(0)
 
     sim.nodes(nodes)
     const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
@@ -185,6 +201,14 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const deltaTime = Math.min((timestamp - lastTimeRef.current) / 1000, ANIM_SPEED.maxDeltaTime)
     lastTimeRef.current = timestamp
 
+    const prev = frameRef.current
+    if (!prev.isPlaying) {
+      // Paused (review): leave external events queued so none are lost and the
+      // resume toast can report the real count.
+      animationRef.current = requestAnimationFrame(animateRef.current)
+      return
+    }
+
     // Snapshot and consume external events OUTSIDE the main processing
     // to avoid React strict mode double-invocation clearing them
     let capturedEvents: SimulationEvent[] | null = null
@@ -193,13 +217,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       onExternalEventsConsumed?.()
     }
 
-    const prev = frameRef.current
-    if (!prev.isPlaying) {
-      animationRef.current = requestAnimationFrame(animateRef.current)
-      return
-    }
-
-    let newTime = prev.currentTime + deltaTime * prev.speed
+    // Speed only applies in review: outside it the clock runs at 1x
+    const speed = effectiveSpeed(prev.speed, reviewingRef.current)
+    let newTime = prev.currentTime + deltaTime * speed
     let maxT = Math.max(prev.maxTimeReached, newTime)
     let newEventIndex = prev.eventIndex
 
@@ -225,14 +245,18 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Process captured external events (snapshotted outside the main
     // processing to avoid React strict mode double-invocation issues)
     if (capturedEvents) {
-      for (const event of capturedEvents) {
-        const activeFilter = sessionFilterRef.current
-        if (activeFilter && event.sessionId && event.sessionId !== activeFilter) {
-          continue
-        }
-        const eventTime = Math.max(event.time || newTime, newTime)
-        const timedEvent = { ...event, time: eventTime }
-        currentState = { ...currentState, currentTime: eventTime }
+      // No filter, the 'All' pseudo session or a team pseudo selection (union modes: the bridge already
+      // delivers only the right sessions) accept events of every delivered session
+      const activeFilter = sessionFilterRef.current
+      const union = !activeFilter || isUnionSelection(activeFilter)
+      const accepted = capturedEvents.filter(e => union || !e.sessionId || e.sessionId === activeFilter)
+      // Union views put every session on one wall-clock axis (events are relative to their own session start)
+      const offsetEvents = activeFilter && union ? applySessionOffsets(accepted, sessionOffsetsRef?.current) : accepted
+      const lastLogged = currentState.eventLog[currentState.eventLog.length - 1]
+      // Real event times, kept monotonic so the log stays seekable
+      const stamped = stampEventTimes(offsetEvents, lastLogged ? lastLogged.time : 0, newTime)
+      for (const timedEvent of stamped) {
+        currentState = { ...currentState, currentTime: timedEvent.time }
         currentState = processEventWithContext(timedEvent, currentState)
         newEvents.push(timedEvent)
       }
@@ -244,8 +268,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Append new events to log
     if (newEvents.length > 0) {
       let newLog = currentState.eventLog.concat(newEvents)
-      if (newLog.length > MAX_EVENT_LOG) {
-        newLog = newLog.slice(newLog.length - MAX_EVENT_LOG)
+      const dropped = droppedFromLog(currentState.eventLog.length, newEvents.length, MAX_EVENT_LOG)
+      if (dropped > 0) {
+        newLog = newLog.slice(dropped)
+        currentState = { ...currentState, droppedEvents: currentState.droppedEvents + dropped }
       }
       // In mock mode, eventIndex tracks position in MOCK_SCENARIO (not the log).
       // In live mode, eventIndex tracks position in the event log.
@@ -261,6 +287,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       useMockData,
       mockScenarioLength: MOCK_SCENARIO.length,
       mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
+      speed,
     })
 
     // Write to frameRef (canvas reads this every frame)
@@ -339,8 +366,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const conversations: SimulationState['conversations'] = new Map()
     for (const id of agents.keys()) conversations.set(id, [])
 
+    const keptLocalIds = new Set(Array.from(agents.values()).map(a => a.id))
     const eventLog = prev.eventLog.filter(e =>
-      e.type === 'agent_spawn' && agents.has(e.payload?.name as string)
+      e.type === 'agent_spawn' && typeof e.payload?.name === 'string'
+      && keptLocalIds.has(agentKeyOf(eventSessionId(e), e.payload.name))
     )
 
     const next = {
@@ -375,6 +404,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       speed: prev.speed,
       eventLog: prev.eventLog,
       maxTimeReached: prev.maxTimeReached,
+      droppedEvents: prev.droppedEvents,
     })
 
     skipForceSyncRef.current = true
@@ -420,6 +450,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     currentTime: state.currentTime, isPlaying: state.isPlaying, speed: state.speed,
     maxTimeReached: state.maxTimeReached,
     conversations: state.conversations,
+    links: state.links,
+    /** Agent Teams seen in this view (team_info events), by team name */
+    teams: state.teams,
+    /** Events dropped from the start of the history (MAX_EVENT_LOG) */
+    droppedEvents: state.droppedEvents,
+    /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
+    droppedMessages: state.droppedMessages,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

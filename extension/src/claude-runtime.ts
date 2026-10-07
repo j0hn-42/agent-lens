@@ -96,8 +96,11 @@ export async function startClaudeRuntime(
         : watcher.isActive()
 
       if (watcherHandlesThis) {
-        const agentName = event.payload?.agent ?? event.payload?.name
+        const agentName = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
         const isOrchestrator = agentName === ORCHESTRATOR_NAME || !agentName
+
+        // Teammate links/messages are emitted by the watcher's transcript parser too
+        if (event.type === 'agent_link' || event.type === 'message_sent') return
 
         if (isOrchestrator) {
           const filtered = filterOrchestratorCompletion(event)
@@ -135,7 +138,7 @@ export async function startClaudeRuntime(
   const dispose = (): void => {
     // Remove our discovery file so the hook script won't forward to a dead port.
     // Hook entries in settings.json are left intact — the command is stable
-    // (node ~/.claude/agent-flow/hook.js) and the script handles dead instances
+    // (node ~/.claude/agent-lens/hook.js) and the script handles dead instances
     // gracefully via PID checks. This avoids breaking multi-window setups and
     // means hooks survive VS Code restarts without reconfiguration.
     if (workspace) { removeDiscoveryFile(workspace) }

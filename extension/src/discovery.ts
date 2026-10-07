@@ -5,9 +5,9 @@
  * port and PID. The hook forwarding script reads these at invocation time
  * to find live instances — no port numbers in settings.json, no races.
  *
- * Discovery dir: ~/.claude/agent-flow/
+ * Discovery dir: ~/.claude/agent-lens/
  * Discovery file: {workspace-hash}-{pid}.json
- * Hook script:   ~/.claude/agent-flow/hook.js
+ * Hook script:   ~/.claude/agent-lens/hook.js
  */
 
 import * as fs from 'fs'
@@ -20,12 +20,14 @@ import { createLogger } from './logger'
 
 const log = createLogger('Discovery')
 
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-flow')
+const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
 const WORKSPACES_MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json')
 
 /** Identifier substring used to detect our command hooks in settings.json */
-export const HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+export const HOOK_COMMAND_MARKER = 'agent-lens/hook.js'
+/** Marker of hooks installed under the project's former name; still recognised so they get cleaned up. */
+export const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
 
 /** Resolve the absolute path to the `node` binary.
  *  VS Code's extension host runs in Electron, so process.execPath is not node.
@@ -143,7 +145,7 @@ function ensureDir(): void {
 
 function getHookScriptContent(): string {
   return `#!/usr/bin/env node
-// Agent Flow hook forwarder v3 — installed by the Agent Flow VS Code extension.
+// Agent Lens hook forwarder v3 — installed by the Agent Lens VS Code extension.
 // Claude Code invokes this as a command hook. It reads a discovery directory to
 // find live extension instances, checks their PIDs, and forwards the event via
 // HTTP POST. Dead instances are cleaned up automatically.
@@ -151,7 +153,7 @@ function getHookScriptContent(): string {
 // v3: containment-based workspace matching (supports subdirectory CWD),
 //     realpathSync normalization (handles symlinks), Windows-safe PID checks.
 //
-// Discovery dir: ~/.claude/agent-flow/
+// Discovery dir: ~/.claude/agent-lens/
 // Discovery file: {workspace-hash}-{pid}.json  →  { port, pid, workspace }
 'use strict';
 const fs = require('fs');
@@ -164,7 +166,7 @@ const os = require('os');
 // (stdin stall, HTTP hang, unexpected blocking) from blocking Claude Code.
 setTimeout(() => process.exit(0), ${HOOK_TIMEOUT_S * 1000 - HOOK_SAFETY_MARGIN_MS});
 
-const DIR = path.join(os.homedir(), '.claude', 'agent-flow');
+const DIR = path.join(os.homedir(), '.claude', 'agent-lens');
 const IS_WIN = process.platform === 'win32';
 
 /** Normalize a path: resolve and follow symlinks where possible */

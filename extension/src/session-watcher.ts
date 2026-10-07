@@ -11,7 +11,8 @@ import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runti
 import { TranscriptParser } from './transcript-parser'
 import { readNewFileLines, foldPathCase } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
-import { scanSubagentsDir, readSubagentNewLines } from './subagent-watcher'
+import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
+import { TeamWatcher, readSessionHeader } from './team-watcher'
 import { createLogger } from './logger'
 
 const log = createLogger('SessionWatcher')
@@ -38,6 +39,7 @@ const log = createLogger('SessionWatcher')
 export type { WatchedSession, SubagentState } from './protocol'
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
+const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
 
 export class SessionWatcher implements AgentSessionWatcher {
   private dirWatcher: fs.FSWatcher | null = null
@@ -49,6 +51,10 @@ export class SessionWatcher implements AgentSessionWatcher {
   /** Cache for isContainedProject results — avoids re-reading JSONL files every scan */
   private containedProjectCache = new Map<string, boolean>()
   private scanInterval: NodeJS.Timeout | null = null
+  /** Agent Team config / inbox watcher (created in start()) */
+  private teamWatcher: TeamWatcher | null = null
+  /** Working directory per watched session (read once from the transcript head) */
+  private sessionCwd = new Map<string, string>()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
@@ -58,7 +64,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     emit: (event, sessionId) => this.emit(event, sessionId),
     elapsed: (sessionId) => this.elapsed(sessionId),
     getSession: (sessionId) => this.sessions.get(sessionId),
-    fireSessionLifecycle: (event) => this._onSessionLifecycle.fire(event),
+    fireSessionLifecycle: (event) => this.fireLifecycle(event.type, event.sessionId, event.label),
     emitContextUpdate: (agentName, session, sessionId) => this.emitContextUpdate(agentName, session, sessionId),
   })
 
@@ -83,6 +89,46 @@ export class SessionWatcher implements AgentSessionWatcher {
     return false
   }
 
+  /** Fire a lifecycle event carrying the session's team / runtime / workspace / cwd tags. */
+  private fireLifecycle(type: SessionLifecycleEvent['type'], sessionId: string, label: string): void {
+    const tags = this.teamWatcher?.getSessionTags(sessionId)
+    const cwd = this.sessionCwd.get(sessionId)
+    this._onSessionLifecycle.fire({
+      type, sessionId, label,
+      runtime: 'claude',
+      ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+      ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
+      ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
+    })
+  }
+
+  /** Stop watching a long-finished session and free its parser / team bookkeeping. */
+  private unwatchSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.fileWatcher?.close()
+    if (session.pollTimer) clearInterval(session.pollTimer)
+    if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
+    if (session.permissionTimer) clearTimeout(session.permissionTimer)
+    for (const sub of session.subagentWatchers.values()) {
+      sub.watcher?.close()
+      if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
+    }
+    session.subagentWatchers.clear()
+    session.subagentsDirWatcher?.close()
+    this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+    this.sessionCwd.delete(sessionId)
+    this.sessions.delete(sessionId)
+    this.teamWatcher?.forgetSession(sessionId)
+  }
+
+  /** Drop sessions that ended longer ago than the discovery window (they cannot be rediscovered). */
+  private pruneEndedSessions(now = Date.now()): void {
+    for (const s of [...this.sessions.values()]) {
+      if (s.sessionCompleted && (now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
+    }
+  }
+
   /** Whether a specific session is active */
   isSessionActive(sessionId: string): boolean {
     const session = this.sessions.get(sessionId)
@@ -91,13 +137,21 @@ export class SessionWatcher implements AgentSessionWatcher {
 
   /** Get list of currently tracked sessions */
   getActiveSessions(): SessionInfo[] {
-    return Array.from(this.sessions.values()).map(s => ({
-      id: s.sessionId,
-      label: s.label,
-      status: s.sessionCompleted ? 'completed' : 'active',
-      startTime: s.sessionStartTime,
-      lastActivityTime: s.lastActivityTime,
-    }))
+    return Array.from(this.sessions.values()).map(s => {
+      const tags = this.teamWatcher?.getSessionTags(s.sessionId)
+      const cwd = this.sessionCwd.get(s.sessionId)
+      return {
+        id: s.sessionId,
+        label: s.label,
+        status: s.sessionCompleted ? 'completed' as const : 'active' as const,
+        startTime: s.sessionStartTime,
+        lastActivityTime: s.lastActivityTime,
+        runtime: 'claude',
+        ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+        ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
+        ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
+      }
+    })
   }
 
   /** Re-emit session start + conversation events for a newly connected webview.
@@ -120,8 +174,21 @@ export class SessionWatcher implements AgentSessionWatcher {
       for (const [, sub] of session.subagentWatchers) {
         if (session.spawnedSubagents.has(sub.agentName)) {
           const model = session.modelDetectedAgents.get(sub.agentName)
-          this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent: ORCHESTRATOR_NAME, child: sub.agentName, task: sub.agentName } }, sessionId)
-          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent: ORCHESTRATOR_NAME, task: sub.agentName, ...(model ? { model } : {}) } }, sessionId)
+          const record = sub.agentId ? this.parser.getSubagentRegistry(sessionId).getByFileKey(sub.agentId) : undefined
+          const parent = record?.parentName ?? ORCHESTRATOR_NAME
+          const task = record?.label ?? sub.agentName
+          const ids = {
+            ...(record?.toolUseId ? { toolUseId: record.toolUseId } : {}),
+            ...(record ? { label: record.label } : {}),
+          }
+          const tm = sub.teammate?.meta
+          const teammateExtras = tm ? {
+            kind: 'teammate', teamName: tm.teamName, backendType: 'in-process',
+            ...(tm.color ? { color: tm.color } : {}),
+            ...(tm.agentType ? { agentType: tm.agentType } : {}),
+          } : {}
+          this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent, child: sub.agentName, task, ...ids } }, sessionId)
+          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...teammateExtras, ...(model ?? tm?.model ? { model: model ?? tm?.model } : {}) } }, sessionId)
         }
         sub.spawnEmitted = false
       }
@@ -134,8 +201,10 @@ export class SessionWatcher implements AgentSessionWatcher {
         }, sessionId)
       }
 
+      replayTeammates(this.selfDelegate, session, sessionId)
       this._onSessionDetected.fire(sessionId)
     }
+    this.teamWatcher?.replay(sessionIds)
   }
 
   start(): void {
@@ -172,8 +241,34 @@ export class SessionWatcher implements AgentSessionWatcher {
 
     // Re-scan periodically as fallback (1s instead of 3s for faster detection)
     this.scanInterval = setInterval(() => {
+      this.pruneEndedSessions()
       this.scanForActiveSessions()
     }, SCAN_INTERVAL_MS)
+
+    // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
+    this.teamWatcher = new TeamWatcher({
+      teamsDir: TEAMS_DIR,
+      workspaces: this.resolvedWorkspace ? [this.resolvedWorkspace] : null,
+      host: {
+        listSessions: () => [...this.sessions.values()]
+          .filter(s => s.sessionDetected)
+          .map(s => ({ sessionId: s.sessionId, filePath: s.filePath, startTime: s.sessionStartTime })),
+        emitTeamInfo: (sessionId, payload) => this.emit({
+          time: this.elapsed(sessionId), type: 'team_info', payload: { ...payload },
+        }, sessionId),
+        emitInbox: (sessionId, from, to, content) => this.parser.emitInboxMessage(sessionId, from, to, content),
+        setLeadAlias: (sessionId, leadName) => this.parser.setLeadAlias(sessionId, leadName),
+        onSessionTags: (sessionId) => {
+          const s = this.sessions.get(sessionId)
+          if (s) this.fireLifecycle('updated', sessionId, s.label)
+        },
+        onMembersGone: (sessionId, _team, names) => {
+          const s = this.sessions.get(sessionId)
+          if (s) markTeammatesDone(this.selfDelegate, s, sessionId, names)
+        },
+      },
+    })
+    this.teamWatcher.start()
   }
 
   /** Set up fs.watch on known project directories and the parent CLAUDE_DIR */
@@ -414,6 +509,8 @@ export class SessionWatcher implements AgentSessionWatcher {
       contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
     }
     this.sessions.set(sessionId, session)
+    const header = readSessionHeader(filePath)
+    if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
 
     const stat = fs.statSync(filePath)
 
@@ -428,7 +525,7 @@ export class SessionWatcher implements AgentSessionWatcher {
 
     // Emit session start
     this._onSessionDetected.fire(sessionId)
-    this._onSessionLifecycle.fire({ type: 'started', sessionId, label: session.label })
+    this.fireLifecycle('started', sessionId, session.label)
 
     this.emit({
       time: 0,
@@ -520,7 +617,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           ...(session.model ? { model: session.model } : {}),
         },
       }, sessionId)
-      this._onSessionLifecycle.fire({ type: 'started', sessionId, label: session.label })
+      this.fireLifecycle('started', sessionId, session.label)
     }
 
     if (session.inactivityTimer) {
@@ -531,12 +628,14 @@ export class SessionWatcher implements AgentSessionWatcher {
       if (!session.sessionCompleted && session.sessionDetected) {
         log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} inactive — emitting orchestrator completion`)
         session.sessionCompleted = true
+        // Teammates stay on screen but are finished with their lead (never agent_complete)
+        markTeammatesDone(this.selfDelegate, session, sessionId)
         this.emit({
           time: this.elapsed(sessionId),
           type: 'agent_complete',
           payload: { name: ORCHESTRATOR_NAME },
         }, sessionId)
-        this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: session.label })
+        this.fireLifecycle('ended', sessionId, session.label)
       }
     }, INACTIVITY_TIMEOUT_MS)
   }
@@ -590,6 +689,9 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   dispose(): void {
+    this.teamWatcher?.dispose()
+    this.teamWatcher = null
+    this.sessionCwd.clear()
     this.dirWatcher?.close()
     this.dirWatcher = null
     for (const w of this.dirWatchers.values()) w.close()
@@ -606,7 +708,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       session.subagentWatchers.clear()
       session.subagentsDirWatcher?.close()
       // Clean up orphaned parser state for this session
-      this.parser.clearSessionState(session.pendingToolCalls.keys())
+      this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
     }
     this.sessions.clear()
     if (this.scanInterval) {
