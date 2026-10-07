@@ -248,7 +248,6 @@ export const CARD = {
   detail: { width: 240, height: 200 },
 
   chat: { width: 300, maxHeight: 360, messagesMinHeight: 100, messagesMaxHeight: 240 },
-  transcript: { width: 380 },
   margin: 8,
   offsetX: 40,     // horizontal offset from agent to detail card
   offsetY: -80,    // vertical offset from agent to detail card
@@ -259,7 +258,6 @@ export const Z = {
   sidePanel: 40,
   controlBar: 50,
   chatPanel: 50,
-  transcriptPanel: 60,
   detailCard: 100,
   contextMenu: 200,
 } as const

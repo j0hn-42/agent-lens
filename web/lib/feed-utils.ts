@@ -1,4 +1,4 @@
-// Pure helpers shared by the message feed, transcript and tool content views.
+// Pure helpers shared by the Conversation panel and the tool content views.
 // Kept free of React / path-alias imports so they can be unit tested with node:test.
 
 // State labels live in state-labels.ts (single source of truth); re-exported for feed consumers.
@@ -8,10 +8,14 @@ import type { ConversationMessage, AgentLink } from '../hooks/simulation/types'
 import type { TeamSummary } from './agent-types'
 import { formatDroppedMessages } from './chrome-utils'
 import { findTeam } from '../hooks/simulation/team-key'
+import { emptyState, emptyMatch } from './ui-glossary'
 
-/** Single empty-state wording used by every message list. */
-export const EMPTY_MESSAGES = 'No messages yet'
-export const EMPTY_SEARCH = 'No matching messages'
+/** Single empty-state wording used by every message list (see ui-glossary.ts). */
+export const EMPTY_MESSAGES = emptyState('messages')
+export const EMPTY_SEARCH = emptyMatch('messages')
+
+/** The one truncation rule of the Conversation panel: longer messages collapse to this many characters, with "Show all". */
+export const COLLAPSED_TEXT_MAX = 120
 
 /**
  * Truncate text and report how many characters were hidden.
@@ -116,7 +120,7 @@ export function activeTabIndexOf(keys: readonly string[], active: string): numbe
 export const FOCUS_RING =
   'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#aaeeff]'
 
-/** Top offset of the feed pill and panel: just under the top bar, which wraps onto several rows on narrow windows. */
+/** Top offset of the Conversation pill: just under the top bar, which wraps onto several rows on narrow windows. */
 export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'
 
 /**
@@ -149,8 +153,10 @@ export function pickerAgentIds(withMessages: readonly string[], pair: { a: strin
 export const TEXT_MESSAGE_TYPES: ReadonlySet<string> = new Set(['assistant', 'user', 'thinking'])
 /** Message types that describe a communication between two agents. */
 export const COMM_MESSAGE_TYPES: ReadonlySet<string> = new Set(['dispatch', 'return', 'message'])
-/** Everything the message feed lists. */
+/** Everything the Conversation panel lists without tool activity (also what the unread tracking and the pill follow). */
 export const FEED_MESSAGE_TYPES: ReadonlySet<string> = new Set([...TEXT_MESSAGE_TYPES, ...COMM_MESSAGE_TYPES])
+/** Tool activity, listed in the Conversation panel when "Tool calls" is on. */
+export const TOOL_MESSAGE_TYPES: ReadonlySet<string> = new Set(['tool_call', 'tool_result'])
 
 export type CommKind = 'dispatch' | 'return' | 'return_error' | 'message'
 
@@ -262,6 +268,8 @@ export function commDedupeKeys(m: Pick<ConversationMessage, 'type' | 'from' | 't
 export function buildFeedMessages(
   conversations: ReadonlyMap<string, readonly ConversationMessage[]>,
   links?: ReadonlyMap<string, Pick<AgentLink, 'from' | 'messages'>>,
+  /** Extra message types to list besides FEED_MESSAGE_TYPES (e.g. TOOL_MESSAGE_TYPES) */
+  extraTypes?: ReadonlySet<string>,
 ): FeedMessage[] {
   const out: FeedMessage[] = []
   const seenIds = new Set<string>()
@@ -271,7 +279,7 @@ export function buildFeedMessages(
   const seenComm = new Set<string>()
   const peerCopies = new Map<string, string[]>()
   const push = (m: ConversationMessage, agentId: string, source: string) => {
-    if (!FEED_MESSAGE_TYPES.has(m.type) || seenIds.has(m.id)) return
+    if (!(FEED_MESSAGE_TYPES.has(m.type) || extraTypes?.has(m.type)) || seenIds.has(m.id)) return
     if (COMM_MESSAGE_TYPES.has(m.type)) {
       const keys = commDedupeKeys(m)
       if (m.type === 'message' && !m.toolUseId) {
@@ -295,6 +303,43 @@ export function buildFeedMessages(
   for (const [agentId, msgs] of conversations) for (const m of msgs) push(m, agentId, `conv:${agentId}`)
   if (links) for (const [linkId, link] of links) for (const m of link.messages) push(m, m.from ?? link.from, `link:${linkId}`)
   return out.sort((a, b) => a.timestamp - b.timestamp)
+}
+
+/** Newest feed message (conversations and links), the one the collapsed pill shows; null when there is none. */
+export function latestFeedMessage(
+  conversations: ReadonlyMap<string, readonly ConversationMessage[]>,
+  links?: ReadonlyMap<string, Pick<AgentLink, 'from' | 'messages'>>,
+): FeedMessage | null {
+  let latest: FeedMessage | null = null
+  // Finished agents keep their messages: no filtering on live agents
+  for (const [agentId, msgs] of conversations) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (!FEED_MESSAGE_TYPES.has(msgs[i].type)) continue
+      if (!latest || msgs[i].timestamp > latest.timestamp) latest = { ...msgs[i], agentId }
+      break
+    }
+  }
+  if (links) {
+    for (const link of links.values()) {
+      const last = link.messages[link.messages.length - 1]
+      if (last && FEED_MESSAGE_TYPES.has(last.type) && (!latest || last.timestamp > latest.timestamp)) {
+        latest = { ...last, agentId: last.from ?? link.from }
+      }
+    }
+  }
+  return latest
+}
+
+/** Messages whose text or tool name contains the query (case-insensitive); a blank query keeps everything. */
+export function filterBySearch<T extends { content: string; toolName?: string }>(messages: readonly T[], query: string): T[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return messages.slice()
+  return messages.filter(m => m.content.toLowerCase().includes(q) || (m.toolName ?? '').toLowerCase().includes(q))
+}
+
+/** Tab preset by the selected agent: its own tab, or 'all' when nothing is selected. */
+export function tabForSelection(selectedAgentId: string | null | undefined): string {
+  return selectedAgentId ? selectedAgentId : 'all'
 }
 
 /** Messages of one tab: the agent's own messages plus every communication it sent or received. */

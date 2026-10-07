@@ -3,18 +3,12 @@
     "scenario": "e2e:tab-order",
     "rule": "invisible-focusable",
     "issue": 10,
-    "note": "SlidingPanel and ChatPanel stay in the Tab order at opacity 0"
+    "note": "SlidingPanel panels stay in the Tab order at opacity 0"
   },
   {
     "scenario": "e2e:reflow-320",
     "rule": "outside-viewport",
     "issue": 23,
-    "note": "Transcript row buttons (and the Agent graph region) extend past the viewport once the transcript panel is open or in review mode; owned by the transcript and panel layout"
-  },
-  {
-    "scenario": "e2e:reflow-320",
-    "rule": "pointer-obstructed",
-    "issue": 23,
-    "note": "An open panel covers the Files/Chat toolbar buttons at narrow widths; owned by the panel layout"
+    "note": "Conversation row buttons (and the Agent graph region) extend past the viewport once the Conversation panel is open or in review mode; owned by the Conversation panel and panel layout"
   }
 ]

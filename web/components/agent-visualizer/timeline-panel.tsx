@@ -1,5 +1,6 @@
 'use client'
 
+import { emptyState } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
@@ -22,7 +23,7 @@ import {
   type TimelineStateKey,
 } from '@/lib/timeline-rows'
 import type { AgentLink } from '@/hooks/simulation/types'
-import { PanelHeader, SlidingPanel } from './shared-ui'
+import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
@@ -151,7 +152,7 @@ function drawTimeline(
     ctx.font = FONT
     ctx.fillStyle = TEXT_MUTED_OPAQUE
     ctx.textAlign = 'center'
-    ctx.fillText('No timeline data', width / 2, height / 2)
+    ctx.fillText(emptyState('timeline data'), width / 2, height / 2)
     ctx.restore()
     return
   }
@@ -312,6 +313,10 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
 
+  // Bottom dock: centred above the control bar, narrowed by the chat / link / card beside it
+  const dock = useDockPanel('timeline', visible)
+  const dockRect = dock.rect
+
   // Focus moves into the panel on open and returns to the opener on close.
   // Escape is owned by the global LIFO handler (use-keyboard-shortcuts); no local listener.
   useEffect(() => {
@@ -341,7 +346,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
     drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- redraw on every prop change (component only re-renders on data/time updates)
-  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId])
+  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId, dockRect?.w])
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -361,13 +366,15 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
   return (
     <SlidingPanel
       visible={visible}
-      position={{ bottom: 72, left: 16, right: 16 }}
+      position={dockRect ? { bottom: dock.bottomOffset, left: dockRect.x } : { bottom: 72, left: 16, right: 16 }}
       axis="Y"
       zIndex={Z.sidePanel}
-      className="mx-auto motion-reduce:transition-none"
-      style={{ maxWidth: 700 }}
+      width={dockRect?.w}
+      className="motion-reduce:transition-none"
+      attrs={dockAttrs('timeline', 'bottom', dock, visible)}
+      style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
-      <div className="glass-card relative" role="region" aria-label="Execution timeline">
+      <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>
         <PanelHeader
           onClose={onClose}
           actions={
@@ -407,7 +414,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           tabIndex={0}
           role="group"
           aria-label="Timeline scroll area"
-          className={`overflow-auto ${FOCUS_RING}`}
+          className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
         >
           <canvas
@@ -439,7 +446,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </thead>
             <tbody>
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-2 py-1">No timeline data</td></tr>
+                <tr><td colSpan={4} className="px-2 py-1">{emptyState('timeline data')}</td></tr>
               )}
               {rows.map((r, i) => (
                 <tr key={`${r.agentId}-${i}`} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>

@@ -24,12 +24,6 @@
     "issue": 2
   },
   {
-    "file": "components/agent-visualizer/chat-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
-  },
-  {
     "file": "components/agent-visualizer/control-bar.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
@@ -42,6 +36,18 @@
     "count": 1,
     "issue": 5,
     "note": "Added after the first baseline; tracked with the nearest open issue"
+  },
+  {
+    "file": "components/agent-visualizer/conversation-panel.tsx",
+    "rule": "jsx-a11y/interactive-supports-focus",
+    "count": 1,
+    "issue": 12
+  },
+  {
+    "file": "components/agent-visualizer/conversation-panel.tsx",
+    "rule": "jsx-a11y/no-noninteractive-tabindex",
+    "count": 1,
+    "issue": 13
   },
   {
     "file": "components/agent-visualizer/discovery-detail-popup.tsx",
@@ -66,24 +72,6 @@
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
     "issue": 1
-  },
-  {
-    "file": "components/agent-visualizer/message-feed-panel.tsx",
-    "rule": "jsx-a11y/interactive-supports-focus",
-    "count": 1,
-    "issue": 12
-  },
-  {
-    "file": "components/agent-visualizer/message-feed-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
-  },
-  {
-    "file": "components/agent-visualizer/session-transcript-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
   },
   {
     "file": "components/agent-visualizer/shared-ui.tsx",

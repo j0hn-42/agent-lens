@@ -1,3 +1,5 @@
+import { PANEL_NAMES } from './ui-glossary'
+
 /**
  * Single source of truth for the keyboard shortcuts shown in the help dialog.
  * `key` is the KeyboardEvent.key value and must be unique within the table.
@@ -22,15 +24,15 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: '4', display: '4', description: 'Speed 4x', group: 'Playback', singleKey: true },
   { key: 'm', display: 'M', description: 'Mute / unmute audio', group: 'Playback', singleKey: true },
   { key: 'l', display: 'L', description: 'Toggle Sessions and agents list', group: 'Panels', singleKey: true },
-  { key: 'f', display: 'F', description: 'Toggle Files panel', group: 'Panels', singleKey: true },
-  { key: 'c', display: 'C', description: 'Toggle Transcript panel', group: 'Panels', singleKey: true },
-  { key: 't', display: 'T', description: 'Toggle Timeline panel', group: 'Panels', singleKey: true },
+  { key: 'f', display: 'F', description: `Toggle ${PANEL_NAMES.files} panel`, group: 'Panels', singleKey: true },
+  { key: 'c', display: 'C', description: `Toggle ${PANEL_NAMES.conversation} panel`, group: 'Panels', singleKey: true },
+  { key: 't', display: 'T', description: `Toggle ${PANEL_NAMES.timeline} panel`, group: 'Panels', singleKey: true },
   { key: 's', display: 'S', description: 'Toggle Stats panel', group: 'Panels', singleKey: true },
-  { key: '$', display: '$', description: 'Toggle cost overlay', group: 'Panels', singleKey: true },
+  { key: '$', display: '$', description: `Toggle ${PANEL_NAMES.cost} overlay`, group: 'Panels', singleKey: true },
   { key: 'F', display: 'Shift+F', description: 'Zoom to fit all agents', group: 'View', singleKey: true },
   { key: 'g', display: 'G', description: 'Toggle hex grid', group: 'View', singleKey: true },
   { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
-  { key: 'Escape', display: 'Esc', description: 'Close the top panel, collapse the message feed or clear selection', group: 'General', singleKey: false },
+  { key: 'Escape', display: 'Esc', description: 'Close the most recently opened panel, then clear the selection', group: 'General', singleKey: false },
   { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: false },
 ]
 

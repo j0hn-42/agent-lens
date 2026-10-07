@@ -1,5 +1,6 @@
 'use client'
 
+import { emptyState } from '@/lib/ui-glossary'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
@@ -141,7 +142,7 @@ export function GraphA11yList({
         <h2>Agent graph outline</h2>
         <p>Use arrow keys to move between items and Enter to open details.</p>
         {model.agents.length === 0 ? (
-          <p>No agents yet.</p>
+          <p>{emptyState('agents')}</p>
         ) : (
           <>
             {ungrouped.length > 0 && <ul>{ungrouped.map(agent => renderAgent(agent))}</ul>}

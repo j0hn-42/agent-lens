@@ -7,6 +7,7 @@ import { render, cleanup, act, fireEvent } from '@testing-library/react'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair, getPair } from '@/lib/pair-filter-store'
+import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 
 // Web Audio is not in jsdom: a deep no-op stub
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
@@ -15,7 +16,7 @@ const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k =
 ;(globalThis as Record<string, unknown>).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} }
 
 beforeEach(() => { clearPair(); })
-afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair() })
+afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair(); resetDefaultUiPreferencesStore() })
 
 const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
 const spawn = (sessionId: string, name: string, extra: Record<string, unknown> = {}) => ({

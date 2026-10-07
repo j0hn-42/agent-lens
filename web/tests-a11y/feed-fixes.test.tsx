@@ -1,14 +1,13 @@
-// Feed fixes (issues #12, #41): tab border console error, arrow keys vs pair filter, collapsed pill role cue,
-// outside-click behaviour, top-bar-aware position, picker options and the shared live region.
+// Conversation panel fixes (issues #12, #41, #32): tab border console error, arrow keys vs pair filter, collapsed
+// pill role cue, outside-click behaviour, top-bar-aware position, picker options and the shared live region.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
-import { MessageFeedPanel } from '@/components/agent-visualizer/message-feed-panel'
 import { PairFilterChip } from '@/components/agent-visualizer/pair-filter-chip'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
-import { PanelRegistryContext, createPanelRegistry } from '@/hooks/use-panel-registry'
+import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 import { clearPair, getPair, setPair } from '@/lib/pair-filter-store'
 import { FEED_TOP, pickerAgentIds } from '@/lib/feed-utils'
 import type { Agent, TeamSummary } from '@/lib/agent-types'
@@ -44,15 +43,13 @@ const links = new Map<string, AgentLink>()
 function feed() {
   const registry = createPanelRegistry()
   const utils = render(
-    <PanelRegistryContext.Provider value={registry.register}>
-      <MessageFeedPanel conversations={conversations} agents={agents} links={links} teams={teams}
-        onAgentClick={() => {}} selectedAgentId={null} />
-    </PanelRegistryContext.Provider>,
+    <ConversationHarness registry={registry} conversations={conversations} agents={agents} links={links} teams={teams}
+      onAgentClick={() => {}} selectedAgentId={null} />,
   )
   return { ...utils, registry }
 }
 const expand = (r: ReturnType<typeof feed>) =>
-  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  fireEvent.click(r.getByRole('button', { name: /Open Conversation/ }))
 
 function captureConsoleErrors(fn: () => void): string[] {
   const errors: string[] = []
@@ -103,13 +100,11 @@ test('D6: arrow-key tab navigation clears the pair filter so tab and list agree'
 test('D6: selecting an agent elsewhere (canvas) clears the pair so the highlighted tab and the list agree', () => {
   const registry = createPanelRegistry()
   const tree = (sel: string | null) => (
-    <PanelRegistryContext.Provider value={registry.register}>
-      <MessageFeedPanel conversations={conversations} agents={agents} links={links} teams={teams}
-        onAgentClick={() => {}} selectedAgentId={sel} />
-    </PanelRegistryContext.Provider>
+    <ConversationHarness registry={registry} conversations={conversations} agents={agents} links={links} teams={teams}
+      onAgentClick={() => {}} selectedAgentId={sel} />
   )
   const r = render(tree(null))
-  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  fireEvent.click(r.getByRole('button', { name: /Open Conversation/ }))
   act(() => setPair('o', 'e'))
   assert.ok(r.queryByText('explore the repo') || r.queryByRole('group', { name: /Pair filter/ }))
   r.rerender(tree('u'))
@@ -123,13 +118,11 @@ test('D6: selecting an agent elsewhere (canvas) clears the pair so the highlight
 test('D6: when the active tab disappears the pair is cleared and the feed falls back to All', () => {
   const registry = createPanelRegistry()
   const tree = (convs: Map<string, ConversationMessage[]>) => (
-    <PanelRegistryContext.Provider value={registry.register}>
-      <MessageFeedPanel conversations={convs} agents={agents} links={links} teams={teams}
-        onAgentClick={() => {}} selectedAgentId={null} />
-    </PanelRegistryContext.Provider>
+    <ConversationHarness registry={registry} conversations={convs} agents={agents} links={links} teams={teams}
+      onAgentClick={() => {}} selectedAgentId={null} />
   )
   const r = render(tree(conversations))
-  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  fireEvent.click(r.getByRole('button', { name: /Open Conversation/ }))
   fireEvent.click(r.getAllByRole('tab').find(t => (t.textContent ?? '').startsWith('explore'))!)
   assert.equal(r.getAllByRole('tab').find(t => t.getAttribute('aria-selected') === 'true')!.textContent?.startsWith('explore'), true)
   act(() => setPair('o', 'u'))
@@ -155,12 +148,12 @@ test('a pair set before its messages load announces the real count once they arr
 
 test('D7: the collapsed pill shows the role of the last message as visible text', () => {
   const r = feed()
-  const pill = r.getByRole('button', { name: /Expand messages/ })
+  const pill = r.getByRole('button', { name: /Open Conversation/ })
   const visible = Array.from(pill.querySelectorAll('span')).filter(s => s.getAttribute('aria-hidden') !== 'true')
   assert.ok(visible.some(s => (s.textContent ?? '').trim() === 'CLAUDE'), `no visible role label in: ${pill.textContent}`)
 })
 
-test('D9: a mousedown outside does not collapse the feed; Escape does and returns focus to the pill', async () => {
+test('D9: a mousedown outside does not close the panel; Escape does and returns focus to the pill', async () => {
   const outside = document.createElement('button')
   document.body.appendChild(outside)
   const r = feed()
@@ -168,19 +161,24 @@ test('D9: a mousedown outside does not collapse the feed; Escape does and return
   await new Promise(res => setTimeout(res, 120))
   fireEvent.mouseDown(outside)
   fireEvent.mouseDown(document.body)
-  assert.ok(r.getByRole('region', { name: 'Messages' }))
+  assert.ok(r.getByRole('region', { name: 'Conversation' }))
   act(() => { assert.equal(r.registry.escape(), true) })
-  assert.equal(r.queryByRole('region', { name: 'Messages' }), null)
-  assert.equal(document.activeElement, r.getByRole('button', { name: /Expand messages/ }))
+  assert.equal(r.queryByRole('region', { name: 'Conversation' }), null)
+  assert.equal(document.activeElement, r.getByRole('button', { name: /Open Conversation/ }))
+  // nothing is open any more: a second Escape falls through (to the selection)
+  act(() => { assert.equal(r.registry.escape(), false) })
 })
 
-test('D4: the pill and the expanded panel are positioned below the top bar variable', () => {
+test('D4: the pill is positioned below the top bar variable and the open panel starts under the top bar', () => {
   assert.match(FEED_TOP, /var\(--topbar-h,\s*48px\)/)
   const r = feed()
-  const pillWrap = r.getByRole('button', { name: /Expand messages/ }).parentElement!
+  const pillWrap = r.getByRole('button', { name: /Open Conversation/ }).parentElement!
   assert.equal(pillWrap.style.top, FEED_TOP)
   expand(r)
-  assert.equal(r.getByRole('region', { name: 'Messages' }).parentElement!.style.top, FEED_TOP)
+  // the open panel is a dock panel: its rectangle starts under the top bar (measured, 60px fallback here)
+  const open = r.getByRole('region', { name: 'Conversation' })
+  assert.equal(open.getAttribute('data-dock-panel'), 'conversation')
+  assert.ok(parseFloat(open.style.top) >= 48, `panel top ${open.style.top} is under the top bar`)
 })
 
 test('pair picker lists the chosen agents even without messages', () => {
