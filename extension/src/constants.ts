@@ -385,3 +385,42 @@ export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 /** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */
 export const CSP_STATIC_APP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+// ─── Input normalization caps (event-normalize.ts, mirrored by web/lib/event-normalize.ts) ──
+
+/** Longest free-text field (message, result, task, ...) kept after normalization. */
+export const NORM_TEXT_MAX = 4096
+/** Longest identifier-like field (agent name, tool_use id, link id, ...). */
+export const NORM_ID_MAX = 160
+/** Largest absolute value kept for a number (tokens, cost, ...); beyond it the value is clamped. */
+export const NORM_NUM_MAX = 1e12
+/** Largest event time kept (seconds since session start): about ten years. */
+export const NORM_EVENT_TIME_MAX_S = 10 * 365 * 24 * 3600
+/** Largest epoch-ms timestamp considered plausible (2100-01-01). */
+export const NORM_TS_MAX_MS = 4_102_444_800_000
+/** Deepest nesting kept inside a payload; deeper values are dropped. */
+export const NORM_MAX_DEPTH = 6
+/** Longest array kept inside a payload. */
+export const NORM_MAX_ARRAY = 256
+/** Most keys kept per object inside a payload. */
+export const NORM_MAX_KEYS = 128
+/** Children one agent may have per session; further spawns are dropped. */
+export const NORM_MAX_CHILDREN_PER_AGENT = 256
+/** Nodes (agents) one session may have; further spawns are dropped. */
+export const NORM_MAX_NODES_PER_SESSION = 512
+/** Events accepted from one batch; the rest of the batch is ignored. */
+export const NORM_MAX_EVENTS_PER_BATCH = 1000
+/** Longest JSONL line parsed (UTF-16 units); longer lines count as malformed. */
+export const NORM_MAX_LINE_CHARS = 4 * 1024 * 1024
+/** Remembered keys for duplicate detection, per session (oldest forgotten first). */
+export const NORM_MAX_SEEN_KEYS = 4096
+/** Dropped node names remembered per session so their later events are ignored too. */
+export const NORM_MAX_DROPPED_NAMES = 1024
+/** Minimum delay between two normalization_stats events of one session (ms). */
+export const NORM_STATS_MIN_INTERVAL_MS = 1000
+/** Longest object key kept inside a payload; entries with a longer key are dropped (counted). */
+export const NORM_KEY_MAX = 128
+/** Known agent names remembered per session (valid parents), spawned or seen acting. */
+export const NORM_MAX_KNOWN_AGENTS = 1024
+/** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
+export const NORM_MAX_TRACKED_SESSIONS = 256

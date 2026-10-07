@@ -21,6 +21,8 @@ import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } 
 import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
+import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
+import { observedSessions } from '@/lib/session-model'
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
 const UI_THROTTLE_MS = 250
@@ -255,9 +257,15 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       const lastLogged = currentState.eventLog[currentState.eventLog.length - 1]
       // Real event times, kept monotonic so the log stays seekable
       const stamped = stampEventTimes(offsetEvents, lastLogged ? lastLogged.time : 0, newTime)
+      // Every received event proves its session is heard from, even when the view filters it out
+      for (const e of capturedEvents) observedSessions.mark(e.sessionId)
+      const receivedAt = Date.now()
       for (const timedEvent of stamped) {
         currentState = { ...currentState, currentTime: timedEvent.time }
+        const before = currentState
         currentState = processEventWithContext(timedEvent, currentState)
+        // Freshness: the agents this event touched are heard from now (wall clock)
+        currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
         newEvents.push(timedEvent)
       }
       // Sync simulation clock to latest event so active state renders correctly
@@ -418,6 +426,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     }
     skipForceSyncRef.current = false
 
+    // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
+    replayState = { ...replayState, agents: carryFreshness(prev.agents, replayState.agents) }
     replayState = snapVisualState(replayState, targetTime)
     replayState.currentTime = targetTime
     replayState.eventIndex = newEventIndex

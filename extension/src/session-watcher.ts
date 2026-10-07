@@ -9,7 +9,7 @@ import {
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
-import { readNewFileLines, foldPathCase } from './fs-utils'
+import { readNewFileLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -456,12 +456,9 @@ export class SessionWatcher implements AgentSessionWatcher {
             const sessionId = path.basename(file, '.jsonl')
             const subagentsDir = path.join(projectPath, sessionId, 'subagents')
             try {
-              if (fs.existsSync(subagentsDir)) {
-                for (const subFile of fs.readdirSync(subagentsDir)) {
-                  if (!subFile.endsWith('.jsonl')) continue
-                  const subStat = fs.statSync(path.join(subagentsDir, subFile))
-                  if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-                }
+              for (const subPath of listSubagentTranscripts(subagentsDir)) {
+                const subStat = fs.statSync(subPath)
+                if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
               }
             } catch { /* expected if subagents dir doesn't exist yet */ }
 
