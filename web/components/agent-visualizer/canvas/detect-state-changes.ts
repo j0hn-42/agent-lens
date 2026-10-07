@@ -1,6 +1,7 @@
 import type { Agent, ToolCallNode } from '@/lib/agent-types'
 import { FX } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { MCP_DRAW } from '@/lib/canvas-constants'
 import type { VisualEffect } from './draw-effects'
 
 /** A semantic state transition detected between frames. */
@@ -96,9 +97,16 @@ export function detectStateChanges(
       }
       effects.push({
         type: 'shatter', x: tool.x, y: tool.y,
-        color: COLORS.return, age: 0, duration: FX.shatterDuration,
+        color: tool.mcp ? COLORS.mcp : COLORS.return, age: 0, duration: FX.shatterDuration,
         particles: particleData,
       })
+      if (tool.mcp) {
+        // Soft cyan sonar rings: the answer came back from an external MCP server
+        effects.push({
+          type: 'mcp', x: tool.x, y: tool.y,
+          color: COLORS.mcp, age: 0, duration: MCP_DRAW.pulseDuration,
+        })
+      }
     }
 
     // Tool errored

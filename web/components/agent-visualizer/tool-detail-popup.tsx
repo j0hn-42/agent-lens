@@ -3,6 +3,7 @@
 import { useId } from 'react'
 import { POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { ToolContentRenderer } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
 
@@ -36,8 +37,9 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         <span className="text-[11px]" style={{ color: stateColor }} aria-hidden="true">
           {stateIcon}
         </span>
-        <span className="text-xs font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
-          {tool.toolName}
+        <span className="text-xs font-mono font-semibold" style={{ color: parseMcpTool(tool.toolName) ? COLORS.mcp : COLORS.tool_calling }}>
+          {parseMcpTool(tool.toolName) && <span className="mr-1 uppercase tracking-wide opacity-80">MCP</span>}
+          {formatToolName(tool.toolName)}
         </span>
         <span className="text-[11px] font-mono" style={{ color: stateColor }}>
           {stateLabel}

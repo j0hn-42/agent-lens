@@ -3,6 +3,7 @@ import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
+import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -49,8 +50,11 @@ export function handleToolCallStart(
 
     const pos = ctx.findToolSlot(agent, state.agents, state.toolCalls, currentTime)
 
+    const mcp = parseMcpTool(toolName)
+
     state.toolCalls.set(toolId, {
       id: toolId, agentId: agentName, toolName,
+      ...(mcp ? { mcp } : {}),
       state: 'running',
       args,
       inputData,
@@ -66,15 +70,16 @@ export function handleToolCallStart(
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
-      type: 'tool_call', color: COLORS.tool,
+      type: 'tool_call', color: mcp ? COLORS.mcp : COLORS.tool,
       size: 4, trailLength: 0.15,
-      label: `${toolName} ${args}`.slice(0, LABEL_LEN_PARTICLE),
+      ...(mcp ? { mcp: true } : {}),
+      label: `${formatToolName(toolName)} ${args}`.slice(0, LABEL_LEN_PARTICLE),
     })
 
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${toolName}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: COLORS.tool }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? COLORS.mcp : COLORS.tool }, ctx)
     }
 
     // Track file attention
