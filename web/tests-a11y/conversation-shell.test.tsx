@@ -202,11 +202,15 @@ test('Escape with focus on the page: Conversation first, the selection second (c
 
 test('selecting an agent closes Files and the Cost overlay like the C / F toggles do: they share the right dock', async () => {
   const r = await mountWithAgents()
+  const files = r.container.querySelector<HTMLElement>('#topbar-toggle-files')!
   await key('f')
   assert.ok(filesRegion(r), 'Files open')
+  assert.equal(files.getAttribute('aria-pressed'), 'true', 'control: the Files toggle is on')
   await selectWorker(r)
   assert.ok(conversationRegion(r), 'selection opened Conversation')
   assert.ok(filesRegion(r) === null, 'Files closed by the selection path (openConversation)')
+  // A hidden-but-open panel would not show in a role query: the flag itself must be off
+  assert.equal(files.getAttribute('aria-pressed'), 'false', 'the Files flag is off, not just hidden by the dock')
 
   // Cost overlay open (the toggle path closes Conversation); selecting ANOTHER agent must close Cost again
   const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!

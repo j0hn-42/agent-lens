@@ -241,6 +241,13 @@ export function subscribeDockUserResize(listener: (width: number) => void): () =
 /** Keyboard step of the range input (px); 380, the default width, and 720, the largest, sit on its grid. */
 export const RESIZER_STEP = 10
 
+/** Native range step close to RESIZER_STEP that divides [min, max] into equal notches (max is reachable). */
+export function dockResizerStep(min: number, max: number): number {
+  const span = max - min
+  if (!(span > 0)) return RESIZER_STEP
+  return span / Math.max(1, Math.ceil(span / RESIZER_STEP))
+}
+
 interface DockResizerProps {
   /** Current width of the dock; defaults to the shared right dock width. */
   width?: number
@@ -275,6 +282,9 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
     userResizeListeners.forEach(l => l(next))
   }
   if (vw < SHEET_BREAKPOINT) return null
+  // The step divides the range exactly, so End lands on the real maximum (a fixed step from `min` can
+  // miss `max` by up to step-1 px at some viewport widths and then input and layout disagree)
+  const step = dockResizerStep(min, max)
 
   return (
     <div data-dock-resizer className="absolute inset-y-0 left-0 z-10 w-0">
@@ -286,7 +296,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         aria-valuetext={`${current} pixels wide`}
         min={min}
         max={max}
-        step={RESIZER_STEP}
+        step={step}
         value={Math.min(max, Math.max(min, current))}
         onChange={(e) => apply(Number(e.currentTarget.value))}
         onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}

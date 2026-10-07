@@ -217,3 +217,17 @@ test('popups are clamped between the top bar and the control bar', () => {
   assert.ok(top >= 68)
   assert.ok(top <= 640 - 16 - 56 - 8)
 })
+
+import { dockResizerStep, RESIZER_STEP } from '@/components/agent-visualizer/shared-ui'
+import { dockWidthBounds } from '@/lib/panel-layout'
+
+test('the resizer step divides the range exactly so the maximum is a reachable notch at any viewport width', () => {
+  for (const vw of [900, 1024, 1100, 1280, 1366, 1600, 1920, 2560]) {
+    const { min, max } = dockWidthBounds(vw)
+    const step = dockResizerStep(min, max)
+    const notches = (max - min) / step
+    assert.ok(Math.abs(notches - Math.round(notches)) < 1e-9, `${vw}px: ${notches} notches is not an integer`)
+    assert.ok(step <= RESIZER_STEP + 1e-9 && step > RESIZER_STEP / 2, `${vw}px: step ${step} strays from ${RESIZER_STEP}`)
+  }
+  assert.equal(dockResizerStep(280, 280), RESIZER_STEP, 'degenerate range keeps the default step')
+})
