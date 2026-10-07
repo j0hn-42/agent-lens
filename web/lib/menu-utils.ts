@@ -59,3 +59,79 @@ export const panelStopPropagationHandlers = {
   onClick: stopPropagationHandlers.onClick,
 } as const
 
+
+// ─── Panel focus controller ─────────────────────────────────────────────────
+
+/** Minimal frame scheduler (requestAnimationFrame / cancelAnimationFrame in the browser). */
+export interface FrameScheduler {
+  request: (cb: () => void) => number
+  cancel: (id: number) => void
+}
+
+/** DOM operations the controller needs; injected so the logic is unit-testable without a DOM. */
+export interface PanelFocusEnv<T> {
+  /** Element to remember as the restore trigger, or null (body, inside the panel, another dialog...). */
+  captureTrigger: () => T | null
+  isConnected: (el: T) => boolean
+  focus: (el: T) => void
+  /** True when focus sits in a dialog that is not the panel (one focus owner). */
+  isFocusInOtherDialog: () => boolean
+  /** True when focus was dropped or is still inside the closed panel (never steal it elsewhere). */
+  canRestoreFocus: () => boolean
+  /** Moves focus to the panel's own target (Close button...). */
+  focusPanel: () => void
+}
+
+export interface PanelFocusController {
+  /** Call on visibility changes; repeated calls with the same value are ignored. */
+  setVisible: (visible: boolean) => void
+  /** Cancels pending frames (unmount). */
+  dispose: () => void
+}
+
+/**
+ * Focus owner for a sliding panel. On open it captures the restore trigger immediately and moves
+ * focus into the panel two frames later (the parent's own focus-on-open runs one frame after ours,
+ * and a dialog focused in the meantime keeps focus). On close it cancels pending work and restores
+ * focus to the captured trigger when that is still safe.
+ */
+export function createPanelFocusController<T>(
+  env: PanelFocusEnv<T>,
+  scheduler: FrameScheduler,
+  options: { autoFocus?: boolean } = {},
+): PanelFocusController {
+  let visible = false
+  let trigger: T | null = null
+  let pending: number[] = []
+
+  const cancelPending = () => {
+    for (const id of pending) scheduler.cancel(id)
+    pending = []
+  }
+
+  return {
+    setVisible(next) {
+      if (next === visible) return
+      visible = next
+      cancelPending()
+      if (next) {
+        trigger = env.captureTrigger()
+        if (options.autoFocus === false) return
+        pending = [scheduler.request(() => {
+          pending = [scheduler.request(() => {
+            pending = []
+            if (env.isFocusInOtherDialog()) return
+            env.focusPanel()
+          })]
+        })]
+        return
+      }
+      const t = trigger
+      trigger = null
+      if (t !== null && env.isConnected(t) && env.canRestoreFocus()) env.focus(t)
+    },
+    dispose() {
+      cancelPending()
+    },
+  }
+}

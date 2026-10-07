@@ -7,6 +7,7 @@ import { GlassCard } from './glass-card'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import { stopPropagationHandlers } from './shared-ui'
 import { clampMenuPosition, nextMenuIndex } from '@/lib/menu-nav'
+import { shouldRestoreFocus } from '@/lib/chrome-utils'
 
 interface ContextMenuProps {
   position: { x: number; y: number }
@@ -47,8 +48,10 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     itemRefs.current[actionable[0]]?.focus({ preventScroll: true })
+    const node = ref.current
     return () => {
-      if (previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
+      if (previous && previous !== document.body && previous.isConnected
+        && shouldRestoreFocus(document.activeElement, node, document.body)) previous.focus({ preventScroll: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -58,7 +61,10 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   // clearSelection) never also fires. See the note above dialogEscapeHandler in shared-ui.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (e.key !== 'Escape') return
+      // Only own Escape while focus is in the menu or on <body>; other layers keep theirs.
+      const active = document.activeElement
+      if (active && active !== document.body && !ref.current?.contains(active)) return
       e.preventDefault()
       e.stopPropagation()
       onCloseRef.current()
