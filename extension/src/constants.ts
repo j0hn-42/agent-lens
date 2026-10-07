@@ -356,3 +356,32 @@ export const RELAY_STATUS_RATE_MAX_KEYS = 64
 
 /** Max size of a Claude settings.json read to detect configured hooks (bigger files are ignored) */
 export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024
+
+// ─── Source reconciliation (hooks vs JSONL) and hardened local server ────────
+// Block owned by the relay-sources package (issues #53, #68).
+
+/** Time bucket (seconds) used to derive a stable id for lifecycle events that carry no tool_use_id / explicit id */
+export const EVENT_ID_TIME_BUCKET_S = 2
+/** Max chars of a payload fed to the content hash of a derived event id */
+export const EVENT_ID_HASH_INPUT_MAX = 2000
+/** Max length of an explicit event id taken from a payload */
+export const EVENT_ID_EXPLICIT_MAX = 128
+/** Delivered event ids remembered per session for cross-source deduplication (oldest forgotten first) */
+export const EVENT_DEDUP_MAX_PER_SESSION = 4096
+/** Max sessions whose delivered ids are remembered */
+export const EVENT_DEDUP_MAX_SESSIONS = 64
+/** Max events held while a history load is in progress (the hold is flushed early beyond this) */
+export const EVENT_HOLD_MAX = 50000
+
+/** Env var selecting the relay/app port: "0" asks the OS for an ephemeral port */
+export const ENV_AGENT_LENS_PORT = 'AGENT_LENS_PORT'
+/** Port value that asks the OS for an ephemeral port */
+export const EPHEMERAL_PORT = 0
+/** Loopback address every local server binds to */
+export const LOOPBACK_HOST = '127.0.0.1'
+/** HTTP methods the local servers accept (anything else gets 405) */
+export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
+/** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
+export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+/** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */
+export const CSP_STATIC_APP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
