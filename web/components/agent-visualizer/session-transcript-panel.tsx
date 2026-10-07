@@ -1,12 +1,13 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useId } from 'react'
 import { Z, CARD } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { TranscriptMessage } from './transcript-message'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { CloseButton, SlidingPanel, stopPropagationHandlers } from './shared-ui'
 import { useVirtualList } from '@/hooks/use-virtual-list'
+import { EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING } from './feed-utils'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ export function SessionTranscriptPanel({
   const [showSearch, setShowSearch] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const searchId = useId()
 
   useEffect(() => {
     if (showSearch) searchRef.current?.focus()
@@ -48,9 +50,8 @@ export function SessionTranscriptPanel({
     : []
 
   const {
-    visibleItems, totalHeight, offsetTop,
-    handleScroll, measureRef: itemMeasureRef,
-    isAtBottom, scrollToBottom,
+    visibleItems, handleScroll, measureRef: itemMeasureRef,
+    isAtBottom, scrollToBottom, startIndex, listStyle, windowStyle, newCount,
   } = useVirtualList(filteredConversation, scrollRef, {
     gap: TRANSCRIPT_GAP,
     initialViewportHeight: TRANSCRIPT_INITIAL_VIEWPORT,
@@ -81,23 +82,28 @@ export function SessionTranscriptPanel({
           style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}
         >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
+            <span className="text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               TRANSCRIPT
             </span>
-            <span className="text-[9px] font-mono" style={{ color: COLORS.panelLabelDim }}>
+            <span className="text-[11px] font-mono" style={{ color: COLORS.panelLabelDim }}>
               {searchQuery ? `${filteredConversation.length}/${conversation.length}` : conversation.length} messages
             </span>
           </div>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery('') }}
-              className="text-[9px] font-mono px-1.5 py-0.5 rounded transition-all"
+              aria-label="Filter messages"
+              aria-expanded={showSearch}
+              aria-controls={searchId}
+              title="Filter messages"
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING}`}
               style={{
                 background: showSearch ? COLORS.toggleActive : 'transparent',
                 color: showSearch ? COLORS.assistantText : COLORS.textMuted,
               }}
             >
-              /
+              <span aria-hidden="true">/</span>
             </button>
             <CloseButton onClick={onClose} className="px-1" />
           </div>
@@ -105,10 +111,11 @@ export function SessionTranscriptPanel({
 
         {/* Search bar */}
         {showSearch && (
-          <div className="px-3 pb-2 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+          <div id={searchId} className="px-3 pb-2 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
             <input
               ref={searchRef}
-              type="text"
+              type="search"
+              aria-label="Filter messages"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -116,11 +123,12 @@ export function SessionTranscriptPanel({
                 e.stopPropagation()
               }}
               placeholder="Filter messages..."
-              className="w-full px-2 py-1 rounded text-[10px] font-mono outline-none"
+              className="w-full px-2 py-1 min-h-6 rounded text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#aaeeff] placeholder:text-[color:var(--ph)]"
               style={{
                 background: COLORS.holoBg05,
-                border: `1px solid ${COLORS.holoBorder12}`,
+                border: `1px solid ${COLORS.glassBorder}`,
                 color: COLORS.assistantText,
+                ['--ph' as string]: COLORS.textMuted,
               }}
             />
           </div>
@@ -130,21 +138,28 @@ export function SessionTranscriptPanel({
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-3 py-2"
+          role="log"
+          aria-live="off"
+          aria-label="Session transcript"
+          tabIndex={0}
+          className={`flex-1 overflow-y-auto px-3 py-2 ${FOCUS_RING}`}
           style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
         >
           {filteredConversation.length === 0 ? (
             <div className="flex items-center justify-center h-32">
-              <p className="text-[10px] font-mono" style={{ color: COLORS.textMuted }}>
-                {searchQuery ? 'No matching messages' : 'Waiting for session activity...'}
+              <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>
+                {searchQuery ? EMPTY_SEARCH : EMPTY_MESSAGES}
               </p>
             </div>
           ) : (
-            <div style={{ height: totalHeight, position: 'relative' }}>
-              <div style={{ position: 'absolute', top: offsetTop, left: 0, right: 0 }}>
-                {visibleItems.map((msg) => (
+            <div style={listStyle}>
+              <div role="list" aria-label="Transcript messages" style={windowStyle}>
+                {visibleItems.map((msg, i) => (
                   <div
                     key={msg.id}
+                    role="listitem"
+                    aria-setsize={filteredConversation.length}
+                    aria-posinset={startIndex + i + 1}
                     ref={(el) => itemMeasureRef(msg.id, el)}
                     style={{ marginBottom: TRANSCRIPT_GAP }}
                   >
@@ -160,15 +175,16 @@ export function SessionTranscriptPanel({
         {!isAtBottom && filteredConversation.length > 0 && (
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
             <button
+              type="button"
               onClick={scrollToBottom}
-              className="text-[9px] font-mono px-3 py-1 rounded-full transition-all"
+              className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING}`}
               style={{
                 background: COLORS.holoBg10,
                 border: `1px solid ${COLORS.glassBorder}`,
                 color: COLORS.scrollBtnText,
               }}
             >
-              ↓ New messages
+              {newCount > 0 ? `↓ ${newCount} new message${newCount === 1 ? '' : 's'}` : '↓ Jump to latest'}
             </button>
           </div>
         )}
