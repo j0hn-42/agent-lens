@@ -186,6 +186,64 @@ export function labelAgentsWithSession<A extends SessionLabelable>(
   return out ?? agents
 }
 
+/**
+ * A read-only ref whose `current` is the source frame with its agents labelled by session (label, and
+ * runtime when the agent has none), for the canvas, which draws straight from the simulation ref.
+ * Memoised: the decorated agents map is rebuilt only when the source agents map or the session list
+ * changes, and agents that did not change keep their decorated object (nothing is copied per frame).
+ */
+export function createLabelledSimulationRef<S extends { agents: ReadonlyMap<string, SessionLabelable> }>(
+  source: { readonly current: S },
+  getSessions: () => ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime'>>,
+): { readonly current: S } {
+  let lastSessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime'>> | null = null
+  let byId = new Map<string, Pick<SessionInfo, 'id' | 'label' | 'runtime'>>()
+  let decorated = new WeakMap<object, SessionLabelable>()
+  let lastAgents: ReadonlyMap<string, SessionLabelable> | null = null
+  let lastLabelled: ReadonlyMap<string, SessionLabelable> | null = null
+  let lastFrame: S | null = null
+  let lastResult: S | null = null
+
+  const decorate = (agent: SessionLabelable): SessionLabelable => {
+    const cached = decorated.get(agent)
+    if (cached) return cached
+    const session = byId.get(agent.sessionId)
+    let out = agent
+    if (session) {
+      const runtime = agent.runtime ?? session.runtime
+      if (agent.sessionLabel !== session.label || agent.runtime !== runtime) {
+        out = { ...agent, sessionLabel: session.label, ...(runtime ? { runtime } : {}) }
+      }
+    }
+    decorated.set(agent, out)
+    return out
+  }
+
+  return {
+    get current(): S {
+      const frame = source.current
+      const sessions = getSessions()
+      if (sessions !== lastSessions) {
+        lastSessions = sessions
+        byId = new Map(sessions.map(x => [x.id, x]))
+        decorated = new WeakMap()
+        lastAgents = null
+        lastFrame = null
+      }
+      if (frame === lastFrame && lastResult) return lastResult
+      if (frame.agents !== lastAgents || !lastLabelled) {
+        const next = new Map<string, SessionLabelable>()
+        for (const [key, agent] of frame.agents) next.set(key, decorate(agent))
+        lastAgents = frame.agents
+        lastLabelled = next
+      }
+      lastFrame = frame
+      lastResult = { ...frame, agents: lastLabelled }
+      return lastResult
+    },
+  }
+}
+
 export type ConnectionTone = 'ok' | 'pending' | 'error' | 'demo'
 
 export interface ConnectionDisplay { label: string; tone: ConnectionTone; description: string }

@@ -98,7 +98,13 @@ export function useVSCodeBridge(): BridgeHookResult {
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const sessionsRef = useRef<SessionInfo[]>([])
-  sessionsRef.current = sessions
+  /** Every change of the session list goes through here so the ref is current before React re-renders
+   *  (the relay sends the list and the replayed events in the same tick). */
+  const updateSessions = useCallback((update: (prev: SessionInfo[]) => SessionInfo[]) => {
+    const next = update(sessionsRef.current)
+    sessionsRef.current = next
+    setSessions(next)
+  }, [])
   // Teams are tracked over the whole event stream so tabs stay correct whichever tab is selected
   const teamTrackerRef = useRef(createTeamTracker())
   const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
@@ -318,7 +324,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         const saved = dismissedSessionsRef.current.get(event.sessionId)
         dismissedSessionsRef.current.delete(event.sessionId)
         if (saved) {
-          setSessions(prev => {
+          updateSessions(prev => {
             if (prev.find(s => s.id === saved.id)) return prev
             return [...prev, { ...saved, status: 'active' as const, lastActivityTime: Date.now() }]
           })
@@ -344,7 +350,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         // Panel was reopened — clear all stale state (and tell the user, non-blocking)
         // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
         if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
-        setSessions([])
+        updateSessions(() => [])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
         pendingEventsRef.current.length = 0
@@ -363,7 +369,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         const sessionList = data as SessionInfo[]
         // Events replayed before the list arrived were stamped with the reception time: undo that for finished sessions
         pruneReplayStamps(lastEventAtRef.current, sessionList, Date.now())
-        setSessions(sessionList)
+        updateSessions(() => sessionList)
         // Auto-select: prefer active sessions, then most recently active.
         // Only set selection — useLayoutEffect handles flushing events.
         if (!selectedSessionIdRef.current && sessionList.length > 0) {
@@ -381,7 +387,7 @@ export function useVSCodeBridge(): BridgeHookResult {
         }
       } else if (type === 'started') {
         const session = data as SessionInfo
-        setSessions(prev => {
+        updateSessions(prev => {
           const existing = prev.find(s => s.id === session.id)
           if (existing) {
             // Session resumed after inactivity — mark active again
@@ -412,12 +418,12 @@ export function useVSCodeBridge(): BridgeHookResult {
         }
       } else if (type === 'updated') {
         const { sessionId, label } = data as { sessionId: string; label: string }
-        setSessions(prev => prev.map(s =>
+        updateSessions(prev => prev.map(s =>
           s.id === sessionId ? { ...s, label } : s
         ))
       } else if (type === 'ended') {
         const sessionId = data as string
-        setSessions(prev => prev.map(s =>
+        updateSessions(prev => prev.map(s =>
           s.id === sessionId ? { ...s, status: 'completed' as const } : s
         ))
       }
@@ -430,7 +436,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       unsubConfig()
       unsubSession()
     }
-  }, [pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
+  }, [updateSessions, pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
 
   // The rule depends on the session list, the teams, the selection and the clock
   useEffect(() => { recomputeVisible() }, [sessions, teamView, selectedSessionId, recomputeVisible])
@@ -503,7 +509,7 @@ export function useVSCodeBridge(): BridgeHookResult {
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
   const removeSession = useCallback((sessionId: string) => {
-    setSessions(prev => {
+    updateSessions(prev => {
       const session = prev.find(s => s.id === sessionId)
       if (session) { dismissedSessionsRef.current.set(sessionId, session) }
       return prev.filter(s => s.id !== sessionId)
@@ -514,15 +520,15 @@ export function useVSCodeBridge(): BridgeHookResult {
       next.delete(sessionId)
       return next
     })
-  }, [])
+  }, [updateSessions])
 
   const restoreSession = useCallback((sessionId: string): boolean => {
     const saved = dismissedSessionsRef.current.get(sessionId)
     if (!saved) return false
     dismissedSessionsRef.current.delete(sessionId)
-    setSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
+    updateSessions(prev => (prev.some(s => s.id === saved.id) ? prev : [...prev, saved]))
     return true
-  }, [])
+  }, [updateSessions])
 
   const loadDemo = useCallback(() => { setUseMockData(true) }, [])
 

@@ -156,10 +156,12 @@ export function SessionTabs({
       {tabItems.slice(1).map((item, i) => {
         const tabIndex = i + 1
         if (item.kind === 'team') {
-          const name = item.teamName!
+          const key = item.teamName!
+          // The map key of a second same-named team is `name@leadSession`: show the team's own name
+          const name = teams?.get(key)?.name ?? key
           const isSelected = item.id === selectedSessionId
-          const members = Math.max(teamMemberCounts?.get(name) ?? 0, teams?.get(name)?.members.length ?? 0)
-          const summary = formatTeamSummary(name, members, teamWorking?.get(name) ?? 0)
+          const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
+          const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
           return (
             <div
               key={item.id}
@@ -230,7 +232,7 @@ export function SessionTabs({
                   <span className="sr-only">{badge.label} session, </span>
                 </>
               )}
-              {item.teamName && <span className="sr-only">team {item.teamName}, </span>}
+              {item.teamName && <span className="sr-only">team {teams?.get(item.teamName)?.name ?? item.teamName}, </span>}
               {session.label}
             </button>
             <button

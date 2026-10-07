@@ -7,6 +7,7 @@ export { STATE_LABELS, getStateLabel as stateLabel } from './state-labels'
 import type { ConversationMessage, AgentLink } from '../hooks/simulation/types'
 import type { TeamSummary } from './agent-types'
 import { formatDroppedMessages } from './chrome-utils'
+import { findTeam } from '../hooks/simulation/team-key'
 
 /** Single empty-state wording used by every message list. */
 export const EMPTY_MESSAGES = 'No messages yet'
@@ -203,13 +204,14 @@ export function agentNameOf(agents: ReadonlyMap<string, { name: string }>, key: 
 /** Team accent color of an agent: its own validated color, else the team's member color. */
 export function teamColorOf(
   agent: NamedAgent | undefined,
-  teams?: ReadonlyMap<string, Pick<TeamSummary, 'members'>>,
+  teams?: ReadonlyMap<string, TeamSummary>,
 ): string | undefined {
   if (!agent) return undefined
   const own = safeHexColor(agent.teamColor)
   if (own) return own
   if (!agent.teamName || !teams) return undefined
-  const member = teams.get(agent.teamName)?.members.find(m => m.name === agent.name)
+  const team = agent.sessionId !== undefined ? findTeam(teams, agent.teamName, agent.sessionId) : teams.get(agent.teamName)
+  const member = team?.members.find(m => m.name === agent.name)
   return safeHexColor(member?.color)
 }
 
