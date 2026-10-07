@@ -202,9 +202,16 @@ export function MessageFeedPanel({
     setPairOpen(true)
   }
   const onTabClick = (key: string, shift: boolean) => {
-    const anchor = pairActive ? pairA : activeTab
+    const anchor = pairOpen && pairA !== '' ? pairA : activeTab
     const pair = shift ? pairFromShiftClick(anchor, key) : null
     if (pair) { selectPair(pair[0], pair[1]); return }
+    // Shift-click an agent tab while on "all": start a pair with it as the first agent.
+    if (shift && key !== 'all' && anchor === 'all') {
+      setPairA(key)
+      setPairB('')
+      setPairOpen(true)
+      return
+    }
     setPairOpen(false)
     setPairA('')
     setPairB('')

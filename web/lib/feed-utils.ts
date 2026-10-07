@@ -370,18 +370,36 @@ export function unreadSources(
 // ─── Unread tracking (per source, never by position across merged lists) ─────
 
 export interface UnreadState {
-  /** Conversation length already seen per agent. */
+  /** Conversation length last seen per agent (fallback when no last id is known). */
   convLens: Map<string, number>
+  /** Id of the newest conversation message already seen per agent (conversations are capped, so length alone is not monotonic). */
+  convLast?: Map<string, string>
   /** Ids of link messages already seen. */
   linkSeen: Set<string>
+  /** `${agent}|${dedupe key}` of link messages that already flagged an agent, so a late conversation copy does not flag twice. */
+  linkKeys?: Set<string>
 }
 
-export const emptyUnreadState = (): UnreadState => ({ convLens: new Map(), linkSeen: new Set() })
+export const emptyUnreadState = (): UnreadState => ({ convLens: new Map(), convLast: new Map(), linkSeen: new Set(), linkKeys: new Set() })
 
 /**
- * Agents that received a new text message since `prev`. Conversations are compared by their own length
- * (new tail only); link messages by id, and a link copy of a message already present in an endpoint's
- * conversation is not new. Non-text events never flag an agent.
+ * Index of the first message of `msgs` not yet seen. Uses the id of the newest message seen last time
+ * (robust to the conversation cap dropping the oldest messages); when that message is gone every
+ * message is new; without a stored id it falls back to the stored length.
+ */
+function firstUnseenIndex(msgs: readonly { id: string }[], lastId: string | undefined, lenBefore: number | undefined): number {
+  if (lastId !== undefined) {
+    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].id === lastId) return i + 1
+    return 0
+  }
+  return Math.min(lenBefore ?? 0, msgs.length)
+}
+
+/**
+ * Agents that received a new text message since `prev`. Conversations are compared by the id of their
+ * newest seen message (new tail only); link messages by id, and a link copy of a message already present
+ * in an endpoint's conversation (or a conversation copy of a link message that already flagged) is not new.
+ * Non-text events never flag an agent.
  */
 export function trackUnread(
   prev: UnreadState,
@@ -391,13 +409,21 @@ export function trackUnread(
 ): { increased: string[]; next: UnreadState } {
   const increased = new Set<string>()
   const convLens = new Map<string, number>()
+  const convLast = new Map<string, string>()
+  const prevKeys = prev.linkKeys ?? new Set<string>()
   for (const [id, msgs] of conversations) {
-    const before = prev.convLens.get(id) ?? 0
     convLens.set(id, msgs.length)
-    for (let i = Math.min(before, msgs.length); i < msgs.length; i++) {
-      if (textTypes.has(msgs[i].type)) { increased.add(id); break }
+    if (msgs.length > 0) convLast.set(id, msgs[msgs.length - 1].id)
+    const start = firstUnseenIndex(msgs, prev.convLast?.get(id), prev.convLens.get(id))
+    for (let i = start; i < msgs.length; i++) {
+      const m = msgs[i]
+      if (!textTypes.has(m.type)) continue
+      if (COMM_MESSAGE_TYPES.has(m.type) && commDedupeKeys(m).some(k => prevKeys.has(`${id}|${k}`))) continue
+      increased.add(id)
+      break
     }
   }
+  const linkKeys = new Set<string>()
   const linkSeen = new Set<string>()
   if (links) {
     const convKeys = new Map<string, Set<string>>()
@@ -420,9 +446,9 @@ export function trackUnread(
         const ends = [...new Set([m.from ?? link.from, m.to ?? link.to])].filter((id): id is string => !!id)
         // A copy of a message already held by either endpoint's conversation is not new.
         if (ends.some(id => ck.some(k => keysOf(id).has(k)))) continue
-        for (const id of ends) increased.add(id)
+        for (const id of ends) { increased.add(id); linkKeys.add(`${id}|${ck[0]}`) }
       }
     }
   }
-  return { increased: [...increased], next: { convLens, linkSeen } }
+  return { increased: [...increased], next: { convLens, convLast, linkSeen, linkKeys: new Set([...prevKeys, ...linkKeys]) } }
 }

@@ -277,3 +277,57 @@ test('identical peer acks in one burst are all kept, while conversation+link cop
   const copy = new Map([['l', { from: 'a', messages: [msg({ id: 'kk', type: 'message', content: 'ok', timestamp: 5, from: 'a', to: 'b' })] }]])
   assert.equal(buildFeedMessages(conv, copy).length, 1)
 })
+
+// feeds-fix3: capped conversations, dropped messages, late conversation copies
+
+const textMsg = (i: number, type: ConversationMessage['type'] = 'assistant') =>
+  msg({ id: `m${i}`, type, content: `c${i}`, timestamp: i })
+
+test('capped conversation: a new text message is detected when the length stays at the cap', () => {
+  const full = Array.from({ length: 200 }, (_, i) => textMsg(i, 'tool_call'))
+  const first = trackUnread(emptyUnreadState(), new Map([['a', full]]), undefined, FEED_TYPES)
+  const shifted = [...full.slice(1), textMsg(200)]
+  assert.equal(shifted.length, 200)
+  assert.deepEqual(trackUnread(first.next, new Map([['a', shifted]]), undefined, FEED_TYPES).increased, ['a'])
+})
+
+test('capped conversation: a new non-text message does not flag, and unchanged state stays quiet', () => {
+  const full = Array.from({ length: 200 }, (_, i) => textMsg(i))
+  const first = trackUnread(emptyUnreadState(), new Map([['a', full]]), undefined, FEED_TYPES)
+  const shifted = [...full.slice(1), textMsg(200, 'tool_call')]
+  const second = trackUnread(first.next, new Map([['a', shifted]]), undefined, FEED_TYPES)
+  assert.deepEqual(second.increased, [])
+  assert.deepEqual(trackUnread(second.next, new Map([['a', shifted]]), undefined, FEED_TYPES).increased, [])
+})
+
+test('dropped messages: pure drop does not flag; a new tail message after a drop does', () => {
+  const list = Array.from({ length: 10 }, (_, i) => textMsg(i))
+  const first = trackUnread(emptyUnreadState(), new Map([['a', list]]), undefined, FEED_TYPES)
+  const dropOnly = trackUnread(first.next, new Map([['a', list.slice(4)]]), undefined, FEED_TYPES)
+  assert.deepEqual(dropOnly.increased, [])
+  const shrunkPlusNew = [...list.slice(8), textMsg(10)]
+  assert.deepEqual(trackUnread(dropOnly.next, new Map([['a', shrunkPlusNew]]), undefined, FEED_TYPES).increased, ['a'])
+})
+
+test('dropped messages: when every seen message is gone, all remaining are new', () => {
+  const first = trackUnread(emptyUnreadState(), new Map([['a', [textMsg(0), textMsg(1)]]]), undefined, FEED_TYPES)
+  assert.deepEqual(trackUnread(first.next, new Map([['a', [textMsg(5)]]]), undefined, FEED_TYPES).increased, ['a'])
+})
+
+test('link messages: a late conversation copy of an already flagged link message does not flag twice', () => {
+  const link = msg({ id: 'd1-link', type: 'dispatch', content: 'do it', timestamp: 1, from: 'p', to: 'c' })
+  const lk = new Map([['l', { from: 'p', to: 'c', messages: [link] }]])
+  const s1 = trackUnread(emptyUnreadState(), new Map(), lk, FEED_TYPES)
+  assert.deepEqual(s1.increased.sort(), ['c', 'p'])
+  const conv = new Map<string, ConversationMessage[]>([['p', [msg({ id: 'd1', type: 'dispatch', content: 'do it', timestamp: 1, from: 'p', to: 'c' })]]])
+  assert.deepEqual(trackUnread(s1.next, conv, lk, FEED_TYPES).increased, [])
+})
+
+test('link messages: a capped conversation and a link message flag independently', () => {
+  const full = Array.from({ length: 200 }, (_, i) => textMsg(i, 'tool_call'))
+  const empty = new Map([['l', { from: 'a', to: 'b', messages: [] as ConversationMessage[] }]])
+  const first = trackUnread(emptyUnreadState(), new Map([['a', full]]), empty, FEED_TYPES)
+  const m = msg({ id: 'x', type: 'message', content: 'hello', timestamp: 500, from: 'b', to: 'a' })
+  const out = trackUnread(first.next, new Map([['a', [...full.slice(1), textMsg(300, 'tool_call')]]]), new Map([['l', { from: 'a', to: 'b', messages: [m] }]]), FEED_TYPES)
+  assert.deepEqual(out.increased.sort(), ['a', 'b'])
+})
