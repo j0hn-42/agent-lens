@@ -194,7 +194,7 @@ export function AgentCanvas({
   const linkMessagesSigRef = useRef('')
   /** DOM layer holding the focusable buttons of the edge bubbles, and the message ids hovered / focused in it */
   const bubbleLayerRef = useRef<HTMLDivElement>(null)
-  const heldBubbleIdsRef = useRef<ReadonlySet<string>>(new Set())
+  const heldBubbleKeysRef = useRef<ReadonlySet<string>>(new Set())
   const onLinkClickRef = useRef(onLinkClick)
   onLinkClickRef.current = onLinkClick
   const teamPrevRef = useRef<TeamPrev>(createTeamPrev())
@@ -351,9 +351,10 @@ export function AgentCanvas({
     if (!layer) return
     const dispose = attachBubbleLayer(layer, {
       onOpen: linkId => onLinkClickRef.current?.(linkId),
-      onHoldChange: ids => { heldBubbleIdsRef.current = ids },
+      onHoldChange: (_ids, keys) => { heldBubbleKeysRef.current = keys },
+      forwardTarget: () => mainCanvasRef.current,
     })
-    return () => { dispose(); heldBubbleIdsRef.current = new Set() }
+    return () => { dispose(); heldBubbleKeysRef.current = new Set() }
   }, [])
 
   // ─── Accessible mirror: throttled snapshot of the simulation ───────────
@@ -542,15 +543,15 @@ export function AgentCanvas({
       {
         ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
         const measure = (t: string) => measureTextCached(ctx, t)
-        const heldMessageIds = heldBubbleIdsRef.current
+        const heldKeys = heldBubbleKeysRef.current
         for (const r of resolvedLinks) {
           const held = expiryHold.neverHide || expiryHold.paused || r.id === selectedLinkId || r.id === hoveredLinkId
-          edgeBubbles.push(...selectEdgeBubbles(r, agents, simTime, { held, heldMessageIds, measure }))
+          edgeBubbles.push(...selectEdgeBubbles(r, agents, simTime, { held, heldKeys, measure }))
         }
       }
       const cappedEdgeBubbles = capEdgeBubbles(edgeBubbles)
       const heldBubbleKeys = new Set<string>()
-      for (const b of cappedEdgeBubbles) if (heldBubbleIdsRef.current.has(b.messageId)) heldBubbleKeys.add(b.key)
+      for (const b of cappedEdgeBubbles) if (heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
           agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),

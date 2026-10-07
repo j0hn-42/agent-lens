@@ -4,10 +4,10 @@ import {
   selectEdgeBubbles, capEdgeBubbles, anchorTFor, edgeBubbleAriaLabel, firstWords, buildLinkMessageItems, bubbleKey,
 } from '../web/components/agent-visualizer/canvas/edge-bubble-set'
 import { resolveLinks, linkCurve, curvePoint } from '../web/components/agent-visualizer/canvas/link-geometry'
-import { planOverlays, planKey } from '../web/components/agent-visualizer/canvas/overlay-plan'
+import { planOverlays, planKey, HELD_BUBBLE_BOOST } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
-import { rectsOverlap } from '../web/components/agent-visualizer/canvas/label-placement'
+import { rectsOverlap, overlayPriority, PRIORITY } from '../web/components/agent-visualizer/canvas/label-placement'
 import { EDGE_BUBBLE, PLACEMENT } from '../web/lib/canvas-constants'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -143,27 +143,111 @@ test('collision: bubbles of one link never overlap, each keyed by its message', 
   assert.ok(res.hits.edgeBubbles.has('L1'), 'the canvas hit test still finds the link')
 })
 
-test('collision: a crowded bubble collapses to a count chip (newest only), older ones hide', () => {
-  const f = fixture([msg({ id: 'a', timestamp: 10 }), msg({ id: 'b', timestamp: 10.1 })])
-  const bubbles = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
-  // A viewport barely larger than the bubble: only a chip fits next to the selected agent label
-  const tight = planFor(bubbles, f.agents, { viewport: { w: 260, h: 140 }, transform: { x: -250, y: 60, scale: 1 } })
-  for (const b of bubbles) {
-    const p = tight.plan.get(planKey.edgeBubble(b.key))
-    if (p && !p.hidden && p.collapsed) {
-      assert.equal(b.primary, true, 'only the newest bubble of a link has a chip')
-      assert.equal(p.rect!.w, PLACEMENT.chipW)
-    }
-  }
+/**
+ * Bubbles of one link stacked on the same anchor, in a viewport exactly as high as one bubble and with
+ * free room only to the LEFT of the preferred spot: the first bubble takes the spot, a full bubble fits
+ * nowhere else, but a 28px count chip fits in the free strip. Agents are far away (no obstacles).
+ */
+function tightPlan(count: number, over: Record<string, unknown> = {}) {
+  const f = fixture(Array.from({ length: count }, (_, i) => msg({ id: `m${i}`, timestamp: 10 + i * 0.1, content: 'same text here' })))
+  const selected = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
+  assert.equal(selected.length, count)
+  const { w, h } = selected[0]
+  const bubbles = selected.map(b => ({ ...b, anchor: { x: 0.6 * w + w / 2, y: h + 10 } }))
+  const far = agentsOf(agent({ id: 's1:lead', x: 9000, y: 9000, isMain: true }), agent({ id: 's1:child', x: 9600, y: 9000 }))
+  const res = planFor(bubbles, far, { viewport: { w: 1.6 * w, h }, ...over })
+  return { bubbles, res, plan: (i: number) => res.plan.get(planKey.edgeBubble(bubbles[i].key))! }
+}
+
+test('collision: when bubbles overlap, the newest collapses to a count chip', () => {
+  const { bubbles, plan } = tightPlan(2)
+  const older = plan(0)
+  const newest = plan(1)
+  assert.equal(older.hidden, false)
+  assert.equal(older.collapsed, false)
+  assert.equal(newest.hidden, false)
+  assert.equal(newest.collapsed, true)
+  assert.equal(newest.rect!.w, PLACEMENT.chipW)
+  assert.equal(newest.rect!.h, PLACEMENT.chipH)
+  assert.equal(bubbles[1].primary, true)
+  assert.equal(rectsOverlap(older.rect!, newest.rect!), false)
 })
 
-test('collision: a selected agent label keeps its spot over an edge bubble', () => {
+test('collision: an older bubble that does not fit is hidden, never chipped', () => {
+  const { bubbles, plan } = tightPlan(3)
+  assert.equal(plan(0).hidden, false)
+  assert.equal(bubbles[1].primary, false)
+  assert.equal(plan(1).hidden, true, 'the middle bubble has no chip form and no room')
+  assert.equal(plan(1).collapsed, false)
+  assert.equal(bubbles[2].primary, true)
+  assert.equal(plan(2).hidden, false)
+  assert.equal(plan(2).collapsed, true)
+})
+
+test('collision: a selected agent label keeps its spot over an edge bubble that wants the same place', () => {
   const f = fixture([msg({ timestamp: 10 })])
-  f.agents.get('s1:lead').name = 'lead'
+  const lead = f.agents.get('s1:lead')
+  lead.name = 'lead'
   const bubbles = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
   const res = planFor(bubbles, f.agents, { selectedAgentId: 's1:lead', transform: { x: 100, y: 300, scale: 1 } })
   const label = res.plan.get(planKey.label('s1:lead'))!
   const bub = res.plan.get(planKey.edgeBubble(bubbles[0].key))!
-  if (label.rect && bub.rect && !bub.hidden) assert.equal(rectsOverlap(label.rect, bub.rect), false)
+  assert.ok(label.rect, 'the label is placed')
   assert.equal(label.dx === 0 && label.dy === 0, true, 'the selected agent label is not moved by a bubble')
+  assert.ok(bub.rect, 'the bubble is placed (somewhere else)')
+  assert.equal(bub.hidden, false)
+  assert.equal(rectsOverlap(label.rect!, bub.rect!), false)
+})
+
+test('priority: a held bubble stays strictly below a selected agent label', () => {
+  assert.ok(PRIORITY.edgeBubble + HELD_BUBBLE_BOOST < overlayPriority(PRIORITY.agentLabel, { selected: true }))
+  assert.ok(HELD_BUBBLE_BOOST > 0)
+})
+
+test('collision: a held (hovered / focused) bubble does not displace the selected agent label', () => {
+  const f = fixture([msg({ timestamp: 10 })])
+  f.agents.get('s1:lead').name = 'lead'
+  const bubbles = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
+  // Put the bubble exactly where the selected label is drawn so that one of them must give way
+  const base = planFor(bubbles, f.agents, { selectedAgentId: 's1:lead', transform: { x: 100, y: 300, scale: 1 } })
+  const labelRect = base.plan.get(planKey.label('s1:lead'))!.rect!
+  const onLabel = bubbles.map(b => ({ ...b, anchor: { x: (labelRect.x - 100) + b.w / 2, y: (labelRect.y - 300) + b.h + 10 } }))
+  const held = planFor(onLabel, f.agents, {
+    selectedAgentId: 's1:lead', transform: { x: 100, y: 300, scale: 1 }, heldBubbleKeys: new Set([bubbles[0].key]),
+  })
+  const label = held.plan.get(planKey.label('s1:lead'))!
+  assert.equal(label.dx, 0)
+  assert.equal(label.dy, 0)
+  assert.equal(label.hidden, false)
+  const bub = held.plan.get(planKey.edgeBubble(bubbles[0].key))!
+  assert.equal(bub.hidden === false && !!bub.rect && rectsOverlap(label.rect!, bub.rect), false, 'the bubble moved or hid, the label did not')
+  assert.ok(bub.dx !== 0 || bub.dy !== 0 || bub.hidden || bub.collapsed, 'the bubble gave way')
+})
+
+test('collision: a held bubble wins the contested spot over an ordinary one', () => {
+  const probe = tightPlan(2)
+  const heldKey = probe.bubbles[1].key
+  const { plan } = tightPlan(2, { heldBubbleKeys: new Set([heldKey]) })
+  assert.equal(plan(1).hidden, false)
+  assert.equal(plan(1).collapsed, false)
+  assert.equal(plan(1).dx, 0, 'the held (newest) bubble keeps its preferred spot')
+  assert.equal(plan(0).hidden, true, 'the ordinary older bubble has no chip form and gives way')
+})
+
+// ─── Selection cost ─────────────────────────────────────────────────────────
+
+test('selection: held ids do not make the scan visit every message of a link', () => {
+  let reads = 0
+  const messages = new Proxy(
+    Array.from({ length: 5000 }, (_, i) => msg({ id: `m${i}`, timestamp: 10 + i * 0.001 })),
+    { get(t, k, r) { if (typeof k === 'string' && /^\d+$/.test(k)) reads++; return Reflect.get(t, k, r) } },
+  )
+  const f = fixture(messages as any)
+  reads = 0
+  // Held keys name a message of ANOTHER link: this link must stop at maxPerLink
+  selectEdgeBubbles(f.resolved, f.agents, 11, { heldKeys: new Set([bubbleKey('OTHER', 'm3')]) })
+  assert.ok(reads <= EDGE_BUBBLE.maxPerLink + 2, `read ${reads} messages`)
+  // A held key of this link is still found
+  const kept = selectEdgeBubbles(f.resolved, f.agents, 500, { heldKeys: new Set([bubbleKey('L1', 'm1')]) })
+  assert.deepEqual(kept.map(b => b.messageId), ['m1'])
 })
