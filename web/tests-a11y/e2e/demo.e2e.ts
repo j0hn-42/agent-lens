@@ -161,13 +161,18 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     )).filter(visible).filter(el => {
       const r = el.getBoundingClientRect()
       return r.left < -1 || r.right > vw + 1
-    }).map(el => { const r = el.getBoundingClientRect(); return \`\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\` })
+    }).map(el => {
+      const r = el.getBoundingClientRect()
+      // Structural, not text-based: tracked in #23 when inside the transcript log or the graph outline.
+      const tracked = el.closest('[aria-label="Session transcript"], [aria-label="Agent graph outline"], [aria-label^="Agent graph:"]') !== null
+      return \`\${tracked ? 'TRACKED ' : ''}\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
+    })
     return {
       doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: vw,
       clippedContainers, outside,
     }
   })()`
-  const KNOWN_OUTSIDE = /^(div\[Agent graph|button\[Refactor the payment)/
+  const KNOWN_OUTSIDE = /^TRACKED /
   type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
   // Findings are collected over every step (initial, review mode, panels) and compared with the
   // allow-list once, so a known defect does not hide a new one in a later step.
@@ -184,6 +189,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     if (untracked.length) add('outside-viewport-untracked', untracked.join('; '))
   }
 
+  const TRACKED_OBSTRUCTED = /^\^(Files|Chat)/
   // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
   // so the remaining steps still run.
   async function openPanelChecked(page: Page, name: RegExp, f: Findings, where: string) {
@@ -191,7 +197,8 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     try {
       await btn.click({ timeout: 3000 })
     } catch {
-      f.rules.add('pointer-obstructed')
+      // Only the Files/Chat toolbar buttons are tracked in #23; any other obstructed control is new.
+      f.rules.add(TRACKED_OBSTRUCTED.test(name.source) ? 'pointer-obstructed' : 'pointer-obstructed-untracked')
       f.details.push(`[${where}] pointer-obstructed: a panel covers the "${name.source}" button`)
       await btn.focus()
       await page.keyboard.press('Space')
@@ -230,36 +237,44 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
 
 describe('demo mode: prefers-reduced-motion', () => {
   // The app animates on a canvas via requestAnimationFrame, which document.getAnimations() never
-  // sees. Compare two canvas frames taken one second apart: they must differ with
-  // no-preference (baseline, proves the check can detect motion) and be identical with reduce.
-  // Follow-up for the canvas owner: expose a test-only draw counter behind ?e2e=1.
-  // Fraction of canvas pixels that changed between two frames one second apart (run in the page).
+  // sees. The demo also streams events, so the canvas legitimately redraws when data changes (an
+  // agent moves, a card appears) even under reduce; comparing two frames therefore cannot tell
+  // ambient motion from data-driven redraws. What differs: ambient motion (particles, hex-grid
+  // pulse, time-based wobble) changes pixels on EVERY sample, while a reduced-motion canvas is
+  // pixel-identical between data events. So sample frames every SAMPLE_MS for WINDOW_MS and take
+  // the quietest pair: it must be > 0 with no-preference (proves the probe detects motion) and
+  // exactly 0 with reduce.
+  const SAMPLE_MS = 250
+  const WINDOW_MS = 10000
   const DIFF_SCRIPT = `new Promise(resolve => {
     const c = document.querySelector('canvas')
-    const snap = () => { const o = document.createElement('canvas'); o.width = c.width; o.height = c.height
-      const x = o.getContext('2d'); x.drawImage(c, 0, 0); return x.getImageData(0, 0, o.width, o.height).data }
-    const a = snap()
-    setTimeout(() => { const b = snap(); let n = 0
-      for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i+1] !== b[i+1] || a[i+2] !== b[i+2]) n++
-      resolve(n / (a.length / 4)) }, 1000)
+    const o = document.createElement('canvas'); o.width = c.width; o.height = c.height
+    const x = o.getContext('2d', { willReadFrequently: true })
+    const snap = () => { x.clearRect(0, 0, o.width, o.height); x.drawImage(c, 0, 0); return x.getImageData(0, 0, o.width, o.height).data }
+    let prev = snap(), min = 1, n = 0
+    const iv = setInterval(() => {
+      const cur = snap(); let d = 0
+      for (let i = 0; i < cur.length; i += 4) if (cur[i] !== prev[i] || cur[i+1] !== prev[i+1] || cur[i+2] !== prev[i+2]) d++
+      min = Math.min(min, d / (cur.length / 4)); prev = cur
+      if (++n >= ${WINDOW_MS / SAMPLE_MS}) { clearInterval(iv); resolve(min) }
+    }, ${SAMPLE_MS})
   })`
-  async function changedFraction(reducedMotion: 'reduce' | 'no-preference') {
+  // Smallest fraction of canvas pixels that changed between two consecutive samples.
+  async function quietestChange(reducedMotion: 'reduce' | 'no-preference') {
     const { page, close } = await open({ reducedMotion })
     try {
       await page.locator('canvas').first().waitFor()
-      await page.waitForTimeout(3000) // let the layout settle so only ambient motion remains
+      await page.waitForTimeout(3000) // let the initial layout and camera fit settle
       return await page.evaluate<number>(DIFF_SCRIPT)
     } finally { await close() }
   }
 
   test('canvas stops its ambient animation when motion is reduced', async t => {
     if (skipReason) return t.skip(skipReason)
-    const baseline = await changedFraction('no-preference')
-    if (baseline < 0.001) return t.skip(`baseline canvas is static (${baseline}), cannot detect motion; needs a ?e2e=1 draw counter from the canvas owner`)
-    const reduced = await changedFraction('reduce')
-    // Data-driven redraws (agent status, edge particles tied to events) still change pixels under
-    // reduce; removing the matchMedia guard brings the two fractions close to equal.
-    assert.ok(reduced < baseline * 0.75, `canvas keeps animating under prefers-reduced-motion: changed pixels ${reduced} vs ${baseline} baseline`)
+    const baseline = await quietestChange('no-preference')
+    assert.ok(baseline > 0, `probe cannot detect ambient motion: canvas was pixel-identical in some sample with no-preference`)
+    const reduced = await quietestChange('reduce')
+    assert.equal(reduced, 0, `canvas never goes still under prefers-reduced-motion (quietest sample changed ${reduced} of pixels; no-preference ${baseline})`)
   })
 
   test('no CSS animation keeps running when motion is reduced', async t => {
