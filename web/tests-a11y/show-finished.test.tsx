@@ -16,7 +16,7 @@ const noop = () => {}
 const base: TopBarProps = {
   sessions: [{ id: 's1', label: 'one', status: 'active', startTime: 1, lastActivityTime: 2 }],
   selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(),
-  onSelectSession: noop, onCloseSession: noop, isVSCode: false, connectionStatus: 'connected',
+  showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showTranscript: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,

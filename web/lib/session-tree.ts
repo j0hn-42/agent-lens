@@ -1,0 +1,149 @@
+/**
+ * Pure model of the sessions panel (cctop-like list): sessions grouped under their team, each with the
+ * tree of its agents and sub-agents. Free of React/DOM so it can be unit-tested with node:test.
+ */
+import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
+import { buildTabModel } from './chrome-utils'
+
+/** The slice of an Agent the panel needs. */
+export interface AgentLike {
+  id: string
+  sessionId: string
+  /** agentKey of the real parent (null for a root agent) */
+  parentKey: string | null
+  name: string
+  state: string
+  kind?: 'main' | 'subagent' | 'teammate'
+  currentTool?: string
+  tokensUsed: number
+  spawnTime: number
+}
+
+export interface AgentNode<A extends AgentLike = AgentLike> {
+  agent: A
+  children: AgentNode<A>[]
+}
+
+/**
+ * Agents of every session as forests, keyed by session id. A root is an agent without a parent, or
+ * whose parent is not part of the same session (the parent may be hidden or already pruned).
+ * Siblings are ordered by spawn time, then id, so the order is stable between renders.
+ */
+export function buildAgentForests<A extends AgentLike>(agents: Iterable<A>): Map<string, AgentNode<A>[]> {
+  const nodes = new Map<string, AgentNode<A>>()
+  for (const agent of agents) nodes.set(agent.id, { agent, children: [] })
+  const forests = new Map<string, AgentNode<A>[]>()
+  for (const node of nodes.values()) {
+    const parent = node.agent.parentKey ? nodes.get(node.agent.parentKey) : undefined
+    if (parent && parent !== node && parent.agent.sessionId === node.agent.sessionId && !isAncestor(node, parent, nodes)) {
+      parent.children.push(node)
+    } else {
+      const roots = forests.get(node.agent.sessionId)
+      if (roots) roots.push(node)
+      else forests.set(node.agent.sessionId, [node])
+    }
+  }
+  const order = (a: AgentNode<A>, b: AgentNode<A>) =>
+    a.agent.spawnTime - b.agent.spawnTime || (a.agent.id < b.agent.id ? -1 : a.agent.id > b.agent.id ? 1 : 0)
+  for (const node of nodes.values()) node.children.sort(order)
+  for (const roots of forests.values()) roots.sort(order)
+  return forests
+}
+
+/** True when `candidate` is `node` or one of its descendants (guards against parent cycles). */
+function isAncestor<A extends AgentLike>(node: AgentNode<A>, candidate: AgentNode<A>, all: Map<string, AgentNode<A>>): boolean {
+  const seen = new Set<string>()
+  let cur: AgentNode<A> | undefined = candidate
+  while (cur && !seen.has(cur.agent.id)) {
+    if (cur === node) return true
+    seen.add(cur.agent.id)
+    cur = cur.agent.parentKey ? all.get(cur.agent.parentKey) : undefined
+  }
+  return false
+}
+
+/** Number of agents in a forest (roots and all descendants). */
+export function countAgents(roots: ReadonlyArray<AgentNode>): number {
+  let n = 0
+  for (const r of roots) n += 1 + countAgents(r.children)
+  return n
+}
+
+export interface SessionRow {
+  kind: 'all' | 'team' | 'session'
+  /** Selection id: ALL_SESSIONS_ID, 'team:<name>' or the session id */
+  id: string
+  teamName?: string
+  session?: SessionInfo
+  /** Agents of the session; on the 'All' row, the agents whose session is not listed */
+  roots: AgentNode[]
+  agentCount: number
+}
+
+/**
+ * Rows of the panel in display order: 'All', then every team followed by its member sessions, then the
+ * sessions without a team. Within each block active sessions come before completed ones (most recent first).
+ */
+export function buildSessionRows(
+  sessions: ReadonlyArray<SessionInfo>,
+  teamNames: Iterable<string>,
+  forests: ReadonlyMap<string, AgentNode[]>,
+): SessionRow[] {
+  const byId = new Map(sessions.map(s => [s.id, s]))
+  const rank = (s: SessionInfo) => (s.status === 'active' ? 0 : 1)
+  const sortedSessions = [...sessions].sort((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
+  const items = buildTabModel(sortedSessions, teamNames)
+  // buildTabModel keeps the input order inside each block, which is the sorted order
+  const rows: SessionRow[] = []
+  // Agents whose session is not (yet) listed, e.g. the demo or events without a session id: kept visible under 'All'
+  const orphans = [...forests].filter(([sessionId]) => !byId.has(sessionId)).flatMap(([, roots]) => roots)
+  for (const item of items) {
+    if (item.kind === 'session') {
+      const session = byId.get(item.id)
+      if (!session) continue
+      const roots = forests.get(session.id) ?? []
+      rows.push({ kind: 'session', id: session.id, teamName: item.teamName, session, roots, agentCount: countAgents(roots) })
+    } else {
+      const roots = item.kind === 'all' ? orphans : []
+      rows.push({ kind: item.kind, id: item.id, teamName: item.teamName, roots, agentCount: countAgents(roots) })
+    }
+  }
+  return rows
+}
+
+/** Visible label of the current selection, shown on the panel's button. */
+export function selectionLabel(
+  selectedId: string | null,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label'>>,
+): string {
+  if (selectedId === null || selectedId === ALL_SESSIONS_ID) return 'All sessions'
+  if (selectedId.startsWith('team:')) return `Team ${selectedId.slice('team:'.length)}`
+  return sessions.find(s => s.id === selectedId)?.label ?? 'Session'
+}
+
+/** "just now", "5s ago", "3 min ago", "2 h ago", "4 d ago" */
+export function formatRelativeTime(timestamp: number, now: number): string {
+  const sec = Math.max(0, Math.floor((now - timestamp) / 1000))
+  if (!Number.isFinite(sec) || sec < 5) return 'just now'
+  if (sec < 60) return `${sec}s ago`
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`
+  if (sec < 86400) return `${Math.floor(sec / 3600)} h ago`
+  return `${Math.floor(sec / 86400)} d ago`
+}
+
+/**
+ * Sessions kept by the 'Active only' filter: the active ones, plus the selected session so the
+ * current selection never vanishes from the list.
+ */
+export function filterActiveSessions(sessions: ReadonlyArray<SessionInfo>, selectedId: string | null): SessionInfo[] {
+  return sessions.filter(s => s.status === 'active' || s.id === selectedId)
+}
+
+/** Teams kept by the 'Active only' filter: those with a remaining session or a member still working. */
+export function filterActiveTeams(
+  teamNames: Iterable<string>,
+  remainingSessions: ReadonlyArray<Pick<SessionInfo, 'teamName'>>,
+  teamWorking?: ReadonlyMap<string, number>,
+): string[] {
+  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || (teamWorking?.get(n) ?? 0) > 0)
+}

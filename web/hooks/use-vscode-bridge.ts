@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
+import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection } from '@/hooks/simulation/team-info'
 import {
   activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
@@ -53,6 +54,8 @@ interface BridgeHookResult {
   finishedSessionCount: number
   /** Session IDs that have received events while not selected */
   sessionsWithActivity: Set<string>
+  /** Model ID of each session (main agent's model), for the sessions that reported one */
+  sessionModels: ReadonlyMap<string, string>
   /** Remove a session from the list */
   removeSession: (sessionId: string) => void
   /** Undo a removeSession call (re-adds the dismissed session). Returns true if it was restored. */
@@ -107,6 +110,8 @@ export function useVSCodeBridge(): BridgeHookResult {
   }, [])
   // Teams are tracked over the whole event stream so tabs stay correct whichever tab is selected
   const teamTrackerRef = useRef(createTeamTracker())
+  const modelTrackerRef = useRef(new SessionModelTracker())
+  const [sessionModels, setSessionModels] = useState<ReadonlyMap<string, string>>(new Map())
   const [teamView, setTeamView] = useState<{ teams: Map<string, TeamSummary>; working: Map<string, number>; members: Map<string, number> }>(
     () => ({ teams: new Map(), working: new Map(), members: new Map() }),
   )
@@ -272,6 +277,7 @@ export function useVSCodeBridge(): BridgeHookResult {
       }
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
+      if (modelTrackerRef.current.ingest(simEvent)) setSessionModels(modelTrackerRef.current.snapshot())
 
       // Remember when each session last spoke (bounded), and re-evaluate when a hidden one wakes up
       if (event.sessionId) {
@@ -355,6 +361,8 @@ export function useVSCodeBridge(): BridgeHookResult {
         selectedSessionIdRef.current = null
         pendingEventsRef.current.length = 0
         sessionEventsRef.current.clear()
+        modelTrackerRef.current.clear()
+        setSessionModels(new Map())
         allEventsRef.current = []
         allBaseRef.current = 0
         lastEventAtRef.current.clear()
@@ -560,6 +568,7 @@ export function useVSCodeBridge(): BridgeHookResult {
     allViewKey: visibility.key,
     finishedSessionCount: visibility.finished,
     sessionsWithActivity,
+    sessionModels,
     removeSession,
     restoreSession,
     loadDemo,

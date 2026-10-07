@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { shouldHandleShortcut } from '@/hooks/use-keyboard-shortcuts'
 import { nextTabIndex, scrubberKeyTarget } from '@/lib/chrome-utils'
 import { nextMenuIndex } from '@/lib/menu-nav'
-import { SessionTabs } from '@/components/agent-visualizer/session-tabs'
+import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { compareViolations, validateKnownViolations } from './axe-compare'
 
 afterEach(() => {
@@ -84,26 +84,81 @@ test('scrubber responds to arrow keys and stays within [0, total]', () => {
   assert.equal(scrubberKeyTarget('ArrowLeft', true, 1, 10), 0)
 })
 
-test('session tabs: ArrowRight selects the next tab and only one tab is in the tab order', () => {
+test('sessions panel: arrows move between rows, one row is in the tab order, clicks select', () => {
   const selected: string[] = []
-  const sessions = ['a', 'b', 'c'].map((id, i) => ({
-    id, label: `S${id}`, status: 'active' as const, startTime: i, lastActivityTime: i,
+  const pickedAgents: string[] = []
+  const sessions = ['a', 'b'].map((id, i) => ({
+    id, label: `S${id}`, status: 'active' as const, startTime: i, lastActivityTime: 10 - i,
   }))
-  const { getAllByRole } = render(
-    <SessionTabs
-      sessions={sessions} selectedSessionId="a" sessionsWithActivity={new Set()}
+  const agents = new Map([
+    ['a:main', { id: 'a:main', sessionId: 'a', parentKey: null, name: 'main', state: 'thinking', tokensUsed: 10, spawnTime: 1 }],
+    ['a:sub', { id: 'a:sub', sessionId: 'a', parentKey: 'a:main', name: 'sub', state: 'idle', kind: 'subagent' as const, tokensUsed: 5, spawnTime: 2 }],
+  ])
+  const { container, getByRole } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="a" sessionsWithActivity={new Set()}
       onSelectSession={id => selected.push(id)} onCloseSession={() => {}}
+      agents={agents} selectedAgentId={null} onSelectAgent={id => pickedAgents.push(id)} now={5000}
     />,
   )
-  const tabs = getAllByRole('tab')
-  assert.equal(tabs.length, 4, "the 'All' tab comes first, then one tab per session")
-  assert.equal(tabs[0].textContent?.startsWith('All'), true)
-  assert.equal(tabs[0].getAttribute('aria-selected'), 'false')
-  assert.equal(tabs.filter(t => t.tabIndex === 0).length, 1, 'roving tabindex')
-  fireEvent.keyDown(tabs[1], { key: 'ArrowRight' })
-  fireEvent.keyDown(tabs[1], { key: 'End' })
-  fireEvent.keyDown(tabs[1], { key: 'ArrowLeft' })
-  assert.deepEqual(selected, ['b', 'c', '__all__'])
+  const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-row-main]'))
+  // All sessions, session a, main, sub, session b (agents sit under their session)
+  assert.equal(rows.length, 5)
+  assert.equal(rows.filter(r => r.tabIndex === 0).length, 1, 'roving tabindex over the session rows')
+  assert.equal(rows[1].getAttribute('aria-current'), 'true')
+  rows[1].focus()
+  fireEvent.keyDown(rows[1], { key: 'ArrowDown' })
+  assert.equal(document.activeElement, rows[2])
+  fireEvent.keyDown(rows[2], { key: 'End' })
+  assert.equal(document.activeElement, rows[4])
+  fireEvent.keyDown(rows[4], { key: 'Home' })
+  assert.equal(document.activeElement, rows[0])
+  fireEvent.click(rows[4])
+  fireEvent.click(rows[3])
+  assert.deepEqual(selected, ['b'])
+  assert.deepEqual(pickedAgents, ['a:sub'])
+  // ArrowLeft folds the agents of the focused session
+  fireEvent.keyDown(rows[1], { key: 'ArrowLeft' })
+  assert.equal(container.querySelectorAll('[data-row-main]').length, 3)
+  getByRole('button', { name: 'Expand agents of Sa' })
+})
+
+test('sessions panel: the Active only toggle hides finished sessions and keeps the selected one', () => {
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+    { id: 'sel', label: 'Selected old', status: 'completed' as const, startTime: 0, lastActivityTime: 2 },
+  ]
+  const { getByRole, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="sel" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+    />,
+  )
+  assert.ok(queryByText('Old one'))
+  const toggle = getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false')
+  fireEvent.click(toggle)
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true')
+  assert.equal(queryByText('Old one'), null)
+  assert.ok(queryByText('Live one'))
+  assert.ok(queryByText('Selected old'), 'the selected session stays listed')
+})
+
+test('sessions panel: a session row shows only its name, model and time', () => {
+  const sessions = [{ id: 's1', label: 'Refactor payments', status: 'active' as const, startTime: 0, lastActivityTime: 0, workspace: 'shop', runtime: 'claude' as const }]
+  const { getByText, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      sessionModels={new Map([['s1', 'claude-opus-4-6-20250514']])}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={180_000}
+    />,
+  )
+  getByText('Refactor payments')
+  getByText('Opus 4.6')
+  getByText('3 min ago')
+  assert.equal(queryByText('shop'), null)
+  assert.equal(queryByText('CC'), null)
 })
 
 test('known-violation helpers: new violations and stale entries are both reported', () => {

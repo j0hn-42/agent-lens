@@ -57,6 +57,7 @@ export function shouldHandleShortcut(
 export function useKeyboardShortcuts(actions: {
   togglePlayPause: () => void
   toggleFilePanel: () => void
+  toggleSessionList: () => void
   toggleTranscript: () => void
   toggleTimeline: () => void
   toggleHexGrid: () => void
@@ -91,6 +92,10 @@ export function useKeyboardShortcuts(actions: {
           break
         case 'f':
           a.toggleFilePanel()
+          break
+        case 'l':
+        case 'L':
+          a.toggleSessionList()
           break
         case 'F':
           a.zoomToFit()
