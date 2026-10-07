@@ -26,7 +26,7 @@ function readGlobalSettings(): Record<string, unknown> | null {
   }
 }
 
-/** Check whether a single hook entry belongs to Agent Flow */
+/** Check whether a single hook entry belongs to Swarmscope */
 function isAgentFlowHook(entry: ClaudeHookEntry): boolean {
   return !!entry.hooks?.some(h =>
     // Normalize backslashes to forward slashes so Windows paths
@@ -112,7 +112,7 @@ export async function configureClaudeHooks(): Promise<void> {
   fs.writeFileSync(GLOBAL_SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n')
 
   vscode.window.showInformationMessage(
-    'Claude Code hooks configured. New sessions will stream events to Agent Flow.',
+    'Claude Code hooks configured. New sessions will stream events to Swarmscope.',
   )
 }
 

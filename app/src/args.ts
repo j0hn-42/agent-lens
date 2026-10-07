@@ -21,7 +21,7 @@ export function parseArgs(argv: string[]) {
       verbose = true
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
-Usage: agent-flow [options]
+Usage: swarmscope [options]
 
 Options:
   -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT})

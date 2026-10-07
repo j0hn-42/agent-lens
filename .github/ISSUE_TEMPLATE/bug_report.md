@@ -22,5 +22,5 @@ If applicable, add screenshots to help explain the issue.
 
 **Environment**
 - VS Code version:
-- Agent Flow version:
+- Swarmscope version:
 - OS:

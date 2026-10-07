@@ -1,9 +1,9 @@
 {
-  "name": "agent-flow-app",
+  "name": "swarmscope-app",
   "version": "0.9.1",
   "description": "Real-time visualization of AI agent orchestration — standalone web app",
   "bin": {
-    "agent-flow": "dist/app.js"
+    "swarmscope": "dist/app.js"
   },
   "files": [
     "dist/"
@@ -14,13 +14,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/patoles/agent-flow"
+    "url": "https://github.com/jobailla/agent-flow"
   },
   "keywords": [
     "agent",
     "visualization",
     "ai",
     "llm",
-    "agent-flow"
+    "swarmscope"
   ]
 }

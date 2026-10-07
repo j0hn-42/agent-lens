@@ -30,7 +30,7 @@ jobs:
         run: pnpm --dir extension test
 
       - name: Extension typecheck
-        run: pnpm --filter agent-flow run lint
+        run: pnpm --filter swarmscope run lint
 
       - name: Web typecheck
         run: pnpm --dir web exec tsc --noEmit

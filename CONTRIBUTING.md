@@ -1,6 +1,6 @@
-# Contributing to Agent Flow
+# Contributing to Swarmscope
 
-Thank you for your interest in contributing to Agent Flow! This document provides guidelines for contributing to the project.
+Thank you for your interest in contributing to Swarmscope! This document provides guidelines for contributing to the project.
 
 ## Contributor License Agreement (CLA)
 
@@ -40,4 +40,4 @@ Be respectful and constructive in all interactions. We are committed to providin
 
 ## License
 
-By contributing to Agent Flow, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE), subject to the terms of the [CLA](CLA.md).
+By contributing to Swarmscope, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE), subject to the terms of the [CLA](CLA.md).

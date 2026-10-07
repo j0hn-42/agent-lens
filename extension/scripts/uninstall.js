@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * vscode:uninstall script — runs when the extension is uninstalled.
- * Removes Agent Flow hooks from ALL known Claude Code settings files,
+ * Removes Swarmscope hooks from ALL known Claude Code settings files,
  * then deletes the entire ~/.claude/agent-flow/ directory.
  *
  * Sources for workspace discovery (checked in order, deduplicated):

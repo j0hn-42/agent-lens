@@ -1,14 +1,15 @@
-# Agent Flow
+# Swarmscope
 
-Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. [Demo video here](https://www.youtube.com/watch?v=Ud6eDrFN-TA). 
+> **This is a fork of [Agent Flow](https://github.com/patoles/agent-flow)** by Simon Patole, published under the Apache License 2.0 and renamed **Swarmscope** as required by the upstream [trademark policy](TRADEMARK.md). It is not the official Agent Flow project and is not endorsed by its maintainers.
+> The `swarmscope-app` npm package and the VS Code extension are **not published**: run the project from source (see below).
 
-![Agent Flow visualization](https://res.cloudinary.com/dxlvclh9c/image/upload/v1773924941/screenshot_e7yox3.png)
+Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. 
 
-## Why Agent Flow?
+## Why Swarmscope?
 
-I built Agent Flow while developing [CraftMyGame](https://craftmygame.com), a game creation platform driven by AI agents. Debugging agent behavior was painful, so we made it visual. Now we're sharing it.
+The original project was created by Simon Patole while developing [CraftMyGame](https://craftmygame.com), because debugging agent behavior was painful. This fork keeps that goal and focuses on accessibility, a unified multi-agent view and readable agent-to-agent communication.
 
-Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Agent Flow makes the invisible visible:
+Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Swarmscope makes the invisible visible:
 
 - **Understand agent behavior** — See how Claude breaks down problems, which tools it reaches for, and how subagents coordinate
 - **Debug tool call chains** — When something goes wrong, trace the exact sequence of decisions and tool calls that led there
@@ -28,24 +29,11 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 
 ## Getting Started
 
-### Quick Start (no VS Code required)
+### Run from source (no VS Code required)
 
 ```bash
-npx agent-flow-app
-```
-
-This starts the visualizer in your browser. Start a Claude Code session in another terminal — events will stream in real-time.
-
-Options:
-- `--port <number>` — change the server port (default: 3001)
-- `--no-open` — don't open the browser automatically
-- `--verbose` — show detailed event logs
-
-### Standalone Web App (from source)
-
-```bash
-git clone https://github.com/patoles/agent-flow.git
-cd agent-flow
+git clone https://github.com/jobailla/agent-flow.git swarmscope
+cd swarmscope
 pnpm i
 pnpm run setup      # configure Claude Code hooks (one-time)
 pnpm run dev        # start the web app + event relay
@@ -56,43 +44,43 @@ Open http://localhost:3000 and start a Claude Code session in another terminal �
 ### VS Code Extension
 
 1. Install the extension
-2. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Flow: Open Agent Flow**
-3. Start a Claude Code or Codex session in your workspace — Agent Flow will auto-detect it
+2. Open the Command Palette (`Cmd+Shift+P`) and run **Swarmscope: Open Swarmscope**
+3. Start a Claude Code or Codex session in your workspace — Swarmscope will auto-detect it
 
-Agent Flow automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Flow: Configure Claude Code Hooks** from the Command Palette.
+Swarmscope automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Swarmscope: Configure Claude Code Hooks** from the Command Palette.
 
 ### Runtime selection
 
-By default Agent Flow watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-flow-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+By default Swarmscope watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx swarmscope-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
 
 To restrict to one runtime:
 
 - **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` in your settings
-- **`pnpm run dev` and `npx agent-flow-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
+- **`pnpm run dev` and `npx swarmscope-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable.
 
 ### JSONL Event Log
 
-You can also point Agent Flow at a JSONL event log file:
+You can also point Swarmscope at a JSONL event log file:
 
 1. Set `agentVisualizer.eventLogPath` in your VS Code settings to the path of a `.jsonl` file
-2. Agent Flow will tail the file and visualize events as they arrive
+2. Swarmscope will tail the file and visualize events as they arrive
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `Agent Flow: Open Agent Flow` | Open the visualizer panel |
-| `Agent Flow: Open Agent Flow to Side` | Open in a side editor column |
-| `Agent Flow: Connect to Running Agent` | Manually connect to an agent session |
-| `Agent Flow: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
+| `Swarmscope: Open Swarmscope` | Open the visualizer panel |
+| `Swarmscope: Open Swarmscope to Side` | Open in a side editor column |
+| `Swarmscope: Connect to Running Agent` | Manually connect to an agent session |
+| `Swarmscope: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
 
 ## Keyboard Shortcut
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Agent Flow |
+| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Swarmscope |
 
 ## Settings
 
@@ -142,36 +130,16 @@ Accessibility checks run in CI without any browser download:
 
 Follow-up (not done yet): a Playwright + `@axe-core/playwright` smoke run against `pnpm run dev:demo` for layout-dependent checks (320 px reflow, 200 % zoom, `prefers-reduced-motion`, full-page Tab order). It needs a downloaded browser, so it is not part of CI today.
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/chart?repos=patoles/agent-flow&type=date&legend=bottom-right)](https://www.star-history.com/?repos=patoles%2Fagent-flow&type=date&legend=bottom-right)
-
-
 ## Author
 
-Created by [Simon Patole](https://github.com/patoles), for [CraftMyGame](https://craftmygame.com).
+Swarmscope is a fork of [Agent Flow](https://github.com/patoles/agent-flow), created by [Simon Patole](https://github.com/patoles) for [CraftMyGame](https://craftmygame.com). The original author is credited under the Apache License 2.0; all upstream copyright notices are kept.
 
 ## Privacy & Telemetry
 
-Agent Flow ships **opt-out** anonymous usage telemetry, enabled by default only
-in the published `npx agent-flow-app` binary. `pnpm run dev` and the VS Code
-extension emit nothing. Only aggregate events are sent — session count,
-duration, event count, OS/arch, Agent Flow version, distinct model IDs
-observed, which runtimes were watched, and error class names. Prompts, file
-paths, tool calls, user info, and environment variables are never sent.
-
-- **Turn off:** `export AGENT_FLOW_TELEMETRY=false` or `export DO_NOT_TRACK=1`
-  (disabled installs write zero state to disk — no `~/.agent-flow/` directory)
-- **Inspect the payload:** `cat ~/.agent-flow/telemetry/events.jsonl`
-- **Full schema + exact fields:** see the v0.8.1 entry in
-  [extension/CHANGELOG.md](extension/CHANGELOG.md) or the `serialize()` function
-  in [scripts/telemetry.ts](scripts/telemetry.ts)
-- **Reset your anonymous identity:** delete `~/.agent-flow/installation-id` —
-  a fresh random UUIDv4 will be generated on next run
-
+This fork sends **no telemetry**. The upstream project's collection endpoint was removed from the code on purpose, so nothing leaves your machine and nothing is written to disk for analytics. If you want telemetry for your own deployment, set your own endpoint and publishable key in `scripts/telemetry.ts` and rebuild. Telemetry also stays off when `DO_NOT_TRACK=1` or `AGENT_FLOW_TELEMETRY=false` is set.
 
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE) for details.
 
-The name "Agent Flow" and associated logos are trademarks of Simon Patole. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines.
+"Agent Flow" and its logos are trademarks of Simon Patole. This fork is an independent project under a different name, uses none of the Agent Flow logos, and is not affiliated with or endorsed by the Agent Flow maintainers. See [TRADEMARK.md](TRADEMARK.md).

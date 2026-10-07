@@ -1,13 +1,13 @@
 {
-  "name": "agent-flow",
-  "displayName": "Agent Flow",
+  "name": "swarmscope",
+  "displayName": "Swarmscope",
   "description": "Real-time visualization of Claude Code and Codex agent orchestration",
   "version": "0.9.1",
-  "publisher": "simon-p",
+  "publisher": "jobailla",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/patoles/agent-flow"
+    "url": "https://github.com/jobailla/agent-flow"
   },
   "icon": "media/icon.png",
   "engines": {
@@ -23,23 +23,23 @@
     "commands": [
       {
         "command": "agentVisualizer.open",
-        "title": "Open Agent Flow",
-        "category": "Agent Flow"
+        "title": "Open Swarmscope",
+        "category": "Swarmscope"
       },
       {
         "command": "agentVisualizer.openToSide",
-        "title": "Open Agent Flow to Side",
-        "category": "Agent Flow"
+        "title": "Open Swarmscope to Side",
+        "category": "Swarmscope"
       },
       {
         "command": "agentVisualizer.connectToAgent",
         "title": "Connect to Running Agent",
-        "category": "Agent Flow"
+        "category": "Swarmscope"
       },
       {
         "command": "agentVisualizer.configureHooks",
         "title": "Configure Claude Code Hooks",
-        "category": "Agent Flow"
+        "category": "Swarmscope"
       }
     ],
     "keybindings": [
@@ -50,7 +50,7 @@
       }
     ],
     "configuration": {
-      "title": "Agent Flow",
+      "title": "Swarmscope",
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",
