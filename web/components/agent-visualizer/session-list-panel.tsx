@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, pluralize } from '@/lib/utils'
+import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -22,6 +22,8 @@ interface SessionListPanelProps {
   sessions: SessionInfo[]
   selectedSessionId: string | null
   sessionsWithActivity: ReadonlySet<string>
+  /** Model ID per session id (sessions that reported one) */
+  sessionModels?: ReadonlyMap<string, string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
   /** Agents of the current view (the selected session, team or all sessions) */
@@ -113,7 +115,7 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
 }
 
 export function SessionListPanel({
-  visible, onClose, sessions, selectedSessionId, sessionsWithActivity,
+  visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamMemberCounts, allSessionCount, now,
 }: SessionListPanelProps) {
@@ -295,6 +297,8 @@ export function SessionListPanel({
               const session = row.session!
               const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected)
               const badge = runtimeBadge(session.runtime)
+              const modelId = sessionModels?.get(session.id)
+              const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
               const showAgents = hasAgents && !isCollapsed
@@ -322,17 +326,10 @@ export function SessionListPanel({
                     >
                       <SessionMarker kind={kind} />
                       <span className="sr-only">{SESSION_STATUS_TEXT[kind]}, </span>
-                      {badge && (
-                        <>
-                          <span aria-hidden="true" title={badge.label} className="shrink-0 rounded px-1 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}` }}>{badge.short}</span>
-                          <span className="sr-only">{badge.label} session, </span>
-                        </>
-                      )}
-                      <span className="truncate min-w-0 flex-1">{session.label}</span>
-                      {session.workspace && <span className="truncate max-w-[90px] shrink" style={{ color: COLORS.textDim }}>{session.workspace}</span>}
-                      <span className="shrink-0" style={{ color: COLORS.textDim }}>
-                        {hasAgents ? `${pluralize(row.agentCount, 'agent')} · ` : ''}{formatRelativeTime(session.lastActivityTime, currentTime)}
-                      </span>
+                      {badge && <span className="sr-only">{badge.label} session, </span>}
+                      <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                      {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
+                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                     </button>
                     <button
                       type="button"

@@ -690,6 +690,7 @@ export function AgentVisualizer() {
           allSessionCount={allSessionCount}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}
+          sessionModels={bridge.sessionModels}
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
           agents={agents}

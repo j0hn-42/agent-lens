@@ -145,6 +145,22 @@ test('sessions panel: the Active only toggle hides finished sessions and keeps t
   assert.ok(queryByText('Selected old'), 'the selected session stays listed')
 })
 
+test('sessions panel: a session row shows only its name, model and time', () => {
+  const sessions = [{ id: 's1', label: 'Refactor payments', status: 'active' as const, startTime: 0, lastActivityTime: 0, workspace: 'shop', runtime: 'claude' as const }]
+  const { getByText, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      sessionModels={new Map([['s1', 'claude-opus-4-6-20250514']])}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={180_000}
+    />,
+  )
+  getByText('Refactor payments')
+  getByText('Opus 4.6')
+  getByText('3 min ago')
+  assert.equal(queryByText('shop'), null)
+  assert.equal(queryByText('CC'), null)
+})
+
 test('known-violation helpers: new violations and stale entries are both reported', () => {
   const known = [{ scenario: 's', rule: 'old-rule', issue: 1 }, { scenario: 's', rule: 'kept', issue: 2 }]
   assert.deepEqual(compareViolations('s', ['kept', 'brand-new'], known), { unexpected: ['brand-new'], stale: ['old-rule'] })
