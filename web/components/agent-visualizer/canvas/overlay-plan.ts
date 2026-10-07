@@ -9,8 +9,8 @@ import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
 } from '../../../lib/canvas-constants'
-import { agentCost } from '../../../lib/cost'
-import { formatCost } from '../../../lib/utils'
+import { agentCostUsage } from '../../../lib/cost'
+import { formatCostUsage } from '../../../lib/usage'
 import { bubbleAlpha } from './bubble-utils'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
@@ -215,9 +215,9 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     }
 
     // Stats box and cost pill, stacked above the node (same layout as the draw code)
-    const cost = agentCost(a.tokensUsed, a.model)
+    const costUsage = agentCostUsage(a)
     const showStatsBox = input.lod.details && input.showStats && a.state !== 'complete'
-    const showCostPill = input.lod.details && input.showCost && cost >= COST_DRAW.minDisplayCost
+    const showCostPill = input.lod.details && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
     if ((showStatsBox || showCostPill) && secondaryAllowed) {
       const layout = computeOverlayLayout({
         hasPercent: hasContextPercentFor(a), showStats: showStatsBox, showCost: showCostPill,
@@ -231,7 +231,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         })
       }
       if (showCostPill && layout.costTop != null) {
-        const pillW = estimateTextWidth(formatCost(cost), 11) * 1.1 + COST_DRAW.pillPadding
+        const pillW = estimateTextWidth(formatCostUsage(costUsage), 11) * 1.1 + COST_DRAW.pillPadding
         requests.push({
           id: planKey.cost(id),
           priority: overlayPriority(PRIORITY.cost, flags),

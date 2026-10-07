@@ -6,7 +6,9 @@
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
-import { agentCost } from '../../../lib/cost'
+import { agentCostUsage } from '../../../lib/cost'
+import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
@@ -28,6 +30,14 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
+/** "1.5k / 200k tokens", "au moins 1.5k estimé / 200k tokens" or "tokens non renseigné". */
+function tokenSummary(a: Agent): string {
+  const usage = usageFromAgent(a)
+  return usage.status === 'unavailable'
+    ? `tokens ${formatTokenUsage(usage)}`
+    : `${formatTokenUsage(usage)} / ${formatTokens(a.tokensMax)} tokens`
+}
+
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────
 
 export interface ToolHistoryEntry {
@@ -38,7 +48,9 @@ export interface ToolHistoryEntry {
   state: ToolCallNode['state']
   error: string
   result: string
-  tokenCost?: number
+  tokenCost?: number | null
+  /** Caveat when the end of the call was not observed; empty otherwise */
+  warning: string
 }
 
 /**
@@ -61,6 +73,7 @@ export function updateToolHistory(
       error: tc.state === 'error' ? clip(tc.errorMessage || tc.result) : '',
       result: tc.state === 'complete' ? clip(tc.result, 120) : '',
       tokenCost: tc.tokenCost,
+      warning: toolEndWarning(tc) ?? '',
     }
     history.set(id, entry) // Map.set keeps the original insertion order for existing ids
   }
@@ -243,7 +256,7 @@ export function buildA11yModel(
   for (const entry of history.values()) {
     let list = toolsByAgent.get(entry.agentId)
     if (!list) { list = []; toolsByAgent.set(entry.agentId, list) }
-    list.push({ ...entry, stateText: entry.state, live: toolCalls.has(entry.id) })
+    list.push({ ...entry, stateText: toolStateText(entry), live: toolCalls.has(entry.id) })
   }
   const childNames = new Map<string, string[]>()
   for (const a of agents.values()) {
@@ -269,8 +282,8 @@ export function buildA11yModel(
       stateText: stateText(a.state),
       model: a.model ? formatModelName(a.model) : 'unknown model',
       runtime: a.runtime === 'codex' ? 'Codex' : 'Claude',
-      tokens: `${formatTokens(a.tokensUsed)} / ${formatTokens(a.tokensMax)} tokens`,
-      cost: formatCost(agentCost(a.tokensUsed, a.model)),
+      tokens: tokenSummary(a),
+      cost: formatCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,

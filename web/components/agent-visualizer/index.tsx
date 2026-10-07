@@ -28,7 +28,8 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
-import { totalAgentCost } from "@/lib/cost"
+import { totalAgentCost, totalCostUsage } from "@/lib/cost"
+import { combineUsage, usageFromAgent } from "@/lib/usage"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -373,12 +374,10 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  const totalTokens = useMemo(() => {
-    let sum = 0
-    for (const a of agents.values()) sum += a.tokensUsed
-    return sum
-  }, [agents])
-
+  // Totals never show a missing figure as 0: agents without data make them a lower bound
+  const tokenUsage = useMemo(() => combineUsage(Array.from(agents.values(), usageFromAgent)), [agents])
+  const totalTokens = tokenUsage.value ?? 0
+  const costUsage = useMemo(() => totalCostUsage(agents.values()), [agents])
   const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
@@ -506,6 +505,8 @@ export function AgentVisualizer() {
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
+        tokenUsage={tokenUsage}
+        costUsage={costUsage}
         showFileAttention={showFileAttention}
         showTranscript={showTranscript}
         showCostOverlay={showCostOverlay}

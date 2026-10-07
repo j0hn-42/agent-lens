@@ -1,8 +1,9 @@
 import { Agent, ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
-import { formatTokens, formatCost } from '@/lib/utils'
-import { agentCost, modelCostRate } from '@/lib/cost'
+import { formatCost } from '@/lib/utils'
+import { agentCost, modelCostRate, agentCostUsage, totalCostUsage } from '@/lib/cost'
+import { formatCostUsage, formatTokenUsage, usageFromAgent, combineUsage } from '@/lib/usage'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -45,8 +46,8 @@ export function drawCostLabels(
 
   for (const [, agent] of agents) {
     if (!isAgentVisible(agent)) continue
-    const cost = agentCost(agent.tokensUsed, agent.model)
-    if (cost < COST_DRAW.minDisplayCost) continue
+    const costUsage = agentCostUsage(agent)
+    if (costUsage.value === null || costUsage.value < COST_DRAW.minDisplayCost) continue
 
     const r = agentDrawRadius(agent)
     // Stacked above the stats box and the context % label (see overlay-layout.ts)
@@ -61,7 +62,7 @@ export function drawCostLabels(
     if (!place.visible) continue
 
     // Floating cost pill
-    const label = formatCost(cost)
+    const label = formatCostUsage(costUsage)
     ctx.font = 'bold 11px monospace'
     const labelW = ctx.measureText(label).width
     const pillW = labelW + COST_DRAW.pillPadding
@@ -138,14 +139,14 @@ export function drawCostSummaryPanel(
   const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
   if (agentList.length === 0) return
 
-  // Compute totals
-  const totalTokens = agentList.reduce((s, a) => s + a.tokensUsed, 0)
-
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
     .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model) }))
     .sort((a, b) => b.cost - a.cost)
   const totalCost = agentBreakdown.reduce((s, a) => s + a.cost, 0)
+  // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged
+  const costUsage = totalCostUsage(agents.values())
+  const tokenUsage = combineUsage(Array.from(agents.values(), usageFromAgent))
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   const toolBreakdown = new Map<string, { tokens: number; cost: number }>()
@@ -192,11 +193,12 @@ export function drawCostSummaryPanel(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  ctx.fillText(formatCost(totalCost), panelX + COST_PANEL.contentPadding, y)
+  const headerCost = formatCostUsage(costUsage)
+  ctx.fillText(headerCost, panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '11px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(formatCost(totalCost)).width + 14, y + 2)
+  ctx.fillText(`${formatTokenUsage(tokenUsage)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(headerCost).width + 14, y + 2)
 
   y += headerH
 

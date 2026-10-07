@@ -1,8 +1,10 @@
 'use client'
 
 import { useId } from 'react'
-import { POPUP } from '@/lib/agent-types'
+import { POPUP, type ToolCallState, type ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
+import { USAGE_LABELS } from '@/lib/usage'
 import { ToolContentRenderer } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
 
@@ -10,25 +12,30 @@ interface ToolDetailPopupProps {
   tool: {
     id: string
     toolName: string
-    state: 'running' | 'complete' | 'error'
+    state: ToolCallState
     args: string
     result?: string
-    tokenCost?: number
+    tokenCost?: number | null
+    tokenSource?: ToolCallNode['tokenSource']
+    endObserved?: boolean
     inputData?: Record<string, unknown>
   }
   position: { x: number; y: number }
   onClose: () => void
 }
 
-const STATE_DISPLAY = {
-  running: { color: COLORS.tool_calling, icon: '⚙', label: 'Running' },
-  complete: { color: COLORS.complete, icon: '✓', label: 'Complete' },
-  error: { color: COLORS.error, icon: '✕', label: 'Error' },
-} as const
+const STATE_DISPLAY: Record<ToolCallState, { color: string; icon: string; label: string }> = {
+  running: { color: COLORS.tool_calling, icon: '⚙', label: TOOL_STATE_LABELS.running },
+  complete: { color: COLORS.complete, icon: '✓', label: TOOL_STATE_LABELS.complete },
+  error: { color: COLORS.error, icon: '✕', label: TOOL_STATE_LABELS.error },
+  cancelled: { color: COLORS.textMuted, icon: '⊘', label: TOOL_STATE_LABELS.cancelled },
+  expired: { color: COLORS.tool_calling, icon: '⧖', label: TOOL_STATE_LABELS.expired },
+}
 
 export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProps) {
   const titleId = useId()
   const { color: stateColor, icon: stateIcon, label: stateLabel } = STATE_DISPLAY[tool.state] ?? STATE_DISPLAY.complete
+  const warning = toolEndWarning(tool)
 
   return (
     <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId}>
@@ -58,6 +65,13 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         </div>
       )}
 
+      {/* The outcome rests on an end nobody saw: say so before anything else */}
+      {warning && (
+        <div role="note" className="mt-2 rounded px-2 py-1 text-[11px] font-mono" style={{ color: COLORS.tool_calling, border: `1px solid ${COLORS.tool_calling}` }}>
+          {warning}
+        </div>
+      )}
+
       {/* Result */}
       {tool.result && (
         <div
@@ -71,15 +85,17 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
             color: COLORS.complete,
           }}
         >
-          <span className="opacity-70 mr-1">Result:</span>
+          <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
           {tool.result}
         </div>
       )}
 
       {/* Token cost */}
-      {tool.tokenCost != null && tool.tokenCost > 0 && (
+      {tool.state !== 'running' && (
         <div className="mt-1.5 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-          {tool.tokenCost} tokens
+          {tool.tokenCost == null
+            ? `tokens ${USAGE_LABELS.unavailable}`
+            : `${tool.tokenCost} tokens${tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''}`}
         </div>
       )}
     </DetailPopup>
