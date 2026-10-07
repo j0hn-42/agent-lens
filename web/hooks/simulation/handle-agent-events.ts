@@ -90,12 +90,16 @@ export function handleAgentSpawn(
 
   const displayName = label || localId
   const initialModel = mergeModel({}, { model: model ?? requestedModel ?? '', source: model ? modelSource : 'requested' }) ?? undefined
+  // Usage that arrived before the agent existed is now unambiguous: hand it over once, only if it was an orphan
+  const early = state.unattributed.get(name)
+  const lateUsage = early && early.reason === 'orphan' ? early.tokens : 0
+  if (early && early.reason === 'orphan') state.unattributed.delete(name)
   const agent: Agent = {
     id: name, agentKey: name, sessionId, localId, displayName, name: displayName, state: 'idle',
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: 0, tokensMax: ctx.getContextWindowSize(initialModel?.model),
+    tokensUsed: lateUsage, tokensMax: ctx.getContextWindowSize(initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,

@@ -28,7 +28,7 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
-import { totalAgentCost } from "@/lib/cost"
+import { summarizeCosts } from "@/lib/attribution"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -68,6 +68,7 @@ export function AgentVisualizer() {
     conversations,
     droppedEvents,
     droppedMessages,
+    unattributed,
     links,
     teams,
     play,
@@ -373,13 +374,10 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  const totalTokens = useMemo(() => {
-    let sum = 0
-    for (const a of agents.values()) sum += a.tokensUsed
-    return sum
-  }, [agents])
-
-  const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
+  // Attributed usage + the remainder that belongs to no single agent (kept apart, #61)
+  const costSummary = useMemo(() => summarizeCosts(agents.values(), unattributed.values()), [agents, unattributed])
+  const totalTokens = costSummary.sessionTokens
+  const totalCost = costSummary.sessionCost
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
@@ -506,6 +504,7 @@ export function AgentVisualizer() {
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
+        unattributedCost={costSummary.unattributedCost}
         showFileAttention={showFileAttention}
         showTranscript={showTranscript}
         showCostOverlay={showCostOverlay}

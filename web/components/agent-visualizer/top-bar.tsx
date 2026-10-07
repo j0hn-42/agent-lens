@@ -142,6 +142,8 @@ export interface TopBarProps {
   totalTokens: number
   /** Sum of per-agent costs, each priced with its own model */
   totalCost: number
+  /** Part of totalCost (and of totalTokens) that belongs to no single agent; shown apart when above zero */
+  unattributedCost?: number
   // Panel toggles
   showFileAttention: boolean
   showTranscript: boolean
@@ -161,7 +163,7 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
-  activeAgentCount, doneAgentCount, totalTokens, totalCost,
+  activeAgentCount, doneAgentCount, totalTokens, totalCost, unattributedCost = 0,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
@@ -254,6 +256,11 @@ export const TopBar = memo(function TopBar({
           {!isAllMode && (
             <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
               ~{formatCost(totalCost)}
+              {unattributedCost > 0 && (
+                <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
+                  {' '}(incl. {formatCost(unattributedCost)} unattributed)
+                </span>
+              )}
             </span>
           )}
         </span>

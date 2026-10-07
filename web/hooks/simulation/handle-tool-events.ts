@@ -3,6 +3,7 @@ import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
+import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -116,12 +117,18 @@ export function handleToolCallEnd(
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
 
+  // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
+  const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
+  if (target.kind !== 'attributed' && tokenCost) {
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add')
+  }
+
   if (agent) {
     state.agents.set(agentName, {
       ...agent,
       state: isError ? 'error' : 'thinking',
       currentTool: undefined,
-      tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
+      tokensUsed: agent.tokensUsed + (target.kind === 'attributed' ? (tokenCost ?? 0) : 0),
     })
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'

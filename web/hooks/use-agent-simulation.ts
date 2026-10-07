@@ -467,6 +467,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedEvents: state.droppedEvents,
     /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
     droppedMessages: state.droppedMessages,
+    /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
+    unattributed: state.unattributed,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

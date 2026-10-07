@@ -629,7 +629,7 @@ export function AgentCanvas({
       // Cluster labels live in screen space: readable at any zoom, placed without overlap
       drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey)
 
-      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
+      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls, simulationRef.current.unattributed.values())
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders

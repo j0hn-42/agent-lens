@@ -4,6 +4,7 @@ import { asNumber, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME,
 import type { MutableEventState } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
+import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
 export function handleMessage(
   payload: Record<string, unknown>,
@@ -77,6 +78,12 @@ export function handleContextUpdate(
     ? payload.tokensMax
     : undefined
   const agent = state.agents.get(agentName)
+  // Context size is an absolute reading: it belongs to one agent or to the remainder, never to a guess (#61)
+  const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
+  if (target.kind !== 'attributed') {
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokens, 'set')
+    return
+  }
   if (agent) {
     state.agents.set(agentName, {
       ...agent,
