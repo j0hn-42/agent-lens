@@ -20,6 +20,8 @@ interface ProjectContextPanelProps {
   onClose: () => void
 }
 
+const UNREADABLE_REASON = { symlink: 'symbolic link', 'not-a-file': 'not a regular file', unreadable: 'permission or read error' } as const
+
 const kb = (bytes: number) => Math.max(1, Math.round(bytes / 1024))
 
 function Note({ children, role }: { children: React.ReactNode; role?: 'alert' | 'status' }) {
@@ -31,7 +33,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
     <section aria-label={file.name} className="mb-2">
       <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{file.name}</h3>
       {!file.found ? (
-        <Note>{file.name} not found for this project.</Note>
+        <Note>{file.unreadable ? `${file.name} is present but was not read (${UNREADABLE_REASON[file.unreadable]}).` : `${file.name} not found for this project.`}</Note>
       ) : (
         <>
           {file.truncated && (

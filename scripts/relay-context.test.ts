@@ -91,6 +91,21 @@ describe('relay GET /context', () => {
     assert.ok(!r.body.includes(realWs), 'no absolute path leaks')
   })
 
+  it('reports a symlinked CLAUDE.md as unreadable through the relay', async () => {
+    const target = path.join(realWs, 'AGENTS.md')
+    const link = path.join(realWs, 'CLAUDE.md')
+    fs.writeFileSync(target, 'x')
+    fs.rmSync(link)
+    fs.symlinkSync('AGENTS.md', link)
+    try {
+      const body = JSON.parse((await get(`/context?session=${SESSION}`)).body)
+      assert.equal(body.files[0].found, false)
+      assert.equal(body.files[0].unreadable, 'symlink')
+    } finally {
+      fs.rmSync(link); fs.writeFileSync(link, 'Règles du projet, voir #64')
+    }
+  })
+
   it('reads again on every request (no relay-side cache)', async () => {
     fs.writeFileSync(path.join(realWs, 'CLAUDE.md'), 'changé')
     const body = JSON.parse((await get(`/context?session=${SESSION}`)).body)

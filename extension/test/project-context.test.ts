@@ -34,6 +34,23 @@ describe('project context', () => {
     assert.deepEqual(r.issues, [])
   })
 
+  it('reports a symlinked CLAUDE.md as present but unreadable, not as absent', () => {
+    const dir = fs.mkdtempSync(path.join(home, 'link-'))
+    fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'rules')
+    fs.symlinkSync('AGENTS.md', path.join(dir, 'CLAUDE.md'))
+    const [claude] = readProjectContext(dir, home).files
+    assert.equal(claude.found, false)
+    assert.equal(claude.unreadable, 'symlink')
+  })
+
+  it('reports a directory named CLAUDE.md as unreadable (not-a-file), a truly missing one without reason', () => {
+    const dir = fs.mkdtempSync(path.join(home, 'dir-'))
+    fs.mkdirSync(path.join(dir, 'CLAUDE.md'))
+    assert.equal(readProjectContext(dir, home).files[0].unreadable, 'not-a-file')
+    const empty = fs.mkdtempSync(path.join(home, 'none-'))
+    assert.equal(readProjectContext(empty, home).files[0].unreadable, undefined)
+  })
+
   it('reads CLAUDE.md and the memory index and extracts issue refs', () => {
     fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), 'Voir #64 et #12.\nEncore #64')
     fs.mkdirSync(memoryDir, { recursive: true })

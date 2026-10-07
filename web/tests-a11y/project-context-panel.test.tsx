@@ -71,6 +71,19 @@ test('opening the panel loads the context; files, truncation and issue refs are 
   assert.match(container.textContent ?? '', /cited in the files above/i)
 })
 
+test('a present but unreadable file is not shown as not found', async () => {
+  const f = makeFetch([ctx({ files: [
+    { kind: 'claude-md', name: 'CLAUDE.md', found: false, unreadable: 'symlink', text: '', bytes: 0, truncated: false },
+    { kind: 'memory', name: 'MEMORY.md', found: false, text: '', bytes: 0, truncated: false },
+  ] })])
+  const { container } = render(<ProjectContextPanel visible sessionId="s1" fetchContext={f.fetchContext} onClose={noop} />)
+  await flush()
+  const text = container.textContent ?? ''
+  assert.match(text, /CLAUDE\.md is present but was not read \(symbolic link\)/)
+  assert.doesNotMatch(text, /CLAUDE\.md not found/)
+  assert.match(text, /MEMORY\.md not found/)
+})
+
 test('reopening within 60 s does not fetch again; Refresh does', async () => {
   const f = makeFetch([ctx(), ctx()])
   const { rerender, getByRole } = render(<ProjectContextPanel visible sessionId="s1" fetchContext={f.fetchContext} onClose={noop} />)

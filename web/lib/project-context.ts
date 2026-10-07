@@ -13,6 +13,7 @@ export interface ProjectContextFile {
   kind: 'claude-md' | 'memory'
   name: string
   found: boolean
+  unreadable?: 'symlink' | 'not-a-file' | 'unreadable'
   text: string
   bytes: number
   truncated: boolean
@@ -53,7 +54,8 @@ export function parseProjectContext(raw: unknown): ProjectContextData | null {
     const x = f as Record<string, unknown>
     if ((x.kind !== 'claude-md' && x.kind !== 'memory') || typeof x.name !== 'string' || typeof x.found !== 'boolean'
       || typeof x.text !== 'string' || typeof x.bytes !== 'number' || typeof x.truncated !== 'boolean') return null
-    files.push({ kind: x.kind, name: x.name, found: x.found, text: x.text, bytes: x.bytes, truncated: x.truncated })
+    if (x.unreadable !== undefined && x.unreadable !== 'symlink' && x.unreadable !== 'not-a-file' && x.unreadable !== 'unreadable') return null
+    files.push({ kind: x.kind, name: x.name, found: x.found, ...(x.unreadable ? { unreadable: x.unreadable } : {}), text: x.text, bytes: x.bytes, truncated: x.truncated })
   }
   const issues = (Array.isArray(r.issues) ? r.issues : [])
     .filter((n): n is number => Number.isInteger(n) && (n as number) >= 1)
