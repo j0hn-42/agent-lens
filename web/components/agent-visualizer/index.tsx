@@ -25,6 +25,10 @@ import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
+const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-flow:single-key-shortcuts'
+
+type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
+
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
 
@@ -181,6 +185,45 @@ export function AgentVisualizer() {
     restart(true)
   }, [restart])
 
+  // Panel open-order stack (LIFO) so Escape closes the most recently opened panel first
+  const panelStackRef = useRef<PanelId[]>([])
+  useEffect(() => {
+    const open: Record<PanelId, boolean> = {
+      files: showFileAttention, transcript: showTranscript, cost: showCostOverlay,
+      timeline: showTimeline, stats: showStats,
+    }
+    const stack = panelStackRef.current.filter(id => open[id])
+    for (const id of Object.keys(open) as PanelId[]) {
+      if (open[id] && !stack.includes(id)) stack.push(id)
+    }
+    panelStackRef.current = stack
+  }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats])
+
+  const closeTopPanel = useCallback((): boolean => {
+    const top = panelStackRef.current[panelStackRef.current.length - 1]
+    if (!top) return false
+    panelStackRef.current = panelStackRef.current.slice(0, -1)
+    if (top === 'files') setShowFileAttention(false)
+    else if (top === 'transcript') setShowTranscript(false)
+    else if (top === 'cost') setShowCostOverlay(false)
+    else if (top === 'timeline') setShowTimeline(false)
+    else setShowStats(false)
+    return true
+  }, [])
+
+  // "Enable single-key shortcuts" preference (WCAG 2.1.4), persisted in localStorage
+  const [singleKeyShortcuts, setSingleKeyShortcuts] = useState(true)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY) === 'false') setSingleKeyShortcuts(false)
+    } catch { /* storage unavailable */ }
+  }, [])
+  const updateSingleKeyShortcuts = useCallback((enabled: boolean) => {
+    setSingleKeyShortcuts(enabled)
+    try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
+  }, [])
+  void updateSingleKeyShortcuts // TODO(#29): wire to the keyboard-shortcuts help dialog
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -191,13 +234,12 @@ export function AgentVisualizer() {
     toggleStats: () => { setShowStats(prev => !prev) },
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
+    closeTopPanel,
     clearSelection: () => { selection.clearAllSelections() },
-    deselectAgent: () => { selection.clearAgent() },
-    closeTranscript: () => { setShowTranscript(false) },
     toggleMute: handleToggleMute,
     setSpeed,
-    selectedAgentId: selection.selectedAgentId,
-  }), [handlePlayPause, selection.clearAllSelections, selection.clearAgent, selection.selectedAgentId, setSpeed, handleToggleMute, toggleExclusivePanel])
+    singleKeyEnabled: singleKeyShortcuts,
+  }), [handlePlayPause, selection.clearAllSelections, setSpeed, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
