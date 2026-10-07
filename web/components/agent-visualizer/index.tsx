@@ -436,7 +436,7 @@ export function AgentVisualizer() {
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
-      <h1 className="sr-only">Swarmscope</h1>
+      <h1 className="sr-only">Hivewatch</h1>
 
       {/* Empty state when no demo and no live data */}
       {isEmpty && (

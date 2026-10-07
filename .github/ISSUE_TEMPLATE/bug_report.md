@@ -22,5 +22,5 @@ If applicable, add screenshots to help explain the issue.
 
 **Environment**
 - VS Code version:
-- Swarmscope version:
+- Hivewatch version:
 - OS:

@@ -1,6 +1,6 @@
 {
-  "name": "swarmscope",
-  "displayName": "Swarmscope",
+  "name": "hivewatch",
+  "displayName": "Hivewatch",
   "description": "Real-time visualization of Claude Code and Codex agent orchestration",
   "version": "0.9.1",
   "publisher": "jobailla",
@@ -23,23 +23,23 @@
     "commands": [
       {
         "command": "agentVisualizer.open",
-        "title": "Open Swarmscope",
-        "category": "Swarmscope"
+        "title": "Open Hivewatch",
+        "category": "Hivewatch"
       },
       {
         "command": "agentVisualizer.openToSide",
-        "title": "Open Swarmscope to Side",
-        "category": "Swarmscope"
+        "title": "Open Hivewatch to Side",
+        "category": "Hivewatch"
       },
       {
         "command": "agentVisualizer.connectToAgent",
         "title": "Connect to Running Agent",
-        "category": "Swarmscope"
+        "category": "Hivewatch"
       },
       {
         "command": "agentVisualizer.configureHooks",
         "title": "Configure Claude Code Hooks",
-        "category": "Swarmscope"
+        "category": "Hivewatch"
       }
     ],
     "keybindings": [
@@ -50,7 +50,7 @@
       }
     ],
     "configuration": {
-      "title": "Swarmscope",
+      "title": "Hivewatch",
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",

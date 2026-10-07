@@ -41,7 +41,7 @@ let sessionEventCount = 0
  *  parser and the Codex rollout parser). Read at session_end for telemetry. */
 const observedModels = new Set<string>()
 
-// swarmscope-app version. Inlined by esbuild at bundle time via `define`.
+// hivewatch-app version. Inlined by esbuild at bundle time via `define`.
 // In dev (running from source via tsx), falls back to reading app/package.json.
 declare const AGENT_FLOW_APP_VERSION: string | undefined
 function resolveAgentFlowVersion(): string {
@@ -418,7 +418,7 @@ export interface RelayOptions {
   telemetry?: TelemetryClient
   /** Which runtimes to watch. Defaults to AGENT_FLOW_RUNTIME env var, or 'auto'.
    *  Mirrors the extension's `agentVisualizer.runtime` setting so users of the
-   *  dev relay and `npx swarmscope-app` have a way to opt out of one runtime. */
+   *  dev relay and `npx hivewatch-app` have a way to opt out of one runtime. */
   runtime?: RelayRuntimeMode
   /** Also discover Claude sessions from other workspaces (every project dir under
    *  ~/.claude/projects). Defaults to the AGENT_FLOW_ALL_WORKSPACES env var (1/true). */

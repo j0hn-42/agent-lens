@@ -1,9 +1,9 @@
 {
-  "name": "swarmscope-app",
+  "name": "hivewatch-app",
   "version": "0.9.1",
   "description": "Real-time visualization of AI agent orchestration — standalone web app",
   "bin": {
-    "swarmscope": "dist/app.js"
+    "hivewatch": "dist/app.js"
   },
   "files": [
     "dist/"
@@ -21,6 +21,6 @@
     "visualization",
     "ai",
     "llm",
-    "swarmscope"
+    "hivewatch"
   ]
 }

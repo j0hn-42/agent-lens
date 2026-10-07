@@ -76,7 +76,7 @@ export class VisualizerPanel implements vscode.Disposable {
 
     const panel = vscode.window.createWebviewPanel(
       VisualizerPanel.viewType,
-      'Swarmscope',
+      'Hivewatch',
       column,
       {
         enableScripts: true,

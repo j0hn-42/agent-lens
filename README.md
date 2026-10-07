@@ -1,15 +1,15 @@
-# Swarmscope
+# Hivewatch
 
-> **This is a fork of [Agent Flow](https://github.com/patoles/agent-flow)** by Simon Patole, published under the Apache License 2.0 and renamed **Swarmscope** as required by the upstream [trademark policy](TRADEMARK.md). It is not the official Agent Flow project and is not endorsed by its maintainers.
-> The `swarmscope-app` npm package and the VS Code extension are **not published**: run the project from source (see below).
+> **This is a fork of [Agent Flow](https://github.com/patoles/agent-flow)** by Simon Patole, published under the Apache License 2.0 and renamed **Hivewatch** as required by the upstream [trademark policy](TRADEMARK.md). It is not the official Agent Flow project and is not endorsed by its maintainers.
+> The `hivewatch-app` npm package and the VS Code extension are **not published**: run the project from source (see below).
 
 Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. 
 
-## Why Swarmscope?
+## Why Hivewatch?
 
 The original project was created by Simon Patole while developing [CraftMyGame](https://craftmygame.com), because debugging agent behavior was painful. This fork keeps that goal and focuses on accessibility, a unified multi-agent view and readable agent-to-agent communication.
 
-Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Swarmscope makes the invisible visible:
+Claude Code is powerful, but its execution is a black box — you see the final result, not the journey. Hivewatch makes the invisible visible:
 
 - **Understand agent behavior** — See how Claude breaks down problems, which tools it reaches for, and how subagents coordinate
 - **Debug tool call chains** — When something goes wrong, trace the exact sequence of decisions and tool calls that led there
@@ -32,8 +32,8 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 ### Run from source (no VS Code required)
 
 ```bash
-git clone https://github.com/jobailla/agent-flow.git swarmscope
-cd swarmscope
+git clone https://github.com/jobailla/agent-flow.git hivewatch
+cd hivewatch
 pnpm i
 pnpm run setup      # configure Claude Code hooks (one-time)
 pnpm run dev        # start the web app + event relay
@@ -44,43 +44,43 @@ Open http://localhost:3000 and start a Claude Code session in another terminal �
 ### VS Code Extension
 
 1. Install the extension
-2. Open the Command Palette (`Cmd+Shift+P`) and run **Swarmscope: Open Swarmscope**
-3. Start a Claude Code or Codex session in your workspace — Swarmscope will auto-detect it
+2. Open the Command Palette (`Cmd+Shift+P`) and run **Hivewatch: Open Hivewatch**
+3. Start a Claude Code or Codex session in your workspace — Hivewatch will auto-detect it
 
-Swarmscope automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Swarmscope: Configure Claude Code Hooks** from the Command Palette.
+Hivewatch automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Hivewatch: Configure Claude Code Hooks** from the Command Palette.
 
 ### Runtime selection
 
-By default Swarmscope watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx swarmscope-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+By default Hivewatch watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx hivewatch-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
 
 To restrict to one runtime:
 
 - **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` in your settings
-- **`pnpm run dev` and `npx swarmscope-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
+- **`pnpm run dev` and `npx hivewatch-app`:** set the `AGENT_FLOW_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable.
 
 ### JSONL Event Log
 
-You can also point Swarmscope at a JSONL event log file:
+You can also point Hivewatch at a JSONL event log file:
 
 1. Set `agentVisualizer.eventLogPath` in your VS Code settings to the path of a `.jsonl` file
-2. Swarmscope will tail the file and visualize events as they arrive
+2. Hivewatch will tail the file and visualize events as they arrive
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `Swarmscope: Open Swarmscope` | Open the visualizer panel |
-| `Swarmscope: Open Swarmscope to Side` | Open in a side editor column |
-| `Swarmscope: Connect to Running Agent` | Manually connect to an agent session |
-| `Swarmscope: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
+| `Hivewatch: Open Hivewatch` | Open the visualizer panel |
+| `Hivewatch: Open Hivewatch to Side` | Open in a side editor column |
+| `Hivewatch: Connect to Running Agent` | Manually connect to an agent session |
+| `Hivewatch: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
 
 ## Keyboard Shortcut
 
 | Shortcut | Action |
 |----------|--------|
-| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Swarmscope |
+| `Cmd+Alt+A` (Mac) / `Ctrl+Alt+A` (Win/Linux) | Open Hivewatch |
 
 ## Settings
 
@@ -132,7 +132,7 @@ Follow-up (not done yet): a Playwright + `@axe-core/playwright` smoke run agains
 
 ## Author
 
-Swarmscope is a fork of [Agent Flow](https://github.com/patoles/agent-flow), created by [Simon Patole](https://github.com/patoles) for [CraftMyGame](https://craftmygame.com). The original author is credited under the Apache License 2.0; all upstream copyright notices are kept.
+Hivewatch is a fork of [Agent Flow](https://github.com/patoles/agent-flow), created by [Simon Patole](https://github.com/patoles) for [CraftMyGame](https://craftmygame.com). The original author is credited under the Apache License 2.0; all upstream copyright notices are kept.
 
 ## Privacy & Telemetry
 
