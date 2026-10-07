@@ -158,8 +158,8 @@ export const CLUSTER_LAYOUT = {
   gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
-  /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.6,
+  /** Share of the distance a lead (orchestrator) covers towards its anchor, per tick */
+  holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
@@ -167,8 +167,6 @@ export const CLUSTER_LAYOUT = {
   ringStrength: 0.06,
   /** Members are kept within this fraction of the cluster radius */
   containFactor: 0.95,
-  containStrength: 0.08,
-  separationStrength: 0.5,
 } as const
 
 // ─── Tool slot placement config ─────────────────────────────────────────────

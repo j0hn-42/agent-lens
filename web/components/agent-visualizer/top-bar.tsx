@@ -129,6 +129,9 @@ export interface TopBarProps {
   /** Sessions currently counted as finished (not active) */
   finishedSessionCount?: number
   onToggleShowFinished?: (show: boolean) => void
+  /** Idle / complete agents are hidden from the canvas */
+  hideInactive?: boolean
+  onToggleHideInactive?: (hide: boolean) => void
   // Connection
   isVSCode: boolean
   connectionStatus: ConnectionStatus
@@ -157,6 +160,7 @@ export const TopBar = memo(function TopBar({
   sessions, selectedSessionId, sessionsWithActivity,
   onSelectSession, onCloseSession, teams, teamWorking, teamMemberCounts,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
+  hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
@@ -217,6 +221,16 @@ export const TopBar = memo(function TopBar({
             title="Also show sessions that finished more than 10 minutes ago"
           >
             {finishedToggleLabel(finishedSessionCount)}
+          </ToggleButton>
+        )}
+        {onToggleHideInactive && (
+          <ToggleButton
+            active={hideInactive}
+            pressed={hideInactive}
+            onClick={() => onToggleHideInactive(!hideInactive)}
+            title="Hide agents that are idle or finished"
+          >
+            Hide inactive agents
           </ToggleButton>
         )}
         {isAllMode ? (
