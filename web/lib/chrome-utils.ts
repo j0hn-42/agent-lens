@@ -49,15 +49,34 @@ export interface TabItem {
 export function buildTabModel(
   sessions: ReadonlyArray<Pick<SessionInfo, 'id'> & { teamName?: string }>,
   teamNames: Iterable<string>,
+  /** Team map key -> display name and lead session: lets two teams with the same name under different
+   *  lead sessions (keys "alpha" and "alpha@L3") each get their own member sessions. */
+  teamMeta?: ReadonlyMap<string, { name: string; leadSessionId?: string }>,
 ): TabItem[] {
   const teams: string[] = []
   const add = (name: string | undefined) => { if (name && !teams.includes(name)) teams.push(name) }
   for (const n of teamNames) add(n)
-  for (const s of sessions) add(s.teamName)
+  // A session tagged with a team name belongs to the team key whose lead session it is, otherwise to the
+  // first key carrying that name (the tag holds only the name).
+  const keyOfSession = (s: { id: string; teamName?: string }): string | undefined => {
+    if (!s.teamName) return undefined
+    if (teamMeta) {
+      let first: string | undefined
+      for (const key of teams) {
+        const meta = teamMeta.get(key)
+        if (!meta || meta.name !== s.teamName) continue
+        if (meta.leadSessionId === s.id) return key
+        first ??= key
+      }
+      if (first !== undefined) return first
+    }
+    return s.teamName
+  }
+  for (const s of sessions) add(keyOfSession(s))
   const items: TabItem[] = [{ id: ALL_SESSIONS_ID, kind: 'all' }]
   for (const team of teams) {
     items.push({ id: teamSelectionId(team), kind: 'team', teamName: team })
-    for (const s of sessions) if (s.teamName === team) items.push({ id: s.id, kind: 'session', teamName: team })
+    for (const s of sessions) if (keyOfSession(s) === team) items.push({ id: s.id, kind: 'session', teamName: team })
   }
   for (const s of sessions) if (!s.teamName) items.push({ id: s.id, kind: 'session' })
   return items

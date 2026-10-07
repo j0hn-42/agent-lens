@@ -120,6 +120,30 @@ test('D6: selecting an agent elsewhere (canvas) clears the pair so the highlight
   assert.equal(r.getByRole('log', { name: /^Messages from / }).getAttribute('aria-label'), 'Messages from audit-ux')
 })
 
+test('D6: when the active tab disappears the pair is cleared and the feed falls back to All', () => {
+  const registry = createPanelRegistry()
+  const tree = (convs: Map<string, ConversationMessage[]>) => (
+    <PanelRegistryContext.Provider value={registry.register}>
+      <MessageFeedPanel conversations={convs} agents={agents} links={links} teams={teams}
+        onAgentClick={() => {}} selectedAgentId={null} />
+    </PanelRegistryContext.Provider>
+  )
+  const r = render(tree(conversations))
+  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  fireEvent.click(r.getAllByRole('tab').find(t => (t.textContent ?? '').startsWith('explore'))!)
+  assert.equal(r.getAllByRole('tab').find(t => t.getAttribute('aria-selected') === 'true')!.textContent?.startsWith('explore'), true)
+  act(() => setPair('o', 'u'))
+  assert.equal(getPair().a, 'o')
+  // 'explore' no longer has any message while other agents still do: its tab vanishes
+  const without = new Map(conversations)
+  without.delete('e')
+  r.rerender(tree(without))
+  assert.equal(getPair().a, '', 'the pair is cleared with the vanished tab')
+  const selected = r.getAllByRole('tab').filter(t => t.getAttribute('aria-selected') === 'true')
+  assert.equal(selected.length, 1)
+  assert.equal((selected[0].textContent ?? '').startsWith('All'), true, 'the feed fell back to the All tab')
+})
+
 test('a pair set before its messages load announces the real count once they arrive', () => {
   const nameOf = (k: string) => k
   act(() => setPair('o', 'u'))

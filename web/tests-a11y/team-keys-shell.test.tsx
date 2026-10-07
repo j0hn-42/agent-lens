@@ -41,3 +41,30 @@ test('teamColorOf resolves the team the agent session takes part in', () => {
   assert.equal(teamColorOf(agent, teams), '#00ff00')
   assert.equal(teamColorOf({ ...agent, sessionId: 'L1' }, teams), '#ff0000')
 })
+
+test('a session tab under a second same-named team announces the display name and sits under its own team tab', () => {
+  const r = render(
+    <SessionTabs
+      sessions={[
+        { id: 'L1', label: 'first lead', status: 'active', spawnTime: 0, teamName: 'alpha' },
+        { id: 'L3', label: 'third lead', status: 'active', spawnTime: 0, teamName: 'alpha' },
+      ] as never}
+      selectedSessionId={null} sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}}
+      teams={teams}
+      teamMemberCounts={new Map([['alpha', 1], ['alpha@L3', 1]])}
+      teamWorking={new Map([['alpha', 0], ['alpha@L3', 0]])}
+    />,
+  )
+  const ids = r.getAllByRole('tab').map(t => t.id)
+  // All, team alpha, its lead L1, team alpha@L3, its lead L3
+  assert.deepEqual(ids, [
+    'session-tab-__all__',
+    `session-tab-${teamSelectionId('alpha')}`, 'session-tab-L1',
+    `session-tab-${teamSelectionId('alpha@L3')}`, 'session-tab-L3',
+  ])
+  const l3 = r.getAllByRole('tab').find(t => t.id === 'session-tab-L3')!
+  const sr = Array.from(l3.querySelectorAll('.sr-only')).map(e => e.textContent ?? '').join('')
+  assert.ok(sr.includes('team alpha,'), sr)
+  assert.ok(!sr.includes('@L3'), `the sr-only text leaks the raw key: ${sr}`)
+})

@@ -78,7 +78,7 @@ export function SessionTabs({
   // after a short grace period, so an unrelated later change never steals focus.
   const pendingFocusRef = useRef<PendingTabFocus | null>(null)
   const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const tabItems = buildTabModel(sessions, teams ? teams.keys() : [])
+  const tabItems = buildTabModel(sessions, teams ? teams.keys() : [], teams)
   const tabIds = tabItems.map(t => t.id)
   const closeTab = (id: string) => {
     const at = tabIds.indexOf(id)

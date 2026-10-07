@@ -453,8 +453,9 @@ export function AgentVisualizer() {
   const selectedAgentIdForPair = selection.selectedAgentId
   const handleCanvasAgentClick = useCallback((agentId: string | null, modifiers?: { shiftKey: boolean }) => {
     if (modifiers?.shiftKey && agentId) {
+      // Picking must not change the selection: the feed clears the pair whenever the selected agent
+      // changes (the tab would no longer describe the list), which would wipe the pair just chosen.
       shiftPickPair(selectedAgentIdForPair, agentId)
-      if (!selectedAgentIdForPair) selectAgent(agentId)
       return
     }
     selectAgent(agentId)

@@ -1,7 +1,9 @@
 // Integration test (#36, D3) on the REAL useAgentSimulation hook: events go in through externalEvents,
 // requestAnimationFrame is driven by hand with deterministic timestamps, and the assertions are on the
-// agent positions the hook publishes (frameRef). Deleting the layoutRef.current.stepState(...) call of
-// animate() (the D3 wiring bug) makes these tests fail.
+// agent positions the hook publishes (frameRef). Mutation check: deleting the layoutRef.current.stepState(...)
+// call of animate() (the D3 wiring bug) fails the 5-session, 12-session, team and keeps-applying tests.
+// The 1-session, 3-session and late-growth cases are small enough for the 30 sync ticks of syncState to
+// settle them, so they guard the layout result, NOT the per-frame wiring.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, act, cleanup } from '@testing-library/react'
