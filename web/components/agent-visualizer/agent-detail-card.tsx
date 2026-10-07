@@ -3,7 +3,7 @@
 import { useId, useRef } from 'react'
 import { CARD, Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
-import { formatTokens, formatModelName, formatDuration } from '@/lib/utils'
+import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
@@ -92,7 +92,7 @@ export function AgentDetailCard({
 
         {/* Stats row */}
         <div className="flex gap-3 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-          <span>{agent.toolCalls} tools</span>
+          <span>{pluralize(agent.toolCalls, 'tool')}</span>
           <span>{formatDuration(agent.timeAlive)} alive</span>
           <span style={{ color: stateColor }}>{getStateLabel(agent.state)}</span>
         </div>

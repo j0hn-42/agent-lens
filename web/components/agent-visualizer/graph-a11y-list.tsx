@@ -3,6 +3,7 @@
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
+import type { LinkMessageItem } from './canvas/edge-bubble-set'
 
 interface GraphA11yListProps {
   model: A11yModel
@@ -16,6 +17,8 @@ interface GraphA11yListProps {
   onDiscoveryClick?: (discoveryId: string | null) => void
   /** Open the link panel for a communication link */
   onLinkClick?: (linkId: string) => void
+  /** Recent messages of the links (the same ones the bubbles on the edges show), each opening the link panel */
+  linkMessages?: LinkMessageItem[]
   /** Id of the link whose panel is open (aria-current) */
   selectedLinkId?: string | null
   /** Zoom to a session / team cluster (same action as a click on its halo label) */
@@ -34,7 +37,7 @@ interface GraphA11yListProps {
  */
 export function GraphA11yList({
   model, communications, announcements, focusedNode,
-  onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
+  onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, linkMessages, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
 }: GraphA11yListProps) {
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
@@ -193,6 +196,22 @@ export function GraphA11yList({
                 </li>
               ))}
             </ul>
+            {linkMessages && linkMessages.length > 0 && (
+              <ul aria-label="Link messages">
+                {linkMessages.map(item => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      data-graph-node=""
+                      tabIndex={-1}
+                      onClick={() => onLinkClick?.(item.linkId)}
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </>
         )}
 

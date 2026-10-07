@@ -14,7 +14,10 @@ import {
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair,
   droppedMarkerFor, agentIdsWithMessages, pairFromShiftClick, pairOfMessage, type FeedMessage, type CommKind,
 } from '@/lib/feed-utils'
+import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
+import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { ChevronIcon, ArrowDownIcon } from './feed-icons'
+import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE } from './transcript-message'
 
 interface MessageFeedPanelProps {
@@ -58,9 +61,9 @@ export function MessageFeedPanel({
   const [expanded, setExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState<string>('all')
   const [unread, setUnread] = useState<Set<string>>(new Set())
-  const [pairOpen, setPairOpen] = useState(false)
-  const [pairA, setPairA] = useState('')
-  const [pairB, setPairB] = useState('')
+  // The pair is shared with the transcript and the timeline; only the pickers' visibility is local.
+  const pair = usePairFilter()
+  const [pickerOpen, setPickerOpen] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
   const unreadStateRef = useRef<UnreadState>(emptyUnreadState())
   const pillRef = useRef<HTMLButtonElement>(null)
@@ -112,10 +115,10 @@ export function MessageFeedPanel({
     [allMessages, agents],
   )
 
-  const pairActive = pairOpen && pairA !== '' && pairB !== '' && pairA !== pairB
+  const pairActive = isPairComplete(pair)
   const messages = useMemo(
-    () => (pairActive ? filterByPair(allMessages, pairA, pairB) : filterByTab(allMessages, activeTab)),
-    [allMessages, activeTab, pairActive, pairA, pairB],
+    () => (pairActive ? filterByPair(allMessages, pair.a, pair.b) : filterByTab(allMessages, activeTab)),
+    [allMessages, activeTab, pairActive, pair.a, pair.b],
   )
   const droppedMarker = droppedMarkerFor(droppedMessages, pairActive ? 'none' : activeTab)
   const multiSession = hasMultipleSessions(agents)
@@ -196,25 +199,17 @@ export function MessageFeedPanel({
   const tabKeys = ['all', ...agentsWithMessages]
   const activeTabIndex = activeTabIndexOf(tabKeys, activeTab)
 
-  const selectPair = (a: string, b: string) => {
-    setPairA(a)
-    setPairB(b)
-    setPairOpen(true)
-  }
+  const selectPair = (a: string, b: string) => setPair(a, b)
+  const nameOfAgent = useCallback((key: string) => agentNameOf(agents, key), [agents])
   const onTabClick = (key: string, shift: boolean) => {
-    const anchor = pairOpen && pairA !== '' ? pairA : activeTab
-    const pair = shift ? pairFromShiftClick(anchor, key) : null
-    if (pair) { selectPair(pair[0], pair[1]); return }
-    // Shift-click an agent tab while on "all": start a pair with it as the first agent.
-    if (shift && key !== 'all' && anchor === 'all') {
-      setPairA(key)
-      setPairB('')
-      setPairOpen(true)
+    if (shift && key !== 'all') {
+      // Click an agent, then Shift-click another: filter on their exchanges. With no pair started yet the
+      // current tab is the first agent.
+      if (pair.a === '' && pairFromShiftClick(activeTab, key)) selectPair(activeTab, key)
+      else pickPair(key)
       return
     }
-    setPairOpen(false)
-    setPairA('')
-    setPairB('')
+    clearPair()
     setActiveTab(key)
   }
 
@@ -280,7 +275,7 @@ export function MessageFeedPanel({
       onScroll={handleScroll}
       role="log"
       aria-live="off"
-      aria-label={activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
+      aria-label={pairActive ? `Messages between ${agentNameOf(agents, pair.a)} and ${agentNameOf(agents, pair.b)}` : activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
       tabIndex={0}
       className={`flex-1 overflow-y-auto px-2 pb-2 ${FOCUS_RING}`}
       style={{ maxHeight: 340, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
@@ -288,7 +283,7 @@ export function MessageFeedPanel({
       {messages.length === 0 ? (
         <div className="flex items-center justify-center py-6">
           <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-            {EMPTY_MESSAGES}
+            {pairActive ? pairEmptyText(pair, nameOfAgent) : EMPTY_MESSAGES}
           </span>
         </div>
       ) : (
@@ -313,11 +308,12 @@ export function MessageFeedPanel({
                   showAgent={activeTab === 'all' || pairActive}
                   isSelected={selectedAgentId === msg.agentId}
                   onClick={(e) => {
-                    const pair = e.shiftKey ? pairOfMessage(msg) : null
-                    if (pair) { selectPair(pair[0], pair[1]); return }
+                    const rowPair = e.shiftKey ? pairOfMessage(msg) : null
+                    if (rowPair) { selectPair(rowPair[0], rowPair[1]); return }
                     onAgentClick(msg.agentId); restoreFocusRef.current = true; setExpanded(false)
                   }}
                   runtime={agents.get(msg.agentId)?.runtime}
+                  onFilterPair={(() => { const rp = pairOfMessage(msg); return rp ? () => selectPair(rp[0], rp[1]) : undefined })()}
                   contentId={`${baseId}-msg-${msg.id}`}
                 />
               </div>
@@ -338,13 +334,6 @@ export function MessageFeedPanel({
       className="absolute"
       style={{ top: 48, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') {
-          e.stopPropagation()
-          restoreFocusRef.current = true
-          setExpanded(false)
-        }
-      }}
     >
       <div className="glass-card flex flex-col" style={{ width: PANEL_WIDTH, maxWidth: 'calc(100vw - 24px)', maxHeight: 420 }}>
         {/* Header */}
@@ -415,21 +404,23 @@ export function MessageFeedPanel({
         )}
 
         {/* Pair filter: the communications exchanged between two agents */}
-        {agentsWithMessages.length > 1 && (
-          <div className="px-2 pb-1.5">
+        {(agentsWithMessages.length > 1 || isPairSet(pair)) && (
+          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1">
             <button
               type="button"
-              aria-pressed={pairOpen}
-              onClick={() => setPairOpen(v => !v)}
+              aria-pressed={pickerOpen}
+              aria-expanded={pickerOpen}
+              title="Filter on the messages exchanged between two agents (or Shift-click a second agent tab or message row)"
+              onClick={() => setPickerOpen(v => !v)}
               className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
-              style={{ color: pairOpen ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+              style={{ color: pickerOpen ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
-              Pair
+              Filter pair
             </button>
-            <span className="sr-only"> Shift-click a second agent tab or a message row to filter on that pair.</span>
-            {pairOpen && (
-              <span className="inline-flex flex-wrap items-center gap-1 ml-1 align-middle">
-                {([['First agent', pairA, setPairA], ['Second agent', pairB, setPairB]] as const).map(([label, value, set]) => (
+            <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} />
+            {pickerOpen && (
+              <span className="inline-flex flex-wrap items-center gap-1">
+                {([['First agent', pair.a, (v: string) => setPair(v, pair.b)], ['Second agent', pair.b, (v: string) => setPair(pair.a, v)]] as const).map(([label, value, set]) => (
                   <select
                     key={label}
                     aria-label={label}
@@ -442,14 +433,6 @@ export function MessageFeedPanel({
                     {agentsWithMessages.map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
                   </select>
                 ))}
-                {pairActive && (
-                  <span role="status" className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
-                    {agentNameOf(agents, pairA)} {'\u2194'} {agentNameOf(agents, pairB)}
-                  </span>
-                )}
-                {pairA !== '' && pairA === pairB && (
-                  <span role="status" className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}>Select two different agents</span>
-                )}
               </span>
             )}
           </div>
@@ -551,7 +534,7 @@ function sessionChipOf(agent: Agent | undefined): string | undefined {
   return (agent.sessionLabel ?? agent.sessionId).slice(0, 24)
 }
 
-function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, onClick, runtime, contentId }: {
+function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, onClick, runtime, contentId, onFilterPair }: {
   message: ConversationMessage
   agentName: string
   fromName?: string
@@ -563,6 +546,8 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   onClick: (e: React.MouseEvent) => void
   runtime?: Agent['runtime']
   contentId: string
+  /** Communication rows: filter the feed on the two agents of this row (keyboard path for Shift-click) */
+  onFilterPair?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const commKind = commKindOf(message)
@@ -635,6 +620,18 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           {displayText}
         </span>
       </button>
+
+      {onFilterPair && (
+        <button
+          type="button"
+          aria-label={`Filter pair ${direction ?? ''}`.trim()}
+          onClick={onFilterPair}
+          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+          style={{ color: COLORS.textMuted }}
+        >
+          Filter pair
+        </button>
+      )}
 
       {/* Expand/collapse for long messages */}
       {isLong && (
