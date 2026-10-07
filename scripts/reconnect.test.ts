@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   BACKOFF_BASE_MS, BACKOFF_MAX_MS, POLL_AFTER_FAILURES, BACKOFF_JITTER_RATIO,
+  POLL_INTERVAL_MS, POLL_TIMEOUT_MS, DEDUPE_CAPACITY, REPLAY_WINDOW_MS,
   backoffDelay, nextLinkState, INITIAL_LINK_STATE, reconnectDetail, createLoadToken,
   filterForSession, messageSessionIds, createEventDedupe, type LinkState, type LinkEvent,
 } from '../web/lib/reconnect'
@@ -10,6 +11,14 @@ test('named thresholds match the issue (5 s to 30 s, polling after 3 failures)',
   assert.equal(BACKOFF_BASE_MS, 5_000)
   assert.equal(BACKOFF_MAX_MS, 30_000)
   assert.equal(POLL_AFTER_FAILURES, 3)
+})
+
+test('every other threshold keeps its value', () => {
+  assert.equal(POLL_INTERVAL_MS, 5_000)
+  assert.equal(POLL_TIMEOUT_MS, 4_000)
+  assert.equal(BACKOFF_JITTER_RATIO, 0.2)
+  assert.equal(DEDUPE_CAPACITY, 20_000)
+  assert.equal(REPLAY_WINDOW_MS, 10_000)
 })
 
 test('backoffDelay doubles from 5 s and caps at 30 s (no jitter)', () => {

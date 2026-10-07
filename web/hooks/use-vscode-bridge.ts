@@ -82,7 +82,7 @@ interface BridgeHookResult {
   notice: BridgeNotice | null
 }
 
-const PARSE_NOTICE_INTERVAL_MS = 10_000
+export const PARSE_NOTICE_INTERVAL_MS = 10_000
 
 /** How often the 'active session' rule is re-evaluated for the passage of time */
 const VISIBILITY_TICK_MS = 30_000
@@ -204,7 +204,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // Relay mode: dev server or standalone CLI, outside VS Code (the extension feeds events by postMessage there)
   const isRelayMode = process.env.AGENT_LENS_STANDALONE === '1'
     || (process.env.NODE_ENV === 'development' && process.env.NEXT_PUBLIC_DEMO === '0')
-  const relayEnabled = isRelayMode && !!vscodeBridge && !vscodeBridge.isVSCode && !isVSCode
+  const relayEnabled = isRelayMode && !!vscodeBridge && !vscodeBridge.isVSCode
   const lastParseNoticeRef = useRef(0)
   const wasDownRef = useRef(false)
   const source = useReconnectingSource({

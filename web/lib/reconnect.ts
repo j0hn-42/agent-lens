@@ -22,6 +22,8 @@ export const POLL_INTERVAL_MS = 5_000
 export const BACKOFF_JITTER_RATIO = 0.2
 /** Timeout of one reachability probe */
 export const POLL_TIMEOUT_MS = 4_000
+/** After a reconnect, how long identical events are treated as the relay's buffer replay and dropped */
+export const REPLAY_WINDOW_MS = 10_000
 /** Replayed events remembered to drop the duplicates a reconnect replays */
 export const DEDUPE_CAPACITY = 20_000
 
@@ -34,7 +36,8 @@ export const DEDUPE_CAPACITY = 20_000
 export function backoffDelay(attempt: number, random: () => number = Math.random): number {
   const n = Number.isFinite(attempt) ? Math.max(1, Math.floor(attempt)) : 1
   const nominal = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * 2 ** Math.min(n - 1, 16))
-  const r = Math.min(1, Math.max(0, random()))
+  const raw = random()
+  const r = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0
   return Math.min(BACKOFF_MAX_MS, Math.round(nominal * (1 + BACKOFF_JITTER_RATIO * r)))
 }
 
@@ -99,7 +102,8 @@ export function filterForSession(data: unknown, requested: string | null | undef
   if (typeof data !== 'object' || data === null) return data
   const d = data as Record<string, unknown>
   if (d.type === 'agent-event-batch' && Array.isArray(d.events)) {
-    const kept = d.events.filter(e => messageSessionIds({ type: 'agent-event', event: e }).every(id => id === requested))
+    const kept = d.events.filter(e => typeof e === 'object' && e !== null
+      && messageSessionIds({ type: 'agent-event', event: e }).every(id => id === requested))
     return kept.length === 0 ? null : { ...d, events: kept }
   }
   if (d.type === 'session-list' && Array.isArray(d.sessions)) return data
@@ -206,7 +210,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       hasConnected = true
       state = nextLinkState(state, 'open')
       // The relay replays its buffer on every connect: remember what was delivered, drop repeats afterwards
-      replaying = reconnected
+      replayUntil = reconnected ? Date.now() + REPLAY_WINDOW_MS : 0
       emit('connected')
     }
     src.onmessage = e => {
@@ -226,13 +230,15 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
     }
   }
 
-  let replaying = false
+  /** Identical events are replays (dropped) until this instant; 0 on the first connection */
+  let replayUntil = 0
+  const replaying = () => Date.now() < replayUntil
   const deliver = (data: unknown) => {
     const d = data as Record<string, unknown> | null
     if (d && d.type === 'agent-event') {
-      if (dedupe.seen(d.event) && replaying) return
+      if (dedupe.seen(d.event) && replaying()) return
     } else if (d && d.type === 'agent-event-batch' && Array.isArray(d.events)) {
-      const fresh = d.events.filter(ev => !(dedupe.seen(ev) && replaying))
+      const fresh = d.events.filter(ev => !(dedupe.seen(ev) && replaying()))
       if (fresh.length === 0) return
       data = { ...d, events: fresh }
     }
@@ -246,7 +252,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
     /** Stop everything: timers, in-flight probe and stream. Late callbacks are ignored. */
     close() {
       // Only invalidate if still the live source: a newer one owns the shared token
-      if (alive()) token = loadToken.next()
+      if (alive()) loadToken.next()
       clear()
     },
   }
