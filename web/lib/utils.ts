@@ -95,8 +95,10 @@ export function modelTierColor(model?: string): string {
   if (/sonnet/.test(id)) return '#ffd24a'
   if (/haiku/.test(id)) return '#5aa9ff'
   if (/gpt|codex|\bo\d/.test(id)) {
-    if (/mini|nano/.test(id)) return '#5aa9ff'
-    if (/pro|gpt-5|gpt-4\.5/.test(id)) return '#ff5a5a'
+    // GPT-5.6 named tiers, then size suffixes (mini/nano, gpt-oss-20b), then the large models
+    if (/-luna|mini|nano|oss-20b/.test(id)) return '#5aa9ff'
+    if (/-terra/.test(id)) return '#ff9a3c'
+    if (/-sol|pro|gpt-5|gpt-4\.5/.test(id)) return '#ff5a5a'
     return '#ff9a3c'
   }
   return '#8a96a8'
