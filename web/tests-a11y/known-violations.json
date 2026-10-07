@@ -10,5 +10,11 @@
     "rule": "aria-required-children",
     "issue": 7,
     "note": "Close button sits inside role=tablist next to the tab; move it out of the tablist"
+  },
+  {
+    "scenario": "e2e:tab-order",
+    "rule": "invisible-focusable",
+    "issue": 10,
+    "note": "SlidingPanel and ChatPanel stay in the Tab order at opacity 0"
   }
 ]

@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "build:webview": "vite build --config vite.config.webview.ts",
-    "lint:a11y": "eslint -c eslint.config.mjs .",
-    "test:a11y": "node --import tsx --import ./tests-a11y/setup.ts --test \"tests-a11y/*.test.tsx\""
+    "lint:a11y": "node --import tsx tests-a11y/lint-baseline.ts",
+    "test:a11y": "node --import tsx --import ./tests-a11y/setup.ts --test \"tests-a11y/*.test.tsx\"",
+    "test:e2e": "node --import tsx --test --test-concurrency=1 \"tests-a11y/e2e/*.e2e.ts\""
   },
   "dependencies": {
     "d3-force": "^3.0.0",
@@ -17,6 +18,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@tailwindcss/postcss": "^4.2.0",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/dom": "^10.4.2",
@@ -31,6 +33,7 @@
     "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "jsdom": "^30.1.2",
+    "playwright": "^1.63.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.2.0",
     "tw-animate-css": "1.3.3",

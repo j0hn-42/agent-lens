@@ -121,13 +121,13 @@ Other scripts:
 
 ## Accessibility testing
 
-Accessibility checks run in CI without any browser download:
+Three layers run in CI (see `.github/workflows/ci.yml`):
 
-- `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset) on `web/`. Known violations are allow-listed per file in `web/eslint.config.mjs`, each with the issue that will fix it.
-- `pnpm run test:a11y` renders the key components (top bar, control bar, session tabs, transcript, feed, file attention, chat, popups, context menu, shortcuts dialog, timeline canvas and table view) in jsdom and runs axe-core on them, plus keyboard scenarios (shortcut filter, tab/menu/scrubber key models). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number. The test fails on a new violation and also when an allow-listed one disappears, so the list can only shrink.
-- jsdom has no layout engine, so axe cannot compute color contrast here. Contrast is covered at the token level by `scripts/contrast.test.ts` (part of `pnpm test`).
+- **Lint** — `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset, no per-file overrides, inline disables ignored) and compares the result with `web/tests-a11y/lint-baseline.json`, one entry per file and rule with a violation count and the issue that fixes it. It fails on any new violation and on any listed violation that was fixed. After fixing code, run `pnpm --dir web run lint:a11y -- --write` and review the diff; the baseline should only shrink.
+- **jsdom + axe-core** — `pnpm run test:a11y` renders the key components (top bar, control bar in live and review mode, session tabs, transcript, feed, file attention, chat, popups, context menu, shortcuts dialog, timeline canvas and table view) and runs axe-core on them. Keyboard wiring tests render the real components and dispatch real key events (scrubber arrows, Space on a button, Escape, context-menu arrows). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number; the test fails on a new violation and when a listed one disappears, with a message saying which entry to remove.
+- **Browser (Playwright + `@axe-core/playwright`)** — `pnpm --dir web run test:e2e` drives the demo app (`pnpm run dev:demo`, or set `E2E_BASE_URL`) for what jsdom cannot see: serious/critical axe violations including color contrast on the initial page, each panel, review mode and the shortcuts dialog; no horizontal scroll at 320 px and 640 px (400 % and 200 % zoom); no running animation under `prefers-reduced-motion: reduce`; no invisible control in the Tab order; Space, Escape and scrubber keys on the real page. Install the browser once with `pnpm --dir web exec playwright install chromium`. Without a running server the tests are skipped locally and fail in CI. Browser-level findings use the `e2e:*` scenarios of `known-violations.json`.
 
-Follow-up (not done yet): a Playwright + `@axe-core/playwright` smoke run against `pnpm run dev:demo` for layout-dependent checks (320 px reflow, 200 % zoom, `prefers-reduced-motion`, full-page Tab order). It needs a downloaded browser, so it is not part of CI today.
+Color contrast of the design tokens is also checked without a browser by `scripts/contrast.test.ts` (part of `pnpm test`).
 
 ## Origin and credits
 

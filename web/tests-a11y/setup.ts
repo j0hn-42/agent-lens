@@ -3,6 +3,7 @@
 // jsdom has no layout engine, so color contrast is NOT checked here
 // (see scripts/contrast.test.ts for the token-level contrast checks).
 import { JSDOM } from 'jsdom'
+import { act } from 'react'
 
 const dom = new JSDOM('<!doctype html><html lang="en"><head><title>a11y</title></head><body></body></html>', {
   url: 'http://localhost/',
@@ -27,7 +28,8 @@ for (const k of copy) {
   }
 }
 g.IS_REACT_ACT_ENVIRONMENT = true
-g.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0)
+// Run frame callbacks inside act() so state updates they trigger do not warn.
+g.requestAnimationFrame = (cb: FrameRequestCallback) => setTimeout(() => { act(() => { cb(Date.now()) }) }, 0)
 g.cancelAnimationFrame = (id: number) => clearTimeout(id)
 
 class NoopObserver {
