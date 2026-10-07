@@ -24,8 +24,9 @@ import {
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor,
-  createFlashLimiter, buildA11yModel, updateToolHistory, updateCommHistory, pushAnnouncements,
-  type DrawOpts, type HitTarget, type ToolHistoryEntry, type CommEntry, type A11yModel,
+  createFlashLimiter, buildA11yModel, enqueueAnnouncements, createAnnouncementQueue, a11yRecorder,
+  type AnnouncementItem, type AnnouncementQueue,
+  type DrawOpts, type HitTarget, type CommEntry, type A11yModel,
 } from './canvas/index'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
@@ -153,10 +154,8 @@ export function AgentCanvas({
 
   const [a11yModel, setA11yModel] = useState<A11yModel>(EMPTY_MODEL)
   const [communications, setCommunications] = useState<CommEntry[]>([])
-  const [announcements, setAnnouncements] = useState<string[]>([])
-  const announcementsRef = useRef<string[]>([])
-  const toolHistoryRef = useRef<Map<string, ToolHistoryEntry>>(new Map())
-  const commHistoryRef = useRef<Map<string, CommEntry>>(new Map())
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
+  const announcementsRef = useRef<AnnouncementQueue>(createAnnouncementQueue())
   const a11ySignatureRef = useRef('')
 
   const handleFocusedNodeChange = useCallback((node: NavNode | null) => {
@@ -258,10 +257,10 @@ export function AgentCanvas({
     const snapshot = () => {
       if (typeof document !== 'undefined' && document.hidden) return
       const s = simulationRef.current
-      updateToolHistory(toolHistoryRef.current, s.toolCalls)
-      updateCommHistory(commHistoryRef.current, s.particles, s.edges, s.agents)
-      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, toolHistoryRef.current)
-      const comms = Array.from(commHistoryRef.current.values())
+      // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
+      // this timer only publishes them to React state.
+      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, a11yRecorder.tools)
+      const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
       if (signature === a11ySignatureRef.current) return
       a11ySignatureRef.current = signature
@@ -270,7 +269,15 @@ export function AgentCanvas({
     }
     snapshot()
     const timer = window.setInterval(snapshot, A11Y_SNAPSHOT_MS)
-    return () => window.clearInterval(timer)
+    return () => {
+      window.clearInterval(timer)
+      // Do not leak holds into the next mount (module-level singleton)
+      expiryHold.neverHide = false
+      expiryHold.paused = false
+      expiryHold.agentIds.clear()
+      expiryHold.toolIds.clear()
+      expiryHold.discoveryIds.clear()
+    }
   }, [simulationRef])
 
   // ─── Detect state changes → spawn effects + live-region announcements ───
@@ -297,10 +304,10 @@ export function AgentCanvas({
     prevToolStatesRef.current = newToolStates
 
     if (transitions.length > 0) {
-      const next = pushAnnouncements(announcementsRef.current, transitions)
+      const next = enqueueAnnouncements(announcementsRef.current, transitions)
       if (next !== announcementsRef.current) {
         announcementsRef.current = next
-        setAnnouncements(next)
+        setAnnouncements(next.items)
       }
     }
   }, [])

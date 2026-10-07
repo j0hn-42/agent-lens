@@ -76,6 +76,8 @@ export function useCanvasInteraction({
   // Active pointers (mouse, pen, touch) for pinch-to-zoom
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ dist: number } | null>(null)
+  /** True from the start of a pinch until every pointer is up: the remaining finger must not click */
+  const gestureConsumedRef = useRef(false)
 
   // ─── Hit detection ──────────────────────────────────────────────────────
 
@@ -116,6 +118,7 @@ export function useCanvasInteraction({
       // Second finger: switch from drag to pinch
       const [a, b] = Array.from(pointersRef.current.values())
       pinchRef.current = { dist: Math.hypot(a.x - b.x, a.y - b.y) }
+      gestureConsumedRef.current = true
       dragTargetRef.current = null
       dragLerpRef.current = null
       setIsDragging(false)
@@ -183,9 +186,10 @@ export function useCanvasInteraction({
   }, [screenToCanvas, hitTest, updateHover, mainCanvasRef, zoomBy, userHasNavigatedRef, transformRef, panVelocityRef])
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    const wasPinching = pinchRef.current !== null
+    const wasPinching = pinchRef.current !== null || gestureConsumedRef.current
     pointersRef.current.delete(e.pointerId)
     try { e.currentTarget.releasePointerCapture(e.pointerId) } catch { /* not captured */ }
+    if (pointersRef.current.size === 0) gestureConsumedRef.current = false
     if (wasPinching) {
       // Finish the pinch gesture when fewer than two pointers remain; never treat it as a click
       if (pointersRef.current.size < 2) pinchRef.current = null
@@ -229,6 +233,7 @@ export function useCanvasInteraction({
   const handlePointerCancel = useCallback((e: React.PointerEvent) => {
     pointersRef.current.delete(e.pointerId)
     if (pointersRef.current.size < 2) pinchRef.current = null
+    if (pointersRef.current.size === 0) gestureConsumedRef.current = false
     dragLerpRef.current = null
     endDrag()
   }, [endDrag])
