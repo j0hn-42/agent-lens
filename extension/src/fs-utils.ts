@@ -65,6 +65,26 @@ export function isPathInside(child: string, root: string): boolean {
 }
 
 /**
+ * Subagent transcripts of a session: `<dir>/agent-*.jsonl` plus the ones of Workflow-tool agents,
+ * which live in `<dir>/workflows/<wf_id>/agent-*.jsonl` (next to a `journal.jsonl` that is not a
+ * transcript). Nothing deeper is read. Returns [] when the directory does not exist.
+ */
+export function listSubagentTranscripts(dir: string): string[] {
+  const out: string[] = []
+  const collect = (d: string) => {
+    let names: string[]
+    try { names = fs.readdirSync(d) } catch { return }
+    for (const n of names) if (n.startsWith('agent-') && n.endsWith('.jsonl')) out.push(path.join(d, n))
+  }
+  collect(dir)
+  const wfRoot = path.join(dir, 'workflows')
+  let runs: fs.Dirent[]
+  try { runs = fs.readdirSync(wfRoot, { withFileTypes: true }) } catch { return out }
+  for (const r of runs) if (r.isDirectory()) collect(path.join(wfRoot, r.name))
+  return out
+}
+
+/**
  * Read a small regular file defensively: lstat (symlinks are refused), size cap, optional
  * containment check on the real path (so a symlinked parent directory cannot escape `rootDir`),
  * O_NOFOLLOW where available. Returns the text, or undefined for anything unexpected.

@@ -16,7 +16,7 @@ import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES,
 } from './constants'
-import { readNewFileLines, readJsonFileSafe } from './fs-utils'
+import { readNewFileLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -131,9 +131,9 @@ export function scanSubagentsDir(
   if (!fs.existsSync(subDir)) return
 
   try {
-    const fresh = fs.readdirSync(subDir)
-      .filter(file => file.endsWith('.jsonl'))
-      .map(file => path.join(subDir, file))
+    // Includes workflows/<wf_id>/agent-*.jsonl (Workflow tool agents); the dir watch is not recursive,
+    // the periodic rescan picks the workflow files up.
+    const fresh = listSubagentTranscripts(subDir)
       .filter(filePath => !session.subagentWatchers.has(filePath))
     // Start parents before children so a nested subagent can resolve its parent's name
     const isNested = (filePath: string) => (fresh.length > 1 && resolveSubagentFileInfo(filePath, 0).parentAgentId) ? 1 : 0
