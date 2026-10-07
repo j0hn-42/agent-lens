@@ -3,7 +3,8 @@
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
-import { PanelHeader, ProgressBar, SlidingPanel } from './shared-ui'
+import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
+import { emptyState } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/feed-utils'
 
 interface FileAttentionPanelProps {
@@ -14,6 +15,9 @@ interface FileAttentionPanelProps {
 }
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile }: FileAttentionPanelProps) {
+  // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
+  const dock = useDockPanel('files', visible)
+  const { rect } = dock
   if (!visible) return null
 
   const files = Array.from(fileAttention.values())
@@ -24,11 +28,14 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
   return (
     <SlidingPanel
       visible={visible}
-      position={{ top: 48, right: 12 }}
+      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
       zIndex={Z.sidePanel}
-      width={260}
+      width={rect?.w ?? 380}
+      attrs={dockAttrs('files', 'right', dock)}
+      style={dock.hidden ? { display: 'none' } : undefined}
     >
-      <div className="glass-card relative">
+      <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
+      <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
         <PanelHeader onClose={onClose}>
           <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
             FILE ATTENTION
@@ -40,11 +47,11 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           role="region"
           aria-label="Files accessed by agents"
           tabIndex={0}
-          className={`max-h-[300px] overflow-y-auto ${FOCUS_RING}`}
+          className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
         >
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              No files yet
+              {emptyState('files')}
             </div>
           )}
           <ul className="space-y-1 list-none p-0 m-0">

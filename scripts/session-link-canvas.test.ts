@@ -34,8 +34,8 @@ test('non-finite geometry yields no segment', () => {
 test('cluster notes state both directions, with labels when known', () => {
   const clusters = [cl('session:p', ['p'], 0, 0), cl('session:c', ['c'], 100, 0)]
   const notes = clusterLinkNotes(clusters, [link('p', 'c', 'worktree')], new Map([['p', { label: 'Main' }], ['c', { label: 'Fix' }]]))
-  assert.deepEqual(notes.get('session:c'), ['worktree of session Main'])
-  assert.deepEqual(notes.get('session:p'), ['worktree session Fix'])
+  assert.deepEqual(notes.get('session:c'), ['possibly a worktree of session Main'])
+  assert.deepEqual(notes.get('session:p'), ['possibly started worktree session Fix'])
   assert.deepEqual([...clusterLinkNotes(clusters, [link('p', 'c')]).get('session:c')!], ['launched by session p'])
 })
 

@@ -10,8 +10,9 @@ import * as http from 'node:http'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { deriveSessionLinks } from '../web/lib/session-links'
 import { guardRequest, listenLoopback } from './server-hardening'
-import type { IndexOpener } from '../extension/src/session-index'
+import { mergeIndexedSessions, type IndexOpener } from '../extension/src/session-index'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-index-'))
 process.env.HOME = fakeHome
@@ -102,6 +103,7 @@ describe('relay with an optional session index', () => {
     assert.equal(lists.length, 1)
     const byId = new Map(lists[0].map(s => [s.id, s]))
     assert.equal(byId.get('idx-parent')?.status, 'completed')
+    assert.equal((byId.get('idx-parent') as { indexedOnly?: boolean }).indexedOnly, true, 'index-only entries are marked, so the web never auto-selects them')
     assert.equal(byId.get('idx-child')?.parentSessionId, 'idx-parent')
   })
 
@@ -122,5 +124,34 @@ describe('relay with an optional session index', () => {
     assert.equal(sessionLists(c.text()).length, 0, 'no session of the index, and no crash')
     mode = 'ok'
     assert.ok(opens > 0)
+  })
+})
+
+describe('session list merged with the index', () => {
+  const live = (id: string, extra: Record<string, unknown> = {}) => ({
+    id, label: id, status: 'active' as const, startTime: 100, lastActivityTime: 200, runtime: 'claude', ...extra,
+  })
+  const idx = (id: string, extra: Record<string, unknown> = {}) => ({ id, startTime: 1, lastActivityTime: 2, ...extra })
+
+  it('a live session adopts the declared parent of its index row, and the Task link is derived', () => {
+    const merged = mergeIndexedSessions(
+      [live('parent'), live('child')],
+      [idx('child', { parentSessionId: 'parent' })] as never,
+    )
+    assert.equal(merged.length, 2, 'no duplicate entry')
+    const child = merged.find(s => s.id === 'child')!
+    assert.equal(child.status, 'active', 'the live facts win')
+    assert.ok(!child.indexedOnly)
+    assert.deepEqual(deriveSessionLinks(merged).map(l => `${l.kind}:${l.parentId}>${l.childId}`), ['task:parent>child'])
+  })
+
+  it('never overrides a live parent or cwd, and fills a missing cwd', () => {
+    const merged = mergeIndexedSessions(
+      [live('a', { parentSessionId: 'live-p', cwd: '/live' }), live('b')],
+      [idx('a', { parentSessionId: 'idx-p', cwd: '/idx' }), idx('b', { cwd: '/idx-b' })] as never,
+    )
+    assert.equal(merged[0].parentSessionId, 'live-p')
+    assert.equal(merged[0].cwd, '/live')
+    assert.equal(merged[1].cwd, '/idx-b')
   })
 })

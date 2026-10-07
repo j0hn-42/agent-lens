@@ -136,6 +136,8 @@ export interface SessionInfo {
   cwd?: string
   /** Session that launched this one (Task), when the source declares it (untrusted, capped) */
   parentSessionId?: string
+  /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
+  indexedOnly?: boolean
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────

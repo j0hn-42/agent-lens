@@ -214,10 +214,32 @@ export function indexedToSessionInfo(s: IndexedSession): SessionInfo {
     id: s.id,
     label: s.label ?? s.id.slice(0, 8),
     status: 'completed',
+    indexedOnly: true,
     startTime: s.startTime,
     lastActivityTime: s.lastActivityTime,
     ...(s.workspace ? { workspace: s.workspace } : {}),
     ...(s.cwd ? { cwd: s.cwd } : {}),
     ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
   }
+}
+
+/**
+ * The session list completed with the index: a session watched live keeps its live entry but adopts the
+ * facts only the index knows (declared parent, cwd when the live entry has none); the others are added
+ * as index-only entries. Never replaces a live fact with an indexed one.
+ */
+export function mergeIndexedSessions(live: ReadonlyArray<SessionInfo>, indexed: ReadonlyArray<IndexedSession>): SessionInfo[] {
+  const byId = new Map(indexed.map(s => [s.id, s]))
+  const out = live.map(l => {
+    const i = byId.get(l.id)
+    if (!i) return l
+    return {
+      ...l,
+      ...(!l.parentSessionId && i.parentSessionId ? { parentSessionId: i.parentSessionId } : {}),
+      ...(!l.cwd && i.cwd ? { cwd: i.cwd } : {}),
+    }
+  })
+  const known = new Set(live.map(l => l.id))
+  for (const i of indexed) if (!known.has(i.id)) out.push(indexedToSessionInfo(i))
+  return out
 }

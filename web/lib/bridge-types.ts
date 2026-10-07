@@ -33,6 +33,8 @@ export interface SessionInfo {
   memberName?: string
   /** Session that launched this one (Task), when declared by the source; see session-links.ts */
   parentSessionId?: string
+  /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
+  indexedOnly?: boolean
 }
 
 /** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
@@ -96,6 +98,7 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.teamName === undefined || typeof v.teamName === 'string')
     && (v.memberName === undefined || typeof v.memberName === 'string')
     && (v.parentSessionId === undefined || typeof v.parentSessionId === 'string')
+    && (v.indexedOnly === undefined || typeof v.indexedOnly === 'boolean')
 }
 
 // eslint-disable-next-line no-control-regex
@@ -128,6 +131,22 @@ export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
     ...(member ? { memberName: member } : {}),
     ...(parent ? { parentSessionId: parent } : {}),
   }
+}
+
+/**
+ * Session to select when none is: active sessions first, then the most recently active. Sessions listed
+ * only from the session index are never picked (no events to show, an empty canvas on a finished session).
+ */
+export function pickAutoSelectSession(sessions: ReadonlyArray<SessionInfo>): string | undefined {
+  let best: SessionInfo | undefined
+  for (const s of sessions) {
+    if (s.indexedOnly) continue
+    if (!best) { best = s; continue }
+    const sa = s.status === 'active' ? 1 : 0
+    const ba = best.status === 'active' ? 1 : 0
+    if (sa !== ba ? sa > ba : s.lastActivityTime > best.lastActivityTime) best = s
+  }
+  return best?.id
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {

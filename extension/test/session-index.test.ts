@@ -176,7 +176,7 @@ describe('readSessionIndex', () => {
 describe('indexedToSessionInfo', () => {
   it('lists an indexed session as completed (the index proves nothing about liveness)', () => {
     const info = indexedToSessionInfo({ id: 'a', startTime: 1, lastActivityTime: 2, label: 'L', cwd: '/x', parentSessionId: 'p' })
-    assert.deepEqual(info, { id: 'a', label: 'L', status: 'completed', startTime: 1, lastActivityTime: 2, cwd: '/x', parentSessionId: 'p' })
+    assert.deepEqual(info, { id: 'a', label: 'L', status: 'completed', indexedOnly: true, startTime: 1, lastActivityTime: 2, cwd: '/x', parentSessionId: 'p' })
     assert.equal(indexedToSessionInfo({ id: 'abcdefghijkl', startTime: 1, lastActivityTime: 1 }).label, 'abcdefgh')
   })
 })

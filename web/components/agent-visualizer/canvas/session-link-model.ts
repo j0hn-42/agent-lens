@@ -78,8 +78,8 @@ export function clusterLinkNotes(
     const pk = clusterOf.get(link.parentId)
     const ck = clusterOf.get(link.childId)
     if (!pk || !ck || pk === ck) continue
-    add(ck, link.kind === 'worktree' ? `worktree of session ${label(link.parentId)}` : `launched by session ${label(link.parentId)}`)
-    add(pk, `${link.kind === 'worktree' ? 'worktree' : 'launched'} session ${label(link.childId)}`)
+    add(ck, link.kind === 'worktree' ? `possibly a worktree of session ${label(link.parentId)}` : `launched by session ${label(link.parentId)}`)
+    add(pk, `${link.kind === 'worktree' ? 'possibly started worktree' : 'launched'} session ${label(link.childId)}`)
   }
   return notes
 }

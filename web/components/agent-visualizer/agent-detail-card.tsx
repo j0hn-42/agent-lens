@@ -1,11 +1,11 @@
 'use client'
 
 import { useId, useRef } from 'react'
-import { CARD, Z, type AgentState } from '@/lib/agent-types'
+import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
 import { GlassCard } from './glass-card'
-import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler } from './shared-ui'
+import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 
 interface AgentDetailCardProps {
@@ -25,11 +25,14 @@ interface AgentDetailCardProps {
     activity?: 'working' | 'idle' | 'done'
   }
   onClose: () => void
+  /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
+  onEscape?: () => void
 }
 
 export function AgentDetailCard({
   agent,
   onClose,
+  onEscape,
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
@@ -39,9 +42,9 @@ export function AgentDetailCard({
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
-  // Fixed position: middle-left of the screen (below message feed panel)
-  const left = CARD.margin
-  const top = typeof window !== 'undefined' ? Math.max(100, (window.innerHeight - CARD.detail.height) / 2) : 300
+  // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
+  const dock = useDockPanel('detail', true)
+  const { rect } = dock
 
   return (
     <div
@@ -49,17 +52,19 @@ export function AgentDetailCard({
       role="dialog"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onClose)}
-      className="agent-detail-card max-w-[calc(100vw-24px)] outline-none"
+      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
+      {...dockAttrs('detail', 'left', dock)}
+      className="agent-detail-card outline-none"
       style={{
         position: 'absolute',
-        left,
-        top,
-        width: CARD.detail.width,
+        left: rect?.x ?? 12,
+        top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
+        width: rect?.w ?? 240,
         zIndex: Z.detailCard,
+        display: dock.hidden ? 'none' : undefined,
       }}
     >
-      <GlassCard visible={true}>
+      <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
         <PanelHeader onClose={onClose} className="mb-3" titleId={titleId}>
           <span
             aria-hidden="true"

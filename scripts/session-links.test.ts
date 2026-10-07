@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { SessionInfo } from '../web/lib/bridge-types'
-import { isSessionInfo } from '../web/lib/bridge-types'
+import { isSessionInfo, pickAutoSelectSession } from '../web/lib/bridge-types'
 import { deriveSessionLinks, MAX_LINK_SESSIONS, describeSessionLink } from '../web/lib/session-links'
 
 const s = (id: string, extra: Partial<SessionInfo> = {}): SessionInfo => ({
@@ -94,7 +94,7 @@ test('bounded: only the most recent sessions are considered', () => {
 
 test('describeSessionLink words the relation with the labels', () => {
   const sessions = [s('p', { label: 'Main' }), s('c', { label: 'Fix' })]
-  assert.equal(describeSessionLink({ parentId: 'p', childId: 'c', kind: 'worktree' }, sessions), 'Fix runs in a worktree of Main')
+  assert.equal(describeSessionLink({ parentId: 'p', childId: 'c', kind: 'worktree' }, sessions), 'Fix appears to run in a worktree of Main')
   assert.equal(describeSessionLink({ parentId: 'p', childId: 'c', kind: 'task' }, sessions), 'Fix was launched by Main')
 })
 
@@ -108,4 +108,32 @@ test('sanitizeSessionInfo cleans and caps the declared parent id', async () => {
 test('isSessionInfo accepts an optional string parentSessionId only', () => {
   assert.ok(isSessionInfo({ ...s('c'), parentSessionId: 'p' }))
   assert.ok(!isSessionInfo({ ...s('c'), parentSessionId: 3 }))
+})
+
+test('worktree: a parent that had already ended when the child started is not evidence', () => {
+  const child = s('c', { cwd: '/r/.claude/worktrees/x', startTime: 500 })
+  assert.deepEqual(deriveSessionLinks([s('old', { cwd: '/r', startTime: 1, lastActivityTime: 100, status: 'completed' }), child]), [])
+  assert.deepEqual(ids(deriveSessionLinks([s('live', { cwd: '/r', startTime: 1, lastActivityTime: 900 }), child])), ['worktree:live>c'])
+})
+
+test('worktree: a root session pruned by the size bound still makes the remaining candidate ambiguous', () => {
+  const list: SessionInfo[] = [
+    s('p1', { cwd: '/r', startTime: 1, lastActivityTime: 1e9 }),
+    s('p2', { cwd: '/r', startTime: 2, lastActivityTime: 5 }), // oldest: falls outside the bound
+    s('c', { cwd: '/r/.claude/worktrees/x', startTime: 10, lastActivityTime: 1e9 }),
+  ]
+  for (let i = 0; i < MAX_LINK_SESSIONS; i++) list.push(s(`f${i}`, { lastActivityTime: 1e9 - 1 - i }))
+  assert.deepEqual(deriveSessionLinks(list), [])
+})
+
+test('pickAutoSelectSession prefers active then recent, and never an index-only session', () => {
+  const list = [
+    s('idx', { status: 'completed', lastActivityTime: 9000, indexedOnly: true }),
+    s('old', { status: 'completed', lastActivityTime: 10 }),
+    s('recent', { status: 'completed', lastActivityTime: 50 }),
+  ]
+  assert.equal(pickAutoSelectSession(list), 'recent')
+  assert.equal(pickAutoSelectSession([...list, s('act', { lastActivityTime: 1 })]), 'act')
+  assert.equal(pickAutoSelectSession([list[0]]), undefined, 'only indexed sessions: nothing selected')
+  assert.equal(pickAutoSelectSession([]), undefined)
 })

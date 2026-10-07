@@ -92,13 +92,17 @@ export function buildSessionRows(
   sessions: ReadonlyArray<SessionInfo>,
   teamNames: Iterable<string>,
   forests: ReadonlyMap<string, AgentNode[]>,
+  /** Team map key -> display name and lead session; lets two same-named teams keep their own sessions */
+  teamMeta?: ReadonlyMap<string, { name: string; leadSessionId?: string }>,
+  /** Sessions tagged with a team missing from `teamNames` are listed as plain sessions (lead-only teams) */
+  opts?: { hideUnlistedTeams?: boolean },
   /** Active sessions that are not observed (issue #52) are listed after the proven ones */
   isObserved?: (session: SessionInfo) => boolean,
 ): SessionRow[] {
   const byId = new Map(sessions.map(s => [s.id, s]))
   const rank = (s: SessionInfo) => (s.status !== 'active' ? 2 : isObserved && !isObserved(s) ? 1 : 0)
   const sortedSessions = [...sessions].sort((a, b) => rank(a) - rank(b) || b.lastActivityTime - a.lastActivityTime)
-  const items = buildTabModel(sortedSessions, teamNames)
+  const items = buildTabModel(sortedSessions, teamNames, teamMeta, opts)
   // buildTabModel keeps the input order inside each block, which is the sorted order
   const rows: SessionRow[] = []
   // Agents whose session is not (yet) listed, e.g. the demo or events without a session id: kept visible under 'All'

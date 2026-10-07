@@ -16,7 +16,7 @@ import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../ex
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
-import { readSessionIndex, indexedToSessionInfo, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
+import { readSessionIndex, mergeIndexedSessions, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -806,7 +806,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       res.on('error', onGone)
 
       // Send current session list (Claude + Codex)
-      const sessionList: SessionInfo[] = []
+      let sessionList: SessionInfo[] = []
       for (const session of sessions.values()) {
         if (!session.sessionDetected) continue
         sessionList.push(toSessionInfo(session))
@@ -814,17 +814,14 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
       // Indexed sessions complete the list; a session that is also watched live keeps its live entry
       const indexed = readIndex()
-      if (indexed) {
-        const known = new Set(sessionList.map(s => s.id))
-        for (const s of indexed.sessions) if (!known.has(s.id)) sessionList.push(indexedToSessionInfo(s))
-      }
+      if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
       if (sessionList.length > 0) {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
 
       // Replay buffered events: only the requested session with ?session=<id>,
       // otherwise every session's buffer (most recent active session last).
-      const sorted = [...sessionList].sort((a, b) => {
+      const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
         const aActive = a.status === 'active' ? 1 : 0
         const bActive = b.status === 'active' ? 1 : 0
         if (aActive !== bActive) return bActive - aActive
