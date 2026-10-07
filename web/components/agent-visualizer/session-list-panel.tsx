@@ -202,7 +202,7 @@ export function SessionListPanel({
       visible={visible}
       position={{ top: 48, left: 12 }}
       axis="X"
-      offset={-20}
+      offset={-8}
       zIndex={Z.sidePanel}
       width={380}
       labelledBy="session-list-title"
