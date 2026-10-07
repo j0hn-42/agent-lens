@@ -10,7 +10,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../src/constants'
+import { HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HTTP_CONNECTIONS_CHECK_INTERVAL_MS, TEAM_MAX_LINKS_PER_SESSION } from '../src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-hook-home-'))
 process.env.HOME = fakeHome
@@ -275,6 +275,21 @@ describe('HookServer hardening', () => {
       assert.equal(sent[0].payload.content, 'hello there')
       assert.equal(sent[0].payload.to, 'researcher')
       assert.equal(sent[0].payload.toolUseId, 'tu1')
+    } finally { server.dispose() }
+  })
+
+  it('a full link set evicts its oldest entry so a new edge is still announced', async () => {
+    const { server, port, events } = await startServer()
+    try {
+      const state = (server as unknown as { getOrCreateSession(id: string): { links: Set<string> } }).getOrCreateSession('full')
+      for (let i = 0; i < TEAM_MAX_LINKS_PER_SESSION; i++) state.links.add(`old-${i}`)
+      await post(port, {
+        session_id: 'full', hook_event_name: 'PreToolUse', tool_name: 'SendMessage', tool_use_id: 'tuN',
+        tool_input: { to: 'newcomer', message: 'hi' },
+      })
+      assert.equal(events.filter(e => e.type === 'agent_link').length, 1)
+      assert.equal(state.links.size, TEAM_MAX_LINKS_PER_SESSION)
+      assert.ok(!state.links.has('old-0'))
     } finally { server.dispose() }
   })
 

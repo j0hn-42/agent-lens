@@ -34,7 +34,7 @@ import {
   buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
   MessageDeduper, type TeamLinkEvents,
 } from './team-links'
-import { sanitizeTeamField } from './teammate'
+import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
 
 const log = createLogger('TranscriptParser')
@@ -83,6 +83,35 @@ function thinkingHashKey(entryUuid: string | undefined, fallbackSource: string):
 
 /** Placeholder shown for redacted thinking blocks (matches Claude Code's UI label). */
 const REDACTED_THINKING_LABEL = 'Thinking...'
+
+const PRESCAN_KEEP_HEAD = 50
+const PRESCAN_KEEP_TAIL = 400
+const PRESCAN_CHUNK_BYTES = 4 * 1024 * 1024
+
+/** Yield the lines of the first `size` bytes of a file, reading PRESCAN_CHUNK_BYTES at a time. */
+export function* readLinesChunked(filePath: string, size: number, chunkBytes = PRESCAN_CHUNK_BYTES): Generator<string> {
+  const fd = fs.openSync(filePath, 'r')
+  try {
+    let offset = 0
+    let carry: Buffer = Buffer.alloc(0)
+    while (offset < size) {
+      const len = Math.min(chunkBytes, size - offset)
+      const buf = Buffer.alloc(len)
+      const n = fs.readSync(fd, buf, 0, len, offset)
+      if (n <= 0) break
+      offset += n
+      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
+      const cut = data.lastIndexOf(0x0a)
+      if (cut < 0) { carry = Buffer.from(data); continue }
+      carry = Buffer.from(data.subarray(cut + 1))
+      data = data.subarray(0, cut)
+      for (const line of data.toString('utf-8').split(/\r?\n/)) yield line
+    }
+    if (carry.length) yield carry.toString('utf-8')
+  } finally {
+    fs.closeSync(fd)
+  }
+}
 
 export class TranscriptParser {
   /** Per-subagent dedup state for inline progress events, keyed by parentToolUseID */
@@ -324,7 +353,7 @@ export class TranscriptParser {
         ctxSeen.add(toolBlock.id)
         this.handleToolUse(toolBlock, agentName, ctxPending, sessionId)
       } else if (block.type === 'tool_result') {
-        this.handleToolResult(block as ToolResultBlock, agentName, ctxPending, sessionId)
+        this.handleToolResult(block as ToolResultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
       } else if (block.type === 'text' && 'text' in block) {
         this.handleTextBlock(block, emitRole, entry.uuid, agentName, seenMsgs, session, sessionId)
       } else if (block.type === 'thinking' && 'thinking' in block) {
@@ -477,11 +506,32 @@ export class TranscriptParser {
     }, sessionId)
   }
 
+  /** The dispatch node already exists (named after the call's `name`): flag it as a teammate. One node, no ghost. */
+  private upgradeToTeammate(toolUseId: string, parent: string, spawn: TeammateSpawnResult, sessionId?: string): void {
+    const record = this.getSubagentRegistry(sessionId).getByToolUseId(toolUseId)
+    const childName = this.subagentChildNames.get(toolUseId) ?? record?.name
+    if (!childName) return
+    if (record && spawn.agentId) this.getSubagentRegistry(sessionId).bindFileKey(record, spawn.agentId)
+    this.delegate.emit({
+      time: this.delegate.elapsed(sessionId),
+      type: 'agent_spawn',
+      payload: {
+        name: childName, parent, task: childName, label: childName, toolUseId,
+        kind: 'teammate', teamName: spawn.teamName, backendType: 'in-process',
+        ...(spawn.color ? { color: spawn.color } : {}),
+        ...(spawn.agentType ? { agentType: spawn.agentType } : {}),
+        ...(spawn.model ? { model: spawn.model } : {}),
+      },
+    }, sessionId)
+  }
+
   handleToolResult(
     block: ToolResultBlock,
     agentName: string,
     ctxPending: Map<string, PendingToolCall>,
     sessionId?: string,
+    /** Entry-level `toolUseResult` (structured result); carries team_name/name/color for teammate spawns */
+    toolUseResult?: unknown,
   ): void {
     const pending = ctxPending.get(block.tool_use_id)
     // Skip orphaned tool_results (their tool_use was deduped during catch-up)
@@ -517,7 +567,9 @@ export class TranscriptParser {
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
     // returns nor completes here.
-    const spawnedTeammate = isSubagentTool && this.teammateSpawnIds.delete(block.tool_use_id)
+    const teamSpawn = isSubagentTool ? parseTeammateSpawnResult(toolUseResult) : null
+    const spawnedTeammate = isSubagentTool && (this.teammateSpawnIds.delete(block.tool_use_id) || !!teamSpawn)
+    if (spawnedTeammate && teamSpawn) this.upgradeToTeammate(block.tool_use_id, agentName, teamSpawn, sessionId)
     if (spawnedTeammate) {
       this.subagentChildNames.delete(block.tool_use_id)
       this.inlineSubagentState.delete(block.tool_use_id)
@@ -625,8 +677,8 @@ export class TranscriptParser {
       // Read only up to `size` bytes — the file may have grown since stat.
       // Reading beyond would add tool_use IDs to the dedup set that haven't
       // been accounted for in fileSize, causing readNewLines to silently skip them.
-      const content = readFileChunk(filePath, 0, size)
-      for (const line of content.split(/\r?\n/)) {
+      // Streamed in bounded chunks: a multi-hundred-MB lead transcript is never held in memory at once.
+      for (const line of readLinesChunked(filePath, size)) {
         if (!line.trim()) { continue }
         try {
           const entry = JSON.parse(line.trim()) as TranscriptEntry
@@ -696,6 +748,8 @@ export class TranscriptParser {
           // Collect emittable entries (user and assistant turns)
           if (entry.type === 'user' || entry.type === 'assistant') {
             catchUpEntries.push(entry)
+            // Only the head (session label) and the recent tail (current turn) are needed for catch-up
+            if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
           }
         } catch (err) { log.debug('Skipping unparseable transcript line:', err) }
       }

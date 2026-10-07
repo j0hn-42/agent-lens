@@ -64,7 +64,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     emit: (event, sessionId) => this.emit(event, sessionId),
     elapsed: (sessionId) => this.elapsed(sessionId),
     getSession: (sessionId) => this.sessions.get(sessionId),
-    fireSessionLifecycle: (event) => this._onSessionLifecycle.fire(event),
+    fireSessionLifecycle: (event) => this.fireLifecycle(event.type, event.sessionId, event.label),
     emitContextUpdate: (agentName, session, sessionId) => this.emitContextUpdate(agentName, session, sessionId),
   })
 
@@ -87,6 +87,46 @@ export class SessionWatcher implements AgentSessionWatcher {
       if (session.sessionDetected) return true
     }
     return false
+  }
+
+  /** Fire a lifecycle event carrying the session's team / runtime / workspace / cwd tags. */
+  private fireLifecycle(type: SessionLifecycleEvent['type'], sessionId: string, label: string): void {
+    const tags = this.teamWatcher?.getSessionTags(sessionId)
+    const cwd = this.sessionCwd.get(sessionId)
+    this._onSessionLifecycle.fire({
+      type, sessionId, label,
+      runtime: 'claude',
+      ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+      ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
+      ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
+    })
+  }
+
+  /** Stop watching a long-finished session and free its parser / team bookkeeping. */
+  private unwatchSession(sessionId: string): void {
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+    session.fileWatcher?.close()
+    if (session.pollTimer) clearInterval(session.pollTimer)
+    if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
+    if (session.permissionTimer) clearTimeout(session.permissionTimer)
+    for (const sub of session.subagentWatchers.values()) {
+      sub.watcher?.close()
+      if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
+    }
+    session.subagentWatchers.clear()
+    session.subagentsDirWatcher?.close()
+    this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+    this.sessionCwd.delete(sessionId)
+    this.sessions.delete(sessionId)
+    this.teamWatcher?.forgetSession(sessionId)
+  }
+
+  /** Drop sessions that ended longer ago than the discovery window (they cannot be rediscovered). */
+  private pruneEndedSessions(now = Date.now()): void {
+    for (const s of [...this.sessions.values()]) {
+      if (s.sessionCompleted && (now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
+    }
   }
 
   /** Whether a specific session is active */
@@ -201,6 +241,7 @@ export class SessionWatcher implements AgentSessionWatcher {
 
     // Re-scan periodically as fallback (1s instead of 3s for faster detection)
     this.scanInterval = setInterval(() => {
+      this.pruneEndedSessions()
       this.scanForActiveSessions()
     }, SCAN_INTERVAL_MS)
 
@@ -217,6 +258,10 @@ export class SessionWatcher implements AgentSessionWatcher {
         }, sessionId),
         emitInbox: (sessionId, from, to, content) => this.parser.emitInboxMessage(sessionId, from, to, content),
         setLeadAlias: (sessionId, leadName) => this.parser.setLeadAlias(sessionId, leadName),
+        onSessionTags: (sessionId) => {
+          const s = this.sessions.get(sessionId)
+          if (s) this.fireLifecycle('updated', sessionId, s.label)
+        },
         onMembersGone: (sessionId, _team, names) => {
           const s = this.sessions.get(sessionId)
           if (s) markTeammatesDone(this.selfDelegate, s, sessionId, names)
@@ -480,7 +525,7 @@ export class SessionWatcher implements AgentSessionWatcher {
 
     // Emit session start
     this._onSessionDetected.fire(sessionId)
-    this._onSessionLifecycle.fire({ type: 'started', sessionId, label: session.label })
+    this.fireLifecycle('started', sessionId, session.label)
 
     this.emit({
       time: 0,
@@ -572,7 +617,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           ...(session.model ? { model: session.model } : {}),
         },
       }, sessionId)
-      this._onSessionLifecycle.fire({ type: 'started', sessionId, label: session.label })
+      this.fireLifecycle('started', sessionId, session.label)
     }
 
     if (session.inactivityTimer) {
@@ -590,7 +635,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           type: 'agent_complete',
           payload: { name: ORCHESTRATOR_NAME },
         }, sessionId)
-        this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: session.label })
+        this.fireLifecycle('ended', sessionId, session.label)
       }
     }, INACTIVITY_TIMEOUT_MS)
   }

@@ -319,7 +319,12 @@ export class HookServer implements vscode.Disposable {
       const links = extractToolUseLinks(toolName, payload.tool_input, agentName, payload.tool_use_id)
       if (links) {
         const known = this.getOrCreateSession(payload.session_id).links
-        if (!known.has(links.link.linkId) && known.size < TEAM_MAX_LINKS_PER_SESSION) {
+        if (!known.has(links.link.linkId)) {
+          // Bounded: the oldest remembered link makes room (a new edge must never be dropped forever)
+          if (known.size >= TEAM_MAX_LINKS_PER_SESSION) {
+            const oldest = known.values().next().value
+            if (oldest !== undefined) known.delete(oldest)
+          }
           known.add(links.link.linkId)
           this.emit({
             time: this.elapsedSeconds(payload.session_id),

@@ -194,8 +194,9 @@ export function generateSubagentFallbackName(id: string, index: number): string 
 /** Extract a child agent name from a tool_use input block (Agent or Task tool).
  *  Used by both live processing and prescan to avoid duplicating the extraction logic. */
 export function resolveSubagentChildName(input: Record<string, unknown>): string {
-  // Agent Team teammate spawn (Agent tool with name + team_name): the member name is its identity
-  if (typeof input.name === 'string' && input.name.trim() && typeof input.team_name === 'string' && input.team_name) {
+  // A named Agent call (Agent Team teammates are spawned with `name`; team_name only shows up in the
+  // result): the member name is its identity, the description is just a task label.
+  if (typeof input.name === 'string' && input.name.trim()) {
     return input.name.trim().slice(0, CHILD_NAME_MAX)
   }
   return String(input.description || input.subagent_type || 'subagent').slice(0, CHILD_NAME_MAX)
@@ -328,6 +329,10 @@ export const TEAM_INBOX_MAX_FILES = 64
 export const TEAM_INBOX_MAX_BYTES = 512 * 1024
 export const TEAM_INBOX_MAX_MESSAGES = 200
 export const TEAM_INBOX_SEEN_MAX = 1024
+/** Historical messages replayed from an inbox the first time it is seen (the rest is only remembered) */
+export const TEAM_INBOX_FIRST_SCAN_MAX = 20
+/** Lifecycle events (agent_spawn, team_info...) a replay buffer keeps even when it overflows with chatter */
+export const RELAY_REPLAY_LIFECYCLE_RESERVE = 400
 /** The same text on the same link seen again within this window is one message (transcript + inbox echo) */
 export const TEAM_DEDUPE_WINDOW_MS = 60_000
 /** Max remembered (link, text) keys per session for that dedupe */

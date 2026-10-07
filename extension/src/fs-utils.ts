@@ -94,3 +94,27 @@ export function readJsonFileSafe(filePath: string, maxBytes: number, rootDir?: s
   if (text === undefined) return undefined
   try { return JSON.parse(text) } catch { return undefined }
 }
+
+/**
+ * Like {@link readTextFileSafe} but for files above `maxBytes`: reads only the LAST `maxBytes`
+ * bytes. `truncated` tells the caller that the head was cut off. Same symlink / containment guards.
+ */
+export function readTailTextSafe(filePath: string, maxBytes: number, rootDir?: string): { text: string; truncated: boolean } | undefined {
+  try {
+    const st = fs.lstatSync(filePath)
+    if (!st.isFile()) return undefined
+    if (rootDir && !isPathInside(fs.realpathSync(filePath), fs.realpathSync(rootDir))) return undefined
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+    const fd = fs.openSync(filePath, flags)
+    try {
+      const start = Math.max(0, st.size - maxBytes)
+      const buf = Buffer.alloc(st.size - start)
+      const n = fs.readSync(fd, buf, 0, buf.length, start)
+      return { text: buf.toString('utf-8', 0, n), truncated: start > 0 }
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+}

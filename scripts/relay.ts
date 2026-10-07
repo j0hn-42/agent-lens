@@ -27,7 +27,7 @@ import {
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
-  parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag,
+  parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
   listProjectDirs, discoverSessionFiles,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
@@ -637,7 +637,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Method not allowed')
         return
       }
-      if (!statusLimiter.allow(req.socket.remoteAddress ?? '')) {
+      if (!statusLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
         res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
         res.end('Too many requests')
         return

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  parseTeammateMeta, sanitizeTeamColor, TeammateTracker, readTranscriptTail, selectReplayLines,
+  parseTeammateMeta, sanitizeTeamColor, TEAM_COLOR_PALETTE, parseTeammateSpawnResult, TeammateTracker, readTranscriptTail, selectReplayLines,
 } from '../src/teammate'
 import {
   scanSubagentsDir, resolveSubagentFileInfo, markTeammatesDone, emitTeammateActivity, readSubagentNewLines,
@@ -44,7 +44,7 @@ describe('parseTeammateMeta', () => {
 
   it('accepts only #rrggbb colors', () => {
     assert.equal(sanitizeTeamColor('#AABBCC'), '#aabbcc')
-    for (const bad of ['red', '#abc', '#12345g', 'javascript:alert(1)', '#1234567', 12, null, 'url(#x)', '#aabbcc;x']) {
+    for (const bad of ['chartreuse', '#abc', '#12345g', 'javascript:alert(1)', '#1234567', 12, null, 'url(#x)', '#aabbcc;x']) {
       assert.equal(sanitizeTeamColor(bad), undefined, String(bad))
     }
   })
@@ -241,11 +241,29 @@ describe('teammate discovery in the subagents directory', () => {
     assert.notEqual(name, 'orchestrator')
   })
 
-  it('drops an invalid color but keeps the teammate', () => {
+  it('maps a palette color name to hex', () => {
     const { events } = setup([{ agentId: 'iiii9999', meta: teammateMeta('ivy', { color: 'blue' }), entries: [assistantText('x')], mtimeMs: Date.now() - HOUR }])
     const spawn = ofType(events, 'agent_spawn')[0]
-    assert.equal(spawn.payload.color, undefined)
+    assert.equal(spawn.payload.color, TEAM_COLOR_PALETTE.blue)
     assert.equal(spawn.payload.name, 'ivy')
+  })
+
+  it('drops an unknown color but keeps the teammate', () => {
+    const { events } = setup([{ agentId: 'jjjj0000', meta: teammateMeta('jay', { color: 'chartreuse-ish' }), entries: [assistantText('x')], mtimeMs: Date.now() - HOUR }])
+    const spawn = ofType(events, 'agent_spawn')[0]
+    assert.equal(spawn.payload.color, undefined)
+    assert.equal(spawn.payload.name, 'jay')
+  })
+
+  it('sanitizeTeamColor: palette names, hex, and garbage', () => {
+    for (const name of ['blue', 'orange', 'green', 'purple', 'yellow', 'red', 'pink', 'cyan']) {
+      assert.match(sanitizeTeamColor(name) ?? '', /^#[0-9a-f]{6}$/, name)
+    }
+    assert.equal(sanitizeTeamColor('BLUE'), TEAM_COLOR_PALETTE.blue)
+    assert.equal(sanitizeTeamColor('#ABCDEF'), '#abcdef')
+    for (const bad of ['#abc', 'url(x)', 'red;x', '__proto__', 'constructor', '', 42, null, {}]) {
+      assert.equal(sanitizeTeamColor(bad), undefined, String(bad))
+    }
   })
 
   it('ordinary subagents keep the old behaviour: idle ones are not announced', () => {
@@ -347,24 +365,73 @@ describe('teammate activity over time', () => {
   })
 })
 
-describe('lead Agent tool_use that spawns a teammate', () => {
-  it('uses the member name as identity and does not complete the teammate on the spawn ack', () => {
+/** SYNTHETIC copy of the REAL lead-transcript shapes: no team_name in the tool_use input,
+ *  the teammate fields live in the entry-level toolUseResult of the immediate tool_result. */
+const realSpawnUse = (id: string, name: string) => ({
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'Agent', input: { description: 'Audit canvas accessibility', name, subagent_type: 'general-purpose', prompt: 'p' } }] },
+})
+const realSpawnResult = (id: string, name: string, agentId: string, color = 'blue') => ({
+  type: 'user',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: `Spawned successfully.\nagent_id: ${agentId}\nname: ${name}\nThe agent is now running and will receive instructions via mailbox.` }] }] },
+  toolUseResult: {
+    status: 'teammate_spawned', prompt: 'p', agentId, resolvedModel: 'claude-sonnet-4-5', teammate_id: `${name}@demo-team`, agent_id: agentId,
+    agent_type: 'general-purpose', model: 'sonnet', name, color, tmux_session_name: 'in-process', tmux_window_name: 'in-process',
+    tmux_pane_id: 'in-process', team_name: 'demo-team', is_splitpane: false, plan_mode_required: false,
+  },
+})
+
+describe('parseTeammateSpawnResult', () => {
+  it('reads the real toolUseResult and ignores anything else', () => {
+    const r = parseTeammateSpawnResult(realSpawnResult('t', 'bob', 'abob-1', 'orange').toolUseResult)!
+    assert.equal(r.name, 'bob')
+    assert.equal(r.teamName, 'demo-team')
+    assert.equal(r.color, TEAM_COLOR_PALETTE.orange)
+    assert.equal(r.agentId, 'abob-1')
+    assert.equal(parseTeammateSpawnResult({ status: 'completed', name: 'x', team_name: 'y' }), null)
+    assert.equal(parseTeammateSpawnResult('nope'), null)
+    assert.equal(parseTeammateSpawnResult(null), null)
+  })
+})
+
+describe('lead Agent tool_use that spawns a teammate (real shapes)', () => {
+  let dir: string
+  afterEach(() => { if (dir) fs.rmSync(dir, { recursive: true, force: true }) })
+  const feed = (h: ReturnType<typeof makeHarness>, session: ReturnType<typeof makeSession>, entry: unknown) =>
+    h.parser.processTranscriptLine(JSON.stringify(entry), 'orchestrator', session.pendingToolCalls, session.seenToolUseIds, 's1')
+
+  it('yields exactly one node named after the member, flagged teammate, never completed', () => {
     const session = makeSession()
     const h = makeHarness(session)
-    const line = JSON.stringify({
-      type: 'assistant',
-      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_spawn', name: 'Agent', input: { name: 'researcher', team_name: 'demo-team', description: 'Research stuff', subagent_type: 'general-purpose', prompt: 'p' } }] },
-    })
-    h.parser.processTranscriptLine(line, 'orchestrator', session.pendingToolCalls, session.seenToolUseIds, 's1')
-    const spawn = ofType(h.events, 'agent_spawn')[0]
-    assert.equal(spawn.payload.name, 'researcher')
-    assert.equal(spawn.payload.kind, 'teammate')
-    assert.equal(spawn.payload.teamName, 'demo-team')
-
-    h.parser.processTranscriptLine(JSON.stringify(toolResult('toolu_spawn', 'Spawned successfully')), 'orchestrator', session.pendingToolCalls, session.seenToolUseIds, 's1')
+    feed(h, session, realSpawnUse('toolu_spawn', 'audit-canvas'))
+    feed(h, session, realSpawnResult('toolu_spawn', 'audit-canvas', 'aaudit-canvas-0001'))
+    const spawns = ofType(h.events, 'agent_spawn')
+    assert.ok(spawns.length >= 1)
+    for (const s of spawns) assert.equal(s.payload.name, 'audit-canvas', 'no ghost node named after the description')
+    const last = spawns[spawns.length - 1]
+    assert.equal(last.payload.kind, 'teammate')
+    assert.equal(last.payload.teamName, 'demo-team')
+    assert.equal(last.payload.color, TEAM_COLOR_PALETTE.blue)
+    assert.equal(last.payload.parent, 'orchestrator')
     assert.equal(ofType(h.events, 'agent_complete').length, 0)
     assert.equal(ofType(h.events, 'subagent_return').length, 0)
     assert.equal(ofType(h.events, 'tool_call_end').length, 1)
+    const links = ofType(h.events, 'agent_link').filter(e => e.payload.kind === 'spawn' || e.payload.to === 'audit-canvas')
+    for (const l of links) assert.equal(l.payload.to, 'audit-canvas')
+  })
+
+  it('the sidecar of the same agentId adopts the dispatch node instead of adding a second one', () => {
+    dir = tmpDir()
+    const session = makeSession({ subagentsDir: dir })
+    const h = makeHarness(session)
+    feed(h, session, realSpawnUse('toolu_spawn', 'audit-canvas'))
+    feed(h, session, realSpawnResult('toolu_spawn', 'audit-canvas', 'aaudit-canvas-0001'))
+    writeTeammate(dir, { agentId: 'aaudit-canvas-0001', meta: teammateMeta('audit-canvas', { description: 'Audit canvas accessibility' }), entries: [assistantText('hi')], mtimeMs: Date.now() - HOUR })
+    scanSubagentsDir(h.delegate, h.parser, 's1')
+    h.closeWatchers()
+    const names = new Set(ofType(h.events, 'agent_spawn').map(e => String(e.payload.name)))
+    assert.deepEqual([...names], ['audit-canvas'])
+    assert.equal(ofType(h.events, 'agent_complete').length, 0)
   })
 
   it('an ordinary Agent call still completes when its result arrives', () => {

@@ -21,6 +21,23 @@ export interface SessionLifecycleEvent {
   type: 'started' | 'ended' | 'updated'
   sessionId: string
   label: string
+  /** Team / runtime / workspace tags (all optional, untrusted-capped by the watcher) */
+  teamName?: string
+  memberName?: string
+  runtime?: string
+  workspace?: string
+  cwd?: string
+}
+
+/** The optional tag fields of a lifecycle event, as session info fields. */
+export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'teamName' | 'memberName' | 'runtime' | 'workspace' | 'cwd'> {
+  return {
+    ...(l.teamName ? { teamName: l.teamName } : {}),
+    ...(l.memberName ? { memberName: l.memberName } : {}),
+    ...(l.runtime ? { runtime: l.runtime } : {}),
+    ...(l.workspace ? { workspace: l.workspace } : {}),
+    ...(l.cwd ? { cwd: l.cwd } : {}),
+  }
 }
 
 /** Interface every runtime's watcher implements. Uses portable typed-event
@@ -103,10 +120,15 @@ export function wireWatcherToPanel(
           status: 'active',
           startTime: Date.now(),
           lastActivityTime: Date.now(),
+          ...lifecycleTags(lifecycle),
         },
       })
     } else if (lifecycle.type === 'updated') {
-      panel.postMessage({ type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label })
+      panel.postMessage({
+        type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,
+        ...(lifecycle.teamName ? { teamName: lifecycle.teamName } : {}),
+        ...(lifecycle.memberName ? { memberName: lifecycle.memberName } : {}),
+      })
     } else {
       panel.postMessage({ type: 'session-ended', sessionId: lifecycle.sessionId })
     }

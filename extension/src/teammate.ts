@@ -17,9 +17,24 @@ import { sanitizeAgentName } from './team-links'
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/
 
-/** Only '#rrggbb' is a valid team color; anything else is dropped. */
+/** Claude Code names team colors by palette name, never by hex: map them to a fixed table. */
+export const TEAM_COLOR_PALETTE: Readonly<Record<string, string>> = {
+  blue: '#3b82f6',
+  orange: '#f97316',
+  green: '#22c55e',
+  purple: '#a855f7',
+  yellow: '#eab308',
+  red: '#ef4444',
+  pink: '#ec4899',
+  cyan: '#06b6d4',
+}
+
+/** A known palette name or '#rrggbb' becomes a lowercase '#rrggbb'; anything else is dropped. */
 export function sanitizeTeamColor(value: unknown): string | undefined {
-  return typeof value === 'string' && COLOR_RE.test(value) ? value.toLowerCase() : undefined
+  if (typeof value !== 'string') return undefined
+  const v = value.trim()
+  if (COLOR_RE.test(v)) return v.toLowerCase()
+  return Object.prototype.hasOwnProperty.call(TEAM_COLOR_PALETTE, v.toLowerCase()) ? TEAM_COLOR_PALETTE[v.toLowerCase()] : undefined
 }
 
 /** Short single-line untrusted string (model, agent type, team name). */
@@ -27,6 +42,39 @@ export function sanitizeTeamField(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const v = sanitizeAgentName(value)
   return v ? v.slice(0, TEAM_FIELD_MAX) : undefined
+}
+
+export interface TeammateSpawnResult {
+  name: string
+  teamName: string
+  color?: string
+  agentType?: string
+  model?: string
+  /** agent_id: also the `agent-<id>.jsonl` transcript file key */
+  agentId?: string
+}
+
+/**
+ * The lead's Agent tool_result carries `toolUseResult` (a sibling of `message` on the transcript
+ * entry) with { status: 'teammate_spawned', agentId, name, color, team_name, agent_type, ... }.
+ * The tool_use input itself never has team_name. Null for anything else (untrusted).
+ */
+export function parseTeammateSpawnResult(value: unknown): TeammateSpawnResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const r = value as Record<string, unknown>
+  const teamName = sanitizeTeamField(r.team_name)
+  const name = sanitizeAgentName(r.name)
+  if (!name || !teamName) return null
+  if (r.status !== 'teammate_spawned' && typeof r.teammate_id !== 'string') return null
+  const agentId = typeof r.agentId === 'string' ? r.agentId : r.agent_id
+  return {
+    name,
+    teamName,
+    color: sanitizeTeamColor(r.color),
+    agentType: sanitizeTeamField(r.agent_type),
+    model: sanitizeTeamField(r.model),
+    ...(typeof agentId === 'string' && /^[\w.-]{1,128}$/.test(agentId) ? { agentId } : {}),
+  }
 }
 
 export interface TeammateMeta {

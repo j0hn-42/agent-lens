@@ -18,10 +18,10 @@ import * as crypto from 'crypto'
 import type { TeamInfoPayload } from './protocol'
 import {
   TEAM_SCAN_INTERVAL_MS, TEAM_INFO_DEBOUNCE_MS, TEAM_MAX_TEAMS, TEAM_MAX_MEMBERS, TEAM_CONFIG_MAX_BYTES,
-  TEAM_INBOX_MAX_FILES, TEAM_INBOX_MAX_BYTES, TEAM_INBOX_MAX_MESSAGES, TEAM_INBOX_SEEN_MAX,
+  TEAM_INBOX_MAX_FILES, TEAM_INBOX_MAX_BYTES, TEAM_INBOX_FIRST_SCAN_MAX, TEAM_INBOX_MAX_MESSAGES, TEAM_INBOX_SEEN_MAX,
   TEAM_JOIN_MATCH_WINDOW_MS, SESSION_HEADER_MAX_BYTES, TEAM_NAME_MAX,
 } from './constants'
-import { readJsonFileSafe, isPathInside, foldPathCase } from './fs-utils'
+import { readJsonFileSafe, readTailTextSafe, isPathInside, foldPathCase } from './fs-utils'
 import { isValidSessionId } from './relay-guards'
 import { sanitizeAgentName, sanitizeMessageContent } from './team-links'
 import { sanitizeTeamColor, sanitizeTeamField } from './teammate'
@@ -125,6 +125,25 @@ function stringify(value: unknown): string {
     try { return JSON.stringify(value) ?? '' } catch { return '' }
   }
   return ''
+}
+
+/**
+ * Parse the tail of an inbox file that is too big to read whole. The file is a JSON array of
+ * messages: the cut head is dropped up to the first element boundary (`}, {`) that yields valid JSON.
+ * undefined when nothing usable is found.
+ */
+export function parseInboxTail(text: string): unknown[] | undefined {
+  const boundary = /\}\s*,\s*\{/g
+  let m: RegExpExecArray | null
+  let tries = 0
+  while ((m = boundary.exec(text)) && tries++ < 16) {
+    const start = text.indexOf('{', m.index + 1)
+    try {
+      const parsed: unknown = JSON.parse('[' + text.slice(start))
+      if (Array.isArray(parsed)) return parsed
+    } catch { /* boundary inside a string, or a trailing partial write: try the next one */ }
+  }
+  return undefined
 }
 
 /**
@@ -506,27 +525,41 @@ export class TeamWatcher {
       if (!owner) continue
       const filePath = path.join(inboxDir, fileName)
       let sig: string
+      let size: number
       try {
         const st = fs.lstatSync(filePath)
-        if (!st.isFile() || st.size > TEAM_INBOX_MAX_BYTES) continue
+        if (!st.isFile()) continue
+        size = st.size
         sig = `${st.size}:${st.mtimeMs}`
       } catch { continue }
       let inbox = state.inboxes.get(fileName)
       if (inbox && inbox.sig === sig) continue
 
-      const raw = readJsonFileSafe(filePath, TEAM_INBOX_MAX_BYTES, this.teamsDir)
+      let raw: unknown
+      if (size > TEAM_INBOX_MAX_BYTES) {
+        // Too big to read whole: the newest messages are at the end of the array
+        const tail = readTailTextSafe(filePath, TEAM_INBOX_MAX_BYTES, this.teamsDir)
+        raw = tail ? parseInboxTail(tail.text) : undefined
+      } else {
+        raw = readJsonFileSafe(filePath, TEAM_INBOX_MAX_BYTES, this.teamsDir)
+      }
       if (raw === undefined) continue // half-written: retry next scan
       const messages = parseInbox(raw)
+      const firstSight = !inbox
       if (!inbox) { inbox = { sig, seen: new Set() }; state.inboxes.set(fileName, inbox) }
       inbox.sig = sig
       // An emptied inbox means "delivered": identical messages sent later are new again
       if (messages.length === 0) { inbox.seen.clear(); continue }
       const keys = inboxKeys(messages)
       const fallbackFrom = state.cfg.leadName ?? 'team-lead'
+      // First sight of this inbox: only the newest messages are replayed (all are remembered), so
+      // history cannot flood the replay buffer and evict early agent_spawn / team_info events.
+      const replayFrom = firstSight ? Math.max(0, messages.length - TEAM_INBOX_FIRST_SCAN_MAX) : 0
       for (let i = 0; i < messages.length; i++) {
         if (inbox.seen.has(keys[i])) continue
         inbox.seen.add(keys[i])
         if (inbox.seen.size > TEAM_INBOX_SEEN_MAX) inbox.seen.delete(inbox.seen.values().next().value as string)
+        if (i < replayFrom) continue
         const m = messages[i]
         this.opts.host.emitInbox(state.cfg.leadSessionId, m.from ?? fallbackFrom, owner, m.text)
       }

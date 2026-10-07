@@ -55,6 +55,13 @@ export class SubagentRegistry {
     return record
   }
 
+  /** Bind a record to its transcript file key (agent_id) when the dispatch result exposes it. */
+  bindFileKey(record: SubagentRecord, fileKey: string): void {
+    if (record.fileKey || this.byFileKey.has(fileKey)) return
+    record.fileKey = fileKey
+    this.byFileKey.set(fileKey, record)
+  }
+
   getByToolUseId(toolUseId: string): SubagentRecord | undefined {
     return this.byToolUseId.get(toolUseId)
   }
