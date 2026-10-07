@@ -106,4 +106,37 @@ describe('startClaudeRuntime: hooks and transcript reconciled', () => {
     await waitFor(() => starts('tu-hook-only').length > 0)
     assert.equal(starts('tu-hook-only').length, 1)
   })
+
+  // Same-source repeats are real activity and are kept by design, so a duplicate cannot reveal a bypass:
+  // we observe instead that the hook is submitted to the watcher's reconciler (not sent straight to the panel).
+  function spySubmit(): { calls: AnyEvent[]; restore: () => void } {
+    const { SessionWatcher } = require('../src/session-watcher') as { SessionWatcher: { prototype: { submitHookEvent: (e: AnyEvent) => void } } }
+    const original = SessionWatcher.prototype.submitHookEvent
+    const calls: AnyEvent[] = []
+    SessionWatcher.prototype.submitHookEvent = function (this: unknown, e: AnyEvent) { calls.push(e); return original.call(this, e) }
+    return { calls, restore: () => { SessionWatcher.prototype.submitHookEvent = original } }
+  }
+
+  it('a subagent tool event (watched session) is submitted to the reconciler, not sent straight to the panel', async () => {
+    assert.equal(await postHook({ session_id: SESSION, hook_event_name: 'SubagentStart', agent_id: 'sub-runtime-1', agent_type: 'Explore' }), 200)
+    const spy = spySubmit()
+    try {
+      assert.equal(await postHook({ ...hook('tu-sub-reconciled'), agent_id: 'sub-runtime-1', agent_type: 'Explore' }), 200)
+      await waitFor(() => starts('tu-sub-reconciled').length > 0)
+      assert.equal(starts('tu-sub-reconciled').length, 1, 'the subagent call reached the panel')
+      assert.notEqual(starts('tu-sub-reconciled')[0].payload.agent ?? starts('tu-sub-reconciled')[0].payload.name, 'orchestrator', 'subagent branch, not the orchestrator one')
+      assert.equal(spy.calls.filter(e => e.type === 'tool_call_start' && e.payload.toolUseId === 'tu-sub-reconciled').length, 1, 'went through watcher.submitHookEvent')
+    } finally { spy.restore() }
+  })
+
+  it('a hook for a session the watcher does NOT own is also submitted to the reconciler', async () => {
+    const OTHER = '66666666-6666-4666-8666-666666666666'
+    const spy = spySubmit()
+    try {
+      assert.equal(await postHook({ session_id: OTHER, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tu-unwatched', tool_input: { command: 'ls' } }), 200)
+      await waitFor(() => starts('tu-unwatched').length > 0)
+      assert.equal(starts('tu-unwatched').length, 1, 'a hook-only session still reaches the panel')
+      assert.equal(spy.calls.filter(e => e.sessionId === OTHER && e.type === 'tool_call_start').length, 1, 'went through watcher.submitHookEvent')
+    } finally { spy.restore() }
+  })
 })
