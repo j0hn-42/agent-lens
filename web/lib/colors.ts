@@ -31,6 +31,8 @@ export const COLORS = {
   dispatch: '#cc88ff',
   return: '#66ffaa',
   tool: '#ffbb44',
+  /** MCP tool calls (cyan, distinct from the amber of native tools) */
+  mcp: '#22d3ee',
   message: '#66ccff',
 
   // Context breakdown colors
@@ -146,6 +148,8 @@ export const COLORS = {
   cardBgFaintOverlay: 'rgba(0, 0, 0, 0.01)',
 
   // Active tool indicator (detail card)
+  mcpIndicatorBg: 'rgba(34, 211, 238, 0.1)',
+  mcpIndicatorBorder: 'rgba(34, 211, 238, 0.25)',
   toolIndicatorBg: 'rgba(255, 187, 68, 0.1)',
   toolIndicatorBorder: 'rgba(255, 187, 68, 0.2)',
   toolIndicatorText: '#ffbb44',

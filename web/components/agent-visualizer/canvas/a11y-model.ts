@@ -7,6 +7,7 @@ import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
 import { agentCost } from '../../../lib/cost'
+import { formatToolName } from '../../../lib/mcp-tool'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
@@ -55,7 +56,7 @@ export function updateToolHistory(
     const entry: ToolHistoryEntry = {
       id,
       agentId: tc.agentId,
-      name: tc.toolName,
+      name: tc.mcp ? `MCP tool ${formatToolName(tc.toolName)}` : tc.toolName,
       args: clip(tc.args),
       state: tc.state,
       error: tc.state === 'error' ? clip(tc.errorMessage || tc.result) : '',

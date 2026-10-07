@@ -100,6 +100,8 @@ export interface ToolCallNode {
   id: string
   agentId: string
   toolName: string
+  /** Set when toolName is an MCP tool (`mcp__<server>__<tool>`) */
+  mcp?: { server: string; tool: string }
   state: 'running' | 'complete' | 'error'
   args: string          // human-readable argument summary
   result?: string       // human-readable result summary
@@ -184,6 +186,8 @@ export interface Particle {
   color: string
   size: number
   trailLength: number
+  /** Particle belongs to an MCP tool call (drawn with a dotted trail) */
+  mcp?: boolean
   label?: string        // what's flowing (e.g., "auth.ts 142 lines")
   /** Full subagent dispatch/return data (prompt, report, ...) carried by dispatch/return particles */
   detail?: ParticleDetail
