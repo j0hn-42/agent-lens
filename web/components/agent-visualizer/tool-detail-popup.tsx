@@ -19,20 +19,26 @@ interface ToolDetailPopupProps {
   onClose: () => void
 }
 
+const STATE_DISPLAY = {
+  running: { color: COLORS.tool_calling, icon: '⚙', label: 'Running' },
+  complete: { color: COLORS.complete, icon: '✓', label: 'Complete' },
+  error: { color: COLORS.error, icon: '✕', label: 'Error' },
+} as const
+
 export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProps) {
-  const stateColor = tool.state === 'running' ? COLORS.tool_calling : COLORS.complete
+  const { color: stateColor, icon: stateIcon, label: stateLabel } = STATE_DISPLAY[tool.state] ?? STATE_DISPLAY.complete
 
   return (
     <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose}>
       <PanelHeader onClose={onClose}>
-        <span className="text-[9px]" style={{ color: stateColor }}>
-          {tool.state === 'running' ? '⚙' : '✓'}
+        <span className="text-[9px]" style={{ color: stateColor }} aria-hidden="true">
+          {stateIcon}
         </span>
         <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.tool_calling }}>
           {tool.toolName}
         </span>
-        <span className="text-[9px] font-mono capitalize" style={{ color: stateColor + '90' }}>
-          {tool.state}
+        <span className="text-[9px] font-mono" style={{ color: stateColor + '90' }}>
+          {stateLabel}
         </span>
       </PanelHeader>
 

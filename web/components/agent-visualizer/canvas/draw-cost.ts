@@ -1,24 +1,11 @@
 import { Agent, ToolCallNode, NODE } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { COST_RATE, MODEL_FAMILY_COST, COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
-import { formatTokens } from '@/lib/utils'
+import { COST_DRAW, COST_PANEL, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
+import { formatTokens, formatCost } from '@/lib/utils'
+import { agentCost, modelCostRate } from '@/lib/cost'
 import { truncateText } from './draw-misc'
 
-/** Blended $/M-token rate for a model ID — first matching family wins,
- *  unknown models fall back to the Sonnet-class rate. */
-export function modelCostRate(model?: string): number {
-  if (model) {
-    const id = model.toLowerCase()
-    for (const { pattern, rate } of MODEL_FAMILY_COST) {
-      if (pattern.test(id)) return rate
-    }
-  }
-  return COST_RATE
-}
-
-export function agentCost(tokensUsed: number, model?: string): number {
-  return (tokensUsed / 1_000_000) * modelCostRate(model)
-}
+export { modelCostRate, agentCost }
 
 /** Tool name -> color for mini cost bar */
 export function toolTypeColor(toolName: string): string {
@@ -57,7 +44,7 @@ export function drawCostLabels(
     const pillY = agent.y - r - COST_DRAW.pillYOffset
 
     // Floating cost pill
-    const label = `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(3)}`
+    const label = formatCost(cost)
     ctx.font = 'bold 9px monospace'
     const labelW = ctx.measureText(label).width
     const pillW = labelW + COST_DRAW.pillPadding
@@ -187,11 +174,11 @@ export function drawCostSummaryPanel(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  ctx.fillText(`$${totalCost.toFixed(3)}`, panelX + COST_PANEL.contentPadding, y)
+  ctx.fillText(formatCost(totalCost), panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '9px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(`$${totalCost.toFixed(3)}`).width + 14, y + 2)
+  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(formatCost(totalCost)).width + 14, y + 2)
 
   y += headerH
 
@@ -224,7 +211,7 @@ export function drawCostSummaryPanel(
     // Cost
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
-    ctx.fillText(`$${a.cost.toFixed(3)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(formatCost(a.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
     y += lineH
   }
@@ -266,7 +253,7 @@ export function drawCostSummaryPanel(
       // Cost
       ctx.textAlign = 'right'
       ctx.fillStyle = COLORS.costTextDim
-      ctx.fillText(`$${t.cost.toFixed(3)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+      ctx.fillText(formatCost(t.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
       y += lineH
     }

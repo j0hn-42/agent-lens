@@ -5,6 +5,7 @@ import { COLORS, getStateColor } from '@/lib/colors'
 import { TranscriptMessage } from './transcript-message'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { PanelHeader, SlidingPanel, stopPropagationHandlers } from './shared-ui'
+import { useState } from 'react'
 import { useAutoScroll } from '@/hooks/use-auto-scroll'
 
 interface ChatPanelProps {
@@ -24,9 +25,15 @@ export function AgentChatPanel({
   runtime,
   onClose,
 }: ChatPanelProps) {
-  const { ref: logRef } = useAutoScroll(conversation.length, visible)
+  const { ref: logRef, handleScroll, scrollToBottom, isAutoScrolling } = useAutoScroll(conversation.length, visible)
 
   const stateColor = getStateColor(agentState)
+  const [showNewMessages, setShowNewMessages] = useState(false)
+
+  const onScroll = () => {
+    handleScroll()
+    setShowNewMessages(!isAutoScrolling.current)
+  }
 
   return (
     <SlidingPanel
@@ -42,8 +49,8 @@ export function AgentChatPanel({
             className="w-1.5 h-1.5 rounded-full"
             style={{ background: stateColor, boxShadow: `0 0 6px ${stateColor}` }}
           />
-          <span className="text-[10px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
-            {agentName.toUpperCase()}
+          <span className="text-[10px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>
+            {agentName}
           </span>
           <span className="text-[9px] font-mono capitalize" style={{ color: stateColor + '90' }}>
             {agentState}
@@ -53,6 +60,7 @@ export function AgentChatPanel({
         {/* Messages */}
         <div
           ref={logRef}
+          onScroll={onScroll}
           className="flex-1 overflow-y-auto space-y-1.5 mb-2"
           style={{ minHeight: CARD.chat.messagesMinHeight, maxHeight: CARD.chat.messagesMaxHeight }}
         >
@@ -69,6 +77,22 @@ export function AgentChatPanel({
           )}
         </div>
 
+        {showNewMessages && conversation.length > 0 && (
+          <div className="flex justify-center pb-1 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => { scrollToBottom(); setShowNewMessages(false) }}
+              className="text-[9px] font-mono px-3 py-1 rounded-full transition-all"
+              style={{
+                background: COLORS.holoBg10,
+                border: `1px solid ${COLORS.glassBorder}`,
+                color: COLORS.scrollBtnText,
+              }}
+            >
+              ↓ New messages
+            </button>
+          </div>
+        )}
       </div>
     </SlidingPanel>
   )

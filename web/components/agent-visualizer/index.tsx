@@ -23,6 +23,7 @@ import { COLORS } from "@/lib/colors"
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
 import { TopBar } from "./top-bar"
+import { totalAgentCost } from "@/lib/cost"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 
 const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-flow:single-key-shortcuts'
@@ -249,6 +250,8 @@ export function AgentVisualizer() {
     return sum
   }, [agents])
 
+  const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
+
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   const selectedConversation = selection.selectedAgentId ? (conversations.get(selection.selectedAgentId) || []) : []
 
@@ -365,6 +368,7 @@ export function AgentVisualizer() {
         <div {...stopPropagationHandlers}>
           <DiscoveryDetailPopup
             discovery={selection.selectedDiscoveryData}
+            agentName={agents.get(selection.selectedDiscoveryData.agentId)?.name}
             position={selection.selectedDiscoveryScreenPos}
             onClose={selection.clearDiscovery}
           />
@@ -452,6 +456,7 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         agentCount={agents.size}
         totalTokens={totalTokens}
+        totalCost={totalCost}
         showFileAttention={showFileAttention}
         showTranscript={showTranscript}
         showCostOverlay={showCostOverlay}

@@ -3,8 +3,7 @@
 import { memo } from "react"
 import { Z } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
-import { formatTokens } from "@/lib/utils"
-import { agentCost } from "./canvas/draw-cost"
+import { formatTokens, formatCost, pluralize } from "@/lib/utils"
 import { SessionTabs } from "./session-tabs"
 import type { SessionInfo, ConnectionStatus } from "@/lib/bridge-types"
 
@@ -89,6 +88,8 @@ export interface TopBarProps {
   // Stats
   agentCount: number
   totalTokens: number
+  /** Sum of per-agent costs, each priced with its own model */
+  totalCost: number
   // Panel toggles
   showFileAttention: boolean
   showTranscript: boolean
@@ -104,7 +105,7 @@ export const TopBar = memo(function TopBar({
   sessions, selectedSessionId, sessionsWithActivity,
   onSelectSession, onCloseSession,
   isVSCode, connectionStatus,
-  agentCount, totalTokens,
+  agentCount, totalTokens, totalCost,
   showFileAttention, showTranscript, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute,
 }: TopBarProps) {
@@ -129,11 +130,11 @@ export const TopBar = memo(function TopBar({
       {/* Right-side info/controls */}
       <div className="flex items-center gap-4 flex-shrink-0" style={{ color: COLORS.textMuted }}>
         {isVSCode && <ConnectionIndicator status={connectionStatus} />}
-        <span>{agentCount} agents</span>
+        <span>{pluralize(agentCount, 'agent')}</span>
         <span>
           {formatTokens(totalTokens)} tokens
           <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
-            ~${agentCost(totalTokens).toFixed(2)}
+            ~{formatCost(totalCost)}
           </span>
         </span>
 
