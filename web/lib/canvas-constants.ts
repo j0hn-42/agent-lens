@@ -125,10 +125,9 @@ export const AUTO_SCROLL_THRESHOLD = 60
 export const CAMERA = {
   zoomStepDown: 0.92,
   zoomStepUp: 1.08,
-  minZoom: 0.2,
+  /** Floor of the interactive zoom AND of the zoom-to-fit (FIT_MIN_SCALE): dozens of clusters fit at this scale */
+  minZoom: 0.04,
   maxZoom: 4,
-  /** Lower bound for the zoom-to-fit scale: never fit smaller than this (hit targets and text stay usable) */
-  minFitScale: 0.5,
   /** Pixels moved by one Shift+arrow press */
   keyboardPanStep: 48,
   /** Multiplier applied by the keyboard / button zoom controls */

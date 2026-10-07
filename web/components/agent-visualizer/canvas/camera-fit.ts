@@ -18,6 +18,12 @@ export interface Viewport { width: number; height: number }
 export interface WorldBounds { minX: number; maxX: number; minY: number; maxY: number }
 
 export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
+/**
+ * Smallest zoom of the camera: both fitToView() and the interactive zoom (wheel, buttons, keys) stop here,
+ * so a fit is always reachable by hand too. Low enough for dozens of cluster halos; cluster labels stay
+ * legible because they are drawn in screen space and per-agent text is hidden by the LOD at such scales.
+ */
+export const FIT_MIN_SCALE = CAMERA.minZoom
 /** Largest zoom a fit may choose (a single node is not blown up beyond this) */
 export const MAX_FIT_SCALE = 2
 /** Minimum screen padding between the content and the edge of the safe area */
@@ -159,7 +165,7 @@ export function fitToView(
 ): Transform | null {
   if (!bounds || isEmptyBounds(bounds)) return null
   if (!(viewport.width > 0) || !(viewport.height > 0) || !Number.isFinite(viewport.width) || !Number.isFinite(viewport.height)) return null
-  const minScale = options.minScale ?? CAMERA.minZoom
+  const minScale = options.minScale ?? FIT_MIN_SCALE
   const maxScale = Math.max(minScale, options.maxScale ?? MAX_FIT_SCALE)
   const safe = safeRect(viewport, insets)
   const pad = Math.min(nonNeg(options.padding ?? FIT_MIN_PADDING), Math.min(safe.w, safe.h) / 4)
@@ -199,12 +205,25 @@ export function fitInsets(measured: Partial<Insets> | undefined | null, hasClust
   }
 }
 
+/** An overlay rectangle; `edge` is an explicit role (data-canvas-inset="top|right|bottom|left"). */
+export interface OverlayRect extends Rect {
+  /** Forces the edge the overlay reserves, whatever its size */
+  edge?: 'top' | 'right' | 'bottom' | 'left'
+  /**
+   * Bars (control bar, top bar, toolbars) are counted by role, not by width ratio: any rectangle that
+   * hugs the top / bottom edge reserves it, however narrow it is next to a very wide canvas.
+   */
+  bar?: boolean
+}
+
 /**
  * Classify the rectangles of the UI overlaid on the canvas (all in the same client coordinates as
- * `canvas`) into insets: a wide strip hugging the top / bottom edge, a tall panel hugging the left /
- * right edge. Small floating cards are ignored.
+ * `canvas`) into insets. Rectangles with an explicit `edge` always reserve that edge; `bar` rectangles
+ * reserve the top / bottom edge they hug (no width ratio); other rectangles are classified by shape: a
+ * wide strip hugging the top / bottom edge, a tall panel hugging the left / right edge. Small floating
+ * cards are ignored.
  */
-export function classifyOverlayInsets(overlays: ReadonlyArray<Rect>, canvas: Rect, edgeTolerance = 48): Insets {
+export function classifyOverlayInsets(overlays: ReadonlyArray<OverlayRect>, canvas: Rect, edgeTolerance = 48): Insets {
   const out: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
   if (!(canvas.w > 0) || !(canvas.h > 0)) return out
   for (const o of overlays) {
@@ -216,7 +235,11 @@ export function classifyOverlayInsets(overlays: ReadonlyArray<Rect>, canvas: Rec
     const w = right - left
     const h = bottom - top
     if (w <= 0 || h <= 0) continue
-    const wide = w >= canvas.w * 0.25
+    if (o.edge === 'top') { out.top = Math.max(out.top, bottom); continue }
+    if (o.edge === 'bottom') { out.bottom = Math.max(out.bottom, canvas.h - top); continue }
+    if (o.edge === 'left') { out.left = Math.max(out.left, right); continue }
+    if (o.edge === 'right') { out.right = Math.max(out.right, canvas.w - left); continue }
+    const wide = o.bar ? h < canvas.h * 0.5 : w >= canvas.w * 0.25
     const tall = h >= canvas.h * 0.3
     if (wide && top <= edgeTolerance) out.top = Math.max(out.top, bottom)
     else if (wide && bottom >= canvas.h - edgeTolerance) out.bottom = Math.max(out.bottom, canvas.h - top)
@@ -259,19 +282,62 @@ export function clusterSetSignature(clusterKeys: Iterable<string>, sessionIds: I
   return `${keys.join(',')}#${sessions.join(',')}`
 }
 
+function hashString(h: number, s: string): number {
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619)
+  return h >>> 0
+}
+
+/**
+ * Allocation-free fingerprint of the content SET (order-insensitive): the cluster keys and the session
+ * ids of the agents. Cheap enough to run every frame; the full signature / session list is only built
+ * when this number changes. Positions are deliberately not part of it.
+ */
+export function contentStamp(
+  clusters: Iterable<{ key: string }>, agents: Iterable<{ sessionId?: string }>,
+): number {
+  let sum = 0, xor = 0, n = 0
+  for (const c of clusters) { const h = hashString(2166136261, c.key); sum = (sum + h) >>> 0; xor ^= h; n++ }
+  sum = (sum + 0x9e3779b9) >>> 0
+  for (const a of agents) { const h = hashString(0x811c9dc5, a.sessionId ?? ''); sum = (sum + h) >>> 0; xor ^= Math.imul(h, 31); n++ }
+  return (Math.imul(sum, 31) ^ xor ^ Math.imul(n, 0x85ebca6b)) >>> 0
+}
+
 export interface AutoFitState {
+  /** null while there is no content */
   signature: string | null
+  /** Distinct session ids on screen (the "tab" scope) */
+  sessions?: ReadonlyArray<string>
   width: number
   height: number
 }
 
 /**
- * Should the camera resume following the content? True on the first frame with content, when the set
- * of clusters / sessions changed (tab or cluster selection, a session appearing) and when the canvas
- * was resized. A manual pan / zoom is otherwise left alone.
+ * AUTO-FIT RULE (issue #2). While the user has not panned / zoomed, the camera follows the content
+ * continuously. A manual pan / zoom is then RESPECTED: the camera does not snap away when the content
+ * changes. Auto-fit resumes only on
+ *   - the first content after an empty canvas ("first"),
+ *   - a tab / scope change: a session left the view, or several sessions appeared at once ("scope"),
+ *   - the explicit Fit button / keyboard fit (handled by the camera hook, not here).
+ * Not resuming: one new session appearing live, a team cluster forming, agents spawning, a canvas resize.
  */
-export function shouldResumeAutoFit(prev: AutoFitState, next: AutoFitState, resizeTolerance = 1): boolean {
-  if (prev.signature === null) return next.signature !== null
-  if (prev.signature !== next.signature) return true
-  return Math.abs(prev.width - next.width) > resizeTolerance || Math.abs(prev.height - next.height) > resizeTolerance
+export type ContentChange = 'none' | 'first' | 'scope' | 'growth'
+
+export function classifyContentChange(prev: AutoFitState, next: AutoFitState): ContentChange {
+  if (next.signature === null) return 'none'
+  if (prev.signature === null) return 'first'
+  if (prev.signature === next.signature) return 'none'
+  const before = prev.sessions
+  const after = next.sessions
+  if (!before || !after) return 'scope'
+  const nextSet = new Set(after)
+  for (const s of before) if (!nextSet.has(s)) return 'scope'
+  const prevSet = new Set(before)
+  let added = 0
+  for (const s of after) if (!prevSet.has(s)) added++
+  return added >= 2 ? 'scope' : 'growth'
+}
+
+export function shouldResumeAutoFit(prev: AutoFitState, next: AutoFitState): boolean {
+  const c = classifyContentChange(prev, next)
+  return c === 'first' || c === 'scope'
 }

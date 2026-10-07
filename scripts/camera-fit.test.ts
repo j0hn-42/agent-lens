@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   fitToView, safeRect, computeFitBounds, emptyBounds, extendCircle, extendRect, isEmptyBounds, circleBounds,
   fitInsets, classifyOverlayInsets, clampRectToSafe, clusterSetSignature, shouldResumeAutoFit, parsePx, maxInsets,
-  MAX_FIT_SCALE, type WorldBounds, type Rect,
+  MAX_FIT_SCALE, classifyContentChange, contentStamp, FIT_MIN_SCALE, FIT_MIN_PADDING, type WorldBounds, type Rect,
 } from '../web/components/agent-visualizer/canvas/camera-fit'
 import { planOverlays, contextBlockHeight, contextBarShown } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
@@ -221,7 +221,7 @@ test('cluster halo labels never overlap the tab strip (planOverlays safe area)',
   for (const p of placed) assert.ok(p!.rect!.y >= safeArea.y, `label at y=${p!.rect!.y}`)
 })
 
-test('auto-fit rules: first content, cluster set change and resize resume; manual navigation otherwise stays', () => {
+test('auto-fit rules: first content and scope change resume; resize and live growth leave a manual view alone', () => {
   const none = { signature: null, width: 800, height: 600 }
   const sig = clusterSetSignature(['b', 'a'], ['s2', 's1', undefined])
   assert.equal(sig, clusterSetSignature(['a', 'b', 'a'], ['s1', undefined, 's2']))
@@ -230,8 +230,9 @@ test('auto-fit rules: first content, cluster set change and resize resume; manua
   const cur = { signature: sig, width: 800, height: 600 }
   assert.equal(shouldResumeAutoFit(cur, { ...cur }), false)
   assert.equal(shouldResumeAutoFit(cur, { ...cur, width: 800.5 }), false)
-  assert.equal(shouldResumeAutoFit(cur, { ...cur, width: 1200 }), true)
-  assert.equal(shouldResumeAutoFit(cur, { ...cur, height: 300 }), true)
+  // A resize no longer snaps a manually placed camera (issue #2)
+  assert.equal(shouldResumeAutoFit(cur, { ...cur, width: 1200 }), false)
+  assert.equal(shouldResumeAutoFit(cur, { ...cur, height: 300 }), false)
   assert.equal(shouldResumeAutoFit(cur, { ...cur, signature: clusterSetSignature(['a'], ['s1']) }), true)
 })
 
@@ -244,4 +245,150 @@ test('label block reserves the context bar so a shifted LEAD label never lands o
   assert.equal(contextBarShown({ tokensUsed: 5, state: 'idle', opacity: 1 }), true)
   assert.equal(contextBarShown({ tokensUsed: 5, state: 'complete', opacity: 0.2 }), false)
   assert.equal(contextBarShown({ tokensUsed: 5, state: 'idle', opacity: 1, archived: true }), false)
+})
+
+
+// ─── camera-fit2: floor, auto-fit rules, overlay roles, numeric verification ───
+
+test('fit floor and interactive zoom floor are the same value; minFitScale is gone', () => {
+  assert.equal(FIT_MIN_SCALE, CAMERA.minZoom)
+  assert.ok(FIT_MIN_SCALE <= 0.05)
+  assert.equal((CAMERA as Record<string, unknown>).minFitScale, undefined)
+})
+
+test('fitToView: 40 clusters on a wide ring fit inside the safe area (below the old 0.2 floor)', () => {
+  const b = emptyBounds()
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * Math.PI * 2
+    extendCircle(b, Math.cos(a) * 4200, Math.sin(a) * 4200, 380)
+  }
+  const insets = fitInsets({ top: 76, bottom: 70, left: 0, right: 0 }, true)
+  const t = fitToView(b, VP, insets)!
+  assert.ok(t.scale < CAMERA.minZoom * 5 && t.scale > FIT_MIN_SCALE)
+  const s = screenOf(b, t)
+  const safe = safeRect(VP, insets)
+  assert.ok(s.l >= safe.x && s.r <= safe.x + safe.w && s.t >= safe.y && s.b <= safe.y + safe.h)
+})
+
+test('20000 random cases: overflowing content gets a scale below 1 and ends inside the safe area', () => {
+  let seed = 12345
+  const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 }
+  let overflow = 0
+  for (let i = 0; i < 20000; i++) {
+    const vp = { width: 400 + rnd() * 3000, height: 300 + rnd() * 1500 }
+    const insets = { top: rnd() * 150, bottom: rnd() * 150, left: rnd() < 0.3 ? rnd() * 500 : 0, right: rnd() < 0.3 ? rnd() * 500 : 0 }
+    const safe = safeRect(vp, insets)
+    const availW = safe.w - FIT_MIN_PADDING * 2
+    const availH = safe.h - FIT_MIN_PADDING * 2
+    // up to ~15x the room: always above the floor, so the fit has to be exact
+    const bw = rnd() * availW * 15
+    const bh = rnd() * availH * 15
+    const b: WorldBounds = { minX: (rnd() - 0.5) * 8000, minY: (rnd() - 0.5) * 8000, maxX: 0, maxY: 0 }
+    b.maxX = b.minX + bw
+    b.maxY = b.minY + bh
+    const t = fitToView(b, vp, insets)!
+    const s = screenOf(b, t)
+    const eps = 1e-6
+    near((s.l + s.r) / 2, safe.x + safe.w / 2, 1e-6)
+    near((s.t + s.b) / 2, safe.y + safe.h / 2, 1e-6)
+    if (bw > availW || bh > availH) {
+      overflow++
+      assert.ok(t.scale < 1, `scale ${t.scale} for overflowing content`)
+      assert.ok(t.scale >= FIT_MIN_SCALE)
+    }
+    if (t.scale > FIT_MIN_SCALE) {
+      assert.ok(s.l >= safe.x - eps && s.r <= safe.x + safe.w + eps && s.t >= safe.y - eps && s.b <= safe.y + safe.h + eps, 'content inside the safe area')
+    }
+  }
+  assert.ok(overflow > 5000)
+})
+
+test('classifyOverlayInsets: a control bar is counted by role, not by width ratio, on very wide canvases', () => {
+  const canvas: Rect = { x: 0, y: 0, w: 5000, h: 1300 }
+  const bar = { x: 2160, y: 1220, w: 678, h: 56 }
+  // Untagged: the width heuristic would drop it (678 < 25% of 5000)
+  assert.equal(classifyOverlayInsets([bar], canvas).bottom, 0)
+  assert.equal(classifyOverlayInsets([{ ...bar, bar: true }], canvas).bottom, 1300 - 1220)
+  const top = { x: 20, y: 8, w: 400, h: 52, bar: true }
+  assert.equal(classifyOverlayInsets([top], canvas).top, 60)
+  // A bar floating mid-canvas reserves nothing
+  assert.deepEqual(classifyOverlayInsets([{ x: 2000, y: 600, w: 600, h: 50, bar: true }], canvas), { top: 0, right: 0, bottom: 0, left: 0 })
+})
+
+test('classifyOverlayInsets: data-canvas-inset edge opt-in reserves that edge whatever the size', () => {
+  const canvas: Rect = { x: 0, y: 0, w: 2000, h: 1000 }
+  const i = classifyOverlayInsets([
+    { x: 800, y: 300, w: 200, h: 100, edge: 'top' },
+    { x: 50, y: 400, w: 120, h: 80, edge: 'right' },
+    { x: 100, y: 20, w: 90, h: 90, edge: 'left' },
+    { x: 700, y: 900, w: 90, h: 40, edge: 'bottom' },
+  ], canvas)
+  assert.equal(i.top, 400)
+  assert.equal(i.right, 2000 - 50)
+  assert.equal(i.left, 190)
+  assert.equal(i.bottom, 1000 - 900)
+})
+
+/** Minimal synthetic DOM for measureOverlayInsets */
+function fakeEl(attrs: Record<string, string>, matchesBar: boolean, r: Rect, parent?: any, contains = false): any {
+  const el: any = {
+    getAttribute: (k: string) => attrs[k] ?? null,
+    matches: () => matchesBar,
+    getBoundingClientRect: () => ({ left: r.x, top: r.y, width: r.w, height: r.h }),
+    contains: (o: unknown) => o === el || contains,
+    closest: () => null,
+    parentElement: parent ?? null,
+  }
+  return el
+}
+
+test('measureOverlayInsets reads roles and data-canvas-inset from a synthetic DOM', async () => {
+  const { measureOverlayInsets, overlayRoleOf } = await import('../web/components/agent-visualizer/canvas/overlay-insets')
+  const canvas: any = {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 5000, height: 1300 }),
+    closest: () => null,
+  }
+  const controlBar = fakeEl({}, true, { x: 2160, y: 1220, w: 678, h: 56 })
+  const feed = fakeEl({ 'data-canvas-inset': 'left' }, false, { x: 0, y: 200, w: 300, h: 100 })
+  const note = fakeEl({}, false, { x: 900, y: 900, w: 100, h: 50 })
+  const nestedHeader = fakeEl({}, true, { x: 0, y: 0, w: 4000, h: 40 }, {})
+  nestedHeader.parentElement = { closest: () => ({ contains: () => false }) }
+  const doc: any = {
+    documentElement: {},
+    defaultView: { getComputedStyle: () => ({ getPropertyValue: () => '' }) },
+    querySelectorAll: () => [controlBar, feed, note, nestedHeader],
+  }
+  const i = measureOverlayInsets(canvas, doc)
+  assert.equal(i.bottom, 1300 - 1220)
+  assert.equal(i.left, 300)
+  assert.equal(i.top, 0, 'nested header is part of its panel')
+  assert.deepEqual(overlayRoleOf(feed), { edge: 'left' })
+  assert.deepEqual(overlayRoleOf(fakeEl({ 'data-canvas-inset': 'auto' }, false, { x: 0, y: 0, w: 1, h: 1 })), { bar: false })
+  assert.deepEqual(overlayRoleOf(fakeEl({ 'data-canvas-inset': 'bogus' }, true, { x: 0, y: 0, w: 1, h: 1 })), { bar: true })
+})
+
+test('classifyContentChange: manual pan survives live growth and resize; tab change and first content resume', () => {
+  const st = (sessions: string[], keys = sessions.map(s => `session:${s}`)) => ({
+    signature: clusterSetSignature(keys, sessions), sessions: Array.from(new Set(sessions)).sort(), width: 800, height: 600,
+  })
+  const empty = { signature: null, width: 800, height: 600 }
+  assert.equal(classifyContentChange(empty, st(['a'])), 'first')
+  assert.equal(classifyContentChange(st(['a']), st(['a'])), 'none')
+  assert.equal(classifyContentChange(st(['a', 'b']), st(['a', 'b', 'c'])), 'growth')
+  assert.equal(classifyContentChange(st(['a']), st(['a'], ['session:a', 'team:a:x'])), 'growth')
+  assert.equal(classifyContentChange(st(['a', 'b', 'c']), st(['b'])), 'scope')
+  assert.equal(classifyContentChange(st(['a']), st(['b'])), 'scope')
+  assert.equal(classifyContentChange(st(['a']), st(['a', 'b', 'c'])), 'scope')
+  assert.equal(classifyContentChange(st(['a']), empty), 'none')
+  assert.equal(shouldResumeAutoFit(st(['a', 'b']), st(['a', 'b', 'c'])), false)
+  assert.equal(shouldResumeAutoFit(st(['a']), st(['b'])), true)
+})
+
+test('contentStamp: order-insensitive, sensitive to the content set, ignores positions', () => {
+  const ag = (...ids: string[]) => ids.map(sessionId => ({ sessionId }))
+  const cl = (...keys: string[]) => keys.map(key => ({ key }))
+  assert.equal(contentStamp(cl('a', 'b'), ag('s1', 's2', 's1')), contentStamp(cl('b', 'a'), ag('s1', 's1', 's2')))
+  assert.notEqual(contentStamp(cl('a', 'b'), ag('s1', 's2')), contentStamp(cl('a', 'b', 'c'), ag('s1', 's2')))
+  assert.notEqual(contentStamp(cl('a'), ag('s1')), contentStamp(cl('a'), ag('s2')))
+  assert.notEqual(contentStamp(cl('a'), ag('s1')), contentStamp(cl('a'), ag('s1', 's1')))
 })
