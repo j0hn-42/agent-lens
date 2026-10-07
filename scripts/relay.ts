@@ -32,6 +32,8 @@ import {
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
+import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
+import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
 
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
@@ -108,7 +110,18 @@ function broadcast(data: string, sessionId?: string) {
 
 const eventBuffer = new Map<string, AgentEvent[]>()
 
-function broadcastEvent(event: AgentEvent) {
+/**
+ * Single entry point for every event, whatever its source. Events go through the reconciler
+ * (extension/src/event-source-priority.ts): held while a session history loads, deduplicated
+ * across hooks and JSONL, then delivered by deliverEvent.
+ */
+function broadcastEvent(event: AgentEvent, source: EventSource = 'jsonl') {
+  reconciler.submit(event, { source })
+}
+
+const reconciler = new EventReconciler({ deliver: (event) => deliverEvent(event) })
+
+function deliverEvent(event: AgentEvent) {
   sessionEventCount++
   if (event.type === 'model_detected') {
     const m = (event.payload as { model?: unknown } | undefined)?.model
@@ -275,6 +288,7 @@ function unwatchSession(sessionId: string) {
   // Free per-session parser state (registries, link/dedupe sets) and team bookkeeping
   parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
   sessionCwd.delete(sessionId)
+  reconciler.forgetSession(sessionId)
   sessions.delete(sessionId)
   teamWatcher?.forgetSession(sessionId)
 }
@@ -321,21 +335,25 @@ function watchSession(sessionId: string, filePath: string) {
   const header = readSessionHeader(filePath)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
 
-  const stat = fs.statSync(filePath)
-  const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
-  session.fileSize = stat.size
-  parser.extractSessionLabel(catchUpEntries, session)
+  // The live flow (hooks) is already subscribed: events arriving while the history is read are held
+  // and replayed, deduplicated against the history, when the load ends (issue #53).
+  reconciler.withHistory(() => {
+    const stat = fs.statSync(filePath)
+    const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
+    session.fileSize = stat.size
+    parser.extractSessionLabel(catchUpEntries, session)
 
-  broadcastSessionLifecycle('started', sessionId, session.label)
-  broadcastEvent({
-    time: 0, type: 'agent_spawn',
-    payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model } : {}) },
-    sessionId,
+    broadcastSessionLifecycle('started', sessionId, session.label)
+    broadcastEvent({
+      time: 0, type: 'agent_spawn',
+      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model } : {}) },
+      sessionId,
+    })
+    session.sessionDetected = true
+
+    emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+    parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
-  session.sessionDetected = true
-
-  emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
-  parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
 
   session.fileWatcher = fs.watch(filePath, (eventType) => {
     if (eventType === 'change') readNewLines(sessionId)
@@ -468,9 +486,11 @@ export interface Relay {
   /** Handle an incoming SSE connection */
   handleSSE: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /status: small JSON snapshot (loopback only, rate-limited) */
-  handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Clean up all resources */
   dispose: () => void
+  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
+  debugState: () => { sseClients: number; scanTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'auto'
@@ -486,6 +506,15 @@ export interface RelayOptions {
   /** Also discover Claude sessions from other workspaces (every project dir under
    *  ~/.claude/projects). Defaults to the AGENT_LENS_ALL_WORKSPACES env var (1/true). */
   allWorkspaces?: boolean
+  /** Reads whether the hooks are configured for the workspace (GET /status). Injectable for tests;
+   *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
+  hooksProbe?: (workspace: string) => Promise<boolean> | boolean
+}
+
+/** Yield to the event loop first, so the settings read never blocks the request that triggered it. */
+async function defaultHooksProbe(workspace: string): Promise<boolean> {
+  await new Promise<void>(resolve => setImmediate(resolve))
+  return isHooksConfigured(workspace)
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
@@ -512,7 +541,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex'].filter(Boolean).join(', ')})`)
 
   let hookServer: HookServer | null = null
-  let scanInterval: NodeJS.Timeout | null = null
+  let scanTicker: SharedTicker | null = null
+  let scanNow: (() => void) | null = null
+  const scanCoalescer = new KeyedCoalescer<void>()
+  const statusCoalescer = new KeyedCoalescer<{ sessionCount: number; hooksConfigured: boolean }>()
+  let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
 
   if (wantClaude) {
@@ -533,13 +566,19 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // The transcript parser emits agent_link/message_sent for watched sessions; hook copies would duplicate them
       if (TEAM_EVENTS.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
       if (!isOrchestrator && SUBAGENT_LIFECYCLE.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
-      broadcastEvent(event)
+      broadcastEvent(event, 'hook')
     })
 
     writeDiscoveryFile(hookPort, workspace)
 
     scanForActiveSessions(workspace, allWorkspaces)
-    scanInterval = setInterval(() => scanForActiveSessions(workspace, allWorkspaces), SCAN_INTERVAL_MS)
+    // One shared interval for all SSE clients, stopped when the last one leaves (issue #68).
+    // Without a client, new transcripts are still picked up by the project dir watcher and on connect.
+    scanNow = () => {
+      scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces))
+        .catch(e => log('[scan] Failed:', e))
+    }
+    scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
     relayWorkspace = normalizePath(workspace)
@@ -570,7 +609,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (fs.existsSync(projectDir)) {
       try {
         projectDirWatcher = fs.watch(projectDir, (_eventType, filename) => {
-          if (filename?.endsWith('.jsonl')) scanForActiveSessions(workspace, allWorkspaces)
+          if (filename?.endsWith('.jsonl')) scanNow?.()
         })
       } catch {}
     }
@@ -623,10 +662,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   })
 
   const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
   return {
-    handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
+    async handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')
@@ -642,15 +683,28 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Too many requests')
         return
       }
-      let sessionCount = 0
-      for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
-      if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
+      // ONE in-flight refresh: concurrent requests share the same computation
+      let snapshot: { sessionCount: number; hooksConfigured: boolean }
+      try {
+        snapshot = await statusCoalescer.run('status', async () => {
+          statusComputations++
+          const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
+          let sessionCount = 0
+          for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
+          if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
+          return { sessionCount, hooksConfigured }
+        })
+      } catch {
+        if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('Status unavailable') }
+        return
+      }
+      if (res.destroyed || res.headersSent) return
       const status: RelayStatus = {
         relayVersion: agentFlowVersion,
         workspace: normalizePath(workspace),
         runtimes: runtimeList,
-        hooksConfigured: wantClaude ? isHooksConfigured(workspace) : false,
-        sessionCount,
+        hooksConfigured: snapshot.hooksConfigured,
+        sessionCount: snapshot.sessionCount,
         allWorkspaces,
       }
       const body = JSON.stringify(status)
@@ -664,6 +718,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     },
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
       // Loopback only: reject non-local peers and foreign Host headers (DNS rebinding)
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
@@ -684,21 +739,27 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-store',
         'Connection': 'keep-alive',
       })
       // Send headers now so clients see the stream open even before the first event
       res.flushHeaders()
 
       if (sessionParam) clientSessionFilter.set(res, sessionParam)
+      // Refresh BEFORE this client joins the broadcast: a session found now reaches it once, through the
+      // session list and the replay below, and not a second time as a live broadcast (issue #53).
+      scanNow?.()
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
+      // First client starts the shared scan timer; the last one leaving stops it
+      const releaseTicker = scanTicker?.acquire()
 
       // Clean up on every way a connection can end; idempotent.
       let closed = false
       const onGone = () => {
         if (closed) return
         closed = true
+        releaseTicker?.()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
         log(`[sse] Client disconnected (${sseClients.size} total)`)
@@ -734,6 +795,14 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       }
     },
 
+    debugState: () => ({
+      sseClients: sseClients.size,
+      scanTimerActive: scanTicker?.active ?? false,
+      scanRuns: scanCoalescer.runs,
+      statusRuns: statusComputations,
+      dedupSessions: reconciler.rememberedSessions,
+    }),
+
     dispose() {
       // Defense in depth — server.ts already guards cleanup(), but direct
       // callers or hot-reload could call this twice.
@@ -752,7 +821,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (wantClaude) {
         removeDiscoveryFile()
         hookServer?.dispose()
-        if (scanInterval) clearInterval(scanInterval)
+        scanTicker?.stop()
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
