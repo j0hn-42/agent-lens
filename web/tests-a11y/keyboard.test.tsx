@@ -133,6 +133,7 @@ test('sessions panel: the Active only toggle hides finished sessions and keeps t
     <SessionListPanel
       visible onClose={() => {}} sessions={sessions} selectedSessionId="sel" sessionsWithActivity={new Set()}
       onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['live'])}
     />,
   )
   assert.ok(queryByText('Old one'))
@@ -143,6 +144,24 @@ test('sessions panel: the Active only toggle hides finished sessions and keeps t
   assert.equal(queryByText('Old one'), null)
   assert.ok(queryByText('Live one'))
   assert.ok(queryByText('Selected old'), 'the selected session stays listed')
+})
+
+test('sessions panel: the Active only toggle also hides an active session nobody has heard from', () => {
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'ghost', label: 'Ghost one', status: 'active' as const, startTime: 0, lastActivityTime: 4 },
+  ]
+  const { getByRole, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="live" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['live'])}
+    />,
+  )
+  assert.ok(queryByText('Ghost one'), 'listed before filtering')
+  fireEvent.click(getByRole('button', { name: 'Active only' }))
+  assert.ok(queryByText('Live one'))
+  assert.equal(queryByText('Ghost one'), null, 'an unobserved session is not counted as active')
 })
 
 test('sessions panel: a session row shows only its name, model and time', () => {

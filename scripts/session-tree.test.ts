@@ -5,6 +5,7 @@ import {
   buildAgentForests, buildSessionRows, countAgents, filterActiveSessions, filterActiveTeams, formatRelativeTime, selectionLabel, type AgentLike,
 } from '../web/lib/session-tree'
 import { SHORTCUTS } from '../web/lib/shortcuts'
+import { observedSessions } from '../web/lib/session-model'
 
 const agent = (id: string, sessionId: string, parentKey: string | null, spawnTime = 0): AgentLike => ({
   id, sessionId, parentKey, name: id, state: 'idle', tokensUsed: 0, spawnTime,
@@ -57,8 +58,10 @@ test('session rows: agents of an unlisted session stay visible under the All row
 
 test('active-only filter keeps active sessions and the selected one; teams need a remaining session or a working member', () => {
   const sessions = [session('a', 'active', 3), session('done', 'completed', 2), session('sel', 'completed', 1, 'beta'), session('m', 'completed', 1, 'alpha')]
+  observedSessions.mark('a') // an active session only counts once an event was received for it (#52)
   assert.deepEqual(filterActiveSessions(sessions, 'sel').map(s => s.id), ['a', 'sel'])
   assert.deepEqual(filterActiveSessions(sessions, null).map(s => s.id), ['a'])
+  assert.deepEqual(filterActiveSessions([...sessions, session('ghost', 'active', 9)], null).map(s => s.id), ['a'], 'listed but never heard from: not active')
   const kept = filterActiveSessions(sessions, 'sel')
   assert.deepEqual(filterActiveTeams(['alpha', 'beta', 'gamma'], kept, new Map([['gamma', 2]])), ['beta', 'gamma'])
   assert.deepEqual(filterActiveTeams(['alpha'], kept), [])

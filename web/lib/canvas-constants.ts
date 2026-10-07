@@ -605,3 +605,25 @@ export const PLACEMENT = {
   chipW: 28,
   chipH: 20,
 } as const
+
+// ─── Freshness (issues #48, #52) ────────────────────────────────────────────
+
+/** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
+export const STALE_AFTER_MS = 30_000
+/** A status that comes from history (not seen live) expires after this long (ms) */
+export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
+/** A terminal status (error / interrupted) stays visible this long (ms), then the agent reads "closed" */
+export const TERMINAL_STATUS_VISIBLE_MS = 2 * 60_000
+/** Period (ms) of the one shared freshness clock */
+export const FRESHNESS_TICK_MS = 1000
+/** Max agent names listed in one screen reader announcement */
+export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
+
+export const FRESHNESS_DRAW = {
+  /** Neutral grey of a stale node (state colours say "live") */
+  staleColor: '#8a94a0',
+  /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
+  staleAlpha: 0.45,
+  /** Max width (px) of the "last known state" line */
+  labelMaxWidth: 240,
+} as const
