@@ -42,6 +42,7 @@ import {
 } from './tool-summarizer'
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
 import { createLogger } from './logger'
+import { SessionNormalizer } from './event-normalize'
 
 const log = createLogger('CodexRolloutParser')
 
@@ -260,17 +261,37 @@ function extractPatchFilePath(patch: string): string | undefined {
 // ─── Parser ────────────────────────────────────────────────────────────────
 
 export class CodexRolloutParser {
-  constructor(private delegate: CodexParserDelegate) {}
+  /** Input normalizer of this rollout (one parser per session): every emitted event goes through it. */
+  readonly normalizer: SessionNormalizer
+  private readonly delegate: CodexParserDelegate
+
+  constructor(rawDelegate: CodexParserDelegate) {
+    this.normalizer = new SessionNormalizer(undefined, { onTrailing: event => rawDelegate.emit(event) })
+    this.delegate = {
+      emit: event => { for (const out of this.normalizer.process(event)) rawDelegate.emit(out) },
+      elapsed: () => rawDelegate.elapsed(),
+      ...(rawDelegate.setLabel ? { setLabel: (label: string) => rawDelegate.setLabel?.(label) } : {}),
+    }
+  }
 
   /** Parse a single JSONL line. Silently skips unparseable/unknown lines. */
   processLine(line: string, state: CodexRolloutState): void {
     const trimmed = line.trim()
     if (!trimmed) return
 
-    let record: RolloutRecord
-    try { record = JSON.parse(trimmed) as RolloutRecord }
-    catch { return /* partial line at file tail; resume on next read */ }
+    const parsed = this.normalizer.parseLine(trimmed)
+    if (!parsed) return
+    const record = parsed as RolloutRecord
 
+    try {
+      this.dispatchRecord(record, state)
+    } catch {
+      // Untrusted input must never take the watcher down: count it and move on
+      this.normalizer.noteMalformed()
+    }
+  }
+
+  private dispatchRecord(record: RolloutRecord, state: CodexRolloutState): void {
     this.ensureSpawned(state)
 
     switch (record.type) {
@@ -393,8 +414,10 @@ export class CodexRolloutParser {
 
   private handleFunctionCall(payload: FunctionCallPayload, state: CodexRolloutState): void {
     const name = payload.name || 'unknown'
-    const callId = payload.call_id
+    const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined
     if (!callId) return
+    // A call_id seen twice is a replay of the same call, not a second call
+    if (state.pendingToolCalls.has(callId)) { this.normalizer.stats.duplicateEvents++; return }
 
     const args = parseArgsJson(payload.arguments)
     const argsSummary = summarizeInput(name, args)
@@ -418,7 +441,7 @@ export class CodexRolloutParser {
   }
 
   private handleFunctionCallOutput(payload: FunctionCallOutputPayload, state: CodexRolloutState): void {
-    const callId = payload.call_id
+    const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined
     if (!callId) return
     const pending = state.pendingToolCalls.get(callId)
     if (!pending) return
@@ -449,8 +472,10 @@ export class CodexRolloutParser {
 
   private handleCustomToolCall(payload: CustomToolCallPayload, state: CodexRolloutState): void {
     const name = payload.name || 'unknown'
-    const callId = payload.call_id
+    const callId = typeof payload.call_id === 'string' ? payload.call_id : undefined
     if (!callId) return
+    // A call_id seen twice is a replay of the same call, not a second call
+    if (state.pendingToolCalls.has(callId)) { this.normalizer.stats.duplicateEvents++; return }
 
     // Custom tool input is a raw string (e.g. the full apply_patch body), not JSON.
     const rawInput = typeof payload.input === 'string' ? payload.input : ''

@@ -11,7 +11,8 @@ export function parseArgs(argv: string[]) {
     const arg = argv[i]
     if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
       const n = parseInt(argv[i + 1], 10)
-      if (!isNaN(n) && n > 0 && n < 65536) port = n
+      // 0 = ephemeral port chosen by the OS (printed at startup)
+      if (!isNaN(n) && n >= 0 && n < 65536) port = n
       i++
     } else if (arg === '--no-open') {
       open = false
@@ -24,7 +25,8 @@ export function parseArgs(argv: string[]) {
 Usage: agent-lens [options]
 
 Options:
-  -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT})
+  -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT}; 0 = ephemeral,
+                       env: AGENT_LENS_PORT=0)
   --no-open            Don't open the browser automatically
   --all-workspaces     Also discover Claude sessions from other workspaces
                        (env: AGENT_LENS_ALL_WORKSPACES=1)

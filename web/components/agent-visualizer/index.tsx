@@ -28,6 +28,7 @@ import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bri
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
+import { ChromeAnnouncer } from "./chrome-announcer"
 import { totalAgentCost } from "@/lib/cost"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
@@ -548,7 +549,6 @@ export function AgentVisualizer() {
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
-  const announcement = buildAnnouncement({ connection, sessionLabel: selectedSessionLabel, isReviewing, isEmpty })
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
     relayPort: bridge.relayPort || undefined,
@@ -560,7 +560,10 @@ export function AgentVisualizer() {
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
     <div className="h-screen w-full relative overflow-hidden" style={{ background: COLORS.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
+      <ChromeAnnouncer
+        connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
+        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity}
+      />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar

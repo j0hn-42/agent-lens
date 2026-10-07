@@ -10,7 +10,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-import { HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HTTP_CONNECTIONS_CHECK_INTERVAL_MS, TEAM_MAX_LINKS_PER_SESSION } from '../src/constants'
+import { HOOK_RATE_IP_BURST, HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HTTP_CONNECTIONS_CHECK_INTERVAL_MS, TEAM_MAX_LINKS_PER_SESSION } from '../src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-hook-home-'))
 process.env.HOME = fakeHome
@@ -166,12 +166,21 @@ describe('HookServer hardening', () => {
     } finally { server.dispose() }
   })
 
-  it('rate-limits per client address with 429', async () => {
+  it('rate-limits per client address with 429', async (t) => {
+    // The token bucket refills with elapsed time, so a flood only gets a 429 when the machine is fast
+    // enough to outrun the refill (it failed under CPU load). Freeze the clock: no refill at all, so the
+    // outcome depends only on the burst: the HOOK_RATE_IP_BURST-th request passes, the next is refused.
+    const frozen = Date.now()
+    t.mock.method(Date, 'now', () => frozen)
     const { server, port } = await startServer()
     try {
-      const statuses = await Promise.all(Array.from({ length: 400 }, (_, i) =>
-        post(port, { session_id: `s${i}`, hook_event_name: 'Stop' }).then(r => r.status, () => -1)))
-      assert.ok(statuses.includes(429), 'expected a 429')
+      const statuses: number[] = []
+      for (let i = 0; i <= HOOK_RATE_IP_BURST; i++) {
+        statuses.push((await post(port, { session_id: `s${i}`, hook_event_name: 'Stop' })).status)
+      }
+      assert.equal(statuses[HOOK_RATE_IP_BURST - 1], 200, 'the request at the burst limit is served')
+      assert.equal(statuses[HOOK_RATE_IP_BURST], 429, 'the next one is refused')
+      assert.ok(statuses.slice(0, HOOK_RATE_IP_BURST).every(s => s === 200), 'everything under the limit is served')
     } finally { server.dispose() }
   })
 

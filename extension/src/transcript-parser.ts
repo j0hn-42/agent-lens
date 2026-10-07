@@ -19,6 +19,7 @@ import {
   SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
   CHILD_NAME_MAX,
   HASH_PREFIX_MAX,
+  HOOK_MAX_SESSIONS, NORM_ID_MAX,
   TEAM_MAX_LINKS_PER_SESSION,
   SUBAGENT_TRANSCRIPT_TAIL_BYTES,
   ORCHESTRATOR_NAME,
@@ -30,6 +31,7 @@ import {
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { SubagentRegistry } from './subagent-registry'
+import { SessionNormalizer, CountersRegistry, sharedCounters, ostr } from './event-normalize'
 import {
   buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
   MessageDeduper, type TeamLinkEvents,
@@ -50,6 +52,18 @@ export interface TranscriptParserDelegate {
 /** Type guard: check if a value is a non-null object */
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object'
+}
+
+/**
+ * A tool_use block with a usable shape: string id and name (bounded, control characters stripped)
+ * and an object input (arrays and primitives become {}). Anything without an id is rejected.
+ */
+export function coerceToolUseBlock(block: Record<string, unknown>): ToolUseBlock | null {
+  const id = ostr(block.id, NORM_ID_MAX)
+  if (!id) return null
+  const name = ostr(block.name, NORM_ID_MAX) || 'unknown'
+  const input = isRecord(block.input) && !Array.isArray(block.input) ? block.input : {}
+  return { type: 'tool_use', id, name, input }
 }
 
 /** Safely extract trimmed text from a text block */
@@ -139,7 +153,54 @@ export class TranscriptParser {
   /** tool_use ids of Agent calls that spawned a teammate: their (immediate) result must not complete the node */
   private teammateSpawnIds = new Set<string>()
 
-  constructor(private delegate: TranscriptParserDelegate) {}
+  /** Per-session input normalizers (bounded, oldest evicted): every emitted event goes through one. */
+  private normalizers = new Map<string, SessionNormalizer>()
+
+  /** The delegate seen by the parser: same callbacks, but `emit` normalizes first. */
+  private readonly delegate: TranscriptParserDelegate
+
+  /**
+   * `counters` is shared with the other producers of the same session (the hook server): the
+   * stats event of a session then carries the merged totals, whoever emits it.
+   */
+  constructor(
+    private readonly rawDelegate: TranscriptParserDelegate,
+    private readonly counters: CountersRegistry = sharedCounters,
+  ) {
+    this.delegate = {
+      emit: (event, sessionId) => this.emitNormalized(event, sessionId),
+      elapsed: sessionId => rawDelegate.elapsed(sessionId),
+      getSession: sessionId => rawDelegate.getSession(sessionId),
+      fireSessionLifecycle: event => rawDelegate.fireSessionLifecycle(event),
+      emitContextUpdate: (agentName, session, sessionId) => rawDelegate.emitContextUpdate(agentName, session, sessionId),
+    }
+  }
+
+  /** Normalizer (and its counters) of a session; created on first use. */
+  getNormalizer(sessionId?: string): SessionNormalizer {
+    const key = sessionId ?? ''
+    let n = this.normalizers.get(key)
+    if (n) {
+      this.normalizers.delete(key)
+    } else {
+      if (this.normalizers.size >= HOOK_MAX_SESSIONS) {
+        const oldest = this.normalizers.keys().next().value
+        if (oldest !== undefined) { this.normalizers.get(oldest)?.dispose(); this.normalizers.delete(oldest) }
+      }
+      n = new SessionNormalizer(sessionId, {
+        onTrailing: event => this.rawDelegate.emit(event, sessionId),
+        ...(sessionId ? { counters: this.counters.get(sessionId) } : {}),
+      })
+    }
+    this.normalizers.set(key, n)
+    return n
+  }
+
+  private emitNormalized(event: AgentEvent, sessionId?: string): void {
+    for (const out of this.getNormalizer(sessionId ?? event.sessionId).process(event)) {
+      this.rawDelegate.emit(out, sessionId)
+    }
+  }
 
   /** Declare the lead's team name for a session (e.g. 'team-lead'); it maps to the orchestrator node. */
   setLeadAlias(sessionId: string, name: string): void {
@@ -247,6 +308,8 @@ export class TranscriptParser {
       this.emittedLinks.delete(sessionId)
       this.deduppers.delete(sessionId)
       this.leadAliases.delete(sessionId)
+      this.normalizers.get(sessionId)?.dispose()
+      this.normalizers.delete(sessionId)
     }
     for (const toolUseId of pendingToolUseIds) {
       this.inlineSubagentState.delete(toolUseId)
@@ -263,13 +326,27 @@ export class TranscriptParser {
     sessionId?: string,
     ctxSeenMessages?: Set<string>,
   ): void {
-    let parsed: Record<string, unknown>
     try {
-      parsed = JSON.parse(line.trim()) as Record<string, unknown>
+      this.parseTranscriptLine(line, agentName, ctxPending, ctxSeen, sessionId, ctxSeenMessages)
     } catch (err) {
-      log.debug('Skipping unparseable line:', err)
-      return
+      // Untrusted input must never take the watcher down: count it and move on
+      this.getNormalizer(sessionId).noteMalformed()
+      log.debug('Skipping line that failed to parse:', err)
     }
+  }
+
+  private parseTranscriptLine(
+    line: string,
+    agentName: string,
+    ctxPending: Map<string, PendingToolCall>,
+    ctxSeen: Set<string>,
+    sessionId?: string,
+    ctxSeenMessages?: Set<string>,
+  ): void {
+    const norm = this.getNormalizer(sessionId)
+    const parsed = norm.parseLine(line)
+    if (!parsed) return
+    norm.noteAgent(agentName)
 
     // Handle inline subagent progress events (newer Claude Code versions)
     if (parsed.type === 'progress') {
@@ -283,7 +360,7 @@ export class TranscriptParser {
     }
 
     const msg = parsed.message as TranscriptEntry['message'] | undefined
-    if (!msg) { return }
+    if (!isRecord(msg)) { norm.noteMalformed(); return }
 
     // Now we know this is a valid transcript entry
     const entry: TranscriptEntry = {
@@ -347,13 +424,16 @@ export class TranscriptParser {
     const emitRole = (role === 'user' || role === 'human') ? 'user' : 'assistant'
 
     for (const block of msg.content) {
+      if (!isRecord(block)) { norm.noteMalformed(); continue }
       if (block.type === 'tool_use') {
-        const toolBlock = block as ToolUseBlock
+        const toolBlock = coerceToolUseBlock(block)
+        if (!toolBlock) { norm.noteMalformed(); continue }
         if (ctxSeen.has(toolBlock.id)) { continue }
         ctxSeen.add(toolBlock.id)
         this.handleToolUse(toolBlock, agentName, ctxPending, sessionId)
       } else if (block.type === 'tool_result') {
-        this.handleToolResult(block as ToolResultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
+        if (typeof block.tool_use_id !== 'string') { norm.noteMalformed(); continue }
+        this.handleToolResult(block as unknown as ToolResultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
       } else if (block.type === 'text' && 'text' in block) {
         this.handleTextBlock(block, emitRole, entry.uuid, agentName, seenMsgs, session, sessionId)
       } else if (block.type === 'thinking' && 'thinking' in block) {
@@ -678,10 +758,13 @@ export class TranscriptParser {
       // Reading beyond would add tool_use IDs to the dedup set that haven't
       // been accounted for in fileSize, causing readNewLines to silently skip them.
       // Streamed in bounded chunks: a multi-hundred-MB lead transcript is never held in memory at once.
+      const norm = this.getNormalizer(session.sessionId)
       for (const line of readLinesChunked(filePath, size)) {
         if (!line.trim()) { continue }
         try {
-          const entry = JSON.parse(line.trim()) as TranscriptEntry
+          const parsedEntry = norm.parseLine(line)
+          if (!parsedEntry) { continue }
+          const entry = parsedEntry as unknown as TranscriptEntry
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
           const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
           if (entry.message && Array.isArray(entry.message.content)) {
@@ -751,7 +834,7 @@ export class TranscriptParser {
             // Only the head (session label) and the recent tail (current turn) are needed for catch-up
             if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
           }
-        } catch (err) { log.debug('Skipping unparseable transcript line:', err) }
+        } catch (err) { norm.noteMalformed(); log.debug('Skipping malformed transcript line:', err) }
       }
       log.info(`Pre-scanned ${session.seenToolUseIds.size} existing tool_use IDs, ${catchUpEntries.length} entries total`)
 
