@@ -6,12 +6,12 @@ import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { FOCUS_RING, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
-import { SessionTabs } from "./session-tabs"
+import { selectionLabel } from "@/lib/session-tree"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
-import type { TeamSummary } from "@/lib/agent-types"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
+  sessions: 'topbar-toggle-sessions',
   files: 'topbar-toggle-files',
   transcript: 'topbar-toggle-transcript',
   cost: 'topbar-toggle-cost',
@@ -112,16 +112,13 @@ function ConnectionIndicator({ status, isDemo }: { status: ConnectionStatus; isD
 // ─── Top Bar ────────────────────────────────────────────────────────────────
 
 export interface TopBarProps {
-  // Session tabs
+  // Sessions panel button
   sessions: SessionInfo[]
   selectedSessionId: string | null
   sessionsWithActivity: Set<string>
-  onSelectSession: (id: string) => void
-  onCloseSession: (id: string) => void
-  /** Agent Teams seen so far (team tabs), working counts and known member counts per team name */
-  teams?: ReadonlyMap<string, TeamSummary>
-  teamWorking?: ReadonlyMap<string, number>
-  teamMemberCounts?: ReadonlyMap<string, number>
+  /** The sessions panel (list of sessions and agents) is open */
+  showSessions: boolean
+  onToggleSessions: () => void
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
   /** 'All' also shows finished sessions */
@@ -158,7 +155,7 @@ export interface TopBarProps {
 
 export const TopBar = memo(function TopBar({
   sessions, selectedSessionId, sessionsWithActivity,
-  onSelectSession, onCloseSession, teams, teamWorking, teamMemberCounts,
+  showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
@@ -191,21 +188,25 @@ export const TopBar = memo(function TopBar({
       className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px]"
       style={{ zIndex: Z.info }}
     >
-      {/* Session tabs — scrollable, always shown (even with one session) */}
-      {(sessions.length > 0 || (teams?.size ?? 0) > 0) && (
-        <div className="min-w-0 max-w-full flex-shrink overflow-x-auto scrollbar-hide -m-1 p-1">
-          <SessionTabs
-            sessions={sessions}
-            selectedSessionId={selectedSessionId}
-            sessionsWithActivity={sessionsWithActivity}
-            onSelectSession={onSelectSession}
-            onCloseSession={onCloseSession}
-            teams={teams}
-            teamWorking={teamWorking}
-            teamMemberCounts={teamMemberCounts}
-          />
-        </div>
-      )}
+      {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
+      <ToggleButton
+        id={PANEL_BUTTON_IDS.sessions}
+        active={showSessions}
+        pressed={showSessions}
+        onClick={onToggleSessions}
+        title="Sessions and agents (L)"
+        shortcut="l"
+        style={{ maxWidth: 'min(320px, 100%)' }}
+      >
+        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions)}</span>
+        <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+        {sessionsWithActivity.size > 0 && (
+          <>
+            <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse" style={{ border: `2px solid ${COLORS.complete}` }} />
+            <span className="sr-only">, new activity in another session</span>
+          </>
+        )}
+      </ToggleButton>
 
       {/* Spacer pushes info to the right */}
       <div className="flex-1" />

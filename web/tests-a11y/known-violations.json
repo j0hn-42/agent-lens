@@ -1,23 +1,5 @@
 [
   {
-    "scenario": "top-bar",
-    "rule": "aria-required-children",
-    "issue": 7,
-    "note": "Close button sits inside role=tablist next to the tab; move it out of the tablist"
-  },
-  {
-    "scenario": "session-tabs",
-    "rule": "aria-required-children",
-    "issue": 7,
-    "note": "Close button sits inside role=tablist next to the tab; move it out of the tablist"
-  },
-  {
-    "scenario": "session-tabs-team",
-    "rule": "aria-required-children",
-    "issue": 7,
-    "note": "Same close-button-in-tablist violation as session-tabs; team tabs add no new violation"
-  },
-  {
     "scenario": "e2e:tab-order",
     "rule": "invisible-focusable",
     "issue": 10,

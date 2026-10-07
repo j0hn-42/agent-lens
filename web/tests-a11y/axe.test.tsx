@@ -17,7 +17,7 @@ import axe from 'axe-core'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
-import { SessionTabs } from '@/components/agent-visualizer/session-tabs'
+import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { SessionTranscriptPanel } from '@/components/agent-visualizer/session-transcript-panel'
 import { MessageFeedPanel } from '@/components/agent-visualizer/message-feed-panel'
 import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention-panel'
@@ -96,7 +96,7 @@ const timelineEvents: TimelineEvent[] = [
 ]
 const topBarProps: TopBarProps = {
   sessions, selectedSessionId: 's1', sessionsWithActivity: new Set(['s2']),
-  onSelectSession: noop, onCloseSession: noop, isVSCode: false, connectionStatus: 'connected',
+  showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 1000, totalCost: 0.12,
   showFileAttention: false, showTranscript: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
@@ -143,36 +143,36 @@ test('shell: control bar in review mode (play button, scrubber, resume)', async 
   await check('control-bar-review-confirm', container)
 })
 
-test('shell: session tabs', async () => {
+const listAgents = new Map([
+  ['s1:main', { id: 's1:main', sessionId: 's1', parentKey: null, name: 'main', state: 'thinking', kind: 'main' as const, tokensUsed: 1200, spawnTime: 1 }],
+  ['s1:sub', { id: 's1:sub', sessionId: 's1', parentKey: 's1:main', name: 'explore repo', state: 'tool_calling', kind: 'subagent' as const, currentTool: 'Grep', tokensUsed: 300, spawnTime: 2 }],
+])
+
+test('panel: sessions list', async () => {
   const { container } = render(
-    <>
-      <SessionTabs
-        sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set(['s2'])}
-        onSelectSession={noop} onCloseSession={noop}
-      />
-      <main id="visualizer-main" />
-    </>,
+    <SessionListPanel
+      visible onClose={noop} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set(['s2'])}
+      onSelectSession={noop} onCloseSession={noop} agents={listAgents} selectedAgentId="s1:sub" onSelectAgent={noop}
+      now={10_000}
+    />,
   )
-  await check('session-tabs', container)
+  await check('session-list-panel', container)
 })
 
-test('shell: session tabs with a team and runtime badges', async () => {
+test('panel: sessions list with a team and runtime badges', async () => {
   const teamSessions = [
     { ...sessions[0], runtime: 'codex' as const },
     { ...sessions[1], teamName: 'alpha', runtime: 'claude' as const },
   ]
   const teams = new Map([['alpha', { name: 'alpha', leadSessionId: 's1', members: [{ name: 'a' }, { name: 'b' }] }]])
   const { container } = render(
-    <>
-      <SessionTabs
-        sessions={teamSessions} selectedSessionId="team:alpha" sessionsWithActivity={new Set()}
-        onSelectSession={noop} onCloseSession={noop}
-        teams={teams} teamWorking={new Map([['alpha', 1]])}
-      />
-      <main id="visualizer-main" />
-    </>,
+    <SessionListPanel
+      visible onClose={noop} sessions={teamSessions} selectedSessionId="team:alpha" sessionsWithActivity={new Set()}
+      onSelectSession={noop} onCloseSession={noop} agents={listAgents} selectedAgentId={null} onSelectAgent={noop}
+      teams={teams} teamWorking={new Map([['alpha', 1]])} now={10_000}
+    />,
   )
-  await check('session-tabs-team', container)
+  await check('session-list-panel-team', container)
 })
 
 test('panel: transcript', async () => {

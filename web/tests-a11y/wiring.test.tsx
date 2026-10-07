@@ -72,7 +72,7 @@ test('clear history: Escape closes the confirmation and focus returns to the Cle
 function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boolean }) {
   const rec = (name: string) => () => { props.calls.push(name) }
   useKeyboardShortcuts({
-    togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleTranscript: rec('transcript'),
+    togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleTranscript: rec('transcript'),
     toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'),
     toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
