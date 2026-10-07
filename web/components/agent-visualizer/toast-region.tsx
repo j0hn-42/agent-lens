@@ -3,7 +3,7 @@
 import { useCallback, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING, toastSettleTarget } from '@/lib/chrome-utils'
 import type { ToastItem, PauseSource } from '@/hooks/use-toasts'
 
 interface ToastRegionProps {
@@ -27,17 +27,21 @@ export function ToastRegion({ toasts, onAction, onDismiss, onPause, undoKey = nu
 
   const hadFocus = () => !!regionRef.current && regionRef.current.contains(document.activeElement)
 
-  /** After a toast disappears under the focus ring, hand focus back instead of dropping it on <body>. */
+  /**
+   * After a toast disappears under the focus ring, hand focus back to where it came from instead of
+   * dropping it on <body>. Focus is never parked on the region again: a follow-up toast (the 'Undone'
+   * confirmation) would otherwise stay paused for as long as the region keeps focus.
+   */
   const settleFocus = useCallback((hadIt: boolean) => {
     if (!hadIt) return
+    // Focus is leaving the region: release the focus pause right away (blur does not fire on removal)
+    onPause('focus', false)
     requestAnimationFrame(() => {
-      const region = regionRef.current
-      if (region && region.isConnected) { region.focus({ preventScroll: true }); return }
       const prev = prevFocusRef.current
       prevFocusRef.current = null
-      if (prev && prev.isConnected) prev.focus({ preventScroll: true })
+      if (toastSettleTarget(!!prev && prev.isConnected) === 'previous') prev!.focus({ preventScroll: true })
     })
-  }, [])
+  }, [onPause])
 
   const handleFocus = (e: React.FocusEvent<HTMLDivElement>) => {
     const from = e.relatedTarget as Node | null

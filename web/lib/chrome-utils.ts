@@ -2,8 +2,8 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, pluralize } from './utils'
-import type { ConnectionStatus, SessionInfo } from './bridge-types'
+import { formatDuration, formatCost, pluralize } from './utils'
+import { ALL_SESSIONS_ID, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
 export const FOCUS_RING =
@@ -27,6 +27,33 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   'new-activity': 'new activity',
   active: 'active',
   completed: 'completed',
+}
+
+/** Ids of the tabs in order: the 'All' tab first, then one per session. */
+export function sessionTabIds(sessions: ReadonlyArray<Pick<SessionInfo, 'id'>>): string[] {
+  return [ALL_SESSIONS_ID, ...sessions.map(s => s.id)]
+}
+
+/** Which tab owns the roving tabindex: the selected one, else the first ('All'). */
+export function tabStopId(tabIds: readonly string[], selectedId: string | null): string | undefined {
+  return selectedId !== null && tabIds.includes(selectedId) ? selectedId : tabIds[0]
+}
+
+/** Focus still owed to a neighbouring tab after a close: remembers which tab was closed. */
+export interface PendingTabFocus { closedId: string; focusId: string }
+
+/**
+ * Decide what to do with a pending focus move once the session list changed.
+ * - the closed tab is gone: focus the neighbour (if it still exists) and clear;
+ * - the closed tab is still listed (the close was a no-op or is still in flight): keep waiting.
+ */
+export function resolvePendingFocus(
+  pending: PendingTabFocus | null,
+  sessionIds: readonly string[],
+): { focusId: string | null; keep: PendingTabFocus | null } {
+  if (!pending) return { focusId: null, keep: null }
+  if (sessionIds.includes(pending.closedId)) return { focusId: null, keep: pending }
+  return { focusId: sessionIds.includes(pending.focusId) ? pending.focusId : null, keep: null }
 }
 
 /** Roving-tabindex arrow navigation: returns the index to focus, or null when the key is not ours. */
@@ -77,6 +104,45 @@ export function scrubberValueText(current: number, total: number): string {
 /** "5 agents: 2 active - 3 done" */
 export function formatAgentCounts(active: number, done: number): string {
   return `${pluralize(active + done, 'agent')}: ${active} active - ${done} done`
+}
+
+/** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
+export function formatAllSummary(sessionCount: number, agentCount: number, cost: number): string {
+  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${formatCost(cost)}`
+}
+
+/** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
+export function formatTruncatedHistory(droppedEvents: number): string | null {
+  return droppedEvents > 0 ? `History truncated: ${pluralize(droppedEvents, 'older event')} dropped` : null
+}
+
+/** "... 12 older messages dropped" line at the top of a conversation, or null when nothing was dropped. */
+export function formatDroppedMessages(dropped: number): string | null {
+  return dropped > 0 ? `... ${pluralize(dropped, 'older message')} dropped` : null
+}
+
+/** Minimal agent shape needed to label it with its session. */
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' }
+
+/**
+ * Attach the human-readable session label (and the session runtime when the agent has none) to each
+ * agent so the feed can render a session chip. Returns the same Map when nothing changes.
+ */
+export function labelAgentsWithSession<A extends SessionLabelable>(
+  agents: Map<string, A>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime'>>,
+): Map<string, A> {
+  const byId = new Map(sessions.map(s => [s.id, s]))
+  let out: Map<string, A> | null = null
+  for (const [key, agent] of agents) {
+    const session = byId.get(agent.sessionId)
+    if (!session) continue
+    const runtime = agent.runtime ?? session.runtime
+    if (agent.sessionLabel === session.label && agent.runtime === runtime) continue
+    if (!out) out = new Map(agents)
+    out.set(key, { ...agent, sessionLabel: session.label, ...(runtime ? { runtime } : {}) })
+  }
+  return out ?? agents
 }
 
 export type ConnectionTone = 'ok' | 'pending' | 'error' | 'demo'
@@ -136,6 +202,32 @@ export function emptyStateChecklist(opts: {
 
 // ─── Focus return ────────────────────────────────────────────────────────────
 
+/** What a ControlBar blur means for its "had keyboard focus" flag. */
+export type BlurFlagAction = 'keep' | 'clear' | 'check'
+
+/**
+ * - focus moved to another control inside the bar: keep;
+ * - focus moved to a control outside the bar: clear;
+ * - focus went nowhere (a click on empty space, or the focused control was unmounted by a mode swap):
+ *   undecided until the next frame, when a blurred control that is still in the DOM means the
+ *   user really left ('check').
+ */
+export function blurFlagAction(relatedInside: boolean, relatedIsNull: boolean): BlurFlagAction {
+  if (relatedInside) return 'keep'
+  return relatedIsNull ? 'check' : 'clear'
+}
+
+/** Where to put focus when a toast action/dismiss removed the focused control. */
+export function toastSettleTarget(prevConnected: boolean): 'previous' | 'none' {
+  return prevConnected ? 'previous' : 'none'
+}
+
+/** Element to restore focus to when a panel closes: the opener, else the fallback (e.g. its top-bar button). */
+export function pickRestoreTarget<T extends { isConnected: boolean }>(trigger: T | null, fallback: T | null): T | null {
+  if (trigger && trigger.isConnected) return trigger
+  return fallback && fallback.isConnected ? fallback : null
+}
+
 interface ContainsLike { contains(other: unknown): boolean }
 
 /** Restore focus to the trigger only when focus is still inside the closed panel or was dropped on <body>. */
@@ -148,6 +240,11 @@ export function shouldRestoreFocus(active: unknown, panel: ContainsLike | null, 
 
 /** Key that runs the action (Undo) of the newest toast. Subject to the single-key shortcut preference. */
 export const UNDO_SHORTCUT_KEY = 'u'
+
+/** True when a keyboard U can run an Undo: the preference is on and some visible toast has an action. */
+export function undoShortcutAvailable(singleKeyEnabled: boolean, toasts: ReadonlyArray<{ onAction?: unknown }>): boolean {
+  return singleKeyEnabled && toasts.some(t => typeof t.onAction === 'function')
+}
 
 /** Time left on a toast timer after it ran from `startedAt` until `now` (never negative). */
 export function toastRemaining(remainingMs: number, startedAt: number, now: number): number {

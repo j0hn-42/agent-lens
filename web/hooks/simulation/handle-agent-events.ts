@@ -2,23 +2,40 @@ import {
   type Agent,
   type TimelineEntry,
   emptyContextBreakdown,
-} from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
-import { AGENT_SPAWN_DISTANCE } from '@/lib/canvas-constants'
+} from '../../lib/agent-types'
+import { COLORS } from '../../lib/colors'
+import { AGENT_SPAWN_DISTANCE } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
-import { edgeId, asString, asBoolean } from './types'
+import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
+import { idString, resolveChildLocalId } from './agent-keys'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const name = asString(payload.name)
-  const parentId = typeof payload.parent === 'string' ? payload.parent : undefined
+  const toolUseId = idString(payload.toolUseId) || undefined
+  const rawName = idString(payload.name)
+  const localId = resolveChildLocalId(state.agents, sessionId, rawName, toolUseId)
+  const name = agentKeyOf(sessionId, localId)
+  const label = cappedString(payload.label, LABEL_LEN_NAME * 2).trim()
+  const rawParent = idString(payload.parent)
+  // The real parent comes from the event. If it is not known (yet), hang the agent on the
+  // session's main agent rather than leaving a dangling edge.
+  let parentId: string | undefined
+  if (rawParent) {
+    const direct = agentKeyOf(sessionId, rawParent)
+    if (state.agents.has(direct)) parentId = direct
+    else {
+      const main = Array.from(state.agents.values()).find(a => a.sessionId === sessionId && a.isMain && a.id !== name)
+      parentId = main ? main.id : direct
+    }
+  }
   const isMain = asBoolean(payload.isMain)
-  const task = typeof payload.task === 'string' ? payload.task : undefined
-  const model = typeof payload.model === 'string' ? payload.model : undefined
+  const task = typeof payload.task === 'string' ? cappedString(payload.task) : undefined
+  const model = typeof payload.model === 'string' ? cappedString(payload.model, MAX_ID_LEN) : undefined
   const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
 
   // If the agent already exists (e.g. session resuming after inactivity),
@@ -31,6 +48,7 @@ export function handleAgentSpawn(
       ...(task ? { task } : {}),
       ...(model ? { model, tokensMax: ctx.getContextWindowSize(model) } : {}),
       ...(runtime ? { runtime } : {}),
+      ...(toolUseId && !existing.toolUseId ? { toolUseId } : {}),
     })
     return
   }
@@ -50,7 +68,7 @@ export function handleAgentSpawn(
       let angle: number
       if (siblingAngles.length === 0) {
         // First child: use hash-based angle
-        const hash = name.split('').reduce((h, c) => ((h << 5) - h) + c.charCodeAt(0), 0)
+        const hash = localId.split('').reduce((h, c) => ((h << 5) - h) + c.charCodeAt(0), 0)
         angle = (Math.abs(hash) % 360) * (Math.PI / 180)
       } else {
         // Find the largest angular gap between existing siblings and place in the middle
@@ -73,9 +91,12 @@ export function handleAgentSpawn(
     }
   }
 
+  const displayName = label || localId
   const agent: Agent = {
-    id: name, name, state: 'idle',
+    id: name, agentKey: name, sessionId, localId, displayName, name: displayName, state: 'idle',
     parentId: parentId || null,
+    parentKey: parentId || null,
+    ...(toolUseId ? { toolUseId } : {}),
     tokensUsed: 0, tokensMax: ctx.getContextWindowSize(model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, timeAlive: 0,
@@ -97,7 +118,7 @@ export function handleAgentSpawn(
   const timelineEntry: TimelineEntry = {
     id: `timeline-${name}`,
     agentId: name,
-    agentName: name,
+    agentName: displayName,
     startTime: currentTime,
     blocks: [],
   }
@@ -118,8 +139,9 @@ export function handleAgentComplete(
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const name = asString(payload.name)
+  const name = agentKeyOf(sessionId, idString(payload.name))
   const agent = state.agents.get(name)
   if (agent && agent.state !== 'complete') {
     state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime })
@@ -156,8 +178,9 @@ export function handlePermissionRequested(
   currentTime: number,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const agentName = asString(payload.agent, 'Orchestrator')
+  const agentName = agentKeyOf(sessionId, idString(payload.agent) || 'Orchestrator')
   const agent = state.agents.get(agentName)
   if (agent && agent.state !== 'complete') {
     state.agents.set(agentName, {
@@ -175,8 +198,9 @@ export function handlePermissionRequested(
 export function handleAgentIdle(
   payload: Record<string, unknown>,
   state: MutableEventState,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const idleName = asString(payload.name)
+  const idleName = agentKeyOf(sessionId, idString(payload.name))
   const idleAgent = state.agents.get(idleName)
   if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
     state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
@@ -187,9 +211,10 @@ export function handleModelDetected(
   payload: Record<string, unknown>,
   state: MutableEventState,
   ctx: ProcessEventContext,
+  sessionId: string = DEFAULT_SESSION_ID,
 ): void {
-  const agentName = asString(payload.agent)
-  const model = asString(payload.model)
+  const agentName = agentKeyOf(sessionId, idString(payload.agent))
+  const model = cappedString(payload.model, MAX_ID_LEN)
   const agent = state.agents.get(agentName)
   if (agent) {
     state.agents.set(agentName, {

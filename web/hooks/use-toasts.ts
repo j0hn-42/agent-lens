@@ -68,6 +68,9 @@ export function useToasts() {
     return false
   }, [runAction])
 
+  /** True while a visible toast carries an action (Undo) */
+  const hasAction = useCallback((): boolean => toastsRef.current.some(t => typeof t.onAction === 'function'), [])
+
   const setPaused = useCallback((source: PauseSource, paused: boolean) => {
     const before = pausedRef.current.size > 0
     if (paused) pausedRef.current.add(source)
@@ -110,5 +113,5 @@ export function useToasts() {
     return () => { for (const t of timers.values()) if (t.handle) clearTimeout(t.handle) }
   }, [])
 
-  return { toasts, push, dismiss, runAction, runLatestAction, setPaused }
+  return { toasts, push, dismiss, runAction, runLatestAction, hasAction, setPaused }
 }

@@ -34,3 +34,11 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
 ]
 
 export const SHORTCUT_GROUPS = ['Playback', 'Panels', 'View', 'General'] as const
+
+/** localStorage key of the "single-key shortcuts" preference (WCAG 2.1.4) */
+export const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-lens:single-key-shortcuts'
+
+/** Stored preference -> enabled flag. Anything but an explicit 'false' keeps the shortcuts on. */
+export function parseSingleKeyPreference(raw: string | null | undefined): boolean {
+  return raw !== 'false'
+}

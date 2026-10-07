@@ -7,7 +7,7 @@ import type {
   FileAttention,
   TimelineEntry,
   SimulationEvent,
-} from '@/lib/agent-types'
+} from '../../lib/agent-types'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
 export interface SimulationState {
@@ -19,6 +19,12 @@ export interface SimulationState {
   fileAttention: Map<string, FileAttention>
   timelineEntries: Map<string, TimelineEntry>
   conversations: Map<string, ConversationMessage[]>
+  /** Communication links between agents (spawn / teammate), keyed by link id */
+  links: Map<string, AgentLink>
+  /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
+  droppedMessages: Map<string, number>
+  /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
+  droppedEvents: number
   currentTime: number
   isPlaying: boolean
   speed: number
@@ -39,6 +45,9 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     fileAttention: new Map(),
     timelineEntries: new Map(),
     conversations: new Map(),
+    links: new Map(),
+    droppedMessages: new Map(),
+    droppedEvents: 0,
     currentTime: 0,
     isPlaying: false,
     speed: 1,
@@ -54,13 +63,13 @@ export function nextMsgId(): string { return `msg-${_msgIdCounter++}` }
 
 export interface ConversationMessage {
   id: string
-  /** 'dispatch' / 'return' carry the full subagent prompt / report between two agents */
-  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return'
+  /** 'dispatch' / 'return' carry the full subagent prompt / report between two agents; 'message' is a teammate message */
+  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return' | 'message'
   content: string
   timestamp: number
   toolName?: string
   inputData?: Record<string, unknown>
-  /** dispatch/return: sending and receiving agent names */
+  /** dispatch/return/message: agentKeys of the sending and receiving agent */
   from?: string
   to?: string
   /** dispatch/return: edge id linking the pair (edgeId(parent, child)) */
@@ -68,6 +77,39 @@ export interface ConversationMessage {
   /** tool_use_id correlating a dispatch with its return and with the tool call */
   toolUseId?: string
   isError?: boolean
+}
+
+export type LinkKind = 'spawn' | 'teammate'
+
+/** Communication channel between two agents (parent/sub-agent or teammates) with its messages. */
+export interface AgentLink {
+  id: string
+  /** agentKey of the sender side (parent for spawn links) */
+  from: string
+  /** agentKey of the receiver side */
+  to: string
+  kind: LinkKind
+  sessionId: string
+  messages: ConversationMessage[]
+  /** Messages dropped because of MAX_LINK_MESSAGES */
+  dropped: number
+}
+
+/** Max messages kept per link (oldest are dropped) */
+export const MAX_LINK_MESSAGES = 200
+
+/** Max length of an untrusted free-text field stored from an event payload */
+export const MAX_TEXT_LEN = 4000
+
+/** Max length of an untrusted identifier (agent name, link id, tool_use_id) */
+export const MAX_ID_LEN = 200
+
+/** Session id used for events that carry none */
+export const DEFAULT_SESSION_ID = 'default'
+
+/** Unique agent key across sessions */
+export function agentKeyOf(sessionId: string, localId: string): string {
+  return `${sessionId}:${localId}`
 }
 
 /** Max canvas message bubbles kept per agent (oldest are dropped) */
@@ -84,22 +126,34 @@ export const MAX_EVENT_LOG = 5000
  *  Caps history at MAX_CONVERSATION_MESSAGES per agent. */
 export function appendConversation(
   conversations: Map<string, ConversationMessage[]>,
-  agentName: string,
+  agentKey: string,
   message: Omit<ConversationMessage, 'id'> & { id?: string },
+  /** When given, counts the messages dropped by the cap per agentKey */
+  dropped?: Map<string, number>,
 ): void {
   const msg: ConversationMessage = { id: message.id ?? nextMsgId(), ...message }
-  const msgs = conversations.get(agentName) || []
+  const msgs = conversations.get(agentKey) || []
   const updated = [...msgs, msg]
-  conversations.set(agentName, updated.length > MAX_CONVERSATION_MESSAGES ? updated.slice(-MAX_CONVERSATION_MESSAGES) : updated)
+  if (updated.length > MAX_CONVERSATION_MESSAGES) {
+    const over = updated.length - MAX_CONVERSATION_MESSAGES
+    dropped?.set(agentKey, (dropped.get(agentKey) ?? 0) + over)
+    conversations.set(agentKey, updated.slice(over))
+  } else {
+    conversations.set(agentKey, updated)
+  }
 }
 
-/** Build a deterministic edge ID from two node names */
+/** Build a deterministic edge ID from two agent keys */
 export function edgeId(from: string, to: string): string {
   return `edge-${from}-${to}`
 }
 
 // ── Safe payload extraction helpers ──────────────────────────────────
 export function asString(v: unknown, fallback = ''): string { return typeof v === 'string' ? v : fallback }
+/** String capped to `max` chars (untrusted input) */
+export function cappedString(v: unknown, max = MAX_TEXT_LEN, fallback = ''): string {
+  return typeof v === 'string' ? (v.length > max ? v.slice(0, max) : v) : fallback
+}
 export function asNumber(v: unknown, fallback = 0): number { return typeof v === 'number' ? v : fallback }
 export function asBoolean(v: unknown, fallback = false): boolean { return typeof v === 'boolean' ? v : fallback }
 
