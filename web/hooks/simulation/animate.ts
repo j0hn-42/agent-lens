@@ -3,7 +3,7 @@ import {
   TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S,
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
-  ANIM_SPEED,
+  ANIM_SPEED, isExpiryHeld,
 } from '@/lib/canvas-constants'
 
 export interface AnimateOptions {
@@ -29,7 +29,8 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
     }
     if (agent.state !== 'complete') { timeAlive += deltaTime; updated = true }
     // Prune expired message bubbles
-    if (messageBubbles.length > 0) {
+    // (skipped while the agent is hovered/focused, playback is paused, or "never hide" is on)
+    if (messageBubbles.length > 0 && !isExpiryHeld('agent', id)) {
       const pruned = messageBubbles.filter(b => currentTime - b.time <= BUBBLE_VISIBLE_S)
       if (pruned.length !== messageBubbles.length) { messageBubbles = pruned; updated = true }
     }
@@ -54,16 +55,18 @@ function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: nu
   let newToolCalls = toolCalls
   for (const [id, tc] of toolCalls) {
     let newOpacity = tc.opacity
+    // Held cards (hovered/focused, paused, "never hide") never start fading out
+    const held = isExpiryHeld('tool', id)
     if (tc.state === 'running') {
       const runningSince = newTime - tc.startTime
-      if (runningSince > TOOL_MAX_RUNNING_S) {
+      if (runningSince > TOOL_MAX_RUNNING_S && !held) {
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
       } else {
         newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
       }
     } else {
       const timeSinceComplete = newTime - (tc.completeTime ?? 0)
-      if (timeSinceComplete < TOOL_MIN_DISPLAY_S) {
+      if (held || timeSinceComplete < TOOL_MIN_DISPLAY_S) {
         newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
       } else {
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
@@ -132,7 +135,7 @@ function animateDiscoveries(discoveries: SimulationState['discoveries'], deltaTi
       const lerpT = Math.min(1, deltaTime * DISCOVERY_LERP_SPEED)
       const x = d.x + (d.targetX - d.x) * lerpT
       const y = d.y + (d.targetY - d.y) * lerpT
-      if (age < DISCOVERY_HOLD_S) {
+      if (age < DISCOVERY_HOLD_S || isExpiryHeld('discovery', d.id)) {
         return { ...d, x, y, opacity: Math.min(0.9, d.opacity + deltaTime * ANIM_SPEED.discoveryFadeIn) }
       } else {
         return { ...d, x, y, opacity: Math.max(0, d.opacity - deltaTime * ANIM_SPEED.discoveryFadeOut) }

@@ -1,10 +1,14 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback } from 'react'
-import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
+import { Agent, Particle, Edge, Discovery, DepthParticle, NODE } from '@/lib/agent-types'
 import type { SimulationState } from '@/hooks/simulation/types'
-import { getStateColor } from '@/lib/colors'
-import { ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED } from '@/lib/canvas-constants'
+import { COLORS } from '@/lib/colors'
+import {
+  ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED, A11Y_SNAPSHOT_MS, FLASH_MAX_PER_SECOND,
+  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, CAMERA, STATE_LABEL_LONG, expiryHold, getDiscoveryCardDimensions,
+} from '@/lib/canvas-constants'
+import { formatModelName } from '@/lib/utils'
 import { BloomRenderer } from './bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from './background-layer'
 import {
@@ -19,7 +23,13 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
+  drawFocusRing, focusShapeFor, toolCardSize, stateColor,
+  createFlashLimiter, buildA11yModel, updateToolHistory, updateCommHistory, pushAnnouncements,
+  type DrawOpts, type HitTarget, type ToolHistoryEntry, type CommEntry, type A11yModel,
 } from './canvas/index'
+import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
+import { GraphA11yList } from './graph-a11y-list'
+import { GraphLegend } from './graph-legend'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
 
@@ -43,6 +53,19 @@ interface CanvasProps {
   showCostOverlay?: boolean
 }
 
+const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [] }
+
+function readStoredFlag(key: string): boolean {
+  try { return window.localStorage.getItem(key) === '1' } catch { return false }
+}
+function writeStoredFlag(key: string, value: boolean): void {
+  try { window.localStorage.setItem(key, value ? '1' : '0') } catch { /* storage unavailable */ }
+}
+
+const CONTROL_BUTTON_CLASS =
+  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
+  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-60'
+
 export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
@@ -50,6 +73,7 @@ export function AgentCanvas({
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 })
   const animationRef = useRef<number>(0)
   const timeRef = useRef(0)
@@ -63,6 +87,7 @@ export function AgentCanvas({
   const effectsRef = useRef<VisualEffect[]>([])
   const prevAgentStatesRef = useRef<Map<string, string>>(new Map())
   const prevToolStatesRef = useRef<Map<string, string>>(new Map())
+  const flashLimiterRef = useRef(createFlashLimiter(FLASH_MAX_PER_SECOND))
 
   // Rate-limited error logging for the draw loop (avoid flooding console)
   const lastDrawErrorRef = useRef(0)
@@ -85,6 +110,63 @@ export function AgentCanvas({
     edgeMap: Map<string, Edge>
   }>({ particles: [], edges: [], activeEdgeIds: new Set(), edgeMap: new Map() })
 
+  // ─── Motion preferences ─────────────────────────────────────────────────
+  // OS preference (read once + change listener) OR the visible "Pause animations" toggle.
+  const [osReducedMotion, setOsReducedMotion] = useState(false)
+  const [animationsPaused, setAnimationsPaused] = useState(false)
+  const [neverHide, setNeverHide] = useState(false)
+  const reducedMotionRef = useRef(false)
+  reducedMotionRef.current = osReducedMotion || animationsPaused
+  const animationsPausedRef = useRef(false)
+  animationsPausedRef.current = animationsPaused
+  const neverHideRef = useRef(false)
+  neverHideRef.current = neverHide
+
+  useEffect(() => {
+    // Stored preferences are read after mount so server and first client render match
+    setAnimationsPaused(readStoredFlag(ANIM_PAUSE_KEY))
+    setNeverHide(readStoredFlag(NEVER_HIDE_KEY))
+    if (typeof window.matchMedia !== 'function') return
+    const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setOsReducedMotion(mql.matches)
+    const onChange = (e: MediaQueryListEvent) => setOsReducedMotion(e.matches)
+    mql.addEventListener('change', onChange)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+
+  const toggleAnimationsPaused = useCallback(() => {
+    setAnimationsPaused(prev => { writeStoredFlag(ANIM_PAUSE_KEY, !prev); return !prev })
+  }, [])
+  const toggleNeverHide = useCallback(() => {
+    setNeverHide(prev => { writeStoredFlag(NEVER_HIDE_KEY, !prev); return !prev })
+  }, [])
+
+  // ─── Keyboard focus + accessible mirror state ───────────────────────────
+  const [focusedNode, setFocusedNode] = useState<NavNode | null>(null)
+  const focusedNodeRef = useRef<NavNode | null>(null)
+  focusedNodeRef.current = focusedNode
+  const [hasFocus, setHasFocus] = useState(false)
+  const hasFocusRef = useRef(false)
+  hasFocusRef.current = hasFocus
+  const hoverTargetRef = useRef<HitTarget | null>(null)
+  const tooltipTargetRef = useRef<NavNode | null>(null)
+
+  const [a11yModel, setA11yModel] = useState<A11yModel>(EMPTY_MODEL)
+  const [communications, setCommunications] = useState<CommEntry[]>([])
+  const [announcements, setAnnouncements] = useState<string[]>([])
+  const announcementsRef = useRef<string[]>([])
+  const toolHistoryRef = useRef<Map<string, ToolHistoryEntry>>(new Map())
+  const commHistoryRef = useRef<Map<string, CommEntry>>(new Map())
+  const a11ySignatureRef = useRef('')
+
+  const handleFocusedNodeChange = useCallback((node: NavNode | null) => {
+    setFocusedNode(prev => (sameNode(prev, node) ? prev : node))
+  }, [])
+
+  const handleHoverTargetChange = useCallback((target: HitTarget | null) => {
+    hoverTargetRef.current = target
+  }, [])
+
   // ─── Stable refs for animation loop & event handlers ────────────────────
   // Simulation data (agents, particles, etc.) is synced from simulationRef
   // at the top of each draw frame, so it's always fresh even without re-renders.
@@ -105,7 +187,7 @@ export function AgentCanvas({
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
     transformRef, userHasNavigatedRef, panVelocityRef,
-    screenToCanvas, doZoomToFit, updateCamera,
+    screenToCanvas, doZoomToFit, updateCamera, zoomBy, panBy, canvasToScreen, ensureVisible,
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: sim.agents.size, zoomToFitTrigger, selectedAgentId,
@@ -113,10 +195,13 @@ export function AgentCanvas({
 
   // ─── Interaction ────────────────────────────────────────────────────────
   const {
-    isDragging, handlers, updateDragLerp,
+    isDragging, overInteractive, handlers, keyHandlers, updateDragLerp, focusNode,
   } = useCanvasInteraction({
     drawPropsRef, transformRef, userHasNavigatedRef, panVelocityRef,
     simTimeRef, screenToCanvas, doZoomToFit, mainCanvasRef,
+    zoomBy, panBy, canvasToScreen, ensureVisible,
+    focusedNodeRef, onFocusedNodeChange: handleFocusedNodeChange,
+    onHoverTargetChange: handleHoverTargetChange,
   })
 
   // Keep drawPropsRef in sync with interaction state
@@ -131,34 +216,93 @@ export function AgentCanvas({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- particles created once, resized by draw loop
   }, [])
 
+  // Size + devicePixelRatio tracking. The ratio changes with browser zoom and when the window
+  // moves between screens, so it is re-read on resize, via the observer, and on the
+  // resolution media query (which fires when the ratio changes). The draw loop resizes the
+  // backing store (and the bloom buffers) whenever it no longer matches.
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const dpr = window.devicePixelRatio || 1
-    dprRef.current = dpr
+    dprRef.current = window.devicePixelRatio || 1
     const observer = new ResizeObserver((entries) => {
+      dprRef.current = window.devicePixelRatio || 1
       for (const entry of entries) {
-        const w = entry.contentRect.width
-        const h = entry.contentRect.height
-        setDimensions({ width: w, height: h })
-        bloomRef.current?.resize(w * dpr, h * dpr)
+        setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height })
       }
     })
     observer.observe(container)
-    return () => observer.disconnect()
+
+    let mql: MediaQueryList | null = null
+    const onDprChange = () => {
+      dprRef.current = window.devicePixelRatio || 1
+      watchResolution()
+    }
+    const watchResolution = () => {
+      mql?.removeEventListener('change', onDprChange)
+      if (typeof window.matchMedia !== 'function') return
+      mql = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+      mql.addEventListener('change', onDprChange)
+    }
+    watchResolution()
+    window.addEventListener('resize', onDprChange)
+
+    return () => {
+      observer.disconnect()
+      mql?.removeEventListener('change', onDprChange)
+      window.removeEventListener('resize', onDprChange)
+    }
   }, [])
 
-  // ─── Detect state changes → spawn effects ──────────────────────────────
+  // ─── Accessible mirror: throttled snapshot of the simulation ───────────
+  useEffect(() => {
+    const snapshot = () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      const s = simulationRef.current
+      updateToolHistory(toolHistoryRef.current, s.toolCalls)
+      updateCommHistory(commHistoryRef.current, s.particles, s.edges, s.agents)
+      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, toolHistoryRef.current)
+      const comms = Array.from(commHistoryRef.current.values())
+      const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
+      if (signature === a11ySignatureRef.current) return
+      a11ySignatureRef.current = signature
+      setA11yModel(model)
+      setCommunications(comms)
+    }
+    snapshot()
+    const timer = window.setInterval(snapshot, A11Y_SNAPSHOT_MS)
+    return () => window.clearInterval(timer)
+  }, [simulationRef])
+
+  // ─── Detect state changes → spawn effects + live-region announcements ───
 
   const detectStateChanges = useCallback(() => {
     const { agents, toolCalls } = drawPropsRef.current
-    const { effects, newAgentStates, newToolStates } = detectStateChangesPure(
+    const { effects, transitions, newAgentStates, newToolStates } = detectStateChangesPure(
       agents, toolCalls,
       prevAgentStatesRef.current, prevToolStatesRef.current,
     )
-    effectsRef.current.push(...effects)
+    if (!reducedMotionRef.current) {
+      // Global flash limiter: at most FLASH_MAX_PER_SECOND bright flashes per second
+      for (const fx of effects) {
+        if ((fx.type === 'spawn' || fx.type === 'complete') && !flashLimiterRef.current.allow(performance.now())) {
+          fx.noFlash = true
+        }
+      }
+      effectsRef.current.push(...effects)
+    } else {
+      // Reduced motion: state changes are instant, no transient effects
+      effectsRef.current.length = 0
+    }
     prevAgentStatesRef.current = newAgentStates
     prevToolStatesRef.current = newToolStates
+
+    if (transitions.length > 0) {
+      const next = pushAnnouncements(announcementsRef.current, transitions)
+      if (next !== announcementsRef.current) {
+        announcementsRef.current = next
+        setAnnouncements(next)
+      }
+    }
   }, [])
 
   // ─── Main draw loop ────────────────────────────────────────────────────
@@ -166,6 +310,7 @@ export function AgentCanvas({
   // Stable ref so the rAF loop always calls the latest draw without
   // re-subscribing when the callback identity changes.
   const drawRef = useRef<(timestamp: number) => void>(() => {})
+  const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
 
   const draw = useCallback((timestamp: number) => {
     animationRef.current = requestAnimationFrame((ts) => drawRef.current(ts))
@@ -196,21 +341,54 @@ export function AgentCanvas({
         isDragging,
       } = drawPropsRef.current
       const transform = transformRef.current
+      const reducedMotion = reducedMotionRef.current
+
+      // Expiry hold: hovered / focused elements, paused playback or animations, and the
+      // "never hide" setting stop bubbles, tool cards and discoveries from expiring.
+      {
+        const focused = hasFocusRef.current ? focusedNodeRef.current : null
+        const hover = hoverTargetRef.current
+        expiryHold.neverHide = neverHideRef.current
+        expiryHold.paused = animationsPausedRef.current || !simulationRef.current.isPlaying
+        expiryHold.agentIds.clear()
+        expiryHold.toolIds.clear()
+        expiryHold.discoveryIds.clear()
+        if (hoveredAgentId) expiryHold.agentIds.add(hoveredAgentId)
+        if (hover?.type === 'agent' || hover?.type === 'bubble') expiryHold.agentIds.add(hover.id)
+        if (hover?.type === 'tool') expiryHold.toolIds.add(hover.id)
+        if (hover?.type === 'discovery') expiryHold.discoveryIds.add(hover.id)
+        if (focused?.type === 'agent') expiryHold.agentIds.add(focused.id)
+        if (focused?.type === 'tool') expiryHold.toolIds.add(focused.id)
+        if (focused?.type === 'discovery') expiryHold.discoveryIds.add(focused.id)
+        if (selectedToolCallId) expiryHold.toolIds.add(selectedToolCallId)
+        if (selectedDiscoveryId) expiryHold.discoveryIds.add(selectedDiscoveryId)
+      }
 
       const deltaTime = lastFrameTimeRef.current ? (timestamp - lastFrameTimeRef.current) / 1000 : ANIM_SPEED.defaultDeltaTime
       lastFrameTimeRef.current = timestamp
-      timeRef.current += deltaTime
+      // Reduced motion freezes the animation clock: every time-based wobble/pulse/scan stops
+      if (!reducedMotion) timeRef.current += deltaTime
       if (simTime != null) simTimeRef.current = simTime
 
       const dpr = dprRef.current
       const w = dimensions.width
       const h = dimensions.height
 
-      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
-        canvas.width = w * dpr
-        canvas.height = h * dpr
-        ctx.scale(dpr, dpr)
+      const backingW = Math.max(1, Math.round(w * dpr))
+      const backingH = Math.max(1, Math.round(h * dpr))
+      if (canvas.width !== backingW || canvas.height !== backingH) {
+        canvas.width = backingW
+        canvas.height = backingH
+        bloomRef.current?.resize(backingW, backingH)
       }
+      // Reset every frame: cheap, and it keeps the scale correct after any backing-store resize
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+      const opts = drawOptsRef.current
+      opts.reducedMotion = reducedMotion
+      opts.zoom = transform.scale
+      opts.showCost = !!showCostOverlay
+      opts.showStats = showStats
 
       // Camera physics (inertia + auto-fit)
       updateCamera(isDragging, pauseAutoFit)
@@ -236,17 +414,17 @@ export function AgentCanvas({
       }
 
       ctx.clearRect(0, 0, w, h)
-      updateDepthParticles(depthParticlesRef.current, deltaTime, w, h)
+      if (!reducedMotion) updateDepthParticles(depthParticlesRef.current, deltaTime, w, h)
 
       let activeAgentPos: { x: number; y: number; color: string } | undefined
       for (const [, agent] of agents) {
         if (agent.state === 'thinking' || agent.state === 'tool_calling' || agent.state === 'waiting_permission') {
-          activeAgentPos = { x: agent.x, y: agent.y, color: getStateColor(agent.state) }
+          activeAgentPos = { x: agent.x, y: agent.y, color: stateColor(agent.state) }
           break
         }
       }
 
-      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos)
+      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, reducedMotion)
 
       ctx.save()
       ctx.translate(transform.x, transform.y)
@@ -265,25 +443,44 @@ export function AgentCanvas({
         edgeLookupCacheRef.current = { particles, edges, activeEdgeIds, edgeMap }
       }
 
+      // Draw order (bottom to top) matches hit-test priority in reverse:
+      // bubbles sit under tool/discovery cards so interactive cards are never covered.
       drawDiscoveryConnections(ctx, discoveries, agents)
-      drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current)
-      drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId)
-      drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId)
-      drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current)
-      drawMessageBubblesWorld(ctx, agents, simTimeRef.current)
-      if (showCostOverlay) drawCostLabels(ctx, agents, toolCalls)
-      drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current)
+      drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
+      drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
+      drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
+      drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
+      drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId, opts)
+      if (showCostOverlay) drawCostLabels(ctx, agents, toolCalls, opts)
+      drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current, opts)
       drawEffects(ctx, effectsRef.current)
 
+      // Tether from the selected node to its detail card
       if (selectedAgentId) {
         const agent = agents.get(selectedAgentId)
         if (agent) drawTetherLine(ctx, agent, transform, h)
+      } else if (selectedToolCallId) {
+        const tool = toolCalls.get(selectedToolCallId)
+        if (tool) drawTetherLine(ctx, tool, transform, h, toolCardSize(tool).w / 2)
+      } else if (selectedDiscoveryId) {
+        const disc = discoveries.find(d => d.id === selectedDiscoveryId)
+        if (disc) drawTetherLine(ctx, disc, transform, h, getDiscoveryCardDimensions(disc.label, disc.content.split('\n')).cardW / 2)
+      }
+
+      // Keyboard focus ring (distinct from hover/selection glow)
+      const focusedNow = hasFocusRef.current ? focusedNodeRef.current : null
+      if (focusedNow) {
+        const shape = focusShapeFor(focusedNow, drawPropsRef.current)
+        if (shape) drawFocusRing(ctx, shape, transform.scale)
       }
 
       ctx.restore()
 
       if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
-      if (bloomRef.current) bloomRef.current.apply(canvas, ctx)
+      if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
+
+      // Tooltip follows its node without React re-renders
+      positionTooltip(tooltipRef.current, transform, w, h, drawPropsRef.current, tooltipTargetRef.current)
 
       // ─── Performance overlay (enabled via ?perf or ?stress) ──────────
       if (PERF_OVERLAY_ENABLED) {
@@ -339,14 +536,225 @@ export function AgentCanvas({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- drawRef is stable; rAF loop set up once
   }, [])
 
+  // ─── Tooltip target (hover or keyboard focus) ──────────────────────────
+  const focusedForTooltip = hasFocus ? focusedNode : null
+  const tooltipTarget: NavNode | null = hoveredAgentId
+    ? { type: 'agent', id: hoveredAgentId }
+    : focusedForTooltip
+  tooltipTargetRef.current = tooltipTarget
+  const tooltipContent = tooltipTarget ? describeTooltip(tooltipTarget, simulationRef.current) : null
+
+  // ─── Keyboard focus entry ──────────────────────────────────────────────
+  const handleWrapperFocus = useCallback((e: React.FocusEvent) => {
+    if (e.target !== e.currentTarget || focusedNodeRef.current) return
+    // Only keyboard focus gets the automatic ring; a mouse click must not (matches :focus-visible)
+    try { if (!e.currentTarget.matches(':focus-visible')) return } catch { /* older engines: fall through */ }
+    // Show the ring immediately when keyboard focus lands on the graph
+    const p = drawPropsRef.current
+    const order = buildNodeOrder(p.agents, p.toolCalls, p.discoveries)
+    const selected = p.selectedAgentId ? order.find(n => n.type === 'agent' && n.id === p.selectedAgentId) : undefined
+    const first = selected ?? order[0] ?? null
+    if (first) focusNode(first)
+  }, [focusNode])
+
+  const rootCursor = isDragging ? 'grabbing' : overInteractive ? 'pointer' : 'grab'
+  const pausedBySystem = osReducedMotion
+
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden" style={{ cursor: isDragging ? 'grabbing' : 'grab' }}>
-      <canvas
-        ref={mainCanvasRef}
-        style={{ width: dimensions.width, height: dimensions.height }}
-        {...handlers}
-        className="w-full h-full"
+    <div
+      ref={containerRef}
+      className="relative w-full h-full overflow-hidden"
+      style={{ cursor: rootCursor }}
+      onFocus={() => setHasFocus(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHasFocus(false)
+      }}
+    >
+      {/* Graph surface: one image for assistive tech (its content is in the outline below),
+          focusable so the keyboard map works (arrows, Enter, +/-/0, Shift+arrows, context menu key). */}
+      <div
+        role="img"
+        aria-label={a11yModel.summary}
+        aria-describedby="graph-keyboard-help"
+        tabIndex={0}
+        onFocus={handleWrapperFocus}
+        onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
+        {...keyHandlers}
+        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
+      >
+        <canvas
+          ref={mainCanvasRef}
+          style={{ width: dimensions.width, height: dimensions.height, touchAction: 'none' }}
+          {...handlers}
+          className="w-full h-full"
+        />
+      </div>
+      <p id="graph-keyboard-help" className="sr-only">
+        Arrow keys move between nodes. Enter opens details. Plus and minus zoom, zero fits the graph.
+        Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
+      </p>
+
+      <GraphA11yList
+        model={a11yModel}
+        communications={communications}
+        announcements={announcements}
+        focusedNode={focusedNode}
+        onAgentClick={onAgentClick}
+        onToolCallClick={onToolCallClick}
+        onDiscoveryClick={onDiscoveryClick}
+        onFocusNode={focusNode}
       />
+
+      {/* Hover / focus tooltip (mirrors information available in the outline, so hidden from AT) */}
+      <div
+        ref={tooltipRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 top-0 z-10 max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
+        style={{
+          visibility: 'hidden',
+          background: COLORS.panelBg,
+          border: `1px solid ${COLORS.glassBorder}`,
+          color: COLORS.textPrimary,
+        }}
+      >
+        {tooltipContent && (
+          <>
+            <div className="break-words font-semibold">{tooltipContent.title}</div>
+            {tooltipContent.lines.map((line, i) => (
+              <div key={i} className="break-words" style={{ color: COLORS.textMuted }}>{line}</div>
+            ))}
+          </>
+        )}
+      </div>
+
+      {/* Camera + comfort controls */}
+      <div className="absolute right-3 bottom-20 z-10 flex max-w-[calc(100vw-24px)] flex-col items-end gap-1">
+        <div className="flex gap-1">
+          <button
+            type="button"
+            aria-label="Zoom in"
+            onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
+            className={CONTROL_BUTTON_CLASS}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+          >
+            <span aria-hidden="true">+</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Zoom out"
+            onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
+            className={CONTROL_BUTTON_CLASS}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+          >
+            <span aria-hidden="true">{'−'}</span>
+          </button>
+          <button
+            type="button"
+            aria-label="Fit graph to view"
+            onClick={doZoomToFit}
+            className={CONTROL_BUTTON_CLASS}
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+          >
+            Fit
+          </button>
+        </div>
+        <button
+          type="button"
+          aria-pressed={animationsPaused || pausedBySystem}
+          disabled={pausedBySystem}
+          title={pausedBySystem ? 'Animations are reduced by your system settings' : undefined}
+          onClick={toggleAnimationsPaused}
+          className={CONTROL_BUTTON_CLASS}
+          style={{
+            background: animationsPaused || pausedBySystem ? COLORS.toggleActive : COLORS.panelBg,
+            border: `1px solid ${COLORS.glassBorder}`,
+            color: COLORS.textPrimary,
+          }}
+        >
+          Pause animations
+        </button>
+        <button
+          type="button"
+          aria-pressed={neverHide}
+          onClick={toggleNeverHide}
+          className={CONTROL_BUTTON_CLASS}
+          style={{
+            background: neverHide ? COLORS.toggleActive : COLORS.panelBg,
+            border: `1px solid ${COLORS.glassBorder}`,
+            color: COLORS.textPrimary,
+          }}
+        >
+          Keep cards visible
+        </button>
+      </div>
+
+      <GraphLegend />
     </div>
   )
+}
+
+// ─── Tooltip helpers ──────────────────────────────────────────────────────
+
+interface TooltipContent { title: string; lines: string[] }
+
+/** Full name, state, model and task for an agent; name, state and args for a tool. */
+function describeTooltip(node: NavNode, sim: SimulationState): TooltipContent | null {
+  if (node.type === 'agent') {
+    const a = sim.agents.get(node.id)
+    if (!a) return null
+    const lines = [
+      `State: ${STATE_LABEL_LONG[a.state] ?? a.state}`,
+      `Model: ${a.model ? formatModelName(a.model) : 'unknown'}`,
+    ]
+    if (a.task) lines.push(`Task: ${a.task.length > 160 ? a.task.slice(0, 159) + '…' : a.task}`)
+    return { title: a.name, lines }
+  }
+  if (node.type === 'tool') {
+    const t = sim.toolCalls.get(node.id)
+    if (!t) return null
+    const lines = [`State: ${t.state}`]
+    if (t.args) lines.push(t.args.length > 160 ? t.args.slice(0, 159) + '…' : t.args)
+    return { title: t.toolName, lines }
+  }
+  const d = sim.discoveries.find(x => x.id === node.id)
+  if (!d) return null
+  return { title: d.label, lines: [`Discovery: ${d.type}`] }
+}
+
+/** Anchor the tooltip above its node in screen space; hide when the node is gone or off-canvas. */
+function positionTooltip(
+  el: HTMLDivElement | null,
+  transform: { x: number; y: number; scale: number },
+  canvasW: number,
+  canvasH: number,
+  scene: { agents: Map<string, Agent>; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] },
+  target: NavNode | null,
+) {
+  if (!el) return
+  let wx: number | null = null
+  let wy: number | null = null
+  let radius = 0
+  if (target?.type === 'agent') {
+    const a = scene.agents.get(target.id)
+    if (a) { wx = a.x; wy = a.y; radius = (a.isMain ? NODE.radiusMain : NODE.radiusSub) * a.scale }
+  } else if (target?.type === 'tool') {
+    const t = scene.toolCalls.get(target.id)
+    if (t) { wx = t.x; wy = t.y; radius = 16 }
+  } else if (target?.type === 'discovery') {
+    const d = scene.discoveries.find(x => x.id === target.id)
+    if (d) { wx = d.x; wy = d.y; radius = 16 }
+  }
+  if (wx === null || wy === null) {
+    if (el.style.visibility !== 'hidden') el.style.visibility = 'hidden'
+    return
+  }
+  const sx = wx * transform.scale + transform.x
+  const sy = wy * transform.scale + transform.y - radius * transform.scale - 8
+  const tw = el.offsetWidth
+  const th = el.offsetHeight
+  const x = Math.min(Math.max(sx - tw / 2, 4), Math.max(4, canvasW - tw - 4))
+  // Flip below the node when there is no room above
+  const y = sy - th < 4 ? sy + radius * transform.scale * 2 + 16 : sy - th
+  el.style.transform = `translate(${Math.round(x)}px, ${Math.round(Math.min(Math.max(y, 4), Math.max(4, canvasH - th - 4)))}px)`
+  if (el.style.visibility !== 'visible') el.style.visibility = 'visible'
 }

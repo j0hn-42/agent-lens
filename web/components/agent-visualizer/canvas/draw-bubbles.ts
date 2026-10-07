@@ -1,17 +1,22 @@
 import { Agent, NODE } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
-import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW } from '@/lib/canvas-constants'
+import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, MIN_VISIBLE_OPACITY, isExpiryHeld } from '@/lib/canvas-constants'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
 export function drawMessageBubblesWorld(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   time: number,
+  opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
+  const showText = lodForZoom(opts.zoom).details
   for (const agent of agents.values()) {
-    if (agent.messageBubbles.length === 0) continue
+    if (agent.messageBubbles.length === 0 || agent.opacity < MIN_VISIBLE_OPACITY) continue
+    // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible
+    const held = isExpiryHeld('agent', agent.id)
 
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
@@ -21,7 +26,7 @@ export function drawMessageBubblesWorld(
 
     for (const bubble of agent.messageBubbles) {
       const age = time - bubble.time
-      const alpha = bubbleAlpha(age, agent.opacity)
+      const alpha = bubbleAlpha(age, agent.opacity, held)
       if (alpha < 0.01) continue
 
       const { role, text } = bubble
@@ -30,7 +35,7 @@ export function drawMessageBubblesWorld(
       const bgColor = isThinking ? COLORS.bubbleThinkingBase : role === 'user' ? COLORS.bubbleUserBase : COLORS.bubbleAssistantBase
       const textColor = isThinking ? COLORS.roleThinkingText : role === 'user' ? COLORS.roleUserText : COLORS.roleAssistantText
       const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : 'CLAUDE'
-      const label = isThinking ? '\uD83D\uDCAD THINKING' : role === 'user' ? 'USER' : assistantLabel
+      const label = isThinking ? 'THINKING' : role === 'user' ? 'USER' : assistantLabel
 
       // Thinking bubbles: smaller font, tighter spacing, more translucent
       const style = isThinking ? BUBBLE_DRAW.thinking : BUBBLE_DRAW.normal
@@ -58,7 +63,7 @@ export function drawMessageBubblesWorld(
       bubble._cachedLines = lines.length
 
       ctx.save()
-      ctx.globalAlpha = isThinking ? alpha * 0.7 : alpha
+      ctx.globalAlpha = isThinking ? alpha * 0.85 : alpha
 
       if (firstVisible) {
         const triY = cursorY + bubbleH / 2
@@ -79,20 +84,23 @@ export function drawMessageBubblesWorld(
       ctx.lineWidth = 0.5
       ctx.stroke()
 
-      ctx.font = `${style.labelSize}px monospace`
-      ctx.textAlign = 'left'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = textColor + (isThinking ? '60' : '80')
-      ctx.fillText(label, anchorX + style.padding, cursorY + 3)
+      if (showText) {
+        ctx.font = `${style.labelSize}px monospace`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = textColor + (isThinking ? 'c0' : 'd0')
+        ctx.fillText(label, anchorX + style.padding, cursorY + 3)
 
-      ctx.font = `italic ${style.fontSize}px monospace`
-      ctx.fillStyle = textColor + (isThinking ? 'b0' : '')
-      for (let i = 0; i < lines.length; i++) {
-        ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
-      }
-      if (truncated) {
-        ctx.fillStyle = textColor + '80'
-        ctx.fillText('...', anchorX + style.padding, cursorY + style.headerH + lines.length * style.lineH)
+        // Upright text: italics are harder to read at small sizes
+        ctx.font = `${style.fontSize}px monospace`
+        ctx.fillStyle = textColor + (isThinking ? 'e0' : '')
+        for (let i = 0; i < lines.length; i++) {
+          ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
+        }
+        if (truncated) {
+          ctx.fillStyle = textColor + 'c0'
+          ctx.fillText('...', anchorX + style.padding, cursorY + style.headerH + lines.length * style.lineH)
+        }
       }
 
       ctx.restore()

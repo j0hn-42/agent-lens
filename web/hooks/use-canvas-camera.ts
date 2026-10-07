@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM, NODE } from '@/lib/agent-types'
-import { BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H, DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H } from '@/lib/canvas-constants'
+import { CAMERA, BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H, DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H } from '@/lib/canvas-constants'
 
 /** Extra padding added to agent node radii for auto-fit bounding box */
 const AUTOFIT_AGENT_PADDING = 22
@@ -148,7 +148,8 @@ export function useCanvasCamera({
     const boundsH = maxY - minY + padding * 2
     const centerX = (minX + maxX) / 2
     const centerY = (minY + maxY) / 2
-    const scale = Math.min(dimensions.width / boundsW, dimensions.height / boundsH, 2)
+    // Never fit smaller than minFitScale: tiny nodes are unreadable and hard to hit (content may overflow instead)
+    const scale = Math.max(CAMERA.minFitScale, Math.min(dimensions.width / boundsW, dimensions.height / boundsH, 2))
     const result = {
       x: dimensions.width / 2 - centerX * scale,
       y: dimensions.height / 2 - centerY * scale,
@@ -168,9 +169,10 @@ export function useCanvasCamera({
     if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
   }, [zoomToFitTrigger, doZoomToFit])
 
-  // Re-engage auto-fit when selection changes
+  // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
+  // once the user panned/zoomed manually the camera stays where they put it
+  // (an explicit "Fit" or the fit trigger re-enables it).
   useEffect(() => {
-    userHasNavigatedRef.current = false
     targetTransformRef.current = null
   }, [selectedAgentId])
 
@@ -184,6 +186,60 @@ export function useCanvasCamera({
       y: (screenY - rect.top - t.y) / t.scale,
     }
   }, [mainCanvasRef])
+
+  /** Zoom by `factor` around a point given in canvas-local screen px (defaults to the viewport centre). */
+  const zoomBy = useCallback((factor: number, originX?: number, originY?: number) => {
+    userHasNavigatedRef.current = true
+    targetTransformRef.current = null
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const { width, height } = drawPropsRef.current.dimensions
+    const ox = originX ?? width / 2
+    const oy = originY ?? height / 2
+    const prev = transformRef.current
+    const newScale = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, prev.scale * factor))
+    const ratio = newScale / prev.scale
+    transformRef.current = { scale: newScale, x: ox - (ox - prev.x) * ratio, y: oy - (oy - prev.y) * ratio }
+  }, [drawPropsRef])
+
+  /** Pan by a screen-pixel delta. */
+  const panBy = useCallback((dx: number, dy: number) => {
+    userHasNavigatedRef.current = true
+    targetTransformRef.current = null
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const t = transformRef.current
+    transformRef.current = { ...t, x: t.x + dx, y: t.y + dy }
+  }, [])
+
+  /** Convert a world point to client (viewport) coordinates, e.g. to anchor a context menu. */
+  const canvasToScreen = useCallback((worldX: number, worldY: number) => {
+    const canvas = mainCanvasRef.current
+    const rect = canvas?.getBoundingClientRect()
+    const t = transformRef.current
+    return {
+      x: (rect?.left ?? 0) + worldX * t.scale + t.x,
+      y: (rect?.top ?? 0) + worldY * t.scale + t.y,
+    }
+  }, [mainCanvasRef])
+
+  /**
+   * Pan (without changing zoom) just enough to bring a world point inside the viewport,
+   * keeping `margin` px from the edges. Used when keyboard focus moves to an off-screen node.
+   */
+  const ensureVisible = useCallback((worldX: number, worldY: number, margin = 80) => {
+    const { width, height } = drawPropsRef.current.dimensions
+    const t = transformRef.current
+    const sx = worldX * t.scale + t.x
+    const sy = worldY * t.scale + t.y
+    let dx = 0, dy = 0
+    if (sx < margin) dx = margin - sx
+    else if (sx > width - margin) dx = width - margin - sx
+    if (sy < margin) dy = margin - sy
+    else if (sy > height - margin) dy = height - margin - sy
+    if (dx !== 0 || dy !== 0) {
+      userHasNavigatedRef.current = true
+      targetTransformRef.current = { ...t, x: t.x + dx, y: t.y + dy }
+    }
+  }, [drawPropsRef])
 
   /** Call from draw loop to update inertia and auto-fit lerp */
   const updateCamera = useCallback((isDragging: boolean, pauseAutoFit?: boolean) => {
@@ -230,5 +286,9 @@ export function useCanvasCamera({
     screenToCanvas,
     doZoomToFit,
     updateCamera,
+    zoomBy,
+    panBy,
+    canvasToScreen,
+    ensureVisible,
   }
 }
