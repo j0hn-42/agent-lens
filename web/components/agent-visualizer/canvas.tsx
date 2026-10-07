@@ -1,13 +1,13 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback } from 'react'
-import { Agent, Particle, Edge, Discovery, DepthParticle, NODE } from '@/lib/agent-types'
+import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { COLORS } from '@/lib/colors'
 import {
   ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED, A11Y_SNAPSHOT_MS, FLASH_MAX_PER_SECOND,
-  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, CAMERA, STATE_LABEL_LONG, expiryHold, getDiscoveryCardDimensions,
+  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, CAMERA, STATE_LABEL_LONG, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
 } from '@/lib/canvas-constants'
 import { formatModelName } from '@/lib/utils'
 import { BloomRenderer } from './bloom-renderer'
@@ -24,14 +24,17 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
-  drawFocusRing, focusShapeFor, toolCardSize, stateColor,
-  drawLinks, drawTeamHalos, resolveLinks, computeTeamHalos, hasSeveralSessions,
+  drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
+  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, resolveLinks, hasSeveralSessions,
+  computeClusters, planOverlays, selectEdgeBubble, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
+  type Cluster, type SessionMeta, type EdgeBubble, type OverlayPlanResult,
   detectTeamChanges, createTeamPrev, type TeamPrev, type ResolvedLink,
   createFlashLimiter, buildA11yModel, enqueueAnnouncements, createAnnouncementQueue, a11yRecorder,
   type AnnouncementItem, type AnnouncementQueue,
   type DrawOpts, type HitTarget, type CommEntry, type A11yModel,
 } from './canvas/index'
-import { agentStatusText, teammateActivity, cleanText } from './canvas/team-style'
+import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from './canvas/team-style'
+import { measureTextCached } from './canvas/render-cache'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
@@ -47,7 +50,8 @@ interface CanvasProps {
   showHexGrid: boolean
   zoomToFitTrigger?: number
   pauseAutoFit?: boolean
-  onAgentClick: (agentId: string | null) => void
+  /** `modifiers.shiftKey` is set for a Shift-click (pair filter: click one agent, Shift-click another) */
+  onAgentClick: (agentId: string | null, modifiers?: { shiftKey: boolean }) => void
   onAgentHover: (agentId: string | null) => void
   onAgentDrag: (agentId: string, x: number, y: number) => void
   onContextMenu: (e: React.MouseEvent, type: 'agent' | 'edge' | 'canvas', id?: string) => void
@@ -63,9 +67,16 @@ interface CanvasProps {
   /** A link (edge or count badge) was clicked */
   onLinkClick?: (linkId: string) => void
   selectedLinkId?: string | null
+  /** Facts about sessions the agents do not carry (workspace, label, runtime), keyed by session id: shown on the cluster labels */
+  sessions?: ReadonlyMap<string, SessionMeta>
+  /**
+   * A cluster label (or its outline entry) was activated: the canvas has already zoomed to the cluster;
+   * the app can also select the session / team (e.g. its session tab).
+   */
+  onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }
 
-const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [] }
+const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -82,7 +93,7 @@ export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay,
-  links: linksProp, teams, onLinkClick, selectedLinkId,
+  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -175,6 +186,15 @@ export function AgentCanvas({
   linksPropRef.current = linksProp
   const teamsRef = useRef(teams)
   teamsRef.current = teams
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  const onClusterSelectRef = useRef(onClusterSelect)
+  onClusterSelectRef.current = onClusterSelect
+  /** Clusters and overlay plan of the last drawn frame (read by the cluster click handler) */
+  const clustersRef = useRef<Cluster[]>([])
+  const [selectedClusterKey, setSelectedClusterKey] = useState<string | null>(null)
+  const selectedClusterKeyRef = useRef<string | null>(null)
+  selectedClusterKeyRef.current = selectedClusterKey
 
   const handleFocusedNodeChange = useCallback((node: NavNode | null) => {
     setFocusedNode(prev => (sameNode(prev, node) ? prev : node))
@@ -188,28 +208,42 @@ export function AgentCanvas({
   // Simulation data (agents, particles, etc.) is synced from simulationRef
   // at the top of each draw frame, so it's always fresh even without re-renders.
   const sim = simulationRef.current
-  const makeDrawProps = (prev?: { isDragging: boolean }) => ({
+  const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => ({
     agents: sim.agents, toolCalls: sim.toolCalls,
     particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
     showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
-    links: [] as ResolvedLink[],
+    // Resolved by the draw loop each frame; carried over so a pointer event between a render and the
+    // next frame still hit-tests against the links of the previous frame (never an empty list)
+    links: prev?.links ?? ([] as ResolvedLink[]),
     onAgentDrag, onAgentClick, onAgentHover, onContextMenu,
     onToolCallClick, onDiscoveryClick, onLinkClick,
+    onClusterClick: (key: string) => handleClusterClickRef.current(key),
     isDragging: prev?.isDragging ?? false,
   })
+  const handleClusterClickRef = useRef<(key: string) => void>(() => {})
   const drawPropsRef = useRef(makeDrawProps())
   drawPropsRef.current = makeDrawProps(drawPropsRef.current)
 
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
     transformRef, userHasNavigatedRef, panVelocityRef,
-    screenToCanvas, doZoomToFit, updateCamera, zoomBy, panBy, canvasToScreen, ensureVisible,
+    screenToCanvas, doZoomToFit, updateCamera, zoomBy, panBy, canvasToScreen, ensureVisible, zoomToCircle,
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: sim.agents.size, zoomToFitTrigger, selectedAgentId,
   })
+
+  // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───
+  const selectCluster = useCallback((key: string) => {
+    const c = clustersRef.current.find(x => x.key === key)
+    if (!c) return
+    setSelectedClusterKey(key)
+    zoomToCircle(c.cx, c.cy, c.r)
+    onClusterSelectRef.current?.({ key: c.key, kind: c.kind, sessionIds: c.sessionIds, teamName: c.teamName })
+  }, [zoomToCircle])
+  handleClusterClickRef.current = selectCluster
 
   // ─── Interaction ────────────────────────────────────────────────────────
   const {
@@ -280,6 +314,7 @@ export function AgentCanvas({
       // this timer only publishes them to React state.
       const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
+        sessions: sessionsRef.current,
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -424,12 +459,47 @@ export function AgentCanvas({
       opts.showCost = !!showCostOverlay
       opts.showStats = showStats
       opts.showSessionLabels = hasSeveralSessions(agents.values())
+      opts.teams = teamsRef.current
+      opts.focusedAgentId = hasFocusRef.current && focusedNodeRef.current?.type === 'agent' ? focusedNodeRef.current.id : null
+      opts.edgeBubbles = true
 
       // Camera physics (inertia + auto-fit)
       updateCamera(isDragging, pauseAutoFit)
 
       // Floaty agent drag
       updateDragLerp(agents, onAgentDrag)
+
+      // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
+      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current })
+      clustersRef.current = clusters
+      const hoverTarget = hoverTargetRef.current
+      const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
+      const edgeBubbles: EdgeBubble[] = []
+      {
+        ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
+        const measure = (t: string) => measureTextCached(ctx, t)
+        for (const r of resolvedLinks) {
+          const held = expiryHold.neverHide || expiryHold.paused || r.id === selectedLinkId || r.id === hoveredLinkId
+          const b = selectEdgeBubble(r, agents, simTime, held, measure)
+          if (b) edgeBubbles.push(b)
+        }
+      }
+      const overlay: OverlayPlanResult = (w > 0 && h > 0)
+        ? planOverlays({
+          agents, clusters, edgeBubbles, transform, viewport: { w, h }, lod: lodForZoom(transform.scale),
+          showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
+          selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
+          selectedLinkId, hoveredLinkId, simTime: simTimeRef.current, teams: teamsRef.current,
+          isBubbleHeld: id => expiryHold.neverHide || expiryHold.paused || expiryHold.agentIds.has(id),
+        })
+        : EMPTY_PLAN
+      if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
+      opts.plan = overlay === EMPTY_PLAN ? undefined : overlay.plan
+      opts.crowded = overlay.crowded
+      const activeClusterKey = (selectedAgentId
+        ? clusters.find(c => c.memberIds.includes(selectedAgentId))?.key
+        : undefined) ?? selectedClusterKeyRef.current
+      const hoveredClusterKey = hoverTarget?.type === 'cluster' ? hoverTarget.id : null
 
       // Detect state changes → visual effects
       detectStateChanges()
@@ -482,7 +552,7 @@ export function AgentCanvas({
       // bubbles sit under tool/discovery cards so interactive cards are never covered.
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
-      drawTeamHalos(ctx, computeTeamHalos(agents.values(), teamsRef.current), opts)
+      drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,
@@ -490,6 +560,7 @@ export function AgentCanvas({
         timeRef.current, opts,
       )
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
+      drawEdgeBubbles(ctx, edgeBubbles, selectedLinkId, hoveredLinkId, opts)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId, opts)
@@ -517,6 +588,9 @@ export function AgentCanvas({
       }
 
       ctx.restore()
+
+      // Cluster labels live in screen space: readable at any zoom, placed without overlap
+      drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey)
 
       if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
@@ -640,6 +714,8 @@ export function AgentCanvas({
         model={a11yModel}
         onLinkClick={onLinkClick}
         selectedLinkId={selectedLinkId}
+        onClusterClick={selectCluster}
+        selectedClusterKey={selectedClusterKey}
         communications={communications}
         announcements={announcements}
         focusedNode={focusedNode}
@@ -784,7 +860,7 @@ function positionTooltip(
   let radius = 0
   if (target?.type === 'agent') {
     const a = scene.agents.get(target.id)
-    if (a) { wx = a.x; wy = a.y; radius = (a.isMain ? NODE.radiusMain : NODE.radiusSub) * a.scale }
+    if (a) { wx = a.x; wy = a.y; radius = agentDrawRadius(a) }
   } else if (target?.type === 'tool') {
     const t = scene.toolCalls.get(target.id)
     if (t) { wx = t.x; wy = t.y; radius = 16 }

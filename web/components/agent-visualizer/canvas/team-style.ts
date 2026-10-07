@@ -7,7 +7,7 @@
  */
 import { NODE } from '../../../lib/agent-types'
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
-import { MIN_VISIBLE_OPACITY, STATE_LABEL_SHORT, AGENT_DRAW } from '../../../lib/canvas-constants'
+import { MIN_VISIBLE_OPACITY, STATE_LABEL_SHORT, AGENT_DRAW, ORCHESTRATOR_DRAW } from '../../../lib/canvas-constants'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -69,9 +69,39 @@ export function agentDrawOpacity(agent: Pick<Agent, 'kind' | 'archived' | 'opaci
   return agent.opacity
 }
 
+/**
+ * The orchestrator of a session or team: its main agent (never a teammate). It is drawn larger,
+ * with a crown badge and a text badge ('MAIN' for a session, 'LEAD' for a team).
+ */
+export function isOrchestrator(agent: Pick<Agent, 'isMain' | 'kind'>): boolean {
+  return !!agent.isMain && agent.kind !== 'teammate'
+}
+
+/** 'lead' when the agent leads an Agent Team (its session is a team's lead session), 'main' for a plain session. */
+export function orchestratorRole(
+  agent: Pick<Agent, 'isMain' | 'kind' | 'sessionId' | 'teamName'>,
+  teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId'>>,
+): 'lead' | 'main' | null {
+  if (!isOrchestrator(agent)) return null
+  if (cleanText(agent.teamName)) return 'lead'
+  if (teams) for (const t of teams.values()) if (t.leadSessionId === agent.sessionId) return 'lead'
+  return 'main'
+}
+
+/** Text of the orchestrator badge ('LEAD' / 'MAIN'), or null for other agents. */
+export function orchestratorBadgeText(role: 'lead' | 'main' | null): string | null {
+  return role === 'lead' ? ORCHESTRATOR_DRAW.leadText : role === 'main' ? ORCHESTRATOR_DRAW.mainText : null
+}
+
 /** Scale the node is drawn (and hit-tested) with. */
-export function agentDrawScale(agent: Pick<Agent, 'archived' | 'scale'>): number {
+export function agentDrawScale(agent: Pick<Agent, 'archived' | 'scale'> & Partial<Pick<Agent, 'isMain' | 'kind'>>): number {
   return (agent.scale || 1) * (agent.archived ? ARCHIVED_SCALE : 1)
+    * (isOrchestrator({ isMain: !!agent.isMain, kind: agent.kind }) ? ORCHESTRATOR_DRAW.scale : 1)
+}
+
+/** World radius of the node as drawn (without the breathing animation). */
+export function agentDrawRadius(agent: Pick<Agent, 'archived' | 'scale' | 'isMain' | 'kind'>): number {
+  return (agent.isMain ? NODE.radiusMain : NODE.radiusSub) * agentDrawScale(agent)
 }
 
 /** Activity of a teammate (explicit field first, derived from the state otherwise); undefined for other agents. */
@@ -152,9 +182,41 @@ export function wrapLabel(
   return { lines, truncated }
 }
 
+export interface OrchestratorInfo {
+  role: 'lead' | 'main'
+  /** 'LEAD' | 'MAIN' */
+  badge: string
+  /** Team name (lead) or session label (main); may be empty */
+  groupName: string
+}
+
+/** Role, badge text and session / team name of an orchestrator; null for any other agent. */
+export function orchestratorInfo(
+  agent: Pick<Agent, 'isMain' | 'kind' | 'sessionId' | 'teamName' | 'sessionLabel'>,
+  teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>,
+): OrchestratorInfo | null {
+  const role = orchestratorRole(agent, teams)
+  if (!role) return null
+  const badge = orchestratorBadgeText(role) as string
+  let groupName = ''
+  if (role === 'lead') {
+    groupName = cleanText(agent.teamName, 40)
+    if (!groupName && teams) {
+      for (const t of teams.values()) if (t.leadSessionId === agent.sessionId) { groupName = cleanText(t.name, 40); break }
+    }
+  } else {
+    groupName = cleanText(agent.sessionLabel, 40)
+  }
+  return { role, badge, groupName }
+}
+
 export interface AgentLabelLayout {
   nameLines: string[]
   statusLine: string
+  /** Orchestrator line under the status: 'LEAD' / 'MAIN' badge text (drawn as a pill) */
+  badgeText?: string
+  /** Rest of the orchestrator line: its team or session name */
+  groupLine?: string
   /** Third small line naming the session, when several sessions are on screen */
   sessionLine?: string
   /** The full name does not fit (the hover tooltip carries it) */
@@ -172,18 +234,26 @@ export function layoutAgentLabel(
   radius: number,
   measure: MeasureText,
   showSession = false,
+  orchestrator?: OrchestratorInfo | null,
 ): AgentLabelLayout {
   const teammate = agent.kind === 'teammate'
   const maxWidth = radius * (teammate ? TEAMMATE_LABEL_WIDTH_RADII : AGENT_DRAW.labelWidthMultiplier)
   const { lines, truncated } = wrapLabel(agent.name, maxWidth, measure, teammate ? TEAMMATE_NAME_LINES : 1)
-  const session = showSession ? cleanText(agent.sessionLabel, 40) : ''
+  // An orchestrator shows its badge and team / session name instead of the plain session line
+  const session = showSession && !orchestrator ? cleanText(agent.sessionLabel, 40) : ''
   const sessionLine = session ? ellipsize(session, maxWidth, measure) : undefined
+  const badgeText = orchestrator?.badge
+  const groupLine = orchestrator
+    ? ellipsize(`${orchestrator.badge}${orchestrator.groupName ? ` ${orchestrator.groupName}` : ''}`, maxWidth * 1.4, measure)
+    : undefined
   return {
     nameLines: lines,
     statusLine: agentStatusText(agent),
+    badgeText,
+    groupLine,
     sessionLine,
     truncated,
-    extraLines: lines.length - 1 + (sessionLine ? 1 : 0),
+    extraLines: lines.length - 1 + (sessionLine ? 1 : 0) + (groupLine ? 1 : 0),
   }
 }
 
@@ -210,7 +280,7 @@ export interface TeamHalo {
 }
 
 function memberRadius(a: Agent): number {
-  return (a.isMain ? NODE.radiusMain : NODE.radiusSub) * agentDrawScale(a)
+  return agentDrawRadius(a)
 }
 
 /** Colour of a team: first valid member colour, then the team summary, then the default. */

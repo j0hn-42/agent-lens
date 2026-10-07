@@ -8,7 +8,8 @@ import {
 import type { Transform } from './use-canvas-camera'
 
 interface InteractionCallbacks {
-  onAgentClick: (agentId: string | null) => void
+  /** `modifiers.shiftKey` lets the app implement click + Shift-click (pair filter) */
+  onAgentClick: (agentId: string | null, modifiers?: { shiftKey: boolean }) => void
   onAgentHover: (agentId: string | null) => void
   onAgentDrag: (agentId: string, x: number, y: number) => void
   onContextMenu: (e: React.MouseEvent, type: 'agent' | 'edge' | 'canvas', id?: string) => void
@@ -16,6 +17,8 @@ interface InteractionCallbacks {
   onDiscoveryClick?: (discoveryId: string | null) => void
   /** A communication link was clicked (canvas edge or its count badge) */
   onLinkClick?: (linkId: string) => void
+  /** A cluster label (session / team halo) was clicked */
+  onClusterClick?: (clusterKey: string) => void
 }
 
 interface InteractionOptions {
@@ -216,13 +219,15 @@ export function useCanvasInteraction({
       const hit = hitTest(e.clientX, e.clientY)
       const p = drawPropsRef.current
       if (hit?.type === 'agent' || hit?.type === 'bubble') {
-        p.onAgentClick(hit.id)
+        p.onAgentClick(hit.id, { shiftKey: e.shiftKey })
       } else if (hit?.type === 'tool') {
         p.onToolCallClick?.(hit.id)
       } else if (hit?.type === 'discovery') {
         p.onDiscoveryClick?.(hit.id)
       } else if (hit?.type === 'link') {
         p.onLinkClick?.(hit.id)
+      } else if (hit?.type === 'cluster') {
+        p.onClusterClick?.(hit.id)
       } else {
         p.onAgentClick(null)
         p.onToolCallClick?.(null)

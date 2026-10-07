@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
-import { Agent, ToolCallNode, Discovery, ANIM, NODE } from '@/lib/agent-types'
+import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
+import { agentDrawRadius } from '@/components/agent-visualizer/canvas/team-style'
 import { CAMERA, BUBBLE_HOLD, BUBBLE_FADE_OUT, BUBBLE_MAX_W, TOOL_CARD_W, TOOL_CARD_H, DISC_BOUNDS_HALF_W, DISC_BOUNDS_HALF_H } from '@/lib/canvas-constants'
 
 /** Extra padding added to agent node radii for auto-fit bounding box */
@@ -102,7 +103,7 @@ export function useCanvasCamera({
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
     for (const [id, agent] of agents) {
       if (focusScope && !focusScope.has(id)) continue
-      const r = (agent.isMain ? NODE.radiusMain : NODE.radiusSub) + AUTOFIT_AGENT_PADDING
+      const r = agentDrawRadius(agent) + AUTOFIT_AGENT_PADDING
       minX = Math.min(minX, agent.x - r)
       maxX = Math.max(maxX, agent.x + r)
       minY = Math.min(minY, agent.y - r)
@@ -241,6 +242,17 @@ export function useCanvasCamera({
     }
   }, [drawPropsRef])
 
+  /** Smoothly frame a world circle (a cluster halo) in the viewport. Counts as a manual navigation. */
+  const zoomToCircle = useCallback((cx: number, cy: number, r: number) => {
+    const { width, height } = drawPropsRef.current.dimensions
+    if (!(r > 0) || width <= 0 || height <= 0) return
+    userHasNavigatedRef.current = true
+    panVelocityRef.current = { vx: 0, vy: 0, active: false }
+    const pad = ANIM.viewportPadding
+    const scale = Math.max(CAMERA.minZoom, Math.min(CAMERA.maxZoom, Math.min(width, height) / (r * 2 + pad * 2), 2))
+    targetTransformRef.current = { x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale }
+  }, [drawPropsRef])
+
   /** Call from draw loop to update inertia and auto-fit lerp */
   const updateCamera = useCallback((isDragging: boolean, pauseAutoFit?: boolean) => {
     const transform = transformRef.current
@@ -290,5 +302,6 @@ export function useCanvasCamera({
     panBy,
     canvasToScreen,
     ensureVisible,
+    zoomToCircle,
   }
 }

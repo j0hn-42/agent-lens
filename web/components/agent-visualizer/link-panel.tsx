@@ -55,6 +55,16 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
 
   const model = useMemo(() => buildLinkPanelModel(link, agents), [link, agents])
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  // The message list is a scroll container: it joins the tab order only while it actually scrolls, so a
+  // keyboard user can scroll it even when every entry is short (WCAG 2.1.1). Set imperatively because the
+  // jsx-a11y rule rejects a static tabIndex on a list.
+  const listRef = useRef<HTMLOListElement>(null)
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1) el.setAttribute('tabindex', '0')
+    else el.removeAttribute('tabindex')
+  }, [model.entries.length, expanded])
   const collapsible = model.entries.filter(e => e.long)
   const allExpanded = collapsible.length > 0 && collapsible.every(e => expanded.has(e.id))
 
@@ -88,7 +98,6 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
             <button
               type="button"
               onClick={toggleAll}
-              aria-pressed={allExpanded}
               className={buttonClass}
               style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
             >
@@ -112,7 +121,11 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
         {model.entries.length === 0 ? (
           <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>No message on this link yet.</p>
         ) : (
-          <ol className="m-0 flex max-h-[min(60vh,28rem)] list-none flex-col gap-2 overflow-y-auto p-0" aria-label="Messages, oldest first">
+          <ol
+            ref={listRef}
+            className="m-0 flex max-h-[min(60vh,28rem)] list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]"
+            aria-label="Messages, oldest first"
+          >
             {model.entries.map(entry => {
               const isOpen = !entry.long || expanded.has(entry.id)
               const color = entry.isError ? COLORS.error : TYPE_COLOR[entry.type]

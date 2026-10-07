@@ -1,6 +1,10 @@
 import { COLORS } from '@/lib/colors'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
+import { type Cluster, clusterLabelLines } from './cluster-model'
+import { CLUSTER_DRAW } from '@/lib/canvas-constants'
+import { planKey } from './overlay-plan'
+import type { OverlayPlan } from './label-placement'
 
 const HALO_LABEL_FONT = 12
 
@@ -43,6 +47,77 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
       ctx.textBaseline = 'middle'
       ctx.fillText(text, anchor.x, anchor.y - hgt / 2 + 1)
     }
+    ctx.restore()
+  }
+}
+
+/**
+ * Halo of every cluster (one per session and one per team), under the edges and nodes. A team halo is
+ * dashed and a session halo solid-dotted, so the two kinds differ without colour. Colours come from
+ * `Cluster.color`, already validated as '#rrggbb'. The label is drawn separately, in screen space.
+ */
+export function drawClusterHalos(
+  ctx: CanvasRenderingContext2D, clusters: Cluster[], selectedKey?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS,
+) {
+  void opts
+  for (const c of clusters) {
+    const selected = c.key === selectedKey
+    ctx.save()
+    ctx.beginPath()
+    ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2)
+    ctx.fillStyle = c.color + (selected ? '22' : '12')
+    ctx.fill()
+    ctx.setLineDash(c.kind === 'team' ? [10, 6] : [2, 5])
+    ctx.strokeStyle = c.color + (selected ? 'cc' : '88')
+    ctx.lineWidth = selected ? 2.5 : 1.5
+    ctx.stroke()
+    ctx.restore()
+  }
+}
+
+/**
+ * Cluster labels in SCREEN space (readable at any zoom): a chip with "Session|Team name (n)" and, under
+ * it, runtime, workspace, status and cost. Positions come from the overlay plan (collision-free).
+ * Call after the world transform has been restored.
+ */
+export function drawClusterLabels(
+  ctx: CanvasRenderingContext2D, clusters: Cluster[], plan: OverlayPlan | undefined, selectedKey?: string | null,
+  hoveredKey?: string | null,
+) {
+  if (!plan) return
+  for (const c of clusters) {
+    const place = plan.get(planKey.cluster(c.key))
+    if (!place || !place.rect || place.hidden) continue
+    const { x, y, w, h } = place.rect
+    const lines = clusterLabelLines(c)
+    const emphasised = c.key === selectedKey || c.key === hoveredKey
+    ctx.save()
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, 6)
+    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fill()
+    ctx.strokeStyle = c.color + 'dd'
+    ctx.lineWidth = emphasised ? 2.5 : 1.25
+    ctx.setLineDash(c.kind === 'team' ? [5, 3] : [])
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.beginPath()
+    ctx.arc(x + 9, y + 11, 4, 0, Math.PI * 2)
+    ctx.fillStyle = c.color
+    ctx.fill()
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    ctx.font = `600 ${CLUSTER_DRAW.labelFontSize}px monospace`
+    ctx.fillStyle = COLORS.textPrimary
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x + 4, y, w - 8, h)
+    ctx.clip()
+    ctx.fillText(lines.title, x + 18, y + 4)
+    ctx.font = `${CLUSTER_DRAW.detailFontSize}px monospace`
+    ctx.fillStyle = COLORS.textMuted
+    ctx.fillText(lines.detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
+    ctx.restore()
     ctx.restore()
   }
 }

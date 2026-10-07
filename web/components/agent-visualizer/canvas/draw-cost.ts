@@ -1,4 +1,4 @@
-import { Agent, ToolCallNode, NODE } from '@/lib/agent-types'
+import { Agent, ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
 import { formatTokens, formatCost } from '@/lib/utils'
@@ -7,7 +7,8 @@ import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
-import { isAgentVisible, agentDrawOpacity } from './team-style'
+import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
+import { planKey, resolvePlacement } from './overlay-plan'
 
 export { modelCostRate, agentCost }
 
@@ -47,7 +48,7 @@ export function drawCostLabels(
     const cost = agentCost(agent.tokensUsed, agent.model)
     if (cost < COST_DRAW.minDisplayCost) continue
 
-    const r = agent.isMain ? NODE.radiusMain : NODE.radiusSub
+    const r = agentDrawRadius(agent)
     // Stacked above the stats box and the context % label (see overlay-layout.ts)
     const layout = computeOverlayLayout({
       hasPercent: hasContextPercent(agent),
@@ -55,6 +56,9 @@ export function drawCostLabels(
       showCost: true,
     })
     const pillY = agent.y - r - (layout.costTop ?? COST_DRAW.pillYOffset)
+    // Screen-space placement: hidden or shifted when it would collide with another text
+    const place = resolvePlacement(opts.plan, planKey.cost(agent.id), opts.zoom)
+    if (!place.visible) continue
 
     // Floating cost pill
     const label = formatCost(cost)
@@ -65,6 +69,7 @@ export function drawCostLabels(
     const pillX = agent.x - pillW / 2
 
     ctx.save()
+    ctx.translate(place.dx, place.dy)
     ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background

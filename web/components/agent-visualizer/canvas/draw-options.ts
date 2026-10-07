@@ -1,4 +1,6 @@
 import { LOD, MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
+import type { TeamSummary } from '../../../lib/agent-types'
+import type { OverlayPlan } from './label-placement'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
@@ -12,6 +14,16 @@ export interface DrawOpts {
   showStats: boolean
   /** Several sessions are on screen: agent labels name their session. */
   showSessionLabels?: boolean
+  /** Screen-space placement of the text overlays (labels, stats, cost pills, bubbles); absent = draw everything in place */
+  plan?: OverlayPlan
+  /** Many agents on screen: secondary text is limited to the selected / hovered / focused agent */
+  crowded?: boolean
+  /** Link messages are drawn as bubbles on the edges: particles carry no text label */
+  edgeBubbles?: boolean
+  /** Keyboard-focused agent (keeps its secondary text when crowded) */
+  focusedAgentId?: string | null
+  /** Teams, to tell the lead of a team ('LEAD') from the main agent of a session ('MAIN') */
+  teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
 }
 
 export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }

@@ -176,7 +176,9 @@ const BADGE_HIT_HALF_PX = 14
 
 /**
  * Link under (x, y), canvas-world coordinates. The tolerance is in SCREEN pixels (default 8),
- * so a link stays clickable when zoomed out. The count badge at the middle also counts.
+ * so a link stays clickable when zoomed out. The count badge at the middle also counts, but only while
+ * it is drawn (`badgeVisible`, the level of detail that shows labels) and by its distance to the badge
+ * centre: it never beats a nearer link whose curve passes inside the badge box.
  * Of several candidates the nearest wins; ties go to the one drawn last (on top).
  */
 export function findLinkAt(
@@ -186,6 +188,7 @@ export function findLinkAt(
   agents: Map<string, Agent>,
   scale = 1,
   tolerancePx = HIT_DETECTION.linkTolerancePx,
+  badgeVisible = true,
 ): string | null {
   const safeScale = scale > 0 ? scale : 1
   const tol = tolerancePx / safeScale
@@ -197,7 +200,10 @@ export function findLinkAt(
     let d = distanceToCurve(x, y, curve)
     const mid = curvePoint(curve, 0.5)
     const badge = BADGE_HIT_HALF_PX / safeScale
-    if (Math.abs(x - mid.x) <= badge && Math.abs(y - mid.y) <= badge) d = Math.min(d, 0)
+    if (badgeVisible && Math.abs(x - mid.x) <= badge && Math.abs(y - mid.y) <= badge) {
+      // Inside the drawn badge: as good as on the curve, ranked by the distance to the badge centre
+      d = Math.min(d, Math.hypot(x - mid.x, y - mid.y) * 0.25)
+    }
     if (d <= tol && d <= best) { best = d; bestId = r.id }
   }
   return bestId

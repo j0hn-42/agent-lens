@@ -91,7 +91,9 @@ export function drawParticles(
     ctx.fill()
 
     // Label near particle
-    if (showLabels && particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
+    // Messages are now shown as bubbles anchored on the edge (draw-links.ts); the particle label is
+    // only kept for particles of edges that carry no link (no bubble would show the text).
+    if (showLabels && !opts.edgeBubbles && particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
       ctx.fillStyle = particle.color + 'aa'
       ctx.font = `${PARTICLE_DRAW.labelFontSize}px monospace`
       ctx.textAlign = 'center'

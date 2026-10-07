@@ -13,13 +13,11 @@ import {
 import { bubbleAlpha } from './bubble-utils'
 import { getToolCardSize } from './render-cache'
 import type { FocusShape } from './draw-misc'
-import { isAgentVisible, agentDrawScale, agentDrawOpacity } from './team-style'
+import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
+import { overlayHits } from './overlay-state'
+import { lodForZoom } from './draw-options'
 import { findLinkAt, type ResolvedLink } from './link-geometry'
 import type { NavNode } from './keyboard-nav'
-
-/** Node radii duplicated from agent-types NODE to keep this module free of "@/" runtime imports. */
-const RADIUS_MAIN = 28
-const RADIUS_SUB = 20
 
 /** Radius (world units) of an agent hit area: at least `minPx` screen pixels. */
 export function hitRadiusWorld(baseWorldRadius: number, scale: number, minPx: number): number {
@@ -58,7 +56,7 @@ export function findAgentAt(
   for (const [id, agent] of reverseEntries(agents)) {
     // Archived agents and teammates stay clickable even when their opacity is low
     if (!isAgentVisible(agent)) continue
-    const base = (agent.isMain ? RADIUS_MAIN : RADIUS_SUB) * agentDrawScale(agent)
+    const base = agentDrawRadius(agent)
     const r = hitRadiusWorld(base, scale, HIT_DETECTION.minAgentRadiusPx)
     const dx = x - agent.x
     const dy = y - agent.y
@@ -115,7 +113,13 @@ export function findBubbleAgentAt(
 ): string | null {
   for (const agent of reverseValues(agents.values())) {
     if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
-    const radius = agent.isMain ? RADIUS_MAIN : RADIUS_SUB
+    const radius = agentDrawRadius(agent)
+    // Collapsed into a count chip: the chip is the only target
+    const chip = overlayHits.collapsedBubbles.get(agent.id)
+    if (chip) {
+      if (pointInMinRect(x, y, chip.x, chip.y, chip.w, chip.h, scale, HIT_DETECTION.minTargetPx)) return agent.id
+      continue
+    }
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
     let cursorY = agent.y + AGENT_DRAW.bubbleCursorY
     const held = isExpiryHeld('agent', agent.id)
@@ -181,7 +185,26 @@ export function findDiscoveryAt(
   return null
 }
 
+/** Edge bubble (message anchored on a link) under the point: the link id, or null. Last placed wins. */
+export function findEdgeBubbleAt(x: number, y: number, scale = 1): string | null {
+  let found: string | null = null
+  for (const [id, r] of overlayHits.edgeBubbles) {
+    if (pointInMinRect(x, y, r.x, r.y, r.w, r.h, scale, HIT_DETECTION.minTargetPx)) found = id
+  }
+  return found
+}
+
+/** Cluster label chip under the point: the cluster key, or null. */
+export function findClusterLabelAt(x: number, y: number, scale = 1): string | null {
+  let found: string | null = null
+  for (const [key, r] of overlayHits.clusterLabels) {
+    if (pointInMinRect(x, y, r.x, r.y, r.w, r.h, scale, HIT_DETECTION.minTargetPx)) found = key
+  }
+  return found
+}
+
 export type HitTarget =
+  | { type: 'cluster'; id: string }
   | { type: 'agent'; id: string }
   | { type: 'tool'; id: string }
   | { type: 'discovery'; id: string }
@@ -190,7 +213,8 @@ export type HitTarget =
 
 /**
  * Single hit test with the same priority as the draw order (top first):
- * agent, tool card, discovery card, bubble, then communication links (drawn under the nodes).
+ * agent, tool card, discovery card, agent bubble, edge bubble, cluster label, then communication links
+ * (drawn under the nodes). An edge bubble reports its link.
  */
 export function hitTestAt(
   x: number,
@@ -207,8 +231,12 @@ export function hitTestAt(
   if (discId) return { type: 'discovery', id: discId }
   const bubbleId = findBubbleAgentAt(x, y, scene.agents, simTime, scale)
   if (bubbleId) return { type: 'bubble', id: bubbleId }
+  const edgeBubbleId = findEdgeBubbleAt(x, y, scale)
+  if (edgeBubbleId) return { type: 'link', id: edgeBubbleId }
+  const clusterId = findClusterLabelAt(x, y, scale)
+  if (clusterId) return { type: 'cluster', id: clusterId }
   if (scene.links && scene.links.length > 0) {
-    const linkId = findLinkAt(x, y, scene.links, scene.agents, scale)
+    const linkId = findLinkAt(x, y, scene.links, scene.agents, scale, undefined, lodForZoom(scale).labels)
     if (linkId) return { type: 'link', id: linkId }
   }
   return null
@@ -222,7 +250,7 @@ export function focusShapeFor(
   if (node.type === 'agent') {
     const a = scene.agents.get(node.id)
     if (!a) return null
-    return { kind: 'hex', x: a.x, y: a.y, r: (a.isMain ? RADIUS_MAIN : RADIUS_SUB) * agentDrawScale(a) }
+    return { kind: 'hex', x: a.x, y: a.y, r: agentDrawRadius(a) }
   }
   if (node.type === 'tool') {
     const t = scene.toolCalls.get(node.id)

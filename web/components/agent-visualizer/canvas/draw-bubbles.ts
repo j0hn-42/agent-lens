@@ -1,7 +1,9 @@
-import { Agent, NODE } from '@/lib/agent-types'
+import { Agent } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
 import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, isExpiryHeld } from '@/lib/canvas-constants'
-import { isAgentVisible, agentDrawOpacity } from './team-style'
+import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
+import { planKey, resolvePlacement } from './overlay-plan'
+import { overlayHits } from './overlay-state'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
@@ -19,7 +21,14 @@ export function drawMessageBubblesWorld(
     // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible
     const held = isExpiryHeld('agent', agent.id)
 
-    const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
+    const radius = agentDrawRadius(agent)
+    // Crowded: the stack collapses to a small count chip (or is hidden when even that does not fit)
+    const place = resolvePlacement(opts.plan, planKey.bubbles(agent.id), opts.zoom)
+    if (!place.visible) continue
+    if (place.collapsed) {
+      drawBubbleChip(ctx, agent, time, held, opts.zoom)
+      continue
+    }
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
     let cursorY = agent.y + AGENT_DRAW.bubbleCursorY
 
@@ -109,6 +118,30 @@ export function drawMessageBubblesWorld(
       cursorY += bubbleH + BUBBLE_GAP
     }
   }
+}
+
+/** Small count chip that stands for the bubbles of an agent when they would overlap other texts. */
+function drawBubbleChip(ctx: CanvasRenderingContext2D, agent: Agent, time: number, held: boolean, zoom: number) {
+  const rect = overlayHits.collapsedBubbles.get(agent.id)
+  if (!rect) return
+  let n = 0
+  for (const b of agent.messageBubbles) if (bubbleAlpha(time - b.time, agentDrawOpacity(agent), held) >= 0.01) n++
+  if (n === 0) return
+  const scale = zoom > 0 ? zoom : 1
+  ctx.save()
+  ctx.beginPath()
+  ctx.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2)
+  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fill()
+  ctx.strokeStyle = COLORS.bubbleAssistantBase
+  ctx.lineWidth = 1 / scale
+  ctx.stroke()
+  ctx.font = `${11 / scale}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = COLORS.textPrimary
+  ctx.fillText(`\u2026${n}`, rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5 / scale)
+  ctx.restore()
 }
 
 /** Word-wrap text into lines that fit within maxW pixels, preserving newlines.
