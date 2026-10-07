@@ -1,6 +1,10 @@
 import { COLORS } from '@/lib/colors'
 import type { MutableEventState } from './process-event'
-import { edgeId, asString, LABEL_LEN_SHORT } from './types'
+import { edgeId, asString, asBoolean, LABEL_LEN_SHORT } from './types'
+
+function optString(v: unknown): string | undefined {
+  return typeof v === 'string' && v ? v : undefined
+}
 
 export function handleSubagentDispatch(
   payload: Record<string, unknown>,
@@ -18,6 +22,12 @@ export function handleSubagentDispatch(
     type: 'dispatch', color: COLORS.dispatch,
     size: 6, trailLength: 0.2,
     label: task.slice(0, LABEL_LEN_SHORT),
+    detail: {
+      prompt: optString(payload.prompt),
+      subagentType: optString(payload.subagentType),
+      model: optString(payload.model),
+      toolUseId: optString(payload.toolUseId),
+    },
   })
 }
 
@@ -37,5 +47,11 @@ export function handleSubagentReturn(
     type: 'return', color: COLORS.return,
     size: 5, trailLength: 0.2,
     label: summary.slice(0, LABEL_LEN_SHORT),
+    detail: {
+      summary,
+      toolUseId: optString(payload.toolUseId),
+      isError: asBoolean(payload.isError),
+      durationS: typeof payload.durationS === 'number' ? payload.durationS : undefined,
+    },
   })
 }

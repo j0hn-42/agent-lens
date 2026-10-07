@@ -2,12 +2,13 @@ import * as http from 'http'
 import * as vscode from 'vscode'
 import { AgentEvent, emitSubagentSpawn } from './protocol'
 import {
-  ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX,
+  ORCHESTRATOR_NAME, PREVIEW_MAX, RESULT_MAX, MESSAGE_MAX,
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
   SUBAGENT_ID_SUFFIX_LENGTH, HOOK_SERVER_HOST, HOOK_SERVER_NOT_STARTED,
   generateSubagentFallbackName,
 } from './constants'
-import { summarizeInput, summarizeResult, extractFilePath, buildDiscovery } from './tool-summarizer'
+import { summarizeInput, summarizeResult, extractFilePath, extractInputData, buildDiscovery } from './tool-summarizer'
+import { extractLastAssistantText } from './transcript-parser'
 import { estimateTokenCost } from './token-estimator'
 import { createLogger } from './logger'
 
@@ -212,6 +213,8 @@ export class HookServer implements vscode.Disposable {
         tool: toolName,
         args,
         preview: `${toolName}: ${args}`.slice(0, PREVIEW_MAX),
+        inputData: payload.tool_input ? extractInputData(toolName, payload.tool_input) : undefined,
+        ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
       },
     }, payload.session_id)
   }
@@ -219,7 +222,8 @@ export class HookServer implements vscode.Disposable {
   private handlePostToolUse(payload: HookPayload): void {
     const agentName = this.resolveAgentName(payload)
     const toolName = payload.tool_name || 'unknown'
-    const result = payload.tool_response ? summarizeResult(payload.tool_response) : ''
+    const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
+    const result = payload.tool_response ? summarizeResult(payload.tool_response, isSubagentTool ? MESSAGE_MAX : RESULT_MAX) : ''
     const tokenCost = estimateTokenCost(toolName, result)
 
     // Build discovery for file-related tools
@@ -231,8 +235,9 @@ export class HookServer implements vscode.Disposable {
       payload: {
         agent: agentName,
         tool: toolName,
-        result: result.slice(0, RESULT_MAX),
+        result: result.slice(0, isSubagentTool ? MESSAGE_MAX : RESULT_MAX),
         tokenCost,
+        ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
         ...(discovery ? { discovery } : {}),
       },
     }, payload.session_id)
@@ -274,11 +279,14 @@ export class HookServer implements vscode.Disposable {
     const sessionAgents = this.sessionState.get(payload.session_id)?.agentNames
     const childName = sessionAgents?.get(agentId) || 'subagent'
     const parentName = this.resolveAgentName(payload)
+    const report = payload.agent_transcript_path
+      ? extractLastAssistantText(String(payload.agent_transcript_path))
+      : undefined
 
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'subagent_return',
-      payload: { child: childName, parent: parentName, summary: `${payload.agent_type} complete` },
+      payload: { child: childName, parent: parentName, summary: report || `${payload.agent_type} complete` },
     }, payload.session_id)
 
     this.emit({

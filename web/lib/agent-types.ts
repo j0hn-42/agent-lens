@@ -145,6 +145,19 @@ export interface Particle {
   size: number
   trailLength: number
   label?: string        // what's flowing (e.g., "auth.ts 142 lines")
+  /** Full subagent dispatch/return data (prompt, report, ...) carried by dispatch/return particles */
+  detail?: ParticleDetail
+}
+
+export interface ParticleDetail {
+  prompt?: string
+  subagentType?: string
+  model?: string
+  /** Full subagent report (return particles) */
+  summary?: string
+  toolUseId?: string
+  isError?: boolean
+  durationS?: number
 }
 
 export interface SimulationEvent {

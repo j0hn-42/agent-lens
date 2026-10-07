@@ -11,7 +11,7 @@
  */
 
 import {
-  ARGS_MAX, RESULT_MAX, TASK_MAX,
+  ARGS_MAX, RESULT_MAX, TASK_MAX, MESSAGE_MAX,
   EDIT_CONTENT_MAX, WEB_FETCH_PROMPT_MAX,
   SKILL_NAME_MAX, URL_PATH_MAX,
   DISCOVERY_LABEL_MAX, DISCOVERY_LABEL_TAIL, DISCOVERY_CONTENT_MAX,
@@ -94,25 +94,25 @@ export function summarizeInput(toolName: string, input?: Record<string, unknown>
 }
 
 /** Summarize tool result content into a short string */
-export function summarizeResult(content: unknown): string {
+export function summarizeResult(content: unknown, max = RESULT_MAX): string {
   if (typeof content === 'string') {
-    return content.slice(0, RESULT_MAX)
+    return content.slice(0, max)
   }
   if (Array.isArray(content)) {
     return content.map(c => {
       if (typeof c === 'string') { return c }
       if (c && typeof c === 'object' && 'text' in c) { return String(c.text) }
       return ''
-    }).join('\n').slice(0, RESULT_MAX)
+    }).join('\n').slice(0, max)
   }
   if (content && typeof content === 'object' && !Array.isArray(content)) {
     // Handle objects with known text properties (e.g. { content: string })
     const obj = content as { content?: unknown; text?: unknown }
-    if (typeof obj.content === 'string') { return obj.content.slice(0, RESULT_MAX) }
-    if (typeof obj.text === 'string') { return obj.text.slice(0, RESULT_MAX) }
-    try { return JSON.stringify(content).slice(0, RESULT_MAX) } catch { /* fall through */ }
+    if (typeof obj.content === 'string') { return obj.content.slice(0, max) }
+    if (typeof obj.text === 'string') { return obj.text.slice(0, max) }
+    try { return JSON.stringify(content).slice(0, max) } catch { /* fall through */ }
   }
-  return String(content || '').slice(0, RESULT_MAX)
+  return String(content || '').slice(0, max)
 }
 
 /** Extract structured input data for rich display in the transcript */
@@ -125,6 +125,14 @@ export function extractInputData(toolName: string, input: Record<string, unknown
           file_path: String(input.file_path || ''),
           old_string: String(input.old_string || '').slice(0, EDIT_CONTENT_MAX),
           new_string: String(input.new_string || '').slice(0, EDIT_CONTENT_MAX),
+        }
+      case 'Task':
+      case 'Agent':
+        return {
+          description: String(input.description || ''),
+          prompt: String(input.prompt || '').slice(0, MESSAGE_MAX),
+          subagent_type: typeof input.subagent_type === 'string' ? input.subagent_type : undefined,
+          model: typeof input.model === 'string' ? input.model : undefined,
         }
       case 'TodoWrite':
         return { todos: input.todos }
