@@ -119,7 +119,8 @@ export const COLORS = {
   playBtnGlow: '0 0 12px rgba(102, 204, 255, 0.15)',
 
   // Scrubber
-  scrubberFill: 'linear-gradient(90deg, rgba(102,204,255,0.3), rgba(102,204,255,0.6))',
+  // Both stops >= 3:1 against controlTrack (the fill is painted over the track); tested in scripts/contrast.test.ts
+  scrubberFill: 'linear-gradient(90deg, rgba(170,238,255,0.8), rgba(170,238,255,0.95))',
   scrubberHeadGlow: '0 0 10px rgba(102, 204, 255, 0.6), 0 0 20px rgba(102, 204, 255, 0.2)',
   reviewBtnBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — review button boundary
 
