@@ -6,26 +6,13 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import { clampPopupPosition } from '@/lib/clamp-popup-position'
+import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers } from '@/lib/menu-utils'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
 // Prevents canvas drag/click events from firing when interacting with panels
 
-export const stopPropagationHandlers = {
-  onMouseDown: (e: React.MouseEvent) => e.stopPropagation(),
-  onMouseUp: (e: React.MouseEvent) => e.stopPropagation(),
-  onClick: (e: React.MouseEvent) => e.stopPropagation(),
-} as const
-
-/**
- * Same as stopPropagationHandlers but lets mousedown bubble, so useClickOutside
- * (a document mousedown listener) still closes open popups/menus when the user
- * clicks inside a sliding panel.
- */
-export const panelStopPropagationHandlers = {
-  onMouseUp: stopPropagationHandlers.onMouseUp,
-  onClick: stopPropagationHandlers.onClick,
-} as const
+export { stopPropagationHandlers, panelStopPropagationHandlers }
 
 // ─── Close Button ───────────────────────────────────────────────────────────
 
@@ -189,12 +176,15 @@ interface SlidingPanelProps {
   style?: React.CSSProperties
   /** id of the heading labelling this region */
   labelledBy?: string
+  /** Move focus to the panel (Close button) when it opens. Skipped automatically when a
+   *  dialog elsewhere already owns focus (e.g. the agent detail card on agent selection). */
+  autoFocus?: boolean
   children: ReactNode
 }
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, labelledBy, children,
+  zIndex, width, className = '', style, labelledBy, autoFocus = true, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
@@ -209,17 +199,24 @@ export function SlidingPanel({
 
     if (visible) {
       const active = document.activeElement
-      triggerRef.current = active instanceof HTMLElement && active !== document.body && !ref.current?.contains(active) ? active : null
-      // Wait a frame so the slide-in has been laid out (and `inert` removed) before focusing.
+      triggerRef.current = active instanceof HTMLElement && active !== document.body && !ref.current?.contains(active) && !isFocusInOtherDialog(active, ref.current) ? active : null
+      if (!autoFocus) return
+      // Two frames: the parent's useFocusReturn (index.tsx) registers its own focus-on-open
+      // rAF after ours; running one frame later makes the Close button the final target.
+      let raf2 = 0
       const raf = requestAnimationFrame(() => {
-        const el = ref.current
-        if (!el) return
-        const target = el.querySelector<HTMLElement>('[data-panel-close]')
-          ?? el.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
-          ?? el
-        target.focus({ preventScroll: true })
+        raf2 = requestAnimationFrame(() => {
+          const el = ref.current
+          if (!el) return
+          // A dialog (role=dialog) focused in the meantime keeps focus: one focus owner.
+          if (isFocusInOtherDialog(document.activeElement, el)) return
+          const target = el.querySelector<HTMLElement>('[data-panel-close]')
+            ?? el.querySelector<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
+            ?? el
+          target.focus({ preventScroll: true })
+        })
       })
-      return () => cancelAnimationFrame(raf)
+      return () => { cancelAnimationFrame(raf); cancelAnimationFrame(raf2) }
     }
 
     const trigger = triggerRef.current

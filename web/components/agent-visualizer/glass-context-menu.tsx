@@ -58,7 +58,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   // clearSelection) never also fires. See the note above dialogEscapeHandler in shared-ui.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || e.defaultPrevented) return
       e.preventDefault()
       e.stopPropagation()
       onCloseRef.current()
@@ -73,12 +73,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      onCloseRef.current()
-      return
-    }
+    // Escape is consumed by the capture-phase window listener above (single owner).
     if (e.key === 'Tab') {
       // Menus are not part of the tab sequence: close and return focus to the trigger.
       e.preventDefault()
