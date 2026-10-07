@@ -139,3 +139,72 @@ test('the sessions prop labels the halos in the outline (session label, not the 
   assert.match(text, /payments-api/)
   assert.doesNotMatch(text, /Session s1 \(/)
 })
+
+/**
+ * A pointer event with the semantics a real browser gives it. A pointermove during a drag has
+ * button -1 and buttons 1 (a MouseEvent with button 0 hides the defect this guards).
+ */
+function realPointer(type: 'pointerdown' | 'pointermove' | 'pointerup', x: number, y: number): Event {
+  const down = type === 'pointerdown'
+  const up = type === 'pointerup'
+  const init = {
+    clientX: x, clientY: y, bubbles: true, cancelable: true, composed: true,
+    button: down || up ? 0 : -1, buttons: up ? 0 : 1,
+  }
+  const PE = (window as any).PointerEvent as typeof MouseEvent | undefined
+  if (PE) return new PE(type, { ...init, pointerId: 7, pointerType: 'mouse', isPrimary: true } as any)
+  const ev = new window.MouseEvent(type, init)
+  Object.defineProperty(ev, 'pointerId', { value: 7 })
+  Object.defineProperty(ev, 'pointerType', { value: 'mouse' })
+  Object.defineProperty(ev, 'isPrimary', { value: true })
+  return ev
+}
+const tx = (b: HTMLElement) => {
+  const m = /translate\((-?\d+)px, (-?\d+)px\)/.exec(b.style.transform)
+  assert.ok(m, `button has a translate transform, got "${b.style.transform}"`)
+  return { x: Number(m![1]), y: Number(m![2]) }
+}
+
+test('dragging from a bubble pans the camera through the real canvas pointer handler', async () => {
+  const sim = makeSim(10)
+  sim.isPlaying = false
+  const linkClicks: string[] = []
+  const { buttons } = mount(sim, { onLinkClick: (id: string) => linkClicks.push(id) })
+  await tick()
+  const [b] = buttons()
+  assert.ok(b)
+  await tick(300)
+  const before = tx(buttons()[0])
+  // Press on the bubble's centre: it sits on the link, and a pan carries the link with the pointer, so the
+  // release lands on the link again (the pointerup must not read that as a click on it)
+  const c = { x: before.x + parseInt(b.style.width, 10) / 2, y: before.y + parseInt(b.style.height, 10) / 2 }
+  // One act() per event, and a frame between them like a browser: the move handler reads the isDragging state.
+  // The release comes after the measure: a released pan keeps flying (inertia) and would blur the numbers.
+  const send = (ev: Event) => act(() => { b.dispatchEvent(ev) })
+  await send(realPointer('pointerdown', c.x, c.y))
+  await send(realPointer('pointermove', c.x + 30, c.y + 20))
+  await tick(20)
+  await send(realPointer('pointermove', c.x + 60, c.y + 40))
+  await tick(60)
+  const after = tx(buttons()[0])
+  await send(realPointer('pointerup', c.x + 60, c.y + 40))
+  assert.deepEqual(linkClicks, [], 'a pan that ends on the link does not open it')
+  assert.deepEqual({ dx: after.x - before.x, dy: after.y - before.y }, { dx: 60, dy: 40 }, 'the camera followed the drag')
+})
+
+test('a short press on a bubble does not pan', async () => {
+  const sim = makeSim(10)
+  sim.isPlaying = false
+  const { buttons } = mount(sim)
+  await tick()
+  const [b] = buttons()
+  await tick(300)
+  const before = tx(buttons()[0])
+  act(() => {
+    b.dispatchEvent(realPointer('pointerdown', 100, 100))
+    b.dispatchEvent(realPointer('pointermove', 102, 101))
+    b.dispatchEvent(realPointer('pointerup', 102, 101))
+  })
+  await tick()
+  assert.deepEqual(tx(buttons()[0]), before)
+})

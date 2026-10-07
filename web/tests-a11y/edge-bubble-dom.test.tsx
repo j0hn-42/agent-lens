@@ -143,22 +143,52 @@ test('a drag that starts on a bubble pans the canvas; a short press stays a clic
   const canvas = document.createElement('canvas')
   document.body.appendChild(canvas)
   const seen: string[] = []
-  for (const t of ['pointerdown', 'pointermove', 'pointerup']) canvas.addEventListener(t, e => seen.push(`${t}@${(e as MouseEvent).clientX},${(e as MouseEvent).clientY}`))
+  for (const t of ['pointerdown', 'pointermove', 'pointerup']) {
+    canvas.addEventListener(t, e => {
+      const m = e as MouseEvent
+      seen.push(`${t}@${m.clientX},${m.clientY} button=${m.button} buttons=${m.buttons} id=${(m as PointerEvent).pointerId} ${(m as PointerEvent).pointerType}`)
+    })
+  }
   const opened: string[] = []
   attachBubbleLayer(root, { onOpen: id => opened.push(id), forwardTarget: () => canvas })
   syncBubbleButtons(root, [spec('a', { linkId: 'L9' })])
   const b = root.querySelector('button') as HTMLButtonElement
-  const ptr = (type: string, x: number, y: number) =>
-    b.dispatchEvent(new window.MouseEvent(type, { clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true }))
+  // Real browser semantics: down = button 0 / buttons 1, move while pressed = button -1 / buttons 1, up = button 0 / buttons 0
+  const ptr = (type: string, x: number, y: number) => {
+    const ev = new window.MouseEvent(type, {
+      clientX: x, clientY: y, bubbles: true, cancelable: true,
+      button: type === 'pointermove' ? -1 : 0, buttons: type === 'pointerup' ? 0 : 1,
+    })
+    Object.defineProperty(ev, 'pointerId', { value: 5 })
+    Object.defineProperty(ev, 'pointerType', { value: 'mouse' })
+    b.dispatchEvent(ev)
+  }
   // Short press: no forwarding, the click opens the link
   ptr('pointerdown', 10, 10); ptr('pointermove', 12, 11); ptr('pointerup', 12, 11)
   fireEvent.click(b)
   assert.deepEqual(seen, [])
   assert.deepEqual(opened, ['L9'])
-  // Drag: the press is replayed at its origin, then follows the pointer; the trailing click is swallowed
+  // Drag: the press is replayed at its origin as a primary-button press, then follows the pointer; the trailing click is swallowed
   ptr('pointerdown', 10, 10); ptr('pointermove', 40, 30); ptr('pointermove', 60, 30); ptr('pointerup', 60, 30)
-  assert.deepEqual(seen, ['pointerdown@10,10', 'pointermove@40,30', 'pointermove@60,30', 'pointerup@60,30'])
+  assert.deepEqual(seen, [
+    'pointerdown@10,10 button=0 buttons=1 id=5 mouse',
+    'pointermove@40,30 button=-1 buttons=1 id=5 mouse',
+    'pointermove@60,30 button=-1 buttons=1 id=5 mouse',
+    'pointerup@60,30 button=0 buttons=0 id=5 mouse',
+  ])
   fireEvent.click(b)
   assert.deepEqual(opened, ['L9'], 'a pan does not open the link')
+  // After a pan whose click never reached the button (the canvas holds the capture), Enter still opens the link
+  opened.length = 0
+  ptr('pointerdown', 10, 10); ptr('pointermove', 40, 30); ptr('pointerup', 40, 30)
+  b.focus()
+  assert.deepEqual(pressKey(b, 'Enter'), { prevented: false, clicked: true })
+  assert.deepEqual(opened, ['L9'], 'the keyboard activation is not swallowed as the click of the pan')
+  // A pointermove with no button down after the canvas captured the pointer ends the press: nothing is forwarded
+  seen.length = 0
+  ptr('pointerdown', 10, 10); ptr('pointermove', 40, 30)
+  seen.length = 0
+  b.dispatchEvent(Object.assign(new window.MouseEvent('pointermove', { clientX: 90, clientY: 90, button: -1, buttons: 0, bubbles: true }), { pointerId: 5, pointerType: 'mouse' }))
+  assert.deepEqual(seen, [], 'a hover after a lost release does not keep panning')
   root.remove(); canvas.remove()
 })
