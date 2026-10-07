@@ -120,8 +120,15 @@ export class SessionWatcher implements AgentSessionWatcher {
       for (const [, sub] of session.subagentWatchers) {
         if (session.spawnedSubagents.has(sub.agentName)) {
           const model = session.modelDetectedAgents.get(sub.agentName)
-          this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent: ORCHESTRATOR_NAME, child: sub.agentName, task: sub.agentName } }, sessionId)
-          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent: ORCHESTRATOR_NAME, task: sub.agentName, ...(model ? { model } : {}) } }, sessionId)
+          const record = sub.agentId ? this.parser.getSubagentRegistry(sessionId).getByFileKey(sub.agentId) : undefined
+          const parent = record?.parentName ?? ORCHESTRATOR_NAME
+          const task = record?.label ?? sub.agentName
+          const ids = {
+            ...(record?.toolUseId ? { toolUseId: record.toolUseId } : {}),
+            ...(record ? { label: record.label } : {}),
+          }
+          this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent, child: sub.agentName, task, ...ids } }, sessionId)
+          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...(model ? { model } : {}) } }, sessionId)
         }
         sub.spawnEmitted = false
       }
@@ -606,7 +613,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       session.subagentWatchers.clear()
       session.subagentsDirWatcher?.close()
       // Clean up orphaned parser state for this session
-      this.parser.clearSessionState(session.pendingToolCalls.keys())
+      this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
     }
     this.sessions.clear()
     if (this.scanInterval) {

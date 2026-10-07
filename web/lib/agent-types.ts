@@ -67,6 +67,8 @@ export interface ToolCallNode {
   result?: string       // human-readable result summary
   tokenCost?: number    // how many tokens this result consumed
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
+  /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
+  toolUseId?: string
   errorMessage?: string // error description when state === 'error'
   x: number
   y: number

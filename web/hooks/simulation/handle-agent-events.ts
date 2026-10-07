@@ -104,7 +104,9 @@ export function handleAgentSpawn(
   pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: COLORS.idle }, ctx)
   state.timelineEntries.set(name, timelineEntry)
 
-  state.conversations.set(name, [])
+  // A subagent_dispatch is emitted just before agent_spawn and may already have
+  // recorded the prompt in the child's conversation — keep it.
+  if (!state.conversations.has(name)) state.conversations.set(name, [])
 
   if (!ctx.skipForceSync) {
     setTimeout(() => ctx.syncForceSimulation(state.agents, state.edges), 0)

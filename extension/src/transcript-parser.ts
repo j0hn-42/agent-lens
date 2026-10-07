@@ -27,6 +27,7 @@ import {
 } from './constants'
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
+import { SubagentRegistry } from './subagent-registry'
 import { createLogger } from './logger'
 
 const log = createLogger('TranscriptParser')
@@ -87,11 +88,26 @@ export class TranscriptParser {
   /** Maps Agent tool_use ID → resolved child agent name (set in handleToolUse) */
   private subagentChildNames = new Map<string, string>()
 
+  /** Per-session subagent registries (identity by tool_use_id, unique names) */
+  private registries = new Map<string, SubagentRegistry>()
+
   constructor(private delegate: TranscriptParserDelegate) {}
+
+  /** Subagent registry for a session (created on demand). */
+  getSubagentRegistry(sessionId?: string): SubagentRegistry {
+    const key = sessionId ?? ''
+    let registry = this.registries.get(key)
+    if (!registry) {
+      registry = new SubagentRegistry()
+      this.registries.set(key, registry)
+    }
+    return registry
+  }
 
   /** Clean up state associated with a completed session to prevent unbounded Map growth.
    *  Pass the session's pending tool_use_ids so we can remove orphaned entries. */
-  clearSessionState(pendingToolUseIds: Iterable<string>): void {
+  clearSessionState(pendingToolUseIds: Iterable<string>, sessionId?: string): void {
+    if (sessionId !== undefined) this.registries.delete(sessionId)
     for (const toolUseId of pendingToolUseIds) {
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
@@ -287,14 +303,20 @@ export class TranscriptParser {
 
     // Check if this is a subagent call (Task in older Claude Code, Agent in newer versions)
     if (toolName === 'Task' || toolName === 'Agent') {
-      const childName = resolveSubagentChildName(block.input)
+      const label = resolveSubagentChildName(block.input)
+      // Identity is the tool_use id; the description is only a label, so two
+      // parallel subagents with the same description stay two distinct agents.
+      const record = this.getSubagentRegistry(sessionId).registerDispatch(block.id, label, agentName)
+      const childName = record.name
       this.subagentChildNames.set(block.id, childName)
-      // Only emit spawn once per subagent name (file watcher may have already spawned it)
+      // Only emit spawn once per subagent (file watcher may have already spawned it)
       const session = sessionId ? this.delegate.getSession(sessionId) : undefined
-      if (!session?.spawnedSubagents.has(childName)) {
+      if (!record.spawned) {
+        record.spawned = true
         session?.spawnedSubagents.add(childName)
         const inputData = extractInputData(toolName, block.input)
         emitSubagentSpawn(this.delegate, agentName, childName, args, sessionId, {
+          label,
           prompt: typeof inputData?.prompt === 'string' ? inputData.prompt : undefined,
           subagentType: typeof inputData?.subagent_type === 'string' ? inputData.subagent_type : undefined,
           model: typeof inputData?.model === 'string' ? inputData.model : undefined,
@@ -349,8 +371,10 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
-    // Detect errors in tool output
-    const isError = detectError(result)
+    // Errors: the structured is_error flag is authoritative. Free-text heuristics only
+    // run for ordinary tools — a subagent report is prose that may legitimately
+    // contain words like "failed" or "not found".
+    const isError = block.is_error === true || (!isSubagentTool && detectError(result))
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
     // If it was a subagent call completing, emit subagent return
@@ -470,9 +494,11 @@ export class TranscriptParser {
                 // Track subagent names so startWatchingSubagentFile assigns correct names
                 // and handleToolResult can resolve the child name on completion
                 if (toolBlock.name === 'Agent' || toolBlock.name === 'Task') {
-                  const childName = resolveSubagentChildName(toolBlock.input)
-                  session.spawnedSubagents.add(childName)
-                  this.subagentChildNames.set(toolBlock.id, childName)
+                  const record = this.getSubagentRegistry(session.sessionId)
+                    .registerDispatch(toolBlock.id, resolveSubagentChildName(toolBlock.input), ORCHESTRATOR_NAME)
+                  record.spawned = true
+                  session.spawnedSubagents.add(record.name)
+                  this.subagentChildNames.set(toolBlock.id, record.name)
                 }
                 // Track pending tool calls so handleToolResult works after reconnect
                 const args = summarizeInput(toolBlock.name, toolBlock.input)
@@ -700,6 +726,22 @@ export function extractLastAssistantText(filePath: string, max = MESSAGE_MAX): s
     }
   } catch {
     // fall through
+  }
+  return undefined
+}
+
+/**
+ * Best available full report for a SubagentStop payload: the last assistant text of
+ * the (allow-listed) subagent transcript, else the `last_assistant_message` field.
+ * Paths from the payload are untrusted and never read unless isAllowedTranscriptPath().
+ */
+export function buildSubagentReport(payload: { agent_transcript_path?: unknown; last_assistant_message?: unknown }): string | undefined {
+  if (isAllowedTranscriptPath(payload.agent_transcript_path)) {
+    const fromFile = extractLastAssistantText(String(payload.agent_transcript_path))
+    if (fromFile) return fromFile
+  }
+  if (typeof payload.last_assistant_message === 'string' && payload.last_assistant_message.trim()) {
+    return payload.last_assistant_message.trim().slice(0, MESSAGE_MAX)
   }
   return undefined
 }

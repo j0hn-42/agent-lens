@@ -21,6 +21,7 @@ import {
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
 } from '../extension/src/constants'
 import { setLogLevel } from '../extension/src/logger'
+import { parseEventsUrl, buildReplayBatches } from '../extension/src/event-replay'
 import type { TelemetryClient } from './telemetry'
 
 const MAX_EVENT_BUFFER = 5000
@@ -67,8 +68,13 @@ function sendSSE(res: http.ServerResponse, data: unknown) {
   }
 }
 
-function broadcast(data: string) {
+/** Clients that connected with /events?session=<id> only receive that session's events. */
+const clientSessionFilter = new WeakMap<http.ServerResponse, string>()
+
+function broadcast(data: string, sessionId?: string) {
   for (const res of sseClients) {
+    const only = clientSessionFilter.get(res)
+    if (only && sessionId && only !== sessionId) continue
     try { res.write(`data: ${data}\n\n`) } catch {
       sseClients.delete(res)
     }
@@ -97,7 +103,7 @@ function broadcastEvent(event: AgentEvent) {
     eventBuffer.set(event.sessionId, buf)
   }
 
-  broadcast(JSON.stringify({ type: 'agent-event', event }))
+  broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
 }
 
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
@@ -105,11 +111,11 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     broadcast(JSON.stringify({
       type: 'session-started',
       session: { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() } as SessionInfo,
-    }))
+    }), sessionId)
   } else if (type === 'ended') {
-    broadcast(JSON.stringify({ type: 'session-ended', sessionId }))
+    broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
   } else if (type === 'updated') {
-    broadcast(JSON.stringify({ type: 'session-updated', sessionId, label }))
+    broadcast(JSON.stringify({ type: 'session-updated', sessionId, label }), sessionId)
   }
 }
 
@@ -402,8 +408,15 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       throw new Error('Failed to start hook server (port in use)')
     }
 
+    // Go through broadcastEvent so hook events are buffered and replayed like transcript events
+    // Subagent lifecycle for watched sessions is owned by the transcript parser (it has the
+    // real names and ids); hook copies would duplicate nodes with divergent names.
+    const SUBAGENT_LIFECYCLE = new Set(['agent_spawn', 'subagent_dispatch', 'subagent_return', 'agent_complete'])
     hookServer.onEvent((event: AgentEvent) => {
-      broadcast(JSON.stringify({ type: 'agent-event', event }))
+      const who = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
+      const isOrchestrator = !who || who === ORCHESTRATOR_NAME
+      if (!isOrchestrator && SUBAGENT_LIFECYCLE.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
+      broadcastEvent(event)
     })
 
     writeDiscoveryFile(hookPort, workspace)
@@ -477,6 +490,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         'Connection': 'keep-alive',
       })
 
+      const { session: sessionParam } = parseEventsUrl(req.url)
+      if (sessionParam) clientSessionFilter.set(res, sessionParam)
       sseClients.add(res)
       log(`[sse] Client connected (${sseClients.size} total)`)
 
@@ -500,18 +515,16 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
 
-      // Replay buffered events for the most recent active session
+      // Replay buffered events: only the requested session with ?session=<id>,
+      // otherwise every session's buffer (most recent active session last).
       const sorted = [...sessionList].sort((a, b) => {
         const aActive = a.status === 'active' ? 1 : 0
         const bActive = b.status === 'active' ? 1 : 0
         if (aActive !== bActive) return bActive - aActive
         return b.lastActivityTime - a.lastActivityTime
       })
-      if (sorted.length > 0) {
-        const buffered = eventBuffer.get(sorted[0].id)
-        if (buffered) {
-          sendSSE(res, { type: 'agent-event-batch', events: buffered })
-        }
+      for (const batch of buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id })) {
+        sendSSE(res, batch)
       }
     },
 

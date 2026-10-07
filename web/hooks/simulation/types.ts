@@ -54,11 +54,20 @@ export function nextMsgId(): string { return `msg-${_msgIdCounter++}` }
 
 export interface ConversationMessage {
   id: string
-  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking'
+  /** 'dispatch' / 'return' carry the full subagent prompt / report between two agents */
+  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return'
   content: string
   timestamp: number
   toolName?: string
   inputData?: Record<string, unknown>
+  /** dispatch/return: sending and receiving agent names */
+  from?: string
+  to?: string
+  /** dispatch/return: edge id linking the pair (edgeId(parent, child)) */
+  linkId?: string
+  /** tool_use_id correlating a dispatch with its return and with the tool call */
+  toolUseId?: string
+  isError?: boolean
 }
 
 /** Max canvas message bubbles kept per agent (oldest are dropped) */

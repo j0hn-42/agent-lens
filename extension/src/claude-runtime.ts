@@ -96,7 +96,7 @@ export async function startClaudeRuntime(
         : watcher.isActive()
 
       if (watcherHandlesThis) {
-        const agentName = event.payload?.agent ?? event.payload?.name
+        const agentName = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
         const isOrchestrator = agentName === ORCHESTRATOR_NAME || !agentName
 
         if (isOrchestrator) {
