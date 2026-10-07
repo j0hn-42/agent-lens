@@ -46,6 +46,8 @@ export interface MessageSentPayload {
   /** Untrusted text: control characters stripped, capped at TEAM_MESSAGE_MAX chars */
   content: string
   toolUseId?: string
+  /** 'inbox' when the message was read from ~/.claude/teams/<team>/inboxes (absent for transcript sources) */
+  source?: 'inbox'
   sessionId: string
 }
 
@@ -103,6 +105,16 @@ export interface SessionInfo {
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
+  /** Agent Team the session belongs to (lead or tmux member), when known */
+  teamName?: string
+  /** Team member name when the session is a separate teammate session (or the lead's name) */
+  memberName?: string
+  /** 'claude' | 'codex' */
+  runtime?: string
+  /** Workspace root the session was discovered for (untrusted, capped) */
+  workspace?: string
+  /** Working directory read from the transcript (untrusted, capped) */
+  cwd?: string
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────
@@ -120,7 +132,7 @@ export type ExtensionToWebviewMessage =
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
   | { type: 'session-ended'; sessionId: string }
-  | { type: 'session-updated'; sessionId: string; label: string }
+  | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string }
 
 export interface VisualizerConfig {
   mode: 'live' | 'replay'
@@ -230,6 +242,8 @@ export function emitSubagentSpawn(
   sessionId?: string,
   /** Optional rich dispatch data (prompt, subagentType, model, toolUseId) */
   extra?: SubagentDispatchExtra,
+  /** Extra agent_spawn payload fields (teammate extras, model) */
+  spawnExtras?: Record<string, unknown>,
 ): void {
   emitter.emit({
     time: emitter.elapsed(sessionId),
@@ -243,6 +257,7 @@ export function emitSubagentSpawn(
       name: child, parent, task,
       ...(extra?.toolUseId ? { toolUseId: extra.toolUseId } : {}),
       ...(extra?.label ? { label: extra.label } : {}),
+      ...(spawnExtras ?? {}),
     },
   }, sessionId)
 }
@@ -270,6 +285,8 @@ export interface SubagentState {
   spawnEmitted: boolean
   /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */
   agentId?: string
+  /** Set for in-process Agent Team teammates (see teammate.ts) */
+  teammate?: import('./teammate').TeammateRuntime
 }
 
 /** State tracked for a single watched Claude Code session */

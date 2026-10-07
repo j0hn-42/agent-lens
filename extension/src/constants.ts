@@ -194,6 +194,10 @@ export function generateSubagentFallbackName(id: string, index: number): string 
 /** Extract a child agent name from a tool_use input block (Agent or Task tool).
  *  Used by both live processing and prescan to avoid duplicating the extraction logic. */
 export function resolveSubagentChildName(input: Record<string, unknown>): string {
+  // Agent Team teammate spawn (Agent tool with name + team_name): the member name is its identity
+  if (typeof input.name === 'string' && input.name.trim() && typeof input.team_name === 'string' && input.team_name) {
+    return input.name.trim().slice(0, CHILD_NAME_MAX)
+  }
   return String(input.description || input.subagent_type || 'subagent').slice(0, CHILD_NAME_MAX)
 }
 
@@ -293,6 +297,47 @@ export const TEAM_NOTIFICATION_SCAN_MAX = 64 * 1024
 export const TEAM_NOTIFICATIONS_PER_TURN_MAX = 20
 /** Max distinct links remembered per session for agent_link dedup (oldest evicted) */
 export const TEAM_MAX_LINKS_PER_SESSION = 256
+
+// ─── Agent Teams (teammates, team config, inboxes) ───────────────────────────
+// Everything under ~/.claude/teams and the teammate sidechains is untrusted local input.
+// Every limit below is covered by extension/test/teams-limits.test.ts.
+
+/** In-process teammates: a file written less than this many ms ago still counts as 'working' */
+export const TEAMMATE_RECENT_WRITE_MS = 15_000
+/** A teammate whose turn did not end but that has no pending tool and no write for this long is shown 'idle' */
+export const TEAMMATE_STALE_WORKING_MS = 90_000
+/** History replay on first discovery of a teammate: the last N user/assistant entries only */
+export const TEAMMATE_REPLAY_MAX_MESSAGES = 40
+/** History replay reads at most this many bytes from the END of the teammate transcript */
+export const TEAMMATE_REPLAY_MAX_BYTES = 1024 * 1024
+/** Max teammates announced per session (extra sidechains behave like ordinary subagents) */
+export const TEAMMATE_MAX_PER_SESSION = 64
+/** Max size of a subagent .meta.json sidecar that is read */
+export const TEAMMATE_META_MAX_BYTES = 64 * 1024
+/** Max chars of model / agent type / team name fields copied from sidecars and configs */
+export const TEAM_FIELD_MAX = 64
+
+/** Team config scan: poll interval, debounce of team_info and bounds */
+export const TEAM_SCAN_INTERVAL_MS = 2000
+export const TEAM_INFO_DEBOUNCE_MS = 750
+export const TEAM_MAX_TEAMS = 50
+export const TEAM_MAX_MEMBERS = 64
+export const TEAM_CONFIG_MAX_BYTES = 256 * 1024
+/** Inbox watching: files per team, bytes per file, messages kept per file, remembered keys per inbox */
+export const TEAM_INBOX_MAX_FILES = 64
+export const TEAM_INBOX_MAX_BYTES = 512 * 1024
+export const TEAM_INBOX_MAX_MESSAGES = 200
+export const TEAM_INBOX_SEEN_MAX = 1024
+/** The same text on the same link seen again within this window is one message (transcript + inbox echo) */
+export const TEAM_DEDUPE_WINDOW_MS = 60_000
+/** Max remembered (link, text) keys per session for that dedupe */
+export const TEAM_DEDUPE_MAX_ENTRIES = 512
+/** A tmux member session is matched to a config member when it started within this window after joinedAt */
+export const TEAM_JOIN_MATCH_WINDOW_MS = 120_000
+/** Bytes read from the head of a session transcript to learn its cwd / start time */
+export const SESSION_HEADER_MAX_BYTES = 16 * 1024
+/** Max chars of team/member/runtime/workspace tags on session list entries */
+export const SESSION_TAG_MAX = 256
 
 // ─── Relay /status endpoint ──────────────────────────────────────────────────
 

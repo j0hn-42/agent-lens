@@ -12,7 +12,8 @@ import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
 import { readNewFileLines, foldPathCase } from '../extension/src/fs-utils'
-import { scanSubagentsDir, readSubagentNewLines } from '../extension/src/subagent-watcher'
+import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
+import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import {
@@ -21,6 +22,7 @@ import {
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
+  SESSION_TAG_MAX,
 } from '../extension/src/constants'
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
@@ -34,6 +36,7 @@ import type { TelemetryClient } from './telemetry'
 
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
+const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
 
 let relayCreated = false
 let verbose = false
@@ -122,17 +125,59 @@ function broadcastEvent(event: AgentEvent) {
   broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
 }
 
+/** Untrusted text shown as a session tag: single line, no controls, capped. */
+function tagText(value: string | undefined): string | undefined {
+  if (!value) return undefined
+  // eslint-disable-next-line no-control-regex
+  const clean = value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trim().slice(0, SESSION_TAG_MAX)
+  return clean || undefined
+}
+
+/** Working directory of each watched Claude session (read once from its transcript head). */
+const sessionCwd = new Map<string, string>()
+let relayWorkspace = ''
+let teamWatcher: TeamWatcher | null = null
+
+/** Session list entry with team/runtime/workspace tags (all optional, all untrusted-capped). */
+function toSessionInfo(session: WatchedSession): SessionInfo {
+  const tags = teamWatcher?.getSessionTags(session.sessionId)
+  const cwd = tagText(sessionCwd.get(session.sessionId))
+  const workspace = tagText(relayWorkspace)
+  return {
+    id: session.sessionId, label: session.label,
+    status: session.sessionCompleted ? 'completed' : 'active',
+    startTime: session.sessionStartTime, lastActivityTime: session.lastActivityTime,
+    runtime: 'claude',
+    ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(cwd ? { cwd } : {}),
+  }
+}
+
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
   if (type === 'started') {
+    const live = sessions.get(sessionId)
+    const base: SessionInfo = live
+      ? toSessionInfo(live)
+      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
     broadcast(JSON.stringify({
       type: 'session-started',
-      session: { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() } as SessionInfo,
+      session: { ...base, label, status: 'active', lastActivityTime: Date.now() } as SessionInfo,
     }), sessionId)
   } else if (type === 'ended') {
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
   } else if (type === 'updated') {
-    broadcast(JSON.stringify({ type: 'session-updated', sessionId, label }), sessionId)
+    const tags = teamWatcher?.getSessionTags(sessionId)
+    broadcast(JSON.stringify({
+      type: 'session-updated', sessionId, label,
+      ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
+    }), sessionId)
   }
+}
+
+function onSessionTags(sessionId: string, _tags: TeamSessionTags | null) {
+  const session = sessions.get(sessionId)
+  if (session) broadcastSessionLifecycle('updated', sessionId, session.label)
 }
 
 // ─── Session watcher ────────────────────────────────────────────────────────
@@ -201,6 +246,8 @@ function resetInactivityTimer(sessionId: string) {
     if (!session.sessionCompleted && session.sessionDetected) {
       log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} inactive`)
       session.sessionCompleted = true
+      // Teammates stay on screen but are finished with their lead (never agent_complete)
+      markTeammatesDone(watcherDelegate, session, sessionId)
       broadcastEvent({
         time: elapsed(sessionId),
         type: 'agent_complete',
@@ -225,7 +272,11 @@ function unwatchSession(sessionId: string) {
     sub.watcher?.close()
     if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
   }
+  // Free per-session parser state (registries, link/dedupe sets) and team bookkeeping
+  parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+  sessionCwd.delete(sessionId)
   sessions.delete(sessionId)
+  teamWatcher?.forgetSession(sessionId)
 }
 
 /**
@@ -267,6 +318,8 @@ function watchSession(sessionId: string, filePath: string) {
     contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
   }
   sessions.set(sessionId, session)
+  const header = readSessionHeader(filePath)
+  if (header.cwd) sessionCwd.set(sessionId, header.cwd)
 
   const stat = fs.statSync(filePath)
   const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
@@ -488,6 +541,29 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     scanForActiveSessions(workspace, allWorkspaces)
     scanInterval = setInterval(() => scanForActiveSessions(workspace, allWorkspaces), SCAN_INTERVAL_MS)
 
+    // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
+    relayWorkspace = normalizePath(workspace)
+    teamWatcher = new TeamWatcher({
+      teamsDir: TEAMS_DIR,
+      workspaces: allWorkspaces ? null : [workspace],
+      host: {
+        listSessions: () => [...sessions.values()]
+          .filter(s => s.sessionDetected)
+          .map(s => ({ sessionId: s.sessionId, filePath: s.filePath, startTime: s.sessionStartTime })),
+        emitTeamInfo: (sessionId, payload) => broadcastEvent({
+          time: elapsed(sessionId), type: 'team_info', payload: { ...payload }, sessionId,
+        }),
+        emitInbox: (sessionId, from, to, content) => parser.emitInboxMessage(sessionId, from, to, content),
+        setLeadAlias: (sessionId, leadName) => parser.setLeadAlias(sessionId, leadName),
+        onMembersGone: (sessionId, _team, names) => {
+          const s = sessions.get(sessionId)
+          if (s) markTeammatesDone(watcherDelegate, s, sessionId, names)
+        },
+        onSessionTags,
+      },
+    })
+    teamWatcher.start()
+
     const resolved = (() => { try { return fs.realpathSync(workspace) } catch { return workspace } })()
     const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
     const projectDir = path.join(CLAUDE_DIR, encoded)
@@ -635,13 +711,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       const sessionList: SessionInfo[] = []
       for (const session of sessions.values()) {
         if (!session.sessionDetected) continue
-        sessionList.push({
-          id: session.sessionId, label: session.label,
-          status: session.sessionCompleted ? 'completed' : 'active',
-          startTime: session.sessionStartTime, lastActivityTime: session.lastActivityTime,
-        })
+        sessionList.push(toSessionInfo(session))
       }
-      if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions())
+      if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
       if (sessionList.length > 0) {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
@@ -681,6 +753,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         removeDiscoveryFile()
         hookServer?.dispose()
         if (scanInterval) clearInterval(scanInterval)
+        teamWatcher?.dispose()
+        teamWatcher = null
         projectDirWatcher?.close()
         for (const session of sessions.values()) {
           session.fileWatcher?.close()
