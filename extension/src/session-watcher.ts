@@ -695,6 +695,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       payload: {
         agent: agentName,
         tokens: total,
+        tokenSource: 'estimated',
         breakdown: { ...bd },
       },
     }, sessionId)
