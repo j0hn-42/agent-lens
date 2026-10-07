@@ -57,10 +57,15 @@ export type AgentKind = 'main' | 'subagent' | 'teammate'
 /** What a teammate is doing right now. Idle teammates stay on screen. */
 export type AgentActivity = 'working' | 'idle' | 'done'
 
+/** 'team' = Claude Code Agent Team (default); 'workflow' = one Workflow tool run (#79). */
+export type TeamKind = 'team' | 'workflow'
+
 /** Extra fields an `agent_spawn` payload carries for teammates (all optional, untrusted strings). */
 export interface TeammateSpawnExtras {
   kind: 'teammate'
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   /** Team color as '#rrggbb' only; anything else must be dropped by the consumer */
   color?: string
   /** Role reported by the team config (e.g. 'general-purpose', 'team-lead') */
@@ -79,6 +84,8 @@ export interface AgentActivityPayload {
 /** Payload of `team_info`: one Agent Team as read from ~/.claude/teams/<team>/config.json. */
 export interface TeamInfoPayload {
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   leadSessionId: string
   leadName?: string
   members: Array<{
@@ -89,6 +96,8 @@ export interface TeamInfoPayload {
     /** Session id when the member is a separate session */
     sessionId?: string
     joinedAt?: number
+    /** Workflow groups only: phase label of the agent (capped at 40 chars) */
+    phase?: string
   }>
 }
 

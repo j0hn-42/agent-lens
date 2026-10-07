@@ -93,7 +93,7 @@ export const DEFAULT_BUFFER_LIMITS: BufferLimits = {
 }
 
 /** Event types that rebuild the graph on replay: chatter is evicted before these. */
-const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'])
+const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info', 'agent_activity'])
 
 /** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
  *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */

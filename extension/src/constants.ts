@@ -339,6 +339,29 @@ export const TEAM_DEDUPE_WINDOW_MS = 60_000
 export const TEAM_DEDUPE_MAX_ENTRIES = 512
 /** A tmux member session is matched to a config member when it started within this window after joinedAt */
 export const TEAM_JOIN_MATCH_WINDOW_MS = 120_000
+// ─── Workflow groups (Workflow tool runs, #79) ───────────────────────────────
+// subagents/workflows/<wf_id>/ is untrusted local input like everything else under ~/.claude.
+// Every limit below is covered by extension/test/workflow-group.test.ts.
+
+/** Workflow agents: a transcript written less than this many ms ago is 'working' */
+export const WORKFLOW_RECENT_WRITE_MS = 15_000
+/** Workflow agents: a finished turn (final text, no pending tool) with no write for this long is 'done' */
+export const WORKFLOW_DONE_QUIET_MS = 60_000
+/** Max agents announced per workflow (the most recently written transcripts win) */
+export const WORKFLOW_MAX_AGENTS = 200
+/** Max workflows followed per session (the most recently written folders win) */
+export const WORKFLOW_MAX_PER_SESSION = 20
+/** Max bytes read from the END of a workflow journal.jsonl */
+export const WORKFLOW_JOURNAL_MAX_BYTES = 1024 * 1024
+/** Max agent ids remembered from one journal */
+export const WORKFLOW_JOURNAL_MAX_IDS = 1000
+/** Max chars of a workflow phase label */
+export const WORKFLOW_PHASE_MAX = 40
+/** Max entries read from workflows/scripts to find the workflow name */
+export const WORKFLOW_SCRIPTS_MAX_ENTRIES = 500
+/** Agent type reported for every workflow agent */
+export const WORKFLOW_AGENT_TYPE = 'workflow-subagent'
+
 /** Bytes read from the head of a session transcript to learn its cwd / start time */
 export const SESSION_HEADER_MAX_BYTES = 16 * 1024
 /** Max chars of team/member/runtime/workspace tags on session list entries */
