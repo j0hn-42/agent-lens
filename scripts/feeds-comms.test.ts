@@ -232,3 +232,48 @@ test('capMessageRows keeps the latest rows and reports the hidden count', () => 
   assert.deepEqual(capMessageRows([1, 2, 3], 5), { rows: [1, 2, 3], hidden: 0 })
   assert.deepEqual(capMessageRows([1, 2, 3, 4, 5], 2), { rows: [4, 5], hidden: 3 })
 })
+
+// ─── feeds-fix2: unread per source, burst dedupe ─────────────────────────────
+
+import { trackUnread, emptyUnreadState } from '../web/lib/feed-utils'
+
+const FEED_TYPES = new Set(['assistant', 'user', 'thinking', 'dispatch', 'return', 'message'])
+
+test('a new tool_call does not flag an agent that has an old link copy', () => {
+  const dispatch = msg({ id: 'd1', type: 'dispatch', content: 'do it', timestamp: 1, from: 'p', to: 'c' })
+  const copy = msg({ id: 'd1-link', type: 'dispatch', content: 'do it', timestamp: 1, from: 'p', to: 'c' })
+  const lk = new Map([['l', { from: 'p', to: 'c', messages: [copy] }]])
+  const conv1 = new Map<string, ConversationMessage[]>([['p', [dispatch]]])
+  const first = trackUnread(emptyUnreadState(), conv1, lk, FEED_TYPES)
+  const conv2 = new Map<string, ConversationMessage[]>([['p', [dispatch, msg({ id: 't1', type: 'tool_call', content: 'x', timestamp: 2 })]]])
+  assert.deepEqual(trackUnread(first.next, conv2, lk, FEED_TYPES).increased, [])
+})
+
+test('a new text message is detected even when link copies exist', () => {
+  const copy = msg({ id: 'd1-link', type: 'dispatch', content: 'do it', timestamp: 1, from: 'p', to: 'c' })
+  const lk = new Map([['l', { from: 'p', to: 'c', messages: [copy] }]])
+  const conv1 = new Map<string, ConversationMessage[]>([['p', [msg({ id: 't0', type: 'tool_call', content: 'x', timestamp: 0 })]]])
+  const first = trackUnread(emptyUnreadState(), conv1, lk, FEED_TYPES)
+  const conv2 = new Map<string, ConversationMessage[]>([['p', [...conv1.get('p')!, msg({ id: 'a1', type: 'assistant', content: 'hi', timestamp: 3 })]]])
+  assert.deepEqual(trackUnread(first.next, conv2, lk, FEED_TYPES).increased, ['p'])
+})
+
+test('a link-only message flags both ends once; a link copy of a conversation message does not', () => {
+  const m1 = msg({ id: 'u1', type: 'message', content: 'hi', timestamp: 1, from: 'a', to: 'b' })
+  const lk1 = new Map([['l', { from: 'a', to: 'b', messages: [m1] }]])
+  const s1 = trackUnread(emptyUnreadState(), new Map(), lk1, FEED_TYPES)
+  assert.deepEqual(s1.increased.sort(), ['a', 'b'])
+  assert.deepEqual(trackUnread(s1.next, new Map(), lk1, FEED_TYPES).increased, [])
+  const conv = new Map<string, ConversationMessage[]>([['a', [msg({ id: 'c9', type: 'message', content: 'later', timestamp: 4, from: 'a', to: 'b' })]]])
+  const lk2 = new Map([['l', { from: 'a', to: 'b', messages: [m1, msg({ id: 'l9', type: 'message', content: 'Later', timestamp: 4.2, from: 'a', to: 'b' })] }]])
+  const s2 = trackUnread({ convLens: new Map([['a', 0]]), linkSeen: s1.next.linkSeen }, conv, lk2, FEED_TYPES)
+  assert.deepEqual(s2.increased, ['a'])
+})
+
+test('identical peer acks in one burst are all kept, while conversation+link copies still merge', () => {
+  const acks = [1, 2, 3].map(i => msg({ id: `k${i}`, type: 'message', content: 'ok', timestamp: 5, from: 'a', to: 'b' }))
+  assert.equal(buildFeedMessages(new Map(), new Map([['l', { from: 'a', messages: acks }]])).length, 3)
+  const conv = new Map<string, ConversationMessage[]>([['a', [acks[0]]]])
+  const copy = new Map([['l', { from: 'a', messages: [msg({ id: 'kk', type: 'message', content: 'ok', timestamp: 5, from: 'a', to: 'b' })] }]])
+  assert.equal(buildFeedMessages(conv, copy).length, 1)
+})

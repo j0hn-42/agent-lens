@@ -8,11 +8,11 @@ import { useClickOutside } from '@/hooks/use-click-outside'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
-  stateLabel, truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex,
+  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState, nextTabIndex,
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, FOCUS_RING,
   FEED_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair,
-  droppedMarkerFor, agentIdsWithMessages, pairFromShiftClick, pairOfMessage, unreadSources, type FeedMessage, type CommKind,
+  droppedMarkerFor, agentIdsWithMessages, pairFromShiftClick, pairOfMessage, type FeedMessage, type CommKind,
 } from '@/lib/feed-utils'
 import { ChevronIcon, ArrowDownIcon } from './feed-icons'
 import { COMM_STYLE } from './transcript-message'
@@ -62,7 +62,7 @@ export function MessageFeedPanel({
   const [pairA, setPairA] = useState('')
   const [pairB, setPairB] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
-  const prevLensRef = useRef<Map<string, number>>(new Map())
+  const unreadStateRef = useRef<UnreadState>(emptyUnreadState())
   const pillRef = useRef<HTMLButtonElement>(null)
   const restoreFocusRef = useRef(false)
   const tabsRef = useRef<HTMLDivElement>(null)
@@ -128,8 +128,8 @@ export function MessageFeedPanel({
 
   // Track unread messages per agent tab: only agents whose message count increased
   useEffect(() => {
-    const { increased, nextLens } = agentsWithNewText(prevLensRef.current, unreadSources(conversations, links), TEXT_TYPES)
-    prevLensRef.current = nextLens
+    const { increased, next } = trackUnread(unreadStateRef.current, conversations, links, TEXT_TYPES)
+    unreadStateRef.current = next
     if (!expanded || activeTab === 'all') return
     if (increased.length === 0) return
     setUnread(prev => markUnread(prev, increased, activeTab))
