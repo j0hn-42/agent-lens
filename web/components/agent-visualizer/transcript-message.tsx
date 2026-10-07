@@ -4,10 +4,21 @@ import { useState, useId } from 'react'
 import { COLORS } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
-import { truncateWithMarker, FOCUS_RING } from '@/lib/feed-utils'
+import { truncateWithMarker, FOCUS_RING, commKindOf, COMM_LABELS, type CommKind } from '@/lib/feed-utils'
 import { ChevronIcon, CheckIcon, GearIcon } from './feed-icons'
 
 // ─── Shared message rendering utilities ──────────────────────────────────────
+
+/** Colors of the dispatch / return / teammate rows (text colors keep >= 4.5:1 on the dark panel). */
+export const COMM_STYLE: Record<CommKind, { bg: string; bgSelected: string; text: string }> = {
+  dispatch: { bg: 'rgba(80,140,255,0.14)', bgSelected: 'rgba(80,140,255,0.26)', text: '#9cc4ff' },
+  return: { bg: 'rgba(60,200,120,0.12)', bgSelected: 'rgba(60,200,120,0.24)', text: '#7fe3a3' },
+  return_error: { bg: 'rgba(255,90,90,0.14)', bgSelected: 'rgba(255,90,90,0.26)', text: '#ff9b9b' },
+  message: { bg: 'rgba(200,150,255,0.12)', bgSelected: 'rgba(200,150,255,0.24)', text: '#e0b0ff' },
+}
+
+/** Full prompts and reports are long: show a preview with a 'Show all' toggle. */
+const COMM_PREVIEW_MAX = 400
 
 export function HighlightText({ text, query }: { text: string; query?: string }) {
   if (!query || !query.trim()) return <>{text}</>
@@ -46,11 +57,44 @@ function TruncatedText({ text, limit, query, color }: { text: string; limit: num
   )
 }
 
-export function TranscriptMessage({ message, compact = false, searchQuery, assistantLabel = 'CLAUDE' }: { message: ConversationMessage; compact?: boolean; searchQuery?: string; assistantLabel?: string }) {
+export function TranscriptMessage({ message, compact = false, searchQuery, assistantLabel = 'CLAUDE', fromName, toName, accent }: {
+  message: ConversationMessage
+  compact?: boolean
+  searchQuery?: string
+  assistantLabel?: string
+  /** dispatch / return / message: display names of the sending and receiving agent */
+  fromName?: string
+  toName?: string
+  /** Validated '#rrggbb' team color */
+  accent?: string
+}) {
   const [expanded, setExpanded] = useState(false)
   const thinkingId = useId()
 
   switch (message.type) {
+    case 'dispatch':
+    case 'return':
+    case 'message': {
+      const kind = commKindOf(message)!
+      const style = COMM_STYLE[kind]
+      const from = fromName ?? message.from ?? 'agent'
+      const to = toName ?? message.to ?? 'agent'
+      return (
+        <div
+          className="rounded px-2.5 py-2 text-xs font-mono leading-relaxed"
+          style={{ background: style.bg, border: `1px solid ${style.text}40`, borderLeft: `3px solid ${accent ?? style.text}` }}
+        >
+          <div className="text-[11px] mb-1 font-semibold tracking-wider break-words" style={{ color: style.text }}>
+            {from}<span aria-hidden="true"> {'\u2192'} </span><span className="sr-only"> to </span>{to}
+            <span aria-hidden="true"> - </span><span className="sr-only">, </span>{COMM_LABELS[kind]}
+          </div>
+          <div style={{ color: style.text }} className="whitespace-pre-wrap break-words">
+            <TruncatedText text={message.content} limit={compact ? 200 : COMM_PREVIEW_MAX} query={searchQuery} color={COLORS.textMuted} />
+          </div>
+        </div>
+      )
+    }
+
     case 'user':
       return (
         <div

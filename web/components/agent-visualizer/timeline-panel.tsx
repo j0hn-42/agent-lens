@@ -10,8 +10,15 @@ import {
   timelineAriaLabel,
   timelineBlockState,
   TIMELINE_STATE_LABELS,
+  buildSwimlaneArrows,
+  buildMessageRows,
+  hitTestArrow,
+  orderEntriesBySequence,
+  orderEntriesByStart,
+  type SwimlaneArrow,
   type TimelineStateKey,
 } from '@/lib/timeline-rows'
+import type { AgentLink } from '@/hooks/simulation/types'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 
 interface TimelinePanelProps {
@@ -19,6 +26,29 @@ interface TimelinePanelProps {
   timelineEntries: Map<string, TimelineEntry>
   currentTime: number
   onClose: () => void
+  /** Communication links (optional): drawn as dispatch / return / peer arrows between rows */
+  links?: Map<string, AgentLink>
+}
+
+/** Arrow colors; the dash pattern is a second, non-color channel (dispatch solid, return dashed, peer dotted). */
+const ARROW_COLOR = { dispatch: '#7fb2ff', return: '#7fe3a3', error: '#ff8f8f', message: '#e0b0ff' } as const
+
+function arrowColor(a: SwimlaneArrow): string {
+  return a.isError ? ARROW_COLOR.error : ARROW_COLOR[a.kind]
+}
+
+interface ArrowGeometry { id: string; x: number; y1: number; y2: number }
+
+/** Pixel geometry of the arrows (shared by drawing and hover hit-testing). */
+function arrowGeometry(arrows: readonly SwimlaneArrow[], minTime: number, maxTime: number, width: number): ArrowGeometry[] {
+  const timeSpan = Math.max(maxTime - minTime, 1)
+  const barWidth = width - LABEL_WIDTH
+  return arrows.map(a => ({
+    id: a.id,
+    x: LABEL_WIDTH + Math.min(Math.max((a.time - minTime) / timeSpan, 0), 1) * barWidth,
+    y1: HEADER_HEIGHT + a.fromRow * ROW_HEIGHT + ROW_HEIGHT / 2,
+    y2: HEADER_HEIGHT + a.toRow * ROW_HEIGHT + ROW_HEIGHT / 2,
+  }))
 }
 
 // ─── Layout constants ────────────────────────────────────────────────────────
@@ -117,6 +147,8 @@ function drawTimeline(
   width: number,
   height: number,
   dpr: number,
+  arrows: readonly SwimlaneArrow[] = [],
+  hoveredArrowId?: string,
 ) {
   ctx.clearRect(0, 0, width * dpr, height * dpr)
   ctx.save()
@@ -226,6 +258,29 @@ function drawTimeline(
     ctx.globalAlpha = 1
   }
 
+  // ── Arrows between rows: parent -> child at dispatch, child -> parent at return, peers ──
+  const byId = new Map(arrows.map(a => [a.id, a]))
+  for (const g of arrowGeometry(arrows, minTime, maxTime, width)) {
+    const a = byId.get(g.id)!
+    const hovered = g.id === hoveredArrowId
+    ctx.strokeStyle = arrowColor(a)
+    ctx.fillStyle = arrowColor(a)
+    ctx.lineWidth = hovered ? 2.5 : 1.5
+    ctx.setLineDash(a.kind === 'return' ? [4, 3] : a.kind === 'message' ? [1, 3] : [])
+    ctx.beginPath()
+    ctx.moveTo(g.x, g.y1)
+    ctx.lineTo(g.x, g.y2)
+    ctx.stroke()
+    ctx.setLineDash([])
+    const dir = g.y2 >= g.y1 ? 1 : -1
+    ctx.beginPath()
+    ctx.moveTo(g.x, g.y2)
+    ctx.lineTo(g.x - 4, g.y2 - dir * 6)
+    ctx.lineTo(g.x + 4, g.y2 - dir * 6)
+    ctx.closePath()
+    ctx.fill()
+  }
+
   ctx.restore()
 }
 
@@ -233,19 +288,30 @@ function drawTimeline(
 
 const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#aaeeff]'
 
-export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }: TimelinePanelProps) {
+export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [tableView, setTableView] = useState(false)
   const [hoveredName, setHoveredName] = useState<string | undefined>()
+  const [sequence, setSequence] = useState(false)
+  const [activeArrowId, setActiveArrowId] = useState<string | undefined>()
   const tableId = useId()
+  const messagesTableId = useId()
 
   const sortedEntries = useMemo(() => {
     if (!visible) return []
-    return Array.from(timelineEntries.values()).sort((a, b) => a.startTime - b.startTime)
-  }, [visible, timelineEntries])
+    const all = Array.from(timelineEntries.values())
+    return sequence ? orderEntriesBySequence(all, links) : orderEntriesByStart(all)
+  }, [visible, timelineEntries, sequence, links])
 
   const rows = useMemo(() => buildTimelineRows(sortedEntries), [sortedEntries])
+  const arrows = useMemo(() => {
+    if (!visible || !links) return []
+    const names = new Map(sortedEntries.map(e => [e.agentId, e.agentName]))
+    return buildSwimlaneArrows(sortedEntries.map(e => e.agentId), links, id => names.get(id) ?? id)
+  }, [visible, links, sortedEntries])
+  const messageRows = useMemo(() => buildMessageRows(arrows), [arrows])
+  const activeArrow = arrows.find(a => a.id === activeArrowId)
   const ariaLabel = timelineAriaLabel(sortedEntries, currentTime)
 
   const canvasHeight = HEADER_HEIGHT + sortedEntries.length * ROW_HEIGHT
@@ -277,9 +343,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
     canvas.style.width = `${width}px`
     canvas.style.height = `${canvasHeight}px`
 
-    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr)
+    drawTimeline(ctx, sortedEntries, currentTime, width, canvasHeight, dpr, arrows, activeArrowId)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- redraw on every prop change (component only re-renders on data/time updates)
-  }, [visible, tableView, sortedEntries, currentTime, canvasHeight])
+  }, [visible, tableView, sortedEntries, currentTime, canvasHeight, arrows, activeArrowId])
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -287,6 +353,11 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
     const idx = Math.floor((e.clientY - rect.top - HEADER_HEIGHT) / ROW_HEIGHT)
     const entry = x < LABEL_WIDTH ? sortedEntries[idx] : undefined
     setHoveredName(entry?.agentName)
+    if (arrows.length > 0) {
+      const { minTime, maxTime } = computeTimelineRange(sortedEntries, currentTime)
+      const geo = arrowGeometry(arrows, minTime, maxTime, rect.width)
+      setActiveArrowId(hitTestArrow(geo, x, e.clientY - rect.top))
+    }
   }
 
   if (!visible) return null
@@ -304,6 +375,19 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
         <PanelHeader
           onClose={onClose}
           actions={
+            <div className="flex items-center gap-1">
+            {links && (
+              <button
+                type="button"
+                onClick={() => setSequence(v => !v)}
+                aria-pressed={sequence}
+                title="Order rows by first interaction"
+                className={`min-h-6 min-w-6 px-2 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.holoBorder06}` }}
+              >
+                Sequence
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setTableView(v => !v)}
@@ -314,6 +398,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
             >
               Table view
             </button>
+            </div>
           }
         >
           <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
@@ -336,7 +421,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
             title={hoveredName}
             hidden={tableView}
             onMouseMove={handleMouseMove}
-            onMouseLeave={() => setHoveredName(undefined)}
+            onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
             style={{ display: tableView ? 'none' : 'block' }}
           >
             {ariaLabel}. Open the table view for the list of agents, states, start and end times.
@@ -370,7 +455,60 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose }
               ))}
             </tbody>
           </table>
+
+          {messageRows.length > 0 && tableView && (
+            <table id={messagesTableId} className="w-full text-xs font-mono border-collapse mt-2" style={{ color: COLORS.textPrimary }}>
+              <caption className="text-left px-2 py-1" style={{ color: TEXT_MUTED_OPAQUE }}>Messages between agents</caption>
+              <thead>
+                <tr style={{ color: TEXT_MUTED_OPAQUE }}>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">Time</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">Message</th>
+                  <th scope="col" className="text-left px-2 py-1 font-normal">Content</th>
+                </tr>
+              </thead>
+              <tbody>
+                {messageRows.map(r => (
+                  <tr key={r.id} style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
+                    <td className="px-2 py-1 whitespace-nowrap">{r.start}</td>
+                    <th scope="row" className="text-left px-2 py-1 font-normal break-words">{r.label}</th>
+                    <td className="px-2 py-1 break-words whitespace-pre-wrap">{r.content.slice(0, 300)}{r.content.length > 300 ? '…' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+
+        {/* Messages between rows: hover or focus an entry to read it (canvas arrows have no focus of their own) */}
+        {!tableView && messageRows.length > 0 && (
+          <div className="px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
+            <div
+              role="group"
+              aria-label="Messages between agents"
+              className="flex flex-wrap gap-1 overflow-auto"
+              style={{ maxHeight: 56 }}
+            >
+              {messageRows.map(r => (
+                <button
+                  key={r.id}
+                  type="button"
+                  aria-pressed={activeArrowId === r.id}
+                  onMouseEnter={() => setActiveArrowId(r.id)}
+                  onMouseLeave={() => setActiveArrowId(undefined)}
+                  onFocus={() => setActiveArrowId(r.id)}
+                  onBlur={() => setActiveArrowId(undefined)}
+                  className={`min-h-6 px-1.5 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
+                  style={{ color: TEXT_MUTED_OPAQUE, border: `1px solid ${COLORS.holoBorder06}` }}
+                >
+                  {r.start} {r.label}
+                </button>
+              ))}
+            </div>
+            <div role="status" className="text-[11px] font-mono mt-1 whitespace-pre-wrap break-words" style={{ color: COLORS.textPrimary, maxHeight: 64, overflow: 'auto' }}>
+              {activeArrow ? `${activeArrow.label}: ${activeArrow.content.slice(0, 400)}${activeArrow.content.length > 400 ? '…' : ''}` : ''}
+            </div>
+          </div>
+        )}
 
         {/* Legend (static DOM) */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
