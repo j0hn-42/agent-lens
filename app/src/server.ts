@@ -9,7 +9,9 @@ import { exec, execFile } from 'child_process'
 
 import { createRelay } from '../../scripts/relay'
 import { createTelemetryClient } from '../../scripts/telemetry'
-import { parseSessionParam } from '../../extension/src/relay-guards'
+import { parseSessionParam, isStatusPath } from '../../extension/src/relay-guards'
+import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
+import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
 
 interface ServerOptions {
@@ -40,6 +42,11 @@ export async function startServer(options: ServerOptions) {
       return relay.handleSSE(req, res)
     }
 
+    // Status snapshot for the empty-state checklist (loopback only, rate-limited)
+    if (isStatusPath(req.url)) {
+      return relay.handleStatus(req, res)
+    }
+
     // Static files (UI)
     if (req.method === 'GET') {
       return serveStatic(req, res)
@@ -51,6 +58,7 @@ export async function startServer(options: ServerOptions) {
 
   server.maxConnections = 256
   server.headersTimeout = 10_000
+  setConnectionsCheckingInterval(server, HTTP_CONNECTIONS_CHECK_INTERVAL_MS)
   server.listen(port, '127.0.0.1', () => {
     const url = `http://127.0.0.1:${port}`
     console.log(`Server running at ${url}`)

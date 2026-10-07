@@ -40,6 +40,12 @@ export function parseSessionParam(url: string | undefined): SessionParamResult {
   return { isEvents: true, session: all[0] }
 }
 
+/** True when the request path (query ignored) is the relay's GET /status endpoint. */
+export function isStatusPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
+}
+
 /** True when a client's unsent backlog is large enough that it should be dropped. */
 export function isBackedUp(writableLength: number, limit = RELAY_MAX_CLIENT_BACKLOG_BYTES): boolean {
   return writableLength > limit

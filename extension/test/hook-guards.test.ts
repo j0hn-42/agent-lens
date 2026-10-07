@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   isLoopbackAddress, isLoopbackHostHeader, TokenBucket, KeyedRateLimiter,
-  isSafeId, validateHookPayload, AsyncLimiter, withTimeout,
+  isSafeId, validateHookPayload, AsyncLimiter, withTimeout, setConnectionsCheckingInterval,
 } from '../src/hook-guards'
 
 describe('loopback checks', () => {
@@ -97,5 +97,14 @@ describe('AsyncLimiter', () => {
   it('withTimeout resolves the fallback on timeout', async () => {
     assert.equal(await withTimeout(new Promise<string>(() => {}), 10, 'late'), 'late')
     assert.equal(await withTimeout(Promise.resolve('fast'), 1000, 'late'), 'fast')
+  })
+})
+
+describe('setConnectionsCheckingInterval', () => {
+  it('sets a positive interval and rejects invalid values', () => {
+    const fake: { connectionsCheckingInterval?: number } = {}
+    assert.equal(setConnectionsCheckingInterval(fake, 1000), true)
+    assert.equal(fake.connectionsCheckingInterval, 1000)
+    for (const bad of [0, -5, NaN, Infinity]) assert.equal(setConnectionsCheckingInterval({}, bad), false)
   })
 })

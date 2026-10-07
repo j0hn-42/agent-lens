@@ -5,11 +5,10 @@ import * as os from 'os'
 import { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, HOOK_TIMEOUT_S } from './constants'
 import {
-  HOOK_COMMAND_MARKER,
-  LEGACY_HOOK_COMMAND_MARKER,
   getHookCommand, ensureHookScript,
   addWorkspaceToManifest,
 } from './discovery'
+import { isAgentLensHook, settingsHaveAgentLensHooks, readSettingsFile, isHooksConfigured } from './claude-settings'
 import { createLogger } from './logger'
 
 const log = createLogger('Hooks')
@@ -25,17 +24,6 @@ function readGlobalSettings(): Record<string, unknown> | null {
     log.debug('Failed to read Claude settings:', err)
     return null
   }
-}
-
-/** Check whether a single hook entry belongs to Agent Lens */
-function isAgentLensHook(entry: ClaudeHookEntry): boolean {
-  return !!entry.hooks?.some(h =>
-    // Normalize backslashes to forward slashes so Windows paths
-    // (e.g. "C:\\Users\\...\\agent-lens\\hook.js") match HOOK_COMMAND_MARKER.
-    h.command?.replace(/\\/g, '/').includes(HOOK_COMMAND_MARKER) ||
-    h.command?.replace(/\\/g, '/').includes(LEGACY_HOOK_COMMAND_MARKER) ||
-    h.url?.startsWith(HOOK_URL_PREFIX),
-  )
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
@@ -57,19 +45,12 @@ function hooksAlreadyConfigured(): boolean {
 }
 
 function hasAgentLensHooks(settingsPath: string): boolean {
-  try {
-    if (!fs.existsSync(settingsPath)) { return false }
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
-    const hooks = settings.hooks
-    if (!hooks || typeof hooks !== 'object') { return false }
-    return Object.values(hooks).some((entries: unknown) => {
-      if (!Array.isArray(entries)) { return false }
-      return entries.some((entry: unknown) => isAgentLensHook(entry as ClaudeHookEntry))
-    })
-  } catch (err) {
-    log.debug('Failed to read hooks settings:', err)
-    return false
-  }
+  return settingsHaveAgentLensHooks(readSettingsFile(settingsPath))
+}
+
+/** True when Agent Lens hooks are present in the global or the workspace settings. Never throws. */
+export function areHooksConfigured(): boolean {
+  return isHooksConfigured(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath)
 }
 
 // ─── Configure ────────────────────────────────────────────────────────────────

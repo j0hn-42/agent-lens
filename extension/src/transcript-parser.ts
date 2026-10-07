@@ -19,6 +19,7 @@ import {
   SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
   CHILD_NAME_MAX,
   HASH_PREFIX_MAX,
+  TEAM_MAX_LINKS_PER_SESSION,
   SUBAGENT_TRANSCRIPT_TAIL_BYTES,
   ORCHESTRATOR_NAME,
   FAILED_RESULT_MAX,
@@ -29,6 +30,7 @@ import {
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { SubagentRegistry } from './subagent-registry'
+import { buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, type TeamLinkEvents } from './team-links'
 import { createLogger } from './logger'
 
 const log = createLogger('TranscriptParser')
@@ -92,7 +94,59 @@ export class TranscriptParser {
   /** Per-session subagent registries (identity by tool_use_id, unique names) */
   private registries = new Map<string, SubagentRegistry>()
 
+  /** Per-session agent_link ids already emitted (bounded) — one link event per edge */
+  private emittedLinks = new Map<string, Set<string>>()
+
   constructor(private delegate: TranscriptParserDelegate) {}
+
+  /** Emit agent_link (once per edge per session) and message_sent for a tool use or notification. */
+  private emitTeamEvents(events: TeamLinkEvents, sessionId?: string): void {
+    const sid = sessionId ?? ''
+    let seen = this.emittedLinks.get(sid)
+    if (!seen) { seen = new Set(); this.emittedLinks.set(sid, seen) }
+    const { link, message } = events
+    if (!seen.has(link.linkId)) {
+      if (seen.size >= TEAM_MAX_LINKS_PER_SESSION) {
+        const oldest = seen.values().next().value
+        if (oldest !== undefined) seen.delete(oldest)
+      }
+      seen.add(link.linkId)
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'agent_link',
+        payload: { ...link, sessionId: sid },
+      }, sessionId)
+    }
+    if (message) {
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'message_sent',
+        payload: { ...message, sessionId: sid },
+      }, sessionId)
+    }
+  }
+
+  /** Incoming <teammate-message>/<task-notification> turns become message_sent events
+   *  (never `message` events, and never the session/agent display name). */
+  private handleTeamNotifications(
+    text: string,
+    toAgent: string,
+    entryUuid: string | undefined,
+    seenMsgs: Set<string> | undefined,
+    sessionId?: string,
+  ): void {
+    if (!isTeamNotification(text)) return
+    const hash = entryUuid ? `notif:${entryUuid}` : `notif:${text.slice(0, HASH_PREFIX_MAX)}`
+    if (seenMsgs?.has(hash)) return
+    seenMsgs?.add(hash)
+    for (const n of parseTeamNotifications(text)) {
+      const linkId = buildLinkId('teammate', n.from, toAgent)
+      this.emitTeamEvents({
+        link: { from: n.from, to: toAgent, kind: 'teammate', linkId },
+        message: { from: n.from, to: toAgent, linkId, content: n.content },
+      }, sessionId)
+    }
+  }
 
   /** Subagent registry for a session (created on demand). */
   getSubagentRegistry(sessionId?: string): SubagentRegistry {
@@ -108,7 +162,7 @@ export class TranscriptParser {
   /** Clean up state associated with a completed session to prevent unbounded Map growth.
    *  Pass the session's pending tool_use_ids so we can remove orphaned entries. */
   clearSessionState(pendingToolUseIds: Iterable<string>, sessionId?: string): void {
-    if (sessionId !== undefined) this.registries.delete(sessionId)
+    if (sessionId !== undefined) { this.registries.delete(sessionId); this.emittedLinks.delete(sessionId) }
     for (const toolUseId of pendingToolUseIds) {
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
@@ -181,6 +235,7 @@ export class TranscriptParser {
     if (typeof msg.content === 'string' && msg.content.trim()) {
       if (role === 'user' || role === 'human') {
         const text = msg.content.trim()
+        this.handleTeamNotifications(text, agentName, entry.uuid, seenMsgs, sessionId)
         // Skip system-injected context (continuation summaries, IDE context, etc.)
         if (!this.isSystemInjectedContent(text)) {
           const hash = entry.uuid ? `user:${entry.uuid}` : `user:${text.slice(0, HASH_PREFIX_MAX)}`
@@ -235,6 +290,7 @@ export class TranscriptParser {
   ): void {
     const text = safeText(block)
     if (!text) return
+    if (emitRole === 'user') this.handleTeamNotifications(text, agentName, entryUuid, seenMsgs, sessionId)
     // Skip system/IDE context injected into user turns
     if (emitRole === 'user' && this.isSystemInjectedContent(text)) return
 
@@ -324,6 +380,11 @@ export class TranscriptParser {
           toolUseId: block.id,
         })
       }
+      const links = extractToolUseLinks(toolName, block.input, agentName, block.id, childName)
+      if (links) this.emitTeamEvents(links, sessionId)
+    } else if (toolName === 'SendMessage') {
+      const links = extractToolUseLinks(toolName, block.input, agentName, block.id)
+      if (links) this.emitTeamEvents(links, sessionId)
     }
 
     this.delegate.emit({

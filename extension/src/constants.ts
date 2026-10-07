@@ -213,6 +213,7 @@ export const SYSTEM_CONTENT_PREFIXES = [
   '<command-name',
   '<system_instruction',
   '<task-notification',
+  '<teammate-message',
   '<local-command-stdout',
   '<local-command-caveat',
 ] as const
@@ -229,6 +230,9 @@ export const HOOK_MAX_CONNECTIONS = 64
 export const HOOK_MAX_REQUESTS_PER_SOCKET = 100
 /** Time allowed to receive a full hook request (headers + body) */
 export const HOOK_REQUEST_TIMEOUT_MS = 5000
+/** Interval of Node's expired-connection sweep (default 30s) — bounds how long a stalled request holds a socket.
+ *  Applies to the hook server, the standalone app server and the dev relay. */
+export const HTTP_CONNECTIONS_CHECK_INTERVAL_MS = 1000
 /** Token bucket per client address: burst capacity and sustained refill (tokens/s) */
 export const HOOK_RATE_IP_BURST = 200
 export const HOOK_RATE_IP_PER_S = 100
@@ -273,3 +277,32 @@ export const RELAY_SESSION_PARAM_MAX_LENGTH = 128
 export const RELAY_MAX_PROJECT_DIRS = 200
 export const RELAY_MAX_FILES_PER_DIR = 500
 export const RELAY_MAX_SESSION_FILE_BYTES = 256 * 1024 * 1024
+
+// ─── Teammates / inter-agent messages (agent_link, message_sent) ─────────────
+// Content comes from transcripts (untrusted): it is stripped of control chars and capped.
+
+/** Max chars of a message_sent content field (same cap as MESSAGE_MAX) */
+export const TEAM_MESSAGE_MAX = 2000
+/** Max chars of an agent name taken from teammate data (to, teammate_id, task id) */
+export const TEAM_NAME_MAX = 64
+/** Max length of a generated linkId */
+export const TEAM_LINK_ID_MAX = 160
+/** Max chars of a user-turn text scanned for <teammate-message>/<task-notification> tags */
+export const TEAM_NOTIFICATION_SCAN_MAX = 64 * 1024
+/** Max notifications extracted from a single user turn */
+export const TEAM_NOTIFICATIONS_PER_TURN_MAX = 20
+/** Max distinct links remembered per session for agent_link dedup (oldest evicted) */
+export const TEAM_MAX_LINKS_PER_SESSION = 256
+
+// ─── Relay /status endpoint ──────────────────────────────────────────────────
+
+/** Token bucket per client address for GET /status: burst and sustained refill (tokens/s) */
+export const RELAY_STATUS_RATE_BURST = 20
+export const RELAY_STATUS_RATE_PER_S = 5
+/** Max distinct clients tracked by the /status rate limiter */
+export const RELAY_STATUS_RATE_MAX_KEYS = 64
+
+// ─── Settings files ──────────────────────────────────────────────────────────
+
+/** Max size of a Claude settings.json read to detect configured hooks (bigger files are ignored) */
+export const SETTINGS_FILE_MAX_BYTES = 1024 * 1024

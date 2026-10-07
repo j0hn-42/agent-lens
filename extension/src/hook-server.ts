@@ -7,7 +7,8 @@ import {
   SUBAGENT_ID_SUFFIX_LENGTH, HOOK_SERVER_HOST, HOOK_SERVER_NOT_STARTED,
   HOOK_MAX_HEADER_BYTES, HOOK_MAX_CONNECTIONS, HOOK_MAX_REQUESTS_PER_SOCKET, HOOK_REQUEST_TIMEOUT_MS,
   HOOK_RATE_IP_BURST, HOOK_RATE_IP_PER_S, HOOK_RATE_SESSION_BURST, HOOK_RATE_SESSION_PER_S,
-  HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION,
+  HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, TEAM_MAX_LINKS_PER_SESSION,
+  HTTP_CONNECTIONS_CHECK_INTERVAL_MS,
   SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE, SUBAGENT_TRANSCRIPT_TIMEOUT_MS,
   generateSubagentFallbackName,
   resolveSubagentChildName,
@@ -16,9 +17,10 @@ import { summarizeInput, summarizeResult, extractFilePath, extractInputData, bui
 import { buildSubagentReportAsync, fallbackReport, isAllowedTranscriptPath } from './transcript-parser'
 import {
   isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter, validateHookPayload,
-  AsyncLimiter, withTimeout,
+  AsyncLimiter, withTimeout, setConnectionsCheckingInterval,
 } from './hook-guards'
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
+import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
 
 const log = createLogger('HookServer')
@@ -71,6 +73,8 @@ interface HookSessionState {
   dispatches: Map<string, HookDispatch>
   /** agent_id → correlated dispatch */
   agentDispatch: Map<string, { toolUseId?: string; startTime: number }>
+  /** linkIds already emitted as agent_link (bounded by TEAM_MAX_LINKS_PER_SESSION) */
+  links: Set<string>
 }
 
 export class HookServer implements vscode.Disposable {
@@ -100,6 +104,8 @@ export class HookServer implements vscode.Disposable {
       this.server.requestTimeout = HOOK_REQUEST_TIMEOUT_MS
       this.server.headersTimeout = HOOK_REQUEST_TIMEOUT_MS
       this.server.keepAliveTimeout = 2000
+      // Node only enforces the timeouts above when this sweep runs (default 30s): shrink the slowloris window
+      setConnectionsCheckingInterval(this.server, HTTP_CONNECTIONS_CHECK_INTERVAL_MS)
       // Defense in depth on top of the loopback bind: drop any non-loopback peer.
       this.server.on('connection', socket => {
         if (!isLoopbackAddress(socket.remoteAddress)) { socket.destroy() }
@@ -209,12 +215,16 @@ export class HookServer implements vscode.Disposable {
 
   private getOrCreateSession(sessionId: string): HookSessionState {
     let state = this.sessionState.get(sessionId)
-    if (!state) {
+    if (state) {
+      // LRU: a session that is still sending hooks moves to the back, so eviction drops idle ones first
+      this.sessionState.delete(sessionId)
+      this.sessionState.set(sessionId, state)
+    } else {
       if (this.sessionState.size >= HOOK_MAX_SESSIONS) {
         const oldest = this.sessionState.keys().next().value
         if (oldest !== undefined) { this.sessionState.delete(oldest) }
       }
-      state = { startTime: Date.now(), agentNames: new Map(), dispatches: new Map(), agentDispatch: new Map() }
+      state = { startTime: Date.now(), agentNames: new Map(), dispatches: new Map(), agentDispatch: new Map(), links: new Set() }
       this.sessionState.set(sessionId, state)
     }
     return state
@@ -301,6 +311,30 @@ export class HookServer implements vscode.Disposable {
         startTime: Date.now(),
         claimed: false,
       })
+    }
+
+    // Teammate messages: SendMessage with a recipient (transcript watcher emits the same
+    // events for watched sessions and the consumers drop these duplicates)
+    if (toolName === 'SendMessage') {
+      const links = extractToolUseLinks(toolName, payload.tool_input, agentName, payload.tool_use_id)
+      if (links) {
+        const known = this.getOrCreateSession(payload.session_id).links
+        if (!known.has(links.link.linkId) && known.size < TEAM_MAX_LINKS_PER_SESSION) {
+          known.add(links.link.linkId)
+          this.emit({
+            time: this.elapsedSeconds(payload.session_id),
+            type: 'agent_link',
+            payload: { ...links.link, sessionId: payload.session_id },
+          }, payload.session_id)
+        }
+        if (links.message) {
+          this.emit({
+            time: this.elapsedSeconds(payload.session_id),
+            type: 'message_sent',
+            payload: { ...links.message, sessionId: payload.session_id },
+          }, payload.session_id)
+        }
+      }
     }
 
     this.emit({

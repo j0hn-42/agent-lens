@@ -4,7 +4,7 @@ import { JsonlEventSource } from './event-source'
 import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
-import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext } from './hooks-config'
+import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
@@ -182,6 +182,8 @@ function wirePanel(panel: VisualizerPanel): void {
         if (isDisable1MContext()) {
           panel.postMessage({ type: 'config', config: { disable1MContext: true } })
         }
+        // Hooks-configured flag for the empty-state checklist (read defensively, never throws)
+        panel.postMessage({ type: 'config', config: { hooksConfigured: areHooksConfigured() } })
         // Report current connection status and replay active sessions
         // Send session list FIRST so the webview selects a session
         // before replay events arrive (otherwise they have no selected

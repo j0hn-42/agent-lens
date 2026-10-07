@@ -140,3 +140,14 @@ export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<
   const timeout = new Promise<T>(resolve => { timer = setTimeout(() => resolve(fallback), ms) })
   return Promise.race([p, timeout]).finally(() => { if (timer) { clearTimeout(timer) } })
 }
+
+/**
+ * Set Node's expired-connection sweep interval (`connectionsCheckingInterval`, Node >= 18.6; the
+ * default 30s makes requestTimeout/headersTimeout fire up to 30s late). Typed loosely because older
+ * @types/node versions do not declare the property. Returns true when applied.
+ */
+export function setConnectionsCheckingInterval(server: object, ms: number): boolean {
+  if (!Number.isFinite(ms) || ms <= 0) { return false }
+  ;(server as { connectionsCheckingInterval?: number }).connectionsCheckingInterval = ms
+  return true
+}
