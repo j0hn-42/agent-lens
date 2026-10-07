@@ -37,6 +37,7 @@ import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from '.
 import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
+import { visibleAgents } from '@/lib/inactive-agents'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
@@ -64,6 +65,8 @@ interface CanvasProps {
   onDiscoveryClick?: (discoveryId: string | null) => void
   selectedDiscoveryId?: string | null
   showCostOverlay?: boolean
+  /** Hide idle / complete agents (the selected agent and the parents of visible agents stay) */
+  hideInactive?: boolean
   /** Communication links between agents (spawn / teammate). Defaults to the simulation's own links. */
   links?: Map<string, AgentLink>
   /** Agent Teams (halo colours, legend) */
@@ -96,7 +99,7 @@ const CONTROL_BUTTON_CLASS =
 export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
-  onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay,
+  onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay, hideInactive = false,
   links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect, scopeKey,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -212,8 +215,10 @@ export function AgentCanvas({
   // Simulation data (agents, particles, etc.) is synced from simulationRef
   // at the top of each draw frame, so it's always fresh even without re-renders.
   const sim = simulationRef.current
+  const hideInactiveRef = useRef(hideInactive)
+  hideInactiveRef.current = hideInactive
   const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => ({
-    agents: sim.agents, toolCalls: sim.toolCalls,
+    agents: visibleAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId]), toolCalls: sim.toolCalls,
     particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
     showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
@@ -337,7 +342,7 @@ export function AgentCanvas({
       const s = simulationRef.current
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
-      const model = buildA11yModel(s.agents, s.toolCalls, s.discoveries, a11yRecorder.tools, {
+      const model = buildA11yModel(visibleAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId]), s.toolCalls, s.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current,
       })
@@ -418,13 +423,13 @@ export function AgentCanvas({
       {
         const s = simulationRef.current
         const p = drawPropsRef.current
-        p.agents = s.agents
+        p.agents = visibleAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId])
         p.toolCalls = s.toolCalls
         p.particles = s.particles
         p.edges = s.edges
         p.discoveries = s.discoveries
         p.simTime = s.currentTime
-        p.links = resolveLinks(linksPropRef.current ?? s.links, s.agents, s.currentTime)
+        p.links = resolveLinks(linksPropRef.current ?? s.links, p.agents, s.currentTime)
       }
 
       const {
