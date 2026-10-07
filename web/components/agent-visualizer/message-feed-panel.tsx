@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useMemo, useCallback, useId } from 'react'
 import { Agent, Z, type TeamSummary } from '@/lib/agent-types'
 import { COLORS, ROLE_COLORS, getStateColor } from '@/lib/colors'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
-import { useClickOutside } from '@/hooks/use-click-outside'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
@@ -12,7 +11,7 @@ import {
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, FOCUS_RING,
   FEED_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair,
-  droppedMarkerFor, agentIdsWithMessages, pairFromShiftClick, pairOfMessage, type FeedMessage, type CommKind,
+  droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick, pairOfMessage, type FeedMessage, type CommKind,
 } from '@/lib/feed-utils'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
@@ -160,16 +159,15 @@ export function MessageFeedPanel({
     }
   }, [selectedAgentId])
 
-  const panelRef = useRef<HTMLDivElement>(null)
-  const collapsePanel = useCallback(() => setExpanded(false), [])
-  // Escape stack: close the feed (returning focus to its pill) when it is open
+    // Escape stack: close the feed (returning focus to its pill) when it is open
   usePanelRegistration('message-feed', () => {
     if (!expanded) return false
     restoreFocusRef.current = true
     setExpanded(false)
     return true
   })
-  useClickOutside(panelRef, collapsePanel)
+  // No outside-click close: the feed is a non-modal panel; clicks on the canvas or other panels must not
+  // collapse it. Explicit close button, the pill, row selection and Escape (registry above) close it.
 
   const updateTabOverflow = useCallback(() => {
     const el = tabsRef.current
@@ -217,6 +215,7 @@ export function MessageFeedPanel({
     const next = nextTabIndex(e.key, activeTabIndex, tabKeys.length)
     if (next === null) return
     e.preventDefault()
+    clearPair()
     setActiveTab(tabKeys[next])
     tabRefs.current[next]?.focus()
   }
@@ -236,7 +235,7 @@ export function MessageFeedPanel({
     return (
       <div
         className="absolute"
-        style={{ top: 48, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
+        style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       >
         <button
           ref={pillRef}
@@ -250,6 +249,8 @@ export function MessageFeedPanel({
           style={{ maxWidth: PANEL_WIDTH }}
         >
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
+          {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
+          <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
             {agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName.slice(0, COLLAPSED_AGENT_NAME_MAX) + '..' : agentName}
           </span>
@@ -327,12 +328,11 @@ export function MessageFeedPanel({
 
   return (
     <div
-      ref={panelRef}
-      id={regionId}
+            id={regionId}
       role="region"
       aria-label="Messages"
       className="absolute"
-      style={{ top: 48, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
+      style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="glass-card flex flex-col" style={{ width: PANEL_WIDTH, maxWidth: 'calc(100vw - 24px)', maxHeight: 420 }}>
@@ -408,7 +408,6 @@ export function MessageFeedPanel({
           <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1">
             <button
               type="button"
-              aria-pressed={pickerOpen}
               aria-expanded={pickerOpen}
               title="Filter on the messages exchanged between two agents (or Shift-click a second agent tab or message row)"
               onClick={() => setPickerOpen(v => !v)}
@@ -430,7 +429,7 @@ export function MessageFeedPanel({
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
-                    {agentsWithMessages.map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
+                    {pickerAgentIds(agentsWithMessages, pair).map(id => <option key={id} value={id}>{agentNameOf(agents, id)}</option>)}
                   </select>
                 ))}
               </span>
@@ -505,9 +504,7 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       style={{
         background: active ? color + '20' : 'transparent',
         color: active ? color : COLORS.textMuted,
-        border: active ? `1px solid ${color}30` : '1px solid transparent',
-        borderBottom: accent ? `2px solid ${accent}` : undefined,
-        borderStyle: done ? 'dashed' : undefined,
+        ...tabBorderStyle({ active, color, accent, done }),
       }}
     >
       {label}
