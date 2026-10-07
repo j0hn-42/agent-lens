@@ -19,6 +19,7 @@ import {
   SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
   CHILD_NAME_MAX,
   HASH_PREFIX_MAX,
+  SUBAGENT_TRANSCRIPT_TAIL_BYTES,
   ORCHESTRATOR_NAME,
   FAILED_RESULT_MAX,
   SYSTEM_CONTENT_PREFIXES,
@@ -688,46 +689,73 @@ export function isAllowedTranscriptPath(filePath: unknown, roots: string[] = [DE
   }
 }
 
+/** Parse the last assistant text block out of a (possibly partial) JSONL tail. */
+export function parseLastAssistantText(raw: string, max = MESSAGE_MAX): string | undefined {
+  const lines = raw.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line) { continue }
+    let entry: unknown
+    try { entry = JSON.parse(line) } catch { continue }
+    if (!isRecord(entry)) { continue }
+    const msg = entry.message
+    const role = isRecord(msg) ? msg.role : entry.type
+    if (role !== 'assistant' || !isRecord(msg)) { continue }
+    const content = msg.content
+    const text = typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content)
+        ? content.filter(b => isRecord(b) && b.type === 'text').map(safeText).filter(Boolean).pop() ?? ''
+        : ''
+    if (text) { return text.slice(0, max) }
+  }
+  return undefined
+}
+
 /**
  * Extract the last assistant text block from a (subagent) JSONL transcript file.
- * Reads only the tail of the file; returns undefined on any failure.
+ * Reads only the last SUBAGENT_TRANSCRIPT_TAIL_BYTES of the file; returns undefined
+ * on any failure. Synchronous: prefer extractLastAssistantTextAsync on hot paths.
  */
 export function extractLastAssistantText(filePath: string, max = MESSAGE_MAX): string | undefined {
   try {
-    const TAIL_BYTES = 256 * 1024
     const fd = fs.openSync(filePath, 'r')
     let raw: string
     try {
-      const size = fs.fstatSync(fd).size
-      const start = Math.max(0, size - TAIL_BYTES)
-      const buf = Buffer.alloc(size - start)
-      fs.readSync(fd, buf, 0, buf.length, start)
-      raw = buf.toString('utf8')
+      const st = fs.fstatSync(fd)
+      if (!st.isFile()) { return undefined }
+      const start = Math.max(0, st.size - SUBAGENT_TRANSCRIPT_TAIL_BYTES)
+      const buf = Buffer.alloc(st.size - start)
+      const n = fs.readSync(fd, buf, 0, buf.length, start)
+      raw = buf.toString('utf8', 0, n)
     } finally {
       fs.closeSync(fd)
     }
-    const lines = raw.split('\n')
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim()
-      if (!line) { continue }
-      let entry: unknown
-      try { entry = JSON.parse(line) } catch { continue }
-      if (!isRecord(entry)) { continue }
-      const msg = entry.message
-      const role = isRecord(msg) ? msg.role : entry.type
-      if (role !== 'assistant' || !isRecord(msg)) { continue }
-      const content = msg.content
-      const text = typeof content === 'string'
-        ? content.trim()
-        : Array.isArray(content)
-          ? content.filter(b => isRecord(b) && b.type === 'text').map(safeText).filter(Boolean).pop() ?? ''
-          : ''
-      if (text) { return text.slice(0, max) }
-    }
+    return parseLastAssistantText(raw, max)
   } catch {
-    // fall through
+    return undefined
   }
-  return undefined
+}
+
+/**
+ * Non-blocking variant of extractLastAssistantText: bounded tail read through the
+ * promises API so a flood of SubagentStop hooks cannot block the event loop.
+ */
+export async function extractLastAssistantTextAsync(filePath: string, max = MESSAGE_MAX): Promise<string | undefined> {
+  let fh: fs.promises.FileHandle | undefined
+  try {
+    fh = await fs.promises.open(filePath, 'r')
+    const st = await fh.stat()
+    if (!st.isFile()) { return undefined }
+    const start = Math.max(0, st.size - SUBAGENT_TRANSCRIPT_TAIL_BYTES)
+    const buf = Buffer.alloc(st.size - start)
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start)
+    return parseLastAssistantText(buf.toString('utf8', 0, bytesRead), max)
+  } catch {
+    return undefined
+  } finally {
+    await fh?.close().catch(() => {})
+  }
 }
 
 /**
@@ -744,4 +772,23 @@ export function buildSubagentReport(payload: { agent_transcript_path?: unknown; 
     return payload.last_assistant_message.trim().slice(0, MESSAGE_MAX)
   }
   return undefined
+}
+
+/**
+ * Async variant of buildSubagentReport (same allow-list rules, non-blocking bounded read).
+ */
+export async function buildSubagentReportAsync(
+  payload: { agent_transcript_path?: unknown; last_assistant_message?: unknown },
+  readTail: (p: string) => Promise<string | undefined> = extractLastAssistantTextAsync,
+): Promise<string | undefined> {
+  if (isAllowedTranscriptPath(payload.agent_transcript_path)) {
+    const fromFile = await readTail(String(payload.agent_transcript_path))
+    if (fromFile) { return fromFile }
+  }
+  return fallbackReport(payload.last_assistant_message)
+}
+
+/** Report from the payload's own last_assistant_message (no file access). */
+export function fallbackReport(msg: unknown): string | undefined {
+  return typeof msg === 'string' && msg.trim() ? msg.trim().slice(0, MESSAGE_MAX) : undefined
 }
