@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentEvent } from '../src/protocol'
-import { appendBounded, trimKeepingLifecycle } from '../src/relay-guards'
+import { appendBounded, trimKeepingLifecycle, capReplayBatches } from '../src/relay-guards'
 import { RELAY_REPLAY_LIFECYCLE_RESERVE } from '../src/constants'
 
 const ev = (type: AgentEvent['type'], name = 'a', extra: Record<string, unknown> = {}): AgentEvent => ({ time: 0, type, payload: { name, ...extra } })
@@ -58,5 +58,29 @@ describe('replay buffer and workflow agent activity', () => {
     appendBounded(buffers, 's2', ev('agent_activity', 'a', { activity: 'idle' }))
     assert.equal(buffers.get('s1')!.length, 1)
     assert.equal(buffers.get('s2')!.length, 1)
+  })
+
+  it('activity never counts toward the lifecycle reserve: 250 agents (spawns + activities > 400) keep every spawn', () => {
+    const buffers = new Map<string, AgentEvent[]>()
+    const agents = 250
+    assert.ok(agents * 2 > RELAY_REPLAY_LIFECYCLE_RESERVE, 'precondition: spawns + activities exceed the reserve')
+    for (let i = 0; i < agents; i++) appendBounded(buffers, 's1', ev('agent_spawn', `w${i}`))
+    for (let i = 0; i < agents; i++) appendBounded(buffers, 's1', ev('agent_activity', `w${i}`, { activity: 'working' }))
+    for (let m = 0; m < 6000; m++) appendBounded(buffers, 's1', ev('message', 'main'))
+    const buf = buffers.get('s1')!
+    assert.equal(buf.filter(e => e.type === 'agent_spawn').length, agents, 'no spawn evicted by activity events')
+  })
+
+  it('capReplayBatches re-adds the latest activity cut off by the per-session cap, in front of the kept tail', () => {
+    const events: AgentEvent[] = [
+      ev('agent_spawn', 'a'),
+      ev('agent_activity', 'a', { activity: 'working' }),
+      ...Array.from({ length: 50 }, () => ev('message', 'main')),
+    ]
+    const [batch] = capReplayBatches([{ type: 'agent-event-batch', events }], { perSession: 10, total: 1000, batchSize: 1000 })
+    const types = batch.events.map(e => e.type)
+    assert.equal(types.filter(t => t === 'agent_spawn').length, 1, 'cut spawn restored')
+    assert.equal(types.filter(t => t === 'agent_activity').length, 1, 'cut activity restored')
+    assert.ok(types.indexOf('agent_activity') < types.indexOf('message'), 'restored events come before the kept tail')
   })
 })

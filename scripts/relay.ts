@@ -5,6 +5,7 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import { newestTranscriptMtime } from '../extension/src/discovery-activity'
 import * as path from 'path'
 import * as os from 'os'
 
@@ -103,9 +104,6 @@ function broadcast(data: string, sessionId?: string) {
     writeToClient(res, data)
   }
 }
-
-/** Subagent transcripts examined per session when its main file is idle */
-const DISCOVERY_MAX_SUBAGENT_FILES = 100
 
 // ─── Event buffering ────────────────────────────────────────────────────────
 
@@ -411,14 +409,9 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
       const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
       // Includes Workflow-tool agents (subagents/workflows/<id>/agent-*.jsonl): an orchestrator blocked on
       // the Workflow tool leaves its own file idle while those keep growing (same listing as the extension)
-      let n = 0
-      for (const subPath of listSubagentTranscripts(subagentsDir)) {
-        if (++n > DISCOVERY_MAX_SUBAGENT_FILES) break
-        try {
-          const subStat = fs.lstatSync(subPath)
-          if (subStat.isFile() && subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-        } catch {}
-      }
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(subagentsDir), newestMtime, Date.now() - ACTIVE_SESSION_AGE_S * 1000,
+      )
     }
     if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
       candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })

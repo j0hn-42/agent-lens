@@ -11,6 +11,7 @@ import { buildA11yModel } from '@/components/agent-visualizer/canvas/a11y-model'
 import { computeClusters, haloAlphas } from '@/components/agent-visualizer/canvas/cluster-model'
 import { drawClusterHalos } from '@/components/agent-visualizer/canvas/draw-teams'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
+import { AgentDetailCard } from '@/components/agent-visualizer/agent-detail-card'
 import type { TeamSummary } from '@/lib/agent-types'
 import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 
@@ -131,6 +132,9 @@ test('Conversation panel: workflow chips read "Workflow <name>" with aria labels
   const labels = Array.from(r.container.querySelectorAll('[role="group"]')).map(g => g.getAttribute('aria-label'))
   assert.ok(labels.some(l => l === 'Workflow tempo-wave-a (session S1), 2 agents'), JSON.stringify(labels))
   assert.ok(labels.some(l => l === 'Workflow tempo-wave-a (session S2), 1 agent'), JSON.stringify(labels))
+  const visible = Array.from(r.container.querySelectorAll('h3')).map(h => h.textContent ?? '')
+  assert.ok(visible.some(t => t.startsWith('Workflow tempo-wave-a (session S1)')), `visible headings: ${JSON.stringify(visible)}`)
+  assert.ok(visible.some(t => t.startsWith('Workflow tempo-wave-a (session S2)')), `visible headings: ${JSON.stringify(visible)}`)
   assert.ok(r.getByLabelText('Teams and workflows'))
   assert.ok(!r.container.textContent!.includes('Team tempo-wave-a'))
 })
@@ -153,4 +157,15 @@ test('Sessions panel: two same-named workflows of two sessions give two rows wit
   assert.ok(rows.some(t => t.includes('Workflow tempo: 2 agents, 2 working')), JSON.stringify(rows))
   assert.ok(rows.some(t => t.includes('Workflow tempo: 3 agents, 3 working')), JSON.stringify(rows))
   assert.ok(!rows.some(t => t.includes('Team tempo')))
+})
+
+test('agent detail card: a workflow agent shows "Workflow <name>", an Agent Team teammate shows "Team <name>"', () => {
+  const base = { id: 'S:impl:a', name: 'impl:a', state: 'thinking' as const, tokensUsed: 10, tokensMax: 100, toolCalls: 1, timeAlive: 5, kind: 'teammate' as const, teamName: 'tempo-wave-a' }
+  const w = render(<AgentDetailCard agent={{ ...base, teamKind: 'workflow' } as never} onClose={() => {}} />)
+  assert.ok((w.container.textContent ?? '').includes('Workflow tempo-wave-a'), w.container.textContent ?? '')
+  assert.ok(!(w.container.textContent ?? '').includes('Team tempo-wave-a'))
+  w.unmount()
+  const t = render(<AgentDetailCard agent={{ ...base, teamKind: 'team' } as never} onClose={() => {}} />)
+  assert.ok((t.container.textContent ?? '').includes('Team tempo-wave-a'), t.container.textContent ?? '')
+  assert.ok(!(t.container.textContent ?? '').includes('Workflow tempo-wave-a'))
 })
