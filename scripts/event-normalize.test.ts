@@ -69,7 +69,7 @@ test('far-future and negative timestamps, huge strings and nested garbage are cl
   const members = ev.payload.members as Array<{ joinedAt: number }>
   assert.equal(members.length, web.NORM_MAX_ARRAY)
   assert.equal(members[0].joinedAt, web.NORM_TS_MAX_MS)
-  assert.equal((ev.payload.other as { joinedAt: number }).joinedAt, 0)
+  assert.equal('joinedAt' in (ev.payload.other as object), false, 'a negative timestamp is dropped, not shown as 1970')
   let depth = 0
   for (let d = ev.payload.deep as Record<string, unknown> | undefined; d; d = d.d as Record<string, unknown> | undefined) depth++
   assert.ok(depth <= web.NORM_MAX_DEPTH)
@@ -117,4 +117,12 @@ test('banner rules: duplicates and clamping alone never claim the graph is trunc
   assert.equal(web.shouldShowTruncationBanner(cut, undefined), true)
   assert.equal(web.shouldShowTruncationBanner(cut, 7), false, 'dismissed at this total')
   assert.equal(web.shouldShowTruncationBanner({ ...cut, droppedByCap: 5 }, 7), true, 'comes back when more is dropped')
+})
+
+// The same behaviour suite as the extension's, run against the web copy: a bug that only the mirror
+// has cannot hide behind the source comparison above.
+import { normalizeSuite, type NormalizeApi } from '../extension/test/helpers/normalize-suite'
+normalizeSuite('web mirror', {
+  ...(web as unknown as NormalizeApi),
+  caps: Object.fromEntries(Object.entries(web).filter(([k]) => k.startsWith('NORM_'))) as Record<string, number>,
 })

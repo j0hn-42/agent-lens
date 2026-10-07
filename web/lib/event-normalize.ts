@@ -45,6 +45,9 @@ export const NORM_MAX_LINE_CHARS = 4 * 1024 * 1024
 export const NORM_MAX_SEEN_KEYS = 4096
 export const NORM_MAX_DROPPED_NAMES = 1024
 export const NORM_STATS_MIN_INTERVAL_MS = 1000
+export const NORM_KEY_MAX = 128
+export const NORM_MAX_KNOWN_AGENTS = 1024
+export const NORM_MAX_TRACKED_SESSIONS = 256
 const ORCHESTRATOR_NAME = 'orchestrator'
 
 /** Every event type the UI understands; anything else is ignored (forward compatible). */
@@ -57,7 +60,11 @@ export const AGENT_EVENT_TYPES: readonly string[] = [
 /** Keys that must never be copied from untrusted data (prototype pollution). */
 export const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
 
-/** Payload keys holding epoch-ms timestamps (validated with {@link ts}). */
+/**
+ * Payload keys holding epoch-ms timestamps (validated with {@link ts}). A STRING under one of
+ * these keys is legitimate too (team-watcher's `message_sent` carries an ISO string): it is kept
+ * as a bounded identifier, never parsed.
+ */
 const TS_KEYS: ReadonlySet<string> = new Set(['joinedAt', 'startTime', 'lastActivityTime', 'timestamp'])
 
 /** Payload keys holding identifiers / names (capped at NORM_ID_MAX, no newlines). */
@@ -103,7 +110,10 @@ export function ostr(v: unknown, max: number, stats?: NormalizationStats, multil
   return out
 }
 
-/** Finite number clamped to [min, max]. NaN/Infinity/non-numbers give undefined. */
+/**
+ * Finite number clamped to [min, max] (a clamp counts one clamped field). NaN/Infinity/non-numbers
+ * give undefined WITHOUT counting: whoever drops the field counts it, exactly once.
+ */
 export function num(v: unknown, stats?: NormalizationStats, min = -NORM_NUM_MAX, max = NORM_NUM_MAX): number | undefined {
   if (typeof v !== 'number' || !Number.isFinite(v)) return undefined
   if (v < min) { bump(stats, 'clampedFields'); return min }
@@ -121,8 +131,13 @@ export function isUuid(v: unknown): v is string {
   return typeof v === 'string' && v.length === 36 && UUID_RE.test(v)
 }
 
-/** Epoch-ms timestamp: finite, within [0, NORM_TS_MAX_MS] (clamped); anything else undefined. */
+/**
+ * Epoch-ms timestamp: finite and within [0, NORM_TS_MAX_MS]. A far-future value is clamped to the
+ * maximum; a negative value is implausible (not a time at all) and is dropped, like NaN, rather
+ * than shown as 1970.
+ */
 export function ts(v: unknown, stats?: NormalizationStats): number | undefined {
+  if (typeof v === 'number' && v < 0) return undefined
   return num(v, stats, 0, NORM_TS_MAX_MS)
 }
 
@@ -133,13 +148,16 @@ export function boundedArray<T>(v: unknown, max: number, stats?: NormalizationSt
   return v as T[]
 }
 
-/** Own enumerable entries of a plain object, forbidden keys removed and the count bounded. */
+/**
+ * Own enumerable entries of a plain object: forbidden keys and keys longer than NORM_KEY_MAX are
+ * removed (one clamped field each) and the number of kept entries is bounded by `max`.
+ */
 export function boundedEntries(v: unknown, max: number, stats?: NormalizationStats): Array<[string, unknown]> | undefined {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return undefined
   const out: Array<[string, unknown]> = []
   let cut = false
   for (const key of Object.keys(v)) {
-    if (FORBIDDEN_KEYS.has(key)) { bump(stats, 'clampedFields'); continue }
+    if (FORBIDDEN_KEYS.has(key) || key.length > NORM_KEY_MAX) { bump(stats, 'clampedFields'); continue }
     if (out.length >= max) { cut = true; break }
     out.push([key, (v as Record<string, unknown>)[key]])
   }
@@ -149,27 +167,32 @@ export function boundedEntries(v: unknown, max: number, stats?: NormalizationSta
 
 /**
  * Deep-clean an untrusted JSON value: strings capped and stripped, numbers finite and clamped,
- * forbidden keys removed, depth/array/key counts bounded. Undefined = drop the value.
+ * forbidden and over-long keys removed, depth/array/key counts bounded. Undefined = drop the
+ * value; a CONTAINER (object or array) counts each non-null value it had to drop, once, so a
+ * dropped field is never counted twice.
  */
 export function sanitizeValue(v: unknown, stats?: NormalizationStats, key = '', depth = 0): unknown {
   if (v === null || v === undefined) return undefined
   switch (typeof v) {
     case 'string': {
-      if (TS_KEYS.has(key)) return undefined
-      return ID_KEYS.has(key) ? ostr(v, NORM_ID_MAX, stats) : ostr(v, NORM_TEXT_MAX, stats, true)
+      return ID_KEYS.has(key) || TS_KEYS.has(key) ? ostr(v, NORM_ID_MAX, stats) : ostr(v, NORM_TEXT_MAX, stats, true)
     }
     case 'number': {
-      const n = TS_KEYS.has(key) ? ts(v, stats) : num(v, stats)
-      if (n === undefined) bump(stats, 'clampedFields') // NaN / Infinity: the field is dropped
-      return n
+      return TS_KEYS.has(key) ? ts(v, stats) : num(v, stats)
     }
     case 'boolean':
       return v
     case 'object': {
-      if (depth >= NORM_MAX_DEPTH) { bump(stats, 'clampedFields'); return undefined }
+      if (depth >= NORM_MAX_DEPTH) return undefined // too deep: the parent container counts the drop
       if (Array.isArray(v)) {
         const items = boundedArray<unknown>(v, NORM_MAX_ARRAY, stats) ?? []
-        return items.map(item => sanitizeValue(item, stats, '', depth + 1)).filter(item => item !== undefined)
+        const kept: unknown[] = []
+        for (const item of items) {
+          const clean = sanitizeValue(item, stats, '', depth + 1)
+          if (clean !== undefined) kept.push(clean)
+          else if (item !== null && item !== undefined) bump(stats, 'clampedFields')
+        }
+        return kept
       }
       const out: Record<string, unknown> = {}
       for (const [k, val] of boundedEntries(v, NORM_MAX_KEYS, stats) ?? []) {
@@ -180,8 +203,7 @@ export function sanitizeValue(v: unknown, stats?: NormalizationStats, key = '', 
       return out
     }
     default:
-      bump(stats, 'clampedFields') // function / symbol / bigint: not JSON
-      return undefined
+      return undefined // function / symbol / bigint: not JSON, the parent container counts the drop
   }
 }
 
@@ -204,7 +226,52 @@ export function parseJsonLine(line: unknown, stats?: NormalizationStats): Record
 
 // ─── Per-session normalizer ──────────────────────────────────────────────────
 
+/**
+ * The counters of ONE session and what was last published of them. Several normalizers (hook
+ * server and transcript parser both watch a Claude session) can share one instance, so the
+ * `normalization_stats` event always carries the merged totals and the UI's last-wins rule per
+ * sessionId can never replace a bigger count by a smaller one.
+ */
+export class SessionCounters {
+  readonly stats: NormalizationStats = createStats()
+  lastEmitted = JSON.stringify(createStats())
+  lastEmitAt = -Infinity
+}
+
+/** Bounded map sessionId -> shared {@link SessionCounters} (least recently used forgotten first). */
+export class CountersRegistry {
+  private readonly map = new Map<string, SessionCounters>()
+  constructor(private readonly max = NORM_MAX_TRACKED_SESSIONS) {}
+
+  get size(): number { return this.map.size }
+  has(sessionId: string): boolean { return this.map.has(sessionId) }
+
+  /** The counters of a session, created on first use. */
+  get(sessionId: string): SessionCounters {
+    let c = this.map.get(sessionId)
+    if (c) {
+      this.map.delete(sessionId)
+    } else {
+      if (this.map.size >= this.max) {
+        const oldest = this.map.keys().next().value
+        if (oldest !== undefined) this.map.delete(oldest)
+      }
+      c = new SessionCounters()
+    }
+    this.map.set(sessionId, c)
+    return c
+  }
+
+  delete(sessionId: string): void { this.map.delete(sessionId) }
+}
+
+/** Registry used by the extension's producers (HookServer, TranscriptParser) unless told otherwise. */
+export const sharedCounters = new CountersRegistry()
+
 export interface SessionNormalizerOptions {
+  /** Counters to share with other normalizers of the same session (default: private counters). */
+  counters?: SessionCounters
+  knownCap?: number
   /** Injectable clock (ms) for the stats throttle. */
   now?: () => number
   /**
@@ -234,7 +301,9 @@ function addBounded(set: Set<string>, value: string, max: number): void {
  * event. State is bounded by the NORM_* caps.
  */
 export class SessionNormalizer {
-  readonly stats: NormalizationStats = createStats()
+  readonly stats: NormalizationStats
+  private readonly counters: SessionCounters
+  private readonly knownCap: number
   private readonly now: () => number
   private readonly nodeCap: number
   private readonly childrenCap: number
@@ -246,12 +315,13 @@ export class SessionNormalizer {
   private readonly children = new Map<string, Set<string>>()
   private readonly dropped = new Set<string>()
   private readonly seen = new Set<string>()
-  private lastEmitted = JSON.stringify(createStats())
-  private lastEmitAt = -Infinity
   private readonly onTrailing?: (event: AgentEvent) => void
   private trailingTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(readonly sessionId?: string, opts: SessionNormalizerOptions = {}) {
+    this.counters = opts.counters ?? new SessionCounters()
+    this.stats = this.counters.stats
+    this.knownCap = opts.knownCap ?? NORM_MAX_KNOWN_AGENTS
     this.now = opts.now ?? Date.now
     this.onTrailing = opts.onTrailing
     this.nodeCap = opts.nodeCap ?? NORM_MAX_NODES_PER_SESSION
@@ -261,11 +331,17 @@ export class SessionNormalizer {
 
   /** Parse a raw JSONL line with this session's counters (see {@link parseJsonLine}). */
   parseLine(line: unknown): Record<string, unknown> | undefined {
-    return parseJsonLine(line, this.stats)
+    const parsed = parseJsonLine(line, this.stats)
+    // A rejected line emits no event to carry its count: make sure it is published anyway
+    if (!parsed) this.scheduleTrailing()
+    return parsed
   }
 
-  /** Record `n` inputs that could not be understood. */
-  noteMalformed(n = 1): void { this.stats.malformed += n }
+  /** Record `n` inputs that could not be understood; the new total is published within the throttle interval. */
+  noteMalformed(n = 1): void {
+    this.stats.malformed += n
+    this.scheduleTrailing()
+  }
 
   /** Normalize one event; returns the events to forward (0, 1 or 2 with a stats event). */
   process(raw: unknown): AgentEvent[] {
@@ -300,8 +376,8 @@ export class SessionNormalizer {
   }
 
   private scheduleTrailing(): void {
-    if (!this.onTrailing || this.trailingTimer || JSON.stringify(this.stats) === this.lastEmitted) return
-    const wait = Math.max(0, NORM_STATS_MIN_INTERVAL_MS - (this.now() - this.lastEmitAt))
+    if (!this.onTrailing || this.trailingTimer || JSON.stringify(this.stats) === this.counters.lastEmitted) return
+    const wait = Math.max(0, NORM_STATS_MIN_INTERVAL_MS - (this.now() - this.counters.lastEmitAt))
     this.trailingTimer = setTimeout(() => {
       this.trailingTimer = null
       const event = this.statsEvent(true)
@@ -315,11 +391,11 @@ export class SessionNormalizer {
 
   private statsEvent(force: boolean): AgentEvent | null {
     const key = JSON.stringify(this.stats)
-    if (key === this.lastEmitted) return null
+    if (key === this.counters.lastEmitted) return null
     const t = this.now()
-    if (!force && t - this.lastEmitAt < NORM_STATS_MIN_INTERVAL_MS) return null
-    this.lastEmitted = key
-    this.lastEmitAt = t
+    if (!force && t - this.counters.lastEmitAt < NORM_STATS_MIN_INTERVAL_MS) return null
+    this.counters.lastEmitted = key
+    this.counters.lastEmitAt = t
     return {
       time: 0,
       type: 'normalization_stats',
@@ -370,7 +446,7 @@ export class SessionNormalizer {
 
   /** Declare an agent that demonstrably exists (it is acting), so it is a valid parent. */
   noteAgent(name: string): void {
-    if (this.known.size < this.nodeCap * 2) this.known.add(name)
+    if (this.known.size < this.knownCap) this.known.add(name)
   }
 
   /** Apply the node/children caps and the orphan rule to a spawn payload (mutates it). */

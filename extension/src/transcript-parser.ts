@@ -31,7 +31,7 @@ import {
 import { summarizeInput, summarizeResult, extractInputData, detectError, buildDiscovery } from './tool-summarizer'
 import { estimateTokensFromContent, estimateTokensFromText } from './token-estimator'
 import { SubagentRegistry } from './subagent-registry'
-import { SessionNormalizer, ostr } from './event-normalize'
+import { SessionNormalizer, CountersRegistry, sharedCounters, ostr } from './event-normalize'
 import {
   buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
   MessageDeduper, type TeamLinkEvents,
@@ -58,7 +58,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * A tool_use block with a usable shape: string id and name (bounded, control characters stripped)
  * and an object input (arrays and primitives become {}). Anything without an id is rejected.
  */
-function coerceToolUseBlock(block: Record<string, unknown>): ToolUseBlock | null {
+export function coerceToolUseBlock(block: Record<string, unknown>): ToolUseBlock | null {
   const id = ostr(block.id, NORM_ID_MAX)
   if (!id) return null
   const name = ostr(block.name, NORM_ID_MAX) || 'unknown'
@@ -159,7 +159,14 @@ export class TranscriptParser {
   /** The delegate seen by the parser: same callbacks, but `emit` normalizes first. */
   private readonly delegate: TranscriptParserDelegate
 
-  constructor(private readonly rawDelegate: TranscriptParserDelegate) {
+  /**
+   * `counters` is shared with the other producers of the same session (the hook server): the
+   * stats event of a session then carries the merged totals, whoever emits it.
+   */
+  constructor(
+    private readonly rawDelegate: TranscriptParserDelegate,
+    private readonly counters: CountersRegistry = sharedCounters,
+  ) {
     this.delegate = {
       emit: (event, sessionId) => this.emitNormalized(event, sessionId),
       elapsed: sessionId => rawDelegate.elapsed(sessionId),
@@ -180,7 +187,10 @@ export class TranscriptParser {
         const oldest = this.normalizers.keys().next().value
         if (oldest !== undefined) { this.normalizers.get(oldest)?.dispose(); this.normalizers.delete(oldest) }
       }
-      n = new SessionNormalizer(sessionId, { onTrailing: event => this.rawDelegate.emit(event, sessionId) })
+      n = new SessionNormalizer(sessionId, {
+        onTrailing: event => this.rawDelegate.emit(event, sessionId),
+        ...(sessionId ? { counters: this.counters.get(sessionId) } : {}),
+      })
     }
     this.normalizers.set(key, n)
     return n

@@ -22,7 +22,7 @@ import {
 import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
 import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
-import { SessionNormalizer } from './event-normalize'
+import { SessionNormalizer, CountersRegistry, sharedCounters } from './event-normalize'
 import { isSafeId } from './hook-guards'
 
 const log = createLogger('HookServer')
@@ -98,7 +98,8 @@ export class HookServer implements vscode.Disposable {
 
   readonly onEvent = this._onEvent.event
 
-  constructor(port?: number) {
+  /** `counters` is shared with the transcript parser: one counter object per session, merged totals. */
+  constructor(port?: number, private readonly counters: CountersRegistry = sharedCounters) {
     this.port = port ?? 0
   }
 
@@ -221,8 +222,9 @@ export class HookServer implements vscode.Disposable {
 
   /** Normalization counters of a session (or of the requests no session could be found for). */
   getNormalizationStats(sessionId?: string): NormalizationStats {
-    const n = sessionId === undefined ? this.unattributed : this.normalizers.get(sessionId)
-    return { ...(n ?? this.unattributed).stats }
+    if (sessionId === undefined) return { ...this.unattributed.stats }
+    const stats = this.normalizers.get(sessionId)?.stats ?? (this.counters.has(sessionId) ? this.counters.get(sessionId).stats : this.unattributed.stats)
+    return { ...stats }
   }
 
   /** Normalizer of a session, created on first use; oldest evicted past HOOK_MAX_SESSIONS. */
@@ -235,18 +237,28 @@ export class HookServer implements vscode.Disposable {
         const oldest = this.normalizers.keys().next().value
         if (oldest !== undefined) { this.normalizers.get(oldest)?.dispose(); this.normalizers.delete(oldest) }
       }
-      n = new SessionNormalizer(sessionId, { onTrailing: event => { if (!this.disposed) this._onEvent.fire({ ...event, sessionId }) } })
+      n = new SessionNormalizer(sessionId, {
+        counters: this.counters.get(sessionId),
+        onTrailing: event => { this._onEvent.fire(event) }, // the event carries the session id; dispose() cancels the timers
+      })
     }
     this.normalizers.set(sessionId, n)
     return n
   }
 
-  /** A payload that failed validation: counted against its session when it names a safe one. */
+  /**
+   * A payload that failed validation (before the rate limiter). Counted against its session when
+   * it names a safe id: on the live normalizer (which publishes the new total by itself) or, for
+   * a session with no normalizer yet, on its shared counters only. A rejected request never
+   * creates a normalizer, so a flood of invented ids cannot evict the parent/dedup state of live
+   * sessions. Requests no session can be found for count as unattributed (never published).
+   */
   private noteMalformedPayload(parsed: unknown): void {
     const sid = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>).session_id : undefined
-    const norm = isSafeId(sid) ? this.normalizerFor(sid) : this.unattributed
-    // The counter reaches the UI with the next event of that session (no event is emitted for a rejected request)
-    norm.noteMalformed()
+    if (!isSafeId(sid)) { this.unattributed.noteMalformed(); return }
+    const norm = this.normalizers.get(sid)
+    if (norm) norm.noteMalformed()
+    else this.counters.get(sid).stats.malformed++
   }
 
   getPort(): number {
@@ -559,7 +571,7 @@ export class HookServer implements vscode.Disposable {
 
     // Last word on what was left out, then clean up per-session state to prevent unbounded Map growth
     const last = this.normalizers.get(payload.session_id)?.flush()
-    if (last) { this._onEvent.fire({ ...last, sessionId: payload.session_id }) }
+    if (last) { this._onEvent.fire(last) }
     this.normalizers.get(payload.session_id)?.dispose()
     this.normalizers.delete(payload.session_id)
     this.sessionState.delete(payload.session_id)
@@ -592,7 +604,6 @@ export class HookServer implements vscode.Disposable {
     this.sessionState.clear()
     for (const n of this.normalizers.values()) n.dispose()
     this.normalizers.clear()
-    this.unattributed.dispose()
     this._onEvent.dispose()
   }
 }

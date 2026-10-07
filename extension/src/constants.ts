@@ -389,3 +389,9 @@ export const NORM_MAX_SEEN_KEYS = 4096
 export const NORM_MAX_DROPPED_NAMES = 1024
 /** Minimum delay between two normalization_stats events of one session (ms). */
 export const NORM_STATS_MIN_INTERVAL_MS = 1000
+/** Longest object key kept inside a payload; entries with a longer key are dropped (counted). */
+export const NORM_KEY_MAX = 128
+/** Known agent names remembered per session (valid parents), spawned or seen acting. */
+export const NORM_MAX_KNOWN_AGENTS = 1024
+/** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
+export const NORM_MAX_TRACKED_SESSIONS = 256

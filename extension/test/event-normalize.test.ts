@@ -13,7 +13,7 @@ import * as path from 'node:path'
 
 import {
   ostr, num, oneOf, isUuid, ts, boundedArray, boundedEntries, sanitizeValue, parseJsonLine,
-  createStats, isTruncated, SessionNormalizer,
+  createStats, isTruncated, SessionNormalizer, CountersRegistry,
 } from '../src/event-normalize'
 import {
   NORM_TEXT_MAX, NORM_ID_MAX, NORM_NUM_MAX, NORM_TS_MAX_MS, NORM_EVENT_TIME_MAX_S, NORM_MAX_DEPTH,
@@ -104,15 +104,15 @@ describe('leaf helpers', () => {
     assert.equal(isUuid(null), false)
   })
 
-  it('ts keeps plausible epoch-ms values, clamps negative and far-future ones, drops garbage', () => {
+  it('ts keeps plausible epoch-ms values, clamps far-future ones, drops negative ones and garbage', () => {
     const stats = createStats()
     assert.equal(ts(1_700_000_000_000, stats), 1_700_000_000_000)
     assert.equal(stats.clampedFields, 0)
-    assert.equal(ts(-5, stats), 0)
+    assert.equal(ts(-5, stats), undefined, 'a negative time is implausible: dropped, not shown as 1970')
     assert.equal(ts(9e15, stats), NORM_TS_MAX_MS)
     assert.equal(ts(NaN, stats), undefined)
     assert.equal(ts('1700000000000', stats), undefined)
-    assert.equal(stats.clampedFields, 2)
+    assert.equal(stats.clampedFields, 1, 'only the far-future clamp is counted by ts; the container counts a drop')
   })
 
   it('boundedArray / boundedEntries cut and count; forbidden keys never pass', () => {
@@ -150,7 +150,7 @@ describe('sanitizeValue', () => {
     assert.equal('bad' in out, false)
     assert.equal('inf' in out, false)
     assert.equal(out.huge, NORM_NUM_MAX)
-    assert.equal(out.joinedAt, 0)
+    assert.equal('joinedAt' in out, false, 'a negative timestamp is dropped')
     assert.equal(out.startTime, NORM_TS_MAX_MS)
     assert.equal('fn' in out, false)
     assert.ok(stats.clampedFields >= 10)
@@ -308,7 +308,7 @@ function transcriptHarness(elapsed: () => number = () => 1) {
     emit: e => { events.push(e) }, elapsed,
     getSession: () => makeSession(), fireSessionLifecycle: () => {}, emitContextUpdate: () => {},
   }
-  const parser = new TranscriptParser(delegate)
+  const parser = new TranscriptParser(delegate, new CountersRegistry())
   const feed = (line: string) => parser.processTranscriptLine(line, 'orchestrator', new Map(), new Set(), 's1', new Set())
   return { parser, events, feed }
 }
@@ -491,7 +491,7 @@ describe('corpus: hook server', () => {
   }
 
   it('rejected requests are counted as malformed (per session when attributable), accepted ones are cleaned', async () => {
-    const server = new HookServer()
+    const server = new HookServer(undefined, new CountersRegistry())
     const port = await server.start()
     const events: AgentEvent[] = []
     server.onEvent(e => events.push(e as AgentEvent))
