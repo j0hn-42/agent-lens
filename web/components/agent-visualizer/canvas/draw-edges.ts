@@ -5,6 +5,7 @@ import { MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
 import { bezierPoint, computeControlPoints } from './link-geometry'
 import { isAgentVisible } from './team-style'
+import { isUnverifiedEdge, UNVERIFIED_DASH, UNVERIFIED_EDGE } from './edge-style'
 
 export { bezierPoint, computeControlPoints } from './link-geometry'
 
@@ -114,6 +115,20 @@ export function drawEdges(
     const bw = edge.type === 'tool' ? BEAM.tool : BEAM.parentChild
 
     ctx.save()
+
+    // Not proven by the events (#54): a thin dashed line, never the solid beam of a fact
+    if (isUnverifiedEdge(edge)) {
+      ctx.beginPath()
+      ctx.moveTo(fromX, fromY)
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, toX, toY)
+      ctx.setLineDash(UNVERIFIED_DASH)
+      ctx.lineWidth = UNVERIFIED_EDGE.width
+      ctx.strokeStyle = beamColor
+      ctx.globalAlpha = hasActiveParticles ? UNVERIFIED_EDGE.activeAlpha : UNVERIFIED_EDGE.alpha
+      ctx.stroke()
+      ctx.restore()
+      continue
+    }
 
     // Tapered beam: wider at source, thin at destination
     drawTaperedBezier(ctx, fromX, fromY, cp1x, cp1y, cp2x, cp2y, toX, toY,

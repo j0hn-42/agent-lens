@@ -1,7 +1,8 @@
 import { COLORS } from '../../lib/colors'
 import type { MutableEventState } from './process-event'
 import { edgeId, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
-import { idString, resolveChildLocalId } from './agent-keys'
+import { idString, resolveChildLocalId, findAgentByToolUseId } from './agent-keys'
+import { demoteEdge, namesAgent, type UnverifiedReason } from './edge-validation'
 import { addLinkMessage } from './handle-link-events'
 import { appendBoundedConversation } from './archive'
 
@@ -22,6 +23,19 @@ function resolveParties(
   return { parentKey, childKey, toolUseId }
 }
 
+/** A dispatch/return that contradicts the agent already started for its tool_use_id demotes that agent's edge. */
+function checkAgainstKnownChild(
+  payload: Record<string, unknown>, state: MutableEventState, sessionId: string,
+  parentKey: string, toolUseId: string | undefined, reason: UnverifiedReason,
+): void {
+  if (!toolUseId) return
+  const known = findAgentByToolUseId(state.agents, sessionId, toolUseId)
+  if (!known || !known.parentId) return
+  if (known.parentId !== parentKey || !namesAgent(known, idString(payload.child), toolUseId)) {
+    demoteEdge(state, known.id, reason)
+  }
+}
+
 export function handleSubagentDispatch(
   payload: Record<string, unknown>,
   currentTime: number,
@@ -29,6 +43,7 @@ export function handleSubagentDispatch(
   sessionId: string = DEFAULT_SESSION_ID,
 ): void {
   const { parentKey, childKey, toolUseId } = resolveParties(payload, state, sessionId)
+  checkAgainstKnownChild(payload, state, sessionId, parentKey, toolUseId, 'dispatch-mismatch')
   const eid = edgeId(parentKey, childKey)
   const task = cappedString(payload.task)
   const prompt = optString(payload.prompt)
@@ -67,6 +82,7 @@ export function handleSubagentReturn(
   sessionId: string = DEFAULT_SESSION_ID,
 ): void {
   const { parentKey, childKey, toolUseId } = resolveParties(payload, state, sessionId)
+  checkAgainstKnownChild(payload, state, sessionId, parentKey, toolUseId, 'return-mismatch')
   const eid = edgeId(parentKey, childKey)
   const summary = cappedString(payload.summary)
   const isError = asBoolean(payload.isError)

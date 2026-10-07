@@ -343,7 +343,7 @@ export function AgentCanvas({
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
       const model = buildA11yModel(visibleAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId]), s.toolCalls, s.discoveries, a11yRecorder.tools, {
-        links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
+        links: linksPropRef.current ?? s.links, edges: s.edges, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current,
       })
       const comms = Array.from(a11yRecorder.comms.values())

@@ -106,7 +106,8 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Edges and particles</Heading>
           <ul>
-            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent (confirmed by the events)</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="1.4" strokeDasharray="4 3" /></svg>}>Dashed line: parent link not verified</Row>
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.tool} strokeWidth="1.5" /></svg>}>Thin amber line: tool call</Row>
             <Row icon={<Swatch color={COLORS.dispatch} round />}>Purple dot: task dispatched</Row>
             <Row icon={<Swatch color={COLORS.return} round />}>Green dot: result returned</Row>

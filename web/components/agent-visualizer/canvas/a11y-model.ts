@@ -14,6 +14,7 @@ import {
   cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
 import { computeClusters, clusterAnnouncement, type SessionMeta } from './cluster-model'
+import { isUnverifiedEdge } from './edge-style'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -210,6 +211,8 @@ export interface A11yModel {
 /** Optional inputs of the team-aware DOM model */
 export interface A11yExtras {
   links?: Map<string, AgentLink>
+  /** Parent -> child edges: lets the mirror say which parent links are unverified */
+  edges?: Edge[]
   teams?: Map<string, TeamSummary>
   simTime?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
@@ -258,6 +261,8 @@ export function buildA11yModel(
   const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
+  const unverifiedChildren = new Set<string>()
+  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.add(e.to)
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -274,7 +279,7 @@ export function buildA11yModel(
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
-      relation: parent ? `child of ${parent.name}` : a.isMain ? 'main agent' : 'no parent',
+      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ' (unverified link)' : ''}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
