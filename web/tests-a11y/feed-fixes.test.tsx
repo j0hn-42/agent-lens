@@ -89,7 +89,44 @@ test('D6: arrow-key tab navigation clears the pair filter so tab and list agree'
   fireEvent.keyDown(r.getByRole('tablist'), { key: 'ArrowRight' })
   assert.equal(getPair().a, '')
   assert.equal(r.queryByRole('group', { name: /Pair filter/ }), null)
-  assert.ok(r.queryByText('plan the work') || r.queryByText('auditing'))
+  // the highlighted tab and the list agree: the list is the one of the selected tab, not the pair
+  const selected = r.getAllByRole('tab').filter(t => t.getAttribute('aria-selected') === 'true')
+  assert.equal(selected.length, 1)
+  const owner = selected[0].textContent ?? ''
+  const label = r.container.querySelector('[role="log"]')!.getAttribute('aria-label') ?? ''
+  assert.equal(owner, 'orchestrator')
+  assert.equal(label, 'Messages from orchestrator')
+  assert.ok(r.queryByText('plan the work') !== null, 'the selected tab list is shown')
+  assert.ok(r.queryByText('auditing') === null, 'other agents are not listed')
+})
+
+test('D6: selecting an agent elsewhere (canvas) clears the pair so the highlighted tab and the list agree', () => {
+  const registry = createPanelRegistry()
+  const tree = (sel: string | null) => (
+    <PanelRegistryContext.Provider value={registry.register}>
+      <MessageFeedPanel conversations={conversations} agents={agents} links={links} teams={teams}
+        onAgentClick={() => {}} selectedAgentId={sel} />
+    </PanelRegistryContext.Provider>
+  )
+  const r = render(tree(null))
+  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  act(() => setPair('o', 'e'))
+  assert.ok(r.queryByText('explore the repo') || r.queryByRole('group', { name: /Pair filter/ }))
+  r.rerender(tree('u'))
+  assert.equal(getPair().a, '')
+  const selected = r.getAllByRole('tab').filter(t => t.getAttribute('aria-selected') === 'true')
+  assert.equal(selected.length, 1)
+  assert.ok((selected[0].textContent ?? '').startsWith('audit-ux'))
+  assert.equal(r.getByRole('log', { name: /^Messages from / }).getAttribute('aria-label'), 'Messages from audit-ux')
+})
+
+test('a pair set before its messages load announces the real count once they arrive', () => {
+  const nameOf = (k: string) => k
+  act(() => setPair('o', 'u'))
+  const r = render(<PairFilterChip pair={getPair()} nameOf={nameOf} count={0} onClear={() => {}} />)
+  assert.match(r.container.querySelector('[role="status"]')!.textContent ?? '', /No messages between o and u/)
+  r.rerender(<PairFilterChip pair={getPair()} nameOf={nameOf} count={4} onClear={() => {}} />)
+  assert.match(r.container.querySelector('[role="status"]')!.textContent ?? '', /Showing 4 messages between o and u/)
 })
 
 test('D7: the collapsed pill shows the role of the last message as visible text', () => {
@@ -176,23 +213,31 @@ test('live region: one shared region, announced once, not re-announced when the 
   assert.equal(r.container.querySelector('[role="status"]')!.textContent, 'Pair filter cleared')
 })
 
-test('chip clear button: Enter and Space on the focused native button clear the pair', () => {
+test('chip clear control is a native, Tab-reachable button that no key handler blocks (Enter / Space activate it natively)', () => {
   const r = feed()
   expand(r)
   act(() => setPair('o', 'u'))
   const clear = r.getByRole('button', { name: 'Clear pair filter' })
+  // Native <button type=button>: the browser turns Enter (keydown) and Space (keyup) into a click on it.
+  // jsdom does not synthesise that click and @testing-library/user-event is not installed, so what can be
+  // guarded here is (1) the element kind, (2) Tab reachability, (3) that nothing cancels the key events.
   assert.equal(clear.tagName, 'BUTTON')
+  assert.equal(clear.getAttribute('type'), 'button')
+  assert.equal((clear as HTMLButtonElement).disabled, false)
+  assert.ok(clear.tabIndex >= 0, `tabIndex ${clear.tabIndex} takes it out of the Tab order`)
+  const tabOrder = Array.from(r.container.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]'))
+    .filter(el => el.tabIndex >= 0 && !(el as HTMLButtonElement).disabled)
+  assert.ok(tabOrder.includes(clear), 'the clear button is not in the Tab order')
+  assert.ok(!tabOrder.some(el => el.tabIndex > 0), 'positive tabindex would reorder Tab')
   clear.focus()
   assert.equal(document.activeElement, clear)
-  // jsdom does not turn keydown into click; the native button is what makes both keys work in a browser,
-  // so the click it would dispatch is what we assert on.
-  fireEvent.keyDown(clear, { key: 'Enter' })
+  // fireEvent returns false when a handler called preventDefault, which would stop the native activation
+  assert.equal(fireEvent.keyDown(clear, { key: 'Enter' }), true, 'Enter keydown was cancelled')
+  assert.equal(fireEvent.keyDown(clear, { key: ' ' }), true, 'Space keydown was cancelled')
+  assert.equal(fireEvent.keyUp(clear, { key: ' ' }), true, 'Space keyup was cancelled')
+  assert.equal(getPair().a, 'o', 'a stray key handler cleared the pair on its own')
+  // the click a real browser dispatches for those keys clears the pair
   fireEvent.click(clear)
-  assert.equal(getPair().a, '')
-  act(() => setPair('o', 'u'))
-  const clear2 = r.getByRole('button', { name: 'Clear pair filter' })
-  fireEvent.keyUp(clear2, { key: ' ' })
-  fireEvent.click(clear2)
   assert.equal(getPair().a, '')
 })
 

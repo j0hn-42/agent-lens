@@ -146,10 +146,20 @@ export function MessageFeedPanel({
   }, [activeTab])
 
   useEffect(() => {
-    if (expanded && activeTab !== 'all' && agentsWithMessages.length > 0 && !agentsWithMessages.includes(activeTab)) setActiveTab('all')
+    if (expanded && activeTab !== 'all' && agentsWithMessages.length > 0 && !agentsWithMessages.includes(activeTab)) {
+      // the tab disappears: the pair filter would otherwise keep a list that no tab describes
+      clearPair()
+      setActiveTab('all')
+    }
   }, [expanded, agentsWithMessages, activeTab])
 
+  const lastSelectedRef = useRef<string | null>(selectedAgentId)
   useEffect(() => {
+    // A selection made elsewhere (canvas, other panel) moves the tab; the pair filter would keep showing a
+    // list that the highlighted tab does not describe, so it is cleared (not on mount, where a pair chosen
+    // in another panel must survive).
+    if (lastSelectedRef.current !== selectedAgentId) clearPair()
+    lastSelectedRef.current = selectedAgentId
     if (selectedAgentId) {
       const selected = agentsRef.current.get(selectedAgentId)
       if (selected && !selected.isMain) setActiveTab(selectedAgentId)
@@ -159,7 +169,7 @@ export function MessageFeedPanel({
     }
   }, [selectedAgentId])
 
-    // Escape stack: close the feed (returning focus to its pill) when it is open
+  // Escape stack: close the feed (returning focus to its pill) when it is open
   usePanelRegistration('message-feed', () => {
     if (!expanded) return false
     restoreFocusRef.current = true
@@ -328,7 +338,7 @@ export function MessageFeedPanel({
 
   return (
     <div
-            id={regionId}
+      id={regionId}
       role="region"
       aria-label="Messages"
       className="absolute"
