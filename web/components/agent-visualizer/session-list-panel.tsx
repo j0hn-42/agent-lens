@@ -134,9 +134,17 @@ export function SessionListPanel({
   const [activeOnly, setActiveOnly] = useState(false)
   const rows = useMemo(() => {
     const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId) : sessions
-    const teamNames = teams ? teams.keys() : []
-    return buildSessionRows(shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests)
-  }, [sessions, teams, teamWorking, forests, activeOnly, selectedSessionId])
+    // A team row only makes sense with teammates: every Claude Code session owns a team holding just its lead,
+    // and listing it would add a "Team session-xxxx: 0 members" row per session
+    const listed = teams
+      ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
+      : undefined
+    const teamNames = listed ? [...listed.keys()] : []
+    return buildSessionRows(
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, listed,
+      { hideUnlistedTeams: true },
+    )
+  }, [sessions, teams, teamWorking, teamMemberCounts, forests, activeOnly, selectedSessionId])
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active').length
 
@@ -276,9 +284,10 @@ export function SessionListPanel({
               }
 
               if (row.kind === 'team') {
-                const name = row.teamName!
-                const members = Math.max(teamMemberCounts?.get(name) ?? 0, teams?.get(name)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(name) ?? 0)
+                const key = row.teamName!
+                const name = teams?.get(key)?.name ?? key
+                const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
                 return (
                   <li key={row.id}>
                     <button

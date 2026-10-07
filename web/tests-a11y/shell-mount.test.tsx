@@ -27,6 +27,21 @@ const info = (id: string, label: string, workspace: string) => ({
 })
 const wait = (ms = 400) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
 
+/** The Sessions panel replaced the session tabs: open it (once) and work on its rows. */
+async function openSessions(r: ReturnType<typeof render>) {
+  if (!r.container.querySelector('[data-row-main]')) {
+    await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Sessions:/ })) })
+    await wait(100)
+  }
+}
+const sessionRows = (r: ReturnType<typeof render>) => Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]'))
+const sessionRow = (r: ReturnType<typeof render>, label: RegExp) =>
+  sessionRows(r).find(el => label.test(el.textContent ?? '') && !el.getAttribute('aria-label'))!
+const selectAll = async (r: ReturnType<typeof render>) => {
+  await openSessions(r)
+  await act(async () => { fireEvent.click(sessionRows(r)[0]) })
+}
+
 async function mountTwoSessions() {
   const r = render(<AgentVisualizer />)
   await act(async () => {
@@ -34,7 +49,7 @@ async function mountTwoSessions() {
     post({ type: 'session-list', sessions: [info('sa', 'payments-api', '/w/payments'), info('sb', 'web-app', '/w/web')] })
   })
   await wait(100)
-  await act(async () => { fireEvent.click(r.getByRole('tab', { name: /All/ })) })
+  await selectAll(r)
   await wait(100)
   await act(async () => {
     post(spawn('sa', 'main-a', { isMain: true }))
@@ -92,7 +107,7 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     })
   })
   await wait(100)
-  await act(async () => { fireEvent.click(r.getByRole('tab', { name: /^All/ })) })
+  await selectAll(r)
   await wait(100)
   await act(async () => {
     post(spawn('sa', 'main-a', { isMain: true }))
@@ -100,12 +115,13 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Hide inactive agents' })) })
   await wait(1500)
-  const tab = () => r.getAllByRole('tab').find(t => /payments-api/.test(t.textContent ?? ''))!
-  assert.equal(r.getAllByRole('tab')[0].getAttribute('aria-selected'), 'true', 'All is selected before the click')
+  await openSessions(r)
+  const tab = () => sessionRow(r, /payments-api/)
+  assert.equal(sessionRows(r)[0].getAttribute('aria-current'), 'true', 'All is selected before the click')
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Zoom to session payments-api' })) })
   await wait(300)
-  assert.equal(tab().getAttribute('aria-selected'), 'true', 'the session tab is selected by the halo click')
-  assert.equal(r.getAllByRole('tab')[0].getAttribute('aria-selected'), 'false')
+  assert.equal(tab().getAttribute('aria-current'), 'true', 'the session row is selected by the halo click')
+  assert.equal(sessionRows(r)[0].getAttribute('aria-current'), null)
 })
 
 test('Shift-click on the canvas picks the pair, and the pair is pruned when its agents leave', async () => {
@@ -119,7 +135,8 @@ test('Shift-click on the canvas picks the pair, and the pair is pruned when its 
   assert.ok(pair.a.startsWith('sa:') && pair.b.startsWith('sa:'), JSON.stringify(pair))
 
   // Switching to the other session removes both agents from the simulation: the pair must not outlive them
-  await act(async () => { fireEvent.click(r.getAllByRole('tab').find(t => /web-app/.test(t.textContent ?? ''))!) })
+  await openSessions(r)
+  await act(async () => { fireEvent.click(sessionRow(r, /web-app/)) })
   await wait(800)
   assert.deepEqual(getPair(), { a: '', b: '' })
 })
