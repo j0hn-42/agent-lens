@@ -7,7 +7,7 @@ import {
   isPairComplete, isPairSet, pairAnnouncement, pairChipLabel, pairSpokenLabel, type PairState,
 } from '@/lib/pair-filter'
 
-// One polite live region shared by every chip on the page (feed, transcript, timeline): the first mounted
+// One polite live region shared by every chip on the page (Conversation panel, timeline): the first mounted
 // chip renders it, and a message is announced only when the pair or its on/off state changes, never when
 // the message count of an unchanged pair moves.
 const owners: symbol[] = []
@@ -32,7 +32,7 @@ function registerChip(id: symbol): () => void {
 }
 
 function announce(key: string, text: string, initial: boolean, pairIsSet: boolean, count: number, isPairCompleteKey: boolean) {
-  // The guard also dedups the several chips (feed, transcript, timeline) that report the same pair.
+  // The guard also dedups the several chips (Conversation panel, timeline) that report the same pair.
   if (announcedKey === key) {
     // A pair chosen before its messages loaded announced "No messages"; say the real count once, but never
     // re-announce a count that merely moves
@@ -50,7 +50,7 @@ function announce(key: string, text: string, initial: boolean, pairIsSet: boolea
 
 /**
  * Visible, removable chip for the active Pair filter ("orchestrator <-> audit-ux") plus the shared polite
- * live region that announces changes and the number of messages shown. Used by the feed, the transcript
+ * live region that announces changes and the number of messages shown. Used by the Conversation panel
  * and the timeline.
  */
 export function PairFilterChip({ pair, nameOf, count, onClear }: {

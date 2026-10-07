@@ -1,14 +1,13 @@
-// Pair filter (issue #41): removable chip, keyboard path, polite announcement and empty state, shared
-// between the message feed and the transcript.
+// Pair filter (issues #41, #32): removable chip, keyboard path, polite announcement and empty state, shared
+// between the Conversation panel and the timeline.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 
-import { MessageFeedPanel } from '@/components/agent-visualizer/message-feed-panel'
-import { SessionTranscriptPanel } from '@/components/agent-visualizer/session-transcript-panel'
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import { clearPair, getPair } from '@/lib/pair-filter-store'
+import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 import type { Agent } from '@/lib/agent-types'
 import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 
@@ -38,14 +37,15 @@ const conversations = new Map<string, ConversationMessage[]>([
 ])
 const links = new Map<string, AgentLink>()
 
-function feed() {
+function feed(convs = conversations) {
   return render(
-    <MessageFeedPanel conversations={conversations} agents={agents} links={links} onAgentClick={() => {}} selectedAgentId={null} />,
+    <ConversationHarness registry={createPanelRegistry()} conversations={convs} agents={agents} links={links}
+      onAgentClick={() => {}} selectedAgentId={null} />,
   )
 }
 
 function expand(r: ReturnType<typeof feed>) {
-  fireEvent.click(r.getByRole('button', { name: /Expand messages/ }))
+  fireEvent.click(r.getByRole('button', { name: /Open Conversation/ }))
 }
 
 test('selecting two agents shows a removable chip and filters to their exchanges', () => {
@@ -99,12 +99,13 @@ test('the change is announced politely and an empty pair shows its own empty tex
   assert.ok(r.getAllByText('No messages between audit-ux and explore').length >= 1)
 })
 
-test('the transcript shares the pair and lists only the exchanged messages', () => {
-  const conversation = conversations.get('o')!.concat([msg('m1', 'message', 7, 'peer note', 'o', 'e')])
-  const r = render(
-    <SessionTranscriptPanel visible conversation={conversation} agents={agents} onClose={() => {}} />,
-  )
+test('the open panel lists only the exchanged messages (the former transcript view of the pair)', () => {
+  const withPeer = new Map(conversations)
+  withPeer.set('o', conversations.get('o')!.concat([msg('m1', 'message', 7, 'peer note', 'o', 'e')]))
+  const r = feed(withPeer)
+  expand(r)
   assert.ok(r.queryByText('plan the work'))
+  fireEvent.click(r.getByRole('button', { name: 'Filter pair' }))
   fireEvent.change(r.getByLabelText('First agent'), { target: { value: 'o' } })
   fireEvent.change(r.getByLabelText('Second agent'), { target: { value: 'u' } })
   assert.ok(r.getByRole('group', { name: 'Pair filter: orchestrator and audit-ux' }))
