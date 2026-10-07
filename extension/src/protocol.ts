@@ -22,6 +22,8 @@ export type AgentEventType =
   | 'error'
   | 'agent_link'
   | 'message_sent'
+  | 'team_info'
+  | 'agent_activity'
 
 /** Why two agents are linked (agent_link event) */
 export type AgentLinkKind = 'teammate' | 'spawn'
@@ -45,6 +47,47 @@ export interface MessageSentPayload {
   content: string
   toolUseId?: string
   sessionId: string
+}
+
+/** Kind of an agent node. 'teammate' = a member of a Claude Code Agent Team. */
+export type AgentKind = 'main' | 'subagent' | 'teammate'
+
+/** What a teammate is doing right now. Idle teammates stay on screen. */
+export type AgentActivity = 'working' | 'idle' | 'done'
+
+/** Extra fields an `agent_spawn` payload carries for teammates (all optional, untrusted strings). */
+export interface TeammateSpawnExtras {
+  kind: 'teammate'
+  teamName: string
+  /** Team color as '#rrggbb' only; anything else must be dropped by the consumer */
+  color?: string
+  /** Role reported by the team config (e.g. 'general-purpose', 'team-lead') */
+  agentType?: string
+  backendType?: 'in-process' | 'tmux' | string
+  /** Session the teammate runs in, when it is a separate session (tmux backend) */
+  memberSessionId?: string
+}
+
+/** Payload of `agent_activity`: a teammate went idle / back to work / finished. */
+export interface AgentActivityPayload {
+  name: string
+  activity: AgentActivity
+}
+
+/** Payload of `team_info`: one Agent Team as read from ~/.claude/teams/<team>/config.json. */
+export interface TeamInfoPayload {
+  teamName: string
+  leadSessionId: string
+  leadName?: string
+  members: Array<{
+    name: string
+    agentType?: string
+    color?: string
+    backendType?: string
+    /** Session id when the member is a separate session */
+    sessionId?: string
+    joinedAt?: number
+  }>
 }
 
 export interface AgentEvent {

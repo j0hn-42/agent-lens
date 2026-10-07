@@ -32,6 +32,16 @@ export interface Agent {
   /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
   toolUseId?: string
   state: AgentState
+  /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
+  kind?: 'main' | 'subagent' | 'teammate'
+  /** Agent Team the agent belongs to */
+  teamName?: string
+  /** Team color, validated '#rrggbb' only */
+  teamColor?: string
+  /** Teammate activity; idle teammates stay visible */
+  activity?: 'working' | 'idle' | 'done'
+  /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */
+  archived?: boolean
   parentId: string | null
   tokensUsed: number
   tokensMax: number
@@ -194,6 +204,8 @@ export interface SimulationEvent {
     | 'permission_requested'
     | 'agent_link'
     | 'message_sent'
+    | 'team_info'
+    | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
 }
