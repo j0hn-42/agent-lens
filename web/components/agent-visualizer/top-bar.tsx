@@ -4,9 +4,17 @@ import { memo, useLayoutEffect, useRef } from "react"
 import { Z } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
-import { FOCUS_RING, connectionDisplay, formatAgentCounts, type ConnectionTone } from "@/lib/chrome-utils"
+import { FOCUS_RING, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { SessionTabs } from "./session-tabs"
-import type { SessionInfo, ConnectionStatus } from "@/lib/bridge-types"
+import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
+
+/** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
+export const PANEL_BUTTON_IDS = {
+  files: 'topbar-toggle-files',
+  transcript: 'topbar-toggle-transcript',
+  cost: 'topbar-toggle-cost',
+  timeline: 'topbar-toggle-timeline',
+} as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
 
@@ -32,7 +40,9 @@ function UnmutedIcon() {
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog }: {
+  /** DOM id, used as the focus fallback of the panel this button toggles */
+  id?: string
   /** Visual active state */
   active: boolean
   /** aria-pressed value; omit for buttons whose accessible name already changes with state */
@@ -50,6 +60,7 @@ function ToggleButton({ active, pressed, onClick, children, style, activeColor, 
 }) {
   return (
     <button
+      id={id}
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
@@ -138,6 +149,7 @@ export const TopBar = memo(function TopBar({
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
+  const isAllMode = selectedSessionId === ALL_SESSIONS_ID
 
   // Publish the measured height so panels can offset themselves below the (wrapping) bar.
   useLayoutEffect(() => {
@@ -180,12 +192,19 @@ export const TopBar = memo(function TopBar({
       {/* Right-side info/controls */}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} />
-        <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
+        {isAllMode ? (
+          // Union of every session: sessions - agents - cost (each agent priced with its own model)
+          <span>{formatAllSummary(sessions.length, activeAgentCount + doneAgentCount, totalCost)}</span>
+        ) : (
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
+        )}
         <span>
           {formatTokens(totalTokens)} tokens
-          <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
-            ~{formatCost(totalCost)}
-          </span>
+          {!isAllMode && (
+            <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
+              ~{formatCost(totalCost)}
+            </span>
+          )}
         </span>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
@@ -194,9 +213,10 @@ export const TopBar = memo(function TopBar({
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,
           }}>
-            <ToggleButton active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title="Files (F)" shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>Files</ToggleButton>
-            <ToggleButton active={showTranscript} pressed={showTranscript} onClick={() => onTogglePanel('transcript')} title="Chat transcript (C)" shortcut="c" style={{ background: showTranscript ? undefined : 'transparent', border: 'none' }}>Chat</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title="Files (F)" shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>Files</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.transcript} active={showTranscript} pressed={showTranscript} onClick={() => onTogglePanel('transcript')} title="Chat transcript (C)" shortcut="c" style={{ background: showTranscript ? undefined : 'transparent', border: 'none' }}>Chat</ToggleButton>
             <ToggleButton
+              id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
               pressed={showCostOverlay}
               onClick={() => onTogglePanel('cost')}
@@ -210,7 +230,7 @@ export const TopBar = memo(function TopBar({
           </div>
 
           {/* Independent toggles */}
-          <ToggleButton active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title="Timeline (T)" shortcut="t">Timeline</ToggleButton>
+          <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title="Timeline (T)" shortcut="t">Timeline</ToggleButton>
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}

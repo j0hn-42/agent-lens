@@ -21,7 +21,16 @@ export interface SessionInfo {
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
+  /** Agent runtime of the session, when the extension reports it */
+  runtime?: 'claude' | 'codex'
+  /** Workspace name/path of the session, when known */
+  workspace?: string
+  /** Working directory of the session, when known */
+  cwd?: string
 }
+
+/** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
+export const ALL_SESSIONS_ID = '__all__'
 
 export type ConnectionStatus = 'connected' | 'disconnected' | 'watching' | 'connecting'
 
@@ -55,6 +64,9 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.status === 'active' || v.status === 'completed')
     && typeof v.startTime === 'number'
     && typeof v.lastActivityTime === 'number'
+    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex')
+    && (v.workspace === undefined || typeof v.workspace === 'string')
+    && (v.cwd === undefined || typeof v.cwd === 'string')
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {

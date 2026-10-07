@@ -22,17 +22,16 @@ import { COLORS } from "@/lib/colors"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { MessageFeedPanel } from "./message-feed-panel"
-import { TopBar } from "./top-bar"
+import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { totalAgentCost } from "@/lib/cost"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
-import { PanelRegistryContext, type PanelEscapeHandler, type RegisterPanel } from "@/hooks/use-panel-registry"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, connectionDisplay, emptyStateChecklist, formatMissedEvents, runEscapeHandlers } from "@/lib/chrome-utils"
-
-const SINGLE_KEY_SHORTCUTS_STORAGE_KEY = 'agent-lens:single-key-shortcuts'
+import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
+import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildAnnouncement, labelAgentsWithSession, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
 type PanelId = 'files' | 'transcript' | 'cost' | 'timeline' | 'stats'
 
@@ -53,6 +52,7 @@ export function AgentVisualizer() {
     speed,
     maxTimeReached,
     conversations,
+    droppedEvents,
     play,
     pause,
     restart,
@@ -73,7 +73,7 @@ export function AgentVisualizer() {
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
-  const { toasts, push: pushToast, dismiss: dismissToast, runAction, runLatestAction, setPaused: setToastsPaused } = useToasts()
+  const { toasts, push: pushToast, dismiss: dismissToast, runAction, runLatestAction, hasAction: hasUndoToast, setPaused: setToastsPaused } = useToasts()
   // Confirm that an undo happened (also announced to screen readers through the toast live region)
   const runToastAction = useCallback((id: number) => {
     runAction(id)
@@ -118,9 +118,9 @@ export function AgentVisualizer() {
   const filesPanelRef = useRef<HTMLDivElement>(null)
   const transcriptPanelRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
-  useFocusReturn(showFileAttention, filesPanelRef)
-  useFocusReturn(showTranscript, transcriptPanelRef)
-  useFocusReturn(showTimeline, timelinePanelRef)
+  useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
+  useFocusReturn(showTranscript, transcriptPanelRef, PANEL_BUTTON_IDS.transcript)
+  useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // Auto-play on mount
@@ -266,16 +266,12 @@ export function AgentVisualizer() {
   }, [showFileAttention, showTranscript, showCostOverlay, showTimeline, showStats])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
-  const extraPanelsRef = useRef<Array<{ id: string; onEscape: PanelEscapeHandler }>>([])
-  const registerPanel = useCallback<RegisterPanel>((id, onEscape) => {
-    const entry = { id, onEscape }
-    extraPanelsRef.current = [...extraPanelsRef.current.filter(p => p.id !== id), entry]
-    return () => { extraPanelsRef.current = extraPanelsRef.current.filter(p => p !== entry) }
-  }, [])
+  const panelRegistry = useMemo(() => createPanelRegistry(), [])
+  const registerPanel = panelRegistry.register
 
   const closeTopPanel = useCallback((): boolean => {
     const top = panelStackRef.current[panelStackRef.current.length - 1]
-    if (!top) return runEscapeHandlers(extraPanelsRef.current.map(p => p.onEscape))
+    if (!top) return panelRegistry.escape()
     panelStackRef.current = panelStackRef.current.slice(0, -1)
     if (top === 'files') setShowFileAttention(false)
     else if (top === 'transcript') setShowTranscript(false)
@@ -283,13 +279,13 @@ export function AgentVisualizer() {
     else if (top === 'timeline') setShowTimeline(false)
     else setShowStats(false)
     return true
-  }, [])
+  }, [panelRegistry])
 
   // "Enable single-key shortcuts" preference (WCAG 2.1.4), persisted in localStorage
   const [singleKeyShortcuts, setSingleKeyShortcuts] = useState(true)
   useEffect(() => {
     try {
-      if (localStorage.getItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY) === 'false') setSingleKeyShortcuts(false)
+      if (!parseSingleKeyPreference(localStorage.getItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY))) setSingleKeyShortcuts(false)
     } catch { /* storage unavailable */ }
   }, [])
   const updateSingleKeyShortcuts = useCallback((enabled: boolean) => {
@@ -313,8 +309,9 @@ export function AgentVisualizer() {
     setSpeed: setSpeedInReview,
     openShortcuts,
     undoLast,
+    canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -395,7 +392,12 @@ export function AgentVisualizer() {
   }, [agents])
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
-  const selectedSessionLabel = bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
+  const selectedSessionLabel = bridge.isAllSelected
+    ? 'All sessions'
+    : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
+
+  // Agents labelled with their session (label + runtime) so the feed can show a session chip
+  const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const announcement = buildAnnouncement({ connection, sessionLabel: selectedSessionLabel, isReviewing, isEmpty })
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -494,7 +496,7 @@ export function AgentVisualizer() {
       {/* Message feed panel (top-left) */}
       <MessageFeedPanel
         conversations={conversations}
-        agents={agents}
+        agents={labelledAgents}
         onAgentClick={selection.handleAgentClick}
         selectedAgentId={selection.selectedAgentId}
       />
@@ -577,6 +579,7 @@ export function AgentVisualizer() {
         eventCount={timelineEvents.length}
         onEnterReview={handleEnterReview}
         onResumeLive={handleResumeLive}
+        droppedEvents={droppedEvents}
       />
 
       {/* File attention panel (slide-in from right) */}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import { shouldRestoreFocus } from '@/lib/chrome-utils'
+import { pickRestoreTarget, shouldRestoreFocus } from '@/lib/chrome-utils'
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -7,12 +7,13 @@ const FOCUSABLE =
 /**
  * Focus management for a toggled panel: when it opens, move focus to its first
  * focusable control; when it closes, give focus back to the element that opened it.
+ * `fallbackId` names an element (the panel's top-bar toggle) that receives focus on close when the
+ * panel was opened with a keyboard shortcut, so keyboard users keep their place.
  *
  * `panelRef` must point at an element that contains the panel (a `display: contents`
- * wrapper is enough). If the panel was opened with a keyboard shortcut (no trigger
- * focused), focus moves in but there is nothing to return to.
+ * wrapper is enough).
  */
-export function useFocusReturn(isOpen: boolean, panelRef: RefObject<HTMLElement | null>): void {
+export function useFocusReturn(isOpen: boolean, panelRef: RefObject<HTMLElement | null>, fallbackId?: string): void {
   const triggerRef = useRef<HTMLElement | null>(null)
   const wasOpenRef = useRef(false)
 
@@ -34,8 +35,8 @@ export function useFocusReturn(isOpen: boolean, panelRef: RefObject<HTMLElement 
 
     const trigger = triggerRef.current
     triggerRef.current = null
-    if (trigger && trigger.isConnected && shouldRestoreFocus(document.activeElement, panelRef.current, document.body)) {
-      trigger.focus({ preventScroll: true })
-    }
-  }, [isOpen, panelRef])
+    if (!shouldRestoreFocus(document.activeElement, panelRef.current, document.body)) return
+    const fallback = fallbackId ? document.getElementById(fallbackId) : null
+    pickRestoreTarget(trigger, fallback)?.focus({ preventScroll: true })
+  }, [isOpen, panelRef, fallbackId])
 }

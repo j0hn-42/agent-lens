@@ -8,13 +8,16 @@ import {
   SimulationEvent,
   type TimelineEntry,
 } from '@/lib/agent-types'
+import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
 import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
 
 import type { SimulationState, ForceNode, ForceLink, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
-import { processEvent, type ProcessEventContext } from './simulation/process-event'
+import { processEvent, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { stampEventTimes, droppedFromLog } from './simulation/stamp-time'
+import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 
@@ -185,18 +188,20 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const deltaTime = Math.min((timestamp - lastTimeRef.current) / 1000, ANIM_SPEED.maxDeltaTime)
     lastTimeRef.current = timestamp
 
+    const prev = frameRef.current
+    if (!prev.isPlaying) {
+      // Paused (review): leave external events queued so none are lost and the
+      // resume toast can report the real count.
+      animationRef.current = requestAnimationFrame(animateRef.current)
+      return
+    }
+
     // Snapshot and consume external events OUTSIDE the main processing
     // to avoid React strict mode double-invocation clearing them
     let capturedEvents: SimulationEvent[] | null = null
     if (externalEvents && externalEvents.length > 0 && !useMockData) {
       capturedEvents = externalEvents.slice()
       onExternalEventsConsumed?.()
-    }
-
-    const prev = frameRef.current
-    if (!prev.isPlaying) {
-      animationRef.current = requestAnimationFrame(animateRef.current)
-      return
     }
 
     let newTime = prev.currentTime + deltaTime * prev.speed
@@ -225,14 +230,14 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Process captured external events (snapshotted outside the main
     // processing to avoid React strict mode double-invocation issues)
     if (capturedEvents) {
-      for (const event of capturedEvents) {
-        const activeFilter = sessionFilterRef.current
-        if (activeFilter && event.sessionId && event.sessionId !== activeFilter) {
-          continue
-        }
-        const eventTime = Math.max(event.time || newTime, newTime)
-        const timedEvent = { ...event, time: eventTime }
-        currentState = { ...currentState, currentTime: eventTime }
+      // No filter, or the 'All' pseudo session (union mode), delivers events of every session
+      const activeFilter = sessionFilterRef.current
+      const accepted = capturedEvents.filter(e => !(activeFilter && activeFilter !== ALL_SESSIONS_ID && e.sessionId && e.sessionId !== activeFilter))
+      const lastLogged = currentState.eventLog[currentState.eventLog.length - 1]
+      // Real event times, kept monotonic so the log stays seekable
+      const stamped = stampEventTimes(accepted, lastLogged ? lastLogged.time : 0, newTime)
+      for (const timedEvent of stamped) {
+        currentState = { ...currentState, currentTime: timedEvent.time }
         currentState = processEventWithContext(timedEvent, currentState)
         newEvents.push(timedEvent)
       }
@@ -244,8 +249,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Append new events to log
     if (newEvents.length > 0) {
       let newLog = currentState.eventLog.concat(newEvents)
-      if (newLog.length > MAX_EVENT_LOG) {
-        newLog = newLog.slice(newLog.length - MAX_EVENT_LOG)
+      const dropped = droppedFromLog(currentState.eventLog.length, newEvents.length, MAX_EVENT_LOG)
+      if (dropped > 0) {
+        newLog = newLog.slice(dropped)
+        currentState = { ...currentState, droppedEvents: currentState.droppedEvents + dropped }
       }
       // In mock mode, eventIndex tracks position in MOCK_SCENARIO (not the log).
       // In live mode, eventIndex tracks position in the event log.
@@ -339,8 +346,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const conversations: SimulationState['conversations'] = new Map()
     for (const id of agents.keys()) conversations.set(id, [])
 
+    const keptLocalIds = new Set(Array.from(agents.values()).map(a => a.id))
     const eventLog = prev.eventLog.filter(e =>
-      e.type === 'agent_spawn' && agents.has(e.payload?.name as string)
+      e.type === 'agent_spawn' && typeof e.payload?.name === 'string'
+      && keptLocalIds.has(agentKeyOf(eventSessionId(e), e.payload.name))
     )
 
     const next = {
@@ -375,6 +384,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       speed: prev.speed,
       eventLog: prev.eventLog,
       maxTimeReached: prev.maxTimeReached,
+      droppedEvents: prev.droppedEvents,
     })
 
     skipForceSyncRef.current = true
@@ -420,6 +430,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     currentTime: state.currentTime, isPlaying: state.isPlaying, speed: state.speed,
     maxTimeReached: state.maxTimeReached,
     conversations: state.conversations,
+    links: state.links,
+    /** Events dropped from the start of the history (MAX_EVENT_LOG) */
+    droppedEvents: state.droppedEvents,
+    /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
+    droppedMessages: state.droppedMessages,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

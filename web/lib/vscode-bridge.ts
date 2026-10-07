@@ -7,6 +7,7 @@
  */
 
 export type { AgentEvent, SessionInfo, ConnectionStatus, BridgeNotice } from './bridge-types'
+export { ALL_SESSIONS_ID } from './bridge-types'
 import type { AgentEvent, SessionInfo, ConnectionStatus } from './bridge-types'
 import { isAgentEvent, isSessionInfo, isConnectionStatus } from './bridge-types'
 

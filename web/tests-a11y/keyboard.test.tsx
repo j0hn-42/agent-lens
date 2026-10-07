@@ -96,10 +96,14 @@ test('session tabs: ArrowRight selects the next tab and only one tab is in the t
     />,
   )
   const tabs = getAllByRole('tab')
+  assert.equal(tabs.length, 4, "the 'All' tab comes first, then one tab per session")
+  assert.equal(tabs[0].textContent?.startsWith('All'), true)
+  assert.equal(tabs[0].getAttribute('aria-selected'), 'false')
   assert.equal(tabs.filter(t => t.tabIndex === 0).length, 1, 'roving tabindex')
-  fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
-  fireEvent.keyDown(tabs[0], { key: 'End' })
-  assert.deepEqual(selected, ['b', 'c'])
+  fireEvent.keyDown(tabs[1], { key: 'ArrowRight' })
+  fireEvent.keyDown(tabs[1], { key: 'End' })
+  fireEvent.keyDown(tabs[1], { key: 'ArrowLeft' })
+  assert.deepEqual(selected, ['b', 'c', '__all__'])
 })
 
 test('known-violation helpers: new violations and stale entries are both reported', () => {

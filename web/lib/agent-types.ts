@@ -13,8 +13,24 @@ export interface ContextBreakdown {
 }
 
 export interface Agent {
+  /** Unique key across sessions: equals `agentKey` (sessionId + ':' + localId). Maps and edges use it. */
   id: string
+  /** Same value as `id`; explicit name for code that talks about cross-session identity */
+  agentKey: string
+  /** Session this agent belongs to ('default' for events without a session id) */
+  sessionId: string
+  /** Human-readable session label (set by the app for the feed's session chip) */
+  sessionLabel?: string
+  /** Name the event stream uses for this agent inside its session (unique per session) */
+  localId: string
+  /** Label shown in the UI (description of a sub-agent, first prompt of a main agent) */
+  displayName: string
+  /** Display label; kept equal to `displayName` for existing consumers */
   name: string
+  /** agentKey of the real parent (null for a root agent); kept equal to `parentId` */
+  parentKey: string | null
+  /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
+  toolUseId?: string
   state: AgentState
   parentId: string | null
   tokensUsed: number
@@ -176,6 +192,8 @@ export interface SimulationEvent {
     | 'subagent_dispatch'
     | 'subagent_return'
     | 'permission_requested'
+    | 'agent_link'
+    | 'message_sent'
   payload: Record<string, unknown>
   sessionId?: string
 }

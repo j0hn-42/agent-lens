@@ -4,7 +4,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo } from 
 import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatDuration, pluralize } from '@/lib/utils'
-import { FOCUS_RING, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { FOCUS_RING, blurFlagAction, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -23,6 +23,25 @@ interface ControlBarProps {
   onEnterReview?: () => void
   /** True while the visualizer shows demo data: the badge reads DEMO instead of LIVE */
   isDemo?: boolean
+  /** Events dropped from the start of the history (event log cap): shows a 'history truncated' marker */
+  droppedEvents?: number
+}
+
+/** Marker at the start of the scrubber: the oldest part of the history is gone. */
+function TruncationMarker({ dropped }: { dropped: number }) {
+  const text = formatTruncatedHistory(dropped)
+  if (!text) return null
+  return (
+    <span
+      title={text}
+      className="shrink-0 text-[11px] font-mono rounded px-1"
+      style={{ color: COLORS.textMuted, border: `1px dashed ${COLORS.controlBorder}` }}
+    >
+      <span aria-hidden="true">… </span>
+      <span className="sr-only">{text}</span>
+      <span aria-hidden="true">truncated</span>
+    </span>
+  )
 }
 
 function getEventColor(type: TimelineEvent['type']): string {
@@ -120,7 +139,14 @@ export function ControlBar(props: ControlBarProps) {
       onFocus={() => { hadFocusRef.current = true }}
       onBlur={(e) => {
         const to = e.relatedTarget as Node | null
-        if (to && !wrapperRef.current?.contains(to)) hadFocusRef.current = false
+        const action = blurFlagAction(!!to && !!wrapperRef.current?.contains(to), to === null)
+        if (action === 'clear') hadFocusRef.current = false
+        else if (action === 'check') {
+          // Focus went nowhere: a control that is still mounted next frame means the user clicked away;
+          // one that unmounted is a mode swap, where focus must still be carried over.
+          const blurred = e.target as Node
+          requestAnimationFrame(() => { if (blurred.isConnected) hadFocusRef.current = false })
+        }
       }}
     >
       {isReviewing ? <ReviewControlBar {...props} /> : <LiveControlBar {...props} />}
@@ -132,7 +158,7 @@ export function ControlBar(props: ControlBarProps) {
 
 function LiveControlBar({
   currentTime, totalDuration, timelineEvents,
-  eventCount = 0, onEnterReview, isDemo = false,
+  eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0,
 }: ControlBarProps) {
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
   const badgeColor = isDemo ? COLORS.holoBright : COLORS.liveText
@@ -165,6 +191,8 @@ function LiveControlBar({
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary }}>
           {formatDuration(currentTime)}
         </span>
+
+        <TruncationMarker dropped={droppedEvents} />
 
         {/* Read-only event track */}
         <div className="flex-1 min-w-12 relative h-6 flex items-center">
@@ -211,7 +239,7 @@ const CONFIRM_TIMEOUT_MS = 5000
 function ReviewControlBar({
   isPlaying, speed, currentTime, totalDuration,
   onPlayPause, onRestart, onSpeedChange, onSeek,
-  timelineEvents, isReviewing, onResumeLive,
+  timelineEvents, isReviewing, onResumeLive, droppedEvents = 0,
 }: ControlBarProps) {
   const scrubberRef = useRef<HTMLDivElement>(null)
   const [isScrubbing, setIsScrubbing] = useState(false)
@@ -289,6 +317,8 @@ function ReviewControlBar({
         <span className="text-xs font-mono shrink-0" style={{ color: COLORS.textPrimary, minWidth: 42 }}>
           {formatDuration(currentTime)}
         </span>
+
+        <TruncationMarker dropped={droppedEvents} />
 
         {/* Timeline scrubber */}
         <div
