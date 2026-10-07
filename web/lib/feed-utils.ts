@@ -7,8 +7,9 @@ export { STATE_LABELS, getStateLabel as stateLabel } from './state-labels'
 import type { ConversationMessage, AgentLink } from '../hooks/simulation/types'
 import type { TeamSummary } from './agent-types'
 import { formatDroppedMessages } from './chrome-utils'
+import { teamOfAgent, keyOfTeam } from '../hooks/simulation/team-key'
 import { findTeam } from '../hooks/simulation/team-key'
-import { emptyState, emptyMatch } from './ui-glossary'
+import { emptyState, emptyMatch, groupHeading, memberNoun, normalizeGroupKind, type GroupKind } from './ui-glossary'
 
 /** Single empty-state wording used by every message list (see ui-glossary.ts). */
 export const EMPTY_MESSAGES = emptyState('messages')
@@ -400,6 +401,53 @@ export function groupByTeam<T extends { teamName?: string }>(items: readonly T[]
   const groups: TeamGroup<T>[] = [...byTeam.keys()].sort().map(t => ({ team: t, items: byTeam.get(t)! }))
   if (rest.length) groups.push({ team: null, items: rest })
   return groups
+}
+
+export interface TeamChipGroup<T> {
+  /** Map key of the team (unique per lead session and name), or the plain name when the team is unknown */
+  key: string
+  name: string
+  kind: GroupKind
+  /** Visible heading: "Team alpha" / "Workflow tempo-wave-a" (+ " (session xxxxxxxx)" when two groups share it) */
+  heading: string
+  /** Accessible name: "Workflow tempo-wave-a, 5 agents" */
+  label: string
+  items: T[]
+}
+
+/** Characters of the lead session id shown to tell two same-named groups apart */
+export const CHIP_SESSION_HINT_LEN = 8
+
+/**
+ * Group teammates under their team / workflow chip. Groups are keyed per (lead session, name) through
+ * team-key.ts, so two same-named workflows of two sessions stay two groups. The kind comes from the team
+ * summary, else from the agents themselves.
+ */
+export function teamChipGroups<T extends { sessionId: string; teamName?: string; teamKind?: GroupKind }>(
+  items: readonly T[],
+  teams: ReadonlyMap<string, TeamSummary> | undefined,
+): TeamChipGroup<T>[] {
+  const groups = new Map<string, TeamChipGroup<T> & { lead?: string }>()
+  for (const it of items) {
+    if (!it.teamName) continue
+    const team = teamOfAgent(teams, it)
+    const key = (team && teams ? keyOfTeam(teams, team) : undefined) ?? `${it.teamName}@${it.sessionId}`
+    let g = groups.get(key)
+    if (!g) {
+      const kind = normalizeGroupKind(team?.kind ?? it.teamKind)
+      g = { key, name: team?.name ?? it.teamName, kind, heading: '', label: '', items: [], lead: team?.leadSessionId ?? it.sessionId }
+      groups.set(key, g)
+    }
+    g.items.push(it)
+  }
+  const out = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key))
+  const sameName = new Map<string, number>()
+  for (const g of out) sameName.set(`${g.kind}:${g.name}`, (sameName.get(`${g.kind}:${g.name}`) ?? 0) + 1)
+  return out.map(({ lead, ...g }) => {
+    const dup = (sameName.get(`${g.kind}:${g.name}`) ?? 0) > 1
+    const heading = dup && lead ? `${groupHeading(g.kind, g.name)} (session ${lead.slice(0, CHIP_SESSION_HINT_LEN)})` : groupHeading(g.kind, g.name)
+    return { ...g, heading, label: `${heading}, ${g.items.length} ${memberNoun(g.kind, g.items.length)}` }
+  })
 }
 
 // ─── Pair filter (click an agent, Shift-click another) ───────────────────────

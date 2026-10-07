@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
@@ -32,6 +33,7 @@ interface SessionListPanelProps {
   onSelectAgent: (agentId: string) => void
   teams?: ReadonlyMap<string, TeamSummary>
   teamWorking?: ReadonlyMap<string, number>
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
@@ -117,7 +119,7 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent }: {
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamMemberCounts, allSessionCount, now,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
@@ -141,10 +143,10 @@ export function SessionListPanel({
       : undefined
     const teamNames = listed ? [...listed.keys()] : []
     return buildSessionRows(
-      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, listed,
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
       { hideUnlistedTeams: true },
     )
-  }, [sessions, teams, teamWorking, teamMemberCounts, forests, activeOnly, selectedSessionId])
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId])
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active').length
 

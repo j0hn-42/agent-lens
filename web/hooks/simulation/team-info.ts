@@ -4,7 +4,7 @@
  * Pure: no React, no DOM.
  */
 import type { TeamSummary } from '../../lib/agent-types'
-import { normalizeGroupKind } from '../../lib/ui-glossary'
+import { normalizeGroupKind, type GroupKind } from '../../lib/ui-glossary'
 import { ALL_SESSIONS_ID, cleanLine, parseTeamSelection } from '../../lib/bridge-types'
 import { teamKeyFor } from './team-key'
 
@@ -92,13 +92,27 @@ export function parseActivity(v: unknown): Activity | null {
   return v === 'working' || v === 'idle' || v === 'done' ? v : null
 }
 
+/** What the web knows of a group's members: tracked teammates and how many of them reported 'done'. */
+export interface GroupSummary {
+  kind?: GroupKind
+  /** Teammates the tracker has seen spawn in the group */
+  members: number
+  /** Of those, the ones whose last activity is 'done' */
+  done: number
+}
+
 /**
- * Whether a team / workflow group counts as active: at least one member is working. A group whose
- * members are all idle or done (a finished workflow) is finished for 'Show finished' / 'Active only'.
+ * Whether a team / workflow group counts as active, for 'Show finished' / 'Active only'.
+ *  - any member working: active;
+ *  - a workflow whose tracked agents are not all done stays active: its agents are only idle between
+ *    calls ("all done" is the extension's verdict after a quiet period, so done = no recent activity);
+ *  - otherwise (all done, nothing tracked, or an Agent Team with nobody working): finished.
  * One rule for every consumer (sessions in 'All', the team rows of the Sessions panel).
  */
-export function isGroupActive(working: number | undefined): boolean {
-  return typeof working === 'number' && working > 0
+export function isGroupActive(summary: GroupSummary | undefined, working: number | undefined): boolean {
+  if (typeof working === 'number' && working > 0) return true
+  if (!summary || summary.kind !== 'workflow') return false
+  return summary.members > 0 && summary.done < summary.members
 }
 
 /** Max teams stored by the simulation / followed by a tracker (new teams beyond it are ignored) */
@@ -121,6 +135,8 @@ export interface TeamTracker {
   working(teamName: string): number
   /** Known members: the larger of the team config and the teammates seen spawning */
   memberCount(teamName: string): number
+  /** Tracked teammates and how many are done, for isGroupActive */
+  summary(teamName: string): GroupSummary
   clear(): void
 }
 
@@ -134,6 +150,7 @@ export function createTeamTracker(): TeamTracker {
   /** team key -> number of tracked teammates / of those working: O(1) reads, bounded by MAX_TEAMS * MAX_TEAM_MEMBERS */
   const seenCount = new Map<string, number>()
   const workingCount = new Map<string, number>()
+  const doneCount = new Map<string, number>()
   /** Teams created by a teammate spawn before any team_info named their lead: a team_info of that name adopts them */
   const provisional = new Set<string>()
 
@@ -155,6 +172,8 @@ export function createTeamTracker(): TeamTracker {
     if (prev === next) return false
     if (prev === 'working') bump(workingCount, team, -1)
     if (next === 'working') bump(workingCount, team, 1)
+    if (prev === 'done') bump(doneCount, team, -1)
+    if (next === 'done') bump(doneCount, team, 1)
     activity.set(key, next)
     return true
   }
@@ -236,7 +255,12 @@ export function createTeamTracker(): TeamTracker {
       const key = resolve(team)
       return Math.max(teams.get(key)?.members.length ?? 0, seenCount.get(key) ?? 0)
     },
-    clear() { teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear(); seenCount.clear(); workingCount.clear(); provisional.clear() },
+    summary(team) {
+      const key = resolve(team)
+      const kind = teams.get(key)?.kind
+      return { ...(kind ? { kind } : {}), members: seenCount.get(key) ?? 0, done: doneCount.get(key) ?? 0 }
+    },
+    clear() { doneCount.clear(); teams.clear(); sessions.clear(); memberTeam.clear(); activity.clear(); seenCount.clear(); workingCount.clear(); provisional.clear() },
   }
 }
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { memo, useLayoutEffect, useRef } from "react"
-import { Z } from "@/lib/agent-types"
+import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
@@ -115,6 +115,8 @@ function ConnectionIndicator({ status, isDemo }: { status: ConnectionStatus; isD
 export interface TopBarProps {
   // Sessions panel button
   sessions: SessionInfo[]
+  /** Teams and workflows by key: names the selected group in the Sessions button */
+  teams?: ReadonlyMap<string, TeamSummary>
   selectedSessionId: string | null
   sessionsWithActivity: Set<string>
   /** The sessions panel (list of sessions and agents) is open */
@@ -155,7 +157,7 @@ export interface TopBarProps {
 }
 
 export const TopBar = memo(function TopBar({
-  sessions, selectedSessionId, sessionsWithActivity,
+  sessions, teams, selectedSessionId, sessionsWithActivity,
   showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
@@ -190,7 +192,7 @@ export const TopBar = memo(function TopBar({
         shortcut="l"
         style={{ maxWidth: 'min(320px, 100%)' }}
       >
-        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions)}</span>
+        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {sessionsWithActivity.size > 0 && (
           <>

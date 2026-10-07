@@ -198,11 +198,17 @@ export interface ParticleDetail {
 
 /** An Agent Team as the UI sees it (built from team_info events). Strings are untrusted and already sanitised. */
 export interface TeamSummary {
+  /**
+   * Display name. For a workflow it is the script name, NOT assumed unique: a second run of the same script
+   * in a session is announced as '<script> #<last 4 chars of the wf_id>', and two sessions may run the same one.
+   * Identity is the key of the teams map (team-key.ts), never the name.
+   */
   name: string
   leadSessionId: string
   leadName?: string
   /** 'workflow' for a Workflow-tool run whose members are its agents; absent means an Agent Team */
   kind?: 'team' | 'workflow'
+  /** `phase`: workflow groups only, capped at 40 characters (MAX_PHASE_LEN, the extension's WORKFLOW_PHASE_MAX) */
   members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 

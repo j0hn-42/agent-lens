@@ -7,7 +7,7 @@
  */
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { agentCost } from '../../../lib/cost'
-import { groupHeading, groupNounLower, memberNoun, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
+import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
@@ -255,11 +255,6 @@ export function isFinishedWorkflow(c: Pick<Cluster, 'kind' | 'teamKind' | 'statu
 export function haloAlphas(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>, selected: boolean): { fill: string; stroke: string } {
   if (isFinishedWorkflow(c)) return selected ? { fill: '14', stroke: '88' } : { fill: '08', stroke: '44' }
   return selected ? { fill: '22', stroke: 'cc' } : { fill: '12', stroke: '88' }
-}
-
-/** Member count with the right noun: "5 agents" (workflow) / "3 members" (team). */
-export function clusterMemberText(c: Pick<Cluster, 'kind' | 'teamKind'>, n: number): string {
-  return `${n} ${c.kind === 'team' ? memberNoun(c.teamKind, n) : n === 1 ? 'agent' : 'agents'}`
 }
 
 /** Two lines of a cluster label: the title, then runtime, workspace, status and cost. */

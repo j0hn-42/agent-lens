@@ -8,6 +8,11 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { GraphA11yList } from '@/components/agent-visualizer/graph-a11y-list'
 import { buildA11yModel } from '@/components/agent-visualizer/canvas/a11y-model'
+import { computeClusters, haloAlphas } from '@/components/agent-visualizer/canvas/cluster-model'
+import { drawClusterHalos } from '@/components/agent-visualizer/canvas/draw-teams'
+import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
+import type { TeamSummary } from '@/lib/agent-types'
+import { ConversationHarness, createPanelRegistry } from './conversation-harness'
 
 afterEach(() => {
   cleanup()
@@ -63,4 +68,89 @@ test('legend: the workflow entry is worded as agents of a workflow', () => {
   assert.ok(text.includes('tempo-wave-a'))
   assert.match(text, /workflow, 3 agents/)
   assert.match(text, /team or workflow/i)
+})
+
+// ─── Halo drawing applies haloAlphas (recording canvas context) ──────────────
+
+function recordingCtx() {
+  const fills: string[] = []
+  const strokes: string[] = []
+  let fillStyle = '', strokeStyle = ''
+  const ctx: any = new Proxy({}, {
+    get(_t, prop: string) {
+      if (prop === 'fill') return () => { fills.push(fillStyle) }
+      if (prop === 'stroke') return () => { strokes.push(strokeStyle) }
+      return () => {}
+    },
+    set(_t, prop: string, v: string) {
+      if (prop === 'fillStyle') fillStyle = String(v)
+      if (prop === 'strokeStyle') strokeStyle = String(v)
+      return true
+    },
+  })
+  return { ctx, fills, strokes }
+}
+
+test('drawClusterHalos paints a finished workflow with the reduced alphas of haloAlphas', () => {
+  const done = (id: string) => wf(id, { name: id.slice(2), sessionId: 'S', state: 'complete', activity: 'done', archived: true, x: id.length * 10 })
+  const list = (...as: any[]) => new Map(as.map(a => [a.id, a]))
+  const finished = computeClusters(list(done('S:a'), done('S:bb')).values()).find(c => c.kind === 'team')!
+  const live = computeClusters(list(wf('S:a'), wf('S:b', { x: 40 })).values()).find(c => c.kind === 'team')!
+  const f = recordingCtx(), l = recordingCtx()
+  drawClusterHalos(f.ctx, [finished], null)
+  drawClusterHalos(l.ctx, [live], null)
+  const fa = haloAlphas(finished, false), la = haloAlphas(live, false)
+  assert.deepEqual(f.fills, [finished.color + fa.fill])
+  assert.deepEqual(f.strokes, [finished.color + fa.stroke])
+  assert.deepEqual(l.fills, [live.color + la.fill])
+  assert.deepEqual(l.strokes, [live.color + la.stroke])
+  assert.notEqual(f.fills[0], l.fills[0].replace(live.color, finished.color), 'finished fill is fainter than a live fill')
+  const sel = recordingCtx()
+  drawClusterHalos(sel.ctx, [finished], finished.key)
+  assert.deepEqual(sel.fills, [finished.color + haloAlphas(finished, true).fill])
+})
+
+// ─── Conversation chips and Sessions panel rows ──────────────────────────────
+
+test('Conversation panel: workflow chips read "Workflow <name>" with aria labels, same-named ones stay apart', () => {
+  const mk = (sid: string, n: string) => wf(`${sid}:${n}`, { name: n, sessionId: sid, localId: n })
+  const agents = new Map(
+    [mk('S1', 'impl:a'), mk('S1', 'impl:b'), mk('S2', 'impl:c')].map(a => [a.id, a]),
+  )
+  const teams = new Map<string, TeamSummary>([
+    ['tempo-wave-a', { name: 'tempo-wave-a', leadSessionId: 'S1', kind: 'workflow', members: [] }],
+    ['tempo-wave-a@S2', { name: 'tempo-wave-a', leadSessionId: 'S2', kind: 'workflow', members: [] }],
+  ])
+  const conversations = new Map([['S1:impl:a', [{ id: 'm1', type: 'assistant' as const, timestamp: 1, content: 'hello' }]]])
+  const r = render(
+    <ConversationHarness
+      registry={createPanelRegistry()} conversations={conversations as never} agents={agents} selectedAgentId={null}
+      onAgentClick={() => {}} teams={teams} initialOpen
+    />,
+  )
+  const labels = Array.from(r.container.querySelectorAll('[role="group"]')).map(g => g.getAttribute('aria-label'))
+  assert.ok(labels.some(l => l === 'Workflow tempo-wave-a (session S1), 2 agents'), JSON.stringify(labels))
+  assert.ok(labels.some(l => l === 'Workflow tempo-wave-a (session S2), 1 agent'), JSON.stringify(labels))
+  assert.ok(r.getByLabelText('Teams and workflows'))
+  assert.ok(!r.container.textContent!.includes('Team tempo-wave-a'))
+})
+
+test('Sessions panel: two same-named workflows of two sessions give two rows with their own counts', () => {
+  const teams = new Map<string, TeamSummary>([
+    ['tempo', { name: 'tempo', leadSessionId: 'S1', kind: 'workflow', members: [] }],
+    ['tempo@S2', { name: 'tempo', leadSessionId: 'S2', kind: 'workflow', members: [] }],
+  ])
+  const r = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={[] as never} selectedSessionId={null}
+      sessionsWithActivity={new Set()} onSelectSession={() => {}} onCloseSession={() => {}}
+      agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}}
+      teams={teams} teamMemberCounts={new Map([['tempo', 2], ['tempo@S2', 3]])} teamWorking={new Map([['tempo', 2], ['tempo@S2', 3]])}
+      now={5000}
+    />,
+  )
+  const rows = Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]')).map(el => el.textContent ?? '')
+  assert.ok(rows.some(t => t.includes('Workflow tempo: 2 agents, 2 working')), JSON.stringify(rows))
+  assert.ok(rows.some(t => t.includes('Workflow tempo: 3 agents, 3 working')), JSON.stringify(rows))
+  assert.ok(!rows.some(t => t.includes('Team tempo')))
 })

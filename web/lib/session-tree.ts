@@ -4,7 +4,9 @@
  */
 import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
-import { isGroupActive } from '../hooks/simulation/team-info'
+import { groupHeading } from './ui-glossary'
+import type { TeamSummary } from './agent-types'
+import { isGroupActive, type GroupSummary } from '../hooks/simulation/team-info'
 
 /** The slice of an Agent the panel needs. */
 export interface AgentLike {
@@ -120,9 +122,15 @@ export function buildSessionRows(
 export function selectionLabel(
   selectedId: string | null,
   sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label'>>,
+  teams?: ReadonlyMap<string, TeamSummary>,
 ): string {
   if (selectedId === null || selectedId === ALL_SESSIONS_ID) return 'All sessions'
-  if (selectedId.startsWith('team:')) return `Team ${selectedId.slice('team:'.length)}`
+  if (selectedId.startsWith('team:')) {
+    // The selection carries a team key (or a plain name); the summary gives the display name and the kind
+    const key = selectedId.slice('team:'.length)
+    const team = teams?.get(key)
+    return groupHeading(team?.kind, team?.name ?? key)
+  }
   return sessions.find(s => s.id === selectedId)?.label ?? 'Session'
 }
 
@@ -149,6 +157,7 @@ export function filterActiveTeams(
   teamNames: Iterable<string>,
   remainingSessions: ReadonlyArray<Pick<SessionInfo, 'teamName'>>,
   teamWorking?: ReadonlyMap<string, number>,
+  teamSummaries?: ReadonlyMap<string, GroupSummary>,
 ): string[] {
-  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || isGroupActive(teamWorking?.get(n)))
+  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || isGroupActive(teamSummaries?.get(n), teamWorking?.get(n)))
 }
