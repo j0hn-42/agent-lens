@@ -53,3 +53,40 @@ export const CONVERSATION_LABELS = {
   empty: emptyState('messages'),
   emptySearch: emptyMatch('messages'),
 } as const
+
+/**
+ * UI vocabulary for grouped agents. Hierarchy: Session > Workflow > Agent. "Team" stays reserved for
+ * Agent Teams (Claude Code's TeamCreate), whose members are called teammates.
+ * Pure: no React, no DOM; relative imports only so node:test can load it.
+ */
+
+/** What a group of agents is: an Agent Team or one run of the Workflow tool. */
+export type GroupKind = 'team' | 'workflow'
+
+/** Unknown / missing values are plain teams (the historical default). */
+export function normalizeGroupKind(v: unknown): GroupKind {
+  return v === 'workflow' ? 'workflow' : 'team'
+}
+
+export const GROUP_NOUN: Readonly<Record<GroupKind, string>> = { team: 'Team', workflow: 'Workflow' }
+
+/** "Team" | "Workflow" */
+export function groupNoun(kind: GroupKind | undefined): string {
+  return GROUP_NOUN[normalizeGroupKind(kind)]
+}
+
+/** "team" | "workflow" */
+export function groupNounLower(kind: GroupKind | undefined): string {
+  return groupNoun(kind).toLowerCase()
+}
+
+/** Member noun of a group: "member(s)" for a team, "agent(s)" for a workflow. */
+export function memberNoun(kind: GroupKind | undefined, count = 1): string {
+  const base = normalizeGroupKind(kind) === 'workflow' ? 'agent' : 'member'
+  return count === 1 ? base : `${base}s`
+}
+
+/** "Workflow tempo-wave-a" / "Team alpha" */
+export function groupHeading(kind: GroupKind | undefined, title: string): string {
+  return `${groupNoun(kind)} ${title}`
+}

@@ -4,6 +4,7 @@
  */
 import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
+import { isGroupActive } from '../hooks/simulation/team-info'
 
 /** The slice of an Agent the panel needs. */
 export interface AgentLike {
@@ -149,5 +150,5 @@ export function filterActiveTeams(
   remainingSessions: ReadonlyArray<Pick<SessionInfo, 'teamName'>>,
   teamWorking?: ReadonlyMap<string, number>,
 ): string[] {
-  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || (teamWorking?.get(n) ?? 0) > 0)
+  return [...teamNames].filter(n => remainingSessions.some(s => s.teamName === n) || isGroupActive(teamWorking?.get(n)))
 }

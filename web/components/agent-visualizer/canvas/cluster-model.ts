@@ -7,6 +7,7 @@
  */
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { agentCost } from '../../../lib/cost'
+import { groupHeading, groupNounLower, memberNoun, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
@@ -40,6 +41,8 @@ export interface Cluster {
   sessionIds: string[]
   /** Team name for team clusters */
   teamName?: string
+  /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
+  teamKind?: GroupKind
   runtime: 'Claude' | 'Codex'
   workspace?: string
   status: ClusterStatus
@@ -182,6 +185,9 @@ export function computeClusters(
     if (!showAll && members.length < minMembers) continue
     const isTeam = key.startsWith('team:')
     const teamName = isTeam ? cleanText(members.find(m => cleanText(m.teamName))?.teamName) : undefined
+    const teamKind: GroupKind | undefined = isTeam
+      ? (members.some(m => m.teamKind === 'workflow') || teams?.get(teamName ?? '')?.kind === 'workflow' ? 'workflow' : 'team')
+      : undefined
     const main = members.find(isOrchestrator) ?? members.find(m => m.isMain)
     const sessionIds = Array.from(new Set(members.map(m => m.sessionId || DEFAULT_SESSION)))
     const meta = options.sessions?.get((main ?? members[0]).sessionId || DEFAULT_SESSION)
@@ -217,6 +223,7 @@ export function computeClusters(
       orchestratorId: main?.id,
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
+      teamKind,
       runtime: runtimeRaw === 'codex' ? 'Codex' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
       status,
@@ -228,19 +235,44 @@ export function computeClusters(
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
+/** "Session" | "Team" | "Workflow": the word that names a cluster everywhere (halo label, outline, legend). */
+export function clusterNoun(c: Pick<Cluster, 'kind' | 'teamKind'>): string {
+  if (c.kind !== 'team') return 'Session'
+  return groupHeading(normalizeGroupKind(c.teamKind), '').trim()
+}
+
+/** Lower-case form of {@link clusterNoun}, for sentences ("Zoom to workflow x"). */
+export function clusterNounLower(c: Pick<Cluster, 'kind' | 'teamKind'>): string {
+  return c.kind === 'team' ? groupNounLower(c.teamKind) : 'session'
+}
+
+/** A workflow cluster whose agents are all complete: drawn reduced so it does not crowd the live view. */
+export function isFinishedWorkflow(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>): boolean {
+  return c.kind === 'team' && c.teamKind === 'workflow' && c.status === 'complete'
+}
+
+/** Alpha suffixes (hex) of a cluster halo: fill and outline, reduced for a finished workflow. */
+export function haloAlphas(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>, selected: boolean): { fill: string; stroke: string } {
+  if (isFinishedWorkflow(c)) return selected ? { fill: '14', stroke: '88' } : { fill: '08', stroke: '44' }
+  return selected ? { fill: '22', stroke: 'cc' } : { fill: '12', stroke: '88' }
+}
+
+/** Member count with the right noun: "5 agents" (workflow) / "3 members" (team). */
+export function clusterMemberText(c: Pick<Cluster, 'kind' | 'teamKind'>, n: number): string {
+  return `${n} ${c.kind === 'team' ? memberNoun(c.teamKind, n) : n === 1 ? 'agent' : 'agents'}`
+}
+
 /** Two lines of a cluster label: the title, then runtime, workspace, status and cost. */
-export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): { title: string; detail: string } {
-  const kind = c.kind === 'team' ? 'Team' : 'Session'
+export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): { title: string; detail: string } {
   const n = c.memberIds.length
   const detail = [c.runtime, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
-  return { title: `${kind} ${c.title} (${n})`, detail }
+  return { title: `${clusterNoun(c)} ${c.title} (${n})`, detail }
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): string {
-  const kind = c.kind === 'team' ? 'Team' : 'Session'
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): string {
   const n = c.memberIds.length
-  const parts = [`${kind} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
+  const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
   parts.push(c.statusText, `cost ${c.costText}`)
   return parts.join(', ')

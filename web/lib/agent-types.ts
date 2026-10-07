@@ -34,8 +34,10 @@ export interface Agent {
   state: AgentState
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
-  /** Agent Team the agent belongs to */
+  /** Agent Team (or Workflow run) the agent belongs to */
   teamName?: string
+  /** What the group is: an Agent Team (default) or a Workflow run */
+  teamKind?: 'team' | 'workflow'
   /** Layout cluster: team name when the agent belongs to a team, else its session id */
   clusterKey?: string
   /** Team color, validated '#rrggbb' only */
@@ -199,7 +201,9 @@ export interface TeamSummary {
   name: string
   leadSessionId: string
   leadName?: string
-  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string }>
+  /** 'workflow' for a Workflow-tool run whose members are its agents; absent means an Agent Team */
+  kind?: 'team' | 'workflow'
+  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 
 export interface SimulationEvent {

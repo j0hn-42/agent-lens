@@ -287,7 +287,7 @@ export function SessionListPanel({
                 const key = row.teamName!
                 const name = teams?.get(key)?.name ?? key
                 const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
                 return (
                   <li key={row.id}>
                     <button

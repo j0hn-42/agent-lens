@@ -4,11 +4,14 @@
  * Pure: no React, no DOM.
  */
 import type { TeamSummary } from '../../lib/agent-types'
+import { normalizeGroupKind } from '../../lib/ui-glossary'
 import { ALL_SESSIONS_ID, cleanLine, parseTeamSelection } from '../../lib/bridge-types'
 import { teamKeyFor } from './team-key'
 
 export const MAX_TEAM_NAME_LEN = 80
 export const MAX_TEAM_MEMBERS = 100
+/** Max length of a workflow phase label */
+export const MAX_PHASE_LEN = 40
 const MAX_ID = 200
 
 export { cleanLine }
@@ -36,6 +39,7 @@ export function sanitizeTeamInfo(payload: Record<string, unknown>): TeamSummary 
     const agentType = cleanLine(rec.agentType)
     const backendType = cleanLine(rec.backendType, 40)
     const sessionId = cleanLine(rec.sessionId, MAX_ID)
+    const phase = cleanLine(rec.phase, MAX_PHASE_LEN)
     const color = sanitizeColor(rec.color)
     members.push({
       name: memberName,
@@ -43,16 +47,21 @@ export function sanitizeTeamInfo(payload: Record<string, unknown>): TeamSummary 
       ...(color ? { color } : {}),
       ...(backendType ? { backendType } : {}),
       ...(sessionId ? { sessionId } : {}),
+      ...(phase ? { phase } : {}),
     })
   }
   const leadSessionId = cleanLine(payload.leadSessionId, MAX_ID)
   const leadName = cleanLine(payload.leadName)
-  return { name, leadSessionId, ...(leadName ? { leadName } : {}), members }
+  // Only 'workflow' is kept: anything else is a plain Agent Team
+  const kind = normalizeGroupKind(payload.teamKind)
+  return { name, leadSessionId, ...(leadName ? { leadName } : {}), ...(kind === 'workflow' ? { kind } : {}), members }
 }
 
 export interface TeammateExtras {
   teamName: string
   teamColor?: string
+  /** 'workflow' for a Workflow-tool agent; absent for an Agent Team member */
+  teamKind?: 'workflow'
   agentType?: string
   backend?: string
   memberSessionId?: string
@@ -69,6 +78,7 @@ export function parseTeammateExtras(payload: Record<string, unknown>): TeammateE
   const memberSessionId = cleanLine(payload.memberSessionId, MAX_ID)
   return {
     teamName,
+    ...(normalizeGroupKind(payload.teamKind) === 'workflow' ? { teamKind: 'workflow' as const } : {}),
     ...(teamColor ? { teamColor } : {}),
     ...(agentType ? { agentType } : {}),
     ...(backend ? { backend } : {}),
@@ -80,6 +90,15 @@ export type Activity = 'working' | 'idle' | 'done'
 
 export function parseActivity(v: unknown): Activity | null {
   return v === 'working' || v === 'idle' || v === 'done' ? v : null
+}
+
+/**
+ * Whether a team / workflow group counts as active: at least one member is working. A group whose
+ * members are all idle or done (a finished workflow) is finished for 'Show finished' / 'Active only'.
+ * One rule for every consumer (sessions in 'All', the team rows of the Sessions panel).
+ */
+export function isGroupActive(working: number | undefined): boolean {
+  return typeof working === 'number' && working > 0
 }
 
 /** Max teams stored by the simulation / followed by a tracker (new teams beyond it are ignored) */
@@ -180,8 +199,12 @@ export function createTeamTracker(): TeamTracker {
         const known = memberTeam.has(key)
         if (!known && (seenCount.get(team) ?? 0) >= MAX_TEAM_MEMBERS) return false
         if (!teams.has(team)) {
-          teams.set(team, { name: extras.teamName, leadSessionId: sid, members: [] })
+          teams.set(team, { name: extras.teamName, leadSessionId: sid, ...(extras.teamKind ? { kind: extras.teamKind } : {}), members: [] })
           provisional.add(team)
+        } else if (extras.teamKind) {
+          // A spawn that arrives before / without team_info still marks the group as a workflow
+          const cur = teams.get(team)!
+          if (cur.kind !== extras.teamKind) teams.set(team, { ...cur, kind: extras.teamKind })
         }
         if (!known) {
           memberTeam.set(key, team)

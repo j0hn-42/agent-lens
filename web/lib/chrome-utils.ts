@@ -3,6 +3,7 @@
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
 import { formatDuration, formatCost, pluralize } from './utils'
+import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
@@ -85,9 +86,9 @@ export function buildTabModel(
   return items
 }
 
-/** "Team X: 3 members, 2 working" */
-export function formatTeamSummary(teamName: string, members: number, working: number): string {
-  return `Team ${teamName}: ${pluralize(members, 'member')}, ${working} working`
+/** "Team X: 3 members, 2 working" or, for a workflow, "Workflow X: 5 agents, 3 working" */
+export function formatTeamSummary(teamName: string, members: number, working: number, kind?: GroupKind): string {
+  return `${groupHeading(kind, teamName)}: ${pluralize(members, memberNoun(kind, 1))}, ${working} working`
 }
 
 /** Short visible tag + full name for the runtime of a session tab; null when the runtime is unknown. */

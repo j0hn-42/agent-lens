@@ -13,7 +13,7 @@ import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
 import {
   cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
-import { computeClusters, clusterAnnouncement, type SessionMeta } from './cluster-model'
+import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -140,6 +140,8 @@ export interface A11yAgentItem {
   kind: NonNullable<Agent['kind']>
   /** Team name of a teammate (cleaned) */
   teamName?: string
+  /** 'workflow' when the group is a Workflow run */
+  teamKind?: 'team' | 'workflow'
   /** 'working' | 'idle' | 'done' for teammates */
   activityText?: string
   archived: boolean
@@ -155,6 +157,8 @@ export interface A11yAgentItem {
 export interface A11yClusterItem {
   key: string
   kind: 'session' | 'team'
+  /** Team clusters: 'workflow' for a Workflow run */
+  teamKind?: 'team' | 'workflow'
   title: string
   /** "Session X, 3 agents, Claude, workspace w, working, cost $0.12" */
   text: string
@@ -171,7 +175,9 @@ export interface A11yTeamItem {
   color: string
   memberIds: string[]
   memberNames: string[]
-  /** "Team X: a (working), b (idle)" */
+  /** 'workflow' for a Workflow run (members are its agents) */
+  teamKind?: 'team' | 'workflow'
+  /** "Team X: a (working), b (idle)" or "Workflow X: ..." */
   text: string
 }
 
@@ -279,6 +285,7 @@ export function buildA11yModel(
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
       teamName: cleanText(a.teamName) || undefined,
+      teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
       activityText: teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
@@ -295,7 +302,7 @@ export function buildA11yModel(
     teams,
     links,
     clusters: clusterList.map(c => ({
-      key: c.key, kind: c.kind, title: c.title, text: clusterAnnouncement(c), memberIds: c.memberIds, color: c.color,
+      key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: clusterAnnouncement(c), memberIds: c.memberIds, color: c.color,
     })),
     agents: agentItems,
     discoveries: discoveries.map(d => ({
@@ -332,7 +339,8 @@ export function buildTeamItems(
         color: c.color || TEAM_DEFAULT_COLOR,
         memberIds: members.map(m => m.id),
         memberNames: members.map(m => cleanText(m.name, 60)),
-        text: `Team ${c.title}: ${parts.join(', ')}`,
+        teamKind: c.teamKind ?? 'team',
+        text: `${clusterNoun(c)} ${c.title}: ${parts.join(', ')}`,
       }
     })
 }

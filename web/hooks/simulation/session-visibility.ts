@@ -3,6 +3,7 @@
  * crowd of tiny clusters, so by default only active ones count. Pure: no React, no DOM.
  */
 import type { SessionInfo } from '../../lib/bridge-types'
+import { isGroupActive } from './team-info'
 
 /** A session with an event younger than this counts as active even when its status says completed */
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000
@@ -41,11 +42,11 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   if (teamWorking) {
     if (teamSessions) {
       for (const [team, ids] of teamSessions) {
-        if ((teamWorking.get(team) ?? 0) > 0) for (const id of ids) out.add(id)
+        if (isGroupActive(teamWorking.get(team))) for (const id of ids) out.add(id)
       }
     }
     // A team tagged on the session itself counts too
-    for (const s of sessions) if (s.teamName && (teamWorking.get(s.teamName) ?? 0) > 0) out.add(s.id)
+    for (const s of sessions) if (s.teamName && isGroupActive(teamWorking.get(s.teamName))) out.add(s.id)
   }
   return out
 }
