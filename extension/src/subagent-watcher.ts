@@ -15,6 +15,7 @@ import { AgentEvent, SubagentState, WatchedSession, emitSubagentSpawn } from './
 import { SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName } from './constants'
 import { readNewFileLines } from './fs-utils'
 import { TranscriptParser } from './transcript-parser'
+import type { SubagentRecord } from './subagent-registry'
 import { handlePermissionDetection, PermissionDetectionDelegate } from './permission-detection'
 import { createLogger } from './logger'
 
@@ -25,19 +26,74 @@ export interface SubagentWatcherDelegate extends PermissionDetectionDelegate {
   resetInactivityTimer(sessionId: string): void
 }
 
+/** What we can learn about a subagent from its transcript file name and sidecars. */
+export interface SubagentFileInfo {
+  /** Display label (description or subagent type) */
+  label: string
+  /** agent_id parsed from the `agent-<id>.jsonl` file name */
+  agentId: string
+  /** tool_use_id of the Agent/Task call that spawned it, when the files expose it */
+  toolUseId?: string
+  /** agent_id of the spawning subagent, when the files expose it (nested subagents) */
+  parentAgentId?: string
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const v = obj[key]
+    if (typeof v === 'string' && v) return v
+  }
+  return undefined
+}
+
+const TOOL_USE_HINT_KEYS = ['toolUseId', 'tool_use_id', 'parentToolUseID', 'parentToolUseId']
+const PARENT_AGENT_HINT_KEYS = ['parentAgentId', 'parent_agent_id']
+
+/** Read the first transcript line (bounded) — entries may carry parentToolUseID. */
+function readFirstEntry(jsonlPath: string): Record<string, unknown> | undefined {
+  try {
+    const fd = fs.openSync(jsonlPath, 'r')
+    try {
+      const buf = Buffer.alloc(64 * 1024)
+      const n = fs.readSync(fd, buf, 0, buf.length, 0)
+      const first = buf.toString('utf8', 0, n).split('\n')[0]
+      const parsed: unknown = JSON.parse(first)
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : undefined
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+}
+
 /**
- * Read the .meta.json sidecar file to resolve the subagent's name.
- * Falls back to generateSubagentFallbackName if the meta file is missing or unreadable.
+ * Resolve label, agent id and parent hints for a subagent transcript.
+ * The .meta.json sidecar wins; the first transcript entry is a fallback source for
+ * parentToolUseID. Falls back to generateSubagentFallbackName for the label.
  */
-function resolveNameFromMeta(jsonlPath: string, fallbackIndex: number): string {
+export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number): SubagentFileInfo {
+  const base = path.basename(jsonlPath, '.jsonl')
+  const agentId = base.startsWith('agent-') ? base.slice('agent-'.length) : base
+  let label = ''
+  let toolUseId: string | undefined
+  let parentAgentId: string | undefined
   const metaPath = jsonlPath.replace(/\.jsonl$/, '.meta.json')
   try {
-    const raw = fs.readFileSync(metaPath, 'utf-8')
-    const meta = JSON.parse(raw) as Record<string, unknown>
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Record<string, unknown>
     const name = resolveSubagentChildName(meta)
-    if (name && name !== 'subagent') return name
+    if (name && name !== 'subagent') label = name
+    toolUseId = pickString(meta, TOOL_USE_HINT_KEYS)
+    parentAgentId = pickString(meta, PARENT_AGENT_HINT_KEYS)
   } catch { /* meta file may not exist for older Claude Code versions */ }
-  return generateSubagentFallbackName('', fallbackIndex)
+  if (!toolUseId || !parentAgentId) {
+    const first = readFirstEntry(jsonlPath)
+    if (first) {
+      toolUseId = toolUseId ?? pickString(first, TOOL_USE_HINT_KEYS)
+      parentAgentId = parentAgentId ?? pickString(first, PARENT_AGENT_HINT_KEYS)
+    }
+  }
+  return { label: label || generateSubagentFallbackName('', fallbackIndex), agentId, toolUseId, parentAgentId }
 }
 
 /** Scan the subagents directory for new JSONL files and start tailing them */
@@ -62,14 +118,31 @@ export function scanSubagentsDir(
   if (!fs.existsSync(subDir)) return
 
   try {
-    const files = fs.readdirSync(subDir)
-    for (const file of files) {
-      if (!file.endsWith('.jsonl')) continue
-      const filePath = path.join(subDir, file)
-      if (session.subagentWatchers.has(filePath)) continue
+    const fresh = fs.readdirSync(subDir)
+      .filter(file => file.endsWith('.jsonl'))
+      .map(file => path.join(subDir, file))
+      .filter(filePath => !session.subagentWatchers.has(filePath))
+    // Start parents before children so a nested subagent can resolve its parent's name
+    const isNested = (filePath: string) => (fresh.length > 1 && resolveSubagentFileInfo(filePath, 0).parentAgentId) ? 1 : 0
+    const ordered = fresh.map(filePath => ({ filePath, rank: isNested(filePath) })).sort((x, y) => x.rank - y.rank)
+    for (const { filePath } of ordered) {
       startWatchingSubagentFile(delegate, parser, filePath, sessionId)
     }
   } catch (err) { log.debug('Subagent dir scan failed:', err) }
+}
+
+function spawnFromRecord(
+  delegate: SubagentWatcherDelegate,
+  session: WatchedSession,
+  record: SubagentRecord,
+  sessionId: string,
+): void {
+  record.spawned = true
+  session.spawnedSubagents.add(record.name)
+  emitSubagentSpawn(delegate, record.parentName, record.name, record.label, sessionId, {
+    label: record.label,
+    ...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
+  })
 }
 
 function startWatchingSubagentFile(
@@ -81,8 +154,16 @@ function startWatchingSubagentFile(
   const session = delegate.getSession(sessionId)
   if (!session) return
 
-  // Resolve name from the meta file (deterministic, no queue race)
-  const agentName = resolveNameFromMeta(filePath, session.subagentWatchers.size + 1)
+  // Resolve identity from the meta file / first entry, then bind to the dispatch
+  // (tool_use_id) that spawned it so same-description subagents stay distinct.
+  const info = resolveSubagentFileInfo(filePath, session.subagentWatchers.size + 1)
+  const registry = parser.getSubagentRegistry(sessionId)
+  const parentRecord = info.parentAgentId ? registry.getByFileKey(info.parentAgentId) : undefined
+  const record = registry.claimForFile(info.agentId, info.label, {
+    toolUseId: info.toolUseId,
+    parentName: parentRecord?.name,
+  })
+  const agentName = record.name
   log.info(`Tailing subagent: ${path.basename(filePath)} as "${agentName}" (session ${sessionId.slice(0, SESSION_ID_DISPLAY)})`)
 
   const state: SubagentState = {
@@ -94,6 +175,7 @@ function startWatchingSubagentFile(
     permissionTimer: null,
     permissionEmitted: false,
     spawnEmitted: false,
+    agentId: info.agentId,
   }
   session.subagentWatchers.set(filePath, state)
 
@@ -127,11 +209,10 @@ function startWatchingSubagentFile(
 
   // Only emit spawn for subagents that are still active (have pending work)
   // AND haven't already been spawned by the transcript parser.
-  const alreadySpawned = session.spawnedSubagents.has(agentName)
+  const alreadySpawned = record.spawned || session.spawnedSubagents.has(agentName)
   state.spawnEmitted = pendingToolUseIds.size > 0 || alreadySpawned
   if (pendingToolUseIds.size > 0 && !alreadySpawned) {
-    session.spawnedSubagents.add(agentName)
-    emitSubagentSpawn(delegate, ORCHESTRATOR_NAME, agentName, agentName, sessionId)
+    spawnFromRecord(delegate, session, record, sessionId)
   }
 
   // Watch for new content
@@ -170,7 +251,10 @@ export function readSubagentNewLines(
   // Lazily emit spawn on first new content if not already emitted
   if (!state.spawnEmitted) {
     state.spawnEmitted = true
-    if (!session.spawnedSubagents.has(state.agentName)) {
+    const record = state.agentId ? parser.getSubagentRegistry(sessionId).getByFileKey(state.agentId) : undefined
+    if (record) {
+      if (!record.spawned && !session.spawnedSubagents.has(record.name)) spawnFromRecord(delegate, session, record, sessionId)
+    } else if (!session.spawnedSubagents.has(state.agentName)) {
       session.spawnedSubagents.add(state.agentName)
       emitSubagentSpawn(delegate, ORCHESTRATOR_NAME, state.agentName, state.agentName, sessionId)
     }

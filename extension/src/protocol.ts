@@ -89,6 +89,8 @@ export interface ToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
   content: string | Array<{ text?: string; type?: string }>
+  /** Structured error flag set by Claude Code when the tool call failed */
+  is_error?: boolean
 }
 
 export interface ThinkingBlock {
@@ -121,7 +123,10 @@ export interface SubagentDispatchExtra {
   prompt?: string
   subagentType?: string
   model?: string
+  /** tool_use_id of the dispatching Agent/Task call — the subagent's stable identity */
   toolUseId?: string
+  /** Human-readable label (the description); the unique agent name may carry a ' #n' suffix */
+  label?: string
 }
 
 /**
@@ -147,7 +152,11 @@ export function emitSubagentSpawn(
   emitter.emit({
     time: emitter.elapsed(sessionId),
     type: 'agent_spawn',
-    payload: { name: child, parent, task },
+    payload: {
+      name: child, parent, task,
+      ...(extra?.toolUseId ? { toolUseId: extra.toolUseId } : {}),
+      ...(extra?.label ? { label: extra.label } : {}),
+    },
   }, sessionId)
 }
 
@@ -172,6 +181,8 @@ export interface SubagentState {
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
   spawnEmitted: boolean
+  /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */
+  agentId?: string
 }
 
 /** State tracked for a single watched Claude Code session */

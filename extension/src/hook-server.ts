@@ -6,10 +6,11 @@ import {
   SESSION_ID_DISPLAY, FAILED_RESULT_MAX, HOOK_MAX_BODY_SIZE,
   SUBAGENT_ID_SUFFIX_LENGTH, HOOK_SERVER_HOST, HOOK_SERVER_NOT_STARTED,
   generateSubagentFallbackName,
+  resolveSubagentChildName,
 } from './constants'
 import { summarizeInput, summarizeResult, extractFilePath, extractInputData, buildDiscovery } from './tool-summarizer'
-import { extractLastAssistantText, isAllowedTranscriptPath } from './transcript-parser'
-import { estimateTokenCost } from './token-estimator'
+import { buildSubagentReport } from './transcript-parser'
+import { estimateTokenCost, estimateTokensFromText } from './token-estimator'
 import { createLogger } from './logger'
 
 const log = createLogger('HookServer')
@@ -47,14 +48,28 @@ interface HookPayload {
   [key: string]: unknown
 }
 
+/** An Agent/Task dispatch seen via PreToolUse, awaiting correlation with SubagentStart/Stop */
+interface HookDispatch {
+  label: string
+  subagentType?: string
+  startTime: number
+  claimed: boolean
+}
+
+interface HookSessionState {
+  startTime: number
+  agentNames: Map<string, string> // agent_id → friendly name
+  /** tool_use_id → dispatch seen in PreToolUse (Agent/Task) */
+  dispatches: Map<string, HookDispatch>
+  /** agent_id → correlated dispatch */
+  agentDispatch: Map<string, { toolUseId?: string; startTime: number }>
+}
+
 export class HookServer implements vscode.Disposable {
   private server: http.Server | null = null
   private port: number
   /** Per-session state — cleaned up on SessionEnd/Stop to prevent unbounded growth */
-  private sessionState = new Map<string, {
-    startTime: number
-    agentNames: Map<string, string> // agent_id → friendly name
-  }>()
+  private sessionState = new Map<string, HookSessionState>()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
 
@@ -132,10 +147,10 @@ export class HookServer implements vscode.Disposable {
     return this.port
   }
 
-  private getOrCreateSession(sessionId: string): { startTime: number; agentNames: Map<string, string> } {
+  private getOrCreateSession(sessionId: string): HookSessionState {
     let state = this.sessionState.get(sessionId)
     if (!state) {
-      state = { startTime: Date.now(), agentNames: new Map() }
+      state = { startTime: Date.now(), agentNames: new Map(), dispatches: new Map(), agentDispatch: new Map() }
       this.sessionState.set(sessionId, state)
     }
     return state
@@ -205,6 +220,16 @@ export class HookServer implements vscode.Disposable {
       this.handleSessionStart(payload)
     }
 
+    // Remember Agent/Task dispatches so SubagentStart/Stop can be correlated
+    if ((toolName === 'Task' || toolName === 'Agent') && payload.tool_use_id && payload.tool_input) {
+      this.getOrCreateSession(payload.session_id).dispatches.set(payload.tool_use_id, {
+        label: resolveSubagentChildName(payload.tool_input),
+        subagentType: typeof payload.tool_input.subagent_type === 'string' ? payload.tool_input.subagent_type : undefined,
+        startTime: Date.now(),
+        claimed: false,
+      })
+    }
+
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'tool_call_start',
@@ -225,6 +250,9 @@ export class HookServer implements vscode.Disposable {
     const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
     const result = payload.tool_response ? summarizeResult(payload.tool_response, isSubagentTool ? MESSAGE_MAX : RESULT_MAX) : ''
     const tokenCost = estimateTokenCost(toolName, result)
+    if (isSubagentTool && payload.tool_use_id) {
+      this.sessionState.get(payload.session_id)?.dispatches.delete(payload.tool_use_id)
+    }
 
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, extractFilePath(payload.tool_input), result)
@@ -255,6 +283,8 @@ export class HookServer implements vscode.Disposable {
         tool: toolName,
         result: `[FAILED] ${(payload.tool_response ? summarizeResult(payload.tool_response) : '').slice(0, FAILED_RESULT_MAX)}`,
         tokenCost: 0,
+        isError: true,
+        ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
       },
     }, payload.session_id)
   }
@@ -272,6 +302,21 @@ export class HookServer implements vscode.Disposable {
     const childName = agentId ? `${agentType}-${agentId.slice(-SUBAGENT_ID_SUFFIX_LENGTH)}` : generateSubagentFallbackName(String(Date.now()), sessionAgents.size + 1)
 
     sessionAgents.set(agentId, childName)
+
+    // Correlate with the dispatch seen in PreToolUse: explicit tool_use_id, else the
+    // oldest unclaimed dispatch of the same subagent type (else the oldest unclaimed).
+    if (agentId) {
+      const state = this.getOrCreateSession(payload.session_id)
+      let toolUseId = payload.tool_use_id && state.dispatches.has(payload.tool_use_id) ? payload.tool_use_id : undefined
+      if (!toolUseId) {
+        const open = [...state.dispatches].filter(([, d]) => !d.claimed)
+        toolUseId = (open.find(([, d]) => d.subagentType === agentType) ?? open[0])?.[0]
+      }
+      if (!toolUseId && typeof payload.tool_use_id === 'string') toolUseId = payload.tool_use_id
+      const dispatch = toolUseId ? state.dispatches.get(toolUseId) : undefined
+      if (dispatch) dispatch.claimed = true
+      state.agentDispatch.set(agentId, { toolUseId, startTime: dispatch?.startTime ?? Date.now() })
+    }
   }
 
   private handleSubagentStop(payload: HookPayload): void {
@@ -279,14 +324,24 @@ export class HookServer implements vscode.Disposable {
     const sessionAgents = this.sessionState.get(payload.session_id)?.agentNames
     const childName = sessionAgents?.get(agentId) || 'subagent'
     const parentName = this.resolveAgentName(payload)
-    const report = isAllowedTranscriptPath(payload.agent_transcript_path)
-      ? extractLastAssistantText(String(payload.agent_transcript_path))
-      : undefined
+    const report = buildSubagentReport(payload)
+    const correlated = this.sessionState.get(payload.session_id)?.agentDispatch.get(agentId)
+    this.sessionState.get(payload.session_id)?.agentDispatch.delete(agentId)
+    const toolUseId = correlated?.toolUseId
+    if (toolUseId) this.sessionState.get(payload.session_id)?.dispatches.delete(toolUseId)
 
     this.emit({
       time: this.elapsedSeconds(payload.session_id),
       type: 'subagent_return',
-      payload: { child: childName, parent: parentName, summary: report || `${payload.agent_type} complete` },
+      payload: {
+        child: childName,
+        parent: parentName,
+        summary: report || `${payload.agent_type} complete`,
+        ...(toolUseId ? { toolUseId } : {}),
+        ...(typeof payload.is_error === 'boolean' ? { isError: payload.is_error } : {}),
+        ...(correlated ? { durationS: Math.round((Date.now() - correlated.startTime) / 100) / 10 } : {}),
+        ...(report ? { tokenCost: estimateTokensFromText(report) } : {}),
+      },
     }, payload.session_id)
 
     this.emit({
