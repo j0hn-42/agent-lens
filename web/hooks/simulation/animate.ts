@@ -1,11 +1,12 @@
 import type { SimulationState } from './types'
 import {
-  TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S,
+  TOOL_MIN_DISPLAY_S, TOOL_EXPIRY_S,
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
   ANIM_SPEED, isExpiryHeld,
 } from '../../lib/canvas-constants'
 import { ARCHIVED_OPACITY } from './archive'
+import { settleToolCall } from '../../lib/tool-lifecycle'
 import { a11yRecorder, recordFrame } from '../../components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
@@ -14,6 +15,8 @@ export interface AnimateOptions {
   mockScenarioEndTime: number
   /** Playback speed to animate with (already forced to 1 outside review); defaults to the state's speed */
   speed?: number
+  /** Seconds a tool call may run without an observed end before it expires; defaults to TOOL_EXPIRY_S */
+  toolExpiryS?: number
 }
 
 function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
@@ -58,19 +61,16 @@ function animateEdges(edges: SimulationState['edges'], deltaTime: number): Simul
   return edges
 }
 
-function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: number, newTime: number): SimulationState['toolCalls'] {
+function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: number, newTime: number, expiryS: number): SimulationState['toolCalls'] {
   let newToolCalls = toolCalls
-  for (const [id, tc] of toolCalls) {
+  for (const [id, current] of toolCalls) {
+    // A call whose end never came is closed as expired (never silently dropped or shown as done)
+    const tc = settleToolCall(current, newTime, expiryS)
     let newOpacity = tc.opacity
     // Held cards (hovered/focused, paused, "never hide") never start fading out
     const held = isExpiryHeld('tool', id)
     if (tc.state === 'running') {
-      const runningSince = newTime - tc.startTime
-      if (runningSince > TOOL_MAX_RUNNING_S && !held) {
-        newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
-      } else {
-        newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
-      }
+      newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
     } else {
       const timeSinceComplete = newTime - (tc.completeTime ?? 0)
       if (held || timeSinceComplete < TOOL_MIN_DISPLAY_S) {
@@ -79,12 +79,35 @@ function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: nu
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
       }
     }
-    if (newOpacity !== tc.opacity) {
+    if (tc !== current || newOpacity !== tc.opacity) {
       if (newToolCalls === toolCalls) newToolCalls = new Map(toolCalls)
       newToolCalls.set(id, { ...tc, opacity: newOpacity })
     }
   }
   return newToolCalls
+}
+
+/** An agent whose last running call expired is no longer "calling a tool": nothing proves what it does now. */
+export function releaseAgentsOfExpiredCalls(
+  agents: SimulationState['agents'],
+  before: SimulationState['toolCalls'],
+  after: SimulationState['toolCalls'],
+): SimulationState['agents'] {
+  if (before === after) return agents
+  let next = agents
+  for (const [id, tc] of after) {
+    if (tc.state !== 'expired' || before.get(id)?.state !== 'running') continue
+    const agent = next.get(tc.agentId)
+    if (!agent || agent.state !== 'tool_calling') continue
+    let stillBusy = false
+    for (const other of after.values()) {
+      if (other.agentId === tc.agentId && other.state === 'running') { stillBusy = true; break }
+    }
+    if (stillBusy) continue
+    if (next === agents) next = new Map(agents)
+    next.set(tc.agentId, { ...agent, state: 'idle', currentTool: undefined })
+  }
+  return next
 }
 
 function cleanupFaded(
@@ -167,9 +190,12 @@ function animateParticles(particles: SimulationState['particles'], deltaTime: nu
 export function computeNextFrame(prev: SimulationState, deltaTime: number, newTime: number, maxT: number, currentState: SimulationState, options: AnimateOptions): SimulationState {
       // Record dispatch/return particles and tool calls the moment they exist (before expiry removes them)
       recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
-      const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
+      const newToolCallsRaw = animateToolCalls(currentState.toolCalls, deltaTime, newTime, options.toolExpiryS ?? TOOL_EXPIRY_S)
+      const newAgentsRaw = animateAgents(
+        releaseAgentsOfExpiredCalls(currentState.agents, currentState.toolCalls, newToolCallsRaw),
+        deltaTime, currentState.currentTime,
+      )
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
-      const newToolCallsRaw = animateToolCalls(currentState.toolCalls, deltaTime, newTime)
 
       const { agents: newAgents, toolCalls: newToolCalls, edges: filteredEdges } =
         cleanupFaded(newAgentsRaw, newToolCallsRaw, newEdgesRaw, currentState.agents, currentState.toolCalls)

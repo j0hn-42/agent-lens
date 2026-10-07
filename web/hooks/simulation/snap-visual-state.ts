@@ -1,9 +1,11 @@
 import type { SimulationState } from './types'
 import { ARCHIVED_OPACITY } from './archive'
-import { TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '../../lib/canvas-constants'
+import { releaseAgentsOfExpiredCalls } from './animate'
+import { settleToolCall } from '../../lib/tool-lifecycle'
+import { TOOL_MIN_DISPLAY_S, TOOL_EXPIRY_S, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '../../lib/canvas-constants'
 
 /** Snap visual properties to their analytically correct values at a given time (used during seek) */
-export function snapVisualState(state: SimulationState, targetTime: number): SimulationState {
+export function snapVisualState(state: SimulationState, targetTime: number, toolExpiryS: number = TOOL_EXPIRY_S): SimulationState {
 
   const newAgents = new Map(state.agents)
   for (const [id, agent] of newAgents) {
@@ -27,16 +29,19 @@ export function snapVisualState(state: SimulationState, targetTime: number): Sim
   }
 
   const newToolCalls = new Map(state.toolCalls)
-  for (const [id, tc] of newToolCalls) {
+  for (const [id, current] of newToolCalls) {
+    const tc = settleToolCall(current, targetTime, toolExpiryS)
     const snapped = { ...tc }
     if (tc.state === 'running') {
-      snapped.opacity = (targetTime - tc.startTime) > TOOL_MAX_RUNNING_S ? 0 : 1
+      snapped.opacity = 1
     } else {
       const timeSinceComplete = targetTime - (tc.completeTime ?? 0)
       snapped.opacity = timeSinceComplete < TOOL_MIN_DISPLAY_S ? 1 : 0
     }
     newToolCalls.set(id, snapped)
   }
+
+  const releasedAgents = releaseAgentsOfExpiredCalls(newAgents, state.toolCalls, newToolCalls)
 
   // Filter edges: only keep edges where both endpoints are visible
   const newEdges = state.edges
@@ -57,7 +62,7 @@ export function snapVisualState(state: SimulationState, targetTime: number): Sim
 
   return {
     ...state,
-    agents: newAgents, toolCalls: newToolCalls,
+    agents: releasedAgents, toolCalls: newToolCalls,
     edges: newEdges, particles: [], discoveries: newDiscoveries,
   }
 }

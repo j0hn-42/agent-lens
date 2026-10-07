@@ -1,4 +1,5 @@
 import { COST_RATE, MODEL_FAMILY_COST } from './canvas-constants'
+import { combineUsage, usageFromAgent, withValue, type UsageStatus, type UsageTotal } from './usage'
 
 /** Blended $/M-token rate for a model ID — first matching family wins,
  *  unknown models fall back to the Sonnet-class rate. */
@@ -21,4 +22,15 @@ export function totalAgentCost(agents: Iterable<{ tokensUsed: number; model?: st
   let sum = 0
   for (const a of agents) sum += agentCost(a.tokensUsed, a.model)
   return sum
+}
+
+/** Cost of one agent as a qualified total: unavailable (not $0) when its tokens are unknown, a lower bound when partial. */
+export function agentCostUsage(a: { tokensUsed: number; model?: string; tokenStatus?: UsageStatus; tokensEstimated?: boolean }): UsageTotal {
+  const tokens = usageFromAgent(a)
+  return withValue(tokens, tokens.value === null ? null : agentCost(tokens.value, a.model))
+}
+
+/** Fleet cost, each agent priced with its own model; agents without data make the total partial. */
+export function totalCostUsage(agents: Iterable<{ tokensUsed: number; model?: string; tokenStatus?: UsageStatus; tokensEstimated?: boolean }>): UsageTotal {
+  return combineUsage(Array.from(agents, agentCostUsage))
 }

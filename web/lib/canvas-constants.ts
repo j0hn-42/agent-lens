@@ -73,8 +73,8 @@ export const TOOL_CARD_H = 44
 
 /** Seconds a completed tool call stays visible before fading */
 export const TOOL_MIN_DISPLAY_S = 4.0
-/** Seconds before an orphan running tool fades out */
-export const TOOL_MAX_RUNNING_S = 10
+/** Seconds without an observed end before a running tool call becomes `expired` (overridable per run) */
+export const TOOL_EXPIRY_S = 120
 /** Seconds a discovery card stays visible before fading */
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */

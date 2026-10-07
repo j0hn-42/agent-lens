@@ -1,6 +1,8 @@
 // Agent Visualizer Types — Holographic Edition v2
 // Now with actual information visibility
 
+import type { UsageStatus, TokenSource } from './usage'
+
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
 // Context window composition — the key insight
@@ -49,7 +51,14 @@ export interface Agent {
   /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */
   archived?: boolean
   parentId: string | null
+  /** Known token count (a lower bound unless `tokenStatus` is 'available'); meaningless while 'unavailable' */
   tokensUsed: number
+  /** Completeness of `tokensUsed`; absent on legacy agents (inferred from the counter) */
+  tokenStatus?: UsageStatus
+  /** Number of token figures that were expected but missing since the last absolute update */
+  tokenGaps?: number
+  /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
+  tokensEstimated?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
@@ -93,15 +102,23 @@ export interface MessageBubble {
   _cachedWrappedFont?: string
 }
 
+/** Lifecycle of a tool call: running, then one of four outcomes (completed, failed, cancelled, expired). */
+export type ToolCallState = 'running' | 'complete' | 'error' | 'cancelled' | 'expired'
+
 // Rich tool call with actual content
 export interface ToolCallNode {
   id: string
   agentId: string
   toolName: string
-  state: 'running' | 'complete' | 'error'
+  state: ToolCallState
   args: string          // human-readable argument summary
   result?: string       // human-readable result summary
-  tokenCost?: number    // how many tokens this result consumed
+  /** Tokens this result consumed; null = not reported (never 0 by default), undefined while running */
+  tokenCost?: number | null
+  /** Whether `tokenCost` was announced by the runtime or estimated */
+  tokenSource?: TokenSource
+  /** False when the end of the call was never seen (expired); true or absent otherwise */
+  endObserved?: boolean
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
   /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
   toolUseId?: string
