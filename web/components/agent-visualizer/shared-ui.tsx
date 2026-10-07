@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
@@ -26,11 +26,13 @@ interface CloseButtonProps {
 export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`text-xs transition-colors ${className}`}
-      style={{ color: COLORS.textMuted }}
+      aria-label="Close"
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-white/10 ${className}`}
+      style={{ color: COLORS.scrollBtnText }}
     >
-      ✕
+      <span aria-hidden="true">✕</span>
     </button>
   )
 }
@@ -42,20 +44,69 @@ interface PanelHeaderProps {
   onClose: () => void
   className?: string
   actions?: ReactNode
+  /** id for the heading so the surrounding dialog/region can reference it via aria-labelledby */
+  titleId?: string
 }
 
-export function PanelHeader({ children, onClose, className = 'mb-2', actions }: PanelHeaderProps) {
+export function PanelHeader({ children, onClose, className = 'mb-2', actions, titleId }: PanelHeaderProps) {
   return (
     <div className={`flex items-center justify-between ${className}`}>
-      <div className="flex items-center gap-2 min-w-0">
+      <h2 id={titleId} className="m-0 flex min-w-0 items-center gap-2 text-inherit font-normal">
         {children}
-      </div>
+      </h2>
       <div className="flex items-center gap-1">
         {actions}
         <CloseButton onClick={onClose} />
       </div>
     </div>
   )
+}
+
+// ─── Dialog behaviour ───────────────────────────────────────────────────────
+// Focus the container on open, restore focus on close, close on Escape and when
+// focus moves outside (non-modal popups).
+
+export function useDialogBehavior(
+  ref: RefObject<HTMLElement | null>,
+  onClose: () => void,
+  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string } = {},
+): void {
+  const { closeOnFocusOutside = true, ignoreSelector } = options
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null
+    ref.current?.focus({ preventScroll: true })
+    return () => {
+      if (previous && previous !== document.body && previous.isConnected) {
+        previous.focus({ preventScroll: true })
+      }
+    }
+  }, [ref])
+
+  useEffect(() => {
+    if (!closeOnFocusOutside) return
+    const onFocusIn = (e: FocusEvent) => {
+      const el = ref.current
+      if (!el || !(e.target instanceof Element) || el.contains(e.target)) return
+      if (ignoreSelector && e.target.closest(ignoreSelector)) return
+      onCloseRef.current()
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [ref, closeOnFocusOutside, ignoreSelector])
+}
+
+/** Escape handler for the dialog container; stops propagation so one Esc closes one thing. */
+export function dialogEscapeHandler(onClose: () => void) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      e.preventDefault()
+      onClose()
+    }
+  }
 }
 
 // ─── Detail Popup ──────────────────────────────────────────────────────────
@@ -66,19 +117,27 @@ interface DetailPopupProps {
   width: number
   estimatedHeight: number
   onClose: () => void
+  /** id of the heading element (PanelHeader titleId) labelling the dialog */
+  titleId: string
   children: ReactNode
 }
 
-export function DetailPopup({ position, width, estimatedHeight, onClose, children }: DetailPopupProps) {
+export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { left, top } = clampPopupPosition(position, width, estimatedHeight)
 
   useClickOutside(ref, onClose)
+  useDialogBehavior(ref, onClose)
 
   return (
     <div
       ref={ref}
+      role="dialog"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      onKeyDown={dialogEscapeHandler(onClose)}
       {...stopPropagationHandlers}
+      className="max-w-[calc(100vw-24px)] outline-none"
       style={{ position: 'absolute', left, top, width, zIndex: Z.detailCard }}
     >
       <GlassCard visible={true}>
@@ -103,16 +162,23 @@ interface SlidingPanelProps {
   width?: number | string
   className?: string
   style?: React.CSSProperties
+  /** id of the heading labelling this region */
+  labelledBy?: string
   children: ReactNode
 }
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, children,
+  zIndex, width, className = '', style, labelledBy, children,
 }: SlidingPanelProps) {
   return (
     <div
-      className={`absolute transition-all duration-300 ${className}`}
+      role="region"
+      aria-labelledby={labelledBy}
+      aria-hidden={!visible}
+      inert={!visible}
+      {...stopPropagationHandlers}
+      className={`absolute max-w-[calc(100vw-24px)] transition-all duration-300 motion-reduce:transition-none ${className}`}
       style={{
         ...position,
         opacity: visible ? 1 : 0,
@@ -134,15 +200,21 @@ interface ProgressBarProps {
   percent: number
   color: string
   trackColor?: string
+  /** Accessible name; when omitted the bar is decorative (hidden from assistive tech) */
+  label?: string
 }
 
-export function ProgressBar({ percent, color, trackColor = COLORS.holoBg10 }: ProgressBarProps) {
+export function ProgressBar({ percent, color, trackColor = COLORS.holoBg10, label }: ProgressBarProps) {
+  const clamped = Math.min(100, Math.max(0, Math.round(percent)))
+  const a11y = label
+    ? { role: 'progressbar' as const, 'aria-label': label, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': clamped }
+    : { 'aria-hidden': true as const }
   return (
-    <div className="h-1 rounded-full overflow-hidden" style={{ background: trackColor }}>
+    <div className="h-1 rounded-full overflow-hidden" style={{ background: trackColor }} {...a11y}>
       <div
-        className="h-full rounded-full transition-all duration-500"
+        className="h-full rounded-full transition-all duration-500 motion-reduce:transition-none"
         style={{
-          width: `${percent}%`,
+          width: `${clamped}%`,
           background: color,
           boxShadow: `0 0 6px ${color}40`,
         }}
