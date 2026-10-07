@@ -8,18 +8,29 @@ export function alphaHex(alpha: number): string {
 /** Format a token count for display (e.g. 640 → '640', 1500 → '1.5k', 128500 → '128k', 1200000 → '1.2M') */
 export function formatTokens(tokens: number): string {
   if (!Number.isFinite(tokens) || tokens <= 0) return '0'
-  if (tokens < 1000) return String(Math.round(tokens))
+  if (tokens < 1000) return String(Math.floor(tokens))
   if (tokens < 10_000) return `${(Math.floor(tokens / 100) / 10).toString()}k`
   if (tokens < 1_000_000) return `${Math.floor(tokens / 1000)}k`
   if (tokens < 10_000_000) return `${(Math.floor(tokens / 100_000) / 10).toString()}M`
   return `${Math.floor(tokens / 1_000_000)}M`
 }
 
-/** Format a dollar amount with a single consistent format (e.g. 0.0004 → '$0.0004', 1.234 → '$1.23') */
+/**
+ * Format a dollar amount with one consistent rule set: >= $1 two decimals, < $1 three,
+ * < $0.01 four, and "<$0.0001" instead of a misleading "$0.0000". Non-finite or <= 0 → '$0.00'.
+ * (e.g. 1.234 → '$1.23', 0.1234 → '$0.123', 0.0004 → '$0.0004')
+ */
 export function formatCost(cost: number): string {
   if (!Number.isFinite(cost) || cost <= 0) return '$0.00'
-  if (cost < 0.01) return `$${cost.toFixed(4)}`
-  return `$${cost.toFixed(2)}`
+  if (cost >= 1) return `$${cost.toFixed(2)}`
+  if (cost >= 0.01) {
+    const s = cost.toFixed(3)
+    return s === '1.000' ? '$1.00' : `$${s}`
+  }
+  if (cost < 0.0001) return '<$0.0001'
+  const s = cost.toFixed(4)
+  // Rounding can carry a 4-decimal amount up to $0.01: keep the three-decimal form
+  return Number(s) >= 0.01 ? `$${cost.toFixed(3)}` : `$${s}`
 }
 
 /** Format a duration in seconds as m:ss, or h:mm:ss past one hour (e.g. 75 → '1:15', 3725 → '1:02:05') */
