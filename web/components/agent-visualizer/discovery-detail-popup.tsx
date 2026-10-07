@@ -5,6 +5,8 @@ import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { PanelHeader, DetailPopup } from './shared-ui'
 
 interface DiscoveryDetailPopupProps {
+  /** Display name of the discovering agent; falls back to the raw id */
+  agentName?: string
   discovery: {
     id: string
     type: string
@@ -16,7 +18,7 @@ interface DiscoveryDetailPopupProps {
   onClose: () => void
 }
 
-export function DiscoveryDetailPopup({ discovery, position, onClose }: DiscoveryDetailPopupProps) {
+export function DiscoveryDetailPopup({ discovery, agentName, position, onClose }: DiscoveryDetailPopupProps) {
   const typeColor = getDiscoveryTypeColor(discovery.type)
 
   const typeLabel =
@@ -61,7 +63,7 @@ export function DiscoveryDetailPopup({ discovery, position, onClose }: Discovery
 
       {/* Agent attribution */}
       <div className="mt-1.5 text-[9px] font-mono" style={{ color: COLORS.textMuted }}>
-        agent: {discovery.agentId}
+        agent: {agentName ?? discovery.agentId}
       </div>
     </DetailPopup>
   )

@@ -3,6 +3,7 @@
 import { useRef, useEffect, useMemo } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { formatDuration } from '@/lib/utils'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 
 interface TimelinePanelProps {
@@ -77,7 +78,7 @@ function drawTimeline(
   ctx.fillStyle = COLORS.textMuted
   for (const t of markers) {
     const x = LABEL_WIDTH + ((t - minTime) / timeSpan) * barWidth
-    ctx.fillText(`${t.toFixed(0)}s`, x, HEADER_HEIGHT - 4)
+    ctx.fillText(formatDuration(t), x, HEADER_HEIGHT - 4)
   }
 
   // ── Agent rows ──

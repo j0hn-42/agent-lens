@@ -2,7 +2,7 @@
 
 import { CARD, Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
-import { formatTokens, formatModelName } from '@/lib/utils'
+import { formatTokens, formatModelName, formatDuration } from '@/lib/utils'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar } from './shared-ui'
 
@@ -21,11 +21,21 @@ interface AgentDetailCardProps {
   onClose: () => void
 }
 
+const STATE_LABELS: Record<AgentState, string> = {
+  idle: 'Idle',
+  thinking: 'Thinking',
+  tool_calling: 'Using tool',
+  complete: 'Complete',
+  error: 'Error',
+  paused: 'Paused',
+  waiting_permission: 'Waiting for permission',
+}
+
 export function AgentDetailCard({
   agent,
   onClose,
 }: AgentDetailCardProps) {
-  const contextPercent = Math.round((agent.tokensUsed / agent.tokensMax) * 100)
+  const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
 
   // Fixed position: middle-left of the screen (below message feed panel)
@@ -75,8 +85,8 @@ export function AgentDetailCard({
       {/* Stats row */}
       <div className="flex gap-3 mb-3 text-[10px] font-mono" style={{ color: COLORS.textDim }}>
         <span>{agent.toolCalls} tools</span>
-        <span>{agent.timeAlive.toFixed(1)}s alive</span>
-        <span className="capitalize" style={{ color: stateColor }}>{agent.state}</span>
+        <span>{formatDuration(agent.timeAlive)} alive</span>
+        <span style={{ color: stateColor }}>{STATE_LABELS[agent.state] ?? agent.state}</span>
       </div>
 
       {/* Current tool */}

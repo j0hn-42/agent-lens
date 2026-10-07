@@ -2,7 +2,7 @@
 
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, truncatePath } from '@/lib/utils'
+import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel } from './shared-ui'
 
 interface FileAttentionPanelProps {
@@ -106,7 +106,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>
-            <span>{files.length} files</span>
+            <span>{pluralize(files.length, 'file')}</span>
             <span>{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
           </div>
         )}

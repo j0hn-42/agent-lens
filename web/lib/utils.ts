@@ -5,9 +5,36 @@ export function alphaHex(alpha: number): string {
   return Math.floor(alpha * 255).toString(16).padStart(2, '0')
 }
 
-/** Format a token count for display (e.g. 128500 → '128k') */
+/** Format a token count for display (e.g. 640 → '640', 1500 → '1.5k', 128500 → '128k', 1200000 → '1.2M') */
 export function formatTokens(tokens: number): string {
-  return `${Math.floor(tokens / 1000)}k`
+  if (!Number.isFinite(tokens) || tokens <= 0) return '0'
+  if (tokens < 1000) return String(Math.round(tokens))
+  if (tokens < 10_000) return `${(Math.floor(tokens / 100) / 10).toString()}k`
+  if (tokens < 1_000_000) return `${Math.floor(tokens / 1000)}k`
+  if (tokens < 10_000_000) return `${(Math.floor(tokens / 100_000) / 10).toString()}M`
+  return `${Math.floor(tokens / 1_000_000)}M`
+}
+
+/** Format a dollar amount with a single consistent format (e.g. 0.0004 → '$0.0004', 1.234 → '$1.23') */
+export function formatCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return '$0.00'
+  if (cost < 0.01) return `$${cost.toFixed(4)}`
+  return `$${cost.toFixed(2)}`
+}
+
+/** Format a duration in seconds as m:ss, or h:mm:ss past one hour (e.g. 75 → '1:15', 3725 → '1:02:05') */
+export function formatDuration(seconds: number): string {
+  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const ss = s.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+/** Pluralise a noun after a count (e.g. (1, 'agent') → '1 agent', (2, 'file') → '2 files') */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
 }
 
 /** Truncate a file path to the last N segments (e.g. '/a/b/c/d.ts' → 'b/c/d.ts') */
