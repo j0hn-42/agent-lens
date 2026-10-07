@@ -45,6 +45,16 @@ export function pickPairAgent(p: PairState, key: string): PairState {
   return { a: key, b: '' }
 }
 
+/**
+ * Next pair when an agent is Shift-clicked on the canvas: with nothing picked yet, the currently selected
+ * agent (`anchor`) is the first agent and the clicked one the second; otherwise the usual pick sequence.
+ */
+export function pairAfterShiftClick(p: PairState, anchor: string | null | undefined, key: string): PairState {
+  if (!key || key === 'all') return p
+  if (p.a === '' && anchor && anchor !== 'all' && anchor !== key) return { a: anchor, b: key }
+  return pickPairAgent(p, key)
+}
+
 /** Drop keys that `known` rejects (an agent that disappeared). Returns the same object when unchanged. */
 export function prunePair(p: PairState, known: (key: string) => boolean): PairState {
   const a = p.a !== '' && known(p.a) ? p.a : ''
