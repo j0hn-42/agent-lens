@@ -23,7 +23,7 @@ import {
   agentNamesBySession, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
   type RuntimeFilter, type SessionFilter,
 } from '@/lib/session-filter'
-import { summarizeAttention, sessionAttentionText } from '@/lib/attention'
+import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
@@ -55,6 +55,8 @@ interface SessionListPanelProps {
   now?: number
   /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
   observedSessionIds?: ReadonlySet<string>
+  /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
+  attention?: AttentionSummary
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
   /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
@@ -170,7 +172,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
   filterProject, filterRuntime, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
@@ -234,7 +236,8 @@ export function SessionListPanel({
   }
 
   // Agents waiting for a permission or in error, per session (#126)
-  const attention = useMemo(() => summarizeAttention(agents.values(), freshnessNow), [agents, freshnessNow])
+  const ownAttention = useMemo(() => summarizeAttention(agents.values(), freshnessNow), [agents, freshnessNow])
+  const attention = sharedAttention ?? ownAttention
 
   const rows = useMemo(() => {
     // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved

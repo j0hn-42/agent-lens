@@ -6,6 +6,7 @@ import { render, cleanup, fireEvent, within } from '@testing-library/react'
 
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 import type { SessionInfo } from '@/lib/bridge-types'
+import { summarizeAttention } from '@/lib/attention'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
@@ -79,8 +80,17 @@ test('attention: a session row says in words how many agents wait or failed, eve
   assert.equal(within(container.querySelector('[data-closable-id="b"]') as HTMLElement).queryByTestId('session-attention'), null)
 })
 
-test('attention: a stale waiting agent is not reported as blocked', () => {
-  const stale = { ...agent('a:m', 'a', 'waiting_permission'), lastEventAt: Date.now() - 60 * 60 * 1000 }
-  const { container } = render(panel({}, [stale]))
-  assert.equal(container.querySelector('[data-testid="session-attention"]'), null)
+test('attention: an expired history status is not reported as blocked, a live pending permission is', () => {
+  const old = { ...agent('a:m', 'a', 'waiting_permission'), lastEventAt: Date.now() - 60 * 60 * 1000 }
+  const history = render(panel({}, [{ ...old, freshnessSource: 'history' } as SessionListAgent]))
+  assert.equal(history.container.querySelector('[data-testid="session-attention"]'), null)
+  cleanup()
+  const live = render(panel({}, [{ ...old, freshnessSource: 'live' } as SessionListAgent]))
+  assert.match(live.container.querySelector('[data-testid="session-attention"]')?.textContent ?? '', /1 waiting/)
+})
+
+test('attention: the marker follows the shared summary, so a session absent from this view still shows it', () => {
+  const shared = summarizeAttention([{ id: 'b:x', sessionId: 'b', state: 'waiting_permission', lastEventAt: Date.now(), freshnessSource: 'live' }], Date.now())
+  const { container } = render(panel({ attention: shared }, []))
+  assert.match(within(container.querySelector('[data-closable-id="b"]') as HTMLElement).getByTestId('session-attention').textContent ?? '', /1 waiting/)
 })

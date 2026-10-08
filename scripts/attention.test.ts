@@ -31,10 +31,12 @@ test('attention: the first target is a waiting agent, else the first in error, e
   assert.equal(summarizeAttention([], NOW).total, 0)
 })
 
-test('attention: a stale waiting status is not proven, so it is not counted', () => {
+test('attention: a live permission still pending past the freshness window is counted, an expired history one is not', () => {
   const sum = summarizeAttention([a('old', 's', 'waiting_permission', STALE_AFTER_MS + 1), a('new', 's', 'waiting_permission')], NOW)
-  assert.equal(sum.waiting, 1)
-  assert.equal(sum.firstAgentId, 'new')
+  assert.equal(sum.waiting, 2)
+  assert.equal(sum.firstAgentId, 'old')
+  const expired = { ...a('h', 's', 'waiting_permission', 16 * 60_000), freshnessSource: 'history' as const }
+  assert.equal(summarizeAttention([expired], NOW).waiting, 0)
   assert.equal(summarizeAttention([{ id: 'n', sessionId: 's', state: 'waiting_permission' }], NOW).total, 0, 'never observed')
 })
 

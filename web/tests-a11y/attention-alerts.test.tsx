@@ -2,11 +2,13 @@
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup, fireEvent, renderHook, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, renderHook, act, waitFor } from '@testing-library/react'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { useAttentionAlerts } from '@/hooks/use-attention-alerts'
-import { summarizeAttention, type AttentionAgent } from '@/lib/attention'
+import { useAgentSimulation } from '@/hooks/use-agent-simulation'
+import type { SimulationEvent } from '@/lib/agent-types'
+import { summarizeAttention, trackForeignAttention, withForeignAttention, type AttentionAgent } from '@/lib/attention'
 
 const noop = () => {}
 const g = globalThis as unknown as { Notification?: unknown }
@@ -100,4 +102,29 @@ test('notification: permission is asked only when the user turns it on, then a h
   await act(async () => { await hook.result.current.toggleNotify() })
   assert.equal(hook.result.current.notifyState, 'off')
   delete (document as unknown as Record<string, unknown>).hidden
+})
+
+test('summarizeAttention: a permission still pending after the freshness window stays counted', () => {
+  const old: AttentionAgent = { id: 's1:a', sessionId: 's1', state: 'waiting_permission', lastEventAt: NOW - 120_000, freshnessSource: 'live' }
+  assert.equal(summarizeAttention([old], NOW).waiting, 1)
+  assert.equal(summarizeAttention([{ ...old, lastEventAt: NOW - 20 * 60_000, freshnessSource: 'history' }], NOW).waiting, 0)
+  assert.equal(summarizeAttention([{ ...old, state: 'complete' }], NOW).total, 0)
+})
+
+test('trackForeignAttention: a permission of another session counts and the next event of that agent clears it', () => {
+  const perm = { time: 1, type: 'permission_requested', sessionId: 'B', payload: { agent: 'main' } } as unknown as SimulationEvent
+  const after = { time: 2, type: 'tool_call_start', sessionId: 'B', payload: { agent: 'main' } } as unknown as SimulationEvent
+  const t1 = trackForeignAttention(new Map(), [perm], NOW)
+  const summary = summarizeAttention(withForeignAttention([], t1), NOW + 300_000)
+  assert.equal(summary.waiting, 1)
+  assert.equal(summary.firstSessionId, 'B')
+  assert.equal(trackForeignAttention(t1, [after], NOW).size, 0)
+})
+
+test('wiring: on a single-session view, a blocked agent of another session is tracked', async () => {
+  const events = [{ time: 1, type: 'permission_requested', sessionId: 'B', payload: { agent: 'main' } }] as unknown as SimulationEvent[]
+  const filterRef = { current: 'A' }
+  const { result } = renderHook(() => useAgentSimulation({ useMockData: false, externalEvents: events, sessionFilter: 'A', sessionFilterRef: filterRef }))
+  act(() => { result.current.play() })
+  await waitFor(() => assert.equal(result.current.foreignAttention.size, 1))
 })
