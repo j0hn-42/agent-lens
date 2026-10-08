@@ -232,6 +232,43 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         assert.deepEqual(stale, [], `[${scenario}] allow-listed reflow defects no longer occur: remove them from known-violations.json`)
       } finally { await close() }
     })
+
+    // Reflow also means no overlay hides another (#116): the legend, the camera / comfort controls and
+    // the control bar never intersect, and the Context panel never covers the top bar.
+    test(`no overlay covers another at ${width} px wide`, async t => {
+      if (skipReason) return t.skip(skipReason)
+      const { page, close } = await open({ width, height: 700 })
+      try {
+        const rectsOf = (): Promise<Record<string, { x: number; y: number; w: number; h: number } | null>> => page.evaluate(`(() => {
+          const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null }
+          const q = (s) => document.querySelector(s)
+          const byName = (n) => Array.from(document.querySelectorAll('button')).find(b => (b.getAttribute('aria-label') || b.textContent || '').trim().includes(n))
+          return {
+            topbar: rect(q('header')),
+            controlBar: rect(q('[data-control-bar]')),
+            legend: rect(byName('Legend')),
+            zoomIn: rect(byName('Zoom in')),
+            fit: rect(byName('Fit graph to view')),
+            keepCards: rect(byName('Keep cards visible')),
+            expire: rect(Array.from(document.querySelectorAll('label')).find(l => (l.textContent || '').includes('Expire unanswered'))),
+            panel: rect(q('[data-dock-panel="files"]')),
+          }
+        })()`) as Promise<Record<string, { x: number; y: number; w: number; h: number } | null>>
+        type R = { x: number; y: number; w: number; h: number }
+        const hit = (a: R, b: R) => a.x < b.x + b.w - 0.5 && a.x + a.w > b.x + 0.5 && a.y < b.y + b.h - 0.5 && a.y + a.h > b.y + 0.5
+        const check = (r: Record<string, R | null>, names: string[], where: string) => {
+          const present = names.filter(n => r[n])
+          assert.deepEqual(present, names, `${where}: ${names.filter(n => !r[n]).join(', ')} not found`)
+          for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) {
+            assert.ok(!hit(r[names[i]]!, r[names[j]]!), `${where} @${width}px: ${names[i]} ${JSON.stringify(r[names[i]])} overlaps ${names[j]} ${JSON.stringify(r[names[j]])}`)
+          }
+        }
+        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'keepCards', 'expire', 'controlBar'], 'canvas overlays')
+        await page.getByRole('button', { name: /^Context/ }).first().click()
+        await waitForStableLayout(page)
+        check(await rectsOf(), ['panel', 'topbar', 'controlBar'], 'context panel')
+      } finally { await close() }
+    })
   }
 })
 

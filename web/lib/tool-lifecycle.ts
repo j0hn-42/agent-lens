@@ -10,10 +10,10 @@ export const TOOL_STATE_LABELS: Record<ToolCallState, string> = {
 }
 
 /** Shown wherever a result or outcome rests on an end that was never observed. */
-export const END_NOT_OBSERVED = 'fin non observée'
+export const END_NOT_OBSERVED = 'end not observed'
 
 /** Warning attached to an expired call: the goal is not known to have been reached. */
-export const EXPIRED_WARNING = 'Expiré, fin non observée : le résultat est inconnu, pas un succès.'
+export const EXPIRED_WARNING = 'Expired, end not observed: the result is unknown, not a success.'
 
 /** Terminal outcomes a producer can report on tool_call_end. */
 export type ReportedOutcome = 'complete' | 'error' | 'cancelled'
@@ -60,7 +60,7 @@ export function settleToolCall(tc: ToolCallNode, now: number, expiryS: number, a
 /** Caveat to show next to the outcome / result of a call, or null when its end was observed. */
 export function toolEndWarning(tc: Pick<ToolCallNode, 'state' | 'endObserved'>): string | null {
   if (tc.state === 'expired') return EXPIRED_WARNING
-  if (tc.endObserved === false) return `Résultat rapporté, ${END_NOT_OBSERVED}.`
+  if (tc.endObserved === false) return `Result reported, ${END_NOT_OBSERVED}.`
   return null
 }
 

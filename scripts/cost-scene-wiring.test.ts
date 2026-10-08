@@ -39,7 +39,7 @@ function fakeCtx(texts: string[]): any {
 }
 
 test('on a collapsed scene, halo cost, DOM mirror and Costs panel all equal the session total', () => {
-  const scene = sceneAgents(sim.agents, false, [], none, createCollapseMemory(), sim)
+  const scene = sceneAgents(sim.agents, false, [], none, null, createCollapseMemory(), sim)
   assert.ok(scene.agents.size < agents.size, 'the scene really hides agents')
   assert.equal(scene.agents.has('a1'), false)
 
@@ -59,7 +59,7 @@ test('on a collapsed scene, halo cost, DOM mirror and Costs panel all equal the 
 })
 
 test('the DOM mirror cluster text carries the whole-simulation cost', () => {
-  const scene = sceneAgents(sim.agents, false, [], none, createCollapseMemory(), sim)
+  const scene = sceneAgents(sim.agents, false, [], none, null, createCollapseMemory(), sim)
   const expected = formatCostUsage(sessionUsage(agents.values(), []).cost)
   const withScope = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, new Map(), { costAgents: costScope(sim).agents.values() })
   const without = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, new Map())

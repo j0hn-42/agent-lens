@@ -48,6 +48,8 @@ import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './c
 import { planKey } from './canvas/overlay-plan'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
+import { useDockSnapshot } from './shared-ui'
+import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
 
@@ -190,6 +192,7 @@ export function AgentCanvas({
   }, [])
 
   // ─── Keyboard focus + accessible mirror state ───────────────────────────
+  const { controlBarH } = useDockSnapshot().env
   const [focusedNode, setFocusedNode] = useState<NavNode | null>(null)
   const focusedNodeRef = useRef<NavNode | null>(null)
   focusedNodeRef.current = focusedNode
@@ -251,7 +254,8 @@ export function AgentCanvas({
   }, [])
   const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
     const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
-      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null },
+      hasFocus ? focusedNode : null, collapseMemoryRef.current, sim)
     collapseViewRef.current = scene.collapse
     return {
     agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
@@ -393,7 +397,8 @@ export function AgentCanvas({
       // this timer only publishes them to React state.
       const dp = drawPropsRef.current
       const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
-        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null },
+        hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
@@ -489,7 +494,8 @@ export function AgentCanvas({
         const s = simulationRef.current
         const p = drawPropsRef.current
         const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
-          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null },
+          hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
         collapseViewRef.current = scene.collapse
         p.agents = scene.agents
         p.collapse = scene.collapse
@@ -890,8 +896,13 @@ export function AgentCanvas({
         )}
       </div>
 
-      {/* Camera + comfort controls */}
-      <div className="absolute right-3 bottom-20 z-10 flex max-w-[calc(100vw-24px)] flex-col items-end gap-1">
+      {/* Legend + camera / comfort controls: one block above the (wrapping) control bar, stacked when narrow so they never overlap */}
+      <div
+        className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
+        style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
+      >
+      <GraphLegend teams={a11yModel.teams} />
+      <div className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         <div className="flex gap-1">
           <button
             type="button"
@@ -958,8 +969,7 @@ export function AgentCanvas({
           </select>
         </label>
       </div>
-
-      <GraphLegend teams={a11yModel.teams} />
+      </div>
     </div>
   )
 }

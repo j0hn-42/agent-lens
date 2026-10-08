@@ -1,20 +1,27 @@
 import type { Agent, Discovery } from '../../../lib/agent-types'
 import type { SimulationState } from '../../../hooks/simulation/types'
 import { visibleAgents } from '../../../lib/inactive-agents'
-import { evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, type CollapseMemory, type CollapseView } from './branch-collapse'
+import { evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, focusOwners, type CollapseMemory, type CollapseView } from './branch-collapse'
+import type { NavNode } from './keyboard-nav'
 
 /**
  * Agents to draw: the 'hide inactive' filter, then the automatic collapse of inactive sub-trees.
- * Only the selected agent keeps a branch open (hovering must not make the graph jump).
+ * The selected agent keeps a branch open, and so does the keyboard-focused node (hovering must not make the graph jump).
  */
 export function sceneAgents(
   all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
   selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
+  focused: NavNode | null,
   memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
 ): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
-  const base = visibleAgents(all, hideInactive, keepIds)
+  // The keyboard-focused node pins its branch too, and survives 'hide inactive': focus must not vanish under the user (hover still does not)
+  const focusedOwners = focusOwners(focused, sim.toolCalls, sim.discoveries)
+  const base = visibleAgents(all, hideInactive, [...keepIds, ...focusedOwners])
   // A selected card keeps the branch of its owner open, like a selected agent
-  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
+  const owners = [
+    ...selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries),
+    ...focusedOwners,
+  ]
   const collapse = evaluateCollapse(base, memory, owners)
   return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
 }

@@ -75,7 +75,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
   return (
     <div
-      className="absolute left-3 bottom-20 z-10 max-w-[calc(100vw-24px)] font-mono text-xs"
+      className="pointer-events-auto max-w-[calc(100vw-24px)] font-mono text-xs"
       style={{ color: COLORS.textPrimary }}
     >
       {open && (
@@ -83,7 +83,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
           id="graph-legend-panel"
           role="region"
           aria-label="Graph legend"
-          className="mb-1 max-h-[60vh] w-64 max-w-full overflow-y-auto rounded-md p-3"
+          className="mb-1 max-h-[40vh] w-64 sm:max-h-[60vh] max-w-full overflow-y-auto rounded-md p-3"
           style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}` }}
         >
           <Heading>States</Heading>

@@ -49,7 +49,7 @@ test('usageFromAgent: explicit status wins, legacy agents infer it from the coun
   assert.equal(usageFromAgent({ tokensUsed: 0 }).status, 'unavailable')
 })
 
-test('formatTokenUsage: unavailable, partial (au moins) and estimated (badge)', () => {
+test('formatTokenUsage: unavailable, partial (at least) and estimated (badge)', () => {
   assert.equal(formatTokenUsage({ value: null, status: 'unavailable', estimated: false }), USAGE_LABELS.unavailable)
   assert.equal(formatTokenUsage({ value: 1500, status: 'available', estimated: false }), '1.5k')
   assert.equal(formatTokenUsage({ value: 1500, status: 'partial', estimated: false }), `${USAGE_LABELS.atLeast} 1.5k`)

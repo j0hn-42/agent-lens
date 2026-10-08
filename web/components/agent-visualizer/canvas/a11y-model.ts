@@ -36,7 +36,7 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
-/** "1.5k / 200k tokens", "au moins 1.5k estimé / 200k tokens" or "tokens non renseigné". */
+/** "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". */
 function tokenSummary(a: Agent): string {
   const usage = usageFromAgent(a)
   return usage.status === 'unavailable'

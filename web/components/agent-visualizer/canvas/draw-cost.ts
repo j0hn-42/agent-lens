@@ -248,7 +248,7 @@ export function drawCostSummaryPanel(
     const costW = ctx.measureText(costLabel).width
     ctx.fillText(truncateText(ctx, a.name, barW - costW - 16), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
 
-    // Cost, qualified like the header ("au moins", "estimé")
+    // Cost, qualified like the header ("at least", "estimated")
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
     ctx.fillText(costLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)

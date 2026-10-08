@@ -256,7 +256,7 @@ export const TopBar = memo(function TopBar({
         <span>
           {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}
           {!isAllMode && (
-            <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
+            <span style={{ color: COLORS.complete, marginLeft: 4 }}>
               {costUsage ? formatCostUsage(costUsage) : `~${formatCost(totalCost)}`}
               {unattributedCost > 0 && (
                 <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">

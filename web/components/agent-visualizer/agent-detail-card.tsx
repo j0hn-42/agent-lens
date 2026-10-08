@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
@@ -86,7 +86,11 @@ export function AgentDetailCard({
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
+  const dock = useDockPanel('detail', true)
+  const { rect } = dock
+  // Hidden behind a sheet (narrow viewport): moving focus elsewhere must not clear the selection
+  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', closeOnFocusOutside: !dock.hidden })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
@@ -98,10 +102,6 @@ export function AgentDetailCard({
   const issueLinks = useIssueLinks(relayOrigin, role, agent.sessionId)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
-
-  // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
-  const dock = useDockPanel('detail', true)
-  const { rect } = dock
 
   return (
     <div
@@ -270,6 +270,12 @@ export function AgentDetailCard({
   )
 }
 
+function focusIsBusy(el: Element | null): boolean {
+  if (!el || el === document.body) return false
+  if (el.closest('[data-companion-panel]')) return true
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || (el as HTMLElement).isContentEditable === true
+}
+
 /**
  * Shown when the selected node left the graph (closed, hidden, session removed): says so instead of
  * keeping the old values or substituting another node's.
@@ -277,7 +283,10 @@ export function AgentDetailCard({
 export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null; onClose: () => void; onEscape?: () => void }) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Opened by a data event, not a gesture: never pull focus from a companion panel or a text field (WCAG 3.2.2).
+  // The role="status" text still announces it.
+  const [focusOnOpen] = useState(() => !focusIsBusy(typeof document === 'undefined' ? null : document.activeElement))
+  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', focusOnOpen })
   // Escape closes exactly this layer. A native listener keeps the dialog element free of JSX key handlers
   // (jsx-a11y/no-noninteractive-element-interactions), as the link panel does.
   const closeEscape = onEscape ?? onClose

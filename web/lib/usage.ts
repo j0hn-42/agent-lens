@@ -14,9 +14,9 @@ export interface UsageTotal {
 }
 
 export const USAGE_LABELS = {
-  unavailable: 'non renseigné',
-  atLeast: 'au moins',
-  estimated: 'estimé',
+  unavailable: 'not reported',
+  atLeast: 'at least',
+  estimated: 'estimated',
 } as const
 
 function unavailable(): UsageTotal {
