@@ -23,6 +23,8 @@ import {
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
+import { useCopyFeedback } from '@/hooks/use-copy-feedback'
+import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
@@ -69,6 +71,7 @@ export function ConversationPanel({
   // The pair is shared with the timeline; only the picker visibility is local.
   const pair = usePairFilter()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const { message: feedback, notify } = useCopyFeedback()
   const logRef = useRef<HTMLDivElement>(null)
   const unreadStateRef = useRef<UnreadState>(emptyUnreadState())
   const pillRef = useRef<HTMLButtonElement>(null)
@@ -342,6 +345,7 @@ export function ConversationPanel({
                     runtime={agents.get(msg.agentId)?.runtime}
                     onFilterPair={(() => { const rp = pairOfMessage(msg); return rp ? () => selectPair(rp[0], rp[1]) : undefined })()}
                     contentId={`${baseId}-msg-${msg.id}`}
+                    onCopy={msg.type === 'dispatch' || msg.type === 'return' ? () => { void copyMessage(msg) } : undefined}
                   />
                 )}
               </div>
@@ -352,6 +356,31 @@ export function ConversationPanel({
     </div>
     </>
   )
+
+  const exportScope = pairActive
+    ? `${agentNameOf(agents, pair.a)} and ${agentNameOf(agents, pair.b)}`
+    : activeTab === 'all' ? 'all agents' : agentNameOf(agents, activeTab)
+  const entryOf = (m: FeedMessage): CommsExportEntry => ({
+    label: (commKindOf(m) ? COMM_LABELS[commKindOf(m)!] : roleLabelOf(m.type, agents.get(m.agentId)?.runtime)).toUpperCase(),
+    sender: m.from ? agentNameOf(agents, m.from) : (commKindOf(m) ? undefined : agentNameOf(agents, m.agentId)),
+    receiver: m.to ? agentNameOf(agents, m.to) : undefined,
+    time: formatElapsed(m.timestamp).label,
+    content: m.content,
+  })
+  const copyMessage = async (m: FeedMessage) => {
+    const e = entryOf(m)
+    const ok = await copyText(m.content)
+    notify(ok ? `${e.label} copied` : 'Copy failed: select the text and copy it by hand')
+  }
+  const exportConversation = () => {
+    const title = `Conversation: ${exportScope}`
+    const md = conversationToMarkdown({
+      title,
+      entries: messages.map(entryOf),
+      notes: exportNotes({ droppedText: droppedMarker, toolsHidden: !showTools, searchQuery }),
+    })
+    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+  }
 
   const newMessagesText = `${newCount} new message${newCount === 1 ? '' : 's'}`
 
@@ -404,6 +433,16 @@ export function ConversationPanel({
               Tool calls
             </button>
             <button
+              type="button"
+              disabled={messages.length === 0}
+              onClick={exportConversation}
+              title="Download the messages listed below as a Markdown file"
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING}`}
+              style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+            >
+              Export conversation
+            </button>
+            <button
               ref={searchToggleRef}
               type="button"
               onClick={() => { setShowSearch(s => !s); if (showSearch) setSearchQuery('') }}
@@ -422,6 +461,8 @@ export function ConversationPanel({
             <CloseButton onClick={onClose} className="px-1" />
           </div>
         </div>
+
+        <p role="status" className="m-0 px-3 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {/* Search bar */}
         {showSearch && (
@@ -665,7 +706,7 @@ function sessionChipOf(agent: Agent | undefined): string | undefined {
   return (agent.sessionLabel ?? agent.sessionId).slice(0, 24)
 }
 
-function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, onFilterPair }: {
+function MessageRow({ message, agentName, fromName, toName, accent, sessionChip, showAgent, isSelected, searchQuery, onClick, runtime, contentId, onFilterPair, onCopy }: {
   message: ConversationMessage
   agentName: string
   fromName?: string
@@ -680,6 +721,8 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
   contentId: string
   /** Communication rows: filter the panel on the two agents of this row (keyboard path for Shift-click) */
   onFilterPair?: () => void
+  /** DISPATCH / RETURN rows: copy the full prompt or report */
+  onCopy?: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const commKind = commKindOf(message)
@@ -761,6 +804,18 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           style={{ color: COLORS.textMuted }}
         >
           Filter pair
+        </button>
+      )}
+
+      {onCopy && (
+        <button
+          type="button"
+          aria-label={`Copy ${roleLabel.toLowerCase()}${direction ? `, ${direction}` : ''}`}
+          onClick={onCopy}
+          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+          style={{ color: COLORS.textMuted }}
+        >
+          Copy
         </button>
       )}
 
