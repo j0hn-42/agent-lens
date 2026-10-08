@@ -24,6 +24,12 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
 - **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap, and the conversation (one panel for messages, tool calls and per-agent views)
+- **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
+- **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
+- **Comms**: message links between agents, with the latest message on the link and a panel to read the exchange
+- **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand
+- **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
 ## Getting Started
@@ -42,9 +48,21 @@ Open http://localhost:3000 and start a Claude Code session in another terminal �
 
 ### VS Code Extension
 
-1. Install the extension
-2. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
-3. Start a Claude Code or Codex session in your workspace — Agent Lens will auto-detect it
+The extension is not published on a marketplace. Build the `.vsix` from source and install it:
+
+```bash
+pnpm i
+npm install -g @vscode/vsce                   # once: the `package` script calls the `vsce` command
+pnpm --filter agent-lens run package          # builds the webview and the extension, writes extension/agent-lens-<version>.vsix
+code --install-extension extension/agent-lens-<version>.vsix
+```
+
+Use `cursor` or `windsurf` instead of `code` for those editors (or **Extensions: Install from VSIX...** in the Command Palette). It works with any VS Code-compatible IDE 1.85 or newer, including [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
+
+Then:
+
+1. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
+2. Start a Claude Code or Codex session in your workspace. Agent Lens will auto-detect it
 
 Agent Lens automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Lens: Configure Claude Code Hooks** from the Command Palette.
 
@@ -122,6 +140,16 @@ Other scripts:
 | `pnpm run build:web` | Build the Next.js web app |
 | `pnpm run build:extension` | Build the extension |
 | `pnpm run build:webview` | Build the webview assets |
+| `pnpm --filter agent-lens run package` | Build the extension and package it as a `.vsix` (runs `vsce package`; needs `@vscode/vsce` installed globally) |
+
+Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Documentation
+
+- [Reading the UI](docs/reading-the-ui.md): views, and what "Not observed", "at least", "estimated" and "unattributed" mean
+- [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
+- [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
+- [Sharing state](docs/state-share.md): snapshots and the `observations` action
 
 ## Accessibility testing
 
