@@ -26,7 +26,7 @@ import {
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
-  SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
+  RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
 import { readProjectContext } from '../extension/src/project-context'
 import { setLogLevel } from '../extension/src/logger'
@@ -572,7 +572,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const readIndex = (): SessionIndexResult | null => {
     if (!indexConfig) return null
     const now = Date.now()
-    if (indexCache && now - indexCache.at < (indexConfig.cacheMs ?? 30_000)) return indexCache.result
+    if (indexCache && now - indexCache.at < (indexConfig.cacheMs ?? RELAY_SESSION_INDEX_CACHE_MS)) return indexCache.result
     const { opener, cacheMs: _cacheMs, ...rest } = indexConfig
     const raw = opener === undefined ? readSessionIndex(rest) : readSessionIndex(rest, opener)
     // Scoped relay (default): only the index rows of this workspace, like the live scan

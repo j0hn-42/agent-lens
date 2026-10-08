@@ -24,6 +24,12 @@ export const BACKOFF_JITTER_RATIO = 0.2
 export const POLL_TIMEOUT_MS = 4_000
 /** After a reconnect, how long identical events are treated as the relay's buffer replay and dropped */
 export const REPLAY_WINDOW_MS = 10_000
+/** Relay keep-alive period (mirrors RELAY_SSE_HEARTBEAT_MS; a test compares them) */
+export const HEARTBEAT_INTERVAL_MS = 15_000
+/** Silent heartbeat intervals after which the stream is considered dead */
+export const SILENCE_INTERVALS = 3
+/** No byte for this long: the connection is half-open */
+export const SILENCE_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * SILENCE_INTERVALS
 /** Replayed events remembered to drop the duplicates a reconnect replays */
 export const DEDUPE_CAPACITY = 20_000
 

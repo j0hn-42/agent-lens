@@ -27,6 +27,7 @@ export interface ProjectContextData {
   issues: number[]
 }
 
+/** Mirrors RELAY_ISSUE_LINKS_CACHE_TTL_MS (a test compares them) */
 export const PROJECT_CONTEXT_TTL_MS = 60_000
 /** Sessions kept in the cache (oldest evicted first) */
 export const PROJECT_CONTEXT_CACHE_MAX = 20

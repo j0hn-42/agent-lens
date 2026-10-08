@@ -672,6 +672,7 @@ export const PLACEMENT = {
 // ─── Freshness (issues #48, #52) ────────────────────────────────────────────
 
 /** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
+/** Mirrors SNAPSHOT_STALE_AFTER_MS of extension/src/constants.ts (a test compares them) */
 export const STALE_AFTER_MS = 30_000
 /** A status that comes from history (not seen live) expires after this long (ms) */
 export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
