@@ -32,7 +32,7 @@ import { selectionLabel } from "@/lib/session-tree"
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
-import { ChromeAnnouncer } from "./chrome-announcer"
+import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { sessionUsage } from "@/lib/attribution"
 import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
@@ -607,6 +607,7 @@ export function AgentVisualizer() {
       : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
+  const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -623,6 +624,8 @@ export function AgentVisualizer() {
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity}
       />
+
+      <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactive} keepIds={hiddenKeepIds} />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar

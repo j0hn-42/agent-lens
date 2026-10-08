@@ -3,7 +3,7 @@ import { agentKeyOf, DEFAULT_SESSION_ID } from './types'
 import { idString } from './agent-keys'
 import { MAX_TEAMS, parseActivity, sanitizeTeamInfo } from './team-info'
 import { handleAgentComplete } from './handle-agent-events'
-import { restampClusterKeys } from './fleet-layout'
+import { restampClusterKeys, restampPhases } from './fleet-layout'
 import { teamKeyFor } from './team-key'
 
 /** team_info: store (sanitised) the team summary. The team of the same name and lead is replaced, new ones are capped. */
@@ -16,6 +16,8 @@ export function handleTeamInfo(payload: Record<string, unknown>, state: MutableE
   state.teams.set(key, info)
   // Sessions may now belong to a team: regroup their agents into its cluster
   restampClusterKeys(state.agents, state.teams)
+  // The workflow may now announce the phase of its members
+  restampPhases(state.agents, state.teams)
 }
 
 /** agent_activity: record what a teammate is doing. Idle teammates stay on screen; 'done' archives. */

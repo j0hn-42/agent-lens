@@ -19,6 +19,9 @@ export interface AgentLike {
   name: string
   state: string
   kind?: 'main' | 'subagent' | 'teammate'
+  /** Workflow agents: the group is a Workflow run, and the phase the workflow announced for the agent (#146) */
+  teamKind?: 'team' | 'workflow'
+  phase?: string
   currentTool?: string
   tokensUsed: number
   tokenStatus?: UsageStatus

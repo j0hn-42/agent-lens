@@ -288,7 +288,7 @@ export const TopBar = memo(function TopBar({
             active={hideInactive}
             pressed={hideInactive}
             onClick={() => onToggleHideInactive(!hideInactive)}
-            title="Hide agents that are idle or finished"
+            title="Hide agents that are idle or done"
           >
             Hide inactive agents
           </ToggleButton>

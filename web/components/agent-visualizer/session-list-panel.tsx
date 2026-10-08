@@ -28,6 +28,7 @@ import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
+import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 
 export type SessionListAgent = AgentLike
 
@@ -157,17 +158,54 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
-          {node.children.map(c => (
-            <AgentItem
-              key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-              freshnessNow={freshnessNow} sig={agentTreeSignature(c, freshnessNow, selectedAgentId)}
-            />
-          ))}
+          <AgentNodes
+            nodes={node.children} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+            freshnessNow={freshnessNow}
+          />
         </ul>
       )}
     </li>
   )
 }, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent)
+
+interface AgentNodesProps {
+  nodes: ReadonlyArray<AgentNode<SessionListAgent>>
+  depth: number
+  selectedAgentId: string | null
+  onSelectAgent: (id: string) => void
+  freshnessNow: number
+}
+
+/**
+ * Sibling rows. The agents of a workflow that announced phases are grouped under one named group per
+ * phase, in order of first appearance (#146); everything else is listed exactly as before.
+ */
+function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentNodesProps) {
+  const row = (n: AgentNode<SessionListAgent>, d: number) => (
+    <AgentItem
+      key={n.agent.id} node={n} depth={d} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
+    />
+  )
+  return (
+    <>
+      {groupByPhase(nodes.map(n => ({ node: n, teamKind: n.agent.teamKind, phase: n.agent.phase }))).map(seg => {
+        if (seg.kind === 'plain') return seg.items.map(i => row(i.node, depth))
+        const label = phaseSegmentLabel(seg)
+        return (
+          <li key={`${seg.kind}:${label}`}>
+            <div role="group" aria-label={label}>
+              <p className="m-0 text-[11px] font-semibold" style={{ paddingLeft: 8 + depth * 14, color: COLORS.textMuted }}>
+                {label} <span className="font-normal" style={{ color: COLORS.textDim }}>({seg.items.length})</span>
+              </p>
+              <ul className="list-none p-0 m-0">{seg.items.map(i => row(i.node, depth))}</ul>
+            </div>
+          </li>
+        )
+      })}
+    </>
+  )
+}
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
@@ -553,13 +591,7 @@ export function SessionListPanel({
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
                     <ul className="list-none p-0 m-0 pl-6" aria-label={`Agents of ${session.label}`}>
-                      {row.roots.map(n => (
-                        <AgentItem
-                          key={n.agent.id} node={n} depth={0}
-                          selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow}
-                          sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
-                        />
-                      ))}
+                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
                     </ul>
                     </CollapsibleSection>
                   )}

@@ -37,7 +37,7 @@ export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
 export function agentTreeSignature(node: AgentNode, freshnessNow: number, selectedId: string | null = null): string {
   const a = node.agent
   const view = agentRowView(a, freshnessNow)
-  const own = [a.id, a.name, a.state, a.kind ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed, a.tokenStatus ?? '', a.tokensEstimated ? 'e' : '', a.model ?? '', a.id === selectedId ? 'sel' : ''].join('\u0001')
+  const own = [a.id, a.name, a.state, a.kind ?? '', a.phase ?? '', view.detail, view.stale ? 's' : '', a.tokensUsed, a.tokenStatus ?? '', a.tokensEstimated ? 'e' : '', a.model ?? '', a.id === selectedId ? 'sel' : ''].join('\u0001')
   if (node.children.length === 0) return own
   return `${own}\u0002${node.children.map(c => agentTreeSignature(c, freshnessNow, selectedId)).join('\u0003')}\u0004`
 }

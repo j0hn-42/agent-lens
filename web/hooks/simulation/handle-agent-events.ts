@@ -11,6 +11,7 @@ import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
 import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
+import { phaseOfAgent } from './team-key'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
 import { advanceActiveTime } from '../../lib/active-time'
@@ -63,6 +64,12 @@ export function handleAgentSpawn(
     ...(team.backend ? { backend: team.backend } : {}),
   } : {}
 
+  // Phase announced by team_info for this workflow member (stays absent until a phase was really received)
+  const workflowPhase = (agentName: string, agentLocalId: string): { phase?: string } => {
+    const phase = phaseOfAgent({ sessionId, teamName: team?.teamName, teamKind: team?.teamKind, name: agentName, localId: agentLocalId }, state.teams)
+    return phase ? { phase } : {}
+  }
+
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
   const existing = state.agents.get(name)
@@ -77,6 +84,7 @@ export function handleAgentSpawn(
       ...teamFields,
       // A returning teammate may carry a team name it did not have: keep the cached cluster key right
       ...(team ? { clusterKey: clusterKeyOf({ sessionId, teamName: team.teamName }, state.teams) } : {}),
+      ...(team ? workflowPhase(existing.name, existing.localId) : {}),
       ...(task ? { task } : {}),
       ...spawnModelFields(existing, { model, modelSource, requestedModel }, ctx),
       ...(effort ? { effort } : {}),
@@ -117,6 +125,7 @@ export function handleAgentSpawn(
     ...(effort ? { effort } : {}),
     ...(subagentType ? { subagentType } : {}),
     ...teamFields,
+    ...workflowPhase(displayName, localId),
     clusterKey,
     task,
     spawnTime: currentTime,

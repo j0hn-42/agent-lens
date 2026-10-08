@@ -42,6 +42,8 @@ export interface Agent {
   teamName?: string
   /** What the group is: an Agent Team (default) or a Workflow run */
   teamKind?: 'team' | 'workflow'
+  /** Workflow groups only: phase label received for this agent in team_info (never inferred), capped at 40 characters */
+  phase?: string
   /** Layout cluster: team name when the agent belongs to a team, else its session id */
   clusterKey?: string
   /** Team color, validated '#rrggbb' only */
