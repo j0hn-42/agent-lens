@@ -1,5 +1,7 @@
 import type { SimulationEvent } from './agent-types'
+import type { SessionInfo } from './bridge-types'
 import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
+import { TOUR_SCENARIO, TOUR_SESSIONS } from './tour-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
 // Add ?stress=light|medium|heavy|extreme to the URL to load a stress scenario.
@@ -220,9 +222,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 // A workflow with two phases whose first one is finished: exercises the phase groups (#146) and
 // 'Hide inactive agents' on finished members (#147) in the demo app and its browser tests.
 
+/** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
 function getScenarioName(): string | null {
   if (typeof window === 'undefined') return null
-  return new URLSearchParams(window.location.search).get('scenario')
+  return new URLSearchParams(window.location.search).get('scenario') || process.env.NEXT_PUBLIC_DEMO_SCENARIO || null
 }
 
 const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [
@@ -248,9 +251,15 @@ export const WORKFLOW_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 1.8, type: 'agent_activity', payload: { name: 'build-b', activity: 'working' } },
 ]
 
+const SCENARIO_NAME = getScenarioName()
+
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
-  : getScenarioName() === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+  : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
+  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+
+/** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
+export const MOCK_SESSIONS: SessionInfo[] = !stressLevel && SCENARIO_NAME === 'tour' ? TOUR_SESSIONS : []
 
 export const MOCK_DURATION = MOCK_SCENARIO.length > 0
   ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10

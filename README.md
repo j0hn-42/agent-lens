@@ -133,7 +133,8 @@ Other scripts:
 
 | Script | Description |
 |--------|-------------|
-| `pnpm run dev:demo` | Start with demo/mock data |
+| `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
+| `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
 | `pnpm run dev:relay` | Run the event relay server standalone |
 | `pnpm run dev:extension` | Watch-build the extension |
 | `pnpm run build:all` | Production build (webview + extension) |
@@ -150,6 +151,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
+- [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
 
 ## Releasing
 
