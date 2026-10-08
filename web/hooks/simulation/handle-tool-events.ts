@@ -6,6 +6,7 @@ import { idString } from './agent-keys'
 import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { USAGE_LABELS } from '../../lib/ui-glossary'
 import type { Agent, ToolCallNode } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
@@ -231,7 +232,7 @@ export function handleToolCallEnd(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
-      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? ', estimé' : ''})` : ''}`,
+      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? `, ${USAGE_LABELS.estimated}` : ''})` : ''}`,
       timestamp: currentTime,
       toolName,
       toolUseId,

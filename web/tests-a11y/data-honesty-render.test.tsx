@@ -1,4 +1,4 @@
-// #50: the canvas context bar / percentage and the cost panel qualify their figures ("au moins", "estimé"),
+// #50: the canvas context bar / percentage and the cost panel qualify their figures ("at least", "estimated"),
 // and #49: the configurable expiry delay really reaches the simulation hook.
 import { test, afterEach, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -33,14 +33,14 @@ function agent(over: Record<string, unknown>): any {
   }
 }
 
-test('the context bar and the percentage say "au moins" / "estimé" like the session list does', () => {
+test('the context bar and the percentage say "at least" / "estimated" like the session list does', () => {
   const texts: string[] = []
   const ctx = recordingCtx(texts)
   const a = agent({ tokenStatus: 'partial', tokensEstimated: true, tokensUsed: 180000 })
   drawContextComposition(ctx, a, 20)
   drawContextRing(ctx, a, 20, 0, true, true)
-  assert.ok(texts.some(t => /^au moins 180k estimé \/ 200k tokens$/.test(t)), `bar label qualified, got ${JSON.stringify(texts)}`)
-  assert.ok(texts.some(t => /^au moins 90% estimé$/.test(t)), `percentage qualified, got ${JSON.stringify(texts)}`)
+  assert.ok(texts.some(t => /^at least 180k estimated \/ 200k tokens$/.test(t)), `bar label qualified, got ${JSON.stringify(texts)}`)
+  assert.ok(texts.some(t => /^at least 90% estimated$/.test(t)), `percentage qualified, got ${JSON.stringify(texts)}`)
 
   const exact: string[] = []
   drawContextComposition(recordingCtx(exact), agent({ tokenStatus: 'available', tokensEstimated: false, tokensUsed: 180000 }), 20)
@@ -54,8 +54,8 @@ test('the cost panel qualifies per-agent rows and BY TOOL rows', () => {
   drawCostSummaryPanel(recordingCtx(texts), agents, toolCalls)
   const costs = texts.filter(t => t.includes('$'))
   assert.ok(costs.length >= 3, `header, agent row and tool row show a cost, got ${JSON.stringify(costs)}`)
-  for (const c of costs) assert.match(c, /estimé/, `${c} is badged`)
-  assert.ok(texts.some(t => /^au moins \$/.test(t)), 'the agent row is a lower bound')
+  for (const c of costs) assert.match(c, /estimated/, `${c} is badged`)
+  assert.ok(texts.some(t => /^at least \$/.test(t)), 'the agent row is a lower bound')
 })
 
 // ─── Expiry delay wiring ────────────────────────────────────────────────────

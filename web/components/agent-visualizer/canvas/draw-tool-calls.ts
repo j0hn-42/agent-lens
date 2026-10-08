@@ -4,6 +4,7 @@ import { TOOL_MAX_CARD_W, TOOL_DRAW, MCP_DRAW, MIN_VISIBLE_OPACITY } from '@/lib
 import { truncateText } from './draw-misc'
 import { measureTextCached, setToolCardSize } from './render-cache'
 import { toolCardExpanded } from '@/lib/tool-lifecycle'
+import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
@@ -147,7 +148,7 @@ export function drawToolCalls(
       const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'
       ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? 'fin non observée' : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? END_NOT_OBSERVED : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else {
       // Completed card: show action + file path (most useful info at a glance)
       ctx.fillStyle = mcp ? COLORS.mcp : COLORS.return
