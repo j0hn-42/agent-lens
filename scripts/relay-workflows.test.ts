@@ -14,6 +14,7 @@ import * as path from 'node:path'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-workflows-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const ORCH = '33333333-3333-4333-8333-333333333333'

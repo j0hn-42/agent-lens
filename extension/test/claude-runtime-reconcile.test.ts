@@ -13,6 +13,7 @@ import * as path from 'node:path'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-runtime-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const SESSION = '55555555-5555-4555-8555-555555555555'

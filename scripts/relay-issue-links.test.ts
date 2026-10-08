@@ -14,6 +14,7 @@ import type { IssueLink } from '../extension/src/issue-links'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-issue-links-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

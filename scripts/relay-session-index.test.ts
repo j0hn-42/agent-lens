@@ -16,6 +16,7 @@ import { mergeIndexedSessions, type IndexOpener } from '../extension/src/session
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-index-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

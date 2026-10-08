@@ -15,6 +15,7 @@ import { RELAY_MAX_SSE_CLIENTS } from '../extension/src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

@@ -23,6 +23,7 @@ import { makeSession } from './helpers/teams-fixtures'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-norm-wiring-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))

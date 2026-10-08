@@ -26,6 +26,16 @@ export function isAgentLensHook(entry: unknown): boolean {
   })
 }
 
+/** Merge Agent Lens hooks into `settings` in place: user hooks are kept, previous Agent Lens entries replaced. */
+export function applyAgentLensHooks(settings: Record<string, unknown>, hooksConfig: Record<string, unknown[]>): void {
+  const existingHooks = (settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {}) as Record<string, unknown>
+  for (const [event, entries] of Object.entries(hooksConfig)) {
+    const current = Array.isArray(existingHooks[event]) ? existingHooks[event] as unknown[] : []
+    existingHooks[event] = [...current.filter(entry => !isAgentLensHook(entry)), ...entries]
+  }
+  settings.hooks = existingHooks
+}
+
 /** True when a parsed settings object contains at least one Agent Lens hook. */
 export function settingsHaveAgentLensHooks(settings: unknown): boolean {
   if (!settings || typeof settings !== 'object') { return false }

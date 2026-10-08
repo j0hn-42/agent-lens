@@ -15,6 +15,7 @@ import { guardRequest, listenLoopback } from './server-hardening'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-conn-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

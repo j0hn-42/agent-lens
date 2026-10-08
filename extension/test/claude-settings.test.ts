@@ -7,7 +7,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
-  isAgentLensHook, settingsHaveAgentLensHooks, readSettingsFile, claudeSettingsPaths, isHooksConfigured,
+  isAgentLensHook, settingsHaveAgentLensHooks, readSettingsFile, claudeSettingsPaths, isHooksConfigured, applyAgentLensHooks,
 } from '../src/claude-settings'
 
 const ourHook = { hooks: [{ type: 'command', command: 'node /home/u/.claude/agent-lens/hook.js', timeout: 2 }] }
@@ -78,5 +78,28 @@ describe('CLAUDE_CONFIG_DIR (second account)', () => {
       assert.equal(isHooksConfigured(undefined, second), true)
       assert.equal(isHooksConfigured(undefined, path.join(root, 'other')), false)
     } finally { fs.rmSync(root, { recursive: true, force: true }) }
+  })
+})
+
+describe('applyAgentLensHooks', () => {
+  const fresh = { hooks: [{ type: 'command', command: 'node /h/.claude/agent-lens/hook.js', timeout: 2 }] }
+  it('keeps the other hooks and other settings, and replaces older Agent Lens entries', () => {
+    const settings: Record<string, unknown> = {
+      model: 'opus',
+      hooks: { Stop: [otherHook, ourHook], Custom: 'not-an-array' },
+    }
+    applyAgentLensHooks(settings, { Stop: [fresh], PreToolUse: [fresh] })
+    const hooks = settings.hooks as Record<string, unknown[]>
+    assert.equal(settings.model, 'opus')
+    assert.deepEqual(hooks.Stop, [otherHook, fresh])
+    assert.deepEqual(hooks.PreToolUse, [fresh])
+    assert.equal(hooks.Custom, 'not-an-array')
+  })
+  it('tolerates a missing or malformed hooks section', () => {
+    for (const hooks of [undefined, null, 'x', 4]) {
+      const settings: Record<string, unknown> = { hooks }
+      applyAgentLensHooks(settings, { Stop: [fresh] })
+      assert.deepEqual(settings.hooks, { Stop: [fresh] })
+    }
   })
 })
