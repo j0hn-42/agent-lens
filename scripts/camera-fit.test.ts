@@ -402,3 +402,13 @@ test('classifyContentChange: a scope key change refits even when the content onl
   // no key supplied: previous behaviour
   assert.equal(classifyContentChange(st(['a']), st(['a', 'b'])), 'growth')
 })
+
+test('computeFitBounds leaves room for the longest label stack under a node (#145)', async () => {
+  const { agentDrawRadius } = await import('../web/components/agent-visualizer/canvas/team-style')
+  const { AGENT_DRAW } = await import('../web/lib/canvas-constants')
+  const a = agent({ isMain: true, x: 0, y: 0 })
+  const b = computeFitBounds({ agents: [a], simTime: 0 })
+  // two name lines + status + orchestrator badge + session line, all under the disc
+  const labels = AGENT_DRAW.labelYOffset + 5 * AGENT_DRAW.stateLabelGap
+  assert.ok(b.maxY >= agentDrawRadius(a) + labels, `maxY ${b.maxY} must cover the label stack`)
+})
