@@ -24,6 +24,7 @@ import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiP
 import { dockStore } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
+import { LearnMoreLink } from "./learn-more-link"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 import { selectionLabel } from "@/lib/session-tree"
@@ -660,6 +661,9 @@ export function AgentVisualizer() {
               >
                 Load demo
               </button>
+            </div>
+            <div className="mt-2 text-xs" style={{ color: COLORS.textMuted }}>
+              <LearnMoreLink />
             </div>
           </div>
         </div>
