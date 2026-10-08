@@ -114,3 +114,21 @@ test('invalid tokens are ignored, the map is bounded and overflow is folded in o
   const total = [...m.values()].reduce((a, e) => a + e.tokens, 0)
   assert.equal(total, (MAX_UNATTRIBUTED_KEYS + 20) * 10)
 })
+
+test('a context reading that turns ambiguous after being attributed is not counted twice', () => {
+  const s = run([main, spawn('w', 'toolu_1'), ctxUpdate('w', 50_000), spawn('w', 'toolu_2'), ctxUpdate('w', 60_000)])
+  assert.equal(s.agents.get('default:w')!.tokensUsed, 50_000)
+  const sum = summarizeCosts(s.agents.values(), s.unattributed.values())
+  assert.equal(sum.unattributedTokens, 0)
+  assert.equal(sum.sessionTokens, 50_000)
+})
+
+test('overflow: absolute readings of overflowed names are never accumulated', () => {
+  const m = new Map()
+  for (let i = 0; i < MAX_UNATTRIBUTED_KEYS; i++) addUnattributed(m, 's', `k${i}`, 'orphan', 10, 'set')
+  for (let i = 0; i < 200; i++) addUnattributed(m, 's', 'late', 'orphan', 50_000, 'set')
+  assert.equal(m.has(OVERFLOW_KEY), false)
+  // Increments (tool cost) still fold into the overflow entry
+  addUnattributed(m, 's', 'late', 'orphan', 70, 'add')
+  assert.equal(m.get(OVERFLOW_KEY)!.tokens, 70)
+})

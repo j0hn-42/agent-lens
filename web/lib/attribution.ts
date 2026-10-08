@@ -62,6 +62,8 @@ export function addUnattributed(
   if (!Number.isFinite(tokens) || tokens <= 0) return
   const existing = map.get(key)
   if (!existing && key !== OVERFLOW_KEY && map.size >= MAX_UNATTRIBUTED_KEYS) {
+    // The overflow entry cannot tell names apart, so an absolute reading cannot replace its predecessor: drop it
+    if (mode === 'set') return
     const over = map.get(OVERFLOW_KEY)
     map.set(OVERFLOW_KEY, { sessionId: '', reason: over?.reason ?? reason, tokens: (over?.tokens ?? 0) + tokens })
     return
