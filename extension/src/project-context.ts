@@ -34,12 +34,16 @@ export function encodeProjectDir(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
-/** Distinct #n references (n >= 1), ascending, capped. `#` must not follow a word character. */
+/**
+ * Distinct #n references (n >= 1), ascending, capped. `#` must start the text or follow whitespace or an opening
+ * bracket/quote. Purely numeric hex colors are not issues: 6-digit numbers (#123456) and repeated-digit triplets
+ * (#111, #333) are dropped. An arbitrary 3-digit number such as #345 stays ambiguous and is kept as an issue.
+ */
 export function extractIssueRefs(text: string): number[] {
   const found = new Set<number>()
-  for (const m of text.matchAll(/(?<![\w&])#(\d{1,7})(?!\w)/g)) {
+  for (const m of text.matchAll(/(?<![^\s([{"'`])#(\d{1,5})(?![\w-])/g)) {
     const n = Number(m[1])
-    if (n >= 1) found.add(n)
+    if (n >= 1 && !/^(\d)\1\1$/.test(m[1])) found.add(n)
   }
   return [...found].sort((a, b) => a - b).slice(0, PROJECT_CONTEXT_MAX_ISSUES)
 }

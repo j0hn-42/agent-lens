@@ -101,6 +101,9 @@ describe('extractIssueRefs', () => {
   it('dedupes, sorts, ignores hex colors and words glued to #', () => {
     assert.deepEqual(extractIssueRefs('#9 #10 #9 color #fff, a#5, (#7)'), [7, 9, 10])
   })
+  it('ignores purely numeric hex colors (#333, #111, #111111, #123456)', () => {
+    assert.deepEqual(extractIssueRefs('fond #111, texte #333, bordure #000, #111111, #123456, #12 (#7)'), [7, 12])
+  })
   it('caps the number of refs', () => {
     const text = Array.from({ length: 500 }, (_, i) => `#${i + 1}`).join(' ')
     assert.ok(extractIssueRefs(text).length <= 50)
