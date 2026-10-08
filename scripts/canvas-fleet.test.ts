@@ -144,11 +144,14 @@ test('clusters: three sessions are three clusters, each with its own members', (
   assert.equal(clusters[1].runtime, 'Codex')
   assert.equal(clusters[1].status, 'working')
   assert.equal(clusters[2].status, 'error')
-  assert.ok(a.cost > 0)
+  assert.ok(a.cost !== null && a.cost > 0)
   const lines = clusterLabelLines(a)
   assert.match(lines.title, /^Session repo-a \(2\)$/)
-  assert.match(lines.detail, /Claude · wsp-a · idle · \$/)
-  assert.match(clusterAnnouncement(a), /^Session repo-a, 2 agents, Claude, workspace wsp-a, idle, cost \$/)
+  // The sub-agent has reported no tokens: the cluster cost is a lower bound, not an exact figure
+  assert.match(lines.detail, /Claude · wsp-a · idle · au moins \$/)
+  assert.match(clusterAnnouncement(a), /^Session repo-a, 2 agents, Claude, workspace wsp-a, idle, cost au moins \$/)
+  assert.equal(clusters[1].cost, null, 'no data at all is null, never $0')
+  assert.equal(clusters[1].costText, 'non renseigné')
   assert.ok(a.r > 25)
 })
 

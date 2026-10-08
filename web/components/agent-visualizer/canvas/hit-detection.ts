@@ -6,6 +6,7 @@
  * Runtime imports are relative so the pure parts can be unit-tested with node:test.
  */
 import type { Agent, ToolCallNode, Discovery } from '../../../lib/agent-types'
+import { toolCardExpanded } from '../../../lib/tool-lifecycle'
 import {
   BUBBLE_MAX_W, BUBBLE_GAP, TOOL_MAX_CARD_W, getDiscoveryCardDimensions,
   AGENT_DRAW, HIT_DETECTION, BUBBLE_DRAW, TOOL_DRAW, MIN_VISIBLE_OPACITY, isExpiryHeld,
@@ -73,12 +74,10 @@ function reverseEntries<K, V>(map: Map<K, V>): Array<[K, V]> {
 export function toolCardSize(tool: ToolCallNode): { w: number; h: number } {
   const cached = getToolCardSize(tool.id)
   if (cached) return cached
-  const isRunning = tool.state === 'running'
-  const isError = tool.state === 'error'
   const labelLen = (`${tool.toolName}: ${tool.args}`).length * HIT_DETECTION.toolCharWidth + 12
   return {
     w: Math.max(60, Math.min(labelLen, TOOL_MAX_CARD_W)),
-    h: (!isRunning && (tool.tokenCost || isError)) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight,
+    h: toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight,
   }
 }
 

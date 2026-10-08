@@ -3,6 +3,8 @@ import { COLORS, withAlpha } from '@/lib/colors'
 import { TOOL_MAX_CARD_W, TOOL_DRAW, MCP_DRAW, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { measureTextCached, setToolCardSize } from './render-cache'
+import { toolCardExpanded } from '@/lib/tool-lifecycle'
+import { USAGE_LABELS } from '@/lib/usage'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 export function drawToolCalls(
@@ -18,6 +20,8 @@ export function drawToolCalls(
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     const isRunning = tool.state === 'running'
     const isError = tool.state === 'error'
+    // Cancelled / expired: neither success nor failure, drawn dashed and muted so they never pass for either
+    const isUnresolved = tool.state === 'cancelled' || tool.state === 'expired'
     const pulse = reducedMotion
       ? (isRunning || isError ? 0.9 : 0.5)
       : isRunning ? Math.sin(time * 4) * 0.2 + 0.8 : isError ? Math.sin(time * 6) * 0.15 + 0.85 : 0.5
@@ -33,7 +37,7 @@ export function drawToolCalls(
     const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12)
     const textWidth = Math.min(measureTextCached(ctx, label) + 12, TOOL_MAX_CARD_W)
     const cardW = Math.max(60, textWidth)
-    const cardH = (!isRunning && (tool.tokenCost || isError)) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
+    const cardH = toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
     const cardX = tool.x - cardW / 2
     const cardY = tool.y - cardH / 2
     // Hit-testing reuses the exact drawn size
@@ -57,7 +61,9 @@ export function drawToolCalls(
       ? COLORS.error + '90'
       : isSelected ? COLORS.holoBase + 'aa' : isRunning ? accent + '90' : mcp ? COLORS.mcp + '60' : COLORS.return + '40'
     ctx.lineWidth = isError ? 2 : isSelected ? 1.5 : mcp ? 1.5 : 1
+    if (isUnresolved) ctx.setLineDash([4, 3])
     ctx.stroke()
+    ctx.setLineDash([])
 
     ctx.shadowBlur = 0
 
@@ -136,15 +142,22 @@ export function drawToolCalls(
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
       ctx.fillStyle = COLORS.error + 'aa'
       ctx.fillText(truncateText(ctx, tool.errorMessage || tool.result || '', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+    } else if (isUnresolved) {
+      ctx.fillStyle = COLORS.textMuted
+      const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'
+      ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
+      ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
+      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? 'fin non observée' : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else {
       // Completed card: show action + file path (most useful info at a glance)
       ctx.fillStyle = mcp ? COLORS.mcp : COLORS.return
       ctx.fillText(truncatedLabel, tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       if (tool.tokenCost) {
-        // Token cost as dim text below
+        // Token cost as dim text below; an estimate is tagged, never shown as an exact figure
         ctx.fillStyle = COLORS.tool + '90'
         ctx.font = `${TOOL_DRAW.tokenFontSize}px monospace`
-        ctx.fillText(`${tool.tokenCost} tok`, tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+        const tag = tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''
+        ctx.fillText(`${tool.tokenCost} tok${tag}`, tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
       }
     }
 

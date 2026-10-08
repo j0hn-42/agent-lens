@@ -1,11 +1,12 @@
 import type { SimulationState } from './types'
 import {
-  TOOL_MIN_DISPLAY_S, TOOL_MAX_RUNNING_S,
+  TOOL_MIN_DISPLAY_S, TOOL_EXPIRY_S,
   DISCOVERY_HOLD_S, DISCOVERY_LERP_SPEED,
   BUBBLE_VISIBLE_S, MOCK_END_BUFFER_S,
   ANIM_SPEED, isExpiryHeld,
 } from '../../lib/canvas-constants'
 import { ARCHIVED_OPACITY } from './archive'
+import { settleToolCall, END_NOT_OBSERVED } from '../../lib/tool-lifecycle'
 import { a11yRecorder, recordFrame } from '../../components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
@@ -14,6 +15,8 @@ export interface AnimateOptions {
   mockScenarioEndTime: number
   /** Playback speed to animate with (already forced to 1 outside review); defaults to the state's speed */
   speed?: number
+  /** Seconds a tool call may run without an observed end before it expires; defaults to TOOL_EXPIRY_S */
+  toolExpiryS?: number
 }
 
 function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
@@ -58,19 +61,16 @@ function animateEdges(edges: SimulationState['edges'], deltaTime: number): Simul
   return edges
 }
 
-function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: number, newTime: number): SimulationState['toolCalls'] {
+function animateToolCalls(toolCalls: SimulationState['toolCalls'], agents: SimulationState['agents'], deltaTime: number, newTime: number, expiryS: number): SimulationState['toolCalls'] {
   let newToolCalls = toolCalls
-  for (const [id, tc] of toolCalls) {
+  for (const [id, current] of toolCalls) {
+    // A call whose end never came is closed as expired (never silently dropped or shown as done)
+    const tc = settleToolCall(current, newTime, expiryS, agents)
     let newOpacity = tc.opacity
     // Held cards (hovered/focused, paused, "never hide") never start fading out
     const held = isExpiryHeld('tool', id)
     if (tc.state === 'running') {
-      const runningSince = newTime - tc.startTime
-      if (runningSince > TOOL_MAX_RUNNING_S && !held) {
-        newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
-      } else {
-        newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
-      }
+      newOpacity = Math.min(1, tc.opacity + deltaTime * ANIM_SPEED.toolFadeIn)
     } else {
       const timeSinceComplete = newTime - (tc.completeTime ?? 0)
       if (held || timeSinceComplete < TOOL_MIN_DISPLAY_S) {
@@ -79,12 +79,40 @@ function animateToolCalls(toolCalls: SimulationState['toolCalls'], deltaTime: nu
         newOpacity = Math.max(0, tc.opacity - deltaTime * ANIM_SPEED.toolFadeOut)
       }
     }
-    if (newOpacity !== tc.opacity) {
+    if (tc !== current || newOpacity !== tc.opacity) {
       if (newToolCalls === toolCalls) newToolCalls = new Map(toolCalls)
       newToolCalls.set(id, { ...tc, opacity: newOpacity })
     }
   }
   return newToolCalls
+}
+
+/**
+ * Closes the timeline block of every call that just expired: it ends at the deadline and says its end was
+ * not observed, instead of growing as "ongoing" forever. The agent's own state is left alone: nothing
+ * proves it stopped working (a sub-agent or a long command may still be going).
+ */
+export function closeExpiredTimelineBlocks(
+  entries: SimulationState['timelineEntries'],
+  before: SimulationState['toolCalls'],
+  after: SimulationState['toolCalls'],
+): SimulationState['timelineEntries'] {
+  if (before === after) return entries
+  let next = entries
+  for (const [id, tc] of after) {
+    if (tc.state !== 'expired' || before.get(id)?.state !== 'running') continue
+    const entry = next.get(tc.agentId)
+    if (!entry) continue
+    const at = tc.completeTime ?? tc.startTime
+    const idx = entry.blocks.findIndex(b =>
+      b.type === 'tool_call' && b.endTime === undefined && b.startTime === tc.startTime && b.label.startsWith(`${tc.toolName}:`))
+    if (idx < 0) continue
+    const blocks = entry.blocks.slice()
+    blocks[idx] = { ...blocks[idx], endTime: at, label: `${blocks[idx].label} (expiré, ${END_NOT_OBSERVED})` }
+    if (next === entries) next = new Map(entries)
+    next.set(tc.agentId, { ...entry, blocks })
+  }
+  return next
 }
 
 function cleanupFaded(
@@ -167,9 +195,10 @@ function animateParticles(particles: SimulationState['particles'], deltaTime: nu
 export function computeNextFrame(prev: SimulationState, deltaTime: number, newTime: number, maxT: number, currentState: SimulationState, options: AnimateOptions): SimulationState {
       // Record dispatch/return particles and tool calls the moment they exist (before expiry removes them)
       recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
+      const newToolCallsRaw = animateToolCalls(currentState.toolCalls, currentState.agents, deltaTime, newTime, options.toolExpiryS ?? TOOL_EXPIRY_S)
+      const timelineEntries = closeExpiredTimelineBlocks(currentState.timelineEntries, currentState.toolCalls, newToolCallsRaw)
       const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
-      const newToolCallsRaw = animateToolCalls(currentState.toolCalls, deltaTime, newTime)
 
       const { agents: newAgents, toolCalls: newToolCalls, edges: filteredEdges } =
         cleanupFaded(newAgentsRaw, newToolCallsRaw, newEdgesRaw, currentState.agents, currentState.toolCalls)
@@ -181,7 +210,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
       if (options.useMockData && currentState.eventIndex >= options.mockScenarioLength && newTime > options.mockScenarioEndTime + MOCK_END_BUFFER_S) {
         return {
           ...currentState, currentTime: newTime, eventIndex: currentState.eventIndex,
-          agents: newAgents, toolCalls: newToolCalls,
+          agents: newAgents, toolCalls: newToolCalls, timelineEntries,
           particles: newParticles, edges: filteredEdges,
           discoveries: newDiscoveries,
           maxTimeReached: maxT,
@@ -191,7 +220,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
 
       return {
         ...currentState, currentTime: newTime, eventIndex: currentState.eventIndex,
-        agents: newAgents, toolCalls: newToolCalls,
+        agents: newAgents, toolCalls: newToolCalls, timelineEntries,
         particles: newParticles, edges: filteredEdges,
         discoveries: newDiscoveries,
         maxTimeReached: maxT,

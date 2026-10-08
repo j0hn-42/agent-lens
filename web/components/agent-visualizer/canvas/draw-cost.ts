@@ -1,8 +1,8 @@
 import { Agent, ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
-import { formatTokens, formatCost } from '@/lib/utils'
-import { agentCost, modelCostRate } from '@/lib/cost'
+import { agentCost, modelCostRate, agentCostUsage, totalCostUsage } from '@/lib/cost'
+import { formatCostUsage, formatTokenUsage, usageFromAgent, combineUsage, type UsageTotal } from '@/lib/usage'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -45,8 +45,8 @@ export function drawCostLabels(
 
   for (const [, agent] of agents) {
     if (!isAgentVisible(agent)) continue
-    const cost = agentCost(agent.tokensUsed, agent.model)
-    if (cost < COST_DRAW.minDisplayCost) continue
+    const costUsage = agentCostUsage(agent)
+    if (costUsage.value === null || costUsage.value < COST_DRAW.minDisplayCost) continue
 
     const r = agentDrawRadius(agent)
     // Stacked above the stats box and the context % label (see overlay-layout.ts)
@@ -61,7 +61,7 @@ export function drawCostLabels(
     if (!place.visible) continue
 
     // Floating cost pill
-    const label = formatCost(cost)
+    const label = formatCostUsage(costUsage)
     ctx.font = 'bold 11px monospace'
     const labelW = ctx.measureText(label).width
     const pillW = labelW + COST_DRAW.pillPadding
@@ -138,27 +138,33 @@ export function drawCostSummaryPanel(
   const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
   if (agentList.length === 0) return
 
-  // Compute totals
-  const totalTokens = agentList.reduce((s, a) => s + a.tokensUsed, 0)
-
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model) }))
+    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model), usage: agentCostUsage(a) }))
     .sort((a, b) => b.cost - a.cost)
   const totalCost = agentBreakdown.reduce((s, a) => s + a.cost, 0)
+  // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged
+  const costUsage = totalCostUsage(agents.values())
+  const tokenUsage = combineUsage(Array.from(agents.values(), usageFromAgent))
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
-  const toolBreakdown = new Map<string, { tokens: number; cost: number }>()
+  // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
+  const toolBreakdown = new Map<string, { tokens: number; cost: number; estimated: boolean; missing: boolean }>()
   for (const [, tc] of toolCalls) {
+    const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0, estimated: false, missing: false }
     if (tc.tokenCost) {
-      const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0 }
       entry.tokens += tc.tokenCost
       entry.cost += agentCost(tc.tokenCost, agents.get(tc.agentId)?.model)
-      toolBreakdown.set(tc.toolName, entry)
+      if (tc.tokenSource !== 'reported') entry.estimated = true
+    } else if (tc.tokenCost === null && tc.state !== 'running') {
+      entry.missing = true
     }
+    toolBreakdown.set(tc.toolName, entry)
   }
   const toolList = Array.from(toolBreakdown.entries())
-    .map(([name, { tokens, cost }]) => ({ name, tokens, cost }))
+    .filter(([, e]) => e.tokens > 0)
+    .map(([name, e]): { name: string; tokens: number; cost: number; usage: UsageTotal } =>
+      ({ name, tokens: e.tokens, cost: e.cost, usage: { value: e.cost, status: e.missing ? 'partial' : 'available', estimated: e.estimated } }))
     .sort((a, b) => b.cost - a.cost)
 
   // Panel dimensions — positioned top-right
@@ -192,11 +198,12 @@ export function drawCostSummaryPanel(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  ctx.fillText(formatCost(totalCost), panelX + COST_PANEL.contentPadding, y)
+  const headerCost = formatCostUsage(costUsage)
+  ctx.fillText(headerCost, panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '11px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokens(totalTokens)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(formatCost(totalCost)).width + 14, y + 2)
+  ctx.fillText(`${formatTokenUsage(tokenUsage)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(headerCost).width + 14, y + 2)
 
   y += headerH
 
@@ -224,12 +231,14 @@ export function drawCostSummaryPanel(
     ctx.font = '11px monospace'
     ctx.fillStyle = COLORS.textPrimary
     ctx.textAlign = 'left'
-    ctx.fillText(truncateText(ctx, a.name, barW - 50), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
+    const costLabel = formatCostUsage(a.usage)
+    const costW = ctx.measureText(costLabel).width
+    ctx.fillText(truncateText(ctx, a.name, barW - costW - 16), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
 
-    // Cost
+    // Cost, qualified like the header ("au moins", "estimé")
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
-    ctx.fillText(formatCost(a.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(costLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
     y += lineH
   }
@@ -266,12 +275,14 @@ export function drawCostSummaryPanel(
       ctx.font = '11px monospace'
       ctx.fillStyle = toolTypeColor(t.name)
       ctx.textAlign = 'left'
-      ctx.fillText(truncateText(ctx, t.name, barW - 50), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
+      const toolCostLabel = formatCostUsage(t.usage)
+      const toolCostW = ctx.measureText(toolCostLabel).width
+      ctx.fillText(truncateText(ctx, t.name, barW - toolCostW - 16), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
 
-      // Cost
+      // Cost (a Claude tool cost is always an estimate: say so)
       ctx.textAlign = 'right'
       ctx.fillStyle = COLORS.costTextDim
-      ctx.fillText(formatCost(t.cost), panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+      ctx.fillText(toolCostLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
       y += lineH
     }

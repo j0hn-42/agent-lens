@@ -4,6 +4,7 @@
  */
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
+import { formatCostUsage, type UsageTotal } from './usage'
 import { SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
@@ -183,8 +184,9 @@ export function formatAgentCounts(active: number, done: number): string {
 }
 
 /** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
-export function formatAllSummary(sessionCount: number, agentCount: number, cost: number): string {
-  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${formatCost(cost)}`
+export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
+  const costText = typeof cost === 'number' ? formatCost(cost) : formatCostUsage(cost)
+  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
 }
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */

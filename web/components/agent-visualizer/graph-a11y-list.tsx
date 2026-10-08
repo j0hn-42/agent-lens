@@ -108,7 +108,7 @@ export function GraphA11yList({
       {agent.tools.length > 0 && (
         <ul aria-label={`Tool calls of ${agent.name}`}>
           {agent.tools.map(tool => {
-            const text = `${agent.name} called ${tool.name}${tool.args ? ` ${tool.args}` : ''}, ${tool.stateText}${tool.error ? `, error: ${tool.error}` : ''}`
+            const text = `${agent.name} called ${tool.name}${tool.args ? ` ${tool.args}` : ''}, ${tool.stateText}${tool.error ? `, error: ${tool.error}` : ''}${tool.warning ? `. ${tool.warning}` : ''}`
             return (
               <li key={tool.id}>
                 {tool.live ? (

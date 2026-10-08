@@ -5,6 +5,7 @@ import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
+import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
@@ -17,6 +18,8 @@ interface AgentDetailCardProps {
     state: AgentState
     model?: string
     tokensUsed: number
+    tokenStatus?: UsageStatus
+    tokensEstimated?: boolean
     tokensMax: number
     toolCalls: number
     timeAlive: number
@@ -91,7 +94,7 @@ export function AgentDetailCard({
           <div className="flex justify-between mb-1">
             <span className="text-[11px]" style={{ color: COLORS.textMuted }}>Context</span>
             <span className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-              {formatTokens(agent.tokensUsed)} / {formatTokens(agent.tokensMax)} ({contextPercent}%)
+              {formatTokenUsage(usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{agent.tokenStatus === 'unavailable' ? '' : ` (${agent.tokenStatus === 'partial' ? '≥ ' : ''}${contextPercent}%)`}
             </span>
           </div>
           {/* Textual value is adjacent, so the bar itself is decorative */}

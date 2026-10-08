@@ -463,6 +463,7 @@ export class CodexRolloutParser {
         tool: pending.name,
         result: resultSummary,
         tokenCost,
+        tokenSource: 'estimated',
         ...(isError ? { isError: true, errorMessage: resultSummary } : {}),
         ...(discovery ? { discovery } : {}),
       },
@@ -526,7 +527,6 @@ export class CodexRolloutParser {
         agent: ORCHESTRATOR_NAME,
         tool: 'WebSearch',
         result: payload.status || 'completed',
-        tokenCost: 0,
       },
     })
   }
@@ -651,6 +651,8 @@ export class CodexRolloutParser {
         agent: ORCHESTRATOR_NAME,
         tokens,
         breakdown: { ...bd },
+        // Codex announces its own total (token_count); otherwise the figure is our estimate
+        tokenSource: state.lastReportedTokens != null ? 'reported' : 'estimated',
         ...(state.reportedContextWindow ? { tokensMax: state.reportedContextWindow } : {}),
         ...(opts.authoritative ? { isAuthoritative: true } : {}),
       },

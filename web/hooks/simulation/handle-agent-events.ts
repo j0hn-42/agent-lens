@@ -10,6 +10,7 @@ import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
 import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
+import { expireToolCall } from '../../lib/tool-lifecycle'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -86,7 +87,7 @@ export function handleAgentSpawn(
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: 0, tokensMax: ctx.getContextWindowSize(model),
+    tokensUsed: 0, tokenStatus: 'unavailable', tokenGaps: 0, tokensEstimated: false, tokensMax: ctx.getContextWindowSize(model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,
@@ -156,9 +157,10 @@ export function handleAgentComplete(
       }
     }
 
+    // The agent is gone but these calls never reported an end: expired, not completed
     for (const [tcId, tc] of state.toolCalls) {
       if (agentsToComplete.includes(tc.agentId) && tc.state === 'running') {
-        state.toolCalls.set(tcId, { ...tc, state: 'complete', completeTime: currentTime })
+        state.toolCalls.set(tcId, expireToolCall(tc, currentTime))
       }
     }
 

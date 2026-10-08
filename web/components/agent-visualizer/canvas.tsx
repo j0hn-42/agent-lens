@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, type ChangeEvent } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { SessionLink } from '@/lib/session-links'
@@ -8,7 +8,7 @@ import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { COLORS } from '@/lib/colors'
 import {
   ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED, A11Y_SNAPSHOT_MS, FLASH_MAX_PER_SECOND,
-  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, CAMERA, STATE_LABEL_LONG, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
+  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, TOOL_EXPIRY_CHOICES_S, loadToolExpiryS, setToolExpiryS, CAMERA, STATE_LABEL_LONG, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
 } from '@/lib/canvas-constants'
 import { formatModelName } from '@/lib/utils'
 import { BloomRenderer } from './bloom-renderer'
@@ -152,6 +152,7 @@ export function AgentCanvas({
   const [osReducedMotion, setOsReducedMotion] = useState(false)
   const [animationsPaused, setAnimationsPaused] = useState(false)
   const [neverHide, setNeverHide] = useState(false)
+  const [toolExpiryS, setToolExpiryState] = useState<number>(TOOL_EXPIRY_CHOICES_S[2])
   const reducedMotionRef = useRef(false)
   reducedMotionRef.current = osReducedMotion || animationsPaused
   const animationsPausedRef = useRef(false)
@@ -163,6 +164,7 @@ export function AgentCanvas({
     // Stored preferences are read after mount so server and first client render match
     setAnimationsPaused(readStoredFlag(ANIM_PAUSE_KEY))
     setNeverHide(readStoredFlag(NEVER_HIDE_KEY))
+    setToolExpiryState(loadToolExpiryS())
     if (typeof window.matchMedia !== 'function') return
     const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
     setOsReducedMotion(mql.matches)
@@ -176,6 +178,10 @@ export function AgentCanvas({
   }, [])
   const toggleNeverHide = useCallback(() => {
     setNeverHide(prev => { writeStoredFlag(NEVER_HIDE_KEY, !prev); return !prev })
+  }, [])
+
+  const changeToolExpiry = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+    setToolExpiryState(setToolExpiryS(Number(e.target.value)))
   }, [])
 
   // ─── Keyboard focus + accessible mirror state ───────────────────────────
@@ -905,6 +911,14 @@ export function AgentCanvas({
         >
           Keep cards visible
         </button>
+        <label className={`${CONTROL_BUTTON_CLASS} gap-1`} style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}>
+          Expire unanswered calls after
+          <select value={toolExpiryS} onChange={changeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
+            {TOOL_EXPIRY_CHOICES_S.map(n => (
+              <option key={n} value={n} style={{ color: '#000' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <GraphLegend teams={a11yModel.teams} />

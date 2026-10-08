@@ -5,7 +5,8 @@ import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
+import { formatModelName, pluralize } from '@/lib/utils'
+import { formatTokenUsage, usageFromAgent } from '@/lib/usage'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -119,7 +120,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <span className="sr-only">{role}, </span>
         <span className="truncate min-w-0 flex-1">{a.name}</span>
         <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
-        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokens(a.tokensUsed)}</span>
+        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokenUsage(usageFromAgent(a))}</span>
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
