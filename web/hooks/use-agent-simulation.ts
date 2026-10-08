@@ -201,6 +201,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (useMockData) {
       while (newEventIndex < MOCK_SCENARIO.length && MOCK_SCENARIO[newEventIndex].time <= newTime) {
         const evt = MOCK_SCENARIO[newEventIndex]
+        observedSessions.mark(evt.sessionId)
         currentState = processEventWithContext(evt, currentState)
         newEvents.push(evt)
         newEventIndex++

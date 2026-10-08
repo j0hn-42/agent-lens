@@ -28,6 +28,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 - Observations: typed `agent_activity` observations exposed by the relay (#72)
 - Accessibility: inline theme bootstrap without flash following host and system, focus ring no longer clipped, forced-colors support (#70)
 - Release: `Release` workflow producing the `.vsix`, version and CHANGELOG consistency check (#133)
+- Demo: `pnpm run dev:demo` now plays a guided tour of every feature (three sessions, an Agent Team, a Workflow, a Codex session, Comms, models, honest values), with a presenter script in `docs/demo.md`; the previous demo stays available as `pnpm run dev:demo:classic`
 
 ## 0.9.1
 
