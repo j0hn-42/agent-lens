@@ -48,6 +48,8 @@ import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './c
 import { planKey } from './canvas/overlay-plan'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
+import { useDockSnapshot } from './shared-ui'
+import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
 
@@ -211,6 +213,7 @@ export function AgentCanvas({
   }, [])
 
   // ─── Keyboard focus + accessible mirror state ───────────────────────────
+  const { controlBarH } = useDockSnapshot().env
   const [focusedNode, setFocusedNode] = useState<NavNode | null>(null)
   const focusedNodeRef = useRef<NavNode | null>(null)
   focusedNodeRef.current = focusedNode
@@ -914,8 +917,13 @@ export function AgentCanvas({
         )}
       </div>
 
-      {/* Camera + comfort controls */}
-      <div className="absolute right-3 bottom-20 z-10 flex max-w-[calc(100vw-24px)] flex-col items-end gap-1">
+      {/* Legend + camera / comfort controls: one block above the (wrapping) control bar, stacked when narrow so they never overlap */}
+      <div
+        className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
+        style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
+      >
+      <GraphLegend teams={a11yModel.teams} />
+      <div className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         <div className="flex gap-1">
           <button
             type="button"
@@ -982,8 +990,7 @@ export function AgentCanvas({
           </select>
         </label>
       </div>
-
-      <GraphLegend teams={a11yModel.teams} />
+      </div>
     </div>
   )
 }

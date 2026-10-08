@@ -85,7 +85,11 @@ export function AgentDetailCard({
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
+  const dock = useDockPanel('detail', true)
+  const { rect } = dock
+  // Hidden behind a sheet (narrow viewport): moving focus elsewhere must not clear the selection
+  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', closeOnFocusOutside: !dock.hidden })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
@@ -97,10 +101,6 @@ export function AgentDetailCard({
   const issueLinks = useIssueLinks(relayOrigin, role)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
-
-  // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
-  const dock = useDockPanel('detail', true)
-  const { rect } = dock
 
   return (
     <div
