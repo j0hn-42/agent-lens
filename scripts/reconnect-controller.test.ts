@@ -4,7 +4,7 @@ import { test, beforeEach, afterEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   createReconnectingSource, createLoadToken, backoffDelay, filterForSession,
-  BACKOFF_BASE_MS, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, REPLAY_WINDOW_MS, DEDUPE_CAPACITY, createEventDedupe,
+  BACKOFF_BASE_MS, HEARTBEAT_INTERVAL_MS, SILENCE_TIMEOUT_MS, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, REPLAY_WINDOW_MS, DEDUPE_CAPACITY, createEventDedupe,
   type EventSourceLike, type SourceStatus,
 } from '../web/lib/reconnect'
 
@@ -263,4 +263,68 @@ test('only events of the requested session reach onMessage', () => {
   assert.equal(messages.length, 0)
   FakeES.last.send({ type: 'agent-event', event: { time: 2, type: 'x', payload: {}, sessionId: 'a' } })
   assert.equal(messages.length, 1)
+})
+
+// Silence detection (#141)
+
+test('silence: no byte for SILENCE_TIMEOUT_MS closes the stream, shows it lost and reconnects with backoff', async () => {
+  start()
+  FakeES.last.open()
+  assert.equal(last().status, 'connected')
+  await tick(SILENCE_TIMEOUT_MS - 1)
+  assert.equal(last().status, 'connected', 'not one ms early')
+  assert.equal(FakeES.last.closed, false)
+  await tick(1)
+  assert.equal(FakeES.all[0].closed, true)
+  assert.equal(last().status, 'disconnected')
+  assert.equal(last().attempt, 1)
+  assert.equal(last().detail, 'reconnecting (attempt 1, retry in 5s)')
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.all.length, 2, 'a new connection is attempted after the backoff')
+})
+
+test('silence: a heartbeat keeps the stream alive and never reaches the consumer', async () => {
+  start()
+  FakeES.last.open()
+  for (let i = 0; i < 10; i++) {
+    await tick(HEARTBEAT_INTERVAL_MS)
+    FakeES.last.send({ type: 'heartbeat' })
+  }
+  assert.equal(last().status, 'connected')
+  assert.equal(FakeES.all.length, 1)
+  assert.deepEqual(messages, [])
+  await tick(SILENCE_TIMEOUT_MS)
+  assert.equal(last().status, 'disconnected', 'beats stopped: silence detected')
+})
+
+test('silence: any real message also counts as life', async () => {
+  start()
+  FakeES.last.open()
+  await tick(SILENCE_TIMEOUT_MS - 1)
+  FakeES.last.send({ type: 'session-list', sessions: [] })
+  await tick(SILENCE_TIMEOUT_MS - 1)
+  assert.equal(last().status, 'connected')
+  assert.equal(messages.length, 1)
+})
+
+test('silence: recovery resets the failure counter once the new stream opens', async () => {
+  start()
+  FakeES.last.open()
+  await tick(SILENCE_TIMEOUT_MS)
+  await tick(BACKOFF_BASE_MS)
+  FakeES.last.open()
+  assert.equal(last().status, 'connected')
+  assert.equal(last().attempt, 0)
+  await tick(SILENCE_TIMEOUT_MS - 1)
+  assert.equal(last().status, 'connected', 'the watchdog restarts with the new stream')
+})
+
+test('silence: no watchdog before the stream opens, none after close()', async () => {
+  const source = start()
+  await tick(10 * SILENCE_TIMEOUT_MS)
+  assert.equal(FakeES.all.length, 1, 'a connecting stream is not judged silent (onerror handles failures)')
+  FakeES.last.open()
+  source.close()
+  await tick(10 * SILENCE_TIMEOUT_MS)
+  assert.equal(FakeES.all.length, 1)
 })

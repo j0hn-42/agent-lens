@@ -14,6 +14,8 @@ export interface IssueLink {
   draft?: boolean
 }
 
+/** Freshness of a role's links in the web cache (mirrors RELAY_ISSUE_LINKS_CACHE_TTL_MS; a test compares them) */
+export const ISSUE_LINKS_CACHE_TTL_MS = 60_000
 /** Links shown in the inspector before "+N more" */
 export const ISSUE_LINKS_SHOWN = 5
 /** Entries accepted from the relay (the relay already bounds to 50 per kind) */

@@ -24,6 +24,12 @@ export const BACKOFF_JITTER_RATIO = 0.2
 export const POLL_TIMEOUT_MS = 4_000
 /** After a reconnect, how long identical events are treated as the relay's buffer replay and dropped */
 export const REPLAY_WINDOW_MS = 10_000
+/** Relay keep-alive period (mirrors RELAY_SSE_HEARTBEAT_MS; a test compares them) */
+export const HEARTBEAT_INTERVAL_MS = 15_000
+/** Silent heartbeat intervals after which the stream is considered dead */
+export const SILENCE_INTERVALS = 3
+/** No byte for this long: the connection is half-open */
+export const SILENCE_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * SILENCE_INTERVALS
 /** Replayed events remembered to drop the duplicates a reconnect replays */
 export const DEDUPE_CAPACITY = 20_000
 
@@ -169,6 +175,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   let timer: ReturnType<typeof setTimeout> | null = null
   let abort: AbortController | null = null
   let hasConnected = false
+  let watchdog: ReturnType<typeof setTimeout> | null = null
   const dedupe = createEventDedupe()
   const alive = () => loadToken.isCurrent(token)
 
@@ -181,6 +188,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   const clear = () => {
     if (timer) { clearTimeout(timer); timer = null }
     if (abort) { abort.abort(); abort = null }
+    if (watchdog) { clearTimeout(watchdog); watchdog = null }
     if (es) { es.onopen = es.onmessage = es.onerror = null; es.close(); es = null }
   }
 
@@ -201,6 +209,19 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
     )
   }
 
+  // Half-open connection (proxy, port-forward, sleep): no onerror, no byte. Any frame, heartbeat included, re-arms it.
+  const armWatchdog = (src: EventSourceLike) => {
+    if (watchdog) clearTimeout(watchdog)
+    watchdog = setTimeout(() => {
+      watchdog = null
+      if (!alive() || es !== src) return
+      src.onopen = src.onmessage = src.onerror = null
+      src.close()
+      es = null
+      fail('error')
+    }, SILENCE_TIMEOUT_MS)
+  }
+
   const connect = () => {
     const src = opts.createEventSource(opts.url)
     es = src
@@ -211,18 +232,22 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       state = nextLinkState(state, 'open')
       // The relay replays its buffer on every connect: remember what was delivered, drop repeats afterwards
       replayUntil = reconnected ? Date.now() + REPLAY_WINDOW_MS : 0
+      armWatchdog(src)
       emit('connected')
     }
     src.onmessage = e => {
       if (!alive() || es !== src) return
+      armWatchdog(src)
       let data: unknown
       try { data = JSON.parse(e.data) } catch { opts.onParseError?.(); return }
+      if ((data as { type?: unknown } | null)?.type === 'heartbeat') return
       const kept = filterForSession(data, opts.sessionId)
       if (kept === null) return
       deliver(kept)
     }
     src.onerror = () => {
       if (!alive() || es !== src) return
+      if (watchdog) { clearTimeout(watchdog); watchdog = null }
       src.onopen = src.onmessage = src.onerror = null
       src.close()
       es = null

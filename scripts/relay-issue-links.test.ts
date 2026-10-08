@@ -23,7 +23,9 @@ let server: http.Server
 let port = 0
 const probeCalls: string[] = []
 const probeCwds: Array<string | undefined> = []
-let probeMode: 'ok' | 'fail' = 'ok'
+let probeMode: 'ok' | 'fail' | 'block' = 'ok'
+let release: () => void = () => {}
+const gate = () => new Promise<void>(r => { const prev = release; release = () => { prev(); r() } })
 
 function get(urlPath: string, opts: { method?: string; headers?: http.OutgoingHttpHeaders } = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
@@ -58,6 +60,7 @@ describe('relay GET /issue-links', () => {
         probeCalls.push(role)
         probeCwds.push(cwd)
         if (probeMode === 'fail') throw new Error('gh is not installed')
+        if (probeMode === 'block') await gate()
         return [link]
       },
     })
@@ -125,6 +128,52 @@ describe('relay GET /issue-links', () => {
 
   it('rejects methods other than GET/HEAD with 405', async () => {
     assert.equal((await get('/issue-links?role=x', { method: 'POST' })).status, 405)
+  })
+
+  it('refuses a cross-site request (Sec-Fetch-Site) with 403 and never runs gh (#102)', async () => {
+    probeCalls.length = 0
+    const r = await get('/issue-links?role=xsite', { headers: { 'Sec-Fetch-Site': 'cross-site' } })
+    assert.equal(r.status, 403)
+    assert.deepEqual(probeCalls, [])
+  })
+
+  it('refuses a foreign or opaque Origin with 403, accepts same-origin, dev origins and no Origin (#102)', async () => {
+    probeCalls.length = 0
+    for (const origin of ['https://evil.example', 'null', 'http://localhost.evil.example']) {
+      assert.equal((await get('/issue-links?role=origin-a', { headers: { Origin: origin } })).status, 403, origin)
+    }
+    assert.deepEqual(probeCalls, [])
+    for (const headers of [
+      { Origin: `http://127.0.0.1:${port}`, 'Sec-Fetch-Site': 'same-origin' },
+      { Origin: 'http://localhost:3000', 'Sec-Fetch-Site': 'same-site' },
+      { 'Sec-Fetch-Site': 'none' },
+    ]) assert.equal((await get('/issue-links?role=origin-b', { headers })).status, 200, JSON.stringify(headers))
+  })
+
+  it('caps the gh runs in flight: a cache miss beyond the cap gets 503 and runs nothing (#102)', async () => {
+    probeCalls.length = 0
+    probeMode = 'block'
+    const pending = [get('/issue-links?role=flight-a'), get('/issue-links?role=flight-b')]
+    while (probeCalls.length < 2) await new Promise(r => setTimeout(r, 5))
+    const over = await get('/issue-links?role=flight-c')
+    assert.equal(over.status, 503)
+    assert.equal(over.headers['retry-after'], '1')
+    // The same role as one already running joins it: no additional gh
+    const joined = get('/issue-links?role=flight-a')
+    probeMode = 'ok'
+    release()
+    const done = await Promise.all([...pending, joined])
+    assert.deepEqual(done.map(d => d.status), [200, 200, 200])
+    assert.deepEqual(probeCalls, ['flight-a', 'flight-b'])
+    // Once released, the next miss is served
+    assert.equal((await get('/issue-links?role=flight-c')).status, 200)
+  })
+
+  it('bounds the new gh runs per minute whatever the roles asked (#102)', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < 30; i++) statuses.push((await get(`/issue-links?role=burst-${i}`, { headers: { 'User-Agent': 'burst-test' } })).status)
+    assert.ok(statuses.includes(503), 'expected a 503 once the per-window budget is spent')
+    assert.ok(statuses.filter(s => s === 200).length <= 20)
   })
 
   it('rate-limits a flood with 429', async () => {

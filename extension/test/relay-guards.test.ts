@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
-  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan,
+  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest,
 } from '../src/relay-guards'
 
 const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
@@ -202,5 +202,27 @@ describe('safe discovery', () => {
       assert.equal(lstat.mock.callCount(), 6, 'un nouveau fichier est examiné tout de suite')
       assert.ok(found.some(f => f.sessionId === 'new-one'))
     } finally { lstat.mock.restore() }
+  })
+})
+
+describe('isCrossOriginRequest (#102)', () => {
+  const host = '127.0.0.1:3001'
+  it('refuses Sec-Fetch-Site cross-site', () => {
+    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site' }, host), true)
+    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site', origin: 'http://localhost:3000' }, host), true)
+  })
+  it('accepts requests without browser fetch metadata (curl, MCP clients, server-side callers)', () => {
+    assert.equal(isCrossOriginRequest({}, host), false)
+    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'none' }, host), false)
+  })
+  it('accepts the relay\'s own origin and the dev web origins, nothing else', () => {
+    assert.equal(isCrossOriginRequest({ origin: 'http://127.0.0.1:3001' }, host), false)
+    assert.equal(isCrossOriginRequest({ origin: 'http://localhost:3000', 'sec-fetch-site': 'same-site' }, host), false)
+    for (const origin of ['https://evil.example', 'null', 'http://localhost.evil.example', 'http://127.0.0.1:3001.evil.io', 'file://']) {
+      assert.equal(isCrossOriginRequest({ origin }, host), true, origin)
+    }
+  })
+  it('treats a repeated Origin header (array) as foreign', () => {
+    assert.equal(isCrossOriginRequest({ origin: ['http://localhost:3000', 'https://evil.example'] }, host), true)
   })
 })

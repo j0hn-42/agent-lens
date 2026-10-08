@@ -10,7 +10,7 @@ import {
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
-  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES,
+  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEV_WEB_ORIGIN_PATTERN,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -268,4 +268,18 @@ export function statusRateKey(remoteAddress: string | undefined, headers: Record
 export function isContextPath(url: string | undefined): boolean {
   if (!url) { return false }
   try { return new URL(url, 'http://localhost').pathname === '/context' } catch { return false }
+}
+
+/**
+ * True when a browser-issued request comes from another site (#102): Sec-Fetch-Site cross-site, or an Origin
+ * that is neither the relay's own (standalone app) nor a dev web origin. Requests carrying neither header
+ * (curl, MCP clients) are not browser-driven and pass.
+ */
+export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[]; host?: string }, host: string | undefined): boolean {
+  if (headers['sec-fetch-site'] === 'cross-site') return true
+  const origin = headers.origin
+  if (origin === undefined) return false
+  if (typeof origin !== 'string') return true
+  if (host !== undefined && origin === `http://${host}`) return false
+  return !DEV_WEB_ORIGIN_PATTERN.test(origin)
 }
