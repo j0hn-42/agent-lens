@@ -15,7 +15,7 @@ import {
 import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
-import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey } from '@/lib/row-sync'
+import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
@@ -97,6 +97,7 @@ interface AgentItemProps {
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
   const a = node.agent
+  rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
   const { detail, stale, role } = agentRowView(a, freshnessNow)
   return (

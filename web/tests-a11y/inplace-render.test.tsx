@@ -6,9 +6,11 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { rowRenderProbe } from '@/lib/row-sync'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 
 afterEach(() => {
+  rowRenderProbe.onRender = null
   cleanup()
   document.body.replaceChildren()
 })
@@ -41,6 +43,37 @@ test('in place: a change to one agent leaves the DOM of the other rows untouched
   assert.equal(watcher.takeRecords().length, 0, 'unchanged row is not rewritten')
   assert.equal(rowByKey(container, 'agent:m1').closest('li'), untouched, 'same DOM node')
   assert.match(rowByKey(container, 'agent:m2').textContent ?? '', /6/)
+})
+
+function countRenders() {
+  const counts: Record<string, number> = {}
+  rowRenderProbe.onRender = id => { counts[id] = (counts[id] ?? 0) + 1 }
+  return counts
+}
+
+test('in place: only the row whose signature changed is rendered again', () => {
+  const counts = countRenders()
+  const { rerender } = render(panel([agent('m1'), agent('m2', { tokensUsed: 5 })]))
+  assert.deepEqual(counts, { m1: 1, m2: 1 })
+  rerender(panel([agent('m1'), agent('m2', { tokensUsed: 6 })]))
+  assert.equal(counts.m1, 1, 'unchanged row not rendered again')
+  assert.equal(counts.m2, 2, 'changed row rendered again')
+})
+
+test('in place: a new onSelectAgent identity from the parent does not render the rows again', () => {
+  const counts = countRenders()
+  const first: (id: string) => void = () => {}
+  const { rerender } = render(panel([agent('m1'), agent('m2')], { onSelectAgent: first }))
+  rerender(panel([agent('m1'), agent('m2')], { onSelectAgent: () => {} }))
+  assert.deepEqual(counts, { m1: 1, m2: 1 })
+})
+
+test('in place: the latest onSelectAgent is the one called on click', () => {
+  const calls: string[] = []
+  const { container, rerender } = render(panel([agent('m1')], { onSelectAgent: () => calls.push('old') }))
+  rerender(panel([agent('m1')], { onSelectAgent: () => calls.push('new') }))
+  fireEvent.click(rowByKey(container, 'agent:m1'))
+  assert.deepEqual(calls, ['new'])
 })
 
 test('in place: the row that changed does update', () => {

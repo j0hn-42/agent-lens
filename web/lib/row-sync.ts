@@ -7,6 +7,9 @@ import type { AgentLike, AgentNode } from './session-tree'
 import { getStateLabel } from './state-labels'
 import { deriveFreshness, lastKnownStateText } from '../hooks/simulation/freshness'
 
+/** Test seam: called with the agent id each time an agent row really renders (never set in production). */
+export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
+
 export interface AgentRowView {
   detail: string
   stale: boolean
