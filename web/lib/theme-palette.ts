@@ -294,6 +294,14 @@ export const NEON_COLORS = {
   commMessageBgSelected: 'rgba(200,150,255,0.24)',
   commMessageText: '#e0b0ff',
   fileCardBg: 'rgba(10, 15, 30, 0.5)',
+
+  // Timeline, legend (zone 4): swimlane arrows, opaque muted text, crown of the orchestrator
+  swimlaneDispatch: '#7fb2ff',
+  swimlaneReturn: '#7fe3a3',
+  swimlaneError: '#ff8f8f',
+  swimlaneMessage: '#e0b0ff',
+  textMutedOpaque: '#8fcfef',
+  crownAccent: '#ffd166',
 } as const
 
 export type ColorKey = keyof typeof NEON_COLORS
@@ -572,6 +580,13 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     commMessageBgSelected: rgba(delegate, 0.14),
     commMessageText: delegate,
     fileCardBg: raised,
+
+    swimlaneDispatch: info,
+    swimlaneReturn: ok,
+    swimlaneError: danger,
+    swimlaneMessage: delegate,
+    textMutedOpaque: muted,
+    crownAccent: warn,
   }
 }
 

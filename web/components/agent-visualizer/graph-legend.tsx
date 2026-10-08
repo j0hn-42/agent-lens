@@ -126,7 +126,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>Faded dashed outline: archived agent (still clickable)</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${TEAM_DEFAULT_COLOR}1a`} stroke={TEAM_DEFAULT_COLOR} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team or workflow. Its label starts with Team or Workflow and names it; a finished workflow is drawn fainter</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="1 4" strokeLinecap="round" /></svg>}>Dotted halo: session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster</Row>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill="#ffd166" /></svg>}>Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill={COLORS.crownAccent} /></svg>}>Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator</Row>
             {teams.map(team => (
               <Row key={team.key} icon={<Swatch color={team.color} round />}>
                 <span className="font-semibold">{team.name}</span>
@@ -174,7 +174,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
         onClick={toggle}
         aria-expanded={open}
         aria-controls={open ? "graph-legend-panel" : undefined}
-        className="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        className="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]"
         style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
       >
         <span aria-hidden="true">{open ? '▾' : '▸'}</span>
