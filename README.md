@@ -31,7 +31,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 ### Run from source (no VS Code required)
 
 ```bash
-git clone https://github.com/jobailla/agent-lens.git
+git clone https://github.com/j0hn-42/agent-lens.git
 cd agent-lens
 pnpm i
 pnpm run setup      # configure Claude Code hooks (one-time)
