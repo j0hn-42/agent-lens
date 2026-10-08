@@ -8,6 +8,7 @@ import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clearPair } from '@/lib/pair-filter-store'
+import { dockStore } from '@/lib/panel-layout'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -220,4 +221,30 @@ test('selecting an agent closes Files and the Cost overlay like the C / F toggle
   await selectAgentNamed(r, 'main-a')
   assert.ok(conversationRegion(r), 'the new selection opened Conversation')
   assert.equal(cost.getAttribute('aria-pressed'), 'false', 'Cost closed by the selection path (openConversation)')
+})
+
+// #116: below the sheet breakpoint (640 px = 200 % zoom, 320 px = 400 %) one panel fills the width and the newest
+// wins. The selection used to open Conversation right after the card, which hid the inspector (display: none),
+// and closing Conversation then dropped the selection: the inspector was never readable.
+test('narrow viewport: selecting an agent shows its inspector and leaves Conversation closed (it is one tap away)', async () => {
+  const win = window as unknown as { innerWidth: number }
+  const before = win.innerWidth
+  win.innerWidth = 640
+  try {
+    act(() => dockStore.measure())
+    const r = await mountWithAgents()
+    await selectWorker(r)
+    await wait(200)
+    assert.ok(agentCard(r), 'the inspector card is shown')
+    assert.equal(conversationRegion(r), null, 'Conversation did not open over it')
+    const card = r.container.querySelector<HTMLElement>('[data-dock-panel="detail"]')
+    assert.ok(card && card.style.display !== 'none', 'the card is not hidden by a newer sheet')
+    // The user can still open Conversation on that agent
+    await key('c')
+    assert.ok(conversationRegion(r), 'the C key opens Conversation')
+    assert.ok((conversationRegion(r)!.textContent ?? '').includes('worker-a'), 'on the selected agent')
+  } finally {
+    win.innerWidth = before
+    act(() => dockStore.measure())
+  }
 })

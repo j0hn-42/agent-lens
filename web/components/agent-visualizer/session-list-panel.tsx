@@ -26,7 +26,7 @@ import {
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
-import { PanelHeader, SlidingPanel } from './shared-ui'
+import { INSPECTOR_KEEP_ATTR, PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 
@@ -373,6 +373,7 @@ export function SessionListPanel({
       zIndex={Z.sidePanel}
       width={380}
       labelledBy="session-list-title"
+      attrs={{ [INSPECTOR_KEEP_ATTR]: '' }}
     >
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader

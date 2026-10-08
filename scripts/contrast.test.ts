@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { COLORS } from '../web/lib/colors'
+import { FRESHNESS_DRAW } from '../web/lib/canvas-constants'
 
 type Rgb = [number, number, number]
 
@@ -293,4 +294,13 @@ test('COLORS.glassBorder is not used on buttons or inputs in web/components', ()
     }
   }
   assert.deepEqual(offenders, [], 'use controlBorder for control boundaries')
+})
+
+// #145: the "last known state" label of a stale node is read over the dark violet halo of its session,
+// not only over the void. Dark violet worst case: the halo tint at its strongest.
+test('stale node label >= 4.5:1 on the void and on the dark violet session halo', () => {
+  for (const [name, bg] of Object.entries({ ...BACKGROUNDS, violetHalo: [0x2a, 0x18, 0x3a] as Rgb })) {
+    const r = ratio(composite(FRESHNESS_DRAW.staleTextColor, bg), bg)
+    assert.ok(r >= 4.5, `staleTextColor=${FRESHNESS_DRAW.staleTextColor} is ${r.toFixed(2)}:1 on ${name}`)
+  }
 })
