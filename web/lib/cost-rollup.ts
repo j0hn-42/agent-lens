@@ -5,6 +5,7 @@
  * turned into 0.
  */
 import { agentCost } from './cost'
+import { isValue, usageFromAgent } from './usage'
 import { formatCost, formatTokens } from './utils'
 import type { AgentLike, AgentNode, SessionRow } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -57,12 +58,14 @@ function walk(roots: ReadonlyArray<AgentNode<CostAgent>>, total: RollupTotal, se
     if (depth > ROLLUP_MAX_DEPTH || total.agents >= ROLLUP_MAX_AGENTS) { total.complete = false; continue }
     seen.add(id)
     total.agents++
-    // Known only when an event reported it: tokensUsed starts at 0 on spawn, which is not a measure
+    // Known only when the token status says so: tokensUsed starts at 0 on spawn, which is not a measure
+    const usage = usageFromAgent(node.agent)
     const t = node.agent.tokensUsed as unknown
-    if (node.agent.tokensReported === true && typeof t === 'number' && Number.isFinite(t) && t >= 0) {
+    if (usage.value !== null && isValue(t)) {
       total.known++
       total.tokens += t
       total.cost += agentCost(t, node.agent.model)
+      if (usage.status === 'partial') total.complete = false   // a lower bound
     } else {
       total.unknown++
       total.complete = false

@@ -132,3 +132,13 @@ test('overflow: absolute readings of overflowed names are never accumulated', ()
   addUnattributed(m, 's', 'late', 'orphan', 70, 'add')
   assert.equal(m.get(OVERFLOW_KEY)!.tokens, 70)
 })
+
+test('summarizeCosts skips agents whose tokens are unknown instead of adding them as 0', () => {
+  const sum = summarizeCosts([
+    { tokensUsed: 1_000_000, tokenStatus: 'available' as const },
+    { tokensUsed: 500_000, tokenStatus: 'partial' as const },
+    { tokensUsed: 999, tokenStatus: 'unavailable' as const },
+  ], [])
+  assert.equal(sum.attributedTokens, 1_500_000, 'a partial lower bound counts, an unavailable placeholder does not')
+  assert.equal(sum.attributedCost, agentCost(1_500_000))
+})

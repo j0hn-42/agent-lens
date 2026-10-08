@@ -257,6 +257,8 @@ export interface A11yExtras {
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Proven parent -> child session links, worded in the heading of the clusters they connect */
   sessionLinks?: ReadonlyArray<SessionLink>
+  /** Every agent of the simulation (even those a collapsed branch hides): cluster costs count them all */
+  costAgents?: Iterable<Agent>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -298,7 +300,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)

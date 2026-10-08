@@ -2,13 +2,14 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { buildAgentForests, buildSessionRows, type AgentLike, type AgentNode } from '../web/lib/session-tree'
 import { agentCost } from '../web/lib/cost'
+import { usageFromAgent } from '../web/lib/usage'
 import {
   rollupBranch, rollupFamily, rollupRows, formatRollup, ROLLUP_MAX_DEPTH, ROLLUP_UNKNOWN_TEXT, ROLLUP_INCOMPLETE_TEXT,
 } from '../web/lib/cost-rollup'
 
 type A = AgentLike & { model?: string }
 const agent = (id: string, parentKey: string | null, tokensUsed: unknown, over: Partial<A> = {}): A => ({
-  id, sessionId: id.split(':')[0], parentKey, name: id, state: 'idle', tokensUsed: tokensUsed as number, tokensReported: true, spawnTime: 0, ...over,
+  id, sessionId: id.split(':')[0], parentKey, name: id, state: 'idle', tokensUsed: tokensUsed as number, tokenStatus: 'available', spawnTime: 0, ...over,
 })
 const node = (a: A, children: AgentNode<A>[] = []): AgentNode<A> => ({ agent: a, children })
 const session = (id: string, teamName?: string) => ({ id, label: id, status: 'active' as const, startTime: 0, lastActivityTime: 0, teamName })
@@ -115,14 +116,14 @@ test('rollupRows: a session row totals its session, a team row the whole family 
 })
 
 test('an agent that never reported tokens is unknown, not a known 0 (the spawn placeholder)', () => {
-  const t = rollupBranch(node(agent('s:main', null, 100), [node(agent('s:sub', 's:main', 0, { tokensReported: false }))]))
+  const t = rollupBranch(node(agent('s:main', null, 100), [node(agent('s:sub', 's:main', 0, { tokenStatus: 'unavailable' }))]))
   assert.equal(t.known, 1)
   assert.equal(t.unknown, 1)
   assert.equal(t.complete, false)
   assert.ok(formatRollup(t).includes(ROLLUP_INCOMPLETE_TEXT))
-  const none = rollupBranch(node(agent('s:main', null, 0, { tokensReported: false })))
+  const none = rollupBranch(node(agent('s:main', null, 0, { tokenStatus: 'unavailable' })))
   assert.equal(formatRollup(none), ROLLUP_UNKNOWN_TEXT, 'a session with nothing reported reads unknown, not 0')
-  assert.equal(rollupBranch(node(agent('s:x', null, 0, { tokensReported: undefined }))).known, 0, 'no evidence = unknown')
+  assert.equal(rollupBranch(node(agent('s:x', null, 0, { tokenStatus: undefined }))).known, 0, 'no evidence = unknown')
   assert.equal(rollupBranch(node(agent('s:y', null, 0))).known, 1, 'a reported 0 is a real 0')
 })
 
@@ -141,4 +142,19 @@ test('rollupRows with the whole data: the team total covers hidden member sessio
   const full = rollupRows(rows, { sessions: sessions.slice(0, 2), forests }).get('team:T')!
   assert.equal(full.tokens, 30)
   assert.equal(full.complete, true)
+})
+
+test('a partial agent is counted as a lower bound: known, but the total is flagged incomplete', () => {
+  const t = rollupBranch(node(agent('s:p', null, 40, { tokenStatus: 'partial' })))
+  assert.equal(t.known, 1)
+  assert.equal(t.tokens, 40)
+  assert.equal(t.complete, false)
+  assert.ok(formatRollup(t).includes(ROLLUP_INCOMPLETE_TEXT))
+})
+
+test('the branch rollup and the session usage read the same status (no divergence)', () => {
+  for (const status of ['available', 'partial', 'unavailable'] as const) {
+    const a = agent('s:x', null, 10, { tokenStatus: status })
+    assert.equal(rollupBranch(node(a)).known === 1, usageFromAgent(a).value !== null, status)
+  }
 })

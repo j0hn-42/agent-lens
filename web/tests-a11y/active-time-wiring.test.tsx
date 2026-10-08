@@ -129,7 +129,7 @@ test('an agent left working by a replay does not get an invented span from the n
 test('a spawned agent has no reported tokens until an event reports them (unknown, not 0)', () => {
   const view = mount()
   send(view, [spawn('alpha')])
-  assert.equal(byName(view, 'alpha').tokensReported, false)
+  assert.equal(byName(view, 'alpha').tokenStatus ?? 'unavailable', 'unavailable')
   send(view, [{ sessionId: 's1', time: 2, type: 'context_update', payload: { agent: 'alpha', tokens: 0 } }])
-  assert.equal(byName(view, 'alpha').tokensReported, true, 'a reported 0 is a real 0')
+  assert.equal(byName(view, 'alpha').tokenStatus, 'available', 'a reported 0 is a real 0')
 })

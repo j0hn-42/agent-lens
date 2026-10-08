@@ -12,7 +12,7 @@
  */
 import type { Agent } from './agent-types'
 import { agentCost, agentCostUsage } from './cost'
-import { combineUsage, usageFromAgent, type UsageTotal } from './usage'
+import { combineUsage, usageFromAgent, type UsageStatus, type UsageTotal } from './usage'
 
 export type UnattributedReason = 'orphan' | 'ambiguous'
 
@@ -86,14 +86,17 @@ export interface CostSummary {
 }
 
 export function summarizeCosts(
-  agents: Iterable<{ tokensUsed: number; model?: string }>,
+  agents: Iterable<{ tokensUsed: number; model?: string; tokenStatus?: UsageStatus }>,
   unattributed: Iterable<{ tokens: number }>,
 ): CostSummary {
   let attributedTokens = 0
   let attributedCost = 0
+  // An agent whose tokens are unknown adds nothing (never a 0 passed off as a figure); sessionUsage flags the gap
   for (const a of agents) {
-    attributedTokens += a.tokensUsed
-    attributedCost += agentCost(a.tokensUsed, a.model)
+    const usage = usageFromAgent(a)
+    if (usage.value === null) continue
+    attributedTokens += usage.value
+    attributedCost += agentCost(usage.value, a.model)
   }
   let unattributedTokens = 0
   for (const u of unattributed) unattributedTokens += u.tokens

@@ -46,7 +46,7 @@ const sessions: SessionInfo[] = [
   { id: 's2', label: 'Second', status: 'active', startTime: 0, lastActivityTime: 2, teamName: 'T' },
 ]
 const mk = (id: string, sessionId: string, parentKey: string | null, tokensUsed: unknown, spawnTime = 1) =>
-  [id, { id, sessionId, parentKey, name: id.split(':')[1], state: 'idle', tokensUsed, tokensReported: true, spawnTime, lastEventAt: T0 }] as const
+  [id, { id, sessionId, parentKey, name: id.split(':')[1], state: 'idle', tokensUsed, tokenStatus: 'available' as const, spawnTime, lastEventAt: T0 }] as const
 
 function panel(agents: Map<string, never>, clock: FreshnessClock) {
   return (

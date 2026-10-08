@@ -62,8 +62,6 @@ export interface Agent {
   tokenGaps?: number
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
-  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
-  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number

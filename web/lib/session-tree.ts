@@ -6,6 +6,7 @@ import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
 import { groupHeading } from './ui-glossary'
 import type { TeamSummary } from './agent-types'
+import type { UsageStatus } from './usage'
 import { isGroupActive, type GroupSummary } from '../hooks/simulation/team-info'
 import { isSessionObserved } from './session-model'
 
@@ -20,10 +21,8 @@ export interface AgentLike {
   kind?: 'main' | 'subagent' | 'teammate'
   currentTool?: string
   tokensUsed: number
-  tokenStatus?: 'available' | 'partial' | 'unavailable'
+  tokenStatus?: UsageStatus
   tokensEstimated?: boolean
-  /** True once an event reported a token count; anything else = unknown (issue #58) */
-  tokensReported?: boolean
   /** Model ID, to price the tokens with the right family rate (issue #58) */
   model?: string
   spawnTime: number
