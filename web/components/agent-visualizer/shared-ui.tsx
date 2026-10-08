@@ -71,16 +71,16 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
 export function useDialogBehavior(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
-  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string } = {},
+  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string; focusOnOpen?: boolean } = {},
 ): void {
-  const { closeOnFocusOutside = true, ignoreSelector } = options
+  const { closeOnFocusOutside = true, ignoreSelector, focusOnOpen = true } = options
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const node = ref.current
-    node?.focus({ preventScroll: true })
+    if (focusOnOpen) node?.focus({ preventScroll: true })
     return () => {
       // Restore only when focus was dropped (Escape/Close unmount) or is still inside the
       // dialog; never pull it back from a control the user moved to.

@@ -119,7 +119,7 @@ export function GraphA11yList({
               aria-expanded={!agent.branch.collapsed}
               onClick={() => onToggleBranch(agent.id)}
             >
-              {agent.branch.collapsed ? `Expand branch of ${agent.name}` : `Collapse branch of ${agent.name}`}
+              {`Branch of ${agent.name}`}
             </button>
           )}
         </p>

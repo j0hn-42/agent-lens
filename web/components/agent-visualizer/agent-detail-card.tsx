@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
@@ -269,6 +269,12 @@ export function AgentDetailCard({
   )
 }
 
+function focusIsBusy(el: Element | null): boolean {
+  if (!el || el === document.body) return false
+  if (el.closest('[data-companion-panel]')) return true
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || (el as HTMLElement).isContentEditable === true
+}
+
 /**
  * Shown when the selected node left the graph (closed, hidden, session removed): says so instead of
  * keeping the old values or substituting another node's.
@@ -276,7 +282,10 @@ export function AgentDetailCard({
 export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null; onClose: () => void; onEscape?: () => void }) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Opened by a data event, not a gesture: never pull focus from a companion panel or a text field (WCAG 3.2.2).
+  // The role="status" text still announces it.
+  const [focusOnOpen] = useState(() => !focusIsBusy(typeof document === 'undefined' ? null : document.activeElement))
+  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', focusOnOpen })
   // Escape closes exactly this layer. A native listener keeps the dialog element free of JSX key handlers
   // (jsx-a11y/no-noninteractive-element-interactions), as the link panel does.
   const closeEscape = onEscape ?? onClose
