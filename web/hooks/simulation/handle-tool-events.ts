@@ -231,7 +231,7 @@ export function handleToolCallEnd(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
-      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? ', estimé' : ''})` : ''}`,
+      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? ', estimated' : ''})` : ''}`,
       timestamp: currentTime,
       toolName,
       toolUseId,

@@ -108,7 +108,7 @@ export function closeExpiredTimelineBlocks(
       b.type === 'tool_call' && b.endTime === undefined && b.startTime === tc.startTime && b.label.startsWith(`${tc.toolName}:`))
     if (idx < 0) continue
     const blocks = entry.blocks.slice()
-    blocks[idx] = { ...blocks[idx], endTime: at, label: `${blocks[idx].label} (expiré, ${END_NOT_OBSERVED})` }
+    blocks[idx] = { ...blocks[idx], endTime: at, label: `${blocks[idx].label} (expired, ${END_NOT_OBSERVED})` }
     if (next === entries) next = new Map(entries)
     next.set(tc.agentId, { ...entry, blocks })
   }

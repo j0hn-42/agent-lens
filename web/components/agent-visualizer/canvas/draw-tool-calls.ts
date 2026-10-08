@@ -147,7 +147,7 @@ export function drawToolCalls(
       const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'
       ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? 'fin non observée' : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? 'end not observed' : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else {
       // Completed card: show action + file path (most useful info at a glance)
       ctx.fillStyle = mcp ? COLORS.mcp : COLORS.return
