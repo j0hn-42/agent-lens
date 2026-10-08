@@ -457,6 +457,16 @@ export const NORM_MAX_KNOWN_AGENTS = 1024
 /** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
 export const NORM_MAX_TRACKED_SESSIONS = 256
 
+// ─── Project context (CLAUDE.md, memory) ─────────────────────────────────────
+
+/** Max bytes read per context file (CLAUDE.md, MEMORY.md); the head is kept and truncation is reported */
+export const PROJECT_CONTEXT_MAX_FILE_BYTES = 64 * 1024
+/** Max issue references (#n) extracted from the context files */
+export const PROJECT_CONTEXT_MAX_ISSUES = 50
+/** Token bucket per client address for GET /context: burst and sustained refill (tokens/s) */
+export const RELAY_CONTEXT_RATE_BURST = 10
+export const RELAY_CONTEXT_RATE_PER_S = 2
+
 // ─── Shared state snapshots (#71) and observations (#72) ─────────────────────
 
 /** Version of the snapshot envelope; a reader refuses any other value */
