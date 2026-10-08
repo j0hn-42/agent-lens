@@ -97,6 +97,16 @@ export const SESSION_NOT_OBSERVED_TEXT = 'listed - activity not observed'
 export const SESSION_NOT_OBSERVED_HELP =
   'Found on disk, but no event has been received for this session since the app started, so whether it is idle or working is unknown.'
 
+/** Visible status of a session that only the session index lists: nothing says it was detected, or whether it is live. */
+export const SESSION_INDEXED_TEXT = 'indexed - not observed'
+export const SESSION_INDEXED_HELP =
+  'Listed by the session index only. This app has not detected the session and the index does not say whether it is finished or still running.'
+
+/** Sessions the app really watches: the entries listed only from the session index are left out. */
+export function detectedSessions<T extends { indexedOnly?: boolean }>(sessions: ReadonlyArray<T>): T[] {
+  return sessions.filter(s => !s.indexedOnly)
+}
+
 export type SessionObservation = 'observed' | 'not-observed'
 
 /** Ids of the sessions for which at least one event was received in this app run. */

@@ -35,6 +35,10 @@ export interface SessionInfo {
   teamName?: string
   /** Teammate name inside the team, when the session is a team member */
   memberName?: string
+  /** Session that launched this one (Task), when declared by the source; see session-links.ts */
+  parentSessionId?: string
+  /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
+  indexedOnly?: boolean
 }
 
 /** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
@@ -99,10 +103,15 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.projectName === undefined || typeof v.projectName === 'string')
     && (v.teamName === undefined || typeof v.teamName === 'string')
     && (v.memberName === undefined || typeof v.memberName === 'string')
+    && (v.parentSessionId === undefined || typeof v.parentSessionId === 'string')
+    && (v.indexedOnly === undefined || typeof v.indexedOnly === 'boolean')
 }
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
+
+/** Max length of a session id taken from an untrusted source (parent links) */
+export const MAX_SESSION_ID_LEN = 128
 
 /** Max length of a team / member name (same as the team tracker) */
 export const MAX_NAME_LEN = 80
@@ -118,17 +127,36 @@ export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
  * cluster keys and tracker names agree); an empty result drops the field.
  */
 export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
-  const { teamName, memberName, projectId, projectName, ...rest } = s
+  const { teamName, memberName, parentSessionId, projectId, projectName, ...rest } = s
   const team = cleanLine(teamName)
   const member = cleanLine(memberName)
+  const parent = cleanLine(parentSessionId, MAX_SESSION_ID_LEN)
   // A project group needs both its identity and a title; half of it is dropped
   const pid = cleanLine(projectId, 64)
   const pname = cleanLine(projectName)
   return {
     ...rest,
-    ...(team ? { teamName: team } : {}), ...(member ? { memberName: member } : {}),
+    ...(team ? { teamName: team } : {}),
+    ...(member ? { memberName: member } : {}),
+    ...(parent ? { parentSessionId: parent } : {}),
     ...(pid && pname ? { projectId: pid, projectName: pname } : {}),
   }
+}
+
+/**
+ * Session to select when none is: active sessions first, then the most recently active. Sessions listed
+ * only from the session index are never picked (no events to show, an empty canvas on a finished session).
+ */
+export function pickAutoSelectSession(sessions: ReadonlyArray<SessionInfo>): string | undefined {
+  let best: SessionInfo | undefined
+  for (const s of sessions) {
+    if (s.indexedOnly) continue
+    if (!best) { best = s; continue }
+    const sa = s.status === 'active' ? 1 : 0
+    const ba = best.status === 'active' ? 1 : 0
+    if (sa !== ba ? sa > ba : s.lastActivityTime > best.lastActivityTime) best = s
+  }
+  return best?.id
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {

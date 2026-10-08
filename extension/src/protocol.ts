@@ -143,6 +143,10 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory read from the transcript (untrusted, capped) */
   cwd?: string
+  /** Session that launched this one (Task), when the source declares it (untrusted, capped) */
+  parentSessionId?: string
+  /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
+  indexedOnly?: boolean
   /** Hash of the repository's git common dir: shared by all worktrees of a repo; absent outside git */
   projectId?: string
   /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */
@@ -185,6 +189,8 @@ export interface RelayStatus {
   hooksConfigured: boolean
   sessionCount: number
   allWorkspaces: boolean
+  /** Optional session index (#66): present only when one is configured */
+  sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────

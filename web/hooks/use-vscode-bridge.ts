@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession } from '@/lib/bridge-types'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
@@ -386,14 +386,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         updateSessions(() => sessionList)
         // Auto-select: prefer active sessions, then most recently active.
         // Only set selection — useLayoutEffect handles flushing events.
-        if (!selectedSessionIdRef.current && sessionList.length > 0) {
-          const sorted = [...sessionList].sort((a, b) => {
-            const aActive = a.status === 'active' ? 1 : 0
-            const bActive = b.status === 'active' ? 1 : 0
-            if (aActive !== bActive) return bActive - aActive
-            return b.lastActivityTime - a.lastActivityTime
-          })
-          const autoId = sorted[0].id
+        const autoId = selectedSessionIdRef.current ? undefined : pickAutoSelectSession(sessionList)
+        if (autoId) {
           sessionSwitchPendingRef.current = true
           pendingEventsRef.current.length = 0
           selectedSessionIdRef.current = autoId
@@ -405,9 +399,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
           const existing = prev.find(s => s.id === session.id)
           if (existing) {
             // Session resumed after inactivity — mark active again
-            return prev.map(s => s.id === session.id
-              ? { ...s, status: 'active' as const, lastActivityTime: Date.now() }
-              : s)
+            return prev.map(s => {
+              if (s.id !== session.id) return s
+              const { indexedOnly: _indexedOnly, ...live } = s // now watched live
+              return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
+            })
           }
           return [...prev, session]
         })

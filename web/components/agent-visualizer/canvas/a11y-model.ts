@@ -15,6 +15,8 @@ import {
   cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
 import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
+import { clusterLinkNotes } from './session-link-model'
+import type { SessionLink } from '../../../lib/session-links'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -221,6 +223,8 @@ export interface A11yExtras {
   simTime?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
   sessions?: ReadonlyMap<string, SessionMeta>
+  /** Proven parent -> child session links, worded in the heading of the clusters they connect */
+  sessionLinks?: ReadonlyArray<SessionLink>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -263,6 +267,7 @@ export function buildA11yModel(
 
   const showSession = hasSeveralSessions(agents.values())
   const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
+  const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
   const agentItems: A11yAgentItem[] = []
@@ -303,7 +308,7 @@ export function buildA11yModel(
     teams,
     links,
     clusters: clusterList.map(c => ({
-      key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: clusterAnnouncement(c), memberIds: c.memberIds, color: c.color,
+      key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: [clusterAnnouncement(c), ...(linkNotes.get(c.key) ?? [])].join(', '), memberIds: c.memberIds, color: c.color,
     })),
     agents: agentItems,
     discoveries: discoveries.map(d => ({

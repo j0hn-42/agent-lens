@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { COLORS } from '@/lib/colors'
 import {
@@ -25,7 +26,7 @@ import {
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
-  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, resolveLinks, hasSeveralSessions,
+  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, drawSessionLinks, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult,
   detectTeamChanges, createTeamPrev, type TeamPrev, type ResolvedLink,
@@ -79,6 +80,8 @@ interface CanvasProps {
   selectedLinkId?: string | null
   /** Facts about sessions the agents do not carry (workspace, label, runtime), keyed by session id: shown on the cluster labels */
   sessions?: ReadonlyMap<string, SessionMeta>
+  /** Proven parent -> child links between sessions, drawn between the session halos of the 'All' view */
+  sessionLinks?: ReadonlyArray<SessionLink>
   /**
    * A cluster label (or its outline entry) was activated: the canvas has already zoomed to the cluster;
    * the app can also select the session / team (e.g. its session tab).
@@ -103,7 +106,7 @@ export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay, hideInactive = false,
-  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect, scopeKey,
+  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -205,6 +208,8 @@ export function AgentCanvas({
   teamsRef.current = teams
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
+  const sessionLinksRef = useRef(sessionLinks)
+  sessionLinksRef.current = sessionLinks
   const onClusterSelectRef = useRef(onClusterSelect)
   onClusterSelectRef.current = onClusterSelect
   /** Clusters and overlay plan of the last drawn frame (read by the cluster click handler) */
@@ -366,7 +371,7 @@ export function AgentCanvas({
       // this timer only publishes them to React state.
       const model = buildA11yModel(visibleAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId]), s.toolCalls, s.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
-        sessions: sessionsRef.current,
+        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current,
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -621,6 +626,7 @@ export function AgentCanvas({
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
+      drawSessionLinks(ctx, sessionLinkSegments(clusters, sessionLinksRef.current ?? []), opts)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,
