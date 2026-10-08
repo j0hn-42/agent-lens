@@ -175,6 +175,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   let timer: ReturnType<typeof setTimeout> | null = null
   let abort: AbortController | null = null
   let hasConnected = false
+  let watchdog: ReturnType<typeof setTimeout> | null = null
   const dedupe = createEventDedupe()
   const alive = () => loadToken.isCurrent(token)
 
@@ -187,6 +188,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   const clear = () => {
     if (timer) { clearTimeout(timer); timer = null }
     if (abort) { abort.abort(); abort = null }
+    if (watchdog) { clearTimeout(watchdog); watchdog = null }
     if (es) { es.onopen = es.onmessage = es.onerror = null; es.close(); es = null }
   }
 
@@ -207,6 +209,19 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
     )
   }
 
+  // Half-open connection (proxy, port-forward, sleep): no onerror, no byte. Any frame, heartbeat included, re-arms it.
+  const armWatchdog = (src: EventSourceLike) => {
+    if (watchdog) clearTimeout(watchdog)
+    watchdog = setTimeout(() => {
+      watchdog = null
+      if (!alive() || es !== src) return
+      src.onopen = src.onmessage = src.onerror = null
+      src.close()
+      es = null
+      fail('error')
+    }, SILENCE_TIMEOUT_MS)
+  }
+
   const connect = () => {
     const src = opts.createEventSource(opts.url)
     es = src
@@ -217,18 +232,22 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       state = nextLinkState(state, 'open')
       // The relay replays its buffer on every connect: remember what was delivered, drop repeats afterwards
       replayUntil = reconnected ? Date.now() + REPLAY_WINDOW_MS : 0
+      armWatchdog(src)
       emit('connected')
     }
     src.onmessage = e => {
       if (!alive() || es !== src) return
+      armWatchdog(src)
       let data: unknown
       try { data = JSON.parse(e.data) } catch { opts.onParseError?.(); return }
+      if ((data as { type?: unknown } | null)?.type === 'heartbeat') return
       const kept = filterForSession(data, opts.sessionId)
       if (kept === null) return
       deliver(kept)
     }
     src.onerror = () => {
       if (!alive() || es !== src) return
+      if (watchdog) { clearTimeout(watchdog); watchdog = null }
       src.onopen = src.onmessage = src.onerror = null
       src.close()
       es = null
