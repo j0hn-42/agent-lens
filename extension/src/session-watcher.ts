@@ -10,7 +10,7 @@ import {
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
-import { readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -302,7 +302,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     // (e.g. when a CLI session starts in a subfolder and creates a new project dir)
     if (this.workspacePath && fs.existsSync(CLAUDE_DIR)) {
       try {
-        this.dirWatcher = fs.watch(CLAUDE_DIR, (_eventType, filename) => {
+        this.dirWatcher = safeWatch(CLAUDE_DIR, (_eventType, filename) => {
           if (!filename) return
           // A new project dir appeared — check if it's a subdirectory of our workspace
           const dirPath = path.join(CLAUDE_DIR, filename)
@@ -322,7 +322,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     if (this.dirWatchers.has(projectDir)) return // already watching
     if (!fs.existsSync(projectDir)) return
     try {
-      const watcher = fs.watch(projectDir, (_eventType, filename) => {
+      const watcher = safeWatch(projectDir, (_eventType, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
           const sessionId = path.basename(filename, '.jsonl')
           if (!this.sessions.has(sessionId)) {
@@ -330,7 +330,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           }
         }
       })
-      this.dirWatchers.set(projectDir, watcher)
+      if (watcher) this.dirWatchers.set(projectDir, watcher)
     } catch (err) { log.debug('Dir watch failed (may not exist yet):', err) }
   }
 
@@ -569,7 +569,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     })
 
     // Watch for new content
-    session.fileWatcher = fs.watch(filePath, (eventType) => {
+    session.fileWatcher = safeWatch(filePath, (eventType) => {
       if (eventType === 'change') {
         this.readNewLines(sessionId)
       }

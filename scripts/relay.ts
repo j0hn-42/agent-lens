@@ -12,7 +12,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -366,7 +366,7 @@ function watchSession(sessionId: string, filePath: string) {
     parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
 
-  session.fileWatcher = fs.watch(filePath, (eventType) => {
+  session.fileWatcher = safeWatch(filePath, (eventType) => {
     if (eventType === 'change') readNewLines(sessionId)
   })
 
@@ -655,7 +655,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const projectDir = path.join(CLAUDE_DIR, encoded)
     if (fs.existsSync(projectDir)) {
       try {
-        projectDirWatcher = fs.watch(projectDir, (_eventType, filename) => {
+        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
           if (filename?.endsWith('.jsonl')) scanNow?.()
         })
       } catch {}

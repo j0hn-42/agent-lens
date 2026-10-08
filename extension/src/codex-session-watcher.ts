@@ -19,7 +19,7 @@ import {
   ACTIVE_SESSION_AGE_S, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
 } from './constants'
-import { readTrackedLines } from './fs-utils'
+import { safeWatch, readTrackedLines } from './fs-utils'
 import { createLogger } from './logger'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
@@ -194,8 +194,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const root = sessionsRoot()
     if (fs.existsSync(root)) {
       try {
-        const rootWatcher = fs.watch(root, { recursive: false }, () => this.scanForSessions())
-        this.dirWatchers.set(root, rootWatcher)
+        const rootWatcher = safeWatch(root, () => this.scanForSessions(), { recursive: false })
+        if (rootWatcher) this.dirWatchers.set(root, rootWatcher)
       } catch (err) { log.debug('Root dir watch failed:', err) }
     }
 
@@ -211,8 +211,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       // Watch this day's directory so we pick up new rollout files quickly
       if (!this.dirWatchers.has(dir)) {
         try {
-          const w = fs.watch(dir, () => this.scanForSessions())
-          this.dirWatchers.set(dir, w)
+          const w = safeWatch(dir, () => this.scanForSessions())
+          if (w) this.dirWatchers.set(dir, w)
         } catch (err) { log.debug('Dir watch failed:', dir, err) }
       }
 
@@ -326,7 +326,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     this._onSessionLifecycle.fire({ type: 'started', sessionId, label })
 
     try {
-      session.fileWatcher = fs.watch(filePath, () => this.readNewLines(sessionId))
+      session.fileWatcher = safeWatch(filePath, () => this.readNewLines(sessionId))
     } catch (err) { log.debug('File watch failed:', filePath, err) }
 
     // fs.watch on macOS sometimes silently stops after long idle — poll as backup.

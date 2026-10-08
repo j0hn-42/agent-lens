@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent } from './protocol'
-import { readTrackedLines, TailedFile } from './fs-utils'
+import { safeWatch, readTrackedLines, TailedFile } from './fs-utils'
 
 /**
  * Watches a JSONL file for agent events.
@@ -33,7 +33,7 @@ export class JsonlEventSource implements vscode.Disposable {
     this.processExistingContent()
 
     // Watch for changes
-    this.watcher = fs.watch(this.filePath, (eventType) => {
+    this.watcher = safeWatch(this.filePath, (eventType) => {
       if (eventType === 'change') {
         this.readNewLines()
       }

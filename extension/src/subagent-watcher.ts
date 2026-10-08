@@ -21,7 +21,7 @@ import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
 } from './constants'
-import { readTrackedLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
+import { safeWatch, readTrackedLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -138,7 +138,7 @@ export function scanSubagentsDir(
   // Start watching the directory itself once it exists
   if (!session.subagentsDirWatcher && fs.existsSync(session.subagentsDir)) {
     try {
-      session.subagentsDirWatcher = fs.watch(session.subagentsDir, () => {
+      session.subagentsDirWatcher = safeWatch(session.subagentsDir, () => {
         scanSubagentsDir(delegate, parser, sessionId)
       })
     } catch (err) { log.debug('Subagent dir watch failed:', err) }
@@ -272,7 +272,7 @@ function startWatchingSubagentFile(
 
   // Watch for new content
   try {
-    state.watcher = fs.watch(filePath, () => {
+    state.watcher = safeWatch(filePath, () => {
       readSubagentNewLines(delegate, parser, filePath, sessionId)
     })
   } catch (err) { log.debug('Subagent file watch failed:', err) }
@@ -348,7 +348,7 @@ function startTeammate(
   emitTeammateActivity(delegate, state, sessionId)
 
   try {
-    state.watcher = fs.watch(filePath, () => {
+    state.watcher = safeWatch(filePath, () => {
       readSubagentNewLines(delegate, parser, filePath, sessionId)
     })
   } catch (err) { log.debug('Teammate file watch failed:', err) }

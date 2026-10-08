@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { createLogger } from './logger'
 
 /**
  * Read a chunk of bytes from a file at a given offset.
@@ -50,6 +51,53 @@ export function readNewFileLines(
   const lines = parts.filter(Boolean)
   return { lines, newSize: stat.size, tail }
 }
+
+const watchLog = createLogger('FsWatch')
+const WATCH_LIMIT_CODES = new Set(['ENOSPC', 'EMFILE', 'ENFILE'])
+let watchLimitWarned = false
+
+/**
+ * fs.watch sans exception non interceptée : un FSWatcher qui émet 'error' (EPERM sous Windows quand
+ * le dossier est supprimé, ENOSPC/EMFILE quand la limite inotify est atteinte) est fermé et la
+ * lecture continue grâce au polling de secours des appelants. Retourne null si la création échoue.
+ * Un seul avertissement (avec le contournement) quand une limite système est atteinte.
+ */
+export function safeWatch(
+  target: string,
+  listener: fs.WatchListener<string>,
+  options?: fs.WatchOptions,
+  onError?: (err: NodeJS.ErrnoException) => void,
+): fs.FSWatcher | null {
+  const report = (err: NodeJS.ErrnoException) => {
+    if (err?.code && WATCH_LIMIT_CODES.has(err.code)) {
+      if (!watchLimitWarned) {
+        watchLimitWarned = true
+        watchLog.warn(
+          `Limite de surveillance de fichiers atteinte (${err.code}) : retour au polling. ` +
+          `Sous Linux/WSL, augmenter fs.inotify.max_user_watches (sysctl) ou fermer des sessions.`,
+        )
+      }
+    } else {
+      watchLog.debug('fs.watch error:', target, err?.code ?? err)
+    }
+  }
+  let watcher: fs.FSWatcher
+  try {
+    watcher = options ? fs.watch(target, options, listener) : fs.watch(target, listener)
+  } catch (err) {
+    report(err as NodeJS.ErrnoException)
+    return null
+  }
+  watcher.on('error', (err: NodeJS.ErrnoException) => {
+    report(err)
+    try { watcher.close() } catch { /* already closed */ }
+    onError?.(err)
+  })
+  return watcher
+}
+
+/** Remet à zéro l'avertissement de limite (tests). */
+export function resetWatchLimitWarning(): void { watchLimitWarned = false }
 
 /** Suivi d'un fichier JSONL lu en continu : offset et fragment de ligne non terminée. */
 export interface TailedFile {

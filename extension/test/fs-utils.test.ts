@@ -7,12 +7,12 @@
  * the line — which is the bug we'd silently regress if this test goes away.
  */
 
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { readNewFileLines, readTrackedLines } from '../src/fs-utils'
+import { safeWatch, resetWatchLimitWarning, readNewFileLines, readTrackedLines } from '../src/fs-utils'
 
 describe('readNewFileLines', () => {
   let dir: string
@@ -138,5 +138,40 @@ describe('readTrackedLines (suivi fileSize + fileTail)', () => {
     assert.deepEqual(readTrackedLines(file, state), [])
     assert.equal(state.fileSize, 0)
     assert.equal(state.fileTail, '')
+  })
+})
+
+describe('safeWatch', () => {
+  let dir: string
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-safewatch-')) })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it("un watcher qui émet 'error' ne lève rien, est fermé et prévient l'appelant", () => {
+    let notified: string | undefined
+    const w = safeWatch(dir, () => {}, undefined, (e) => { notified = e.code })
+    assert.ok(w)
+    let closed = false
+    const realClose = w!.close.bind(w)
+    w!.close = () => { closed = true; realClose() }
+    assert.doesNotThrow(() => w!.emit('error', Object.assign(new Error('boom'), { code: 'EPERM' })))
+    assert.equal(closed, true)
+    assert.equal(notified, 'EPERM')
+  })
+
+  it('retourne null sans lever quand la cible est introuvable', () => {
+    assert.equal(safeWatch(path.join(dir, 'absent'), () => {}), null)
+  })
+
+  it("n'avertit qu'une fois quand la limite inotify est atteinte, avec le contournement", () => {
+    resetWatchLimitWarning()
+    const warn = mock.method(console, 'warn', () => {})
+    try {
+      for (let i = 0; i < 3; i++) {
+        const w = safeWatch(dir, () => {})
+        w!.emit('error', Object.assign(new Error('limit'), { code: 'ENOSPC' }))
+      }
+      assert.equal(warn.mock.callCount(), 1)
+      assert.match(String(warn.mock.calls[0].arguments.join(' ')), /max_user_watches/)
+    } finally { warn.mock.restore() }
   })
 })
