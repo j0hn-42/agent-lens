@@ -33,6 +33,8 @@ export interface LinkPanelEntry {
   /** Collapsed by default (long content) */
   long: boolean
   isError: boolean
+  /** Characters cut by the display cap (0 when the content is whole) */
+  truncatedChars: number
 }
 
 export interface LinkPanelModel {
@@ -98,6 +100,7 @@ export function buildLinkPanelModel(link: AgentLink, agents: Map<string, Agent>)
     const senderName = nameOf(senderRef)
     const receiverName = nameOf(receiverRef)
     const content = cleanMessageText(m.content)
+    const fullLength = typeof m.content === 'string' ? m.content.replace(/\r\n?/g, '\n').length : 0
     return {
       id: m.id,
       type,
@@ -110,6 +113,7 @@ export function buildLinkPanelModel(link: AgentLink, agents: Map<string, Agent>)
       content,
       long: isLongMessage(content),
       isError: !!m.isError,
+      truncatedChars: fullLength > LINK_MESSAGE_MAX_CHARS ? fullLength - (LINK_MESSAGE_MAX_CHARS - 1) : 0,
     }
   })
 
