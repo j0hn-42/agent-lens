@@ -257,7 +257,7 @@ export function AgentDetailCard({
                     href={link.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus-strong)]"
                     style={{ color: COLORS.textPrimary }}
                     title={issueLinkLabel(link)}
                   >

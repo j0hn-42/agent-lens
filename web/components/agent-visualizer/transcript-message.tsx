@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
@@ -10,12 +10,12 @@ import { CheckIcon, GearIcon } from './feed-icons'
 // ─── Message rendering utilities of the Conversation panel ───────────────────
 
 /** Colors of the dispatch / return / teammate rows (text colors keep >= 4.5:1 on the dark panel). */
-export const COMM_STYLE: Record<CommKind, { bg: string; bgSelected: string; text: string }> = {
-  dispatch: { bg: 'rgba(80,140,255,0.14)', bgSelected: 'rgba(80,140,255,0.26)', text: '#9cc4ff' },
-  return: { bg: 'rgba(60,200,120,0.12)', bgSelected: 'rgba(60,200,120,0.24)', text: '#7fe3a3' },
-  return_error: { bg: 'rgba(255,90,90,0.14)', bgSelected: 'rgba(255,90,90,0.26)', text: '#ff9b9b' },
-  message: { bg: 'rgba(200,150,255,0.12)', bgSelected: 'rgba(200,150,255,0.24)', text: '#e0b0ff' },
-}
+export const COMM_STYLE: Record<CommKind, { bg: string; bgSelected: string; text: string }> = themed(() => ({
+  dispatch: { bg: COLORS.commDispatchBg, bgSelected: COLORS.commDispatchBgSelected, text: COLORS.commDispatchText },
+  return: { bg: COLORS.commReturnBg, bgSelected: COLORS.commReturnBgSelected, text: COLORS.commReturnText },
+  return_error: { bg: COLORS.commErrorBg, bgSelected: COLORS.commErrorBgSelected, text: COLORS.commErrorText },
+  message: { bg: COLORS.commMessageBg, bgSelected: COLORS.commMessageBgSelected, text: COLORS.commMessageText },
+}))
 
 export function HighlightText({ text, query }: { text: string; query?: string }) {
   if (!query || !query.trim()) return <>{text}</>

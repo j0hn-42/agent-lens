@@ -280,6 +280,20 @@ export const NEON_COLORS = {
   session5: '#9ad0ff',
   session6: '#ffa978',
   session7: '#8de3de',
+
+  commDispatchBg: 'rgba(80,140,255,0.14)',
+  commDispatchBgSelected: 'rgba(80,140,255,0.26)',
+  commDispatchText: '#9cc4ff',
+  commReturnBg: 'rgba(60,200,120,0.12)',
+  commReturnBgSelected: 'rgba(60,200,120,0.24)',
+  commReturnText: '#7fe3a3',
+  commErrorBg: 'rgba(255,90,90,0.14)',
+  commErrorBgSelected: 'rgba(255,90,90,0.26)',
+  commErrorText: '#ff9b9b',
+  commMessageBg: 'rgba(200,150,255,0.12)',
+  commMessageBgSelected: 'rgba(200,150,255,0.24)',
+  commMessageText: '#e0b0ff',
+  fileCardBg: 'rgba(10, 15, 30, 0.5)',
 } as const
 
 export type ColorKey = keyof typeof NEON_COLORS
@@ -544,6 +558,20 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     session5: mix(ok, info, 0.5),
     session6: mix(warn, danger, 0.5),
     session7: mix(delegate, danger, 0.5),
+
+    commDispatchBg: rgba(info, 0.08),
+    commDispatchBgSelected: rgba(info, 0.14),
+    commDispatchText: info,
+    commReturnBg: rgba(ok, 0.08),
+    commReturnBgSelected: rgba(ok, 0.14),
+    commReturnText: ok,
+    commErrorBg: rgba(danger, 0.08),
+    commErrorBgSelected: rgba(danger, 0.14),
+    commErrorText: danger,
+    commMessageBg: rgba(delegate, 0.08),
+    commMessageBgSelected: rgba(delegate, 0.14),
+    commMessageText: delegate,
+    fileCardBg: raised,
   }
 }
 

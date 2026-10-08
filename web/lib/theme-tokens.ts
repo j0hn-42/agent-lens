@@ -78,6 +78,10 @@ export function cssVar(role: string): string {
  * no backdrop blur, no glow.
  */
 export function extraVars(id: ThemeId): Record<string, string> {
+  return { ...baseExtraVars(id), ...panelExtraVars(id) }
+}
+
+function baseExtraVars(id: ThemeId): Record<string, string> {
   const t = TOKENS[id]
   if (id === 'neon') {
     return {
@@ -112,6 +116,25 @@ export function extraVars(id: ThemeId): Record<string, string> {
     '--lens-input-focus-glow': 'none',
     '--lens-scrollbar-thumb': t['control-border'],
     '--lens-scrollbar-thumb-hover': t['ink-muted'],
+  }
+}
+
+/**
+ * Extras of the side panels and the feed: hover tints of rows and a high-contrast focus ring for links.
+ * Neon keeps the white tints and the white ring it always had; graphite and paper derive from the tokens.
+ */
+function panelExtraVars(id: ThemeId): Record<string, string> {
+  if (id === 'neon') {
+    return {
+      '--lens-hover-05': 'rgba(255, 255, 255, 0.05)',
+      '--lens-hover-10': 'rgba(255, 255, 255, 0.1)',
+      '--lens-focus-strong': '#ffffff',
+    }
+  }
+  return {
+    '--lens-hover-05': 'color-mix(in srgb, var(--lens-ink) 8%, transparent)',
+    '--lens-hover-10': 'color-mix(in srgb, var(--lens-ink) 12%, transparent)',
+    '--lens-focus-strong': TOKENS[id].focus,
   }
 }
 

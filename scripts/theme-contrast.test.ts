@@ -62,6 +62,10 @@ const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['thinking role', 'roleThinkingBgSelected', ['roleThinkingText']],
   ['user role', 'roleUserBgSelected', ['roleUserText']],
   ['search highlight', 'searchHighlightBg', ['textPrimary']],
+  ['dispatch row', 'commDispatchBgSelected', ['commDispatchText']],
+  ['return row', 'commReturnBgSelected', ['commReturnText']],
+  ['error row', 'commErrorBgSelected', ['commErrorText']],
+  ['teammate row', 'commMessageBgSelected', ['commMessageText']],
 ]
 
 for (const id of THEME_IDS) {
@@ -160,4 +164,17 @@ test('palettes of the three themes define the same keys', () => {
   const keys = (id: ThemeId) => Object.keys(paletteFor(id)).sort()
   assert.deepEqual(keys('graphite'), keys('neon'))
   assert.deepEqual(keys('paper'), keys('neon'))
+})
+
+test('neon: the panel and feed colours keep their historical values', () => {
+  const p = paletteFor('neon')
+  assert.equal(p.commDispatchBg, 'rgba(80,140,255,0.14)')
+  assert.equal(p.commReturnText, '#7fe3a3')
+  assert.equal(p.commErrorBgSelected, 'rgba(255,90,90,0.26)')
+  assert.equal(p.commMessageText, '#e0b0ff')
+  assert.equal(p.fileCardBg, 'rgba(10, 15, 30, 0.5)')
+  const v = extraVars('neon')
+  assert.equal(v['--lens-hover-05'], 'rgba(255, 255, 255, 0.05)')
+  assert.equal(v['--lens-hover-10'], 'rgba(255, 255, 255, 0.1)')
+  assert.equal(v['--lens-focus-strong'], '#ffffff')
 })
