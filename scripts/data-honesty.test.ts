@@ -5,6 +5,7 @@ import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks
 import { usageFromAgent, combineUsage, formatTokenUsage, formatCostUsage, USAGE_LABELS } from '../web/lib/usage'
 import { agentCostUsage, totalCostUsage } from '../web/lib/cost'
 import type { SimulationEvent } from '../web/lib/agent-types'
+import { buildLinkPanelModel } from '../web/components/agent-visualizer/canvas/link-panel-model'
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},
@@ -110,4 +111,31 @@ test('cost of an agent with no data is unavailable, not $0', () => {
 
 test('no agents at all: nothing known', () => {
   assert.equal(totalCostUsage([]).status, 'unavailable')
+})
+
+// ── Cuts at ingestion are recorded, never silent (#128) ──
+test('a prompt, a report and a message over the ingestion cap carry the number of characters cut', () => {
+  const s = run([
+    spawn,
+    { type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'worker', task: 't', prompt: 'p'.repeat(12_000), toolUseId: 'toolu_1' } },
+    { type: 'subagent_return', payload: { parent: 'orchestrator', child: 'worker', summary: 'r'.repeat(9_000), toolUseId: 'toolu_1' } },
+    { type: 'message_sent', payload: { from: 'worker', to: 'orchestrator', content: 'm'.repeat(4_500) } },
+    { type: 'message_sent', payload: { from: 'worker', to: 'orchestrator', content: 'm'.repeat(4_000) } },
+  ])
+  const links = Array.from(s.links.values())
+  const spawnLink = links.find(l => l.kind === 'spawn')!
+  const byType = (t: string) => spawnLink.messages.find(m => m.type === t)!
+  assert.equal(byType('dispatch').content.length, 4000)
+  assert.equal(byType('dispatch').cutChars, 8_000)
+  assert.equal(byType('return').cutChars, 5_000)
+  const conv = Array.from(s.conversations.values()).flat()
+  assert.ok(conv.some(m => m.type === 'dispatch' && m.cutChars === 8_000))
+  assert.ok(conv.some(m => m.type === 'return' && m.cutChars === 5_000))
+  const tm = links.find(l => l.kind === 'teammate')!.messages
+  assert.equal(tm[0].cutChars, 500)
+  assert.equal(tm[1].cutChars, undefined) // exactly at the cap: nothing was lost
+
+  const model = buildLinkPanelModel(spawnLink, s.agents)
+  assert.equal(model.entries.find(e => e.type === 'dispatch')!.truncatedChars, 8_000)
+  assert.equal(model.entries.find(e => e.type === 'return')!.truncatedChars, 5_000)
 })

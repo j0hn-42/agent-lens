@@ -8,6 +8,8 @@ import { COLORS } from '@/lib/colors'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
+import { useCopyFeedback } from '@/hooks/use-copy-feedback'
+import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
 interface LinkPanelProps {
@@ -78,6 +80,21 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
     else next.add(id)
     return next
   })
+  const { message: feedback, notify } = useCopyFeedback()
+  const toExport = (e: LinkPanelEntry): CommsExportEntry => ({
+    label: e.typeLabel, sender: e.senderName, receiver: e.receiverName, time: e.timeText,
+    content: e.content, isError: e.isError, truncatedChars: e.truncatedChars,
+  })
+  const copyEntry = async (e: LinkPanelEntry) => {
+    const ok = await copyText(e.content)
+    const cut = e.truncatedChars > 0 ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
+    notify(ok ? `${e.typeLabel} copied${cut}` : 'Copy failed: select the text and copy it by hand')
+  }
+  const exportAll = () => {
+    const title = `${model.fromName} and ${model.toName}: ${model.kindLabel}`
+    const md = conversationToMarkdown({ title, entries: model.entries.map(toExport), notes: exportNotes({ droppedText: model.droppedText }) })
+    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+  }
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 
   const buttonClass = 'inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-[11px] font-mono '
@@ -108,16 +125,30 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
           onClose={onClose}
           className="mb-2"
           titleId={titleId}
-          actions={collapsible.length > 0 ? (
-            <button
-              type="button"
-              onClick={toggleAll}
-              className={buttonClass}
-              style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
-            >
-              {allExpanded ? 'Collapse all' : 'Show all'}
-            </button>
-          ) : undefined}
+          actions={(
+            <>
+              {model.entries.length > 0 && (
+                <button
+                  type="button"
+                  onClick={exportAll}
+                  className={buttonClass}
+                  style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
+                >
+                  Export conversation
+                </button>
+              )}
+              {collapsible.length > 0 && (
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className={buttonClass}
+                  style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
+                >
+                  {allExpanded ? 'Collapse all' : 'Show all'}
+                </button>
+              )}
+            </>
+          )}
         >
           <span className="flex min-w-0 flex-col">
             <span className="break-words text-xs font-mono" style={{ color: COLORS.textPrimary }}>
@@ -131,6 +162,8 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
           {model.summary}
           {model.droppedText ? `. ${model.droppedText}.` : ''}
         </p>
+
+        <p role="status" className="m-0 min-h-0 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {model.entries.length === 0 ? (
           <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>{emptyState('messages on this link')}</p>
@@ -172,18 +205,29 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
                   >
                     {entry.content || '(empty message)'}
                   </pre>
-                  {entry.long && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {entry.long && (
+                      <button
+                        type="button"
+                        onClick={() => toggle(entry.id)}
+                        aria-expanded={isOpen}
+                        aria-controls={contentId}
+                        className={buttonClass}
+                        style={{ color: COLORS.textPrimary }}
+                      >
+                        {isOpen ? 'Show less' : 'Show more'}
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => toggle(entry.id)}
-                      aria-expanded={isOpen}
-                      aria-controls={contentId}
-                      className={`${buttonClass} mt-1`}
+                      onClick={() => { void copyEntry(entry) }}
+                      aria-label={`Copy ${entry.typeLabel.toLowerCase()}, ${entry.directionText}`}
+                      className={buttonClass}
                       style={{ color: COLORS.textPrimary }}
                     >
-                      {isOpen ? 'Show less' : 'Show more'}
+                      Copy
                     </button>
-                  )}
+                  </div>
                 </li>
               )
             })}
