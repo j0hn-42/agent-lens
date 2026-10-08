@@ -216,9 +216,41 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 65.0, type: 'agent_complete', payload: { name: 'orchestrator' } },
 ]
 
+// ─── Workflow demo (?scenario=workflow) ──────────────────────────────────────
+// A workflow with two phases whose first one is finished: exercises the phase groups (#146) and
+// 'Hide inactive agents' on finished members (#147) in the demo app and its browser tests.
+
+function getScenarioName(): string | null {
+  if (typeof window === 'undefined') return null
+  return new URLSearchParams(window.location.search).get('scenario')
+}
+
+const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [
+  { name: 'plan-a', phase: 'Plan' },
+  { name: 'plan-b', phase: 'Plan' },
+  { name: 'build-a', phase: 'Build' },
+  { name: 'build-b', phase: 'Build' },
+  { name: 'build-c', phase: 'Build' },
+]
+
+export const WORKFLOW_MOCK_SCENARIO: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Run the release workflow' } },
+  ...WORKFLOW_MEMBERS.map((m, i): SimulationEvent => ({
+    time: 0.2 + i * 0.1,
+    type: 'agent_spawn',
+    payload: { name: m.name, kind: 'teammate', teamName: 'release', teamKind: 'workflow', parent: 'orchestrator', task: `${m.phase} step` },
+  })),
+  // The phases are announced after the members appeared (the late order the layout must follow)
+  { time: 1.0, type: 'team_info', payload: { teamName: 'release', teamKind: 'workflow', leadSessionId: 'default', members: WORKFLOW_MEMBERS } },
+  { time: 1.5, type: 'agent_activity', payload: { name: 'plan-a', activity: 'done' } },
+  { time: 1.6, type: 'agent_activity', payload: { name: 'plan-b', activity: 'done' } },
+  { time: 1.7, type: 'agent_activity', payload: { name: 'build-a', activity: 'working' } },
+  { time: 1.8, type: 'agent_activity', payload: { name: 'build-b', activity: 'working' } },
+]
+
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
-  : NORMAL_MOCK_SCENARIO
+  : getScenarioName() === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
 
 export const MOCK_DURATION = MOCK_SCENARIO.length > 0
   ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10

@@ -1,7 +1,7 @@
 // 'Hide inactive agents' also hides the done agents (#147): isInactiveAgent / visibleAgents / announcement text.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { visibleAgents, isInactiveAgent, isDoneAgent, hiddenDoneCount, hiddenDoneText } from '../web/lib/inactive-agents'
+import { listedAgents, visibleAgents, isInactiveAgent, isDoneAgent, hiddenDoneCount, hiddenDoneText } from '../web/lib/inactive-agents'
 import type { Agent } from '../web/lib/agent-types'
 
 const mk = (id: string, state: Agent['state'], parentId: string | null = null) =>
@@ -98,4 +98,25 @@ test('hiddenDoneCount / hiddenDoneText: only finished agents are counted and wor
   assert.equal(hiddenDoneText(2), '2 finished agents hidden')
   assert.equal(hiddenDoneText(1), '1 finished agent hidden')
   assert.equal(hiddenDoneText(0), '')
+})
+
+test('listedAgents: the sessions list loses the same finished agents as the canvas, and keeps idle ones', () => {
+  const m = new Map<string, Agent>([
+    ['main', mk('main', 'thinking')],
+    ['t1', mate('t1', { activity: 'done', state: 'idle' })],
+    ['t2', mate('t2', { activity: 'working' })],
+    ['t3', mate('t3', { activity: 'idle', state: 'idle' })],
+  ])
+  assert.deepEqual([...listedAgents(m, true).keys()], ['main', 't2', 't3'], 'idle t3 is hidden on the canvas but stays listed')
+  assert.equal(listedAgents(m, false), m)
+  assert.deepEqual([...listedAgents(m, true, ['t1']).keys()], ['main', 't1', 't2', 't3'], 'selected agent stays')
+})
+
+test('listedAgents: a finished parent of a listed agent stays so the tree is not orphaned', () => {
+  const m = new Map<string, Agent>([
+    ['main', mk('main', 'thinking')],
+    ['t1', mate('t1', { activity: 'done', state: 'idle' })],
+    ['t2', mate('t2', { activity: 'idle', state: 'idle', parentId: 't1' })],
+  ])
+  assert.deepEqual([...listedAgents(m, true).keys()], ['main', 't1', 't2'])
 })

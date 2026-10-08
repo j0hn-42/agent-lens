@@ -88,6 +88,31 @@ export function visibleAgents(
 }
 
 /**
+ * Agents of the sessions list: the same finished agents as the canvas lose their row (#147), nothing else (idle ones
+ * stay listed). A finished agent stays when it is selected or when a listed agent descends from it. Returns `agents`
+ * itself when nothing is hidden.
+ */
+export function listedAgents(
+  agents: Map<string, Agent>,
+  hideInactive: boolean,
+  keepIds: ReadonlyArray<string | null | undefined> = [],
+): Map<string, Agent> {
+  if (!hideInactive) return agents
+  const shown = visibleAgents(agents, true, keepIds)
+  if (shown === agents) return agents
+  const keep = new Set<string>()
+  for (const [id, a] of agents) {
+    if (shown.has(id) || !isDoneAgent(a)) {
+      for (let cur: string | null | undefined = id; cur && !keep.has(cur); cur = agents.get(cur)?.parentId) keep.add(cur)
+    }
+  }
+  if (keep.size === agents.size) return agents
+  const out = new Map<string, Agent>()
+  for (const [id, a] of agents) if (keep.has(id)) out.set(id, a)
+  return out
+}
+
+/**
  * Finished agents ('done', complete or archived) that 'Hide inactive agents' keeps off the screen, for the polite
  * announcement: the user must not believe agents vanished. 0 when the filter is off.
  */

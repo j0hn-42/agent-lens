@@ -41,7 +41,7 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
+import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
@@ -608,6 +608,8 @@ export function AgentVisualizer() {
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
   const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
+  // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
+  const listAgents = useMemo(() => listedAgents(agents, hideInactive, hiddenKeepIds), [agents, hideInactive, hiddenKeepIds])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -860,7 +862,7 @@ export function AgentVisualizer() {
           sessionModels={bridge.sessionModels}
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
-          agents={agents}
+          agents={listAgents}
           selectedAgentId={selection.selectedAgentId}
           onSelectAgent={selection.handleAgentClick}
           teams={bridge.teams}

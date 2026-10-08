@@ -136,3 +136,21 @@ test('force layout: after settling, each member is closer to its own phase centr
     assert.ok(Math.hypot(a.x - own.x, a.y - own.y) < Math.hypot(a.x - other.x, a.y - other.y), `${n} sits with its phase`)
   }
 })
+
+test('team_info that changes a phase after the spawn asks for a layout resync; an unchanged one does not', async () => {
+  let syncs = 0
+  const live: ProcessEventContext = { ...ctx, skipForceSync: false, syncForceSimulation: () => { syncs++ } }
+  let state = createEmptyState()
+  let t = 1
+  const feed = (e: Ev) => { state = processEvent({ time: t, type: e.type, payload: e.payload, sessionId: e.sessionId }, { ...state, currentTime: t++ }, live) }
+  const settle = () => new Promise(r => setTimeout(r, 5))
+  for (const e of [orch, wfAgent('x')]) feed(e)
+  await settle()
+  const afterSpawn = syncs
+  feed(info([{ name: 'x', phase: 'Implement' }]))
+  await settle()
+  assert.equal(syncs, afterSpawn + 1, 'the phase arrived after the spawn: the members must move')
+  feed(info([{ name: 'x', phase: 'Implement' }]))
+  await settle()
+  assert.equal(syncs, afterSpawn + 1, 'same phase again: nothing to move')
+})

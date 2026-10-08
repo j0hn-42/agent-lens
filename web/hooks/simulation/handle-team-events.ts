@@ -7,7 +7,7 @@ import { restampClusterKeys, restampPhases } from './fleet-layout'
 import { teamKeyFor } from './team-key'
 
 /** team_info: store (sanitised) the team summary. The team of the same name and lead is replaced, new ones are capped. */
-export function handleTeamInfo(payload: Record<string, unknown>, state: MutableEventState): void {
+export function handleTeamInfo(payload: Record<string, unknown>, state: MutableEventState, ctx?: ProcessEventContext): void {
   const info = sanitizeTeamInfo(payload)
   if (!info) return
   // Keyed per (lead session, name): same-named teams under different leads coexist
@@ -17,7 +17,10 @@ export function handleTeamInfo(payload: Record<string, unknown>, state: MutableE
   // Sessions may now belong to a team: regroup their agents into its cluster
   restampClusterKeys(state.agents, state.teams)
   // The workflow may now announce the phase of its members
-  restampPhases(state.agents, state.teams)
+  // The layout pulls each member to the centre of its phase: a phase received after the spawn must move them
+  if (restampPhases(state.agents, state.teams) && ctx && !ctx.skipForceSync) {
+    setTimeout(() => ctx.syncForceSimulation(state.agents, state.edges), 0)
+  }
 }
 
 /** agent_activity: record what a teammate is doing. Idle teammates stay on screen; 'done' archives. */
