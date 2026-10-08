@@ -7,7 +7,7 @@
  */
 import type { Agent, TeamSummary } from '../../lib/agent-types'
 import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants'
-import { findTeam, teamOfAgent } from './team-key'
+import { findTeam, teamOfAgent, phaseOfAgent } from './team-key'
 
 export interface ClusterInput {
   key: string
@@ -257,11 +257,45 @@ export function restampClusterKeys(agents: Map<string, Agent>, teams?: ReadonlyM
   return changed
 }
 
+/** Re-stamp `phase` on every workflow agent from the team summaries; returns true when any changed. */
+export function restampPhases(agents: Map<string, Agent>, teams?: ReadonlyMap<string, TeamSummary>): boolean {
+  let changed = false
+  for (const [id, a] of agents) {
+    if (a.teamKind !== 'workflow' && a.phase === undefined) continue
+    const phase = phaseOfAgent(a, teams)
+    if (a.phase === phase) continue
+    const { phase: _old, ...rest } = a
+    agents.set(id, phase ? { ...rest, phase } : rest)
+    changed = true
+  }
+  return changed
+}
+
 // ─── Force simulation helpers ───────────────────────────────────────────────
+
+/**
+ * Centre of every phase of a workflow cluster (#146): the phases, in the order given (first appearance),
+ * sit evenly on a ring around the cluster anchor, so the members of one phase gather in one contiguous
+ * sub-group. Pure and deterministic; the ring keeps inside the cluster disc.
+ */
+export function phaseAnchors(
+  center: { x: number; y: number }, radius: number, phases: ReadonlyArray<string>,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>()
+  const unique = Array.from(new Set(phases))
+  const ring = radius * CLUSTER_LAYOUT.phaseRingFactor
+  unique.forEach((phase, i) => {
+    const angle = -Math.PI / 2 + (i / unique.length) * 2 * Math.PI
+    out.set(phase, { x: center.x + Math.cos(angle) * ring, y: center.y + Math.sin(angle) * ring })
+  })
+  return out
+}
 
 export interface ClusterNodeInfo {
   key: string
   anchor: { x: number; y: number }
+  /** Members of a workflow phase are pulled to the centre of their phase rather than to the cluster anchor */
+  pull?: { x: number; y: number }
   radius: number
   role: 'lead' | 'member' | 'archived'
 }
@@ -278,13 +312,27 @@ export function layoutInfo(
     const key = keyOf(a, teams)
     if (a.isMain && !leads.has(key)) leads.set(key, a.id)
   }
+  // Phases of each workflow cluster, in order of first appearance (only phases an agent really announced)
+  const phasesByCluster = new Map<string, string[]>()
+  for (const a of agents.values()) {
+    if (a.teamKind !== 'workflow' || !a.phase) continue
+    const key = keyOf(a, teams)
+    const list = phasesByCluster.get(key)
+    if (!list) phasesByCluster.set(key, [a.phase]); else if (!list.includes(a.phase)) list.push(a.phase)
+  }
+  const phaseCentres = new Map<string, Map<string, { x: number; y: number }>>()
+  for (const [key, phases] of phasesByCluster) {
+    const anchor = anchors.get(key)
+    if (anchor) phaseCentres.set(key, phaseAnchors(anchor, anchor.radius, phases))
+  }
   const info = new Map<string, ClusterNodeInfo>()
   for (const a of agents.values()) {
     const key = keyOf(a, teams)
     const anchor = anchors.get(key)
     if (!anchor) continue
     const role = leads.get(key) === a.id ? 'lead' : a.archived ? 'archived' : 'member'
-    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role })
+    const pull = role === 'member' && a.phase && a.teamKind === 'workflow' ? phaseCentres.get(key)?.get(a.phase) : undefined
+    info.set(a.id, { key, anchor: { x: anchor.x, y: anchor.y }, radius: anchor.radius, role, ...(pull ? { pull } : {}) })
   }
   return { info, anchors }
 }
@@ -323,6 +371,11 @@ export function createClusterForce(getInfo: (id: string) => ClusterNodeInfo | un
         const pull = (d - info.radius * CLUSTER_LAYOUT.archivedRingFactor) * CLUSTER_LAYOUT.ringStrength * alpha
         vx -= (dx / d) * pull
         vy -= (dy / d) * pull
+      } else if (info.pull) {
+        // Eased directly (not through the velocity): the repulsion between agents would otherwise win over
+        // a pull scaled by alpha and spread the phase over the whole disc. Collision still keeps the agents apart.
+        node.x -= (node.x - info.pull.x) * CLUSTER_LAYOUT.phasePullStrength
+        node.y -= (node.y - info.pull.y) * CLUSTER_LAYOUT.phasePullStrength
       } else {
         vx -= dx * CLUSTER_LAYOUT.pullStrength * alpha
         vy -= dy * CLUSTER_LAYOUT.pullStrength * alpha

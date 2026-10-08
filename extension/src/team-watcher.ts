@@ -55,6 +55,15 @@ function cleanCwd(value: unknown): string | undefined {
   return /[\x00-\x1f\x7f]/.test(value) ? undefined : value
 }
 
+/** Branch name as Claude Code records it in `gitBranch`; a detached HEAD or an odd value is no branch. */
+export function cleanBranch(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const v = value.trim()
+  // eslint-disable-next-line no-control-regex
+  if (v.length === 0 || v.length > 200 || v === 'HEAD' || /[\x00-\x1f\x7f]/.test(v)) return undefined
+  return v
+}
+
 function nameFromAgentId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const at = value.indexOf('@')
@@ -200,6 +209,8 @@ export function inboxKeys(messages: readonly InboxMessage[]): string[] {
 
 export interface SessionHeader {
   cwd?: string
+  /** Git branch recorded by the transcript at its first entry carrying one (absent when detached or unrecorded) */
+  branch?: string
   /** Epoch ms of the first timestamped entry */
   startMs?: number
 }
@@ -219,12 +230,18 @@ export function readSessionHeader(filePath: string): SessionHeader {
       fs.closeSync(fd)
     }
     const header: SessionHeader = {}
+    let branchSeen = false // the first entry that records a branch decides, even a detached HEAD
     for (const line of text.split('\n')) {
-      if (header.cwd !== undefined && header.startMs !== undefined) break
+      if (header.cwd !== undefined && header.startMs !== undefined && branchSeen) break
       if (!line.startsWith('{')) continue
       try {
-        const e = JSON.parse(line) as { cwd?: unknown; timestamp?: unknown }
+        const e = JSON.parse(line) as { cwd?: unknown; timestamp?: unknown; gitBranch?: unknown }
         if (header.cwd === undefined) header.cwd = cleanCwd(e.cwd)
+        if (!branchSeen && typeof e.gitBranch === 'string') {
+          branchSeen = true
+          const branch = cleanBranch(e.gitBranch)
+          if (branch) header.branch = branch
+        }
         if (header.startMs === undefined && typeof e.timestamp === 'string') {
           const t = Date.parse(e.timestamp)
           if (Number.isFinite(t)) header.startMs = t

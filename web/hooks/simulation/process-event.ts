@@ -105,7 +105,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         case 'subagent_return':   handleSubagentReturn(event.payload, prev.currentTime, state, sid); break
         case 'agent_link':        handleAgentLink(event.payload, prev.currentTime, state, sid); break
         case 'message_sent':      handleMessageSent(event.payload, prev.currentTime, state, sid); break
-        case 'team_info':         handleTeamInfo(event.payload, state); break
+        case 'team_info':         handleTeamInfo(event.payload, state, ctx); break
         case 'agent_activity':    handleAgentActivity(event.payload, prev.currentTime, state, ctx, sid); break
         case 'permission_requested': handlePermissionRequested(event.payload, prev.currentTime, state, ctx, sid); break
       }

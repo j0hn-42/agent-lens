@@ -8,7 +8,7 @@ import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
-import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
+import { PanelHeader, ProgressBar, INSPECTOR_IGNORE_SELECTOR, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-links'
@@ -90,7 +90,7 @@ export function AgentDetailCard({
   const dock = useDockPanel('detail', true)
   const { rect } = dock
   // Hidden behind a sheet (narrow viewport): moving focus elsewhere must not clear the selection
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', closeOnFocusOutside: !dock.hidden })
+  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, closeOnFocusOutside: !dock.hidden })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
@@ -99,7 +99,7 @@ export function AgentDetailCard({
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
-  const issueLinks = useIssueLinks(relayOrigin, role, agent.sessionId)
+  const { links: issueLinks, status: issueLinksStatus } = useIssueLinks(relayOrigin, role, agent.sessionId)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -240,7 +240,13 @@ export function AgentDetailCard({
           )
         })()}
 
-        {/* Issues / PRs carrying the agent:<role> label of this node (silent when gh is unavailable) */}
+        {/* Issues / PRs carrying the agent:<role> label of this node. A failed load is said to be unavailable, never shown as "no link" (#149) */}
+        {role && issueLinksStatus === 'unavailable' && (
+          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links-unavailable">
+            <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
+            <p role="status" className="m-0" style={{ color: COLORS.textDim }}>Issue and PR links unavailable for now.</p>
+          </div>
+        )}
         {role && issueLinks.length > 0 && (
           <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
@@ -286,7 +292,7 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
   // Opened by a data event, not a gesture: never pull focus from a companion panel or a text field (WCAG 3.2.2).
   // The role="status" text still announces it.
   const [focusOnOpen] = useState(() => !focusIsBusy(typeof document === 'undefined' ? null : document.activeElement))
-  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]', focusOnOpen })
+  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, focusOnOpen })
   // Escape closes exactly this layer. A native listener keeps the dialog element free of JSX key handlers
   // (jsx-a11y/no-noninteractive-element-interactions), as the link panel does.
   const closeEscape = onEscape ?? onClose

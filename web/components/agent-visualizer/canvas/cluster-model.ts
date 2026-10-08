@@ -11,6 +11,7 @@ import { totalCostUsage } from '../../../lib/cost'
 import { formatCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
+import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import {
   cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, HALO_PADDING, isOrchestrator,
@@ -318,4 +319,47 @@ export function clusterLabelAnchor(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { x: nu
 /** Camera target (world centre and radius) that frames the cluster. */
 export function clusterBounds(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { cx: number; cy: number; r: number } {
   return { cx: c.cx, cy: c.cy, r: c.r }
+}
+
+/** Label of one phase of a workflow on the canvas (#146) */
+export interface PhaseLabel {
+  /** Cluster the phase belongs to */
+  clusterKey: string
+  phase: string
+  text: string
+  /** World position of the label: above the highest member of the phase, centred on its members */
+  x: number
+  y: number
+  memberIds: string[]
+}
+
+/** Gap between the highest member of a phase and the bottom of its label (world units) */
+const PHASE_LABEL_GAP = 14
+
+/**
+ * One label per announced phase of every workflow with at least one phase; agents without phase get
+ * no label (nothing is invented). Positions follow the members, so the label stays with its sub-group.
+ */
+export function phaseLabels(agentsIn: Iterable<Agent>): PhaseLabel[] {
+  const byWorkflow = new Map<string, Agent[]>()
+  for (const a of agentsIn) {
+    if (a.teamKind !== 'workflow' || !a.phase || !isAgentVisible(a)) continue
+    const key = a.clusterKey ?? `${a.sessionId}\u0000${cleanText(a.teamName)}`
+    const list = byWorkflow.get(key)
+    if (list) list.push(a); else byWorkflow.set(key, [a])
+  }
+  const out: PhaseLabel[] = []
+  for (const [clusterKey, members] of byWorkflow) {
+    for (const seg of groupByPhase(members)) {
+      if (seg.kind !== 'phase') continue
+      let x = 0, top = Infinity
+      for (const m of seg.items) { x += m.x; top = Math.min(top, m.y - agentDrawRadius(m)) }
+      const phase = cleanText(seg.phase, 40)
+      out.push({
+        clusterKey, phase, text: `Phase ${phase} (${seg.items.length})`,
+        x: x / seg.items.length, y: top - PHASE_LABEL_GAP, memberIds: seg.items.map(m => m.id),
+      })
+    }
+  }
+  return out
 }

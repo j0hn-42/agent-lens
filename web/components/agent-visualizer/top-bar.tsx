@@ -5,6 +5,7 @@ import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
+import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -50,7 +51,7 @@ function UnmutedIcon() {
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -67,6 +68,8 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   ariaLabel?: string
   /** True when the button opens a modal dialog */
   hasDialog?: boolean
+  /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
+  keepsInspector?: boolean
 }) {
   return (
     <button
@@ -78,6 +81,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
+      {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
       className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
       style={{
@@ -221,6 +225,7 @@ export const TopBar = memo(function TopBar({
         onClick={onToggleSessions}
         title="Sessions and agents (L)"
         shortcut="l"
+        keepsInspector
         style={{ maxWidth: 'min(320px, 100%)' }}
       >
         <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
@@ -288,7 +293,7 @@ export const TopBar = memo(function TopBar({
             active={hideInactive}
             pressed={hideInactive}
             onClick={() => onToggleHideInactive(!hideInactive)}
-            title="Hide agents that are idle or finished"
+            title="Hide agents that are idle or done"
           >
             Hide inactive agents
           </ToggleButton>

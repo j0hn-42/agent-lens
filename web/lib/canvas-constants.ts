@@ -187,6 +187,10 @@ export const CLUSTER_LAYOUT = {
   holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
+  /** Share of the distance a workflow member covers towards the centre of its phase, per tick */
+  phasePullStrength: 0.06,
+  /** Centres of the phases of a workflow sit on a ring of this fraction of the cluster radius */
+  phaseRingFactor: 0.5,
   /** Archived agents drift to this fraction of the cluster radius */
   archivedRingFactor: 0.85,
   ringStrength: 0.06,
@@ -688,6 +692,8 @@ export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 export const FRESHNESS_DRAW = {
   /** Neutral grey of a stale node (state colours say "live") */
   staleColor: '#8a94a0',
+  /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
+  staleTextColor: '#c5ced8',
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */

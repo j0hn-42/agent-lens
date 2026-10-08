@@ -1,7 +1,7 @@
 import { COLORS } from '@/lib/colors'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
-import { type Cluster, clusterLabelLines, haloAlphas } from './cluster-model'
+import { type Cluster, type PhaseLabel, clusterLabelLines, haloAlphas } from './cluster-model'
 import { CLUSTER_DRAW } from '@/lib/canvas-constants'
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
@@ -77,6 +77,34 @@ export function drawClusterHalos(
     ctx.stroke()
     ctx.restore()
   }
+}
+
+/**
+ * Phase labels of the workflows (#146): a small chip above each phase sub-group, in world space like the
+ * nodes it names. Drawn only at zoom levels where text is readable.
+ */
+export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyArray<PhaseLabel>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
+  if (labels.length === 0 || !lodForZoom(opts.zoom).labels) return
+  ctx.save()
+  ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  const hgt = 20
+  for (const l of labels) {
+    const w = ctx.measureText(l.text).width + 14
+    ctx.beginPath()
+    ctx.roundRect(l.x - w / 2, l.y - hgt, w, hgt, 6)
+    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fill()
+    ctx.setLineDash([3, 3])
+    ctx.strokeStyle = COLORS.textMuted
+    ctx.lineWidth = 1
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillText(l.text, l.x, l.y - hgt / 2 + 1)
+  }
+  ctx.restore()
 }
 
 /**
