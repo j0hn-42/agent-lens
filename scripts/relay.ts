@@ -26,6 +26,7 @@ import {
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
+  RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
 import { readProjectContext } from '../extension/src/project-context'
@@ -33,7 +34,7 @@ import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, isValidSessionId, observationsRoute,
+  listProjectDirs, discoverSessionFiles, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -725,6 +726,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const issueLinksCoalescer = new KeyedCoalescer<IssueLink[]>()
   const issueLinksCache = new Map<string, { at: number; links: IssueLink[] }>()
+  // Roles whose gh runs right now (a same-role request joins it), and the start times of recent runs (#102)
+  const issueLinksRunning = new Set<string>()
+  let issueLinksProbeStarts: number[] = []
   let repoUrlPromise: Promise<string | undefined> | undefined
   const issueLinksProbe = options.issueLinksProbe ?? (async (role: string): Promise<IssueLink[]> => {
     repoUrlPromise ??= resolveRepoUrl(workspace)
@@ -736,6 +740,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     async handleIssueLinks(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      // A page on another site can fire this GET blind: each miss would run gh with the user's token (#102)
+      if (isCrossOriginRequest(req.headers, req.headers.host)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')
         return
@@ -764,10 +774,23 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
         links = cached.links
       } else {
+        if (!issueLinksRunning.has(role)) {
+          // A new gh run: bounded globally (in flight, and per window), independently of the limiter key
+          issueLinksProbeStarts = issueLinksProbeStarts.filter(t => now - t < RELAY_ISSUE_LINKS_PROBE_WINDOW_MS)
+          if (issueLinksRunning.size >= RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT || issueLinksProbeStarts.length >= RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW) {
+            res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+            res.end('Busy')
+            return
+          }
+          issueLinksProbeStarts.push(now)
+          issueLinksRunning.add(role)
+        }
         try {
           links = await issueLinksCoalescer.run(role, () => issueLinksProbe(role))
         } catch {
           links = [] // gh absent, unauthenticated or failing: no link, no error
+        } finally {
+          issueLinksRunning.delete(role)
         }
         if (issueLinksCache.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) {
           const oldest = issueLinksCache.keys().next().value
