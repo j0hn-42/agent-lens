@@ -141,6 +141,16 @@ export function costPanelTop(topbarH: string | null | undefined): number {
   return Number.isFinite(px) && px > COST_PANEL.yStart ? Math.round(px) : COST_PANEL.yStart
 }
 
+/** Écart entre le total de coût et le nombre de tokens sur la ligne d'en-tête du panneau */
+const HEADER_GAP = 14
+/** Hauteur de la seconde ligne d'en-tête quand les tokens passent sous le coût */
+const HEADER_WRAP_H = 14
+
+/** Vrai quand coût et tokens ne tiennent pas côte à côte dans le panneau : les tokens passent alors sur une seconde ligne (#116) */
+export function costHeaderWraps(costW: number, tokensW: number): boolean {
+  return COST_PANEL.contentPadding * 2 + costW + HEADER_GAP + tokensW > COST_PANEL.width
+}
+
 function readTopbarH(): string {
   try { return typeof document === 'undefined' ? '' : document.documentElement.style.getPropertyValue('--topbar-h') } catch { return '' }
 }
@@ -196,11 +206,18 @@ export function drawCostSummaryPanel(
   const panelX = canvasW - panelW - COST_PANEL.xMargin
   const panelY = costPanelTop(readTopbarH())
   const lineH = COST_PANEL.lineHeight
-  const headerH = COST_PANEL.headerHeight
   const sectionGap = COST_PANEL.sectionGap
   const agentRows = Math.min(agentBreakdown.length, COST_PANEL.maxRows)
   const toolRows = Math.min(toolList.length, COST_PANEL.maxRows)
   const restRows = hasRest ? 1 : 0
+  // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
+  const headerCostText = formatCostUsage(costUsage)
+  const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
+  ctx.font = 'bold 12px monospace'
+  const headerCostW = ctx.measureText(headerCostText).width
+  ctx.font = '11px monospace'
+  const wrapHeader = costHeaderWraps(headerCostW, ctx.measureText(headerTokensText).width)
+  const headerH = COST_PANEL.headerHeight + (wrapHeader ? HEADER_WRAP_H : 0)
   const panelH = headerH + ((agentRows + restRows) * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
 
   ctx.save()
@@ -221,12 +238,12 @@ export function drawCostSummaryPanel(
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
   ctx.fillStyle = COLORS.costText
-  const headerCost = formatCostUsage(costUsage)
-  ctx.fillText(headerCost, panelX + COST_PANEL.contentPadding, y)
+  ctx.fillText(headerCostText, panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '11px monospace'
   ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokenUsage(tokenUsage)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(headerCost).width + 14, y + 2)
+  if (wrapHeader) ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
+  else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
 
   y += headerH
 
