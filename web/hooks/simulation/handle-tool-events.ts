@@ -174,7 +174,7 @@ export function handleToolCallEnd(
       currentTool: undefined,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
-        ? { ...addToken(agent, tokenCost, tokenSource), tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported }
+        ? addToken(agent, tokenCost, tokenSource)
         : {}),
       ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
     })
