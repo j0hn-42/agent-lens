@@ -10,6 +10,7 @@ import {
   BRIDGE_INIT_MAX_RETRIES, BRIDGE_INIT_RETRY_MS, DEFAULT_DEV_PORT, NONCE_LENGTH, NONCE_CHARS,
   WEBVIEW_BG_COLOR, WEBVIEW_LOADING_TEXT, WEBVIEW_LOADING_TEXT_DIM,
 } from './constants'
+import { productionHtml } from './webview-html'
 
 function getNonce(): string {
   const bytes = crypto.randomBytes(NONCE_LENGTH)
@@ -246,29 +247,7 @@ export class VisualizerPanel implements vscode.Disposable {
       vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview', 'index.css'),
     )
 
-    return `<!DOCTYPE html>
-<html lang="en" class="dark" style="height:100%; margin:0; padding:0;">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none';
-      style-src ${webview.cspSource} 'unsafe-inline';
-      img-src ${webview.cspSource} https: data:;
-      font-src ${webview.cspSource} data:;
-      script-src 'nonce-${nonce}';"
-  />
-  <link rel="stylesheet" href="${styleUri}">
-  <style>
-    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: ${WEBVIEW_BG_COLOR}; }
-    #root { height: 100%; }
-  </style>
-</head>
-<body>
-  <div id="root"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`
+    return productionHtml({ cspSource: webview.cspSource, scriptUri: scriptUri.toString(), styleUri: styleUri.toString(), nonce })
   }
 
   dispose(): void {
