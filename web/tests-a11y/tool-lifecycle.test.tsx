@@ -29,13 +29,13 @@ test('each lifecycle state shows its own label', () => {
 
 test('an expired call says its end was not observed and shows no invented result', () => {
   const { getByRole, queryByRole } = show({ state: 'expired', endObserved: false })
-  assert.match(getByRole('note').textContent ?? '', /fin non observée/)
+  assert.match(getByRole('note').textContent ?? '', /end not observed/)
   assert.equal(queryByRole('region', { name: 'Tool result' }), null)
 })
 
 test('a result reported without an observed end carries the caveat', () => {
   const { getByRole } = show({ state: 'complete', endObserved: false, result: 'maybe done' })
-  assert.match(getByRole('note').textContent ?? '', /fin non observée/)
+  assert.match(getByRole('note').textContent ?? '', /end not observed/)
   assert.match(getByRole('region', { name: 'Tool result' }).textContent ?? '', /unconfirmed/)
 })
 
@@ -44,14 +44,14 @@ test('an observed completion has no caveat', () => {
   assert.equal(queryByRole('note'), null)
 })
 
-test('tokens: absent is "non renseigné", never 0; an estimate is badged; an exact 0 stays 0', () => {
+test('tokens: absent is "not reported", never 0; an estimate is badged; an exact 0 stays 0', () => {
   const absent = show({ tokenCost: null })
-  assert.match(absent.getByRole('dialog').textContent ?? '', /tokens non renseigné/)
+  assert.match(absent.getByRole('dialog').textContent ?? '', /tokens not reported/)
   assert.doesNotMatch(absent.getByRole('dialog').textContent ?? '', /\b0 tokens/)
   absent.unmount()
   const estimated = show({ tokenCost: 120, tokenSource: 'estimated' })
-  assert.match(estimated.getByRole('dialog').textContent ?? '', /120 tokens estimé/)
+  assert.match(estimated.getByRole('dialog').textContent ?? '', /120 tokens estimated/)
   estimated.unmount()
   const exact = show({ tokenCost: 0, tokenSource: 'reported' })
-  assert.match(exact.getByRole('dialog').textContent ?? '', /0 tokens(?! estimé)/)
+  assert.match(exact.getByRole('dialog').textContent ?? '', /0 tokens(?! estimated)/)
 })

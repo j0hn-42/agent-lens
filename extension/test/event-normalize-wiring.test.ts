@@ -23,9 +23,14 @@ import { makeSession } from './helpers/teams-fixtures'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-norm-wiring-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Fake setTimeout and Date for a test that drives a real HookServer: elapsed time is advanced with tick(), never waited for. */
+async function withFakeClock<T>(body: () => Promise<T>): Promise<T> {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+  try { return await body() } finally { mock.timers.reset() }
+}
 const statsOf = (events: Array<AgentEvent>, sessionId?: string) =>
   events.filter(e => e.type === 'normalization_stats' && (sessionId === undefined || e.sessionId === sessionId))
 
@@ -254,17 +259,19 @@ describe('HookServer: wiring through the real http entry point', () => {
   const normalizersOf = (server: object) => (server as unknown as { normalizers: Map<string, { dispose(): void }> }).normalizers
 
   async function withServer(registry: CountersRegistry, body: (ctx: { server: InstanceType<HookServerCtor>; port: number; events: AgentEvent[] }) => Promise<void>) {
-    const server = new HookServer(undefined, registry)
-    const port = await server.start()
-    const events: AgentEvent[] = []
-    server.onEvent(e => events.push(e as AgentEvent))
-    try { await body({ server, port, events }) } finally { server.dispose() }
+    await withFakeClock(async () => {
+      const server = new HookServer(undefined, registry)
+      const port = await server.start()
+      const events: AgentEvent[] = []
+      server.onEvent(e => events.push(e as AgentEvent))
+      try { await body({ server, port, events }) } finally { server.dispose() }
+    })
   }
 
   /** Send many requests while staying under the per-IP rate limit (200 burst, 100/s). */
   async function postPaced(port: number, bodies: string[]): Promise<void> {
     for (let i = 0; i < bodies.length; i++) {
-      if (i > 0 && i % 120 === 0) await sleep(1200)
+      if (i > 0 && i % 120 === 0) mock.timers.tick(1200)
       assert.equal(await post(port, bodies[i]), bodies[i].includes('"tool_input":"nope"') ? 400 : 200)
     }
   }
@@ -310,7 +317,7 @@ describe('HookServer: wiring through the real http entry point', () => {
       const blocks = Array.from({ length: NORM_MAX_CHILDREN_PER_AGENT + 44 }, (_, i) => ({ type: 'tool_use', id: 'tu' + i, name: 'Agent', input: { name: 'c' + i, description: 'd' + i, prompt: 'p' } }))
       feed(claudeLine(blocks))
       assert.equal(await post(port, '{"session_id":"merge1","hook_event_name":"PreToolUse","tool_input":"nope"}'), 400)
-      await sleep(NORM_STATS_MIN_INTERVAL_MS + 400)
+      mock.timers.tick(NORM_STATS_MIN_INTERVAL_MS)
 
       const merged = { droppedByCap: 44, malformed: 1, clampedFields: 1 }
       const published = statsOf(events, 'merge1').map(e => e.payload as Record<string, number>)
@@ -361,7 +368,7 @@ describe('HookServer: wiring through the real http entry point', () => {
       assert.equal(await post(port, preTool('tr1', 'a')), 200)
       assert.equal(await post(port, preTool('tr1', 'b')), 200)
       assert.equal(statsOf(events, 'tr1').length, 1)
-      await sleep(NORM_STATS_MIN_INTERVAL_MS + 400)
+      mock.timers.tick(NORM_STATS_MIN_INTERVAL_MS)
       const published = statsOf(events, 'tr1')
       assert.equal(published.length, 2)
       assert.equal((published[1].payload as { clampedFields: number }).clampedFields, 2)
@@ -373,14 +380,14 @@ describe('HookServer: wiring through the real http entry point', () => {
     await withServer(new CountersRegistry(), async ({ port, events }) => {
       assert.equal(await post(port, `{"session_id":"rj1","hook_event_name":"PreToolUse","tool_name":"Read","tool_use_id":"x","tool_input":{"file_path":"/a.ts"}}`), 200)
       assert.equal(await post(port, '{"session_id":"rj1","hook_event_name":"PreToolUse","tool_input":"nope"}'), 400)
-      await sleep(NORM_STATS_MIN_INTERVAL_MS + 400)
+      mock.timers.tick(NORM_STATS_MIN_INTERVAL_MS)
       const published = statsOf(events, 'rj1')
       assert.equal(published.length, 1)
       assert.equal((published[0].payload as { malformed: number }).malformed, 1)
     })
   })
 
-  it('dispose cancels every pending flush: nothing is fired after it', async () => {
+  it('dispose cancels every pending flush: nothing is fired after it', () => withFakeClock(async () => {
     const server = new HookServer(undefined, new CountersRegistry())
     const port = await server.start()
     const emitter = (server as unknown as { _onEvent: { fire: (e: unknown) => void } })._onEvent
@@ -396,9 +403,9 @@ describe('HookServer: wiring through the real http entry point', () => {
     assert.equal(disposeSpy.mock.callCount(), 1, 'every live normalizer is disposed with the server')
     assert.equal(normalizersOf(server).size, 0)
     disposed = true
-    await sleep(NORM_STATS_MIN_INTERVAL_MS + 400)
+    mock.timers.tick(NORM_STATS_MIN_INTERVAL_MS)
     assert.equal(firedAfterDispose, 0)
-  })
+  }))
 
   it(`keeps ${HOOK_MAX_SESSIONS} session normalizers: the oldest is evicted by the ${HOOK_MAX_SESSIONS + 1}th, recent ones keep their state`, async () => {
     await withServer(new CountersRegistry(), async ({ server, port, events }) => {

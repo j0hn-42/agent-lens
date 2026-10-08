@@ -233,6 +233,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         compact,
         owner: id,
         offsets: [{ dx: 0, dy: full.h }, { dx: 0, dy: -(full.h + 2 * r * s + 10) }],
+        // A label moved out of the way stays clear of the top bar and the control bar
+        shiftBounds: input.safeArea && input.safeArea.w > 0 && input.safeArea.h > 0 ? input.safeArea : undefined,
       })
     }
 

@@ -12,7 +12,7 @@ import tseslint from 'typescript-eslint'
 const reactHooksStub = { rules: { 'exhaustive-deps': { create: () => ({}) } } }
 
 export default [
-  { ignores: ['.next/**', 'node_modules/**', 'public/**', 'tests-a11y/**'] },
+  { ignores: ['.next/**', '.next-e2e/**', 'node_modules/**', 'public/**', 'tests-a11y/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {

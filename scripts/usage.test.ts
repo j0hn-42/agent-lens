@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  sumUsage, combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS,
+  sumUsage, combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
 } from '../web/lib/usage'
 
 test('sumUsage: no value at all is unavailable (null), never 0', () => {
@@ -49,7 +49,7 @@ test('usageFromAgent: explicit status wins, legacy agents infer it from the coun
   assert.equal(usageFromAgent({ tokensUsed: 0 }).status, 'unavailable')
 })
 
-test('formatTokenUsage: unavailable, partial (au moins) and estimated (badge)', () => {
+test('formatTokenUsage: unavailable, partial (at least) and estimated (badge)', () => {
   assert.equal(formatTokenUsage({ value: null, status: 'unavailable', estimated: false }), USAGE_LABELS.unavailable)
   assert.equal(formatTokenUsage({ value: 1500, status: 'available', estimated: false }), '1.5k')
   assert.equal(formatTokenUsage({ value: 1500, status: 'partial', estimated: false }), `${USAGE_LABELS.atLeast} 1.5k`)
@@ -77,4 +77,18 @@ test('readTokenSource: reported only when stated, estimated otherwise', () => {
   assert.equal(readTokenSource('estimated'), 'estimated')
   assert.equal(readTokenSource(undefined), 'estimated')
   assert.equal(readTokenSource('whatever'), 'estimated')
+})
+
+test('effectiveTokenStatus: an explicit status wins, a legacy agent infers it from the counter', () => {
+  assert.equal(effectiveTokenStatus({ tokensUsed: 0, tokenStatus: 'available' }), 'available')
+  assert.equal(effectiveTokenStatus({ tokensUsed: 50, tokenStatus: 'partial' }), 'partial')
+  assert.equal(effectiveTokenStatus({ tokensUsed: 50 }), 'available')
+  assert.equal(effectiveTokenStatus({ tokensUsed: 0 }), 'unavailable')
+  assert.equal(usageFromAgent({ tokensUsed: 0 }).status, effectiveTokenStatus({ tokensUsed: 0 }))
+})
+
+test('isValue: only finite non-negative numbers', () => {
+  assert.equal(isValue(0), true)
+  assert.equal(isValue(3.5), true)
+  for (const bad of [-1, NaN, Infinity, '5', null, undefined]) assert.equal(isValue(bad), false)
 })

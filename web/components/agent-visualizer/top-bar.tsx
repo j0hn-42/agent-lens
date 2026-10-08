@@ -9,9 +9,11 @@ import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, 
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
 import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
-import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
+import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
+import { formatAttention } from "@/lib/attention"
+import type { NotifyState } from "@/hooks/use-attention-alerts"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
@@ -21,6 +23,7 @@ export const PANEL_BUTTON_IDS = {
   cost: 'topbar-toggle-cost',
   timeline: 'topbar-toggle-timeline',
   context: 'topbar-toggle-context',
+  stats: 'topbar-toggle-stats',
 } as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
@@ -143,6 +146,8 @@ export interface TopBarProps {
   isDemo?: boolean
   // Stats
   activeAgentCount: number
+  /** Agents whose status is older than the freshness limit (not counted as active) */
+  staleAgentCount?: number
   doneAgentCount: number
   totalTokens: number
   /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
@@ -160,12 +165,22 @@ export interface TopBarProps {
   /** Project context panel open (optional: absent = closed) */
   showContext?: boolean
   showTimeline: boolean
+  /** Stats overlay open */
+  showStats: boolean
   isMuted: boolean
   onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context') => void
   onToggleTimeline: () => void
+  onToggleStats: () => void
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
   onOpenShortcuts: () => void
+  /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
+  attention?: { waiting: number; errors: number }
+  /** Select the first blocked agent */
+  onJumpToAttention?: () => void
+  /** Browser notifications opt-in; absent or 'unsupported' = no control */
+  notifyState?: NotifyState
+  onToggleNotify?: () => void
 }
 
 export const TopBar = memo(function TopBar({
@@ -174,10 +189,12 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
-  activeAgentCount, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
-  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
+  activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
+  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts,
+  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
 }: TopBarProps) {
+  const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
@@ -210,7 +227,7 @@ export const TopBar = memo(function TopBar({
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {unobservedCount > 0 && (
           <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
-            {unobservedCount} {SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}
+            {unobservedCount} {unobservedCount === 1 ? 'session' : 'sessions'} not observed
           </span>
         )}
         {sessionsWithActivity.size > 0 && (
@@ -227,6 +244,35 @@ export const TopBar = memo(function TopBar({
       {/* Right-side info/controls */}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} />
+        {attentionText && onJumpToAttention && (
+          <button
+            type="button"
+            data-testid="attention-counter"
+            onClick={onJumpToAttention}
+            aria-label={`${attentionText}. Go to the first agent that needs you`}
+            title="Agents of this view that wait for a permission or failed. Click to select the first one."
+            className={`min-h-6 px-2 rounded font-bold ${FOCUS_RING}`}
+            style={{
+              background: COLORS.toggleInactive,
+              border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
+              color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
+            }}
+          >
+            <span aria-hidden="true">! </span>{attentionText}
+          </button>
+        )}
+        {notifyState !== 'unsupported' && onToggleNotify && (
+          <ToggleButton
+            active={notifyState === 'on'}
+            pressed={notifyState === 'on'}
+            onClick={onToggleNotify}
+            title={notifyState === 'denied'
+              ? 'Notifications are blocked in the browser settings'
+              : 'Notify when an agent waits for a permission or fails while this tab is hidden'}
+          >
+            {notifyState === 'denied' ? 'Notifications blocked' : 'Notify when blocked'}
+          </ToggleButton>
+        )}
         {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
           <ToggleButton
             active={showFinished}
@@ -249,14 +295,15 @@ export const TopBar = memo(function TopBar({
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount)}</span>
         )}
         <span>
           {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}
           {!isAllMode && (
-            <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
+            <span style={{ color: COLORS.complete, marginLeft: 4 }}>
+              <span aria-hidden="true">{'\u00b7 '}</span>
               {costUsage ? formatCostUsage(costUsage) : `~${formatCost(totalCost)}`}
               {unattributedCost > 0 && (
                 <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
@@ -275,7 +322,7 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} title="Project context (CLAUDE.md, memory)" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>Context</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={`${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
@@ -292,6 +339,7 @@ export const TopBar = memo(function TopBar({
 
           {/* Independent toggles */}
           <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
+          <ToggleButton id={PANEL_BUTTON_IDS.stats} active={showStats} pressed={showStats} onClick={onToggleStats} title={openPanelLabel('stats', 'S')} shortcut="s">{PANEL_NAMES.stats}</ToggleButton>
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}

@@ -402,3 +402,18 @@ test('classifyContentChange: a scope key change refits even when the content onl
   // no key supplied: previous behaviour
   assert.equal(classifyContentChange(st(['a']), st(['a', 'b'])), 'growth')
 })
+
+test('a shifted agent label never lands under the control bar (safe area, #145)', () => {
+  const a = agent({ id: 'A', sessionId: 'A', x: 300, y: 650, name: 'alpha', state: 'idle' })
+  const b = agent({ id: 'B', sessionId: 'A', x: 300, y: 660, name: 'beta', state: 'idle' })
+  const agents = new Map([[a.id, a], [b.id, b]])
+  const safeArea = { x: 0, y: 60, w: 1000, h: 640 } // bottom edge 700: the control bar starts there
+  const res = planOverlays({
+    agents, clusters: [], edgeBubbles: [], transform: { x: 0, y: 0, scale: 1 }, viewport: { w: 1000, h: 800 }, safeArea,
+    lod: { labels: true, details: false }, showStats: false, showCost: false, showSessionLabels: false,
+    selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null, simTime: 0, isBubbleHeld: () => false,
+  })
+  const shifted = ['A', 'B'].map(id => res.plan.get(`label:${id}`)!).filter(p => p.rect && (p.dx !== 0 || p.dy !== 0))
+  assert.ok(shifted.length > 0, 'scenario must force a shifted label')
+  for (const p of shifted) assert.ok(p.rect!.y + p.rect!.h <= safeArea.y + safeArea.h, `label bottom ${p.rect!.y + p.rect!.h}`)
+})

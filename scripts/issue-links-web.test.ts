@@ -19,6 +19,13 @@ test('issueLinksUrl encodes the role', () => {
   assert.equal(issueLinksUrl('', 'qa'), '/issue-links?role=qa')
 })
 
+test('issueLinksUrl names the session of the node so the relay resolves its own repository (#109)', () => {
+  assert.equal(issueLinksUrl('http://x', 'qa', 'sess-1'), 'http://x/issue-links?role=qa&session=sess-1')
+  assert.equal(issueLinksUrl('http://x', 'qa', 'a b/c'), 'http://x/issue-links?role=qa&session=a%20b%2Fc')
+  assert.equal(issueLinksUrl('http://x', 'qa', 'default'), 'http://x/issue-links?role=qa', 'the placeholder session is not a session')
+  assert.equal(issueLinksUrl('http://x', 'qa', ''), 'http://x/issue-links?role=qa')
+})
+
 test('parseIssueLinks keeps only exact github issue/PR URLs matching kind and number', () => {
   const good = { kind: 'issue', number: 7, title: 't', url: `${U}/issues/7`, state: 'open' }
   const pr = { kind: 'pr', number: 8, title: 'p', url: `${U}/pull/8`, state: 'open', draft: true }

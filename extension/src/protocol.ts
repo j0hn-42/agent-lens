@@ -133,6 +133,8 @@ export interface SessionInfo {
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
+  /** True when lastActivityTime only stands for the start: usable to sort, never to display */
+  lastActivityUnknown?: boolean
   /** Agent Team the session belongs to (lead or tmux member), when known */
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
@@ -319,6 +321,8 @@ export interface PendingToolCall {
 export interface SubagentState {
   watcher: import('fs').FSWatcher | null
   fileSize: number
+  /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
+  fileTail: string
   agentName: string
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>
@@ -338,6 +342,8 @@ export interface WatchedSession {
   fileWatcher: import('fs').FSWatcher | null
   pollTimer: NodeJS.Timeout | null
   fileSize: number
+  /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
+  fileTail: string
   sessionStartTime: number
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>

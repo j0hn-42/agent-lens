@@ -2,10 +2,26 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  sanitizeRole, normalizeRepoUrl, parseGhList, fetchIssueLinks, resolveRepoUrl, ISSUE_LINKS_MAX, type GhExec,
+  sanitizeRole, sanitizeSessionParam, issueLinksScope, normalizeRepoUrl, parseGhList, fetchIssueLinks, resolveRepoUrl, ISSUE_LINKS_MAX, type GhExec,
 } from '../src/issue-links'
 
 const REPO = 'https://github.com/jobailla/agent-lens'
+
+describe('issue links scope (#109)', () => {
+  it('accepts a session id and refuses anything else', () => {
+    assert.equal(sanitizeSessionParam('7f3c-aa_1.b:2'), '7f3c-aa_1.b:2')
+    for (const bad of ['', ' ', '../x', 'a b', 'a/b', '-x', 'x'.repeat(121), undefined, 3]) assert.equal(sanitizeSessionParam(bad as unknown), undefined, String(bad))
+  })
+  it('the cwd of the node session decides the repository', () => {
+    assert.deepEqual(issueLinksScope({ session: 's', cwd: '/p/b', allWorkspaces: true }), { kind: 'cwd', cwd: '/p/b' })
+    assert.deepEqual(issueLinksScope({ session: 's', cwd: '/p/b', allWorkspaces: false }), { kind: 'cwd', cwd: '/p/b' })
+  })
+  it('an unlocated session is the workspace when the relay is scoped, unknown when it serves every workspace', () => {
+    assert.deepEqual(issueLinksScope({ session: 's', allWorkspaces: false }), { kind: 'workspace' })
+    assert.deepEqual(issueLinksScope({ session: 's', allWorkspaces: true }), { kind: 'unknown' })
+    assert.deepEqual(issueLinksScope({ allWorkspaces: true }), { kind: 'workspace' })
+  })
+})
 
 describe('sanitizeRole', () => {
   it('accepts a role and lower-cases it', () => {

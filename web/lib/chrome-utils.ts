@@ -5,6 +5,7 @@
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { formatCostUsage, type UsageTotal } from './usage'
+import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
@@ -178,9 +179,24 @@ export function scrubberValueText(current: number, total: number): string {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-/** "5 agents: 2 active - 3 done" */
-export function formatAgentCounts(active: number, done: number): string {
-  return `${pluralize(active + done, 'agent')}: ${active} active - ${done} done`
+/** "5 agents: 2 active - 3 done"; agents whose status is no longer proven are counted apart ("- 4 last known state"). */
+export function formatAgentCounts(active: number, done: number, stale = 0): string {
+  const staleText = stale > 0 ? ` - ${stale} last known state` : ''
+  return `${pluralize(active + done + stale, 'agent')}: ${active} active${staleText} - ${done} done`
+}
+
+/** Splits agents into done, stale (status older than the freshness limit: only a last known state) and active. */
+export function agentActivityCounts(
+  agents: Iterable<{ state: string; lastEventAt?: number }>,
+  now: number,
+): { active: number; done: number; stale: number } {
+  let active = 0, done = 0, stale = 0
+  for (const a of agents) {
+    if (a.state === 'complete') done++
+    else if (deriveFreshness(a, now) === 'stale') stale++
+    else active++
+  }
+  return { active, done, stale }
 }
 
 /** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
@@ -454,6 +470,20 @@ export function buildSessionProjects(
     if (s.projectId && s.projectName) out.set(s.id, { projectId: s.projectId, projectName: s.projectName })
   }
   return out
+}
+
+/** True when both maps give the same project to the same sessions (sessionProjects compared by content, #105). */
+export function sameSessionProjects(
+  a: ReadonlyMap<string, { projectId: string; projectName: string }>,
+  b: ReadonlyMap<string, { projectId: string; projectName: string }>,
+): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const [id, p] of a) {
+    const q = b.get(id)
+    if (!q || q.projectId !== p.projectId || q.projectName !== p.projectName) return false
+  }
+  return true
 }
 
 /**

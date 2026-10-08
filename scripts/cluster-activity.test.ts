@@ -59,3 +59,17 @@ test('session halo title uses the label of the sessions prop (and workspace / ru
   assert.ok(evil[0].title.length <= 40)
   assert.ok(!/[\u0000-\u001f]/.test(evil[0].title))
 })
+
+test('halo cost counts agents the display hides (collapsed branch), geometry stays on the drawn ones (#106)', () => {
+  const lead = agent({ id: 's1:main', isMain: true, tokensUsed: 80_000, tokenStatus: 'available', x: 0 })
+  const peer = agent({ id: 's1:peer', tokensUsed: 20_000, tokenStatus: 'available', x: 100 })
+  const hidden = agent({ id: 's1:hidden', parentKey: 's1:peer', tokensUsed: 120_000, tokenStatus: 'available', x: 50 })
+  const drawn = computeClusters([lead, peer])
+  const all = computeClusters([lead, peer], undefined, { costAgents: [lead, peer, hidden] })
+  assert.ok(all[0].cost! > drawn[0].cost!, 'the hidden agent adds to the halo cost')
+  assert.equal(all[0].memberIds.length, 2, 'only drawn agents are members')
+  assert.equal(all[0].cx, drawn[0].cx)
+  const unknownHidden = agent({ id: 's1:u', tokenStatus: 'unavailable', tokensUsed: 0 })
+  const q = computeClusters([lead, peer], undefined, { costAgents: [lead, peer, unknownHidden] })
+  assert.match(q[0].costText, /^at least /, 'a hidden agent with no data makes the halo a lower bound')
+})

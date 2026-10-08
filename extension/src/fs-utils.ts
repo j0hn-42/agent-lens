@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
+import { createLogger } from './logger'
 
 /**
  * Read a chunk of bytes from a file at a given offset.
@@ -42,13 +43,85 @@ export function readNewFileLines(
     return null
   }
 
-  const newContent = lastTail + readFileChunk(filePath, lastSize, stat.size - lastSize)
-  const parts = newContent.split(/\r?\n/)
-  // Last fragment is whatever follows the final newline — empty if the file
-  // ended on a newline, otherwise a partial line we need to carry forward.
-  const tail = parts.pop() ?? ''
-  const lines = parts.filter(Boolean)
+  // Le tail est gardé en octets (chaîne latin1, 1 caractère = 1 octet) : décoder une coupe au milieu
+  // d'un caractère multi-octets produirait des U+FFFD. Seules les lignes complètes sont décodées.
+  const length = stat.size - lastSize
+  const chunk = Buffer.alloc(length)
+  const fd = fs.openSync(filePath, 'r')
+  try { fs.readSync(fd, chunk, 0, length, lastSize) } finally { fs.closeSync(fd) }
+  const data = Buffer.concat([Buffer.from(lastTail, 'latin1'), chunk])
+  const lastNl = data.lastIndexOf(0x0a)
+  // Tout ce qui suit le dernier saut de ligne est une ligne partielle à reporter.
+  const tail = data.subarray(lastNl + 1).toString('latin1')
+  const lines = lastNl < 0 ? [] : data.subarray(0, lastNl + 1).toString('utf-8').split(/\r?\n/).filter(Boolean)
   return { lines, newSize: stat.size, tail }
+}
+
+const watchLog = createLogger('FsWatch')
+const WATCH_LIMIT_CODES = new Set(['ENOSPC', 'EMFILE', 'ENFILE'])
+let watchLimitWarned = false
+
+/**
+ * fs.watch sans exception non interceptée : un FSWatcher qui émet 'error' (EPERM sous Windows quand
+ * le dossier est supprimé, ENOSPC/EMFILE quand la limite inotify est atteinte) est fermé et la
+ * lecture continue grâce au polling de secours des appelants. Retourne null si la création échoue.
+ * Un seul avertissement (avec le contournement) quand une limite système est atteinte.
+ */
+export function safeWatch(
+  target: string,
+  listener: fs.WatchListener<string>,
+  options?: fs.WatchOptions,
+  onError?: (err: NodeJS.ErrnoException) => void,
+): fs.FSWatcher | null {
+  const report = (err: NodeJS.ErrnoException) => {
+    if (err?.code && WATCH_LIMIT_CODES.has(err.code)) {
+      if (!watchLimitWarned) {
+        watchLimitWarned = true
+        watchLog.warn(
+          `Limite de surveillance de fichiers atteinte (${err.code}) : retour au polling. ` +
+          `Sous Linux/WSL, augmenter fs.inotify.max_user_watches (sysctl) ou fermer des sessions.`,
+        )
+      }
+    } else {
+      watchLog.debug('fs.watch error:', target, err?.code ?? err)
+    }
+  }
+  let watcher: fs.FSWatcher
+  try {
+    watcher = options ? fs.watch(target, options, listener) : fs.watch(target, listener)
+  } catch (err) {
+    report(err as NodeJS.ErrnoException)
+    return null
+  }
+  watcher.on('error', (err: NodeJS.ErrnoException) => {
+    report(err)
+    try { watcher.close() } catch { /* already closed */ }
+    onError?.(err)
+  })
+  return watcher
+}
+
+/** Remet à zéro l'avertissement de limite (tests). */
+export function resetWatchLimitWarning(): void { watchLimitWarned = false }
+
+/** Suivi d'un fichier JSONL lu en continu : offset et fragment de ligne non terminée. */
+export interface TailedFile {
+  fileSize: number
+  /** Octets après le dernier saut de ligne de la lecture précédente. */
+  fileTail: string
+}
+
+/**
+ * Lit les nouvelles lignes de `filePath` en mettant à jour `state` (fileSize + fileTail) en place.
+ * Point d'entrée unique des watchers : une ligne coupée entre deux lectures est réassemblée.
+ * Retourne null s'il n'y a rien de nouveau, [] après une troncature (état remis à zéro).
+ */
+export function readTrackedLines(filePath: string, state: TailedFile): string[] | null {
+  const result = readNewFileLines(filePath, state.fileSize, state.fileTail)
+  if (!result) return null
+  state.fileSize = result.newSize
+  state.fileTail = result.tail
+  return result.lines
 }
 
 /** Case-fold a path string for comparison on Windows, where the filesystem is

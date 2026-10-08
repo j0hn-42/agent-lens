@@ -12,7 +12,7 @@ import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import React from 'react'
-import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, act, within } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
@@ -97,7 +97,7 @@ const topBarProps: TopBarProps = {
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 1000, totalCost: 0.12,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -178,15 +178,54 @@ test('panel: sessions list grouped by project', async () => {
     { ...sessions[0], projectId: 'pa', projectName: 'alpha' },
     { ...sessions[1], projectId: 'pb', projectName: 'beta' },
   ]
-  const { container, getByText } = render(
+  const { container, getByRole } = render(
     <SessionListPanel
       visible onClose={noop} sessions={grouped} selectedSessionId="s1" sessionsWithActivity={new Set()}
       onSelectSession={noop} onCloseSession={noop} agents={listAgents} selectedAgentId={null} onSelectAgent={noop}
       now={10_000}
     />,
   )
-  assert.ok(getByText('alpha') && getByText('beta'), 'one heading per project')
+  const list = within(getByRole('list', { name: 'Sessions and agents' }))
+  assert.ok(list.getByText('alpha') && list.getByText('beta'), 'one heading per project')
   await check('session-list-panel-projects', container)
+})
+
+test('panel: sessions list filtered by search and runtime, with an attention marker (#125, #126)', async () => {
+  const filtered = [
+    { ...sessions[0], projectId: 'pa', projectName: 'alpha', runtime: 'claude' as const },
+    { ...sessions[1], projectId: 'pb', projectName: 'beta', runtime: 'codex' as const },
+  ]
+  const blockedAgents = new Map([
+    ['s1:main', { ...listAgents.get('s1:main')!, state: 'waiting_permission', lastEventAt: Date.now() }],
+  ])
+  const { container, getByRole } = render(
+    <SessionListPanel
+      visible onClose={noop} sessions={filtered} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      onSelectSession={noop} onCloseSession={noop} agents={blockedAgents} selectedAgentId={null} onSelectAgent={noop}
+      now={10_000} observedSessionIds={new Set(['s1', 's2'])} filterProject="pa" filterRuntime="claude"
+    />,
+  )
+  await act(async () => { fireEvent.change(getByRole('searchbox', { name: 'Search sessions' }), { target: { value: 'main' } }) })
+  assert.ok(container.querySelector('[data-testid="session-attention"]'), 'the blocked session says so')
+  await check('session-list-panel-filtered', container)
+  await act(async () => { fireEvent.change(getByRole('searchbox', { name: 'Search sessions' }), { target: { value: 'zzz' } }) })
+  assert.match(container.textContent ?? '', /No matching sessions/)
+  await check('session-list-panel-filtered-empty', container)
+})
+
+test('shell: top bar with the attention counter and the notification option (#126)', async () => {
+  const { container, getByRole } = render(
+    <TopBar
+      sessions={sessions} selectedSessionId="__all__" sessionsWithActivity={new Set()} showSessions={false} onToggleSessions={noop}
+      isVSCode={false} connectionStatus="connected" activeAgentCount={2} doneAgentCount={0} totalTokens={0} totalCost={0}
+      showFileAttention={false} showConversation={false} showCostOverlay={false} showTimeline={false} showStats={false} isMuted={false}
+      onTogglePanel={noop} onToggleTimeline={noop} onToggleStats={noop} onToggleMute={noop} onOpenShortcuts={noop}
+      attention={{ waiting: 2, errors: 1 }} onJumpToAttention={noop} notifyState="off" onToggleNotify={noop}
+    />,
+  )
+  getByRole('button', { name: /2 waiting \/ 1 error/ })
+  getByRole('button', { name: 'Notify when blocked' })
+  await check('top-bar-attention', container)
 })
 
 // The panel is controlled by its parent (open / pill): this wrapper plays the part of the shell.

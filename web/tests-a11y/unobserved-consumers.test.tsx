@@ -34,7 +34,7 @@ const topBar: TopBarProps = {
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
@@ -42,17 +42,17 @@ const topBar: TopBarProps = {
 test('top bar: the Sessions button says how many listed sessions are not observed, and follows the tracker', () => {
   const { getByRole } = render(<TopBar {...topBar} />)
   const button = getByRole('button', { name: /Sessions/ })
-  assert.ok(button.textContent!.includes('2 activity not observed'), 'two active sessions, none heard from')
+  assert.ok(button.textContent!.includes('2 sessions not observed'), 'two active sessions, none heard from')
   act(() => { observedSessions.mark('seen') })
-  assert.ok(button.textContent!.includes('1 activity not observed'), 'an event arrived for one of them')
-  assert.equal(button.textContent!.includes('2 activity not observed'), false)
+  assert.ok(button.textContent!.includes('1 session not observed'), 'an event arrived for one of them')
+  assert.equal(button.textContent!.includes('2 sessions not observed'), false)
   act(() => { observedSessions.mark('ghost') })
   assert.equal(button.textContent!.includes('not observed'), false, 'nothing unknown left: no text')
 })
 
 test('top bar: a live hook flag counts as observed', () => {
   const { getByRole } = render(<TopBar {...topBar} sessionsWithActivity={new Set(['seen'])} />)
-  assert.ok(getByRole('button', { name: /Sessions/ }).textContent!.includes('1 activity not observed'))
+  assert.ok(getByRole('button', { name: /Sessions/ }).textContent!.includes('1 session not observed'))
 })
 
 // ─── Announcements ───────────────────────────────────────────────────────────

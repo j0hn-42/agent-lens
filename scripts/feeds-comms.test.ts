@@ -37,7 +37,7 @@ test('safeHexColor only accepts #rrggbb', () => {
 })
 
 test('teamColorOf prefers the agent color, falls back to the team member, validates both', () => {
-  const teams = new Map([['t', { members: [{ name: 'rev', color: '#112233' }, { name: 'bad', color: 'javascript:1' }] }]])
+  const teams = new Map([['t', { name: 't', leadSessionId: 's', members: [{ name: 'rev', color: '#112233' }, { name: 'bad', color: 'javascript:1' }] }]])
   assert.equal(teamColorOf({ name: 'rev', teamName: 't', teamColor: '#ff0000' }, teams), '#ff0000')
   assert.equal(teamColorOf({ name: 'rev', teamName: 't' }, teams), '#112233')
   assert.equal(teamColorOf({ name: 'bad', teamName: 't', teamColor: 'nope' }, teams), undefined)

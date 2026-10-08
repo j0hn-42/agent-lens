@@ -24,6 +24,7 @@ import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiP
 import { dockStore } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
+import { LearnMoreLink } from "./learn-more-link"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 import { selectionLabel } from "@/lib/session-tree"
@@ -44,8 +45,11 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-age
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { useFreshnessValue } from "@/hooks/use-freshness-clock"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { summarizeAttention, withForeignAttention } from "@/lib/attention"
+import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -94,6 +98,7 @@ export function AgentVisualizer() {
     droppedEvents,
     droppedMessages,
     unattributed,
+    foreignAttention,
     links,
     teams,
     play,
@@ -422,6 +427,7 @@ export function AgentVisualizer() {
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
+    toggleContext: () => toggleExclusivePanel('context'),
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     closeTopPanel,
@@ -443,6 +449,27 @@ export function AgentVisualizer() {
   const costUsage = usage.cost
   const totalTokens = usage.summary.sessionTokens
   const totalCost = usage.summary.sessionCost
+
+  // Agents waiting for a permission or in error (#126): counter, tab title and opt-in notification.
+  // The clock only re-evaluates freshness: a waiting status nothing proves any more drops out.
+  const [attentionNow, setAttentionNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAttentionNow(Date.now()), 10_000)
+    return () => clearInterval(t)
+  }, [])
+  const attention = useMemo(() => summarizeAttention(withForeignAttention(agents.values(), foreignAttention), Math.max(attentionNow, Date.now())), [agents, foreignAttention, attentionNow])
+  const { notifyState, toggleNotify } = useAttentionAlerts(attention)
+  const { handleAgentClick: selectBlockedAgent } = selection
+  const attentionTarget = attention.firstAgentId
+  const attentionSession = attention.firstSessionId
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  // An agent of another session is not in this view: go to its session instead
+  const jumpToAttention = useCallback(() => {
+    if (!attentionTarget) return
+    if (agentsRef.current.has(attentionTarget)) selectBlockedAgent(attentionTarget)
+    else if (attentionSession) bridge.selectSession(attentionSession)
+  }, [attentionTarget, attentionSession, selectBlockedAgent, bridge])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
@@ -555,11 +582,15 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
-  const { activeAgentCount, doneAgentCount } = useMemo(() => {
-    let done = 0
-    for (const a of agents.values()) if (a.state === 'complete') done++
-    return { activeAgentCount: agents.size - done, doneAgentCount: done }
-  }, [agents])
+  // Agents whose status is older than the freshness limit are counted apart: they are not "active" any more (#145)
+  const countsKey = useFreshnessValue(now => {
+    const c = agentActivityCounts(agentsRef.current.values(), now)
+    return `${c.active}|${c.done}|${c.stale}`
+  })
+  const { activeAgentCount, doneAgentCount, staleAgentCount } = useMemo(() => {
+    const [active, done, stale] = countsKey.split('|').map(Number)
+    return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale }
+  }, [countsKey, agents])
 
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
@@ -611,6 +642,7 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         isDemo={bridge.useMockData}
         activeAgentCount={activeAgentCount}
+        staleAgentCount={staleAgentCount}
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
@@ -623,10 +655,16 @@ export function AgentVisualizer() {
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
+        showStats={showStats}
+        onToggleStats={() => setShowStats(prev => !prev)}
         onTogglePanel={toggleExclusivePanel}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
+        attention={attention}
+        onJumpToAttention={jumpToAttention}
+        notifyState={notifyState}
+        onToggleNotify={toggleNotify}
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
@@ -660,6 +698,9 @@ export function AgentVisualizer() {
               >
                 Load demo
               </button>
+            </div>
+            <div className="mt-2 text-xs" style={{ color: COLORS.textMuted }}>
+              <LearnMoreLink />
             </div>
           </div>
         </div>
@@ -807,6 +848,7 @@ export function AgentVisualizer() {
       <div ref={sessionsPanelRef} style={{ display: 'contents' }}>
         <SessionListPanel
           visible={showSessions}
+          attention={attention}
           onClose={() => setShowSessions(false)}
           sessions={bridge.sessions}
           allSessionCount={allSessionCount}
@@ -822,6 +864,12 @@ export function AgentVisualizer() {
           teamWorking={bridge.teamWorking}
           teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
+          filterProject={prefs.sessionFilterProject}
+          filterRuntime={prefs.sessionFilterRuntime}
+          onFilterChange={change => {
+            if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
+            if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
+          }}
         />
       </div>
 

@@ -8,6 +8,7 @@ import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
 import { TEAM_DEFAULT_COLOR } from './canvas/team-style'
 import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
+import { LearnMoreLink } from './learn-more-link'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -75,7 +76,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
   return (
     <div
-      className="absolute left-3 bottom-20 z-10 max-w-[calc(100vw-24px)] font-mono text-xs"
+      className="pointer-events-auto max-w-[calc(100vw-24px)] font-mono text-xs"
       style={{ color: COLORS.textPrimary }}
     >
       {open && (
@@ -83,7 +84,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
           id="graph-legend-panel"
           role="region"
           aria-label="Graph legend"
-          className="mb-1 max-h-[60vh] w-64 max-w-full overflow-y-auto rounded-md p-3"
+          className="mb-1 max-h-[40vh] w-64 sm:max-h-[60vh] max-w-full overflow-y-auto rounded-md p-3"
           style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.glassBorder}` }}
         >
           <Heading>States</Heading>
@@ -162,6 +163,10 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
             <Row icon={<svg width="20" height="20" viewBox="0 0 512 512"><path d={CLAUDE_SPARK_D} fill={COLORS.holoBase} /></svg>}>Spark logo: Claude</Row>
             <Row icon={<svg width="20" height="20" viewBox="0 0 24 24"><path d={OPENAI_LOGO_D} fill={COLORS.holoBase} /></svg>}>Knot logo: Codex</Row>
           </ul>
+
+          <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>
+            Not observed, at least, estimated: <LearnMoreLink />
+          </p>
         </div>
       )}
       <button

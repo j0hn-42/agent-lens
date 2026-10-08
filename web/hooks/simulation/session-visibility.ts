@@ -37,15 +37,16 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   const windowMs = input.windowMs ?? ACTIVE_WINDOW_MS
   const recent = (t: number | undefined): boolean => typeof t === 'number' && Number.isFinite(t) && now - t <= windowMs
   const out = new Set<string>()
+  const indexedOnly = new Set<string>()
   for (const s of sessions) {
-    if (s.indexedOnly) continue // nothing to draw: not part of the 'All' view
+    if (s.indexedOnly) { indexedOnly.add(s.id); continue } // nothing to draw: not part of the 'All' view
     if (s.status === 'active' || recent(s.lastActivityTime) || recent(lastEventAt?.get(s.id)) || s.id === selectedId) out.add(s.id)
   }
   if (lastEventAt) for (const [id, t] of lastEventAt) if (recent(t)) out.add(id)
   if (teamWorking) {
     if (teamSessions) {
       for (const [team, ids] of teamSessions) {
-        if (isGroupActive(teamSummaries?.get(team), teamWorking.get(team))) for (const id of ids) out.add(id)
+        if (isGroupActive(teamSummaries?.get(team), teamWorking.get(team))) for (const id of ids) if (!indexedOnly.has(id)) out.add(id)
       }
     }
     // A team tagged on the session itself counts too

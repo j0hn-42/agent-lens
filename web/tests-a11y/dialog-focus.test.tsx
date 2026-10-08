@@ -5,7 +5,7 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
-import { AgentDetailCard } from '@/components/agent-visualizer/agent-detail-card'
+import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
 import { SlidingPanel } from '@/components/agent-visualizer/shared-ui'
 
 afterEach(() => {
@@ -76,4 +76,27 @@ test('standalone panel focuses Close then restores the trigger on close', async 
   assert.equal((document.activeElement as HTMLElement).textContent, 'Close panel')
   view.rerender(<Harness cardFirst={false} card={false} panel={false} onClose={() => {}} />)
   assert.equal(document.activeElement, trigger)
+})
+
+test("AgentGoneCard ne vole pas le focus à un champ de saisie d'un panneau compagnon (#104)", async () => {
+  const panel = document.createElement('div')
+  panel.setAttribute('data-companion-panel', '')
+  const input = document.createElement('input')
+  input.type = 'search'
+  panel.appendChild(input)
+  document.body.appendChild(panel)
+  input.focus()
+  const view = render(<AgentGoneCard name="reviewer" onClose={() => {}} />)
+  await frames()
+  assert.equal(document.activeElement, input)
+  assert.ok(view.getByRole('status').textContent)
+})
+
+test("AgentGoneCard prend le focus quand rien n'est en cours de saisie", async () => {
+  const trigger = document.createElement('button')
+  document.body.appendChild(trigger)
+  trigger.focus()
+  const view = render(<AgentGoneCard name="reviewer" onClose={() => {}} />)
+  await frames()
+  assert.equal(document.activeElement, view.getByRole('dialog'))
 })

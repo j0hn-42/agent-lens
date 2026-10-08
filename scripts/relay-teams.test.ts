@@ -14,6 +14,7 @@ import * as path from 'node:path'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-teams-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const LEAD = '11111111-1111-4111-8111-111111111111'

@@ -14,6 +14,7 @@ import { isStatusPath } from '../extension/src/relay-guards'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-status-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

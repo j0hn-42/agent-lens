@@ -158,13 +158,13 @@ test('top bar: the Context button is a native toggle that reports aria-pressed a
     showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
     activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
     showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-    onTogglePanel: p => asked.push(p), onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+    onTogglePanel: p => asked.push(p), onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
   }
   const { getByRole, rerender } = render(<TopBar {...base} />)
-  const btn = getByRole('button', { name: 'Context' })
+  const btn = getByRole('button', { name: 'Context (P)' })
   assert.equal(btn.getAttribute('aria-pressed'), 'false')
   fireEvent.click(btn)
   assert.deepEqual(asked, ['context'])
   rerender(<TopBar {...base} showContext />)
-  assert.equal(getByRole('button', { name: 'Context' }).getAttribute('aria-pressed'), 'true')
+  assert.equal(getByRole('button', { name: 'Context (P)' }).getAttribute('aria-pressed'), 'true')
 })

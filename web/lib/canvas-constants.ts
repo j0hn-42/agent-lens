@@ -18,7 +18,7 @@ export const CLAUDE_FAMILY_ALTERNATION = CLAUDE_FAMILIES.map(f => f.name).join('
 /** Context window size by model family. Patterns are checked in order;
  *  first match wins. Matched against lower-cased model IDs. */
 export const MODEL_FAMILY_CONTEXT: ReadonlyArray<{ pattern: RegExp; size: number }> = [
-  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), size: f.context })),
+  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}(?:-\\d|$)`), size: f.context })),
   // Codex/GPT models. Fallback only — Codex normally reports its own
   // authoritative window via event_msg.token_count.info.model_context_window.
   { pattern: /gpt-\d/, size: 400_000 },
@@ -236,7 +236,7 @@ export const TOOL_MAX_CARD_W = 200
  *  Claude rates derive from CLAUDE_FAMILIES. Patterns are checked in order;
  *  first match wins. Matched against lower-cased model IDs. */
 export const MODEL_FAMILY_COST: ReadonlyArray<{ pattern: RegExp; rate: number }> = [
-  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), rate: f.rate })),
+  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}(?:-\\d|$)`), rate: f.rate })),
   { pattern: /gpt-\d/, rate: 5 }, // gpt-5.3-codex: $1.75 in / $14 out
 ]
 
@@ -264,6 +264,8 @@ export const AGENT_DRAW = {
   labelFontSize: 11,
   /** Vertical distance between the name line and the state-label line */
   stateLabelGap: 13,
+  /** Width of the dark outline drawn behind label text */
+  labelHaloWidth: 3,
   /** Agent name label width multiplier of radius */
   labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */
@@ -672,6 +674,7 @@ export const PLACEMENT = {
 // ─── Freshness (issues #48, #52) ────────────────────────────────────────────
 
 /** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
+/** Mirrors SNAPSHOT_STALE_AFTER_MS of extension/src/constants.ts (a test compares them) */
 export const STALE_AFTER_MS = 30_000
 /** A status that comes from history (not seen live) expires after this long (ms) */
 export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000

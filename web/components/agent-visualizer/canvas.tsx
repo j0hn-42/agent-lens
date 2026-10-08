@@ -39,15 +39,18 @@ import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from '.
 import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
-import { visibleAgents } from '@/lib/inactive-agents'
-import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { sceneAgents, costScope } from './canvas/scene'
+import { createCollapseMemory, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
 import { drawBranchBadges } from './canvas/draw-branch-badges'
+import { graphKeyboardHelp } from '@/lib/shortcuts'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
 import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './canvas/edge-bubble-dom'
 import { planKey } from './canvas/overlay-plan'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
+import { useDockSnapshot } from './shared-ui'
+import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
 
@@ -95,22 +98,6 @@ interface CanvasProps {
 const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
 
 const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
-
-/**
- * Agents to draw: the 'hide inactive' filter, then the automatic collapse of inactive sub-trees.
- * Only the selected agent keeps a branch open (hovering must not make the graph jump).
- */
-function sceneAgents(
-  all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
-  selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
-  memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
-): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
-  const base = visibleAgents(all, hideInactive, keepIds)
-  // A selected card keeps the branch of its owner open, like a selected agent
-  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
-  const collapse = evaluateCollapse(base, memory, owners)
-  return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
-}
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -206,6 +193,7 @@ export function AgentCanvas({
   }, [])
 
   // ─── Keyboard focus + accessible mirror state ───────────────────────────
+  const { controlBarH } = useDockSnapshot().env
   const [focusedNode, setFocusedNode] = useState<NavNode | null>(null)
   const focusedNodeRef = useRef<NavNode | null>(null)
   focusedNodeRef.current = focusedNode
@@ -267,7 +255,8 @@ export function AgentCanvas({
   }, [])
   const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
     const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
-      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null },
+      hasFocus ? focusedNode : null, collapseMemoryRef.current, sim)
     collapseViewRef.current = scene.collapse
     return {
     agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
@@ -409,11 +398,12 @@ export function AgentCanvas({
       // this timer only publishes them to React state.
       const dp = drawPropsRef.current
       const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
-        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null },
+        hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
-        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current,
+        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -505,7 +495,8 @@ export function AgentCanvas({
         const s = simulationRef.current
         const p = drawPropsRef.current
         const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
-          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null },
+          hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
         collapseViewRef.current = scene.collapse
         p.agents = scene.agents
         p.collapse = scene.collapse
@@ -592,7 +583,7 @@ export function AgentCanvas({
       updateDragLerp(agents, onAgentDrag)
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
-      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current })
+      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current, costAgents: costScope(simulationRef.current).agents.values() })
       clustersRef.current = clusters
       const hoverTarget = hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
@@ -741,7 +732,7 @@ export function AgentCanvas({
         syncBubbleButtons(bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls, simulationRef.current.unattributed.values())
+      if (showCostOverlay) { const cost = costScope(simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed) }
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
@@ -861,11 +852,7 @@ export function AgentCanvas({
         data-edge-bubble-layer=""
         className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
       />
-      <p id="graph-keyboard-help" className="sr-only">
-        Arrow keys move between nodes. On an agent, Right opens a folded branch or enters its first sub-agent,
-        Left folds an open branch or goes to the parent. Enter opens details. Plus and minus zoom, zero fits the graph.
-        Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
-      </p>
+      <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 
       <GraphA11yList
         model={a11yModel}
@@ -906,8 +893,13 @@ export function AgentCanvas({
         )}
       </div>
 
-      {/* Camera + comfort controls */}
-      <div className="absolute right-3 bottom-20 z-10 flex max-w-[calc(100vw-24px)] flex-col items-end gap-1">
+      {/* Legend + camera / comfort controls: one block above the (wrapping) control bar, stacked when narrow so they never overlap */}
+      <div
+        className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
+        style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
+      >
+      <GraphLegend teams={a11yModel.teams} />
+      <div className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         <div className="flex gap-1">
           <button
             type="button"
@@ -974,8 +966,7 @@ export function AgentCanvas({
           </select>
         </label>
       </div>
-
-      <GraphLegend teams={a11yModel.teams} />
+      </div>
     </div>
   )
 }

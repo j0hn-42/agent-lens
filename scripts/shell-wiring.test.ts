@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { ALL_SESSIONS_ID, teamSelectionId, type SessionInfo } from '../web/lib/bridge-types'
 import {
-  buildSessionMeta, buildSessionProjects, clusterSelectionTarget, observeTopbarHeight, topbarOffsetPx,
+  buildSessionMeta, buildSessionProjects, sameSessionProjects, clusterSelectionTarget, observeTopbarHeight, topbarOffsetPx,
 } from '../web/lib/chrome-utils'
 import {
   ACTIVE_WINDOW_MS, activeSessionIds, finishedSessionIds, pruneReplayStamps, shouldStampActivity, isStaleCompleted,
@@ -184,4 +184,16 @@ test('observeTopbarHeight without ResizeObserver still publishes once', () => {
   )
   assert.equal(props['--topbar-h'], '50px')
   assert.doesNotThrow(stop)
+})
+
+test('sessionProjects (#105): compared by content, so a session list that changed nothing about projects is equal', () => {
+  const a = buildSessionProjects([session('s1', { projectId: 'P1', projectName: 'alpha' }), session('s2', { label: 'x' })])
+  const b = buildSessionProjects([session('s1', { label: 'renamed', projectId: 'P1', projectName: 'alpha' }), session('s2', { label: 'y' })])
+  assert.notEqual(a, b)
+  assert.equal(sameSessionProjects(a, b), true)
+  assert.equal(sameSessionProjects(a, buildSessionProjects([session('s1', { projectId: 'P2', projectName: 'alpha' })])), false, 'project id changed')
+  assert.equal(sameSessionProjects(a, buildSessionProjects([session('s1', { projectId: 'P1', projectName: 'renamed' })])), false, 'project name changed')
+  assert.equal(sameSessionProjects(a, buildSessionProjects([session('s1', { projectId: 'P1', projectName: 'alpha' }), session('s3', { projectId: 'P1', projectName: 'alpha' })])), false, 'session added to a project')
+  assert.equal(sameSessionProjects(a, new Map()), false)
+  assert.equal(sameSessionProjects(new Map(), new Map()), true)
 })

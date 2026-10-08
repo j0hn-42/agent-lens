@@ -6,7 +6,6 @@
  */
 
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
 import {
   AgentEvent, PendingToolCall, WatchedSession,
@@ -14,6 +13,7 @@ import {
   emitSubagentSpawn,
 } from './protocol'
 import { readFileChunk } from './fs-utils'
+import { claudeProjectsDir } from './claude-config-dir'
 import {
   PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX,
   SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
@@ -129,6 +129,11 @@ export function* readLinesChunked(filePath: string, size: number, chunkBytes = P
 
 /** Claude Code's text for a tool call the user interrupted (Esc / cancel) */
 const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
+
+/** A model that ran: Claude Code writes "<synthetic>" (an <angle-bracket> pseudo-model) on messages it makes itself. */
+function isRealModel(model: unknown): model is string {
+  return typeof model === 'string' && model.trim() !== '' && !/^<.*>$/.test(model.trim())
+}
 
 export class TranscriptParser {
   /** Per-subagent dedup state for inline progress events, keyed by parentToolUseID */
@@ -384,7 +389,7 @@ export class TranscriptParser {
 
     // Extract model from assistant messages (updates tokensMax on the frontend).
     // Per-agent tracking: re-emit when the model changes (e.g. /model switch).
-    if (session && entry.type === 'assistant' && msg.model && session.modelDetectedAgents.get(agentName) !== msg.model) {
+    if (session && entry.type === 'assistant' && isRealModel(msg.model) && session.modelDetectedAgents.get(agentName) !== msg.model) {
       session.modelDetectedAgents.set(agentName, msg.model)
       if (!session.model) session.model = msg.model
       this.delegate.emit({
@@ -830,7 +835,7 @@ export class TranscriptParser {
             }
           }
           // Extract model from first assistant message
-          if (entry.type === 'assistant' && entry.message?.model && !session.model) {
+          if (entry.type === 'assistant' && isRealModel(entry.message?.model) && !session.model) {
             session.model = entry.message.model
           }
           // Collect emittable entries (user and assistant turns)
@@ -955,7 +960,7 @@ export class TranscriptParser {
 }
 
 /** Default root that hook-supplied transcript paths must resolve inside. */
-export const DEFAULT_TRANSCRIPT_ROOT = path.join(os.homedir(), '.claude', 'projects')
+export const DEFAULT_TRANSCRIPT_ROOT = claudeProjectsDir()
 
 /**
  * True when a path supplied by an untrusted source (e.g. an HTTP hook payload) is a

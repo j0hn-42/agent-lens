@@ -1,10 +1,10 @@
-import { Agent, ToolCallNode } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
-import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
-import { formatTokens, formatCost } from '@/lib/utils'
-import { agentCost, modelCostRate, agentCostUsage } from '@/lib/cost'
-import { formatCostUsage, formatTokenUsage, type UsageTotal } from '@/lib/usage'
-import { summarizeCosts, sessionUsage, type UnattributedUsage } from '@/lib/attribution'
+import { Agent, ToolCallNode } from '../../../lib/agent-types'
+import { COLORS } from '../../../lib/colors'
+import { COST_DRAW, COST_PANEL } from '../../../lib/canvas-constants'
+import { formatTokens, formatCost } from '../../../lib/utils'
+import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
+import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -135,26 +135,39 @@ export function drawCostLabels(
   }
 }
 
+/** Top of the panel: under the top bar, whose published height (--topbar-h) grows when its controls wrap. */
+export function costPanelTop(topbarH: string | null | undefined): number {
+  const px = parseFloat(topbarH ?? '')
+  return Number.isFinite(px) && px > COST_PANEL.yStart ? Math.round(px) : COST_PANEL.yStart
+}
+
+function readTopbarH(): string {
+  try { return typeof document === 'undefined' ? '' : document.documentElement.style.getPropertyValue('--topbar-h') } catch { return '' }
+}
+
 export function drawCostSummaryPanel(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
   unattributed: Iterable<UnattributedUsage> = [],
 ) {
-  const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
+  // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
+  const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
   // Usage that belongs to no single agent is shown apart, never folded into one (#61)
-  const summary = summarizeCosts(agentList, unattributed)
+  // An iterator is single-use and read twice below (summary, header): materialize it once
+  const rest = Array.from(unattributed)
+  const summary = summarizeCosts(agentList, rest)
   const hasRest = summary.unattributedTokens > 0
   if (agentList.length === 0 && !hasRest) return
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model), usage: agentCostUsage(a) }))
+    .map(a => { const usage = agentCostUsage(a); return { name: a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
   // the unattributed remainder counts in the session total
-  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), unattributed)
+  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), rest)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
@@ -181,7 +194,7 @@ export function drawCostSummaryPanel(
   const canvasW = ctx.canvas.width / dpr
   const panelW = COST_PANEL.width
   const panelX = canvasW - panelW - COST_PANEL.xMargin
-  const panelY = COST_PANEL.yStart
+  const panelY = costPanelTop(readTopbarH())
   const lineH = COST_PANEL.lineHeight
   const headerH = COST_PANEL.headerHeight
   const sectionGap = COST_PANEL.sectionGap
@@ -245,7 +258,7 @@ export function drawCostSummaryPanel(
     const costW = ctx.measureText(costLabel).width
     ctx.fillText(truncateText(ctx, a.name, barW - costW - 16), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
 
-    // Cost, qualified like the header ("au moins", "estimé")
+    // Cost, qualified like the header ("at least", "estimated")
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.costText
     ctx.fillText(costLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
@@ -267,7 +280,8 @@ export function drawCostSummaryPanel(
     ctx.textAlign = 'left'
     ctx.fillText(UNATTRIBUTED_LABEL, panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
     ctx.textAlign = 'right'
-    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    const restEstimated = rest.some(u => u.estimated)
+    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
     y += lineH
   }
 

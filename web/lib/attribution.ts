@@ -12,7 +12,7 @@
  */
 import type { Agent } from './agent-types'
 import { agentCost, agentCostUsage } from './cost'
-import { combineUsage, usageFromAgent, type UsageTotal } from './usage'
+import { combineUsage, usageFromAgent, type UsageStatus, type UsageTotal } from './usage'
 
 export type UnattributedReason = 'orphan' | 'ambiguous'
 
@@ -20,6 +20,8 @@ export interface UnattributedUsage {
   sessionId: string
   reason: UnattributedReason
   tokens: number
+  /** True as soon as one part of the remainder is an estimate (never claimed exact) */
+  estimated: boolean
 }
 
 /** Distinct addressed names tracked apart; past it, usages fold into one overflow entry. */
@@ -59,6 +61,7 @@ export function addUnattributed(
   reason: UnattributedReason,
   tokens: number,
   mode: 'add' | 'set',
+  estimated = false,
 ): void {
   if (!Number.isFinite(tokens) || tokens <= 0) return
   const existing = map.get(key)
@@ -66,11 +69,11 @@ export function addUnattributed(
     // The overflow entry cannot tell names apart, so an absolute reading cannot replace its predecessor: drop it
     if (mode === 'set') return
     const over = map.get(OVERFLOW_KEY)
-    map.set(OVERFLOW_KEY, { sessionId: '', reason: over?.reason ?? reason, tokens: (over?.tokens ?? 0) + tokens })
+    map.set(OVERFLOW_KEY, { sessionId: '', reason: over?.reason ?? reason, tokens: (over?.tokens ?? 0) + tokens, estimated: (over?.estimated ?? false) || estimated })
     return
   }
   const next = mode === 'add' && existing ? existing.tokens + tokens : tokens
-  map.set(key, { sessionId, reason, tokens: next })
+  map.set(key, { sessionId, reason, tokens: next, estimated: mode === 'add' && existing ? existing.estimated || estimated : estimated })
 }
 
 export interface CostSummary {
@@ -86,14 +89,17 @@ export interface CostSummary {
 }
 
 export function summarizeCosts(
-  agents: Iterable<{ tokensUsed: number; model?: string }>,
+  agents: Iterable<{ tokensUsed: number; model?: string; tokenStatus?: UsageStatus }>,
   unattributed: Iterable<{ tokens: number }>,
 ): CostSummary {
   let attributedTokens = 0
   let attributedCost = 0
+  // An agent whose tokens are unknown adds nothing (never a 0 passed off as a figure); sessionUsage flags the gap
   for (const a of agents) {
-    attributedTokens += a.tokensUsed
-    attributedCost += agentCost(a.tokensUsed, a.model)
+    const usage = usageFromAgent(a)
+    if (usage.value === null) continue
+    attributedTokens += usage.value
+    attributedCost += agentCost(usage.value, a.model)
   }
   let unattributedTokens = 0
   for (const u of unattributed) unattributedTokens += u.tokens
@@ -116,12 +122,14 @@ export interface SessionUsage {
  * Qualified session totals: per-agent figures keep their completeness (agents with no data make the total a
  * lower bound, estimates are flagged) and the unattributed remainder (#61) counts in the session total.
  */
-export function sessionUsage(agents: Iterable<Agent>, unattributed: Iterable<{ tokens: number }>): SessionUsage {
+export function sessionUsage(agents: Iterable<Agent>, unattributed: Iterable<{ tokens: number; estimated?: boolean }>): SessionUsage {
   const list = Array.from(agents)
-  const summary = summarizeCosts(list, unattributed)
+  const remainder = Array.from(unattributed)
+  const summary = summarizeCosts(list, remainder)
   const rest = summary.unattributedTokens > 0
-  const restTokens: UsageTotal = { value: summary.unattributedTokens, status: 'available', estimated: false }
-  const restCost: UsageTotal = { value: summary.unattributedCost, status: 'available', estimated: false }
+  const restEstimated = remainder.some(u => u.estimated === true)
+  const restTokens: UsageTotal = { value: summary.unattributedTokens, status: 'available', estimated: restEstimated }
+  const restCost: UsageTotal = { value: summary.unattributedCost, status: 'available', estimated: restEstimated }
   return {
     tokens: combineUsage(rest ? [...list.map(usageFromAgent), restTokens] : list.map(usageFromAgent)),
     cost: combineUsage(rest ? [...list.map(agentCostUsage), restCost] : list.map(agentCostUsage)),

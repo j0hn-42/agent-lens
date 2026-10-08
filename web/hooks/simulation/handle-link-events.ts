@@ -1,6 +1,6 @@
 import type { MutableEventState } from './process-event'
 import {
-  agentKeyOf, cappedString, edgeId, nextMsgId, DEFAULT_SESSION_ID, MAX_LINK_MESSAGES,
+  agentKeyOf, cappedString, cutCharsOf, cutField, edgeId, nextMsgId, DEFAULT_SESSION_ID, MAX_LINK_MESSAGES,
   type AgentLink, type ConversationMessage, type LinkKind,
 } from './types'
 import { idString } from './agent-keys'
@@ -39,6 +39,7 @@ function linkKind(v: unknown): LinkKind {
 interface ParsedLink {
   link: LinkIdentity
   content: string
+  cutChars: number
   toolUseId?: string
 }
 
@@ -54,6 +55,7 @@ function parseLinkPayload(payload: Record<string, unknown>, sessionId: string): 
   return {
     link: { id, from, to, kind, sessionId },
     content: cappedString(payload.content),
+    cutChars: cutCharsOf(payload.content),
     toolUseId: idString(payload.toolUseId) || undefined,
   }
 }
@@ -71,6 +73,7 @@ export function handleAgentLink(
     addLinkMessage(state, parsed.link, {
       type: 'message', content: parsed.content, timestamp: currentTime,
       from: parsed.link.from, to: parsed.link.to, linkId: parsed.link.id, toolUseId: parsed.toolUseId,
+      ...cutField(parsed.cutChars),
     })
   } else {
     ensureLink(state, parsed.link)
@@ -89,5 +92,6 @@ export function handleMessageSent(
   addLinkMessage(state, parsed.link, {
     type: 'message', content: parsed.content, timestamp: currentTime,
     from: parsed.link.from, to: parsed.link.to, linkId: parsed.link.id, toolUseId: parsed.toolUseId,
+    ...cutField(parsed.cutChars),
   })
 }
