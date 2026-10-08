@@ -12,6 +12,8 @@ import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-gloss
 import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
+import { formatAttention } from "@/lib/attention"
+import type { NotifyState } from "@/hooks/use-attention-alerts"
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
@@ -166,6 +168,13 @@ export interface TopBarProps {
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
   onOpenShortcuts: () => void
+  /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
+  attention?: { waiting: number; errors: number }
+  /** Select the first blocked agent */
+  onJumpToAttention?: () => void
+  /** Browser notifications opt-in; absent or 'unsupported' = no control */
+  notifyState?: NotifyState
+  onToggleNotify?: () => void
 }
 
 export const TopBar = memo(function TopBar({
@@ -177,7 +186,9 @@ export const TopBar = memo(function TopBar({
   activeAgentCount, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
+  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
 }: TopBarProps) {
+  const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
@@ -227,6 +238,35 @@ export const TopBar = memo(function TopBar({
       {/* Right-side info/controls */}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} />
+        {attentionText && onJumpToAttention && (
+          <button
+            type="button"
+            data-testid="attention-counter"
+            onClick={onJumpToAttention}
+            aria-label={`${attentionText}. Go to the first agent that needs you`}
+            title="Agents of this view that wait for a permission or failed. Click to select the first one."
+            className={`min-h-6 px-2 rounded font-bold ${FOCUS_RING}`}
+            style={{
+              background: COLORS.toggleInactive,
+              border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
+              color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
+            }}
+          >
+            <span aria-hidden="true">! </span>{attentionText}
+          </button>
+        )}
+        {notifyState !== 'unsupported' && onToggleNotify && (
+          <ToggleButton
+            active={notifyState === 'on'}
+            pressed={notifyState === 'on'}
+            onClick={onToggleNotify}
+            title={notifyState === 'denied'
+              ? 'Notifications are blocked in the browser settings'
+              : 'Notify when an agent waits for a permission or fails while this tab is hidden'}
+          >
+            {notifyState === 'denied' ? 'Notifications blocked' : 'Notify when blocked'}
+          </ToggleButton>
+        )}
         {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
           <ToggleButton
             active={showFinished}

@@ -46,6 +46,8 @@ import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { summarizeAttention } from "@/lib/attention"
+import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -444,6 +446,19 @@ export function AgentVisualizer() {
   const totalTokens = usage.summary.sessionTokens
   const totalCost = usage.summary.sessionCost
 
+  // Agents waiting for a permission or in error (#126): counter, tab title and opt-in notification.
+  // The clock only re-evaluates freshness: a waiting status nothing proves any more drops out.
+  const [attentionNow, setAttentionNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAttentionNow(Date.now()), 10_000)
+    return () => clearInterval(t)
+  }, [])
+  const attention = useMemo(() => summarizeAttention(agents.values(), Math.max(attentionNow, Date.now())), [agents, attentionNow])
+  const { notifyState, toggleNotify } = useAttentionAlerts(attention)
+  const { handleAgentClick: selectBlockedAgent } = selection
+  const attentionTarget = attention.firstAgentId
+  const jumpToAttention = useCallback(() => { if (attentionTarget) selectBlockedAgent(attentionTarget) }, [attentionTarget, selectBlockedAgent])
+
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
@@ -627,6 +642,10 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
+        attention={attention}
+        onJumpToAttention={jumpToAttention}
+        notifyState={notifyState}
+        onToggleNotify={toggleNotify}
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
@@ -822,6 +841,12 @@ export function AgentVisualizer() {
           teamWorking={bridge.teamWorking}
           teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
+          filterProject={prefs.sessionFilterProject}
+          filterRuntime={prefs.sessionFilterRuntime}
+          onFilterChange={change => {
+            if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
+            if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
+          }}
         />
       </div>
 
