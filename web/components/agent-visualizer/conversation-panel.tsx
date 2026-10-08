@@ -462,8 +462,6 @@ export function ConversationPanel({
           </div>
         </div>
 
-        <p role="status" className="m-0 px-3 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
-
         {/* Search bar */}
         {showSearch && (
           <div id={searchId} className="px-3 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
@@ -610,6 +608,7 @@ export function ConversationPanel({
         {/* Intentional: the log is not live (it would read every message). While pinned to the bottom the
             list is already in view; when scrolled up this polite status line announces only the unseen count. */}
         <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesText : ''}</div>
+        <p role="status" className="m-0 px-3 py-1 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {!isAtBottom && messages.length > 0 && (
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
