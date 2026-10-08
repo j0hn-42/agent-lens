@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { formatTokens, formatCost, formatDuration, pluralize } from '../web/lib/utils'
-import { agentCost, totalAgentCost } from '../web/lib/cost'
+import { agentCost, totalCostUsage } from '../web/lib/cost'
 
 test('formatTokens', () => {
   assert.equal(formatTokens(0), '0')
@@ -46,9 +46,11 @@ test('total cost equals the sum of per-agent costs priced by model', () => {
     { tokensUsed: 300_000 },
   ]
   const expected = agents.reduce((s, a) => s + agentCost(a.tokensUsed, a.model), 0)
-  assert.equal(totalAgentCost(agents), expected)
+  const total = totalCostUsage(agents)
+  assert.equal(total.value, expected)
+  assert.equal(total.status, 'available')
   const flat = agentCost(agents.reduce((s, a) => s + a.tokensUsed, 0))
-  assert.notEqual(totalAgentCost(agents), flat)
+  assert.notEqual(total.value, flat)
 })
 
 const table = <I, O>(name: string, fn: (i: I) => O, rows: [I, O][]) =>

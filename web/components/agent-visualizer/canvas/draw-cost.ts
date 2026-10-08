@@ -141,7 +141,8 @@ export function drawCostSummaryPanel(
   toolCalls: Map<string, ToolCallNode>,
   unattributed: Iterable<UnattributedUsage> = [],
 ) {
-  const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
+  // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
+  const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
   // Usage that belongs to no single agent is shown apart, never folded into one (#61)
   const summary = summarizeCosts(agentList, unattributed)
   const hasRest = summary.unattributedTokens > 0
@@ -149,7 +150,7 @@ export function drawCostSummaryPanel(
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model), usage: agentCostUsage(a) }))
+    .map(a => { const usage = agentCostUsage(a); return { name: a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;

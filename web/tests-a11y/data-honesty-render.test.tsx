@@ -58,6 +58,19 @@ test('the cost panel qualifies per-agent rows and BY TOOL rows', () => {
   assert.ok(texts.some(t => /^au moins \$/.test(t)), 'the agent row is a lower bound')
 })
 
+test('the cost panel lists a partial agent as a lower bound and never lists an unavailable one as 0', () => {
+  const texts: string[] = []
+  const agents = new Map<string, any>([
+    ['p', agent({ id: 'p', name: 'partial-one', tokenStatus: 'partial', tokensUsed: 40000 })],
+    ['u', agent({ id: 'u', name: 'unknown-one', tokenStatus: 'unavailable', tokensUsed: 0, isMain: false })],
+  ])
+  drawCostSummaryPanel(recordingCtx(texts), agents, new Map())
+  assert.ok(texts.some(t => t.includes('partial-one')), 'partial agent has a row')
+  assert.ok(!texts.some(t => t.includes('unknown-one')), 'unavailable agent has no row')
+  assert.ok(!texts.some(t => /\$0\.00/.test(t)), `no invented zero, got ${JSON.stringify(texts)}`)
+  assert.ok(texts.some(t => /^au moins \$/.test(t)), 'the header is a lower bound because an agent has no data')
+})
+
 // ─── Expiry delay wiring ────────────────────────────────────────────────────
 
 const T0 = 1_700_000_000_000
