@@ -9,7 +9,7 @@ import { useDockSnapshot } from './shared-ui'
 
 const CONTROL_BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-60'
+  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] disabled:opacity-60'
 
 interface CanvasControlsProps {
   /** Teams of the accessible model (legend) */
@@ -100,7 +100,7 @@ export function CanvasControls({
           Expire unanswered calls after
           <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
             {TOOL_EXPIRY_CHOICES_S.map(n => (
-              <option key={n} value={n} style={{ color: '#000' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
+              <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
             ))}
           </select>
         </label>

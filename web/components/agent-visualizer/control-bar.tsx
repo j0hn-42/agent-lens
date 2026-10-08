@@ -108,7 +108,7 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
 
 /** Progress fill: opaque from the first pixel so it keeps >= 3:1 against COLORS.controlTrack
  *  (COLORS.scrubberFill starts at 30% alpha, which fails that ratio at the left end). */
-const SCRUBBER_FILL = 'linear-gradient(90deg, #66ccff, #99e0ff)'
+const scrubberFill = () => `linear-gradient(90deg, ${COLORS.accent}, ${COLORS.focus})`
 
 const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
@@ -184,7 +184,7 @@ function LiveControlBar({
             style={{
               background: isDemo ? 'transparent' : COLORS.liveDot,
               border: isDemo ? `2px solid ${COLORS.holoBright}` : undefined,
-              boxShadow: isDemo ? undefined : `0 0 8px ${COLORS.liveDot}, 0 0 16px rgba(255,68,68,0.3)`,
+              boxShadow: isDemo ? undefined : 'var(--lens-live-halo)',
             }}
           />
           <span className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: badgeColor }}>
@@ -361,7 +361,7 @@ function ReviewControlBar({
               className="h-full rounded-full motion-safe:transition-[width]"
               style={{
                 width: `${progress * 100}%`,
-                background: SCRUBBER_FILL,
+                background: scrubberFill(),
               }}
             />
             <EventMarkers

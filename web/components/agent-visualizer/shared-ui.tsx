@@ -31,7 +31,7 @@ export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
       onClick={onClick}
       aria-label="Close"
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff] ${className}`}
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -328,10 +328,10 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
           try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
         }}
         onPointerCancel={() => { dragRef.current = null }}
-        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[#99e0ff] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[#99e0ff]"
+        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)]"
       >
         <span
-          className="my-auto h-12 w-1 rounded-full bg-white/30 transition-colors group-hover:bg-white/60"
+          className="my-auto h-12 w-1 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]"
         />
       </div>
     </div>

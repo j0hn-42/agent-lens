@@ -95,6 +95,13 @@ export function extraVars(id: ThemeId): Record<string, string> {
       '--lens-input-focus-glow': '0 0 8px rgba(102, 204, 255, 0.1)',
       '--lens-scrollbar-thumb': 'rgba(102, 204, 255, 0.5)',
       '--lens-scrollbar-thumb-hover': 'rgba(102, 204, 255, 0.7)',
+      // Chrome (zone 3): hover washes, resize grip, modal scrim, live-dot halo
+      '--lens-hover': 'rgba(255, 255, 255, 0.1)',
+      '--lens-hover-subtle': 'rgba(255, 255, 255, 0.05)',
+      '--lens-grip': 'rgba(255, 255, 255, 0.3)',
+      '--lens-grip-hover': 'rgba(255, 255, 255, 0.6)',
+      '--lens-scrim': 'rgba(0, 0, 0, 0.5)',
+      '--lens-live-halo': '0 0 8px #ff4444, 0 0 16px rgba(255, 68, 68, 0.3)',
     }
   }
   return {
@@ -112,6 +119,13 @@ export function extraVars(id: ThemeId): Record<string, string> {
     '--lens-input-focus-glow': 'none',
     '--lens-scrollbar-thumb': t['control-border'],
     '--lens-scrollbar-thumb-hover': t['ink-muted'],
+    // Chrome (zone 3): flat hover on surface-raised, grip on control-border, no halo
+    '--lens-hover': t['surface-raised'],
+    '--lens-hover-subtle': t['surface-raised'],
+    '--lens-grip': t['control-border'],
+    '--lens-grip-hover': t['ink-muted'],
+    '--lens-scrim': id === 'paper' ? 'rgba(26, 26, 26, 0.45)' : 'rgba(0, 0, 0, 0.5)',
+    '--lens-live-halo': 'none',
   }
 }
 
