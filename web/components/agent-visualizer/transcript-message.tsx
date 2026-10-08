@@ -6,6 +6,7 @@ import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
 import { CheckIcon, GearIcon } from './feed-icons'
+import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 
 // ─── Message rendering utilities of the Conversation panel ───────────────────
 
@@ -31,13 +32,32 @@ export function HighlightText({ text, query }: { text: string; query?: string })
   )
 }
 
-/** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. */
-function TruncatedText({ text, limit, query, color }: { text: string; limit: number; query?: string; color?: string }) {
-  const [showAll, setShowAll] = useState(false)
-  const t = truncateWithMarker(text, limit)
+/** Text of ANSI segments rendered as styled spans (built elements, never raw HTML; the DOM text holds no code). */
+export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?: string }) {
   return (
     <>
-      <HighlightText text={showAll ? text : t.text} query={query} />
+      {segments.map((seg, i) => {
+        const style = ansiStyle(seg)
+        return style
+          ? <span key={i} style={style}><HighlightText text={seg.text} query={query} /></span>
+          : <HighlightText key={i} text={seg.text} query={query} />
+      })}
+    </>
+  )
+}
+
+/** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. `ansi` renders SGR colors (Bash output). */
+function TruncatedText({ text, limit, query, color, ansi }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  // Truncation counts visible characters: escape sequences are parsed out before cutting
+  const segments = ansi ? parseAnsi(text) : null
+  const plain = segments ? segments.map(s => s.text).join('') : text
+  const t = truncateWithMarker(plain, limit)
+  return (
+    <>
+      {segments
+        ? <AnsiText segments={showAll ? segments : sliceAnsiSegments(segments, limit)} query={query} />
+        : <HighlightText text={showAll ? text : t.text} query={query} />}
       {t.hidden > 0 && !showAll && <span style={{ color }}>{t.marker}</span>}
       {t.hidden > 0 && (
         <button
@@ -115,7 +135,7 @@ export function TranscriptMessage({ message, searchQuery }: {
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
-            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} />
+            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} />
           </div>
         </div>
       )
