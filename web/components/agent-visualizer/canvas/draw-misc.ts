@@ -1,6 +1,6 @@
-import { Agent, NODE, CARD, TETHER } from '@/lib/agent-types'
-import { COLORS, getStateColor } from '@/lib/colors'
-import { STATE_COLOR_OVERRIDES } from '@/lib/canvas-constants'
+import { Agent, NODE, CARD, TETHER } from '../../../lib/agent-types'
+import { COLORS, getStateColor } from '../../../lib/colors'
+import { STATE_COLOR_OVERRIDES } from '../../../lib/canvas-constants'
 import { measureTextCached } from './render-cache'
 
 /** Canvas state colour: colors.ts value, except where the canvas needs a distinct hue (thinking, waiting_permission). */

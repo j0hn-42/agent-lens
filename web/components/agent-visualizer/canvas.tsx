@@ -39,8 +39,8 @@ import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from '.
 import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
-import { visibleAgents } from '@/lib/inactive-agents'
-import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { sceneAgents, costScope } from './canvas/scene'
+import { createCollapseMemory, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
 import { drawBranchBadges } from './canvas/draw-branch-badges'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
@@ -95,22 +95,6 @@ interface CanvasProps {
 const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
 
 const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
-
-/**
- * Agents to draw: the 'hide inactive' filter, then the automatic collapse of inactive sub-trees.
- * Only the selected agent keeps a branch open (hovering must not make the graph jump).
- */
-function sceneAgents(
-  all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
-  selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
-  memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
-): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
-  const base = visibleAgents(all, hideInactive, keepIds)
-  // A selected card keeps the branch of its owner open, like a selected agent
-  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
-  const collapse = evaluateCollapse(base, memory, owners)
-  return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
-}
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -413,7 +397,7 @@ export function AgentCanvas({
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
-        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: s.agents.values(),
+        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -592,7 +576,7 @@ export function AgentCanvas({
       updateDragLerp(agents, onAgentDrag)
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
-      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current, costAgents: simulationRef.current.agents.values() })
+      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current, costAgents: costScope(simulationRef.current).agents.values() })
       clustersRef.current = clusters
       const hoverTarget = hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
@@ -741,7 +725,7 @@ export function AgentCanvas({
         syncBubbleButtons(bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) drawCostSummaryPanel(ctx, simulationRef.current.agents, simulationRef.current.toolCalls, simulationRef.current.unattributed.values())
+      if (showCostOverlay) { const cost = costScope(simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed) }
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
