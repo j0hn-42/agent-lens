@@ -155,7 +155,8 @@ export function handleToolCallEnd(
   const tokenCost = readTokenCost(payload.tokenCost)
   const tokenSource = readTokenSource(payload.tokenSource)
   const outcome = readToolOutcome(payload)
-  const isError = outcome !== 'complete'
+  const isError = outcome === 'error'
+  const isCancelled = outcome === 'cancelled'
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
@@ -207,11 +208,12 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      if (isError) {
+      if (isError || isCancelled) {
         const lastBlock = entry.blocks[entry.blocks.length - 1]
         if (lastBlock && !lastBlock.endTime) {
-          lastBlock.color = COLORS.error
-          lastBlock.label = `${toolName}: ${outcome === 'cancelled' ? 'CANCELLED' : 'FAILED'}`
+          // A cancelled call is not a failure: neutral color, never the error red
+          lastBlock.color = isError ? COLORS.error : COLORS.idle
+          lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
         }
       }
       pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)

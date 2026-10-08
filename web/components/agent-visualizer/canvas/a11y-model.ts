@@ -20,7 +20,7 @@ import {
 import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
 import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
-import { isUnverifiedEdge } from './edge-style'
+import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
@@ -302,8 +302,8 @@ export function buildA11yModel(
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
-  const unverifiedChildren = new Set<string>()
-  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.add(e.to)
+  const unverifiedChildren = new Map<string, string>()
+  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.set(e.to, unverifiedReasonText(e.unverifiedReason))
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -320,7 +320,7 @@ export function buildA11yModel(
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
-      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ' (unverified link)' : ''}` : a.isMain ? 'main agent' : 'no parent',
+      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ` (unverified link${unverifiedChildren.get(a.id) ? `: ${unverifiedChildren.get(a.id)}` : ''})` : ''}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),

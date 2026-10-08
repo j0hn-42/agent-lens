@@ -3,6 +3,8 @@
  * agent_spawn or model_detected), else the latest model any of its agents reported. Pure (no React).
  */
 
+import { isPseudoModel } from './model-provenance'
+
 const MAX_SESSIONS = 200
 const MAX_AGENTS_PER_SESSION = 100
 const MAX_MODEL_LEN = 120
@@ -23,6 +25,11 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v.slice(0, MAX_MODEL_LEN) : undefined
 }
 
+function modelStr(v: unknown): string | undefined {
+  const s = str(v)
+  return s && !isPseudoModel(s) ? s : undefined
+}
+
 export class SessionModelTracker {
   private entries = new Map<string, Entry>()
 
@@ -33,7 +40,7 @@ export class SessionModelTracker {
     if (event.type !== 'agent_spawn' && event.type !== 'model_detected') return false
     const agent = str(event.payload.agent) ?? str(event.payload.name)
     if (!agent) return false
-    const model = str(event.payload.model)
+    const model = modelStr(event.payload.model)
     const isMainSpawn = event.type === 'agent_spawn' && event.payload.isMain === true
     if (!model && !isMainSpawn) return false
 

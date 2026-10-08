@@ -14,7 +14,7 @@ import { spawnPosition, clusterKeyOf } from './fleet-layout'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
 import { advanceActiveTime } from '../../lib/active-time'
-import { mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
+import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -253,11 +253,13 @@ export function handleModelDetected(
   const model = cappedString(payload.model, MAX_ID_LEN)
   const effort = parseEffort(payload.effort)
   const agent = state.agents.get(agentName)
-  if (agent && model) {
+  if (agent && model && !isPseudoModel(model)) {
     // Reported by the transcript itself: the strongest source
     const merged = mergeModel(agent, { model, source: 'runtime' })
+    // The effort is the one of this report: a source that stops reporting one clears it (never carried over)
+    const { effort: _previous, ...rest } = agent
     state.agents.set(agentName, {
-      ...agent,
+      ...rest,
       ...merged,
       modelsUsed: recordModelUsed(agent.modelsUsed, model),
       tokensMax: ctx.getContextWindowSize(model),

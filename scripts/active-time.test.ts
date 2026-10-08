@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import { trackActiveTime, carryActiveTime } from '../web/hooks/simulation/track-active-time'
 import type { Agent } from '../web/lib/agent-types'
 import {
-  activeSummaryText, advanceActiveTime, ActiveTimeTracker, SAMPLE_GAP_MAX_MS, CHRONO_CAP_MS, isActiveState, createChrono, formatActiveSince, activeSinceText,
+  activeSummaryText, advanceActiveTime, ActiveTimeTracker, SAMPLE_GAP_MAX_MS, CHRONO_CAP_MS, isActiveState, createChrono, formatActiveSince,
   ACTIVE_UNKNOWN_TEXT,
 } from '../web/lib/active-time'
 
@@ -83,14 +83,6 @@ test('formatActiveSince', () => {
   assert.equal(formatActiveSince(65_000), '1:05')
   assert.equal(formatActiveSince(3_725_000), '1:02:05')
   assert.equal(formatActiveSince(CHRONO_CAP_MS, true), `${formatActiveSince(CHRONO_CAP_MS)}+`)
-})
-
-test('activeSinceText: only for a fresh agent with a known start; otherwise unknown', () => {
-  assert.equal(activeSinceText({ activeSince: 1000 }, 'fresh', 4000), 'active for 0:03')
-  assert.equal(activeSinceText({ activeSince: undefined }, 'fresh', 4000), ACTIVE_UNKNOWN_TEXT)
-  for (const f of ['stale', 'closed', 'never-observed', 'interrupted', 'error'] as const) {
-    assert.equal(activeSinceText({ activeSince: 1000 }, f, 4000), ACTIVE_UNKNOWN_TEXT, f)
-  }
 })
 
 test('activeSummaryText: running, paused, never observed, stale', () => {

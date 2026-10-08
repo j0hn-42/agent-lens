@@ -9,6 +9,7 @@ import { COLORS } from '../../../lib/colors'
 import { MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
 import { bezierPoint, computeControlPoints } from './link-geometry'
 import { isAgentVisible } from './team-style'
+import { isUnverifiedEdge, UNVERIFIED_DASH } from './edge-style'
 
 /** Whole animation never lasts longer than this, however deep the chain */
 export const PATH_MAX_DURATION_MS = 500
@@ -114,6 +115,18 @@ export function drawDelegationPath(
     const toTool = toolCalls.get(edge.to)
     const to = toAgent && isAgentVisible(toAgent) ? toAgent : toTool && toTool.opacity >= MIN_VISIBLE_OPACITY ? toTool : null
     if (!to) continue
+    // A hop the events do not prove stays dashed and dim (#54): the highlight never turns a guess into a fact
+    if (isUnverifiedEdge(edge)) {
+      ctx.setLineDash(UNVERIFIED_DASH)
+      ctx.shadowBlur = 0
+      ctx.globalAlpha = 0.6
+      ctx.lineWidth = 1.8
+    } else {
+      ctx.setLineDash([])
+      ctx.shadowBlur = 8
+      ctx.globalAlpha = 1
+      ctx.lineWidth = 2.5
+    }
     strokeDelegationPath(ctx, from, to, hopProgress(i, path.length, elapsedMs, reducedMotion))
   }
   ctx.restore()

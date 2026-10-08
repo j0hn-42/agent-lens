@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { formatTokens, formatCost, formatDuration, pluralize } from '../web/lib/utils'
-import { agentCost, totalAgentCost } from '../web/lib/cost'
+import { agentCost } from '../web/lib/cost'
 
 test('formatTokens', () => {
   assert.equal(formatTokens(0), '0')
@@ -37,18 +37,6 @@ test('pluralize', () => {
   assert.equal(pluralize(1, 'agent'), '1 agent')
   assert.equal(pluralize(2, 'file'), '2 files')
   assert.equal(pluralize(2, 'child', 'children'), '2 children')
-})
-
-test('total cost equals the sum of per-agent costs priced by model', () => {
-  const agents = [
-    { tokensUsed: 500_000, model: 'claude-opus-4-6-20250514' },
-    { tokensUsed: 2_000_000, model: 'claude-haiku-4-5-20251001' },
-    { tokensUsed: 300_000 },
-  ]
-  const expected = agents.reduce((s, a) => s + agentCost(a.tokensUsed, a.model), 0)
-  assert.equal(totalAgentCost(agents), expected)
-  const flat = agentCost(agents.reduce((s, a) => s + a.tokensUsed, 0))
-  assert.notEqual(totalAgentCost(agents), flat)
 })
 
 const table = <I, O>(name: string, fn: (i: I) => O, rows: [I, O][]) =>

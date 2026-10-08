@@ -42,6 +42,6 @@ test('the DOM mirror says when a parent link is unverified instead of presenting
     { id: 'e3', from: 'a1', to: 'a3', type: 'parent-child', opacity: 1, verified: true },
   ]
   const model = buildA11yModel(agents, new Map(), [], new Map(), { edges })
-  assert.equal(model.agents[1].relation, 'child of main (unverified link)')
+  assert.equal(model.agents[1].relation, 'child of main (unverified link: no earlier call by the parent with this id)')
   assert.equal(model.agents[2].relation, 'child of main')
 })
