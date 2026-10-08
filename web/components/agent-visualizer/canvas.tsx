@@ -40,6 +40,8 @@ import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { visibleAgents } from '@/lib/inactive-agents'
+import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { drawBranchBadges } from './canvas/draw-branch-badges'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
 import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './canvas/edge-bubble-dom'
@@ -91,6 +93,24 @@ interface CanvasProps {
 }
 
 const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
+
+const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
+
+/**
+ * Agents to draw: the 'hide inactive' filter, then the automatic collapse of inactive sub-trees.
+ * Only the selected agent keeps a branch open (hovering must not make the graph jump).
+ */
+function sceneAgents(
+  all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
+  selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
+  memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
+): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
+  const base = visibleAgents(all, hideInactive, keepIds)
+  // A selected card keeps the branch of its owner open, like a selected agent
+  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
+  const collapse = evaluateCollapse(base, memory, owners)
+  return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
+}
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -239,9 +259,19 @@ export function AgentCanvas({
   const sim = simulationRef.current
   const hideInactiveRef = useRef(hideInactive)
   hideInactiveRef.current = hideInactive
-  const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => ({
-    agents: visibleAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId]), toolCalls: sim.toolCalls,
-    particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
+  // Collapse of inactive sub-trees: the user's choices live here for the life of the canvas
+  const collapseMemoryRef = useRef<CollapseMemory>(createCollapseMemory())
+  const collapseViewRef = useRef<CollapseView>(EMPTY_COLLAPSE)
+  const handleToggleBranch = useCallback((id: string) => {
+    toggleBranch(collapseMemoryRef.current, collapseViewRef.current, id)
+  }, [])
+  const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
+    const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
+    collapseViewRef.current = scene.collapse
+    return {
+    agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
+    particles: sim.particles, edges: sim.edges, discoveries: scene.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
     showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
@@ -252,7 +282,8 @@ export function AgentCanvas({
     onToolCallClick, onDiscoveryClick, onLinkClick,
     onClusterClick: (key: string) => handleClusterClickRef.current(key),
     isDragging: prev?.isDragging ?? false,
-  })
+    }
+  }
   const handleClusterClickRef = useRef<(key: string) => void>(() => {})
   const drawPropsRef = useRef(makeDrawProps())
   drawPropsRef.current = makeDrawProps(drawPropsRef.current)
@@ -376,8 +407,12 @@ export function AgentCanvas({
       const s = simulationRef.current
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
-      const model = buildA11yModel(visibleAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId]), s.toolCalls, s.discoveries, a11yRecorder.tools, {
-        links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
+      const dp = drawPropsRef.current
+      const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+      collapseViewRef.current = scene.collapse
+      const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
+        links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current,
       })
       const comms = Array.from(a11yRecorder.comms.values())
@@ -409,10 +444,14 @@ export function AgentCanvas({
   // ─── Detect state changes → spawn effects + live-region announcements ───
 
   const detectStateChanges = useCallback(() => {
-    const { agents, toolCalls } = drawPropsRef.current
+    const { agents } = drawPropsRef.current
+    // States come from the whole simulation, only the shown agents are announced: expanding a
+    // branch reveals agents that did not just start.
+    const sim = simulationRef.current
     const { effects, transitions, newAgentStates, newToolStates } = detectStateChangesPure(
-      agents, toolCalls,
+      sim.agents, sim.toolCalls,
       prevAgentStatesRef.current, prevToolStatesRef.current,
+      agents,
     )
     if (!reducedMotionRef.current) {
       // Global flash limiter: at most FLASH_MAX_PER_SECOND bright flashes per second
@@ -465,11 +504,15 @@ export function AgentCanvas({
       {
         const s = simulationRef.current
         const p = drawPropsRef.current
-        p.agents = visibleAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId])
-        p.toolCalls = s.toolCalls
+        const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+        collapseViewRef.current = scene.collapse
+        p.agents = scene.agents
+        p.collapse = scene.collapse
+        p.toolCalls = scene.toolCalls
         p.particles = s.particles
         p.edges = s.edges
-        p.discoveries = s.discoveries
+        p.discoveries = scene.discoveries
         p.simTime = s.currentTime
         p.links = resolveLinks(linksPropRef.current ?? s.links, p.agents, s.currentTime)
       }
@@ -648,6 +691,7 @@ export function AgentCanvas({
         timeRef.current, opts,
       )
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
+      drawBranchBadges(ctx, agents, drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)
       drawEdgeBubbles(ctx, cappedEdgeBubbles, selectedLinkId, hoveredLinkId, opts)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
@@ -818,7 +862,8 @@ export function AgentCanvas({
         className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
       />
       <p id="graph-keyboard-help" className="sr-only">
-        Arrow keys move between nodes. Enter opens details. Plus and minus zoom, zero fits the graph.
+        Arrow keys move between nodes. On an agent, Right opens a folded branch or enters its first sub-agent,
+        Left folds an open branch or goes to the parent. Enter opens details. Plus and minus zoom, zero fits the graph.
         Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
       </p>
 
@@ -836,6 +881,7 @@ export function AgentCanvas({
         onToolCallClick={onToolCallClick}
         onDiscoveryClick={onDiscoveryClick}
         onFocusNode={focusNode}
+        onToggleBranch={handleToggleBranch}
       />
 
       {/* Hover / focus tooltip (mirrors information available in the outline, so hidden from AT) */}

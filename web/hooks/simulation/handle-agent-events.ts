@@ -11,6 +11,7 @@ import { parseTeammateExtras } from './team-info'
 import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
 import { expireToolCall } from '../../lib/tool-lifecycle'
+import { judgeSpawn } from './edge-validation'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -28,10 +29,12 @@ export function handleAgentSpawn(
   // The real parent comes from the event. If it is not known (yet), hang the agent on the
   // session's main agent rather than leaving a dangling edge.
   let parentId: string | undefined
+  let parentResolved = true
   if (rawParent) {
     const direct = agentKeyOf(sessionId, rawParent)
     if (state.agents.has(direct)) parentId = direct
     else {
+      parentResolved = false
       const main = Array.from(state.agents.values()).find(a => a.sessionId === sessionId && a.isMain && a.id !== name)
       parentId = main ? main.id : direct
     }
@@ -104,7 +107,13 @@ export function handleAgentSpawn(
   state.agents.set(name, agent)
 
   if (parentId) {
-    state.edges.push({ id: edgeId(parentId, name), from: parentId, to: name, type: 'parent-child', opacity: 0 })
+    // The edge is a fact only if the events agree (#54); otherwise it stays "unverified"
+    const verdict = judgeSpawn(state, { sessionId, parentKey: parentId, childKey: name, toolUseId, parentResolved }, currentTime)
+    state.edges.push({
+      id: edgeId(parentId, name), from: parentId, to: name, type: 'parent-child', opacity: 0,
+      verified: verdict.verified,
+      ...(verdict.verified ? {} : { unverifiedReason: verdict.reason }),
+    })
   }
 
   const timelineEntry: TimelineEntry = {

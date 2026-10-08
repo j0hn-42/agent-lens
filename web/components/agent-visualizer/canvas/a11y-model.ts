@@ -19,6 +19,8 @@ import {
 import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
 import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
+import { isUnverifiedEdge } from './edge-style'
+import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -167,6 +169,18 @@ export interface A11yAgentItem {
   orchestrator?: 'lead' | 'main'
   /** Cluster (session / team) the agent belongs to, when that cluster is shown */
   clusterKey?: string
+  /** Collapsible branch state (agents with sub-agents that are not the root of a tree) */
+  branch?: { collapsed: boolean; pinned: boolean; text: string }
+}
+
+/** Mirror wording of a branch: the same facts as its canvas badge. */
+function branchItem(info: BranchInfo | undefined): A11yAgentItem['branch'] {
+  if (!info) return undefined
+  if (!info.collapsed) {
+    const n = info.children.length
+    return { collapsed: false, pinned: info.pinned, text: `Expanded branch, ${n} sub-agent${n === 1 ? '' : 's'}` }
+  }
+  return { collapsed: true, pinned: info.pinned, text: `Collapsed branch, ${branchBadge(info).label}` }
 }
 
 /** A session or team cluster: a heading of the outline, with the agents it holds */
@@ -232,6 +246,10 @@ export interface A11yModel {
 /** Optional inputs of the team-aware DOM model */
 export interface A11yExtras {
   links?: Map<string, AgentLink>
+  /** Parent -> child edges: lets the mirror say which parent links are unverified */
+  edges?: Edge[]
+  /** Collapse state of the branches (see branch-collapse.ts) */
+  collapse?: CollapseView
   teams?: Map<string, TeamSummary>
   simTime?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
@@ -283,6 +301,8 @@ export function buildA11yModel(
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
+  const unverifiedChildren = new Set<string>()
+  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.add(e.to)
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -299,7 +319,7 @@ export function buildA11yModel(
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
-      relation: parent ? `child of ${parent.name}` : a.isMain ? 'main agent' : 'no parent',
+      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ' (unverified link)' : ''}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
@@ -310,6 +330,7 @@ export function buildA11yModel(
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
       clusterKey: clusterOf.get(a.id),
+      branch: branchItem(extras.collapse?.branches.get(a.id)),
     })
   }
 

@@ -19,6 +19,7 @@ import { overlayHits } from './overlay-state'
 import { lodForZoom } from './draw-options'
 import { findLinkAt, type ResolvedLink } from './link-geometry'
 import type { NavNode } from './keyboard-nav'
+import { badgeRect, badgeSizeText, branchBadge, type CollapseView } from './branch-collapse'
 
 /** Radius (world units) of an agent hit area: at least `minPx` screen pixels. */
 export function hitRadiusWorld(baseWorldRadius: number, scale: number, minPx: number): number {
@@ -202,7 +203,22 @@ export function findClusterLabelAt(x: number, y: number, scale = 1): string | nu
   return found
 }
 
+/** Collapsed branch whose badge is at (x, y), or null. The badge text sets its size, like when drawn. */
+export function findBranchBadgeAt(
+  x: number, y: number, agents: Map<string, Agent>, view: CollapseView, scale = 1,
+): string | null {
+  for (const [id, info] of view.branches) {
+    if (!info.collapsed) continue
+    const agent = agents.get(id)
+    if (!agent || !isAgentVisible(agent)) continue
+    const r = badgeRect(agent, badgeSizeText(branchBadge(info)))
+    if (pointInMinRect(x, y, r.x, r.y, r.w, r.h, scale, HIT_DETECTION.minTargetPx)) return id
+  }
+  return null
+}
+
 export type HitTarget =
+  | { type: 'branch'; id: string }
   | { type: 'cluster'; id: string }
   | { type: 'agent'; id: string }
   | { type: 'tool'; id: string }
@@ -218,12 +234,14 @@ export type HitTarget =
 export function hitTestAt(
   x: number,
   y: number,
-  scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[]; links?: ResolvedLink[] },
+  scene: { agents: Map<string, Agent>; toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[]; links?: ResolvedLink[]; collapse?: CollapseView },
   simTime: number,
   scale = 1,
 ): HitTarget | null {
   const agentId = findAgentAt(x, y, scene.agents, scale)
   if (agentId) return { type: 'agent', id: agentId }
+  const branchId = scene.collapse ? findBranchBadgeAt(x, y, scene.agents, scene.collapse, scale) : null
+  if (branchId) return { type: 'branch', id: branchId }
   const toolId = findToolCallAt(x, y, scene.toolCalls, scale)
   if (toolId) return { type: 'tool', id: toolId }
   const discId = findDiscoveryAt(x, y, scene.discoveries, scale)

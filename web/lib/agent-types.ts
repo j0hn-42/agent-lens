@@ -195,6 +195,10 @@ export interface Edge {
   to: string
   type: 'parent-child' | 'tool'
   opacity: number
+  /** parent-child only: true when the events agree on the link (call, start, same name and id); false = drawn dashed */
+  verified?: boolean
+  /** parent-child only: why the link is not proven (see UnverifiedReason) */
+  unverifiedReason?: string
 }
 
 export interface Particle {
