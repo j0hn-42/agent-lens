@@ -11,9 +11,11 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(__dirname, '..')
-const TSX = path.join(ROOT, 'node_modules', '.bin', 'tsx')
+// Node runs the entry itself (no `tsx` wrapper process): killing the child kills the server, not just a launcher
+const TSX_LOADER = pathToFileURL(path.join(ROOT, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href
 const REPO = 'https://github.com/o/r'
 
 const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'af-real-servers-')))
@@ -45,7 +47,7 @@ function entryFor(script: string): string {
 /** `ready` captures the port from the line the server prints once it listens (the relay's hook server prints one too). */
 function start(script: string, args: string[], ready: RegExp): Promise<Running> {
   return new Promise((resolve, reject) => {
-    const child = spawn(TSX, [entryFor(script), ...args], {
+    const child = spawn(process.execPath, ['--import', TSX_LOADER, entryFor(script), ...args], {
       cwd: workspace,
       env: { ...process.env, HOME: home, USERPROFILE: home, PATH: `${binDir}${path.delimiter}${process.env.PATH}`, AGENT_LENS_PORT: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -120,8 +122,13 @@ describe('real servers: GET /issue-links', () => {
     execFileSync('git', ['remote', 'add', 'origin', `${REPO}.git`], { cwd: workspace })
   })
 
-  after(() => {
-    for (const c of running) { c.kill('SIGKILL'); c.stdout?.destroy(); c.stderr?.destroy() }
+  after(async () => {
+    await Promise.all(running.map(c => new Promise<void>(resolve => {
+      if (c.exitCode !== null || c.signalCode !== null) return resolve()
+      c.once('exit', () => resolve())
+      c.kill('SIGKILL')
+    })))
+    for (const c of running) { c.stdout?.destroy(); c.stderr?.destroy() }
     fs.rmSync(base, { recursive: true, force: true })
   })
 

@@ -6,6 +6,7 @@ import { renderHook, act, cleanup } from '@testing-library/react'
 
 import { useAgentSimulation } from '@/hooks/use-agent-simulation'
 import { observedSessions } from '@/lib/session-model'
+import { isActiveState } from '@/lib/active-time'
 import type { SimulationEvent, Agent } from '@/lib/agent-types'
 
 const T0 = 1_700_000_000_000
@@ -118,6 +119,20 @@ test('seeking between two idle moments keeps the closed active time (carryActive
   assert.ok(closed >= 4_000, `precondition: a closed span, got ${closed}`)
   act(() => { view.result.current.seekToTime(3.5) })
   assert.equal(byName(view, 'alpha').activeMs, closed, 'not reset to unknown by the rebuild')
+})
+
+test('seeking between two moments where the agent is working keeps the running span (carryActiveTime)', () => {
+  const view = mount()
+  send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
+  advance(3_000)
+  send(view, [{ sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }, toolStart('alpha', 5)])
+  const before = byName(view, 'alpha')
+  assert.ok(isActiveState(before.state) && before.activeSince !== undefined, 'precondition: working with an open span')
+  act(() => { view.result.current.seekToTime(4.5) })
+  const after = byName(view, 'alpha')
+  assert.ok(isActiveState(after.state), `still working at the target moment, got ${after.state}`)
+  assert.equal(after.activeSince, before.activeSince, 'the open span is kept, not dropped')
+  assert.equal(after.activeMs, before.activeMs)
 })
 
 test('replayed (history) events leave the active time unknown, even in one batch', () => {

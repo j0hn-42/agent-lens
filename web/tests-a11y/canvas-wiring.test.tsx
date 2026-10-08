@@ -14,6 +14,7 @@ import { AgentCanvas } from '@/components/agent-visualizer/canvas'
 import { createEmptyState } from '@/hooks/simulation/types'
 import type { Agent, Edge } from '@/lib/agent-types'
 import { A11Y_SNAPSHOT_MS } from '@/lib/canvas-constants'
+import { badgeRect, badgeSizeText } from '@/components/agent-visualizer/canvas/branch-collapse'
 
 if (typeof (globalThis as any).Path2D === 'undefined') {
   ;(globalThis as any).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} arc() {} rect() {} bezierCurveTo() {} quadraticCurveTo() {} }
@@ -132,6 +133,26 @@ test('collapsed branches draw their badge on the canvas; an open one does not', 
   calls.length = 0
   await tick()
   assert.deepEqual(badgeText(), [], 'no badge once the branch is open')
+})
+
+test('a mouse click on the badge of a collapsed branch toggles it (onToggleBranch from the canvas hit test)', async () => {
+  const { container } = mount(branchSim())
+  await tick()
+  assert.equal(outlineButton(container, /^leaf1,/), undefined, 'precondition: folded')
+  const mid = branchSim().agents.get('mid')!
+  const r = badgeRect(mid, badgeSizeText({ kind: 'count', text: '+2' }))
+  // The camera transform is read back from the last frame: the first translate/scale after its setTransform
+  const frameStart = calls.map(c => c.name).lastIndexOf('setTransform')
+  const t = calls.slice(frameStart).findIndex(c => c.name === 'translate')
+  const cam = { x: calls[frameStart + t].args[0] as number, y: calls[frameStart + t].args[1] as number, scale: calls[frameStart + t + 1].args[0] as number }
+  assert.equal(calls[frameStart + t + 1].name, 'scale', 'the camera transform is a translate followed by a scale')
+  const x = cam.x + (r.x + r.w / 2) * cam.scale
+  const y = cam.y + (r.y + r.h / 2) * cam.scale
+  const canvas = container.querySelector('canvas')!
+  fireEvent.pointerDown(canvas, { clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', button: 0 })
+  fireEvent.pointerUp(canvas, { clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', button: 0 })
+  await settle()
+  assert.ok(outlineButton(container, /^leaf1,/) && outlineButton(container, /^leaf2,/), 'the click on the badge opened the branch')
 })
 
 function edgeSim(verified: boolean | undefined) {
