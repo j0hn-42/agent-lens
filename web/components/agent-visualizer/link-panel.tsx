@@ -98,7 +98,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 
   const buttonClass = 'inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-[11px] font-mono '
-    + 'hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]'
+    + 'hover:bg-[var(--lens-hover-10)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
 
   return (
     <div
@@ -170,7 +170,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
         ) : (
           <ol
             ref={listRef}
-            className="m-0 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]"
+            className="m-0 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
             aria-label="Messages, oldest first"
           >
             {model.entries.map(entry => {
