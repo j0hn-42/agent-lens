@@ -47,6 +47,8 @@ import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { summarizeAttention, withForeignAttention } from "@/lib/attention"
+import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -95,6 +97,7 @@ export function AgentVisualizer() {
     droppedEvents,
     droppedMessages,
     unattributed,
+    foreignAttention,
     links,
     teams,
     play,
@@ -446,6 +449,27 @@ export function AgentVisualizer() {
   const totalTokens = usage.summary.sessionTokens
   const totalCost = usage.summary.sessionCost
 
+  // Agents waiting for a permission or in error (#126): counter, tab title and opt-in notification.
+  // The clock only re-evaluates freshness: a waiting status nothing proves any more drops out.
+  const [attentionNow, setAttentionNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAttentionNow(Date.now()), 10_000)
+    return () => clearInterval(t)
+  }, [])
+  const attention = useMemo(() => summarizeAttention(withForeignAttention(agents.values(), foreignAttention), Math.max(attentionNow, Date.now())), [agents, foreignAttention, attentionNow])
+  const { notifyState, toggleNotify } = useAttentionAlerts(attention)
+  const { handleAgentClick: selectBlockedAgent } = selection
+  const attentionTarget = attention.firstAgentId
+  const attentionSession = attention.firstSessionId
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  // An agent of another session is not in this view: go to its session instead
+  const jumpToAttention = useCallback(() => {
+    if (!attentionTarget) return
+    if (agentsRef.current.has(attentionTarget)) selectBlockedAgent(attentionTarget)
+    else if (attentionSession) bridge.selectSession(attentionSession)
+  }, [attentionTarget, attentionSession, selectBlockedAgent, bridge])
+
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
@@ -558,8 +582,6 @@ export function AgentVisualizer() {
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
   // Agents whose status is older than the freshness limit are counted apart: they are not "active" any more (#145)
-  const agentsRef = useRef(agents)
-  agentsRef.current = agents
   const countsKey = useFreshnessValue(now => {
     const c = agentActivityCounts(agentsRef.current.values(), now)
     return `${c.active}|${c.done}|${c.stale}`
@@ -638,6 +660,10 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
+        attention={attention}
+        onJumpToAttention={jumpToAttention}
+        notifyState={notifyState}
+        onToggleNotify={toggleNotify}
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
@@ -818,6 +844,7 @@ export function AgentVisualizer() {
       <div ref={sessionsPanelRef} style={{ display: 'contents' }}>
         <SessionListPanel
           visible={showSessions}
+          attention={attention}
           onClose={() => setShowSessions(false)}
           sessions={bridge.sessions}
           allSessionCount={allSessionCount}
@@ -833,6 +860,12 @@ export function AgentVisualizer() {
           teamWorking={bridge.teamWorking}
           teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
+          filterProject={prefs.sessionFilterProject}
+          filterRuntime={prefs.sessionFilterRuntime}
+          onFilterChange={change => {
+            if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
+            if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
+          }}
         />
       </div>
 

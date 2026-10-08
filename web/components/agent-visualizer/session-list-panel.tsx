@@ -19,6 +19,12 @@ import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
+import {
+  agentNamesBySession, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
+  type RuntimeFilter, type SessionFilter,
+} from '@/lib/session-filter'
+import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
+import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
@@ -49,8 +55,14 @@ interface SessionListPanelProps {
   now?: number
   /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
   observedSessionIds?: ReadonlySet<string>
+  /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
+  attention?: AttentionSummary
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
+  /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
+  filterProject?: string | null
+  filterRuntime?: RuntimeFilter | null
+  onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null }) => void
 }
 
 const STATE_COLOR: Record<string, string> = {
@@ -160,7 +172,8 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
+  filterProject, filterRuntime, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // A new callback identity on every parent render would defeat the row signatures
@@ -198,22 +211,53 @@ export function SessionListPanel({
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
   const [activeOnly, setActiveOnly] = useState(false)
+
+  // Search and project / runtime filter (#125)
+  const [query, setQuery] = useState('')
+  const [ownProject, setOwnProject] = useState<string | null>(null)
+  const [ownRuntime, setOwnRuntime] = useState<RuntimeFilter | null>(null)
+  const filter: SessionFilter = useMemo(
+    () => effectiveFilter({ query, projectId: filterProject !== undefined ? filterProject : ownProject, runtime: filterRuntime !== undefined ? filterRuntime : ownRuntime }, sessions),
+    [query, filterProject, ownProject, filterRuntime, ownRuntime, sessions],
+  )
+  const filtering = isFilterActive(filter)
+  const projects = useMemo(() => projectOptions(sessions), [sessions])
+  const runtimes = useMemo(() => runtimeOptions(sessions), [sessions])
+  const namesBySession = useMemo(() => (filter.query.trim() ? agentNamesBySession(agents.values()) : new Map<string, string[]>()), [agents, filter.query])
+  const matching = useMemo(() => new Set(filterSessionList(sessions, filter, id => namesBySession.get(id) ?? [])), [sessions, filter, namesBySession])
+  const changeFilter = (change: { projectId?: string | null; runtime?: RuntimeFilter | null }) => {
+    if (change.projectId !== undefined) { setOwnProject(change.projectId); onFilterChange?.({ projectId: change.projectId }) }
+    if (change.runtime !== undefined) { setOwnRuntime(change.runtime); onFilterChange?.({ runtime: change.runtime }) }
+  }
+  const announceMatches = (next: SessionFilter) => {
+    const names = agentNamesBySession(agents.values())
+    const n = filterSessionList(sessions, next, id => names.get(id) ?? []).length
+    setAnnouncement(n === 0 ? emptyMatch('sessions') : `${pluralize(n, 'session')} shown`)
+  }
+
+  // Agents waiting for a permission or in error, per session (#126)
+  const ownAttention = useMemo(() => summarizeAttention(agents.values(), freshnessNow), [agents, freshnessNow])
+  const attention = sharedAttention ?? ownAttention
+
   const rows = useMemo(() => {
     // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved
     // session is not counted as active, so it is hidden too
-    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
+    const active = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
+    const shown = filtering ? active.filter(s => matching.has(s)) : active
     // A team row only makes sense with teammates: every Claude Code session owns a team holding just its lead,
     // and listing it would add a "Team session-xxxx: 0 members" row per session
     const listed = teams
       ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
       : undefined
     const teamNames = listed ? [...listed.keys()] : []
+    // A team is listed with a filter only through a session that matches
+    const teamsKept = filtering ? teamNames.filter(n => shown.some(s => s.teamName === n)) : teamNames
     return buildSessionRows(
-      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
+      shown, activeOnly ? filterActiveTeams(teamsKept, shown, teamWorking, teamSummaries) : teamsKept, forests, listed,
       { hideUnlistedTeams: true }, isObserved,
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
-  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, filtering, matching, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   // Session and team (family) totals; the team total counts an agent shared by two sessions once
@@ -322,6 +366,57 @@ export function SessionListPanel({
         </PanelHeader>
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
+        <div role="search" aria-label="Search and filter sessions" className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+          <input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search name, project, agent"
+            value={query}
+            onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
+            className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
+            style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+          />
+          {(projects.length > 1 || filter.projectId !== null) && (
+            <select
+              aria-label="Filter by project"
+              value={filter.projectId ?? ''}
+              onChange={e => { const projectId = e.target.value || null; changeFilter({ projectId }); announceMatches({ ...filter, projectId }) }}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All projects</option>
+              {projects.map(p => <option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
+            </select>
+          )}
+          {(runtimes.length > 1 || filter.runtime !== null) && (
+            <select
+              aria-label="Filter by runtime"
+              value={filter.runtime ?? ''}
+              onChange={e => { const runtime = (e.target.value || null) as RuntimeFilter | null; changeFilter({ runtime }); announceMatches({ ...filter, runtime }) }}
+              className={`min-h-6 rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All runtimes</option>
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          )}
+          {filtering && (
+            <button
+              type="button"
+              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null }); setAnnouncement(`Filter cleared: ${pluralize(sessions.length, 'session')} shown`) }}
+              className={`min-h-6 px-2 rounded text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              Clear filter
+            </button>
+          )}
+          {filtering && (
+            <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
+              Filter applies to this list only; the canvas still shows every session of the view.
+            </p>
+          )}
+        </div>
         <div
           ref={listRef}
           className="overflow-y-auto"
@@ -329,7 +424,7 @@ export function SessionListPanel({
         >
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
             </div>
           )}
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
@@ -433,6 +528,11 @@ export function SessionListPanel({
                       {unobserved && (
                         <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={statusHelp}>
                           {SESSION_STATUS_TEXT[kind]}
+                        </span>
+                      )}
+                      {sessionAttentionText(attention.bySession.get(session.id)) && (
+                        <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
+                          <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
                         </span>
                       )}
                       {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}

@@ -37,6 +37,10 @@ export interface UiPrefs {
   lastSelectedSessionId: string | null
   /** Width in px of the right dock column */
   dockRightWidth: number
+  /** Session list filter (#125): projectId to keep (null = all projects) */
+  sessionFilterProject: string | null
+  /** Session list filter (#125): runtime to keep (null = both) */
+  sessionFilterRuntime: 'claude' | 'codex' | null
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -50,6 +54,8 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   showCostOverlay: false,
   lastSelectedSessionId: null,
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
+  sessionFilterProject: null,
+  sessionFilterRuntime: null,
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -59,6 +65,9 @@ export const UI_PREF_KEYS = Object.freeze(Object.keys(DEFAULT_UI_PREFS) as UiPre
 export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPrefs[K] {
   const fallback = DEFAULT_UI_PREFS[key]
   switch (key) {
+    case 'sessionFilterRuntime':
+      return (value === 'claude' || value === 'codex' ? value : null) as UiPrefs[K]
+    case 'sessionFilterProject':
     case 'lastSelectedSessionId': {
       const ok = typeof value === 'string' && value.length > 0 && value.length <= SESSION_ID_MAX_LENGTH
       return (ok ? value : null) as UiPrefs[K]

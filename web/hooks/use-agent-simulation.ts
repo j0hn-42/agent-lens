@@ -23,6 +23,10 @@ import { snapVisualState } from './simulation/snap-visual-state'
 import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
 import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
+import { trackForeignAttention, type ForeignAttention } from '@/lib/attention'
+import { sameSessionProjects } from '@/lib/chrome-utils'
+
+const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: string }> = new Map()
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
 const UI_THROTTLE_MS = 250
@@ -34,6 +38,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
+  const foreignAttentionRef = useRef<ForeignAttention>(new Map())
+  const [foreignAttention, setForeignAttention] = useState<ForeignAttention>(foreignAttentionRef.current)
   // The stored orphan-call expiry delay is read once after mount (server and first client render match)
   useEffect(() => { loadToolExpiryS() }, [])
 
@@ -79,8 +85,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (!layout) return
     frameRef.current = layout.syncState(frameRef.current, sessionProjectsRef.current)
   }, [])
-  // A session learns its project after its agents appeared: lay the clusters out again
+  // A session learns its project after its agents appeared: lay the clusters out again. A new Map with the
+  // same content (the session list changes on every start / end / label) must not: the sync rebuilds every
+  // node, runs its ticks on the main thread and shakes a layout that had settled (#105).
+  const syncedProjectsRef = useRef(sessionProjects)
   useEffect(() => {
+    if (sameSessionProjects(syncedProjectsRef.current ?? EMPTY_PROJECTS, sessionProjects ?? EMPTY_PROJECTS)) return
+    syncedProjectsRef.current = sessionProjects
     syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
   }, [sessionProjects, syncForceSimulation])
 
@@ -217,6 +228,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       const stamped = stampEventTimes(offsetEvents, lastLogged ? lastLogged.time : 0, newTime)
       // Every received event proves its session is heard from, even when the view filters it out
       for (const e of capturedEvents) observedSessions.mark(e.sessionId)
+      // Blocked agents of the sessions this view filters out still count in the attention counter (every event is
+      // followed so a request answered while its session was in view does not linger)
+      const tracked = trackForeignAttention(foreignAttentionRef.current, capturedEvents, Date.now())
+      if (tracked !== foreignAttentionRef.current) { foreignAttentionRef.current = tracked; setForeignAttention(tracked) }
       const receivedAt = Date.now()
       for (const timedEvent of stamped) {
         currentState = { ...currentState, currentTime: timedEvent.time }
@@ -430,6 +445,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedMessages: state.droppedMessages,
     /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
     unattributed: state.unattributed,
+    /** Agents of other sessions blocked on a permission (see lib/attention) */
+    foreignAttention,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

@@ -472,6 +472,20 @@ export function buildSessionProjects(
   return out
 }
 
+/** True when both maps give the same project to the same sessions (sessionProjects compared by content, #105). */
+export function sameSessionProjects(
+  a: ReadonlyMap<string, { projectId: string; projectName: string }>,
+  b: ReadonlyMap<string, { projectId: string; projectName: string }>,
+): boolean {
+  if (a === b) return true
+  if (a.size !== b.size) return false
+  for (const [id, p] of a) {
+    const q = b.get(id)
+    if (!q || q.projectId !== p.projectId || q.projectName !== p.projectName) return false
+  }
+  return true
+}
+
 /**
  * Selection to apply when a halo label is clicked, or null to leave the current tab alone.
  * A team cluster selects the team pseudo-tab; a session cluster selects its session, except that 'All'
