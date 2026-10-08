@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent } from './protocol'
+import { POLL_FALLBACK_MS } from './constants'
 import { safeWatch, readTrackedLines, TailedFile } from './fs-utils'
 
 /**
@@ -11,6 +12,7 @@ import { safeWatch, readTrackedLines, TailedFile } from './fs-utils'
  */
 export class JsonlEventSource implements vscode.Disposable {
   private watcher: fs.FSWatcher | null = null
+  private pollTimer: ReturnType<typeof setInterval> | null = null
   private tracked: TailedFile = { fileSize: 0, fileTail: '' }
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onStatus = new vscode.EventEmitter<'connected' | 'disconnected'>()
@@ -38,6 +40,9 @@ export class JsonlEventSource implements vscode.Disposable {
         this.readNewLines()
       }
     })
+
+    // Polling de secours : fs.watch peut échouer (ENOSPC/EMFILE) ou tomber en erreur
+    this.pollTimer = setInterval(() => this.readNewLines(), POLL_FALLBACK_MS)
 
     this._onStatus.fire('connected')
   }
@@ -79,6 +84,7 @@ export class JsonlEventSource implements vscode.Disposable {
   dispose(): void {
     this.watcher?.close()
     this.watcher = null
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
     this._onEvent.dispose()
     this._onStatus.dispose()
   }

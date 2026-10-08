@@ -33,7 +33,7 @@ import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, isValidSessionId, observationsRoute,
+  listProjectDirs, discoverSessionFiles, createColdScan, isValidSessionId, observationsRoute,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -408,6 +408,8 @@ function readNewLines(sessionId: string) {
 
 // ─── Session scanner ────────────────────────────────────────────────────────
 
+const coldScan = createColdScan()
+
 function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
 
@@ -428,7 +430,8 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
 
   const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
-  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES })) {
+  coldScan.cycle++
+  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES, cold: coldScan })) {
     if (sessions.has(f.sessionId)) continue
     let newestMtime = f.mtimeMs
     if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {

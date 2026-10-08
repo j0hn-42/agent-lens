@@ -43,12 +43,17 @@ export function readNewFileLines(
     return null
   }
 
-  const newContent = lastTail + readFileChunk(filePath, lastSize, stat.size - lastSize)
-  const parts = newContent.split(/\r?\n/)
-  // Last fragment is whatever follows the final newline — empty if the file
-  // ended on a newline, otherwise a partial line we need to carry forward.
-  const tail = parts.pop() ?? ''
-  const lines = parts.filter(Boolean)
+  // Le tail est gardé en octets (chaîne latin1, 1 caractère = 1 octet) : décoder une coupe au milieu
+  // d'un caractère multi-octets produirait des U+FFFD. Seules les lignes complètes sont décodées.
+  const length = stat.size - lastSize
+  const chunk = Buffer.alloc(length)
+  const fd = fs.openSync(filePath, 'r')
+  try { fs.readSync(fd, chunk, 0, length, lastSize) } finally { fs.closeSync(fd) }
+  const data = Buffer.concat([Buffer.from(lastTail, 'latin1'), chunk])
+  const lastNl = data.lastIndexOf(0x0a)
+  // Tout ce qui suit le dernier saut de ligne est une ligne partielle à reporter.
+  const tail = data.subarray(lastNl + 1).toString('latin1')
+  const lines = lastNl < 0 ? [] : data.subarray(0, lastNl + 1).toString('utf-8').split(/\r?\n/).filter(Boolean)
   return { lines, newSize: stat.size, tail }
 }
 

@@ -175,3 +175,22 @@ describe('safeWatch', () => {
     } finally { warn.mock.restore() }
   })
 })
+
+describe('lignes multi-octets coupées entre deux lectures', () => {
+  it('ne corrompt pas un caractère UTF-8 dont les octets sont répartis sur deux lectures', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-utf8-'))
+    try {
+      const file = path.join(dir, 'u.jsonl')
+      const text = 'résumé é 😀'
+      const full = Buffer.from(JSON.stringify({ t: text }) + '\n', 'utf-8')
+      const cut = full.indexOf(0xc3) + 1 // au milieu du premier « é »
+      fs.writeFileSync(file, full.subarray(0, cut))
+      const state = { fileSize: 0, fileTail: '' }
+      assert.deepEqual(readTrackedLines(file, state), [])
+      fs.appendFileSync(file, full.subarray(cut))
+      const lines = readTrackedLines(file, state)
+      assert.deepEqual(lines, [JSON.stringify({ t: text })])
+      assert.equal(JSON.parse(lines![0]).t, text)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+})
