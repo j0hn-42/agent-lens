@@ -413,7 +413,7 @@ export function AgentCanvas({
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
-        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current,
+        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: s.agents.values(),
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -592,7 +592,7 @@ export function AgentCanvas({
       updateDragLerp(agents, onAgentDrag)
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
-      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current })
+      const clusters = computeClusters(agents.values(), teamsRef.current, { sessions: sessionsRef.current, costAgents: simulationRef.current.agents.values() })
       clustersRef.current = clusters
       const hoverTarget = hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
@@ -741,7 +741,7 @@ export function AgentCanvas({
         syncBubbleButtons(bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls, simulationRef.current.unattributed.values())
+      if (showCostOverlay) drawCostSummaryPanel(ctx, simulationRef.current.agents, simulationRef.current.toolCalls, simulationRef.current.unattributed.values())
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders

@@ -158,6 +158,11 @@ export interface ClusterOptions {
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Halos of a single-session view need at least this many members (default 2); several clusters always show */
   minMembers?: number
+  /**
+   * Every agent of the simulation, including those the display hides (collapsed branches). Halo costs are
+   * summed over them so the figure does not move with the display state (#106); geometry stays on the drawn agents.
+   */
+  costAgents?: Iterable<Agent>
 }
 
 function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: SessionMeta): string {
@@ -199,6 +204,15 @@ export function computeClusters(
     if (!list) { list = []; groups.set(key, list) }
     list.push(a)
   }
+  const costGroups = new Map<string, Agent[]>()
+  if (options.costAgents) {
+    for (const a of options.costAgents) {
+      const key = clusterKeyOf(a, teams, hosted)
+      const list = costGroups.get(key)
+      if (list) list.push(a)
+      else costGroups.set(key, [a])
+    }
+  }
   const minMembers = options.minMembers ?? 2
   const showAll = groups.size >= 2
   const out: Cluster[] = []
@@ -232,7 +246,7 @@ export function computeClusters(
     const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
     const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
-    const costUsage = totalCostUsage(members)
+    const costUsage = totalCostUsage(costGroups.get(key) ?? members)
 
     out.push({
       key,
