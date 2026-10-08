@@ -1,5 +1,6 @@
 import { ToolCallNode } from '@/lib/agent-types'
 import { COLORS, withAlpha } from '@/lib/colors'
+import { currentThemeId } from '@/lib/theme-dom'
 import { TOOL_MAX_CARD_W, TOOL_DRAW, MCP_DRAW, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { measureTextCached, setToolCardSize } from './render-cache'
@@ -156,7 +157,9 @@ export function drawToolCalls(
       ctx.fillText(truncatedLabel, tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       if (tool.tokenCost) {
         // Token cost as dim text below; an estimate is tagged, never shown as an exact figure
-        ctx.fillStyle = COLORS.tool + '90'
+        // neon keeps its translucent tool colour (its look is unchanged); graphite and paper paint an opaque muted
+        // ink so the figure keeps the contrast the tokens promise (a 56 % alpha washed it out on the light card)
+        ctx.fillStyle = currentThemeId() === 'neon' ? COLORS.tool + '90' : COLORS.textMutedOpaque
         ctx.font = `${TOOL_DRAW.tokenFontSize}px monospace`
         const tag = tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''
         ctx.fillText(`${tool.tokenCost} tok${tag}`, tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)

@@ -16,7 +16,7 @@ export type ThemeId = (typeof THEME_IDS)[number]
 /** Theme shown when nothing is stored and no `?theme=` is given. Mirrored by DEFAULT_THEME of web/lib/theme-tokens.ts (a test compares them). */
 export const DEFAULT_THEME: ThemeId = 'graphite'
 
-/** Themes drawn on a dark ground: they keep the `dark` class. */
+/** Themes drawn on a light ground: they drop the `dark` class (the others keep it). */
 export const LIGHT_THEMES: readonly ThemeId[] = ['paper']
 
 export function themeBootstrapScript(): string {
