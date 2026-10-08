@@ -19,8 +19,8 @@ const base: TopBarProps = {
   selectedSessionId: 's1', sessionsWithActivity: new Set(),
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 33000, totalCost: 0.312,
-  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 test('a partial estimated token total and a partial estimated cost are separated', () => {
@@ -28,8 +28,8 @@ test('a partial estimated token total and a partial estimated cost are separated
   const cost = { value: 0.312, status: 'partial', estimated: true } as const
   const { container } = render(<TopBar {...base} tokenUsage={partial} costUsage={cost} unattributedCost={0.03} />)
   const text = container.textContent ?? ''
-  assert.doesNotMatch(text, /estimé\s*au moins/, 'no "estimé" glued to the next "au moins"')
-  assert.match(text, /tokens\s*·\s*au moins/)
+  assert.doesNotMatch(text, /estimated\s*at least/, 'no "estimated" glued to the next "at least"')
+  assert.match(text, /tokens\s*·\s*at least/)
 })
 
 test('cost panel top follows the published top bar height', () => {

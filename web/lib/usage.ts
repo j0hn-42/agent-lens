@@ -1,3 +1,4 @@
+import { USAGE_LABELS } from './ui-glossary'
 import { formatTokens, formatCost } from './utils'
 
 /** How complete a total is: every part known, some parts known (lower bound), or nothing known. */
@@ -13,11 +14,7 @@ export interface UsageTotal {
   estimated: boolean
 }
 
-export const USAGE_LABELS = {
-  unavailable: 'not reported',
-  atLeast: 'at least',
-  estimated: 'estimated',
-} as const
+export { USAGE_LABELS }
 
 function unavailable(): UsageTotal {
   return { value: null, status: 'unavailable', estimated: false }

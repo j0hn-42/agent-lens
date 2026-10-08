@@ -73,7 +73,7 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
   const rec = (name: string) => () => { props.calls.push(name) }
   useKeyboardShortcuts({
     togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleConversation: rec('conversation'),
-    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'),
+    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'),
     toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
@@ -117,6 +117,14 @@ test('single-key shortcuts are inert when disabled, but Escape and ? keep workin
   fireEvent.keyDown(document.body, { key: 'Escape' })
   fireEvent.keyDown(document.body, { key: '?' })
   assert.deepEqual(calls, ['closeTop', 'shortcuts'])
+})
+
+test('P toggles the Context panel and S the Stats panel (#124)', () => {
+  const calls: string[] = []
+  render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'p' })
+  fireEvent.keyDown(document.body, { key: 'S' })
+  assert.deepEqual(calls, ['context', 'stats'])
 })
 
 // ─── Context menu ───────────────────────────────────────────────────────────

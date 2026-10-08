@@ -68,7 +68,7 @@ test('the cost panel lists a partial agent as a lower bound and never lists an u
   assert.ok(texts.some(t => t.includes('partial-one')), 'partial agent has a row')
   assert.ok(!texts.some(t => t.includes('unknown-one')), 'unavailable agent has no row')
   assert.ok(!texts.some(t => /\$0\.00/.test(t)), `no invented zero, got ${JSON.stringify(texts)}`)
-  assert.ok(texts.some(t => /^au moins \$/.test(t)), 'the header is a lower bound because an agent has no data')
+  assert.ok(texts.some(t => /^at least \$/.test(t)), 'the header is a lower bound because an agent has no data')
 })
 
 // ─── Expiry delay wiring ────────────────────────────────────────────────────

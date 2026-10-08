@@ -6,7 +6,8 @@ import {
   ANIM_SPEED, isExpiryHeld,
 } from '../../lib/canvas-constants'
 import { ARCHIVED_OPACITY } from './archive'
-import { settleToolCall, END_NOT_OBSERVED } from '../../lib/tool-lifecycle'
+import { settleToolCall } from '../../lib/tool-lifecycle'
+import { EXPIRED_LABEL_SUFFIX } from '../../lib/ui-glossary'
 import { a11yRecorder, recordFrame } from '../../components/agent-visualizer/canvas/a11y-recorder'
 
 export interface AnimateOptions {
@@ -108,7 +109,7 @@ export function closeExpiredTimelineBlocks(
       b.type === 'tool_call' && b.endTime === undefined && b.startTime === tc.startTime && b.label.startsWith(`${tc.toolName}:`))
     if (idx < 0) continue
     const blocks = entry.blocks.slice()
-    blocks[idx] = { ...blocks[idx], endTime: at, label: `${blocks[idx].label} (expired, ${END_NOT_OBSERVED})` }
+    blocks[idx] = { ...blocks[idx], endTime: at, label: `${blocks[idx].label} ${EXPIRED_LABEL_SUFFIX}` }
     if (next === entries) next = new Map(entries)
     next.set(tc.agentId, { ...entry, blocks })
   }

@@ -21,6 +21,7 @@ export const PANEL_BUTTON_IDS = {
   cost: 'topbar-toggle-cost',
   timeline: 'topbar-toggle-timeline',
   context: 'topbar-toggle-context',
+  stats: 'topbar-toggle-stats',
 } as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
@@ -162,9 +163,12 @@ export interface TopBarProps {
   /** Project context panel open (optional: absent = closed) */
   showContext?: boolean
   showTimeline: boolean
+  /** Stats overlay open */
+  showStats: boolean
   isMuted: boolean
   onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context') => void
   onToggleTimeline: () => void
+  onToggleStats: () => void
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
   onOpenShortcuts: () => void
@@ -177,8 +181,8 @@ export const TopBar = memo(function TopBar({
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
-  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
+  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
+  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
@@ -278,7 +282,7 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} title="Project context (CLAUDE.md, memory)" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>Context</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={`${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
@@ -295,6 +299,7 @@ export const TopBar = memo(function TopBar({
 
           {/* Independent toggles */}
           <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
+          <ToggleButton id={PANEL_BUTTON_IDS.stats} active={showStats} pressed={showStats} onClick={onToggleStats} title={openPanelLabel('stats', 'S')} shortcut="s">{PANEL_NAMES.stats}</ToggleButton>
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}
