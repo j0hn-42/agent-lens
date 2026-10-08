@@ -1,11 +1,11 @@
 // Browser checks for what jsdom cannot see: real layout, color contrast, reflow, reduced
-// motion and the full-page Tab order (issue #43). Runs against the demo build:
+// motion and the full-page Tab order (issue #43). Runs against the demo app:
 //
-//   pnpm run dev:demo            # in one terminal (E2E_BASE_URL defaults to :3000)
-//   pnpm --dir web run test:e2e  # in another
+//   pnpm --dir web run test:e2e
 //
+// The demo server is started on a free port by demo-server.ts and stopped at the end (its log is in
+// web/test-results/demo-server.log). Set E2E_BASE_URL to test a server that is already running instead.
 // Needs a browser: `pnpm --dir web exec playwright install chromium` (CI does this).
-// Without a reachable server the whole file is skipped locally and FAILS in CI.
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
@@ -14,29 +14,26 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { AxeBuilder } from '@axe-core/playwright'
 import { compareViolations, type KnownViolation } from '../axe-compare'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
+import { startDemoServer, type DemoServer } from './demo-server'
 
-const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
-const IN_CI = !!process.env.CI
 const known: KnownViolation[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'known-violations.json'), 'utf8'),
 )
 
 let browser: Browser
-let skipReason: string | null = null
+let server: DemoServer
+let BASE_URL = ''
 
 before(async () => {
-  try {
-    const res = await fetch(BASE_URL)
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  } catch (err) {
-    if (IN_CI) throw new Error(`demo server not reachable at ${BASE_URL}: ${String(err)}`)
-    skipReason = `demo server not reachable at ${BASE_URL} (start it with pnpm run dev:demo)`
-    return
-  }
+  server = await startDemoServer()
+  BASE_URL = server.url
   browser = await chromium.launch()
-})
+}, { timeout: 240_000 })
 
-after(async () => { await browser?.close() })
+after(async () => {
+  await browser?.close()
+  await server?.stop()
+})
 
 async function open(options: { width?: number; height?: number; reducedMotion?: 'reduce' | 'no-preference' } = {}) {
   const context: BrowserContext = await browser.newContext({
@@ -102,8 +99,7 @@ function expectClean(scenario: string, r: { unexpected: string[]; stale: string[
 describe('demo mode: axe-core, serious and critical only', () => {
   const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', '$Cost']]
   for (const [name, button] of panels) {
-    test(`e2e: ${name}`, async t => {
-      if (skipReason) return t.skip(skipReason)
+    test(`e2e: ${name}`, async () => {
       const { page, close } = await open()
       try {
         if (button) {
@@ -115,8 +111,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
     })
   }
 
-  test('e2e: review mode', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('e2e: review mode', async () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
@@ -125,8 +120,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
     } finally { await close() }
   })
 
-  test('e2e: keyboard shortcuts dialog', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('e2e: keyboard shortcuts dialog', async () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
@@ -212,8 +206,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
 
   // 320 CSS px is 400 % zoom of a 1280 px window; 640 CSS px is 200 % zoom.
   for (const width of [320, 640]) {
-    test(`no clipped content or horizontal scroll at ${width} px wide`, async t => {
-      if (skipReason) return t.skip(skipReason)
+    test(`no clipped content or horizontal scroll at ${width} px wide`, async () => {
       const { page, close } = await open({ width, height: 700 })
       try {
         const f: Findings = { rules: new Set(), details: [] }
@@ -264,24 +257,22 @@ describe('demo mode: prefers-reduced-motion', () => {
     const { page, close } = await open({ reducedMotion })
     try {
       await page.locator('canvas').first().waitFor()
-      await page.waitForTimeout(3000) // let the initial layout and camera fit settle
+      await waitForStableLayout(page)
       return await page.evaluate<number>(DIFF_SCRIPT)
     } finally { await close() }
   }
 
-  test('canvas stops its ambient animation when motion is reduced', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('canvas stops its ambient animation when motion is reduced', async () => {
     const baseline = await quietestChange('no-preference')
     assert.ok(baseline > 0, `probe cannot detect ambient motion: canvas was pixel-identical in some sample with no-preference`)
     const reduced = await quietestChange('reduce')
     assert.equal(reduced, 0, `canvas never goes still under prefers-reduced-motion (quietest sample changed ${reduced} of pixels; no-preference ${baseline})`)
   })
 
-  test('no CSS animation keeps running when motion is reduced', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('no CSS animation keeps running when motion is reduced', async () => {
     const { page, close } = await open({ reducedMotion: 'reduce' })
     try {
-      await page.waitForTimeout(1000)
+      await waitForStableLayout(page)
       const running = await page.evaluate(() =>
         document.getAnimations()
           .filter(a => a.playState === 'running' && (a.effect?.getComputedTiming().iterations ?? 1) === Infinity)
@@ -292,8 +283,7 @@ describe('demo mode: prefers-reduced-motion', () => {
 })
 
 describe('demo mode: keyboard', () => {
-  test('no focusable control is invisible, and every Tab stop is visible', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('no focusable control is invisible, and every Tab stop is visible', async () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
@@ -330,8 +320,7 @@ describe('demo mode: keyboard', () => {
     } finally { await close() }
   })
 
-  test('Space on a focused button activates only that button', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('Space on a focused button activates only that button', async () => {
     const { page, close } = await open()
     try {
       const files = page.getByRole('button', { name: /^Files/ })
@@ -345,8 +334,7 @@ describe('demo mode: keyboard', () => {
     } finally { await close() }
   })
 
-  test('Escape closes the most recently opened panel only', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('Escape closes the most recently opened panel only', async () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: /^Files/ }).click()
@@ -361,11 +349,14 @@ describe('demo mode: keyboard', () => {
     } finally { await close() }
   })
 
-  test('the review scrubber answers Home, End and arrow keys', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('the review scrubber answers Home, End and arrow keys', async () => {
     const { page, close } = await open()
     try {
-      await page.waitForTimeout(5000) // the demo needs a few seconds to build a non-empty history
+      // the demo needs a while to build a non-empty history: wait for the event counter to show it
+      await page.waitForFunction(() => {
+        const count = Array.from(document.querySelectorAll('span')).map(el => /^(\d+) events?$/.exec(el.textContent ?? '')).find(Boolean)
+        return !!count && Number(count[1]) >= 8
+      }, undefined, { timeout: 30000 })
       await page.getByRole('button', { name: 'Pause and review history' }).click()
       const slider = page.getByRole('slider', { name: 'Timeline position' })
       await slider.focus()
@@ -414,8 +405,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     return dialog
   }
 
-  test('e2e: context menu opened with a right click has no serious axe violation', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('e2e: context menu opened with a right click has no serious axe violation', async () => {
     const { page, close } = await open()
     try {
       await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
@@ -424,8 +414,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
-  test('e2e: tool popup has no serious axe violation', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('e2e: tool popup has no serious axe violation', async () => {
     const { page, close } = await open()
     try {
       await openToolPopup(page)
@@ -433,8 +422,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
-  test('context menu: right click, arrow keys, Home, End and Escape', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('context menu: right click, arrow keys, Home, End and Escape', async () => {
     const { page, close } = await open()
     try {
       // Right click on empty canvas: the canvas menu has several items (the agent menu has one).
@@ -459,8 +447,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
-  test('context menu: Shift+F10 opens it, Escape closes it and focus returns to the graph', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('context menu: Shift+F10 opens it, Escape closes it and focus returns to the graph', async () => {
     const { page, close } = await open()
     try {
       const menu = await openMenuByKeyboard(page)
@@ -471,8 +458,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
-  test('context menu: the ContextMenu key opens it and Tab closes it with focus returned', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('context menu: the ContextMenu key opens it and Tab closes it with focus returned', async () => {
     const { page, close } = await open()
     try {
       await page.locator(GRAPH).focus()
@@ -485,8 +471,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
-  test('tool popup: Escape closes it and focus is not lost to a detached node', async t => {
-    if (skipReason) return t.skip(skipReason)
+  test('tool popup: Escape closes it and focus is not lost to a detached node', async () => {
     const { page, close } = await open()
     try {
       const dialog = await openToolPopup(page)
