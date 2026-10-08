@@ -32,7 +32,7 @@ const projects = (entries: Array<[string, string]>): Projects =>
   new Map(entries.map(([id, project]) => [id, { projectId: project, projectName: project }]))
 
 function spawns(sid: string, n: number): SimulationEvent[] {
-  const evs = [{ time: 0, type: 'agent_spawn', sessionId: sid, payload: { name: 'main', isMain: true } }]
+  const evs: Array<Record<string, unknown>> = [{ time: 0, type: 'agent_spawn', sessionId: sid, payload: { name: 'main', isMain: true } }]
   for (let i = 1; i < n; i++) evs.push({ time: 0, type: 'agent_spawn', sessionId: sid, payload: { name: `w${i}`, parent: 'main' } })
   return evs as unknown as SimulationEvent[]
 }
