@@ -8,6 +8,7 @@
 import type { Agent, TeamSummary } from '../../lib/agent-types'
 import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants'
 import { findTeam, teamOfAgent, phaseOfAgent } from './team-key'
+import { visibleAgents } from '../../lib/inactive-agents'
 
 export interface ClusterInput {
   key: string
@@ -257,6 +258,13 @@ export function restampClusterKeys(agents: Map<string, Agent>, teams?: ReadonlyM
   return changed
 }
 
+/** Phases of the drawn workflow agents per cluster, as one string: changes when a phase appears or disappears from the display. */
+export function phaseSignature(agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>): string {
+  let out = ''
+  for (const a of visibleAgents(agents, hideInactive).values()) if (a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
+  return out
+}
+
 /** Re-stamp `phase` on every workflow agent from the team summaries; returns true when any changed. */
 export function restampPhases(agents: Map<string, Agent>, teams?: ReadonlyMap<string, TeamSummary>): boolean {
   let changed = false
@@ -283,7 +291,8 @@ export function phaseAnchors(
 ): Map<string, { x: number; y: number }> {
   const out = new Map<string, { x: number; y: number }>()
   const unique = Array.from(new Set(phases))
-  const ring = radius * CLUSTER_LAYOUT.phaseRingFactor
+  // A single phase has nothing to be told apart from: it stays around the anchor (the orchestrator), not off to one side
+  const ring = unique.length > 1 ? radius * CLUSTER_LAYOUT.phaseRingFactor : 0
   unique.forEach((phase, i) => {
     const angle = -Math.PI / 2 + (i / unique.length) * 2 * Math.PI
     out.set(phase, { x: center.x + Math.cos(angle) * ring, y: center.y + Math.sin(angle) * ring })
@@ -305,6 +314,7 @@ export function layoutInfo(
   agents: ReadonlyMap<string, Agent>,
   teams?: ReadonlyMap<string, TeamSummary>,
   projects?: SessionProjects,
+  hideInactive = false,
 ): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
   const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
   const leads = new Map<string, string>()
@@ -313,8 +323,10 @@ export function layoutInfo(
     if (a.isMain && !leads.has(key)) leads.set(key, a.id)
   }
   // Phases of each workflow cluster, in order of first appearance (only phases an agent really announced)
+  // Only the drawn agents count: a phase whose members are all hidden leaves no empty slot on the ring (nor drags the
+  // phase that remains off the orchestrator)
   const phasesByCluster = new Map<string, string[]>()
-  for (const a of agents.values()) {
+  for (const a of visibleAgents(agents as Map<string, Agent>, hideInactive).values()) {
     if (a.teamKind !== 'workflow' || !a.phase) continue
     const key = keyOf(a, teams)
     const list = phasesByCluster.get(key)
@@ -424,4 +436,124 @@ export function constrainToClusters(
     if (node.vx !== undefined && node.vy !== undefined && node.vx * dx + node.vy * dy > 0) { node.vx = 0; node.vy = 0 }
   }
   return moving
+}
+
+// ─── Centring of a parent on its children (#151) ────────────────────────────
+
+/**
+ * Children each parent is centred on: the direct children that are drawn ('Hide inactive agents' taken into account,
+ * archived agents are parked on the outer ring and never count), for the parents with at least
+ * `minCentredChildren` of them. Sub-orchestrators are parents like any other. A parent whose children are grouped by
+ * workflow phases (#146) is left out when they span several phases: the phase centres, on a ring around the anchor,
+ * already lay them out. With a single phase the parent is centred like any other.
+ * Insertion order, so the result is stable.
+ */
+export function centredChildren(agents: Map<string, Agent>, hideInactive: boolean): Map<string, string[]> {
+  const shown = visibleAgents(agents, hideInactive)
+  const byParent = new Map<string, string[]>()
+  const phases = new Map<string, Set<string>>()
+  for (const a of shown.values()) {
+    if (!a.parentId || a.archived || !shown.has(a.parentId)) continue
+    if (a.teamKind === 'workflow' && a.phase) {
+      const set = phases.get(a.parentId)
+      if (set) set.add(a.phase); else phases.set(a.parentId, new Set([a.phase]))
+    }
+    const list = byParent.get(a.parentId)
+    if (list) list.push(a.id); else byParent.set(a.parentId, [a.id])
+  }
+  for (const [parent, list] of byParent) if (list.length < CLUSTER_LAYOUT.minCentredChildren || (phases.get(parent)?.size ?? 0) > 1) byParent.delete(parent)
+  return byParent
+}
+
+/** Middle of the extent (bounding box) of `points`, or undefined when there is none. */
+export function extentCentre(points: Iterable<{ x: number; y: number }>): { x: number; y: number } | undefined {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const p of points) {
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) continue
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.y < minY) minY = p.y
+    if (p.y > maxY) maxY = p.y
+  }
+  return minX === Infinity ? undefined : { x: (minX + maxX) / 2, y: (minY + maxY) / 2 }
+}
+
+/** `roots` and every descendant of theirs (`family`: all the direct children of every parent), each once. */
+function subtreeOf(roots: readonly string[], family: ReadonlyMap<string, readonly string[]>): Set<string> {
+  const out = new Set<string>()
+  const stack = [...roots]
+  while (stack.length > 0) {
+    const id = stack.pop()!
+    if (out.has(id)) continue
+    out.add(id)
+    for (const kid of family.get(id) ?? []) stack.push(kid)
+  }
+  return out
+}
+
+/** All the direct children of every parent (any number, hidden or not): the family a shift of the parent drags along. */
+export function familyOf(agents: ReadonlyMap<string, Agent>): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const a of agents.values()) {
+    if (!a.parentId) continue
+    const list = out.get(a.parentId)
+    if (list) list.push(a.id); else out.set(a.parentId, [a.id])
+  }
+  return out
+}
+
+/** A parent this close to the middle of its children (px) counts as centred: the layout may settle */
+export const CENTRE_EPSILON = 0.5
+
+/**
+ * d3 force (#151): puts every parent in the middle of the extent of its children, whether they are 2, 3 or n, an
+ * even or an odd number. The lead of a cluster is held on its anchor, so its children move around it; any other
+ * parent (a sub-orchestrator) moves to the middle of its own children. Both are eased (`centreStrength` per tick,
+ * not scaled by alpha), so a child that appears, finishes or is hidden never makes the parent jump. Pinned nodes
+ * stay where the user put them. `residual()` is the largest gap left by the last pass (0 once centred).
+ * Register it after the cluster force, which holds the leads.
+ */
+export function createCentringForce(
+  getChildren: () => ReadonlyMap<string, readonly string[]>,
+  getFamily: () => ReadonlyMap<string, readonly string[]>,
+  getInfo: (id: string) => ClusterNodeInfo | undefined,
+) {
+  let byId = new Map<string, PosNode>()
+  let residual = 0
+  const force = (): void => {
+    residual = 0
+    for (const [parentId, childIds] of getChildren()) {
+      const parent = byId.get(parentId)
+      if (!parent || parent.x === undefined || parent.y === undefined) continue
+      const children = childIds.map(id => byId.get(id)).filter((c): c is PosNode => c !== undefined && c.x !== undefined && c.y !== undefined)
+      const centre = extentCentre(children as Array<{ x: number; y: number }>)
+      if (!centre) continue
+      const gx = centre.x - parent.x
+      const gy = centre.y - parent.y
+      const gap = Math.hypot(gx, gy)
+      if (gap < CENTRE_EPSILON) continue
+      const k = CLUSTER_LAYOUT.centreStrength
+      if (getInfo(parentId)?.role === 'lead' || isPinned(parent)) {
+        // The parent stays: its children move around it (the gap is closed by shifting them all the same way),
+        // each with its own descendants so that a sub-orchestrator keeps its place in the middle of its children
+        const moved = subtreeOf(children.map(c => c.id), getFamily())
+        let shifted = false
+        for (const id of moved) {
+          const c = byId.get(id)
+          if (!c || c.x === undefined || c.y === undefined || isPinned(c)) continue
+          c.x -= gx * k
+          c.y -= gy * k
+          shifted = true
+        }
+        if (shifted) residual = Math.max(residual, gap)
+      } else {
+        parent.x += gx * k
+        parent.y += gy * k
+        residual = Math.max(residual, gap)
+      }
+    }
+  }
+  force.initialize = (n: PosNode[]): void => { byId = new Map(n.map(x => [x.id, x])) }
+  force.residual = (): number => residual
+  return force
 }

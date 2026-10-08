@@ -28,6 +28,7 @@ import { drawBranchBadges } from '@/components/agent-visualizer/canvas/draw-bran
 import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/components/agent-visualizer/canvas/edge-bubble-set'
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
+import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
 import { planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
 import { currentThemeId } from '@/lib/theme-dom'
@@ -125,6 +126,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   const bloomRef = useRef<BloomRenderer | null>(null)
   const depthParticlesRef = useRef<DepthParticle[]>([])
   const lastFrameTimeRef = useRef(0)
+  const haloEaserRef = useRef(createHaloEaser())
   // Rate-limited error logging for the draw loop (avoid flooding console)
   const lastDrawErrorRef = useRef(0)
   const perfRef = useRef(createPerfStats())
@@ -210,6 +212,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
       const clusters = computeClusters(agents.values(), deps.teamsRef.current, { sessions: deps.sessionsRef.current, costAgents: costScope(deps.simulationRef.current).agents.values() })
+      // Halos follow the agents that appear, finish or get hidden without jumping (a snap under reduced motion)
+      haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters
       const hoverTarget = deps.hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null

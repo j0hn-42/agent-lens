@@ -78,7 +78,32 @@ export function cssVar(role: string): string {
  * no backdrop blur, no glow.
  */
 export function extraVars(id: ThemeId): Record<string, string> {
-  return { ...baseExtraVars(id), ...panelExtraVars(id) }
+  return { ...baseExtraVars(id), ...panelExtraVars(id), ...ansiVars(id) }
+}
+
+/**
+ * ANSI palette of Bash output (web/lib/ansi.ts, #152): 16 colours + default fg + the background they are checked against.
+ * Neon keeps the values of develop (dark palette); graphite is the same palette with a brighter red (dimmed text stays >= 4.5:1
+ * on its surface); paper uses the dark-ink palette, a touch deeper on green/amber/purple/teal/red for the same reason.
+ * Checked in scripts/ansi.test.ts: >= 4.5:1, even dimmed (opacity .8).
+ */
+const ANSI_DARK = [
+  '#9aa0b4', '#ff6b7a', '#5fdc8f', '#f0c24b', '#6fa8ff', '#d68cff', '#4fd8e0', '#d8dbe6',
+  '#b0b6c8', '#ff8e9a', '#86efac', '#ffd866', '#93bfff', '#e3a9ff', '#7ae8ee', '#ffffff',
+]
+const ANSI_PAPER = [
+  '#2d3340', '#9f1128', '#085226', '#664200', '#1a3fb0', '#721fa5', '#07505f', '#374151',
+  '#374151', '#a80f2d', '#14532d', '#5f3d00', '#1b3a99', '#6b21a8', '#0a4f5f', '#1f2937',
+]
+function ansiVars(id: ThemeId): Record<string, string> {
+  const palette = id === 'paper' ? ANSI_PAPER : id === 'graphite' ? ANSI_DARK.map((c, i) => (i === 1 ? '#ff7886' : c)) : ANSI_DARK
+  const fg = id === 'paper' ? '#111827' : '#e6e9f2'
+  const bg = id === 'neon' ? '#07080f' : id === 'graphite' ? '#1b1b1c' : '#f2f2f0'
+  const out: Record<string, string> = {}
+  palette.forEach((c, i) => { out[`--ansi-${i}`] = c })
+  out['--ansi-fg'] = fg
+  out['--ansi-bg'] = bg
+  return out
 }
 
 function baseExtraVars(id: ThemeId): Record<string, string> {

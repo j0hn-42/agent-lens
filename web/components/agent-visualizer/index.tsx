@@ -84,6 +84,16 @@ export function AgentVisualizer() {
 
   const sessionProjects = useMemo(() => buildSessionProjects(bridge.sessions), [bridge.sessions])
 
+  // 'Hide inactive agents': on by default, persisted in localStorage
+  const [hideInactive, setHideInactive] = useState(true)
+  useEffect(() => {
+    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
+  }, [])
+  const updateHideInactive = useCallback((hide: boolean) => {
+    setHideInactive(hide)
+    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
+  }, [])
+
   const {
     frameRef,
     agents,
@@ -124,6 +134,7 @@ export function AgentVisualizer() {
     isReviewing,
     sessionOffsetsRef,
     sessionProjects,
+    hideInactive,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -411,15 +422,6 @@ export function AgentVisualizer() {
     try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
   }, [])
 
-  // 'Hide inactive agents': on by default, persisted in localStorage
-  const [hideInactive, setHideInactive] = useState(true)
-  useEffect(() => {
-    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
-  }, [])
-  const updateHideInactive = useCallback((hide: boolean) => {
-    setHideInactive(hide)
-    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
-  }, [])
 
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({

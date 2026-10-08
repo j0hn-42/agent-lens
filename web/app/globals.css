@@ -54,6 +54,8 @@
 /* Theme: the inline bootstrap sets data-theme (+ .dark for neon and graphite) before first paint; color-scheme comes from themes.css */
 html, body { background: var(--lens-void); }
 
+/* ANSI palette of Bash output (web/lib/ansi.ts): --ansi-0..15, --ansi-fg, --ansi-bg per theme, generated in themes.css from web/lib/theme-tokens.ts; >= 4.5:1 checked in scripts/ansi.test.ts */
+
 @layer base {
   :focus-visible {
     outline: 2px solid var(--lens-focus-ring);
