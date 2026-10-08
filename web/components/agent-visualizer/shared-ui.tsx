@@ -68,6 +68,14 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
 // Focus the container on open, restore focus on close, close on Escape and when
 // focus moves outside (non-modal popups).
 
+/**
+ * Controls the inspector card must survive focus moving to: the Sessions button and panel (#115). Choosing
+ * another session there is how an agent leaves the view; closing the card first would clear the selection and
+ * the "no longer listed" card could never appear.
+ */
+export const INSPECTOR_KEEP_ATTR = 'data-keeps-inspector'
+export const INSPECTOR_IGNORE_SELECTOR = `[data-companion-panel], [${INSPECTOR_KEEP_ATTR}]`
+
 export function useDialogBehavior(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,

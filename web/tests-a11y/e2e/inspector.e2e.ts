@@ -8,10 +8,9 @@
 // - Narrow viewport (640 px = 200 % zoom, 320 px = 400 %): the inspector of a selected agent is readable; the
 //   selection no longer opens Conversation over it.
 //
-// Notes on how the page is driven (also why the clicks are DOM clicks):
-// - The inspector and "gone" cards close when focus moves to a control outside them (WCAG 3.2.2 pattern of
-//   useDialogBehavior), so a Playwright click on the Sessions panel would legitimately close the card first.
-//   `el.click()` activates a control without moving focus, which is what a data event does to the page.
+// Notes on how the page is driven:
+// - The #115 test uses real pointer clicks, like a user: it opens Sessions AFTER the selection and picks another
+//   session. Moving focus to the Sessions button or panel must not close the card (and drop the selection).
 // - The simulation publishes its state to React at most every ~250 ms, so the events are posted 400 ms apart.
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -66,16 +65,16 @@ describe('agent inspector in a real browser', () => {
   test('#115: the card says the agent is no longer listed when it leaves the view, naming it', async () => {
     const { page, close } = await openWithFakeRelay(1280, 800)
     try {
-      // The Sessions panel is open before the selection: opening it afterwards would move focus and close the card
-      await page.getByRole('button', { name: /^Sessions:/ }).evaluate((el: HTMLElement) => el.click())
-      await page.locator('[data-row-main]').first().waitFor()
       await selectWorker(page)
       const detail = page.locator('[data-dock-panel="detail"]')
       await detail.filter({ hasText: 'worker-a' }).waitFor()
       assert.equal(await page.locator('[data-testid="inspector-gone"]').count(), 0, 'a listed agent has its detail card, not the gone one')
 
-      // Show the other session: the agents of payments-api leave the graph, the selection is kept
-      await page.locator('[data-row-main]').filter({ hasText: /web-app/ }).last().evaluate((el: HTMLElement) => el.click())
+      // Open Sessions and show the other session with real clicks: the agents of payments-api leave the graph and
+      // the selection is kept (focus moving to the Sessions button / panel does not close the card)
+      await page.getByRole('button', { name: /^Sessions:/ }).click()
+      await page.locator('[data-row-main]').first().waitFor()
+      await page.locator('[data-row-main]').filter({ hasText: /web-app/ }).last().click()
       const gone = page.locator('[data-testid="inspector-gone"]')
       await gone.waitFor()
       assert.match((await gone.textContent()) ?? '', /worker-a/, 'it names the node it remembered')
