@@ -153,6 +153,8 @@ export interface SessionInfo {
   projectId?: string
   /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */
   projectName?: string
+  /** Git branch recorded at the head of the session transcript (untrusted, capped); absent when unrecorded or detached */
+  branch?: string
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────

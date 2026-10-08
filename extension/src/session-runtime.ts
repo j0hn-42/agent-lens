@@ -29,10 +29,12 @@ export interface SessionLifecycleEvent {
   cwd?: string
   projectId?: string
   projectName?: string
+  /** Git branch recorded at the head of the session transcript (untrusted, capped); absent when unrecorded or detached */
+  branch?: string
 }
 
 /** The optional tag fields of a lifecycle event, as session info fields. */
-export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'teamName' | 'memberName' | 'runtime' | 'workspace' | 'cwd' | 'projectId' | 'projectName'> {
+export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'teamName' | 'memberName' | 'runtime' | 'workspace' | 'cwd' | 'projectId' | 'projectName' | 'branch'> {
   return {
     ...(l.teamName ? { teamName: l.teamName } : {}),
     ...(l.memberName ? { memberName: l.memberName } : {}),
@@ -40,6 +42,7 @@ export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'team
     ...(l.workspace ? { workspace: l.workspace } : {}),
     ...(l.cwd ? { cwd: l.cwd } : {}),
     ...(l.projectId && l.projectName ? { projectId: l.projectId, projectName: l.projectName } : {}),
+    ...(l.branch ? { branch: l.branch } : {}),
   }
 }
 

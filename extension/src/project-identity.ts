@@ -99,3 +99,8 @@ export function projectTags(cwd: string | undefined): { projectId?: string; proj
   const id = resolveProjectIdentity(cwd)
   return id ? { projectId: id.projectId, projectName: id.projectName } : {}
 }
+
+/** The optional SessionInfo `branch` field: only a branch the transcript recorded ({} otherwise, never guessed). */
+export function branchTag(branch: string | undefined): { branch?: string } {
+  return branch ? { branch: branch.slice(0, 200) } : {}
+}
