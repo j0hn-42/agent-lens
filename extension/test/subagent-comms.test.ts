@@ -24,7 +24,7 @@ import { MESSAGE_MAX } from '../src/constants'
 
 function makeSession(overrides: Partial<WatchedSession> = {}): WatchedSession {
   return {
-    sessionId: 's1', filePath: '', fileWatcher: null, pollTimer: null, fileSize: 0,
+    sessionId: 's1', filePath: '', fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
     sessionStartTime: Date.now(), pendingToolCalls: new Map(), seenToolUseIds: new Set(),
     seenMessageHashes: new Set(), sessionDetected: true, sessionCompleted: false,
     lastActivityTime: Date.now(), inactivityTimer: null, subagentWatchers: new Map(),

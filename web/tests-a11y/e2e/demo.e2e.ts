@@ -228,8 +228,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
 
     // Reflow also means no overlay hides another (#116): the legend, the camera / comfort controls and
     // the control bar never intersect, and the Context panel never covers the top bar.
-    test(`no overlay covers another at ${width} px wide`, async t => {
-      if (skipReason) return t.skip(skipReason)
+    test(`no overlay covers another at ${width} px wide`, async () => {
       const { page, close } = await open({ width, height: 700 })
       try {
         const rectsOf = (): Promise<Record<string, { x: number; y: number; w: number; h: number } | null>> => page.evaluate(`(() => {
