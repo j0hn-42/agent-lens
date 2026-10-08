@@ -139,6 +139,12 @@ test('the demo scenario carries its tool_use_ids: every parent link is verified'
   assert.deepEqual(links.filter(e => e.verified !== true).map(e => e.id), [])
 })
 
+test('a hook-style return naming the child differently keeps the edge verified (identity follows tool_use_id)', () => {
+  const ret: Ev = { type: 'subagent_return', payload: { parent: 'orchestrator', child: 'general-purpose-ab75a', summary: 's', toolUseId: 'toolu_1' } }
+  const s = run([main, dispatch({ child: 'Fix auth bug' }), spawn({ name: 'Fix auth bug' }), ret])
+  assert.equal(edge(s, 'default:Fix auth bug').verified, true)
+})
+
 test('re-spawn of a known agent does not change its edge', () => {
   const s = run([main, dispatch(), spawn(), spawn({ parent: 'ghost' })])
   assert.equal(s.edges.filter(e => e.type === 'parent-child').length, 1)

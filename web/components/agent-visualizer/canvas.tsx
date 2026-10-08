@@ -38,7 +38,7 @@ import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { visibleAgents } from '@/lib/inactive-agents'
-import { createCollapseMemory, evaluateCollapse, applyCollapse, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
 import { drawBranchBadges } from './canvas/draw-branch-badges'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { GraphA11yList } from './graph-a11y-list'
@@ -95,11 +95,14 @@ const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
  */
 function sceneAgents(
   all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
-  selectedId: string | null, memory: CollapseMemory,
-): { agents: Map<string, Agent>; collapse: CollapseView } {
+  selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
+  memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
+): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
   const base = visibleAgents(all, hideInactive, keepIds)
-  const collapse = evaluateCollapse(base, memory, [selectedId])
-  return { agents: applyCollapse(base, collapse), collapse }
+  // A selected card keeps the branch of its owner open, like a selected agent
+  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
+  const collapse = evaluateCollapse(base, memory, owners)
+  return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
 }
 
 function readStoredFlag(key: string): boolean {
@@ -241,11 +244,12 @@ export function AgentCanvas({
     toggleBranch(collapseMemoryRef.current, collapseViewRef.current, id)
   }, [])
   const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
-    const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId], selectedAgentId, collapseMemoryRef.current)
+    const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
     collapseViewRef.current = scene.collapse
     return {
-    agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: sim.toolCalls,
-    particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
+    agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
+    particles: sim.particles, edges: sim.edges, discoveries: scene.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
     showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
@@ -369,9 +373,11 @@ export function AgentCanvas({
       const s = simulationRef.current
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
-      const scene = sceneAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId], drawPropsRef.current.selectedAgentId, collapseMemoryRef.current)
+      const dp = drawPropsRef.current
+      const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
-      const model = buildA11yModel(scene.agents, s.toolCalls, s.discoveries, a11yRecorder.tools, {
+      const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current,
       })
@@ -398,10 +404,14 @@ export function AgentCanvas({
   // ─── Detect state changes → spawn effects + live-region announcements ───
 
   const detectStateChanges = useCallback(() => {
-    const { agents, toolCalls } = drawPropsRef.current
+    const { agents } = drawPropsRef.current
+    // States come from the whole simulation, only the shown agents are announced: expanding a
+    // branch reveals agents that did not just start.
+    const sim = simulationRef.current
     const { effects, transitions, newAgentStates, newToolStates } = detectStateChangesPure(
-      agents, toolCalls,
+      sim.agents, sim.toolCalls,
       prevAgentStatesRef.current, prevToolStatesRef.current,
+      agents,
     )
     if (!reducedMotionRef.current) {
       // Global flash limiter: at most FLASH_MAX_PER_SECOND bright flashes per second
@@ -452,14 +462,15 @@ export function AgentCanvas({
       {
         const s = simulationRef.current
         const p = drawPropsRef.current
-        const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId], p.selectedAgentId, collapseMemoryRef.current)
+        const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
         collapseViewRef.current = scene.collapse
         p.agents = scene.agents
         p.collapse = scene.collapse
-        p.toolCalls = s.toolCalls
+        p.toolCalls = scene.toolCalls
         p.particles = s.particles
         p.edges = s.edges
-        p.discoveries = s.discoveries
+        p.discoveries = scene.discoveries
         p.simTime = s.currentTime
         p.links = resolveLinks(linksPropRef.current ?? s.links, p.agents, s.currentTime)
       }

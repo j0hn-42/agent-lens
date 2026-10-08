@@ -4,9 +4,10 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   createCollapseMemory, evaluateCollapse, applyCollapse, toggleBranch, branchBadge, treeKeyAction,
+  applyCollapseToContent, selectionOwners,
   type CollapseMemory,
 } from '../web/components/agent-visualizer/canvas/branch-collapse'
-import type { Agent } from '../web/lib/agent-types'
+import type { Agent, ToolCallNode, Discovery } from '../web/lib/agent-types'
 
 const mk = (id: string, parentId: string | null, state: Agent['state'] = 'idle', archived = false) =>
   ({ id, parentId, state, archived }) as unknown as Agent
@@ -29,6 +30,37 @@ test('inactive branches are collapsed by default; the root and leaves are never 
   assert.equal(v.branches.get('a')!.collapsed, true)
   assert.deepEqual([...v.hidden].sort(), ['a1', 'a2', 'b1', 'b11'])
   assert.equal(v.branches.has('main'), false, 'the root is never collapsed')
+})
+
+const tool = (id: string, agentId: string) => ({ id, agentId }) as unknown as ToolCallNode
+const disc = (id: string, agentId: string) => ({ id, agentId }) as unknown as Discovery
+
+test('tool cards and discoveries of agents hidden by a collapsed branch are dropped', () => {
+  const v = view(tree(), createCollapseMemory())
+  const tools = new Map([['t1', tool('t1', 'a1')], ['t2', tool('t2', 'a')], ['t3', tool('t3', 'main')]])
+  const out = applyCollapseToContent(tools, [disc('d1', 'a2'), disc('d2', 'main')], v)
+  assert.deepEqual([...out.toolCalls.keys()], ['t2', 't3'])
+  assert.deepEqual(out.discoveries.map(d => d.id), ['d2'])
+})
+
+test('applyCollapseToContent returns its inputs when nothing is hidden', () => {
+  const v = view(tree({ a1: 'thinking', b11: 'thinking' }), createCollapseMemory())
+  const tools = new Map([['t1', tool('t1', 'a1')]])
+  const discs = [disc('d1', 'a1')]
+  const out = applyCollapseToContent(tools, discs, v)
+  assert.equal(out.toolCalls, tools)
+  assert.equal(out.discoveries, discs)
+})
+
+test('a selected tool card or discovery keeps the branch of its owner open', () => {
+  const tools = new Map([['t1', tool('t1', 'a1')]])
+  const discs = [disc('d1', 'b11')]
+  const owners = selectionOwners(null, 't1', 'd1', tools, discs)
+  assert.deepEqual(owners, [null, 'a1', 'b11'])
+  const v = view(tree(), createCollapseMemory(), owners.filter((x): x is string => !!x))
+  assert.equal(v.hidden.has('a1'), false)
+  assert.equal(v.hidden.has('b11'), false)
+  assert.equal(applyCollapseToContent(tools, discs, v).toolCalls.has('t1'), true)
 })
 
 test('applyCollapse hides the descendants and keeps the collapsed node itself', () => {

@@ -8,7 +8,7 @@
  * - Tree-style keys: Right expands / enters the first child, Left collapses / goes to the parent.
  * Runtime imports are relative so this file is unit-testable with node:test.
  */
-import type { Agent } from '../../../lib/agent-types'
+import type { Agent, ToolCallNode, Discovery } from '../../../lib/agent-types'
 import { isInactiveAgent } from '../../../lib/inactive-agents'
 import { agentDrawRadius } from './team-style'
 
@@ -132,6 +132,36 @@ export function applyCollapse(agents: Map<string, Agent>, view: CollapseView): M
   const out = new Map<string, Agent>()
   for (const [id, a] of agents) if (!view.hidden.has(id)) out.set(id, a)
   return out
+}
+
+/**
+ * Tool cards and discoveries follow their agent: those of an agent hidden by a collapsed ancestor are
+ * not drawn, hit-tested nor navigable. Returns the inputs themselves when nothing is hidden.
+ */
+export function applyCollapseToContent(
+  toolCalls: Map<string, ToolCallNode>,
+  discoveries: Discovery[],
+  view: CollapseView,
+): { toolCalls: Map<string, ToolCallNode>; discoveries: Discovery[] } {
+  if (view.hidden.size === 0) return { toolCalls, discoveries }
+  const tools = new Map<string, ToolCallNode>()
+  for (const [id, t] of toolCalls) if (!view.hidden.has(t.agentId)) tools.set(id, t)
+  return { toolCalls: tools, discoveries: discoveries.filter(d => !view.hidden.has(d.agentId)) }
+}
+
+/** Agents that must stay visible for the selection: the selected agent and the owner of a selected card. */
+export function selectionOwners(
+  selectedAgentId: string | null,
+  selectedToolCallId: string | null,
+  selectedDiscoveryId: string | null,
+  toolCalls: Map<string, ToolCallNode>,
+  discoveries: Discovery[],
+): Array<string | null> {
+  return [
+    selectedAgentId,
+    selectedToolCallId ? toolCalls.get(selectedToolCallId)?.agentId ?? null : null,
+    selectedDiscoveryId ? discoveries.find(d => d.id === selectedDiscoveryId)?.agentId ?? null : null,
+  ]
 }
 
 /** User choice: flip the branch. No effect on a branch held open by the selection or on a non-branch. */

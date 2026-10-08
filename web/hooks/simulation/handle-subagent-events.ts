@@ -23,7 +23,12 @@ function resolveParties(
   return { parentKey, childKey, toolUseId }
 }
 
-/** A dispatch/return that contradicts the agent already started for its tool_use_id demotes that agent's edge. */
+/**
+ * A dispatch/return that contradicts the agent already started for its tool_use_id demotes that agent's edge.
+ * Identity follows the tool_use_id, never the name: a return relayed by the hooks names the child
+ * `<type>-<agent id suffix>`, not the transcript's description. Only a dispatch (same source as the
+ * start) is also compared on the child name.
+ */
 function checkAgainstKnownChild(
   payload: Record<string, unknown>, state: MutableEventState, sessionId: string,
   parentKey: string, toolUseId: string | undefined, reason: UnverifiedReason,
@@ -31,7 +36,8 @@ function checkAgainstKnownChild(
   if (!toolUseId) return
   const known = findAgentByToolUseId(state.agents, sessionId, toolUseId)
   if (!known || !known.parentId) return
-  if (known.parentId !== parentKey || !namesAgent(known, idString(payload.child), toolUseId)) {
+  const nameMismatch = reason === 'dispatch-mismatch' && !namesAgent(known, idString(payload.child), toolUseId)
+  if (known.parentId !== parentKey || nameMismatch) {
     demoteEdge(state, known.id, reason)
   }
 }
