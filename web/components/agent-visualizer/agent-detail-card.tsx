@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
@@ -277,6 +277,23 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
   useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Escape closes exactly this layer. A native listener keeps the dialog element free of JSX key handlers
+  // (jsx-a11y/no-noninteractive-element-interactions), as the link panel does.
+  const closeEscape = onEscape ?? onClose
+  const closeEscapeRef = useRef(closeEscape)
+  closeEscapeRef.current = closeEscape
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      e.preventDefault()
+      closeEscapeRef.current()
+    }
+    el.addEventListener('keydown', onKeyDown)
+    return () => el.removeEventListener('keydown', onKeyDown)
+  }, [])
   // Same left dock slot as the detail card it replaces
   const dock = useDockPanel('detail', true)
   const { rect } = dock
@@ -286,7 +303,6 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
       role="dialog"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
       {...dockAttrs('detail', 'left', dock)}
       className="agent-detail-card outline-none"
       style={{

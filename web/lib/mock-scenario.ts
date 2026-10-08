@@ -48,8 +48,8 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 6.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 11500, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 6500, reasoning: 2800, subagentResults: 0 } } },
 
   // MCP tool call (rendered with the cyan MCP style: server badge, orbiting dots, dotted beam)
-  { time: 6.2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', args: 'limit: 10' } },
-  { time: 7.4, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', result: '10 payment intents (7 succeeded, 2 pending, 1 failed)', tokenCost: 900 } },
+  { time: 25.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', args: 'limit: 10' } },
+  { time: 26.2, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', result: '10 payment intents (7 succeeded, 2 pending, 1 failed)', tokenCost: 900 } },
 
   // ── Phase 2: Planning (thinking — deciding on approach) ───────────────────
   { time: 8.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'TodoWrite', args: 'planning implementation', inputData: {

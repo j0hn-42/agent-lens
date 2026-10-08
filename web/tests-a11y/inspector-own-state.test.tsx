@@ -64,3 +64,17 @@ test('gone card: explicit message naming the node, announced politely, closable'
   v.rerender(<AgentGoneCard name={null} onClose={noop} />)
   assert.equal(v.getByTestId('inspector-gone').textContent, 'This node is no longer listed')
 })
+
+test('gone card: Escape closes it through onEscape (or onClose), and does not bubble', () => {
+  let escaped = 0
+  let closed = 0
+  let bubbled = 0
+  const v = render(<div onKeyDown={() => { bubbled++ }}><AgentGoneCard name="Peer" onClose={() => { closed++ }} onEscape={() => { escaped++ }} /></div>)
+  v.getByRole('dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  assert.equal(escaped, 1)
+  assert.equal(closed, 0)
+  assert.equal(bubbled, 0)
+  v.rerender(<div><AgentGoneCard name="Peer" onClose={() => { closed++ }} /></div>)
+  v.getByRole('dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  assert.equal(closed, 1)
+})
