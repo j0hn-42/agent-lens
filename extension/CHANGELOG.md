@@ -2,6 +2,19 @@
 
 Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written for Agent Flow; Agent Lens changes are summarised in [NOTICE](../NOTICE).
 
+The entries keep their original wording. Where they name a command, variable or folder that has since been renamed, a note `(now: ...)` gives the current name.
+
+### Old name / current name
+
+| Old name | Current name |
+| --- | --- |
+| `npx agent-flow-app` (package `agent-flow-app`) | `npx agent-lens-app` (package `agent-lens-app`) |
+| `AGENT_FLOW_TELEMETRY` | `AGENT_LENS_TELEMETRY` (telemetry itself was removed, nothing is sent) |
+| `AGENT_FLOW_RUNTIME` | `AGENT_LENS_RUNTIME` |
+| `~/.agent-flow/` (state and `telemetry/events.jsonl`) | not written any more; no telemetry state exists (`AGENT_LENS_TELEMETRY` only keeps it off) |
+
+The `agentVisualizer.*` settings, the extension publisher and the legacy hook marker used to clean up old Claude Code hooks are kept unchanged on purpose, so existing installs keep working.
+
 ## 0.9.1
 
 - Fix: Claude Code session discovery on Windows — workspace-to-project-dir matching is now case-insensitive on win32 (#57, part of #4)
@@ -16,7 +29,7 @@ Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written 
 - **Codex session discovery fixes** — addresses reports of Codex sessions not appearing
   - Windows: workspace/cwd matching is now case-insensitive on win32 (VS Code reports `c:\...`, Codex writes `C:\...` — sessions never matched)
   - Large `session_meta`: the first-line reader now grows up to 1MB instead of a fixed 64KB — newer Codex versions embed full base instructions and AGENTS.md content, which silently broke cwd extraction and skipped the session
-  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` from a different directory than the Codex session). Warnings are visible without `--verbose`
+  - Silent cwd mismatch: when recent Codex sessions exist but none ran in the current workspace, a warning now says so (the most common cause: launching `npx agent-flow-app` (now: `npx agent-lens-app`) from a different directory than the Codex session). Warnings are visible without `--verbose`
 - Fix: assistant messages in Codex sessions were labeled "CLAUDE" in the transcript panels and canvas bubbles — the label now follows the session runtime ("CODEX") (#49)
 
 ## 0.8.1
@@ -24,16 +37,16 @@ Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written 
 - **Opt-out anonymous usage telemetry** — Agent Flow now tracks whether people come back after day 1 so we can tell whether it's actually useful. Only aggregate session metadata is sent, never prompts, file paths, or code
   - What's sent: session count, duration, event count, OS/arch, Agent Flow version, distinct Claude/Codex model IDs observed during each session, which runtimes were watched (`claude`, `codex`, or `claude,codex`), and error class names on crashes
   - What's NEVER sent: prompts, tool calls, tool responses, file paths, repo names, user name/email/hostname, environment variables, error messages or stack traces
-  - Turn off: `export AGENT_FLOW_TELEMETRY=false` or `export DO_NOT_TRACK=1`. Disabled installs write nothing to disk — no `~/.agent-flow/` state file, no telemetry dir
-  - Only the published `npx agent-flow-app` binary emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
+  - Turn off: `export AGENT_FLOW_TELEMETRY=false` (now: `AGENT_LENS_TELEMETRY`, and there is no telemetry any more) or `export DO_NOT_TRACK=1`. Disabled installs write nothing to disk — no `~/.agent-flow/` state file (now: nothing is written), no telemetry dir
+  - Only the published `npx agent-flow-app` binary (now: `agent-lens-app`) emits. `pnpm run dev` stays silent so contributor iterations don't land in the data
   - Inspect the exact payload locally: `cat ~/.agent-flow/telemetry/events.jsonl`
 - Remove `@vercel/analytics` — conflicts with the first-party-only commitment in the privacy doc
 
 ## 0.8.0
 
-- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app`. Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
+- **Codex runtime support** — available in all three entry points: VS Code extension, `pnpm run dev`, and `npx agent-flow-app` (now: `npx agent-lens-app`). Agent Flow now watches Codex rollouts at `~/.codex/sessions/**/rollout-*.jsonl` alongside Claude Code sessions
   - New `agentVisualizer.runtime` setting (VS Code only): `"auto"` (default, watches both), `"claude"`, or `"codex"`
-  - `AGENT_FLOW_RUNTIME` environment variable (`claude` / `codex` / `auto`) gives the same opt-out in `pnpm run dev` and `npx agent-flow-app`
+  - `AGENT_FLOW_RUNTIME` environment variable (now: `AGENT_LENS_RUNTIME`) (`claude` / `codex` / `auto`) gives the same opt-out in `pnpm run dev` and `npx agent-flow-app`
   - Respects `CODEX_HOME` for non-default installs
   - Parses all five Codex rollout record types (`session_meta`, `turn_context`, `response_item`, `event_msg`, `compacted`) — surfaces tool calls (`exec_command`, `apply_patch`, `write_stdin`, `update_plan`), reasoning, web searches
   - Uses Codex's own authoritative token counts (`event_msg.token_count.info.last_token_usage.input_tokens` and `model_context_window`) instead of estimating
@@ -60,7 +73,7 @@ Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written 
 
 ## 0.6.1
 
-- npx support — `npx agent-flow-app` starts the visualizer without cloning the repo
+- npx support — `npx agent-flow-app` (now: `npx agent-lens-app`) starts the visualizer without cloning the repo
 - Internal refactor: shared relay module and build config
 
 ## 0.6.0

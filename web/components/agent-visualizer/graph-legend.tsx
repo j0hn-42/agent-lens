@@ -8,6 +8,7 @@ import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
 import { TEAM_DEFAULT_COLOR } from './canvas/team-style'
 import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
+import { LearnMoreLink } from './learn-more-link'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -162,6 +163,10 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
             <Row icon={<svg width="20" height="20" viewBox="0 0 512 512"><path d={CLAUDE_SPARK_D} fill={COLORS.holoBase} /></svg>}>Spark logo: Claude</Row>
             <Row icon={<svg width="20" height="20" viewBox="0 0 24 24"><path d={OPENAI_LOGO_D} fill={COLORS.holoBase} /></svg>}>Knot logo: Codex</Row>
           </ul>
+
+          <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>
+            Not observed, at least, estimated: <LearnMoreLink />
+          </p>
         </div>
       )}
       <button
