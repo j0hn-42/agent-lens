@@ -5,10 +5,10 @@
  * function here returns a conservative answer instead of throwing.
  */
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
 import type { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, SETTINGS_FILE_MAX_BYTES } from './constants'
+import { claudeConfigDir, claudeSettingsPath } from './claude-config-dir'
 import { HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER } from './discovery'
 
 /** Check whether a single hook entry belongs to Agent Lens (command, legacy marker or legacy HTTP url). */
@@ -48,13 +48,13 @@ export function readSettingsFile(filePath: string, maxBytes = SETTINGS_FILE_MAX_
 }
 
 /** Global settings plus (when known) the workspace's local settings. */
-export function claudeSettingsPaths(workspace?: string, home = os.homedir()): string[] {
-  const paths = [path.join(home, '.claude', 'settings.json')]
+export function claudeSettingsPaths(workspace?: string, configDir = claudeConfigDir()): string[] {
+  const paths = [claudeSettingsPath(configDir)]
   if (workspace) { paths.push(path.join(workspace, '.claude', 'settings.local.json')) }
   return paths
 }
 
 /** Whether any of the settings files configures Agent Lens hooks. */
-export function isHooksConfigured(workspace?: string, home = os.homedir()): boolean {
-  return claudeSettingsPaths(workspace, home).some(p => settingsHaveAgentLensHooks(readSettingsFile(p)))
+export function isHooksConfigured(workspace?: string, configDir = claudeConfigDir()): boolean {
+  return claudeSettingsPaths(workspace, configDir).some(p => settingsHaveAgentLensHooks(readSettingsFile(p)))
 }

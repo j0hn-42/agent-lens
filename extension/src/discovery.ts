@@ -12,15 +12,15 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 import * as crypto from 'crypto'
 import { execSync } from 'child_process'
 import { HOOK_TIMEOUT_S, HOOK_SAFETY_MARGIN_MS, HOOK_FORWARD_TIMEOUT_MS, WORKSPACE_HASH_LENGTH } from './constants'
+import { discoveryDir } from './claude-config-dir'
 import { createLogger } from './logger'
 
 const log = createLogger('Discovery')
 
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
+const DISCOVERY_DIR = discoveryDir()
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
 const WORKSPACES_MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json')
 

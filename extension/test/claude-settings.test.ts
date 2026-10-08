@@ -41,29 +41,42 @@ describe('reading settings files', () => {
   }
 
   it('returns false when no settings exist', () => {
-    assert.equal(isHooksConfigured(undefined, path.join(home, 'nowhere')), false)
+    assert.equal(isHooksConfigured(undefined, path.join(home, 'nowhere', '.claude')), false)
   })
   it('reads global settings, and ignores invalid JSON, directories and oversized files', () => {
     const settings = write('.claude/settings.json', '{ not json')
     assert.equal(readSettingsFile(settings), null)
-    assert.equal(isHooksConfigured(undefined, home), false)
+    assert.equal(isHooksConfigured(undefined, path.join(home, '.claude')), false)
 
     fs.writeFileSync(settings, JSON.stringify({ hooks: { PreToolUse: [ourHook] } }))
-    assert.equal(isHooksConfigured(undefined, home), true)
+    assert.equal(isHooksConfigured(undefined, path.join(home, '.claude')), true)
 
     assert.equal(readSettingsFile(settings, 10), null) // over the size cap
     assert.equal(readSettingsFile(path.dirname(settings)), null) // a directory
   })
   it('also checks the workspace settings.local.json', () => {
-    const emptyHome = path.join(home, 'h2')
-    fs.mkdirSync(emptyHome)
+    const emptyHome = path.join(home, 'h2', '.claude')
+    fs.mkdirSync(emptyHome, { recursive: true })
     const ws = path.join(home, 'ws')
     write('ws/.claude/settings.local.json', JSON.stringify({ hooks: { Stop: [ourHook] } }))
     assert.equal(isHooksConfigured(ws, emptyHome), true)
     assert.equal(isHooksConfigured(undefined, emptyHome), false)
     assert.deepEqual(claudeSettingsPaths(ws, emptyHome), [
-      path.join(emptyHome, '.claude', 'settings.json'),
+      path.join(emptyHome, 'settings.json'),
       path.join(ws, '.claude', 'settings.local.json'),
     ])
+  })
+})
+
+describe('CLAUDE_CONFIG_DIR (second account)', () => {
+  it('reads the hooks flag from the injected config dir, not from ~/.claude', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'af-second-'))
+    try {
+      const second = path.join(root, 'acct2')
+      fs.mkdirSync(second)
+      fs.writeFileSync(path.join(second, 'settings.json'), JSON.stringify({ hooks: { Stop: [ourHook] } }))
+      assert.equal(isHooksConfigured(undefined, second), true)
+      assert.equal(isHooksConfigured(undefined, path.join(root, 'other')), false)
+    } finally { fs.rmSync(root, { recursive: true, force: true }) }
   })
 })

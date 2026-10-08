@@ -29,6 +29,7 @@ import {
   SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
 import { readProjectContext } from '../extension/src/project-context'
+import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
@@ -43,9 +44,9 @@ import { EventReconciler, type EventSource } from '../extension/src/event-source
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
 
-const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
-const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
-const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
+const DISCOVERY_DIR = discoveryDir()
+const CLAUDE_DIR = claudeProjectsDir()
+const TEAMS_DIR = claudeTeamsDir()
 
 let relayCreated = false
 let verbose = false
@@ -860,7 +861,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // The path comes from the session's transcript header, never from the request
       const cwd = sessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined
       if (!cwd) return plain(404, 'No project context for this session')
-      const body = JSON.stringify({ sessionId, loadedAt: Date.now(), ...readProjectContext(cwd, os.homedir()) })
+      const body = JSON.stringify({ sessionId, loadedAt: Date.now(), ...readProjectContext(cwd, claudeConfigDir()) })
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',

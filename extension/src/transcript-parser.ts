@@ -6,7 +6,6 @@
  */
 
 import * as fs from 'fs'
-import * as os from 'os'
 import * as path from 'path'
 import {
   AgentEvent, PendingToolCall, WatchedSession,
@@ -14,6 +13,7 @@ import {
   emitSubagentSpawn,
 } from './protocol'
 import { readFileChunk } from './fs-utils'
+import { claudeProjectsDir } from './claude-config-dir'
 import {
   PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX,
   SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
@@ -955,7 +955,7 @@ export class TranscriptParser {
 }
 
 /** Default root that hook-supplied transcript paths must resolve inside. */
-export const DEFAULT_TRANSCRIPT_ROOT = path.join(os.homedir(), '.claude', 'projects')
+export const DEFAULT_TRANSCRIPT_ROOT = claudeProjectsDir()
 
 /**
  * True when a path supplied by an untrusted source (e.g. an HTTP hook payload) is a
