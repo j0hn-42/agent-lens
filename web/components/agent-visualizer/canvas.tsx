@@ -40,7 +40,7 @@ import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { visibleAgents } from '@/lib/inactive-agents'
-import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, focusOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
 import { drawBranchBadges } from './canvas/draw-branch-badges'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
@@ -103,11 +103,16 @@ const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
 function sceneAgents(
   all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
   selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
+  focused: NavNode | null,
   memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
 ): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
   const base = visibleAgents(all, hideInactive, keepIds)
   // A selected card keeps the branch of its owner open, like a selected agent
-  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
+  // The keyboard-focused node pins its branch too: focus must not vanish under the user (hover still does not)
+  const owners = [
+    ...selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries),
+    ...focusOwners(focused, sim.toolCalls, sim.discoveries),
+  ]
   const collapse = evaluateCollapse(base, memory, owners)
   return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
 }
@@ -267,7 +272,8 @@ export function AgentCanvas({
   }, [])
   const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
     const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
-      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null },
+      hasFocus ? focusedNode : null, collapseMemoryRef.current, sim)
     collapseViewRef.current = scene.collapse
     return {
     agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
@@ -409,7 +415,8 @@ export function AgentCanvas({
       // this timer only publishes them to React state.
       const dp = drawPropsRef.current
       const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
-        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null },
+        hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
@@ -505,7 +512,8 @@ export function AgentCanvas({
         const s = simulationRef.current
         const p = drawPropsRef.current
         const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
-          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null },
+          hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
         collapseViewRef.current = scene.collapse
         p.agents = scene.agents
         p.collapse = scene.collapse

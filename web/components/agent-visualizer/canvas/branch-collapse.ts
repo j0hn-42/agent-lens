@@ -164,6 +164,19 @@ export function selectionOwners(
   ]
 }
 
+/** Agent that must stay visible for the keyboard-focused node (agent, tool card or discovery): same pin as a selection. */
+export function focusOwners(
+  node: { type: 'agent' | 'tool' | 'discovery'; id: string } | null,
+  toolCalls: Map<string, ToolCallNode>,
+  discoveries: Discovery[],
+): string[] {
+  if (!node) return []
+  const owner = node.type === 'agent' ? node.id
+    : node.type === 'tool' ? toolCalls.get(node.id)?.agentId
+    : discoveries.find(d => d.id === node.id)?.agentId
+  return owner ? [owner] : []
+}
+
 /** User choice: flip the branch. No effect on a branch held open by the selection or on a non-branch. */
 export function toggleBranch(memory: CollapseMemory, view: CollapseView, id: string): void {
   const info = view.branches.get(id)
