@@ -45,6 +45,7 @@ const ID_KEYS: ReadonlySet<string> = new Set([
   'name', 'agent', 'parent', 'child', 'from', 'to', 'tool', 'toolUseId', 'linkId', 'sessionId',
   'label', 'teamName', 'model', 'subagentType', 'memberSessionId', 'leadSessionId', 'leadName',
   'agentType', 'backendType', 'kind', 'role', 'activity', 'color',
+  'requestedModel', 'modelSource', 'effort',
 ])
 
 export function createStats(): NormalizationStats {

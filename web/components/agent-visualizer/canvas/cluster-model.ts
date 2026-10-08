@@ -6,8 +6,9 @@
  * No React and no canvas: unit-testable under node:test (relative runtime imports only).
  */
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
-import { agentCost } from '../../../lib/cost'
 import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
+import { totalCostUsage } from '../../../lib/cost'
+import { formatCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
@@ -47,7 +48,8 @@ export interface Cluster {
   workspace?: string
   status: ClusterStatus
   statusText: string
-  cost: number
+  /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
+  cost: number | null
   costText: string
 }
 
@@ -210,8 +212,7 @@ export function computeClusters(
 
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
     const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
-    let cost = 0
-    for (const m of members) cost += agentCost(m.tokensUsed, m.model)
+    const costUsage = totalCostUsage(members)
 
     out.push({
       key,
@@ -228,8 +229,8 @@ export function computeClusters(
       workspace: cleanText(meta?.workspace, 40) || undefined,
       status,
       statusText: STATUS_TEXT[status],
-      cost,
-      costText: formatCost(cost),
+      cost: costUsage.value,
+      costText: formatCostUsage(costUsage),
     })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))

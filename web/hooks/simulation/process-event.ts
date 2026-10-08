@@ -7,6 +7,7 @@ import {
   type TimelineEntry,
   type TimelineBlock,
 } from '../../lib/agent-types'
+import type { UnattributedUsage } from '../../lib/attribution'
 import type { SimulationState, ConversationMessage, AgentLink } from './types'
 import { DEFAULT_SESSION_ID } from './types'
 import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handlePermissionRequested, handleModelDetected } from './handle-agent-events'
@@ -36,6 +37,7 @@ export interface MutableEventState {
   conversations: Map<string, ConversationMessage[]>
   links: Map<string, AgentLink>
   teams: Map<string, TeamSummary>
+  unattributed: Map<string, UnattributedUsage>
   droppedMessages: Map<string, number>
 }
 
@@ -85,6 +87,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         conversations: new Map(prev.conversations),
         links: new Map(prev.links),
         teams: new Map(prev.teams),
+        unattributed: new Map(prev.unattributed),
         droppedMessages: new Map(prev.droppedMessages),
       }
       const sid = eventSessionId(event)
@@ -122,6 +125,7 @@ export function processEvent(event: SimulationEvent, prev: SimulationState, ctx:
         conversations: mapsEqual(prev.conversations, state.conversations) ? prev.conversations : state.conversations,
         links: mapsEqual(prev.links, state.links) ? prev.links : state.links,
         teams: mapsEqual(prev.teams, state.teams) ? prev.teams : state.teams,
+        unattributed: mapsEqual(prev.unattributed, state.unattributed) ? prev.unattributed : state.unattributed,
         droppedMessages: mapsEqual(prev.droppedMessages, state.droppedMessages) ? prev.droppedMessages : state.droppedMessages,
       }
 }

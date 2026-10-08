@@ -318,7 +318,7 @@ function startTeammate(
     ...(meta.color ? { color: meta.color } : {}),
     ...(meta.agentType ? { agentType: meta.agentType } : {}),
     backendType: 'in-process',
-    ...(meta.model ? { model: meta.model } : {}),
+    ...(meta.model ? { model: meta.model, modelSource: 'configured' } : {}),
   }
   // Workflow agents hang off the orchestrator; teammates off whoever dispatched them
   const parent = workflow ? ORCHESTRATOR_NAME : record.parentName ?? ORCHESTRATOR_NAME

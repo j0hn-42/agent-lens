@@ -1,6 +1,9 @@
 // Agent Visualizer Types — Holographic Edition v2
 // Now with actual information visibility
 
+import type { UsageStatus, TokenSource } from './usage'
+import type { ModelSource } from './model-provenance'
+
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
 // Context window composition — the key insight
@@ -51,10 +54,21 @@ export interface Agent {
   /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */
   archived?: boolean
   parentId: string | null
+  /** Known token count (a lower bound unless `tokenStatus` is 'available'); meaningless while 'unavailable' */
   tokensUsed: number
+  /** Completeness of `tokensUsed`; absent on legacy agents (inferred from the counter) */
+  tokenStatus?: UsageStatus
+  /** Number of token figures that were expected but missing since the last absolute update */
+  tokenGaps?: number
+  /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
+  tokensEstimated?: boolean
+  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
+  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
+  /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
+  toolErrors?: number
   timeAlive: number
   x: number
   y: number
@@ -68,6 +82,16 @@ export interface Agent {
   /** Model ID last reported for this agent (agent_spawn / model_detected).
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
+  /** Where `model` comes from (runtime > configured > requested); see lib/model-provenance */
+  modelSource?: ModelSource
+  /** Model the dispatching call asked for, kept apart so a requested/actual mismatch stays visible */
+  requestedModel?: string
+  /** Distinct models the runtime really reported for this agent, in order (bounded) */
+  modelsUsed?: string[]
+  /** Reasoning effort, only when a source configured one (never inferred) */
+  effort?: string
+  /** Subagent type of the dispatch (e.g. 'frontend-engineer'): the role behind `agent:<role>` issue labels */
+  subagentType?: string
   currentTool?: string
   task?: string
   spawnTime: number
@@ -76,6 +100,10 @@ export interface Agent {
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
   freshnessSource?: 'live' | 'history'
+  /** Active time of closed working spans, ms (issue #59); absent = never observed working */
+  activeMs?: number
+  /** Wall-clock ms when the running working span started; absent = not working */
+  activeSince?: number
   opacity: number
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
@@ -95,6 +123,9 @@ export interface MessageBubble {
   _cachedWrappedFont?: string
 }
 
+/** Lifecycle of a tool call: running, then one of four outcomes (completed, failed, cancelled, expired). */
+export type ToolCallState = 'running' | 'complete' | 'error' | 'cancelled' | 'expired'
+
 // Rich tool call with actual content
 export interface ToolCallNode {
   id: string
@@ -102,10 +133,15 @@ export interface ToolCallNode {
   toolName: string
   /** Set when toolName is an MCP tool (`mcp__<server>__<tool>`) */
   mcp?: { server: string; tool: string }
-  state: 'running' | 'complete' | 'error'
+  state: ToolCallState
   args: string          // human-readable argument summary
   result?: string       // human-readable result summary
-  tokenCost?: number    // how many tokens this result consumed
+  /** Tokens this result consumed; null = not reported (never 0 by default), undefined while running */
+  tokenCost?: number | null
+  /** Whether `tokenCost` was announced by the runtime or estimated */
+  tokenSource?: TokenSource
+  /** False when the end of the call was never seen (expired); true or absent otherwise */
+  endObserved?: boolean
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
   /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
   toolUseId?: string
@@ -176,6 +212,10 @@ export interface Edge {
   to: string
   type: 'parent-child' | 'tool'
   opacity: number
+  /** parent-child only: true when the events agree on the link (call, start, same name and id); false = drawn dashed */
+  verified?: boolean
+  /** parent-child only: why the link is not proven (see UnverifiedReason) */
+  unverifiedReason?: string
 }
 
 export interface Particle {
@@ -240,6 +280,8 @@ export interface SimulationEvent {
     | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
+  replayed?: boolean
 }
 
 export interface DepthParticle {

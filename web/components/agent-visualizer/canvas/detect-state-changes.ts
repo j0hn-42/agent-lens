@@ -1,7 +1,7 @@
-import type { Agent, ToolCallNode } from '@/lib/agent-types'
-import { FX } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
-import { MCP_DRAW } from '@/lib/canvas-constants'
+import type { Agent, ToolCallNode } from '../../../lib/agent-types'
+import { FX } from '../../../lib/agent-types'
+import { COLORS } from '../../../lib/colors'
+import { MCP_DRAW } from '../../../lib/canvas-constants'
 import type { VisualEffect } from './draw-effects'
 
 /** A semantic state transition detected between frames. */
@@ -19,6 +19,10 @@ export type StateTransition =
   | { kind: 'message_sent'; id: string; name: string; from: string; to: string }
 
 /**
+ * `shownAgents` (optional): the agents on screen. States are tracked for every agent given, but
+ * effects and transitions are only emitted for shown ones, so an agent entering the scene (a
+ * branch expanded) is not announced as started.
+ *
  * Compare previous and current agent/tool states and return both visual effects
  * and semantic transitions.
  *
@@ -33,6 +37,7 @@ export function detectStateChanges(
   toolCalls: Map<string, ToolCallNode>,
   prevAgentStates: Map<string, string>,
   prevToolStates: Map<string, string>,
+  shownAgents?: Map<string, Agent>,
 ): {
   effects: VisualEffect[]
   transitions: StateTransition[]
@@ -44,9 +49,11 @@ export function detectStateChanges(
   const newAgentStates = new Map<string, string>()
   const newToolStates = new Map<string, string>()
 
+  const shown = (id: string) => !shownAgents || shownAgents.has(id)
   for (const [id, agent] of agents) {
     newAgentStates.set(id, agent.state)
     const oldState = prevAgentStates.get(id)
+    if (!shown(id)) continue
 
     // Spawn: new agent (wasn't in prev)
     if (!oldState) {
@@ -78,6 +85,7 @@ export function detectStateChanges(
   for (const [id, tool] of toolCalls) {
     newToolStates.set(id, tool.state)
     const oldState = prevToolStates.get(id)
+    if (!shown(tool.agentId)) continue
 
     // Tool just started running
     if (!oldState && tool.state === 'running') {

@@ -18,12 +18,14 @@ import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extensi
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { projectTags } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
+import { readSessionIndex, mergeIndexedSessions, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
+  RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
 import { readProjectContext } from '../extension/src/project-context'
@@ -36,6 +38,7 @@ import {
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
 import { createObservationsAction, parseObservationsInput, AgentStateTracker } from '../extension/src/observations'
+import { fetchIssueLinks, resolveRepoUrl, sanitizeRole, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -496,6 +499,8 @@ export interface Relay {
   handleContext: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /observations and /observations/schema: the typed action Claude can query (loopback only, rate-limited) */
   handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  /** Handle GET /issue-links?role=<role>: open PRs/issues labelled agent:<role> through gh (loopback only, rate-limited, cached) */
+  handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
@@ -518,6 +523,23 @@ export interface RelayOptions {
   /** Reads whether the hooks are configured for the workspace (GET /status). Injectable for tests;
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
+  /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
+   *  workspace's GitHub `origin`. Must resolve to [] (not reject) when nothing can be proven, but a rejection is tolerated. */
+  issueLinksProbe?: (role: string) => Promise<IssueLink[]>
+  /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
+   *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
+  sessionIndex?: RelaySessionIndexOptions
+}
+
+export interface RelaySessionIndexOptions {
+  path: string
+  table?: string
+  maxRows?: number
+  timeoutMs?: number
+  /** Injectable driver (tests); defaults to node:sqlite when available */
+  opener?: IndexOpener | null
+  /** How long a read stays valid (default 30 s) */
+  cacheMs?: number
 }
 
 /** Yield to the event loop first, so the settings read never blocks the request that triggered it. */
@@ -542,6 +564,23 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     throw new Error('createRelay() can only be called once per process')
   }
   relayCreated = true
+
+  // Optional session index: read lazily, cached briefly, never fatal (a degraded index only logs and shows in /status)
+  const indexConfig: RelaySessionIndexOptions | undefined = options.sessionIndex
+    ?? (process.env.AGENT_LENS_SESSION_INDEX ? { path: process.env.AGENT_LENS_SESSION_INDEX } : undefined)
+  let indexCache: { at: number; result: SessionIndexResult } | null = null
+  const readIndex = (): SessionIndexResult | null => {
+    if (!indexConfig) return null
+    const now = Date.now()
+    if (indexCache && now - indexCache.at < (indexConfig.cacheMs ?? 30_000)) return indexCache.result
+    const { opener, cacheMs: _cacheMs, ...rest } = indexConfig
+    const raw = opener === undefined ? readSessionIndex(rest) : readSessionIndex(rest, opener)
+    // Scoped relay (default): only the index rows of this workspace, like the live scan
+    const result = allWorkspaces ? raw : { ...raw, sessions: filterIndexedByWorkspace(raw.sessions, workspace) }
+    if (result.status !== 'ok' && result.message && result.message !== indexCache?.result.message) log(`[relay] ${result.message}`)
+    indexCache = { at: now, result }
+    return result
+  }
 
   const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
   const mode = resolveRuntimeMode(options.runtime)
@@ -682,7 +721,71 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
+  // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once
+  const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const issueLinksCoalescer = new KeyedCoalescer<IssueLink[]>()
+  const issueLinksCache = new Map<string, { at: number; links: IssueLink[] }>()
+  let repoUrlPromise: Promise<string | undefined> | undefined
+  const issueLinksProbe = options.issueLinksProbe ?? (async (role: string): Promise<IssueLink[]> => {
+    repoUrlPromise ??= resolveRepoUrl(workspace)
+    const repoUrl = await repoUrlPromise
+    return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
+  })
+
   return {
+    async handleIssueLinks(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
+        res.end('Method not allowed')
+        return
+      }
+      if (!issueLinksLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+        res.end('Too many requests')
+        return
+      }
+      let roles: string[] = []
+      try { roles = new URL(req.url ?? '', 'http://localhost').searchParams.getAll('role') } catch { /* 400 below */ }
+      const role = roles.length === 1 ? sanitizeRole(roles[0]) : undefined
+      if (!role) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('Invalid role parameter')
+        return
+      }
+      const now = Date.now()
+      let links: IssueLink[]
+      const cached = issueLinksCache.get(role)
+      if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
+        links = cached.links
+      } else {
+        try {
+          links = await issueLinksCoalescer.run(role, () => issueLinksProbe(role))
+        } catch {
+          links = [] // gh absent, unauthenticated or failing: no link, no error
+        }
+        if (issueLinksCache.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) {
+          const oldest = issueLinksCache.keys().next().value
+          if (oldest !== undefined) issueLinksCache.delete(oldest)
+        }
+        issueLinksCache.set(role, { at: Date.now(), links })
+      }
+      if (res.destroyed || res.headersSent) return
+      const body = JSON.stringify({ role, links })
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Length': Buffer.byteLength(body),
+        'X-Content-Type-Options': 'nosniff',
+      })
+      res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
     async handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
       if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
@@ -723,6 +826,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         hooksConfigured: snapshot.hooksConfigured,
         sessionCount: snapshot.sessionCount,
         allWorkspaces,
+      }
+      const indexed = readIndex()
+      if (indexed) {
+        status.sessionIndex = {
+          status: indexed.status, count: indexed.sessions.length, truncated: indexed.truncated,
+          ...(indexed.message ? { message: indexed.message } : {}),
+        }
       }
       const body = JSON.stringify(status)
       res.writeHead(200, {
@@ -856,19 +966,22 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       res.on('error', onGone)
 
       // Send current session list (Claude + Codex)
-      const sessionList: SessionInfo[] = []
+      let sessionList: SessionInfo[] = []
       for (const session of sessions.values()) {
         if (!session.sessionDetected) continue
         sessionList.push(toSessionInfo(session))
       }
       if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+      // Indexed sessions complete the list; a session that is also watched live keeps its live entry
+      const indexed = readIndex()
+      if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
       if (sessionList.length > 0) {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
 
       // Replay buffered events: only the requested session with ?session=<id>,
       // otherwise every session's buffer (most recent active session last).
-      const sorted = [...sessionList].sort((a, b) => {
+      const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
         const aActive = a.status === 'active' ? 1 : 0
         const bActive = b.status === 'active' ? 1 : 0
         if (aActive !== bActive) return bActive - aActive

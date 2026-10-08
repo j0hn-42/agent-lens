@@ -201,6 +201,20 @@ describe('CodexRolloutParser', () => {
     assert.equal(detects.length, 1)
   })
 
+  it('carries the configured reasoning effort only when the rollout records one (#60)', () => {
+    const events: AgentEvent[] = []
+    const parser = new CodexRolloutParser({ emit: (e) => events.push(e), elapsed: () => 0 })
+    const state = createCodexRolloutState()
+    const line = (payload: Record<string, unknown>) => JSON.stringify({ type: 'turn_context', payload })
+    parser.processLine(line({ model: 'gpt-5.3-codex' }), state)
+    parser.processLine(line({ model: 'gpt-5.3-codex', effort: 'high' }), state)
+    parser.processLine(line({ model: 'gpt-5.3-codex', effort: 'high' }), state)
+    const detects = events.filter(e => e.type === 'model_detected')
+    assert.equal(detects.length, 2)
+    assert.equal('effort' in detects[0].payload, false)
+    assert.equal(detects[1].payload.effort, 'high')
+  })
+
   it('tolerates records arriving out of order (turn_context before session_meta)', () => {
     // If Codex ever writes turn_context as the first record, we should still
     // emit agent_spawn (once) and detect the model without crashing.

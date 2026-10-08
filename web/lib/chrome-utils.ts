@@ -4,7 +4,8 @@
  */
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
-import { SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { formatCostUsage, type UsageTotal } from './usage'
+import { SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
@@ -13,7 +14,7 @@ export const FOCUS_RING =
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
@@ -22,11 +23,13 @@ export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobs
  * `isObservedId` defaults to the app-wide observation tracker.
  */
 export function sessionStatusKind(
-  session: Pick<SessionInfo, 'status'> & { id?: string },
+  session: Pick<SessionInfo, 'status' | 'indexedOnly'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
 ): SessionStatusKind {
+  // The index proves neither detection nor an end: never shown as completed
+  if (session.indexedOnly) return 'indexed'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
@@ -37,6 +40,7 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   active: 'active',
   completed: 'completed',
   unobserved: SESSION_NOT_OBSERVED_TEXT,
+  indexed: SESSION_INDEXED_TEXT,
 }
 
 /** Ids of the tabs in order: the 'All' tab first, then one per session. */
@@ -180,8 +184,9 @@ export function formatAgentCounts(active: number, done: number): string {
 }
 
 /** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
-export function formatAllSummary(sessionCount: number, agentCount: number, cost: number): string {
-  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${formatCost(cost)}`
+export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
+  const costText = typeof cost === 'number' ? formatCost(cost) : formatCostUsage(cost)
+  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
 }
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */

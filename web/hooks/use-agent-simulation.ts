@@ -10,7 +10,7 @@ import {
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
+import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
@@ -21,6 +21,7 @@ import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
+import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
@@ -33,6 +34,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
+  // The stored orphan-call expiry delay is read once after mount (server and first client render match)
+  useEffect(() => { loadToolExpiryS() }, [])
 
   // ─── State management ──────────────────────────────────────────────────────
   // frameRef: source of truth, updated every animation frame (no React render).
@@ -215,6 +218,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         currentState = processEventWithContext(timedEvent, currentState)
         // Freshness: the agents this event touched are heard from now (wall clock)
         currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
+        // Active time: a move between working and paused opens or closes the agent's active span. A replayed
+        // (history) event carries no wall-clock proof of when the agent worked: its active time stays unknown
+        if (!timedEvent.replayed) {
+          currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
+        }
         newEvents.push(timedEvent)
       }
       // Sync simulation clock to latest event so active state renders correctly
@@ -245,6 +253,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       mockScenarioLength: MOCK_SCENARIO.length,
       mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
       speed,
+      toolExpiryS: toolExpiryConfig.seconds,
     })
 
     // Write to frameRef (canvas reads this every frame)
@@ -305,7 +314,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const agents = new Map<string, Agent>()
     for (const [id, agent] of prev.agents) {
       if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, messageBubbles: [], timeAlive: 0 })
+        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
       }
     }
 
@@ -373,8 +382,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     skipForceSyncRef.current = false
 
     // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
-    replayState = { ...replayState, agents: carryFreshness(prev.agents, replayState.agents) }
-    replayState = snapVisualState(replayState, targetTime)
+    replayState = { ...replayState, agents: carryActiveTime(prev.agents, carryFreshness(prev.agents, replayState.agents)) }
+    replayState = snapVisualState(replayState, targetTime, toolExpiryConfig.seconds)
     replayState.currentTime = targetTime
     replayState.eventIndex = newEventIndex
 
@@ -413,6 +422,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedEvents: state.droppedEvents,
     /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
     droppedMessages: state.droppedMessages,
+    /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
+    unattributed: state.unattributed,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

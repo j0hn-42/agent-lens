@@ -7,7 +7,7 @@ import { useSelectionState } from "@/hooks/use-selection-state"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { AgentCanvas } from "./canvas"
 import { ControlBar } from "./control-bar"
-import { AgentDetailCard } from "./agent-detail-card"
+import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
@@ -32,7 +32,8 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
-import { totalAgentCost } from "@/lib/cost"
+import { sessionUsage } from "@/lib/attribution"
+import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -42,7 +43,9 @@ import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-reg
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
+import { detectedSessions } from "@/lib/session-model"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { deriveSessionLinks } from "@/lib/session-links"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -88,6 +91,7 @@ export function AgentVisualizer() {
     conversations,
     droppedEvents,
     droppedMessages,
+    unattributed,
     links,
     teams,
     play,
@@ -429,15 +433,19 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  const totalTokens = useMemo(() => {
-    let sum = 0
-    for (const a of agents.values()) sum += a.tokensUsed
-    return sum
-  }, [agents])
-
-  const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
+  // Totals never show a missing figure as 0: agents without data make them a lower bound; usage that belongs
+  // to no single agent is kept apart (#61) but counts in the session total
+  const usage = useMemo(() => sessionUsage(agents.values(), unattributed.values()), [agents, unattributed])
+  const tokenUsage = usage.tokens
+  const costUsage = usage.cost
+  const totalTokens = usage.summary.sessionTokens
+  const totalCost = usage.summary.sessionCost
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
+  // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
+  const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
+  inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
+  const selectedGone = !!selection.selectedAgentId && !selectedAgent
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
@@ -501,8 +509,9 @@ export function AgentVisualizer() {
 
   // Halo titles (session label, runtime, workspace, status) come from the session list
   const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
+  const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
   const allViewSessionIds = bridge.allViewSessionIds
-  const shownSessionCount = allViewSessionIds ? bridge.sessions.filter(s => allViewSessionIds.has(s.id)).length : bridge.sessions.length
+  const shownSessionCount = detectedSessions(bridge.sessions).filter(s => !allViewSessionIds || allViewSessionIds.has(s.id)).length
   // A halo label click selects its session / team tab (kept in refs: the canvas holds the latest callback)
   const clusterStateRef = useRef({ selectedId: bridge.selectedSessionId, shown: shownSessionCount })
   clusterStateRef.current = { selectedId: bridge.selectedSessionId, shown: shownSessionCount }
@@ -537,7 +546,7 @@ export function AgentVisualizer() {
   // Team props are spread so each panel picks the ones it declares
   const canvasTeamProps = {
     links, teams, onLinkClick: handleLinkClick, selectedLinkId, scopeKey: bridge.selectedSessionId ?? '',
-    sessions: sessionMeta, onClusterSelect: handleClusterSelect,
+    sessions: sessionMeta, onClusterSelect: handleClusterSelect, sessionLinks,
   }
   const feedTeamProps = { links, droppedMessages, teams }
 
@@ -552,7 +561,7 @@ export function AgentVisualizer() {
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
     const ids = bridge.allViewSessionIds
-    return ids ? bridge.sessions.filter(s => ids.has(s.id)).length : bridge.sessions.length
+    return detectedSessions(bridge.sessions).filter(s => !ids || ids.has(s.id)).length
   }, [bridge.allViewSessionIds, bridge.sessions])
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
@@ -568,7 +577,7 @@ export function AgentVisualizer() {
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
     relayPort: bridge.relayPort || undefined,
-    sessionCount: bridge.sessions.length,
+    sessionCount: detectedSessions(bridge.sessions).length,
   })
 
   return (
@@ -602,6 +611,9 @@ export function AgentVisualizer() {
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
+        tokenUsage={tokenUsage}
+        costUsage={costUsage}
+        unattributedCost={usage.summary.unattributedCost}
         showFileAttention={showFileAttention}
         showConversation={showConversation}
         showContext={showContext}
@@ -688,7 +700,20 @@ export function AgentVisualizer() {
       {selectedAgent && selection.selectedAgentWorldPos && (
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
+            key={selectedAgent.id}
             agent={selectedAgent}
+            toolErrors={selectedAgent.toolErrors}
+            relayOrigin={bridge.relayOrigin}
+            onClose={selection.clearAgent}
+            onEscape={escapeFromDetailCard}
+          />
+        </div>
+      )}
+      {selectedGone && selection.selectedAgentWorldPos && (
+        <div {...stopPropagationHandlers}>
+          <AgentGoneCard
+            key={selection.selectedAgentId}
+            name={inspectorMemoryRef.current?.name ?? null}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
           />

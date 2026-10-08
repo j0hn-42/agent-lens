@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession } from '@/lib/bridge-types'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
@@ -72,6 +72,8 @@ interface BridgeHookResult {
   loadDemo: () => void
   /** Relay port when known (standalone mode), for user-facing messages */
   relayPort: string
+  /** Origin of the relay HTTP API ('' = same origin) when a relay feeds this view, else null (extension / demo) */
+  relayOrigin: string | null
   /** True after the relay SSE connection failed and until it reconnects */
   relayUnreachable: boolean
   /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
@@ -280,6 +282,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         type: event.type as SimulationEvent['type'],
         payload: event.payload,
         sessionId: event.sessionId,
+        ...(event.replayed === true ? { replayed: true } : {}),
       }
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
@@ -386,14 +389,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         updateSessions(() => sessionList)
         // Auto-select: prefer active sessions, then most recently active.
         // Only set selection — useLayoutEffect handles flushing events.
-        if (!selectedSessionIdRef.current && sessionList.length > 0) {
-          const sorted = [...sessionList].sort((a, b) => {
-            const aActive = a.status === 'active' ? 1 : 0
-            const bActive = b.status === 'active' ? 1 : 0
-            if (aActive !== bActive) return bActive - aActive
-            return b.lastActivityTime - a.lastActivityTime
-          })
-          const autoId = sorted[0].id
+        const autoId = selectedSessionIdRef.current ? undefined : pickAutoSelectSession(sessionList)
+        if (autoId) {
           sessionSwitchPendingRef.current = true
           pendingEventsRef.current.length = 0
           selectedSessionIdRef.current = autoId
@@ -405,9 +402,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
           const existing = prev.find(s => s.id === session.id)
           if (existing) {
             // Session resumed after inactivity — mark active again
-            return prev.map(s => s.id === session.id
-              ? { ...s, status: 'active' as const, lastActivityTime: Date.now() }
-              : s)
+            return prev.map(s => {
+              if (s.id !== session.id) return s
+              const { indexedOnly: _indexedOnly, ...live } = s // now watched live
+              return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
+            })
           }
           return [...prev, session]
         })
@@ -506,11 +505,12 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       const all = allEventsRef.current
       for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) {
         // matchesSelection also applies the 'All' finished-sessions filter, so a flush and live delivery agree
-        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
+        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push({ ...all[i], replayed: true })
       }
     } else {
       const buffered = sessionEventsRef.current.get(sessionId) || []
-      pendingEventsRef.current.push(...buffered.slice(fromIndex))
+      // Re-fed from the buffer: the wall-clock moment of these events is lost, so they count as history
+      pendingEventsRef.current.push(...buffered.slice(fromIndex).map(e => ({ ...e, replayed: true })))
     }
     setEventVersion(v => v + 1)
   }, [matchesSelection])
@@ -580,6 +580,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     restoreSession,
     loadDemo,
     relayPort,
+    relayOrigin: relayEnabled ? (relayPort ? `http://127.0.0.1:${relayPort}` : '') : null,
     relayUnreachable,
     connectionDetail: relayEnabled ? source.detail : null,
     reconnectAttempt: relayEnabled ? source.attempt : 0,

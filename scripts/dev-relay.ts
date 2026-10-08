@@ -6,7 +6,7 @@
 import * as http from 'http'
 import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, DEV_WEB_ORIGIN_PATTERN, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { parseSessionParam, isStatusPath, isContextPath, observationsRoute } from '../extension/src/relay-guards'
+import { parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 
@@ -47,6 +47,11 @@ async function main() {
 
     if (observationsRoute(req.url)) {
       return relay.handleObservations(req, res)
+    }
+
+    // Issue/PR links of an agent role, read through gh (loopback only, rate-limited, cached)
+    if (isIssueLinksPath(req.url)) {
+      return relay.handleIssueLinks(req, res)
     }
 
     res.writeHead(200, { 'Content-Type': 'text/plain' })

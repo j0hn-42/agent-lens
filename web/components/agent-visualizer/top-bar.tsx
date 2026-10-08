@@ -4,6 +4,7 @@ import { memo, useLayoutEffect, useRef } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
+import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -144,8 +145,14 @@ export interface TopBarProps {
   activeAgentCount: number
   doneAgentCount: number
   totalTokens: number
+  /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
+  tokenUsage?: UsageTotal
   /** Sum of per-agent costs, each priced with its own model */
   totalCost: number
+  /** Qualified cost total; overrides `totalCost` when given */
+  costUsage?: UsageTotal
+  /** Part of totalCost (and of totalTokens) that belongs to no single agent; shown apart when above zero */
+  unattributedCost?: number
   // Panel toggles
   showFileAttention: boolean
   showConversation: boolean
@@ -167,7 +174,7 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
-  activeAgentCount, doneAgentCount, totalTokens, totalCost,
+  activeAgentCount, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
@@ -242,15 +249,20 @@ export const TopBar = memo(function TopBar({
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + doneAgentCount, totalCost)}</span>
+          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
         ) : (
           <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
         )}
         <span>
-          {formatTokens(totalTokens)} tokens
+          {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}
           {!isAllMode && (
             <span style={{ color: COLORS.complete + '65', marginLeft: 4 }}>
-              ~{formatCost(totalCost)}
+              {costUsage ? formatCostUsage(costUsage) : `~${formatCost(totalCost)}`}
+              {unattributedCost > 0 && (
+                <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
+                  {' '}(incl. {formatCost(unattributedCost)} unattributed)
+                </span>
+              )}
             </span>
           )}
         </span>

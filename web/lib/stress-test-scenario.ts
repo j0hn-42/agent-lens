@@ -106,8 +106,8 @@ export function generateStressScenario(config: Partial<StressConfig> = {}): Simu
       const task = pick(TASK_DESCRIPTIONS, subagentCounter)
       waveAgents.push(name)
 
-      emit('subagent_dispatch', { parent: 'orchestrator', child: name, task }, 0.05)
-      emit('agent_spawn', { name, parent: 'orchestrator', task }, 0.05)
+      emit('subagent_dispatch', { parent: 'orchestrator', child: name, toolUseId: `toolu_${name}`, task }, 0.05)
+      emit('agent_spawn', { name, parent: 'orchestrator', toolUseId: `toolu_${name}`, task }, 0.05)
       emit('context_update', {
         agent: name,
         tokens: 1800,
@@ -159,7 +159,7 @@ export function generateStressScenario(config: Partial<StressConfig> = {}): Simu
     // Complete subagents
     for (let s = 0; s < cfg.subagentsPerWave; s++) {
       emit('subagent_return', {
-        child: waveAgents[s], parent: 'orchestrator',
+        child: waveAgents[s], parent: 'orchestrator', toolUseId: `toolu_${waveAgents[s]}`,
         summary: `Completed analysis: found ${3 + s} patterns, modified ${1 + s % 3} files`,
       }, 0.1)
       emit('agent_complete', { name: waveAgents[s] }, 0.05)

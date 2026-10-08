@@ -107,8 +107,11 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Edges and particles</Heading>
           <ul>
-            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent (confirmed by the events)</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="1.4" strokeDasharray="4 3" /></svg>}>Dashed line: parent link not verified</Row>
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.tool} strokeWidth="1.5" /></svg>}>Thin amber line: tool call</Row>
+            <Row icon={<span className="rounded-full border px-1 text-[10px]" style={{ borderColor: COLORS.holoBase }}>+3</span>}>+N badge: N agents hidden in a folded branch (click to unfold)</Row>
+            <Row icon={<span className="inline-flex items-center gap-0.5 rounded-full border px-1 text-[10px]" style={{ borderColor: COLORS.complete }}><Swatch color={COLORS.complete} round />2</span>}>Green badge: active agents in a folded branch</Row>
             <Row icon={<Swatch color={COLORS.dispatch} round />}>Purple dot: task dispatched</Row>
             <Row icon={<Swatch color={COLORS.return} round />}>Green dot: result returned</Row>
           </ul>
