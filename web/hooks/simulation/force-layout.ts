@@ -8,7 +8,7 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
 export const SYNC_TICKS = 30
@@ -46,6 +46,9 @@ export function createForceLayout(): ForceLayout {
   let children: Map<string, string[]> = new Map()
   let family: Map<string, string[]> = new Map()
   let childrenKey = ''
+  let lastTeams: SimulationState['teams'] | undefined
+  let lastProjects: SessionProjects | undefined
+  let phasesKey = ''
   let centringBudget = 0
   const centring = createCentringForce(() => children, () => family, id => info.get(id))
   const sim: Simulation<ForceNode, ForceLink> = forceSimulation<ForceNode, ForceLink>([])
@@ -106,7 +109,10 @@ export function createForceLayout(): ForceLayout {
       const links: ForceLink[] = edges
         .filter(e => e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to))
         .map(e => ({ id: e.id, source: e.from, target: e.to }))
-      info = layoutInfo(agents, teams, projects).info
+      lastTeams = teams
+      lastProjects = projects
+      info = layoutInfo(agents, teams, projects, hideInactive).info
+      phasesKey = phaseSignature(agents as Map<string, Agent>, hideInactive, teams)
       refreshChildren(agents as Map<string, Agent>)
       sim.nodes(nodes)
       const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
@@ -125,6 +131,14 @@ export function createForceLayout(): ForceLayout {
     stepState(state) {
       // Not a sync: no reheating of the simulation, the centring alone eases the parent to its new middle
       if (refreshChildren(state.agents)) active = true
+      // A phase of a workflow appearing in or leaving the display (its agents finish, get hidden) re-places the phases
+      const phases = phaseSignature(state.agents, hideInactive, lastTeams)
+      if (phases !== phasesKey) {
+        phasesKey = phases
+        info = layoutInfo(state.agents, lastTeams, lastProjects, hideInactive).info
+        centringBudget = CENTRING_TICKS
+        active = true
+      }
       if (!active) return state
       tick()
       const agents = apply(state.agents)
@@ -141,7 +155,7 @@ export function createForceLayout(): ForceLayout {
       active = true
     },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; centringBudget = 0 },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0 },
   }
   return layout
 }

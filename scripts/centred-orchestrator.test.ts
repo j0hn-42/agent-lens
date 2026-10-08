@@ -160,13 +160,15 @@ test('centredChildren: direct, drawn, non archived children of parents with at l
   } finally { rig.destroy() }
 })
 
-test('centredChildren leaves out a parent whose children are grouped by workflow phase (#146)', () => {
+test('centredChildren leaves out a parent whose children span several workflow phases (#146), not one with a single phase', () => {
   const rig = createRig()
   try {
     rig.push([spawn('main'), spawn('a', 'main'), spawn('b', 'main')])
     const agents = new Map(rig.frame.agents)
     agents.set(id('a'), { ...agents.get(id('a'))!, teamKind: 'workflow', phase: 'Implement' })
-    assert.equal(centredChildren(agents, false).has(id('main')), false)
+    assert.deepEqual(centredChildren(agents, false).get(id('main')), [id('a'), id('b')], 'one phase: centred like any parent')
+    agents.set(id('b'), { ...agents.get(id('b'))!, teamKind: 'workflow', phase: 'Review' })
+    assert.equal(centredChildren(agents, false).has(id('main')), false, 'two phases: laid out by phase')
   } finally { rig.destroy() }
 })
 

@@ -165,8 +165,8 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  collideRadius: 140,
-  linkDistance: 350,
+  collideRadius: 105,
+  linkDistance: 220,
   linkStrength: 0.4,
   alphaDecay: 0.02,
   velocityDecay: 0.4,
@@ -176,7 +176,7 @@ export const FORCE = {
 
 export const CLUSTER_LAYOUT = {
   /** Disc radius of a cluster = baseRadius + members * memberSpacing */
-  baseRadius: 300,
+  baseRadius: 220,
   memberSpacing: 30,
   maxMembers: 100,
   /** Free space kept between two cluster discs */
