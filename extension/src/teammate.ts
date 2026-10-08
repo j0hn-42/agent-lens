@@ -85,6 +85,10 @@ export interface TeammateMeta {
   /** spawnedAgentType from the sidecar (the role) */
   agentType?: string
   model?: string
+  /** 'workflow' for agents of a Workflow tool run (see workflow-group.ts); absent for Agent Teams */
+  teamKind?: 'team' | 'workflow'
+  /** Workflow phase label (workflow agents only) */
+  phase?: string
 }
 
 /** Validate a parsed .meta.json; null when the sidecar does not describe a teammate. */

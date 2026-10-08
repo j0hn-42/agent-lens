@@ -1,8 +1,9 @@
 import { Agent, NODE, ANIM } from '@/lib/agent-types'
 import { COLORS, contextSegments } from '@/lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, FRESHNESS_DRAW,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW,
 } from '@/lib/canvas-constants'
+import { parseMcpTool } from '@/lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { alphaHex, formatTokens, formatDuration, pluralize } from '@/lib/utils'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
@@ -254,6 +255,18 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
   ctx.stroke()
   ctx.setLineDash([])
   ctx.lineDashOffset = 0
+
+  // Calling an MCP tool: dashed cyan rim around the agent (static dashes under reduced motion)
+  if (agent.state === 'tool_calling' && parseMcpTool(agent.currentTool)) {
+    ctx.save()
+    drawHexagon(ctx, agent.x, agent.y, r + MCP_DRAW.agentRimPadding)
+    ctx.setLineDash([...MCP_DRAW.agentRimDash])
+    ctx.lineDashOffset = reducedMotion ? 0 : -time * MCP_DRAW.agentRimSpeed
+    ctx.strokeStyle = COLORS.mcp
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.restore()
+  }
 }
 
 function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isWaiting: boolean) {

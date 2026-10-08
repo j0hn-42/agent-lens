@@ -24,6 +24,7 @@ import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
+import { selectionLabel } from "@/lib/session-tree"
 
 import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { ConversationPanel } from "./conversation-panel"
@@ -547,7 +548,7 @@ export function AgentVisualizer() {
   const selectedSessionLabel = bridge.isAllSelected
     ? 'All sessions'
     : selectedTeam !== null
-      ? `Team ${selectedTeam}`
+      ? selectionLabel(bridge.selectedSessionId, bridge.sessions, bridge.teams)
       : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
@@ -571,6 +572,7 @@ export function AgentVisualizer() {
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar
         sessions={bridge.sessions}
+        teams={bridge.teams}
         allSessionCount={allSessionCount}
         showFinished={bridge.showFinished}
         finishedSessionCount={bridge.finishedSessionCount}
@@ -777,6 +779,7 @@ export function AgentVisualizer() {
           onSelectAgent={selection.handleAgentClick}
           teams={bridge.teams}
           teamWorking={bridge.teamWorking}
+          teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
         />
       </div>

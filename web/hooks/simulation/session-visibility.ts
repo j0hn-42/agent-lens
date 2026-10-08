@@ -3,6 +3,7 @@
  * crowd of tiny clusters, so by default only active ones count. Pure: no React, no DOM.
  */
 import type { SessionInfo } from '../../lib/bridge-types'
+import { isGroupActive, type GroupSummary } from './team-info'
 
 /** A session with an event younger than this counts as active even when its status says completed */
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000
@@ -20,6 +21,8 @@ export interface SessionVisibilityInput {
   teamSessions?: ReadonlyMap<string, ReadonlySet<string>>
   /** Members currently working per team name */
   teamWorking?: ReadonlyMap<string, number>
+  /** Tracked members / done members per team name (a workflow idle between calls stays active) */
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   now: number
   windowMs?: number
 }
@@ -30,7 +33,7 @@ export interface SessionVisibilityInput {
  * events (not in the list) are judged by their last event alone.
  */
 export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
-  const { sessions, lastEventAt, selectedId, teamSessions, teamWorking, now } = input
+  const { sessions, lastEventAt, selectedId, teamSessions, teamWorking, teamSummaries, now } = input
   const windowMs = input.windowMs ?? ACTIVE_WINDOW_MS
   const recent = (t: number | undefined): boolean => typeof t === 'number' && Number.isFinite(t) && now - t <= windowMs
   const out = new Set<string>()
@@ -42,11 +45,11 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   if (teamWorking) {
     if (teamSessions) {
       for (const [team, ids] of teamSessions) {
-        if ((teamWorking.get(team) ?? 0) > 0) for (const id of ids) out.add(id)
+        if (isGroupActive(teamSummaries?.get(team), teamWorking.get(team))) for (const id of ids) out.add(id)
       }
     }
     // A team tagged on the session itself counts too
-    for (const s of sessions) if (!s.indexedOnly && s.teamName && (teamWorking.get(s.teamName) ?? 0) > 0) out.add(s.id)
+    for (const s of sessions) if (!s.indexedOnly && s.teamName && isGroupActive(teamSummaries?.get(s.teamName), teamWorking.get(s.teamName))) out.add(s.id)
   }
   return out
 }

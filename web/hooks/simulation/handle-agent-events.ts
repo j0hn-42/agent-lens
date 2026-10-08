@@ -44,6 +44,7 @@ export function handleAgentSpawn(
   const teamFields = team ? {
     kind: 'teammate' as const,
     teamName: team.teamName,
+    ...(team.teamKind ? { teamKind: team.teamKind } : {}),
     ...(team.teamColor ? { teamColor: team.teamColor } : {}),
     activity: 'working' as const,
     ...(team.agentType ? { agentType: team.agentType } : {}),

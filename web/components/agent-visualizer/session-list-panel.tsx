@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, formatModelName, pluralize } from '@/lib/utils'
 import { getStateLabel } from '@/lib/state-labels'
@@ -14,9 +15,11 @@ import {
 } from '@/lib/session-tree'
 import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
-import { deriveFreshness, freshnessKey, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { freshnessKey } from '@/hooks/simulation/freshness'
+import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { PanelHeader, SlidingPanel } from './shared-ui'
+import { CollapsibleSection } from './collapsible-section'
 
 export type SessionListAgent = AgentLike
 
@@ -36,6 +39,7 @@ interface SessionListPanelProps {
   onSelectAgent: (agentId: string) => void
   teams?: ReadonlyMap<string, TeamSummary>
   teamWorking?: ReadonlyMap<string, number>
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
@@ -82,30 +86,28 @@ function SessionMarker({ kind }: { kind: SessionStatusKind }) {
   )
 }
 
-function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: {
+interface AgentItemProps {
   node: AgentNode<SessionListAgent>
   depth: number
   selectedAgentId: string | null
   onSelectAgent: (id: string) => void
   freshnessNow: number
-}) {
+  /** What this row and its subtree show (agentTreeSignature): equal signature = nothing to rebuild */
+  sig: string
+}
+
+/** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
+const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
   const a = node.agent
+  rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
-  const stateText = getStateLabel(a.state)
-  const freshness: Freshness = deriveFreshness(a, freshnessNow)
-  const stale = freshness === 'stale'
-  // A stale status is only the last known one: said in words, and the marker is greyed
-  const detail = stale
-    ? lastKnownStateText(a.state)
-    : freshness === 'closed' && a.state !== 'complete'
-      ? `closed, ${lastKnownStateText(a.state)}`
-      : a.currentTool && a.state === 'tool_calling' ? a.currentTool : stateText
-  const role = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
+  const { detail, stale, role } = agentRowView(a, freshnessNow)
   return (
     <li>
       <button
         type="button"
         data-row-main
+        data-row-key={`agent:${a.id}`}
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
@@ -122,20 +124,34 @@ function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
           {node.children.map(c => (
-            <AgentItem key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow} />
+            <AgentItem
+              key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+              freshnessNow={freshnessNow} sig={agentTreeSignature(c, freshnessNow, selectedAgentId)}
+            />
           ))}
         </ul>
       )}
     </li>
   )
-}
+}, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent)
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  // A new callback identity on every parent render would defeat the row signatures
+  const onSelectAgentRef = useRef(onSelectAgent)
+  onSelectAgentRef.current = onSelectAgent
+  const stableSelectAgent = useCallback((id: string) => onSelectAgentRef.current(id), [])
+  const [announcement, setAnnouncement] = useState('')
+  // Focus is read before React commits (the focused node may be replaced) and put back right after
+  const focusKeyRef = useRef<string | null>(null)
+  focusKeyRef.current = typeof document === 'undefined' ? null : focusKeyOf(document.activeElement as HTMLElement | null)
+  useLayoutEffect(() => {
+    if (listRef.current) restoreFocusByKey(listRef.current, focusKeyRef.current, document.activeElement, document.body)
+  })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [clock, setClock] = useState(() => now ?? Date.now())
   useEffect(() => {
@@ -171,15 +187,18 @@ export function SessionListPanel({
       : undefined
     const teamNames = listed ? [...listed.keys()] : []
     return buildSessionRows(
-      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking) : teamNames, forests, listed,
+      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
       { hideUnlistedTeams: true }, isObserved,
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
-  }, [sessions, teams, teamWorking, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
+    const label = sessions.find(s => s.id === id)?.label ?? id
+    setAnnouncement(`Agents of ${label} ${collapse ? 'collapsed' : 'expanded'}`)
     setCollapsed(prev => {
       const next = new Set(prev)
       if (collapse) next.add(id)
@@ -192,7 +211,8 @@ export function SessionListPanel({
   const handleKeyDown = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement
     if (!target.matches('[data-row-main]')) return
-    const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-row-main]') ?? [])
+    // Rows inside a folded (inert) section are not reachable
+    const items = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[data-row-main]') ?? []).filter(el => !el.closest('[inert]'))
     const at = items.indexOf(target)
     if (at < 0) return
     let next: number | null = null
@@ -256,7 +276,7 @@ export function SessionListPanel({
             <button
               type="button"
               aria-pressed={activeOnly}
-              onClick={() => setActiveOnly(v => !v)}
+              onClick={() => { setAnnouncement(`${activeOnly ? 'All sessions' : 'Active sessions only'}: ${(activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length} shown`); setActiveOnly(v => !v) }}
               title="Hide sessions that are finished"
               className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
               style={{
@@ -277,6 +297,7 @@ export function SessionListPanel({
           </span>
         </PanelHeader>
 
+        <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
         <div
           ref={listRef}
           className="overflow-y-auto"
@@ -293,11 +314,19 @@ export function SessionListPanel({
               const rowBase = `flex w-full min-h-6 items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
+              if (row.kind === 'project') {
+                return (
+                  <li key={row.id} className="mt-1.5 px-2 pt-1 text-[11px] tracking-wider uppercase truncate" style={{ color: COLORS.textDim }} title={row.projectName}>
+                    <span className="sr-only">Project </span>{row.projectName}
+                  </li>
+                )
+              }
+
               if (row.kind === 'all') {
                 return (
                   <li key={row.id}>
                     <button
-                      type="button" data-row-main tabIndex={stopId === row.id ? 0 : -1}
+                      type="button" data-row-main data-row-key={`session:${row.id}`} tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(ALL_SESSIONS_ID)}
                       className={rowBase} style={rowStyle}
@@ -308,7 +337,7 @@ export function SessionListPanel({
                     {row.roots.length > 0 && (
                       <ul className="list-none p-0 m-0 pl-6" aria-label="Agents without a listed session">
                         {row.roots.map(n => (
-                          <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow} />
+                          <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} />
                         ))}
                       </ul>
                     )}
@@ -320,11 +349,11 @@ export function SessionListPanel({
                 const key = row.teamName!
                 const name = teams?.get(key)?.name ?? key
                 const members = Math.max(teamMemberCounts?.get(key) ?? 0, teams?.get(key)?.members.length ?? 0)
-                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0)
+                const summary = formatTeamSummary(name, members, teamWorking?.get(key) ?? 0, teams?.get(key)?.kind)
                 return (
                   <li key={row.id}>
                     <button
-                      type="button" data-row-main tabIndex={stopId === row.id ? 0 : -1}
+                      type="button" data-row-main data-row-key={`session:${row.id}`} tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(row.id)}
                       title={summary} className={`${rowBase} mt-1`} style={rowStyle}
@@ -345,9 +374,8 @@ export function SessionListPanel({
               const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
-              const showAgents = hasAgents && !isCollapsed
               return (
-                <li key={row.id} className={row.teamName ? 'pl-3' : undefined}>
+                <li key={row.id} className={row.teamName || hasProjectHeadings ? 'pl-3' : undefined}>
                   <div className="group flex items-center">
                     <button
                       type="button"
@@ -361,7 +389,7 @@ export function SessionListPanel({
                       <span aria-hidden="true">{isCollapsed ? '▸' : '▾'}</span>
                     </button>
                     <button
-                      type="button" data-row-main data-session-id={hasAgents ? session.id : undefined}
+                      type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
                       data-closable-id={session.id}
                       tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
@@ -396,15 +424,18 @@ export function SessionListPanel({
                       <span aria-hidden="true">✕</span>
                     </button>
                   </div>
-                  {showAgents && (
+                  {hasAgents && (
+                    <CollapsibleSection open={!isCollapsed}>
                     <ul className="list-none p-0 m-0 pl-6" aria-label={`Agents of ${session.label}`}>
                       {row.roots.map(n => (
                         <AgentItem
                           key={n.agent.id} node={n} depth={0}
-                          selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent} freshnessNow={freshnessNow}
+                          selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow}
+                          sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
                         />
                       ))}
                     </ul>
+                    </CollapsibleSection>
                   )}
                 </li>
               )

@@ -4,9 +4,11 @@ import { useId, useRef } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
+import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
+import { groupHeading } from '@/lib/ui-glossary'
 
 interface AgentDetailCardProps {
   agent: {
@@ -22,6 +24,7 @@ interface AgentDetailCardProps {
     kind?: 'main' | 'subagent' | 'teammate'
     teamName?: string
     teamColor?: string
+    teamKind?: 'team' | 'workflow'
     activity?: 'working' | 'idle' | 'done'
   }
   onClose: () => void
@@ -105,13 +108,13 @@ export function AgentDetailCard({
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-            <span>Teammate</span>
+            <span>{agent.teamKind === 'workflow' ? 'Workflow agent' : 'Teammate'}</span>
             {teamName && (
               <span className="flex min-w-0 items-center gap-1">
                 {teamColor && (
                   <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: teamColor }} />
                 )}
-                <span className="truncate">Team {teamName}</span>
+                <span className="truncate">{groupHeading(agent.teamKind, teamName)}</span>
               </span>
             )}
             {agent.activity && <span>{getActivityLabel(agent.activity)}</span>}
@@ -119,19 +122,27 @@ export function AgentDetailCard({
         )}
 
         {/* Current tool */}
-        {agent.currentTool && (
-          <div
-            className="mb-3 px-2 py-1.5 rounded text-[11px] font-mono flex items-center gap-2"
-            style={{
-              background: COLORS.toolIndicatorBg,
-              border: `1px solid ${COLORS.toolIndicatorBorder}`,
-              color: COLORS.toolIndicatorText,
-            }}
-          >
-            <span className="animate-spin motion-reduce:animate-none inline-block" aria-hidden="true">⚙</span>
-            {agent.currentTool}
-          </div>
-        )}
+        {agent.currentTool && (() => {
+          const mcp = parseMcpTool(agent.currentTool)
+          return (
+            <div
+              className="mb-3 px-2 py-1.5 rounded text-[11px] font-mono flex items-center gap-2"
+              style={mcp ? {
+                background: COLORS.mcpIndicatorBg,
+                border: `1px solid ${COLORS.mcpIndicatorBorder}`,
+                color: COLORS.mcp,
+              } : {
+                background: COLORS.toolIndicatorBg,
+                border: `1px solid ${COLORS.toolIndicatorBorder}`,
+                color: COLORS.toolIndicatorText,
+              }}
+            >
+              <span className="animate-spin motion-reduce:animate-none inline-block" aria-hidden="true">{mcp ? '◌' : '⚙'}</span>
+              {mcp && <span className="uppercase tracking-wide opacity-80">MCP</span>}
+              {formatToolName(agent.currentTool)}
+            </div>
+          )
+        })()}
       </GlassCard>
     </div>
   )

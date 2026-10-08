@@ -335,6 +335,34 @@ export const TOOL_DRAW = {
   twoLineOffset: 7,
 } as const
 
+// ─── MCP tool call drawing constants ────────────────────────────────────────
+
+export const MCP_DRAW = {
+  /** Server badge above the card */
+  badgeHeight: 11,
+  badgeFontSize: 9,
+  badgePadX: 5,
+  badgeGap: 3,
+  /** Orbiting dots around a running MCP card */
+  orbitDots: 3,
+  orbitPadding: 8,
+  orbitSpeed: 2.2,
+  orbitDotSize: 2.2,
+  /** Dashed rim on the calling agent */
+  agentRimPadding: 6,
+  agentRimDash: [3, 5] as readonly number[],
+  agentRimSpeed: 18,
+  /** Dotted comet trail: draw every Nth trail segment */
+  trailSegmentStep: 2,
+  /** Particle core size multiplier */
+  particleScale: 1.25,
+  /** Completion pulse (no bright flash, so it is safe for WCAG 2.3.1) */
+  pulseDuration: 0.9,
+  pulseRingStart: 14,
+  pulseRingExpand: 46,
+  pulseRings: 2,
+} as const
+
 // ─── Cost overlay drawing constants ─────────────────────────────────────────
 
 export const COST_DRAW = {
@@ -599,6 +627,8 @@ export const CLUSTER_DRAW = {
   detailFontSize: 11,
   labelHeight: 36,
   labelMaxWidth: 260,
+  /** The title starts this many px right of the detail line (room for the colour dot) */
+  titleIndent: 10,
   /** Padding between members and the halo edge (world px) */
   padding: 56,
 } as const
