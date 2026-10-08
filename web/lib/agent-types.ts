@@ -61,6 +61,8 @@ export interface Agent {
   tokenGaps?: number
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
+  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
+  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
@@ -87,6 +89,10 @@ export interface Agent {
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
   freshnessSource?: 'live' | 'history'
+  /** Active time of closed working spans, ms (issue #59); absent = never observed working */
+  activeMs?: number
+  /** Wall-clock ms when the running working span started; absent = not working */
+  activeSince?: number
   opacity: number
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
@@ -263,6 +269,8 @@ export interface SimulationEvent {
     | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
+  replayed?: boolean
 }
 
 export interface DepthParticle {

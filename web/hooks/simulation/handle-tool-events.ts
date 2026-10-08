@@ -167,6 +167,7 @@ export function handleToolCallEnd(
       currentTool: undefined,
       ...addToken(agent, tokenCost, tokenSource),
       ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
+      tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported,
     })
 
     const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome

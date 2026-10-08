@@ -13,6 +13,8 @@ export interface AgentEvent {
   type: string
   payload: Record<string, unknown>
   sessionId?: string
+  /** Set by the bridge on events of a history batch (connect/reconnect replay): not live, wall-clock timing unknown */
+  replayed?: boolean
 }
 
 export interface SessionInfo {

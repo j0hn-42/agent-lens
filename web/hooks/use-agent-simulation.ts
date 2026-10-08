@@ -21,6 +21,7 @@ import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
+import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
@@ -217,6 +218,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         currentState = processEventWithContext(timedEvent, currentState)
         // Freshness: the agents this event touched are heard from now (wall clock)
         currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
+        // Active time: a move between working and paused opens or closes the agent's active span. A replayed
+        // (history) event carries no wall-clock proof of when the agent worked: its active time stays unknown
+        if (!timedEvent.replayed) {
+          currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
+        }
         newEvents.push(timedEvent)
       }
       // Sync simulation clock to latest event so active state renders correctly
@@ -376,7 +382,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     skipForceSyncRef.current = false
 
     // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
-    replayState = { ...replayState, agents: carryFreshness(prev.agents, replayState.agents) }
+    replayState = { ...replayState, agents: carryActiveTime(prev.agents, carryFreshness(prev.agents, replayState.agents)) }
     replayState = snapVisualState(replayState, targetTime, toolExpiryConfig.seconds)
     replayState.currentTime = targetTime
     replayState.eventIndex = newEventIndex

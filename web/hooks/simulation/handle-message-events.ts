@@ -86,6 +86,8 @@ export function handleContextUpdate(
       ...(tokens !== null
         ? { tokensUsed: tokens, tokenStatus: 'available' as const, tokenGaps: 0, tokensEstimated: readTokenSource(payload.tokenSource) === 'estimated' }
         : {}),
+      // Only a number in the payload is a report; a missing one leaves the count as it was known
+      tokensReported: tokens !== null ? true : agent.tokensReported,
       tokensMax: tokensMaxOverride ?? agent.tokensMax,
       contextBreakdown: breakdown || agent.contextBreakdown,
       state: agent.state === 'complete' ? 'complete' : 'thinking'

@@ -14,6 +14,7 @@ import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
+import { rollupBranch, rollupRows, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
 import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
@@ -87,6 +88,23 @@ function SessionMarker({ kind }: { kind: SessionStatusKind }) {
   )
 }
 
+/** "Σ $0.12 · 4.2k (incomplete)": the (incomplete) badge is spelled out for screen readers. */
+function RollupLabel({ total, label }: { total: RollupTotal; label: string }) {
+  const text = formatRollup(total)
+  return (
+    <span
+      className="shrink-0 tabular-nums"
+      style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.waiting_permission }}
+      title={total.complete ? undefined : ROLLUP_INCOMPLETE_HELP}
+    >
+      <span className="sr-only">{label}, </span>
+      <span aria-hidden="true">Σ </span>
+      {text}
+      {!total.complete && <span className="sr-only">. {ROLLUP_INCOMPLETE_HELP}</span>}
+    </span>
+  )
+}
+
 interface AgentItemProps {
   node: AgentNode<SessionListAgent>
   depth: number
@@ -103,6 +121,8 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
   const { detail, stale, role } = agentRowView(a, freshnessNow)
+  // The orchestrator plus its sub-agents, each counted once (issue #58)
+  const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
   return (
     <li>
       <button
@@ -121,6 +141,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <span className="truncate min-w-0 flex-1">{a.name}</span>
         <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
         <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokenUsage(usageFromAgent(a))}</span>
+        {branch && <RollupLabel total={branch} label="branch total" />}
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
@@ -195,6 +216,8 @@ export function SessionListPanel({
   }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
+  // Session and team (family) totals; the team total counts an agent shared by two sessions once
+  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
@@ -361,6 +384,7 @@ export function SessionListPanel({
                     >
                       <span className="truncate">{summary}</span>
                       <span className="sr-only">, whole team in one view</span>
+                      {rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="family total" />}
                     </button>
                   </li>
                 )
@@ -412,6 +436,7 @@ export function SessionListPanel({
                         </span>
                       )}
                       {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
+                      {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
                       <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                     </button>
                     <button

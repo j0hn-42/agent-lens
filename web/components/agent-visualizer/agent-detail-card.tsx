@@ -7,6 +7,7 @@ import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
+import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
@@ -36,6 +37,8 @@ interface AgentDetailCardProps {
     lastEventAt?: number
     freshnessSource?: 'live' | 'history'
     sessionLabel?: string
+    activeMs?: number
+    activeSince?: number
   }
   /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
@@ -154,6 +157,9 @@ export function AgentDetailCard({
             </span>
           )}
           {sessionLabel && <span className="truncate">{sessionLabel}</span>}
+        </div>
+        <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+          <ActiveTimeStat agent={agent} />
         </div>
 
         {/* Teammate info */}
