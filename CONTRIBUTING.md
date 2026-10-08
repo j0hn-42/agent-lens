@@ -31,9 +31,12 @@ These are the commands of `.github/workflows/ci.yml`. All must pass.
 
 ```bash
 pnpm install --frozen-lockfile
+node scripts/release-check.js
 pnpm test
 pnpm --dir extension test
 pnpm --filter agent-lens run lint
+pnpm --filter agent-lens run lint:test
+pnpm run lint:scripts
 pnpm --dir web exec tsc --noEmit
 pnpm --dir web run lint:a11y
 pnpm run test:a11y
@@ -43,8 +46,8 @@ If the change touches rendering, the canvas, CSS or accessibility, also run the 
 
 ```bash
 pnpm --dir web exec playwright install chromium     # once
-NEXT_PUBLIC_DEMO=1 pnpm --dir web exec next dev -p 3000 &
-E2E_BASE_URL=http://localhost:3000 pnpm --dir web run test:e2e
+pnpm --dir web run test:e2e                        # starts the demo app itself on a free port
+# or, against a server you already started: E2E_BASE_URL=http://localhost:3000 pnpm --dir web run test:e2e
 ```
 
 Write the test first, then the code. Keep commits to one logical step.
@@ -57,7 +60,7 @@ Tests that open servers use fixed ports, and a dev server may already hold 3000 
 unshare -rn sh -c 'ip link set lo up; pnpm test'
 ```
 
-For the e2e suite, start `next dev` inside the same `unshare` so the server and the tests share the namespace.
+For the e2e suite, run `pnpm --dir web run test:e2e` inside the `unshare` too (the demo server it starts then shares the namespace).
 
 ## Accessibility baselines
 

@@ -159,11 +159,11 @@ test('the branch rollup and the session usage read the same status (no divergenc
   }
 })
 
-test('a total containing an estimated agent says "estimé"; exact agents do not', () => {
+test('a total containing an estimated agent says "estimated"; exact agents do not', () => {
   const exact = rollupBranch(node(agent('s:a', null, 4000)))
   assert.equal(exact.estimated, false)
-  assert.ok(!formatRollup(exact).includes('estimé'))
+  assert.ok(!formatRollup(exact).includes('estimated'))
   const t = rollupBranch(node(agent('s:a', null, 1000), [node(agent('s:b', 's:a', 3000, { tokensEstimated: true }))]))
   assert.equal(t.estimated, true)
-  assert.ok(formatRollup(t).includes('4k estimé'), formatRollup(t))
+  assert.ok(formatRollup(t).includes('4k estimated'), formatRollup(t))
 })

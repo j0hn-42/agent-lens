@@ -71,5 +71,5 @@ test('halo cost counts agents the display hides (collapsed branch), geometry sta
   assert.equal(all[0].cx, drawn[0].cx)
   const unknownHidden = agent({ id: 's1:u', tokenStatus: 'unavailable', tokensUsed: 0 })
   const q = computeClusters([lead, peer], undefined, { costAgents: [lead, peer, unknownHidden] })
-  assert.match(q[0].costText, /^au moins /, 'a hidden agent with no data makes the halo a lower bound')
+  assert.match(q[0].costText, /^at least /, 'a hidden agent with no data makes the halo a lower bound')
 })

@@ -91,14 +91,14 @@ test('a collapsed branch hides its descendants from the outline; the Expand butt
   assert.ok(outlineButton(container, /^mid,/), 'the branch node itself stays')
   assert.equal(outlineButton(container, /^leaf1,/), undefined, 'descendants of the collapsed branch are removed from the scene')
   assert.equal(outlineButton(container, /^leaf2,/), undefined)
-  const expand = outlineButton(container, /^Expand branch of mid$/)
+  const expand = outlineButton(container, /^Branch of mid$/)
   assert.ok(expand, 'the toggle names the branch it expands')
   assert.equal(expand!.getAttribute('aria-expanded'), 'false')
 
   fireEvent.click(expand!)
   await settle()
   assert.ok(outlineButton(container, /^leaf1,/) && outlineButton(container, /^leaf2,/), 'descendants are back')
-  const collapse = outlineButton(container, /^Collapse branch of mid$/)
+  const collapse = outlineButton(container, /^Branch of mid$/)
   assert.ok(collapse, 'the same button now collapses')
   assert.equal(collapse!.getAttribute('aria-expanded'), 'true')
 
@@ -128,7 +128,7 @@ test('collapsed branches draw their badge on the canvas; an open one does not', 
   await tick()
   const badgeText = () => calls.filter(c => c.name === 'fillText' && /^\+\d+$/.test(String(c.args[0]))).map(c => c.args[0])
   assert.ok(badgeText().includes('+2'), `the badge shows the hidden agents, got ${JSON.stringify(badgeText())}`)
-  fireEvent.click(outlineButton(container, /^Expand branch of mid$/)!)
+  fireEvent.click(outlineButton(container, /^Branch of mid$/)!)
   await settle()
   calls.length = 0
   await tick()
