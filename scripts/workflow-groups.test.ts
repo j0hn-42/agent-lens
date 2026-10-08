@@ -301,7 +301,7 @@ test('filterActiveTeams: an idle workflow row stays in the active view, a finish
 // ─── Hide inactive agents keeps live workflow agents ─────────────────────────
 
 function workflowSession(sid: string, name: string): SimulationState {
-  const events: Array<{ type: string; payload: Record<string, unknown>; sessionId: string }> = [
+  const events: Array<{ type: SimulationEvent['type']; payload: Record<string, unknown>; sessionId: string }> = [
     { sessionId: sid, type: 'agent_spawn', payload: { name: 'orch', isMain: true } },
   ]
   for (const n of ['a', 'b', 'c', 'd', 'e']) {
@@ -354,7 +354,7 @@ test('Hide inactive agents ON: only the active workflow of two sessions keeps it
 // ─── Two same-named workflows in two sessions, end to end ────────────────────
 
 test('same-named workflows in two sessions stay two groups through the tracker, the team map, the counters and the chips', () => {
-  const events: Array<{ type: string; payload: Record<string, unknown>; sessionId: string }> = []
+  const events: Array<{ type: SimulationEvent['type']; payload: Record<string, unknown>; sessionId: string }> = []
   const addWf = (sid: string, working: number, idle: number) => {
     events.push({ sessionId: sid, type: 'agent_spawn', payload: { name: 'orch', isMain: true } })
     const names = Array.from({ length: working + idle }, (_, i) => `impl:${i}`)

@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "typeRoots": ["../extension/node_modules/@types"],
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["../web/*"] }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules"]
+}

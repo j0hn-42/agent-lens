@@ -28,10 +28,7 @@ test('respects custom length cap', () => {
 })
 
 test('returns empty string for non-string input', () => {
-  // @ts-expect-error intentional
   assert.equal(sanitizeString(null), '')
-  // @ts-expect-error intentional
   assert.equal(sanitizeString(undefined), '')
-  // @ts-expect-error intentional
   assert.equal(sanitizeString(123), '')
 })

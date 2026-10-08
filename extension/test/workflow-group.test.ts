@@ -3,7 +3,7 @@
  * grouped under a team_info with teamKind 'workflow', and reported working / idle / done.
  * SYNTHETIC fixtures that mimic <session>/subagents/workflows/<wf_id>/ and <session>/workflows/scripts/.
  */
-import { describe, it, afterEach } from 'node:test'
+import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -26,7 +26,6 @@ import {
 const SEC = 1000
 const MIN = 60 * SEC
 const never: WorkflowAgentContext = { isAgentDone: () => false }
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 interface Fx { dir: string; subDir: string; scripts: string }
 
@@ -253,7 +252,7 @@ describe('workflow agents are always announced', () => {
     fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_test0001-abc.js'), '')
     const now = Date.now()
     // idle: turn not ended, no pending tool, written 30 s ago
-    addAgent(fx, 'wf_test0001-abc', 'idle0001', { entries: [userText('go'), assistantThinking()], mtimeMs: now - 30 * SEC })
+    addAgent(fx, 'wf_test0001-abc', 'idle0001', { entries: [userText('go'), assistantThinking('hmm')], mtimeMs: now - 30 * SEC })
     // working: pending tool_use in a file written 5 minutes ago
     addAgent(fx, 'wf_test0001-abc', 'work0002', { entries: [userText('go'), assistantToolUse('tu-1')], mtimeMs: now - 5 * MIN })
     // finished: final text, silent for 3 minutes
@@ -446,13 +445,17 @@ describe('workflow replay and history', () => {
 describe('workflow debounce of team_info', () => {
   let fx: Fx
   let closers: Array<() => void> = []
+  let afterTestReset = false
   afterEach(() => {
+    if (afterTestReset) { mock.timers.reset(); afterTestReset = false }
     for (const c of closers) c()
     closers = []
     if (fx) fs.rmSync(fx.dir, { recursive: true, force: true })
   })
 
-  it('reports the first roster at once and a changed roster once, after the debounce', async () => {
+  it('reports the first roster at once and a changed roster once, after the debounce', () => {
+    mock.timers.enable({ apis: ['setTimeout'] })
+    afterTestReset = true
     fx = layout()
     addAgent(fx, 'wf_one1', 'aaaa0001')
     const session = makeSession({ subagentsDir: fx.subDir })
@@ -467,13 +470,13 @@ describe('workflow debounce of team_info', () => {
     scanSubagentsDir(h.delegate, h.parser, 's1')
     assert.equal(ofType(h.events, 'team_info').length, 1, 'roster changes wait for the debounce')
 
-    await sleep(TEAM_INFO_DEBOUNCE_MS + 250)
+    mock.timers.tick(TEAM_INFO_DEBOUNCE_MS)
     const infos = ofType(h.events, 'team_info')
     assert.equal(infos.length, 2, 'two additions collapse into one team_info')
     assert.equal((infos[1].payload as { members: unknown[] }).members.length, 3)
 
     scanSubagentsDir(h.delegate, h.parser, 's1')
-    await sleep(100)
+    mock.timers.tick(TEAM_INFO_DEBOUNCE_MS)
     assert.equal(ofType(h.events, 'team_info').length, 2, 'an unchanged roster is not re-sent')
   })
 })
