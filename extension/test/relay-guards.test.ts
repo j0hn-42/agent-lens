@@ -156,4 +156,23 @@ describe('safe discovery', () => {
     const found = discoverSessionFiles({ dirs: [path.join(root, 'proj-a')], maxFilesPerDir: 1, maxFileBytes: 1_000_000 })
     assert.ok(found.length <= 1)
   })
+
+  it('le plafond garde les plus récents, pas les premiers de readdir (1 000 transcripts)', () => {
+    const dir = path.join(root, 'proj-big')
+    fs.mkdirSync(dir)
+    const old = new Date(Date.now() - 3_600_000)
+    for (let i = 0; i < 1000; i++) {
+      const f = path.join(dir, `s-${String(i).padStart(4, '0')}.jsonl`)
+      fs.writeFileSync(f, '{}\n')
+      fs.utimesSync(f, old, old)
+    }
+    // Dernier dans l'ordre de readdir (alphabétique), mais le seul récent
+    fs.writeFileSync(path.join(dir, 'zzz-newest.jsonl'), '{}\n')
+    const found = discoverSessionFiles({ dirs: [dir], maxFileBytes: 1_000_000 })
+    assert.equal(found.length, 500)
+    assert.ok(found.some(f => f.sessionId === 'zzz-newest'))
+    const capped = discoverSessionFiles({ dirs: [dir], maxFilesPerDir: 3, maxFileBytes: 1_000_000 })
+    assert.equal(capped.length, 3)
+    assert.equal(capped[0].sessionId, 'zzz-newest')
+  })
 })

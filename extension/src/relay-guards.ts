@@ -220,19 +220,21 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
   for (const dirPath of opts.dirs) {
     let names: string[]
     try { names = fs.readdirSync(dirPath) } catch { continue }
-    let seen = 0
+    // Le plafond s'applique après le tri par date : l'ordre de readdir n'est pas chronologique
+    const found: DiscoveredSession[] = []
     for (const file of names) {
       if (!file.endsWith('.jsonl')) { continue }
-      if (++seen > maxFiles) { break }
       const sessionId = path.basename(file, '.jsonl')
       if (!isValidSessionId(sessionId)) { continue }
       const filePath = path.join(dirPath, file)
       try {
         const st = fs.lstatSync(filePath)
         if (!st.isFile() || st.size > maxBytes) { continue }
-        out.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
+        found.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
       } catch { /* vanished */ }
     }
+    found.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    for (const f of found.slice(0, maxFiles)) { out.push(f) }
   }
   return out
 }

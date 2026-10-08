@@ -5,7 +5,7 @@ import * as os from 'os'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { projectTags } from './project-identity'
 import {
-  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
+  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
@@ -46,6 +46,9 @@ const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
 export class SessionWatcher implements AgentSessionWatcher {
   private dirWatcher: fs.FSWatcher | null = null
   private dirWatchers = new Map<string, fs.FSWatcher>()
+  /** Transcripts anciens sans sous-agent actif : filePath -> cycle de scan avant réexamen */
+  private coldUntil = new Map<string, number>()
+  private scanCycle = 0
   private sessions = new Map<string, WatchedSession>()
   private workspacePath: string | null = null
   /** Resolved absolute workspace path for subdirectory verification */
@@ -325,6 +328,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       const watcher = safeWatch(projectDir, (_eventType, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
           const sessionId = path.basename(filename, '.jsonl')
+          this.coldUntil.delete(path.join(projectDir, filename))
           if (!this.sessions.has(sessionId)) {
             this.scanForActiveSessions()
           }
@@ -408,6 +412,10 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private scanForActiveSessions(): void {
+    this.scanCycle++
+    if (this.scanCycle % COLD_RESCAN_CYCLES === 0) {
+      for (const [f, until] of this.coldUntil) if (until <= this.scanCycle) this.coldUntil.delete(f)
+    }
     if (!fs.existsSync(CLAUDE_DIR)) {
       return
     }
@@ -449,30 +457,48 @@ export class SessionWatcher implements AgentSessionWatcher {
       for (const projectPath of dirsToScan) {
         try {
           const files = fs.readdirSync(projectPath)
+          const fresh: { filePath: string; sessionId: string; mtimeMs: number }[] = []
           for (const file of files) {
             if (!file.endsWith('.jsonl')) { continue }
             const filePath = path.join(projectPath, file)
-            const stat = fs.statSync(filePath)
-            let newestMtime = stat.mtimeMs
+            const sessionId = path.basename(file, '.jsonl')
+            // Session déjà suivie : plus de stat (son poll relit déjà les sous-agents)
+            if (this.sessions.has(sessionId)) continue
+            // Transcript ancien déjà examiné : réexaminé seulement tous les COLD_RESCAN_CYCLES scans
+            if ((this.coldUntil.get(filePath) ?? 0) > this.scanCycle) { continue }
+            try { fresh.push({ filePath, sessionId, mtimeMs: fs.statSync(filePath).mtimeMs }) } catch { /* vanished */ }
+          }
+          // Le plafond garde les plus récents (l'ordre de readdir n'est pas chronologique)
+          fresh.sort((a, b) => b.mtimeMs - a.mtimeMs)
+          const cutoff = Date.now() - ACTIVE_SESSION_AGE_S * 1000
+          // Au-delà du plafond : écartés et mis au froid, pas re-stat à chaque cycle
+          for (const { filePath } of fresh.slice(RELAY_MAX_FILES_PER_DIR)) {
+            this.coldUntil.set(filePath, this.scanCycle + COLD_RESCAN_CYCLES)
+          }
+          for (const { filePath, sessionId, mtimeMs } of fresh.slice(0, RELAY_MAX_FILES_PER_DIR)) {
+            let newestMtime = mtimeMs
 
             // Also check subagent files — a session's main JSONL may be stale
-            // while subagents are still actively writing.
-            const sessionId = path.basename(file, '.jsonl')
-            const subagentsDir = path.join(projectPath, sessionId, 'subagents')
-            try {
-              for (const subPath of listSubagentTranscripts(subagentsDir)) {
-                const subStat = fs.statSync(subPath)
-                if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-              }
-            } catch { /* expected if subagents dir doesn't exist yet */ }
+            // while subagents are still actively writing. Inutile si le principal est récent.
+            if (newestMtime < cutoff) {
+              const subagentsDir = path.join(projectPath, sessionId, 'subagents')
+              try {
+                for (const subPath of listSubagentTranscripts(subagentsDir)) {
+                  const subStat = fs.statSync(subPath)
+                  if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
+                }
+              } catch { /* expected if subagents dir doesn't exist yet */ }
+            }
 
-            const ageSeconds = (Date.now() - newestMtime) / 1000
-            if (ageSeconds <= ACTIVE_SESSION_AGE_S) {
+            if (newestMtime >= cutoff) {
+              this.coldUntil.delete(filePath)
               activeFiles.push({
                 sessionId,
                 filePath,
                 mtime: newestMtime,
               })
+            } else {
+              this.coldUntil.set(filePath, this.scanCycle + COLD_RESCAN_CYCLES)
             }
           }
         } catch (err) {
