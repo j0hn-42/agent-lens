@@ -15,6 +15,8 @@ import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
 import { SessionListPanel } from "./session-list-panel"
+import { ProjectContextPanel } from "./project-context-panel"
+import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
 import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
@@ -42,7 +44,7 @@ import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/li
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 
-type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions'
+type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
 type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
 
@@ -145,6 +147,14 @@ export function AgentVisualizer() {
   const [showFileAttention, setShowFileAttention] = usePersistedFlag('showFiles', uiPrefs)
   const [showSessions, setShowSessions] = useState(false)
   const [showConversation, setShowConversation] = usePersistedFlag('showConversation', uiPrefs)
+  const [showContext, setShowContext] = useState(false)
+
+  // Relay origin for on-demand reads ('' = same origin, standalone app)
+  const contextOrigin = bridge.relayPort ? `http://127.0.0.1:${bridge.relayPort}` : ''
+  const fetchContext = useCallback(
+    (id: string) => fetchProjectContext(contextOrigin, id),
+    [contextOrigin],
+  )
 
   // Right dock width: the stored width is applied after mount (and when another tab changes it); a resize
   // by the user is stored. A width that was only clamped by a narrow viewport is never written back.
@@ -152,8 +162,9 @@ export function AgentVisualizer() {
   useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
 
   // Mutually exclusive panel toggling: Conversation and Files share the right dock, Cost is an overlay
-  // on the same group; opening one closes the others
-  const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost') => {
+  // on the same group; opening one closes the others (the project context panel included)
+  const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost' | 'context') => {
+    setShowContext(prev => panel === 'context' ? !prev : false)
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
     setShowConversation(prev => panel === 'conversation' ? !prev : false)
     setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
@@ -161,6 +172,7 @@ export function AgentVisualizer() {
   const openConversation = useCallback(() => {
     setShowFileAttention(false)
     setShowCostOverlay(false)
+    setShowContext(false)
     setShowConversation(true)
   }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
   const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
@@ -179,10 +191,12 @@ export function AgentVisualizer() {
   const filesPanelRef = useRef<HTMLDivElement>(null)
   const timelinePanelRef = useRef<HTMLDivElement>(null)
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
+  const contextPanelRef = useRef<HTMLDivElement>(null)
   useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
   // The Conversation panel restores focus itself (to its pill or its top bar button)
   useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
   useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
+  useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // Auto-play on mount
@@ -335,14 +349,14 @@ export function AgentVisualizer() {
   useEffect(() => {
     const open: Record<PanelId, boolean> = {
       files: showFileAttention, conversation: showConversation, cost: showCostOverlay,
-      timeline: showTimeline, stats: showStats, sessions: showSessions,
+      timeline: showTimeline, stats: showStats, sessions: showSessions, context: showContext,
     }
     const stack = panelStackRef.current.filter(id => open[id])
     for (const id of Object.keys(open) as PanelId[]) {
       if (open[id] && !stack.includes(id)) stack.push(id)
     }
     panelStackRef.current = stack
-  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions])
+  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions, showContext])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
   const panelRegistry = useMemo(() => createPanelRegistry(), [])
@@ -357,6 +371,7 @@ export function AgentVisualizer() {
     else if (top === 'cost') setShowCostOverlay(false)
     else if (top === 'timeline') setShowTimeline(false)
     else if (top === 'sessions') setShowSessions(false)
+    else if (top === 'context') setShowContext(false)
     else setShowStats(false)
     return true
   }, [panelRegistry, setShowFileAttention, setShowConversation, setShowCostOverlay, setShowTimeline, setShowStats])
@@ -589,6 +604,7 @@ export function AgentVisualizer() {
         totalCost={totalCost}
         showFileAttention={showFileAttention}
         showConversation={showConversation}
+        showContext={showContext}
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
@@ -778,6 +794,18 @@ export function AgentVisualizer() {
           teamWorking={bridge.teamWorking}
           teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
+        />
+      </div>
+
+      {/* Project context panel: CLAUDE.md, memory and cited issues, loaded on demand from the relay */}
+      <div ref={contextPanelRef} style={{ display: 'contents' }}>
+        <ProjectContextPanel
+          visible={showContext}
+          sessionId={bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId) ? bridge.selectedSessionId : null}
+          unavailableReason={bridge.isVSCode ? 'Project context is read through the standalone relay; it is not available inside VS Code.'
+            : bridge.useMockData ? 'Project context is not available in demo mode.' : undefined}
+          fetchContext={fetchContext}
+          onClose={() => setShowContext(false)}
         />
       </div>
 

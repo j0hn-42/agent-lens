@@ -19,6 +19,7 @@ export const PANEL_BUTTON_IDS = {
   conversation: 'topbar-toggle-conversation',
   cost: 'topbar-toggle-cost',
   timeline: 'topbar-toggle-timeline',
+  context: 'topbar-toggle-context',
 } as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
@@ -149,9 +150,11 @@ export interface TopBarProps {
   showFileAttention: boolean
   showConversation: boolean
   showCostOverlay: boolean
+  /** Project context panel open (optional: absent = closed) */
+  showContext?: boolean
   showTimeline: boolean
   isMuted: boolean
-  onTogglePanel: (panel: 'files' | 'conversation' | 'cost') => void
+  onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context') => void
   onToggleTimeline: () => void
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
@@ -165,7 +168,7 @@ export const TopBar = memo(function TopBar({
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
   activeAgentCount, doneAgentCount, totalTokens, totalCost,
-  showFileAttention, showConversation, showCostOverlay, showTimeline, isMuted,
+  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
   const rootRef = useRef<HTMLElement>(null)
@@ -260,6 +263,7 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} title="Project context (CLAUDE.md, memory)" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>Context</ToggleButton>
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
