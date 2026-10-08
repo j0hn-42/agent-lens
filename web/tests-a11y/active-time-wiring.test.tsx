@@ -109,6 +109,17 @@ test('seeking to a moment where the agent was idle drops the running span (no co
   assert.equal(byName(view, 'alpha').activeSince, undefined)
 })
 
+test('seeking between two idle moments keeps the closed active time (carryActiveTime)', () => {
+  const view = mount()
+  send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
+  advance(4_000)
+  send(view, [complete('alpha', 3)])
+  const closed = byName(view, 'alpha').activeMs!
+  assert.ok(closed >= 4_000, `precondition: a closed span, got ${closed}`)
+  act(() => { view.result.current.seekToTime(3.5) })
+  assert.equal(byName(view, 'alpha').activeMs, closed, 'not reset to unknown by the rebuild')
+})
+
 test('replayed (history) events leave the active time unknown, even in one batch', () => {
   const view = mount()
   const replay = (e: SimulationEvent): SimulationEvent => ({ ...e, replayed: true })
