@@ -346,7 +346,7 @@ export function SessionListPanel({
               const hasAgents = row.roots.length > 0
               const showAgents = hasAgents && !isCollapsed
               return (
-                <li key={row.id} className={row.teamName || (hasProjectHeadings && row.projectId) ? 'pl-3' : undefined}>
+                <li key={row.id} className={row.teamName || hasProjectHeadings ? 'pl-3' : undefined}>
                   <div className="group flex items-center">
                     <button
                       type="button"

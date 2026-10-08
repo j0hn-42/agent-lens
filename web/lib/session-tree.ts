@@ -130,10 +130,15 @@ export function buildSessionRows(
   return rows
 }
 
+/** Heading of the sessions that belong to no known project; it carries no projectId */
+const NO_PROJECT_ID = 'project:none'
+const NO_PROJECT_NAME = 'No repository'
+
 /**
  * Sessions without a team grouped by project (git common dir, so worktrees of one repo stay together),
  * each group under a heading row. A group follows the order of its best-ranked session; sessions outside
- * git come last, ungrouped. With fewer than two projects a heading adds nothing: the order is kept.
+ * git (or whose project could not be determined) come last under their own heading, so they are never
+ * read as belonging to the previous project. With fewer than two projects a heading adds nothing: the order is kept.
  */
 function groupByProject(sessionRows: SessionRow[]): SessionRow[] {
   const groups = new Map<string, SessionRow[]>()
@@ -150,7 +155,11 @@ function groupByProject(sessionRows: SessionRow[]): SessionRow[] {
     out.push({ kind: 'project', id: `project:${projectId}`, projectId, projectName: members[0].projectName, roots: [], agentCount: 0 })
     out.push(...members)
   }
-  return out.concat(ungrouped)
+  if (ungrouped.length) {
+    out.push({ kind: 'project', id: NO_PROJECT_ID, projectName: NO_PROJECT_NAME, roots: [], agentCount: 0 })
+    out.push(...ungrouped)
+  }
+  return out
 }
 
 /** Visible label of the current selection, shown on the panel's button. */

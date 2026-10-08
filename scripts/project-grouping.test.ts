@@ -16,12 +16,23 @@ test('project grouping: sessions of one repo (worktrees included) sit together u
     inProject(session('b1', 'active', 3), 'pb', 'beta'), inProject(session('a2', 'active', 2), 'pa', 'alpha'),
   ]
   const rows = buildSessionRows(sessions, [], new Map())
-  assert.deepEqual(rows.map(r => r.id), [ALL_SESSIONS_ID, 'project:pa', 'a1', 'a2', 'project:pb', 'b1', 'plain'])
+  assert.deepEqual(rows.map(r => r.id), [ALL_SESSIONS_ID, 'project:pa', 'a1', 'a2', 'project:pb', 'b1', 'project:none', 'plain'])
   const header = rows.find(r => r.id === 'project:pa')!
   assert.equal(header.kind, 'project')
   assert.equal(header.projectName, 'alpha')
   assert.equal(rows.find(r => r.id === 'a2')!.projectId, 'pa')
-  assert.equal(rows.find(r => r.id === 'plain')!.projectId, undefined, 'outside git: ungrouped, no header')
+  assert.equal(rows.find(r => r.id === 'plain')!.projectId, undefined, 'outside git: no project of its own')
+})
+
+test('project grouping: sessions without a project get their own heading, never the last project\'s', () => {
+  const sessions = [inProject(session('a1', 'active', 3), 'pa'), inProject(session('b1', 'active', 2), 'pb'), session('plain', 'active', 1)]
+  const rows = buildSessionRows(sessions, [], new Map())
+  assert.deepEqual(rows.map(r => r.id), [ALL_SESSIONS_ID, 'project:pa', 'a1', 'project:pb', 'b1', 'project:none', 'plain'])
+  const header = rows.find(r => r.id === 'project:none')!
+  assert.equal(header.kind, 'project')
+  assert.equal(header.projectId, undefined)
+  const all = [inProject(session('a1', 'active', 2), 'pa'), inProject(session('b1', 'active', 1), 'pb')]
+  assert.ok(!buildSessionRows(all, [], new Map()).some(r => r.id === 'project:none'), 'no remainder heading when every session has a project')
 })
 
 test('project grouping: a single project (or none) adds no header', () => {
