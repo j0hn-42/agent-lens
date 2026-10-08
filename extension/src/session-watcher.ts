@@ -3,6 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
+import { projectTags } from './project-identity'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -113,6 +114,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
       ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
       ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
+      ...projectTags(cwd),
     })
   }
 
@@ -165,6 +167,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
         ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
         ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
+        ...projectTags(cwd),
       }
     })
   }

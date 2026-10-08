@@ -77,10 +77,14 @@ export function countAgents(roots: ReadonlyArray<AgentNode>): number {
 }
 
 export interface SessionRow {
-  kind: 'all' | 'team' | 'session'
-  /** Selection id: ALL_SESSIONS_ID, 'team:<name>' or the session id */
+  /** 'project' is a non-selectable group heading (issue #62) */
+  kind: 'all' | 'team' | 'session' | 'project'
+  /** Selection id: ALL_SESSIONS_ID, 'team:<name>', the session id, or 'project:<id>' for a heading */
   id: string
   teamName?: string
+  /** Project of a 'project' heading and of the sessions grouped under it */
+  projectId?: string
+  projectName?: string
   session?: SessionInfo
   /** Agents of the session; on the 'All' row, the agents whose session is not listed */
   roots: AgentNode[]
@@ -110,18 +114,59 @@ export function buildSessionRows(
   const rows: SessionRow[] = []
   // Agents whose session is not (yet) listed, e.g. the demo or events without a session id: kept visible under 'All'
   const orphans = [...forests].filter(([sessionId]) => !byId.has(sessionId)).flatMap(([, roots]) => roots)
+  const sessionRow = (item: { id: string; teamName?: string }): SessionRow | null => {
+    const session = byId.get(item.id)
+    if (!session) return null
+    const roots = forests.get(session.id) ?? []
+    return {
+      kind: 'session', id: session.id, teamName: item.teamName, session, roots, agentCount: countAgents(roots),
+      ...(session.projectId ? { projectId: session.projectId, projectName: session.projectName } : {}),
+    }
+  }
+  const teamless: SessionRow[] = []
   for (const item of items) {
     if (item.kind === 'session') {
-      const session = byId.get(item.id)
-      if (!session) continue
-      const roots = forests.get(session.id) ?? []
-      rows.push({ kind: 'session', id: session.id, teamName: item.teamName, session, roots, agentCount: countAgents(roots) })
+      const row = sessionRow(item)
+      if (row) (item.teamName ? rows : teamless).push(row)
     } else {
       const roots = item.kind === 'all' ? orphans : []
       rows.push({ kind: item.kind, id: item.id, teamName: item.teamName, roots, agentCount: countAgents(roots) })
     }
   }
+  rows.push(...groupByProject(teamless))
   return rows
+}
+
+/** Heading of the sessions that belong to no known project; it carries no projectId */
+const NO_PROJECT_ID = 'project:none'
+const NO_PROJECT_NAME = 'No repository'
+
+/**
+ * Sessions without a team grouped by project (git common dir, so worktrees of one repo stay together),
+ * each group under a heading row. A group follows the order of its best-ranked session; sessions outside
+ * git (or whose project could not be determined) come last under their own heading, so they are never
+ * read as belonging to the previous project. With fewer than two projects a heading adds nothing: the order is kept.
+ */
+function groupByProject(sessionRows: SessionRow[]): SessionRow[] {
+  const groups = new Map<string, SessionRow[]>()
+  const ungrouped: SessionRow[] = []
+  for (const row of sessionRows) {
+    if (!row.projectId) { ungrouped.push(row); continue }
+    const g = groups.get(row.projectId)
+    if (g) g.push(row)
+    else groups.set(row.projectId, [row])
+  }
+  if (groups.size < 2) return sessionRows
+  const out: SessionRow[] = []
+  for (const [projectId, members] of groups) {
+    out.push({ kind: 'project', id: `project:${projectId}`, projectId, projectName: members[0].projectName, roots: [], agentCount: 0 })
+    out.push(...members)
+  }
+  if (ungrouped.length) {
+    out.push({ kind: 'project', id: NO_PROJECT_ID, projectName: NO_PROJECT_NAME, roots: [], agentCount: 0 })
+    out.push(...ungrouped)
+  }
+  return out
 }
 
 /** Visible label of the current selection, shown on the panel's button. */

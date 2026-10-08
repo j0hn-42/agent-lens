@@ -27,6 +27,10 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory of the session, when known */
   cwd?: string
+  /** Hash of the git common dir: identical for a repository and all its worktrees; absent outside git */
+  projectId?: string
+  /** Folder name of the repository's main checkout, shown as the group title */
+  projectName?: string
   /** Agent Team this session belongs to (tmux teammate sessions), when known */
   teamName?: string
   /** Teammate name inside the team, when the session is a team member */
@@ -91,6 +95,8 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
+    && (v.projectId === undefined || typeof v.projectId === 'string')
+    && (v.projectName === undefined || typeof v.projectName === 'string')
     && (v.teamName === undefined || typeof v.teamName === 'string')
     && (v.memberName === undefined || typeof v.memberName === 'string')
 }
@@ -112,10 +118,17 @@ export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
  * cluster keys and tracker names agree); an empty result drops the field.
  */
 export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
-  const { teamName, memberName, ...rest } = s
+  const { teamName, memberName, projectId, projectName, ...rest } = s
   const team = cleanLine(teamName)
   const member = cleanLine(memberName)
-  return { ...rest, ...(team ? { teamName: team } : {}), ...(member ? { memberName: member } : {}) }
+  // A project group needs both its identity and a title; half of it is dropped
+  const pid = cleanLine(projectId, 64)
+  const pname = cleanLine(projectName)
+  return {
+    ...rest,
+    ...(team ? { teamName: team } : {}), ...(member ? { memberName: member } : {}),
+    ...(pid && pname ? { projectId: pid, projectName: pname } : {}),
+  }
 }
 
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {
