@@ -16,7 +16,7 @@ import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } fr
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
-import { projectTags } from '../extension/src/project-identity'
+import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
@@ -166,6 +166,8 @@ function tagText(value: string | undefined): string | undefined {
 
 /** Working directory of each watched Claude session (read once from its transcript head). */
 const sessionCwd = new Map<string, string>()
+/** Git branch of each watched Claude session, as recorded at the head of its transcript. */
+const sessionBranch = new Map<string, string>()
 let relayWorkspace = ''
 let teamWatcher: TeamWatcher | null = null
 
@@ -183,6 +185,7 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
     ...(workspace ? { workspace } : {}),
     ...(cwd ? { cwd } : {}),
     ...projectTags(sessionCwd.get(session.sessionId)),
+    ...branchTag(sessionBranch.get(session.sessionId)),
   }
 }
 
@@ -310,6 +313,7 @@ function unwatchSession(sessionId: string) {
   // Free per-session parser state (registries, link/dedupe sets) and team bookkeeping
   parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
   sessionCwd.delete(sessionId)
+  sessionBranch.delete(sessionId)
   reconciler.forgetSession(sessionId)
   sessions.delete(sessionId)
   teamWatcher?.forgetSession(sessionId)
@@ -356,6 +360,7 @@ function watchSession(sessionId: string, filePath: string) {
   sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
+  if (header.branch) sessionBranch.set(sessionId, header.branch)
 
   // The live flow (hooks) is already subscribed: events arriving while the history is read are held
   // and replayed, deduplicated against the history, when the load ends (issue #53).

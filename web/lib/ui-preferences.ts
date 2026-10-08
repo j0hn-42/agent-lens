@@ -41,6 +41,8 @@ export interface UiPrefs {
   sessionFilterProject: string | null
   /** Session list filter (#125): runtime to keep (null = both) */
   sessionFilterRuntime: 'claude' | 'codex' | null
+  /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
+  sessionFilterBranch: string | null
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -56,6 +58,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
   sessionFilterProject: null,
   sessionFilterRuntime: null,
+  sessionFilterBranch: null,
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -67,6 +70,7 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   switch (key) {
     case 'sessionFilterRuntime':
       return (value === 'claude' || value === 'codex' ? value : null) as UiPrefs[K]
+    case 'sessionFilterBranch':
     case 'sessionFilterProject':
     case 'lastSelectedSessionId': {
       const ok = typeof value === 'string' && value.length > 0 && value.length <= SESSION_ID_MAX_LENGTH

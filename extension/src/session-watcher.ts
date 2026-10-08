@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
-import { projectTags } from './project-identity'
+import { projectTags, branchTag } from './project-identity'
 import { claudeProjectsDir, claudeTeamsDir } from './claude-config-dir'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES,
@@ -60,6 +60,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   private teamWatcher: TeamWatcher | null = null
   /** Working directory per watched session (read once from the transcript head) */
   private sessionCwd = new Map<string, string>()
+  /** Git branch per watched session, as recorded at the head of its transcript (absent when unrecorded or detached) */
+  private sessionBranch = new Map<string, string>()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
@@ -118,6 +120,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
       ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
       ...projectTags(cwd),
+      ...branchTag(this.sessionBranch.get(sessionId)),
     })
   }
 
@@ -137,6 +140,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     session.subagentsDirWatcher?.close()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
     this.sessionCwd.delete(sessionId)
+    this.sessionBranch.delete(sessionId)
     this.reconciler.forgetSession(sessionId)
     this.sessions.delete(sessionId)
     this.teamWatcher?.forgetSession(sessionId)
@@ -171,6 +175,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
         ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
         ...projectTags(cwd),
+        ...branchTag(this.sessionBranch.get(s.sessionId)),
       }
     })
   }
@@ -554,6 +559,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
     const header = readSessionHeader(filePath)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
+    if (header.branch) this.sessionBranch.set(sessionId, header.branch)
 
     // The live flow (hooks) is already subscribed: events arriving while the history is read are held
     // and replayed, deduplicated against the history, when the load ends (issue #53).
@@ -744,6 +750,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.teamWatcher?.dispose()
     this.teamWatcher = null
     this.sessionCwd.clear()
+    this.sessionBranch.clear()
     this.dirWatcher?.close()
     this.dirWatcher = null
     for (const w of this.dirWatchers.values()) w.close()

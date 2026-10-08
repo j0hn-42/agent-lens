@@ -873,9 +873,11 @@ export function AgentVisualizer() {
           teamMemberCounts={bridge.teamMemberCounts}
           filterProject={prefs.sessionFilterProject}
           filterRuntime={prefs.sessionFilterRuntime}
+          filterBranch={prefs.sessionFilterBranch}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
+            if (change.branch !== undefined) setPref('sessionFilterBranch', change.branch)
           }}
         />
       </div>

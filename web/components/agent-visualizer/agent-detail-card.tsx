@@ -99,7 +99,7 @@ export function AgentDetailCard({
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
-  const issueLinks = useIssueLinks(relayOrigin, role, agent.sessionId)
+  const { links: issueLinks, status: issueLinksStatus } = useIssueLinks(relayOrigin, role, agent.sessionId)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -240,7 +240,13 @@ export function AgentDetailCard({
           )
         })()}
 
-        {/* Issues / PRs carrying the agent:<role> label of this node (silent when gh is unavailable) */}
+        {/* Issues / PRs carrying the agent:<role> label of this node. A failed load is said to be unavailable, never shown as "no link" (#149) */}
+        {role && issueLinksStatus === 'unavailable' && (
+          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links-unavailable">
+            <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
+            <p role="status" className="m-0" style={{ color: COLORS.textDim }}>Issue and PR links unavailable for now.</p>
+          </div>
+        )}
         {role && issueLinks.length > 0 && (
           <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>

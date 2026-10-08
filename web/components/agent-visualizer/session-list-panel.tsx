@@ -20,7 +20,7 @@ import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hoo
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
 import {
-  agentNamesBySession, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
+  agentNamesBySession, branchOptions, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
   type RuntimeFilter, type SessionFilter,
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
@@ -63,7 +63,8 @@ interface SessionListPanelProps {
   /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
   filterProject?: string | null
   filterRuntime?: RuntimeFilter | null
-  onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null }) => void
+  filterBranch?: string | null
+  onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
 }
 
 const STATE_COLOR: Record<string, string> = {
@@ -211,7 +212,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
-  filterProject, filterRuntime, onFilterChange,
+  filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // A new callback identity on every parent render would defeat the row signatures
@@ -254,18 +255,21 @@ export function SessionListPanel({
   const [query, setQuery] = useState('')
   const [ownProject, setOwnProject] = useState<string | null>(null)
   const [ownRuntime, setOwnRuntime] = useState<RuntimeFilter | null>(null)
+  const [ownBranch, setOwnBranch] = useState<string | null>(null)
   const filter: SessionFilter = useMemo(
-    () => effectiveFilter({ query, projectId: filterProject !== undefined ? filterProject : ownProject, runtime: filterRuntime !== undefined ? filterRuntime : ownRuntime }, sessions),
-    [query, filterProject, ownProject, filterRuntime, ownRuntime, sessions],
+    () => effectiveFilter({ query, projectId: filterProject !== undefined ? filterProject : ownProject, runtime: filterRuntime !== undefined ? filterRuntime : ownRuntime, branch: filterBranch !== undefined ? filterBranch : ownBranch }, sessions),
+    [query, filterProject, ownProject, filterRuntime, ownRuntime, filterBranch, ownBranch, sessions],
   )
   const filtering = isFilterActive(filter)
   const projects = useMemo(() => projectOptions(sessions), [sessions])
   const runtimes = useMemo(() => runtimeOptions(sessions), [sessions])
+  const branches = useMemo(() => branchOptions(sessions), [sessions])
   const namesBySession = useMemo(() => (filter.query.trim() ? agentNamesBySession(agents.values()) : new Map<string, string[]>()), [agents, filter.query])
   const matching = useMemo(() => new Set(filterSessionList(sessions, filter, id => namesBySession.get(id) ?? [])), [sessions, filter, namesBySession])
-  const changeFilter = (change: { projectId?: string | null; runtime?: RuntimeFilter | null }) => {
+  const changeFilter = (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => {
     if (change.projectId !== undefined) { setOwnProject(change.projectId); onFilterChange?.({ projectId: change.projectId }) }
     if (change.runtime !== undefined) { setOwnRuntime(change.runtime); onFilterChange?.({ runtime: change.runtime }) }
+    if (change.branch !== undefined) { setOwnBranch(change.branch); onFilterChange?.({ branch: change.branch }) }
   }
   const announceMatches = (next: SessionFilter) => {
     const names = agentNamesBySession(agents.values())
@@ -409,7 +413,7 @@ export function SessionListPanel({
           <input
             type="search"
             aria-label="Search sessions"
-            placeholder="Search name, project, agent"
+            placeholder="Search name, project, branch, agent"
             value={query}
             onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
             className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
@@ -440,10 +444,22 @@ export function SessionListPanel({
               <option value="codex">Codex</option>
             </select>
           )}
+          {(branches.length > 0 || filter.branch !== null) && (
+            <select
+              aria-label="Filter by branch (recorded at session start)"
+              value={filter.branch ?? ''}
+              onChange={e => { const branch = e.target.value || null; changeFilter({ branch }); announceMatches({ ...filter, branch }) }}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All branches</option>
+              {branches.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
           {filtering && (
             <button
               type="button"
-              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null }); setAnnouncement(`Filter cleared: ${pluralize(sessions.length, 'session')} shown`) }}
+              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null, branch: null }); setAnnouncement(`Filter cleared: ${pluralize(sessions.length, 'session')} shown`) }}
               className={`min-h-6 px-2 rounded text-[11px] ${FOCUS_RING}`}
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
             >

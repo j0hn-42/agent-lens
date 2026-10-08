@@ -41,7 +41,7 @@ test('requests the role of the origin once, and returns the validated links', as
   const { result } = renderHook(() => useIssueLinks(ORIGIN, 'role-a'))
   await flush()
   assert.deepEqual(fetched.map(f => f.url), [`${ORIGIN}/issue-links?role=role-a`])
-  assert.deepEqual(result.current.map(l => l.number), [7, 9], 'the foreign URL is dropped')
+  assert.deepEqual(result.current.links.map(l => l.number), [7, 9], 'the foreign URL is dropped')
 })
 
 test('no relay or no role: nothing is requested and the list is empty', async () => {
@@ -49,19 +49,110 @@ test('no relay or no role: nothing is requested and the list is empty', async ()
   const noRole = renderHook(() => useIssueLinks(ORIGIN, undefined))
   await flush()
   assert.equal(fetched.length, 0)
-  assert.deepEqual(none.result.current, [])
-  assert.deepEqual(noRole.result.current, [])
+  assert.deepEqual(none.result.current.links, [])
+  assert.deepEqual(noRole.result.current.links, [])
 })
 
-test('a failing relay degrades silently to no link', async () => {
+test('a failing relay is unavailable, not "no link": network error, non-ok, unreadable body', async () => {
   respond = async () => { throw new Error('network down') }
   const a = renderHook(() => useIssueLinks(ORIGIN, 'role-c'))
   await flush()
-  assert.deepEqual(a.result.current, [])
-  respond = async () => ({ ok: false, json: async () => ({}) })
+  assert.equal(a.result.current.status, 'unavailable')
+  assert.deepEqual(a.result.current.links, [])
+  respond = async () => ({ ok: false, status: 503, json: async () => ({}) })
   const b = renderHook(() => useIssueLinks(ORIGIN, 'role-c2'))
   await flush()
-  assert.deepEqual(b.result.current, [])
+  assert.equal(b.result.current.status, 'unavailable')
+  respond = async () => ({ ok: true, json: async () => ({ oops: true }) })
+  const c = renderHook(() => useIssueLinks(ORIGIN, 'role-c3'))
+  await flush()
+  assert.equal(c.result.current.status, 'unavailable', 'a 200 without a links array is not "no link"')
+})
+
+const flushMicro = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve() })
+const busy = (retryAfter?: string) => async () => ({
+  ok: false, status: 503, headers: { get: (n: string) => (n.toLowerCase() === 'retry-after' ? retryAfter ?? null : null) }, json: async () => ({}),
+})
+
+test('503 then 200 with links: the links show on the second attempt, without waiting for the 60 s cache', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
+  let calls = 0
+  respond = () => (++calls === 1 ? busy('1')() : ok([link(5)])())
+  const { result } = renderHook(() => useIssueLinks(ORIGIN, 'role-g'))
+  await flushMicro()
+  assert.equal(result.current.status, 'unavailable')
+  assert.equal(fetched.length, 1)
+  mock.timers.tick(999)
+  await flushMicro()
+  assert.equal(fetched.length, 1, 'no tight loop: the retry waits for the backoff')
+  mock.timers.tick(1)
+  await flushMicro()
+  assert.equal(fetched.length, 2)
+  assert.equal(result.current.status, 'ok')
+  assert.deepEqual(result.current.links.map(l => l.number), [5])
+})
+
+test('the retry honours Retry-After when it is longer than the backoff, and backs off exponentially, then stops', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
+  respond = busy('7')
+  const { result } = renderHook(() => useIssueLinks(ORIGIN, 'role-h'))
+  await flushMicro()
+  mock.timers.tick(6_999)
+  await flushMicro()
+  assert.equal(fetched.length, 1, 'Retry-After: 7 is respected')
+  respond = busy()
+  mock.timers.tick(1)
+  await flushMicro()
+  assert.equal(fetched.length, 2)
+  // next waits: 2 s, 4 s, 8 s (retries 1..3 after the first), then no more
+  for (const wait of [2_000, 4_000, 8_000]) {
+    mock.timers.tick(wait - 1)
+    await flushMicro()
+    const before: number = fetched.length
+    mock.timers.tick(1)
+    await flushMicro()
+    assert.equal(fetched.length, before + 1, `retry after ${wait} ms`)
+  }
+  assert.equal(fetched.length, 5, 'one attempt plus four retries')
+  mock.timers.tick(600_000)
+  await flushMicro()
+  assert.equal(fetched.length, 5, 'retries are bounded')
+  assert.equal(result.current.status, 'unavailable')
+})
+
+test('a real empty answer (200 []) is cached, a 503 is not', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
+  respond = ok([])
+  const empty = renderHook(() => useIssueLinks(ORIGIN, 'role-i'))
+  await flushMicro()
+  assert.equal(empty.result.current.status, 'ok')
+  empty.unmount()
+  const again = renderHook(() => useIssueLinks(ORIGIN, 'role-i'))
+  assert.equal(again.result.current.status, 'ok', 'served from the cache at once')
+  await flushMicro()
+  assert.equal(fetched.length, 1, 'the empty answer is cached')
+  again.unmount()
+
+  respond = busy()
+  const failing = renderHook(() => useIssueLinks(ORIGIN, 'role-j'))
+  await flushMicro()
+  failing.unmount()
+  respond = ok([link(8)])
+  const next = renderHook(() => useIssueLinks(ORIGIN, 'role-j'))
+  await flushMicro()
+  assert.equal(fetched.length, 3, 'the failure left nothing in the cache: asked again at once')
+  assert.deepEqual(next.result.current.links.map(l => l.number), [8])
+})
+
+test('unmounting cancels the pending retry', async () => {
+  mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
+  respond = busy()
+  const { unmount } = renderHook(() => useIssueLinks(ORIGIN, 'role-k'))
+  await flushMicro()
+  unmount()
+  mock.timers.tick(600_000)
+  await flushMicro()
+  assert.equal(fetched.length, 1)
 })
 
 test('the answer is cached for 60 s per origin and role, then asked again', async () => {
@@ -73,7 +164,7 @@ test('the answer is cached for 60 s per origin and role, then asked again', asyn
   first.unmount()
 
   const again = renderHook(() => useIssueLinks(ORIGIN, 'role-d'))
-  assert.equal(again.result.current.length, 1, 'served from the cache at once')
+  assert.equal(again.result.current.links.length, 1, 'served from the cache at once')
   await flush()
   assert.equal(fetched.length, 1, 'no second request')
   again.unmount()
@@ -106,7 +197,7 @@ test('unmounting cancels the request and a late answer neither updates the state
   const b = renderHook(() => useIssueLinks(ORIGIN, 'role-e'))
   await flush()
   assert.equal(fetched.length, 2, 'the aborted answer was not cached')
-  assert.deepEqual(b.result.current.map(l => l.number), [4])
+  assert.deepEqual(b.result.current.links.map(l => l.number), [4])
 })
 
 test('changing role drops the previous role links at once and ignores its late answer', async () => {
@@ -118,10 +209,10 @@ test('changing role drops the previous role links at once and ignores its late a
   await flush()
   rerender({ role: 'role-f2' })
   await flush()
-  assert.deepEqual(result.current.map(l => l.number), [20])
+  assert.deepEqual(result.current.links.map(l => l.number), [20])
   releaseOld({ ok: true, json: async () => ({ links: [link(10)] }) })
   await flush()
-  assert.deepEqual(result.current.map(l => l.number), [20], 'the old role answer arrived late and is ignored')
+  assert.deepEqual(result.current.links.map(l => l.number), [20], 'the old role answer arrived late and is ignored')
 })
 
 test('the cache is bounded: past 32 roles the oldest entry is evicted and asked again', async () => {
@@ -183,4 +274,14 @@ test('AgentDetailCard shows no section without relay, without role or without li
   const empty = render(<AgentDetailCard agent={agent({ subagentType: 'card-role-3' })} toolErrors={0} onClose={() => {}} freshnessClock={clock} relayOrigin={ORIGIN} />)
   await flush()
   assert.equal(empty.queryByTestId('issue-links'), null)
+})
+
+test('AgentDetailCard says "unavailable" (accessible status text) when the links could not be loaded, and never "no link"', async () => {
+  respond = busy()
+  const v = render(<AgentDetailCard agent={agent({ subagentType: 'card-role-4' })} toolErrors={0} onClose={() => {}} freshnessClock={clock} relayOrigin={ORIGIN} />)
+  await flush()
+  const box = v.getByTestId('issue-links-unavailable')
+  assert.match(within(box).getByRole('status').textContent ?? '', /unavailable for now/)
+  assert.equal(v.queryByTestId('issue-links'), null)
+  assert.equal(within(box).queryAllByRole('link').length, 0)
 })

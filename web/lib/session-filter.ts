@@ -1,6 +1,7 @@
 /**
  * Search and filter of the session list (#125): free text, project, runtime. Pure (no React).
- * Only fields the session list really carries are searched; nothing is inferred (no branch data exists).
+ * Only fields the session list really carries are searched; nothing is inferred. The branch is the one the
+ * session transcript recorded; a session without one is never matched by a branch filter.
  */
 import type { SessionInfo } from './bridge-types'
 
@@ -11,12 +12,21 @@ export interface SessionFilter {
   /** projectId to keep, or null for every project */
   projectId: string | null
   runtime: RuntimeFilter | null
+  /** branch to keep, or null for every branch */
+  branch: string | null
 }
 
-export const EMPTY_SESSION_FILTER: Readonly<SessionFilter> = Object.freeze({ query: '', projectId: null, runtime: null })
+export const EMPTY_SESSION_FILTER: Readonly<SessionFilter> = Object.freeze({ query: '', projectId: null, runtime: null, branch: null })
 
 export function isFilterActive(f: SessionFilter): boolean {
-  return f.query.trim().length > 0 || f.projectId !== null || f.runtime !== null
+  return f.query.trim().length > 0 || f.projectId !== null || f.runtime !== null || f.branch !== null
+}
+
+/** Branches recorded by the sessions of the list, sorted. Empty when no session carries one: no branch filter is offered. */
+export function branchOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'branch'>>): string[] {
+  const seen = new Set<string>()
+  for (const s of sessions) if (s.branch) seen.add(s.branch)
+  return [...seen].sort((a, b) => a.localeCompare(b))
 }
 
 export interface ProjectOption { projectId: string; projectName: string }
@@ -42,9 +52,11 @@ export function runtimeOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'runtim
  * A stored project that no session belongs to any more is ignored (the list is not emptied by a filter
  * that no control can show); the runtime is kept as is.
  */
-export function effectiveFilter(f: SessionFilter, sessions: ReadonlyArray<Pick<SessionInfo, 'projectId' | 'projectName'>>): SessionFilter {
-  if (f.projectId === null) return f
-  return projectOptions(sessions).some(p => p.projectId === f.projectId) ? f : { ...f, projectId: null }
+export function effectiveFilter(f: SessionFilter, sessions: ReadonlyArray<Pick<SessionInfo, 'projectId' | 'projectName' | 'branch'>>): SessionFilter {
+  let out = f
+  if (out.projectId !== null && !projectOptions(sessions).some(p => p.projectId === out.projectId)) out = { ...out, projectId: null }
+  if (out.branch !== null && !branchOptions(sessions).includes(out.branch)) out = { ...out, branch: null }
+  return out
 }
 
 export function sessionMatches(
@@ -55,9 +67,10 @@ export function sessionMatches(
 ): boolean {
   if (f.projectId !== null && s.projectId !== f.projectId) return false
   if (f.runtime !== null && s.runtime !== f.runtime) return false
+  if (f.branch !== null && s.branch !== f.branch) return false
   const terms = f.query.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (terms.length === 0) return true
-  const haystack = [s.label, s.projectName, s.workspace, s.cwd, s.teamName, s.memberName, ...agentNames]
+  const haystack = [s.label, s.projectName, s.workspace, s.cwd, s.branch, s.teamName, s.memberName, ...agentNames]
     .filter((v): v is string => typeof v === 'string').join('\n').toLowerCase()
   return terms.every(t => haystack.includes(t))
 }
