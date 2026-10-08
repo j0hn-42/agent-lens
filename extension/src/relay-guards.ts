@@ -47,6 +47,15 @@ export function isStatusPath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
 }
 
+/** Which observations route a request path (query ignored) is: the action itself, its schema, or neither. */
+export function observationsRoute(url: string | undefined): 'observations' | 'schema' | null {
+  if (!url) { return null }
+  try {
+    const p = new URL(url, 'http://localhost').pathname
+    return p === '/observations' ? 'observations' : p === '/observations/schema' ? 'schema' : null
+  } catch { return null }
+}
+
 /** True when a client's unsent backlog is large enough that it should be dropped. */
 export function isBackedUp(writableLength: number, limit = RELAY_MAX_CLIENT_BACKLOG_BYTES): boolean {
   return writableLength > limit
