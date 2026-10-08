@@ -18,10 +18,15 @@ process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 
 const SESSION = '33333333-3333-4333-8333-333333333333'
+const SESSION_AGENTS = '44444444-4444-4444-8444-444444444444'
 
 let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
 let server: http.Server
 let port = 0
+let agentsFile = ''
+
+const line = (o: unknown) => JSON.stringify(o) + '\n'
+const tu = (id: string, description: string) => ({ type: 'tool_use', id, name: 'Agent', input: { description, prompt: 'p', subagent_type: 'general-purpose' } })
 
 function get(urlPath: string, opts: { method?: string; headers?: http.OutgoingHttpHeaders } = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
@@ -67,6 +72,9 @@ describe('relay GET /observations', () => {
     fs.writeFileSync(path.join(projectDir, `${SESSION}.jsonl`),
       JSON.stringify({ type: 'user', cwd: realWs, timestamp: new Date(now - 2000).toISOString(), message: { role: 'user', content: 'TOPSECRET prompt about the launch' } }) + '\n' +
       JSON.stringify({ type: 'assistant', timestamp: new Date(now - 1000).toISOString(), message: { role: 'assistant', content: [{ type: 'text', text: 'TOPSECRET answer' }] } }) + '\n')
+    // History is only pre-scanned: subagent events come from lines appended while the session is watched
+    agentsFile = path.join(projectDir, `${SESSION_AGENTS}.jsonl`)
+    fs.writeFileSync(agentsFile, line({ type: 'user', cwd: realWs, timestamp: new Date(now - 3000).toISOString(), message: { role: 'user', content: 'go' } }))
     relay = await createRelay({ workspace: realWs, runtime: 'claude' })
     server = http.createServer((req, res) => {
       if (req.url?.startsWith('/events')) return relay.handleSSE(req, res)
@@ -105,6 +113,26 @@ describe('relay GET /observations', () => {
     assert.equal(o.sessions[0].agents, undefined)
     const none = JSON.parse((await get('/observations?session=nope')).body)
     assert.deepEqual(none.sessions, [])
+  })
+
+  it('reports the agents the relay really delivered, with their state and count', async () => {
+    // Two dispatches in one assistant turn; only the first one returns
+    fs.appendFileSync(agentsFile,
+      line({ type: 'assistant', timestamp: new Date().toISOString(), message: { role: 'assistant', content: [tu('toolu_1', 'Scan code'), tu('toolu_2', 'Write docs')] } }) +
+      line({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'done' }] } }))
+    let states: Record<string, string> = {}
+    let s: { agentCount: number; agents: { name: string; state: string }[] } | undefined
+    for (let i = 0; i < 40; i++) {
+      s = JSON.parse((await get(`/observations?session=${SESSION_AGENTS}`)).body).sessions[0]
+      states = Object.fromEntries((s?.agents ?? []).map(a => [a.name, a.state]))
+      if (states['Scan code'] === 'complete') break
+      await new Promise(r => setTimeout(r, 150))
+    }
+    assert.equal(states['Scan code'], 'complete')
+    assert.equal(states['Write docs'], 'active')
+    assert.equal(s?.agentCount, 3) // orchestrator + the two subagents
+    const plain = JSON.parse((await get(`/observations?session=${SESSION}`)).body).sessions[0]
+    assert.ok(!plain.agents?.some((a: { name: string }) => a.name === 'Scan code'), 'agents are per session')
   })
 
   it('serves the JSON schema of the action', async () => {

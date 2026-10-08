@@ -189,7 +189,12 @@ export class AgentStateTracker {
     if (e.type === 'agent_idle' || e.type === 'agent_complete') {
       const key = trackerKey(p.agent ?? p.name)
       if (t.agents.has(key)) t.agents.set(key, e.type === 'agent_idle' ? 'idle' : 'complete')
-    } else if (e.type === 'tool_call_start' || e.type === 'tool_call_end' || e.type === 'message' || e.type === 'agent_activity') {
+    } else if (e.type === 'agent_activity') {
+      // Teammates never get agent_complete: their lifecycle is the explicit activity of the payload
+      const key = trackerKey(p.name ?? p.agent)
+      const next = p.activity === 'done' ? 'complete' : p.activity === 'idle' ? 'idle' : p.activity === 'working' ? 'active' : undefined
+      if (next && t.agents.has(key)) t.agents.set(key, next)
+    } else if (e.type === 'tool_call_start' || e.type === 'tool_call_end' || e.type === 'message') {
       // Later work of an idle agent: it is active again
       const key = trackerKey(p.agent ?? p.name)
       if (t.agents.get(key) === 'idle') t.agents.set(key, 'active')

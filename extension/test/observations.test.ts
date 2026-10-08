@@ -143,8 +143,19 @@ describe('createObservationsAction', () => {
 })
 
 describe('AgentStateTracker', () => {
+  it('follows the explicit activity of agent_activity (teammates never get agent_complete)', () => {
+    const spawn = ev('agent_spawn', { name: 'alice', kind: 'teammate' })
+    const state = (...rest: ReturnType<typeof ev>[]) => obs(tracker(new Map([['s1', [spawn, ...rest]]]))).agents
+    assert.deepEqual(state(ev('agent_activity', { name: 'alice', activity: 'idle' })), [{ name: 'alice', state: 'idle' }])
+    assert.deepEqual(state(ev('agent_activity', { name: 'alice', activity: 'done' })), [{ name: 'alice', state: 'complete' }])
+    assert.deepEqual(state(ev('agent_activity', { name: 'alice', activity: 'idle' }), ev('agent_activity', { name: 'alice', activity: 'working' })), [{ name: 'alice', state: 'active' }])
+    // idle on an already idle agent stays idle (no revival), unknown activity or agent changes nothing
+    assert.deepEqual(state(ev('agent_activity', { name: 'alice', activity: 'idle' }), ev('agent_activity', { name: 'alice', activity: 'idle' })), [{ name: 'alice', state: 'idle' }])
+    assert.deepEqual(state(ev('agent_activity', { name: 'alice', activity: 'weird' }), ev('agent_activity', { name: 'bob', activity: 'done' })), [{ name: 'alice', state: 'active' }])
+  })
+
   it('an idle agent that works again is active again', () => {
-    for (const type of ['tool_call_start', 'tool_call_end', 'message', 'agent_activity'] as const) {
+    for (const type of ['tool_call_start', 'tool_call_end', 'message'] as const) {
       const t = tracker(new Map([['s1', [ev('agent_spawn', { name: 'main' }), ev('agent_idle', { name: 'main' }), ev(type, { agent: 'main' })]]]))
       assert.deepEqual(obs(t).agents, [{ name: 'main', state: 'active' }], type)
     }
