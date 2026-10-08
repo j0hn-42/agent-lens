@@ -42,6 +42,7 @@ import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { visibleAgents } from '@/lib/inactive-agents'
 import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
 import { drawBranchBadges } from './canvas/draw-branch-badges'
+import { graphKeyboardHelp } from '@/lib/shortcuts'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
 import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './canvas/edge-bubble-dom'
@@ -861,11 +862,7 @@ export function AgentCanvas({
         data-edge-bubble-layer=""
         className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
       />
-      <p id="graph-keyboard-help" className="sr-only">
-        Arrow keys move between nodes. On an agent, Right opens a folded branch or enters its first sub-agent,
-        Left folds an open branch or goes to the parent. Enter opens details. Plus and minus zoom, zero fits the graph.
-        Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
-      </p>
+      <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 
       <GraphA11yList
         model={a11yModel}
