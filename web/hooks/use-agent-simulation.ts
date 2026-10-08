@@ -23,6 +23,9 @@ import { snapVisualState } from './simulation/snap-visual-state'
 import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
 import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
+import { sameSessionProjects } from '@/lib/chrome-utils'
+
+const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: string }> = new Map()
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
 const UI_THROTTLE_MS = 250
@@ -79,8 +82,13 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (!layout) return
     frameRef.current = layout.syncState(frameRef.current, sessionProjectsRef.current)
   }, [])
-  // A session learns its project after its agents appeared: lay the clusters out again
+  // A session learns its project after its agents appeared: lay the clusters out again. A new Map with the
+  // same content (the session list changes on every start / end / label) must not: the sync rebuilds every
+  // node, runs its ticks on the main thread and shakes a layout that had settled (#105).
+  const syncedProjectsRef = useRef(sessionProjects)
   useEffect(() => {
+    if (sameSessionProjects(syncedProjectsRef.current ?? EMPTY_PROJECTS, sessionProjects ?? EMPTY_PROJECTS)) return
+    syncedProjectsRef.current = sessionProjects
     syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
   }, [sessionProjects, syncForceSimulation])
 
