@@ -2,7 +2,7 @@
   "name": "agent-lens",
   "displayName": "Agent Lens",
   "description": "Real-time visualization of Claude Code and Codex agent orchestration",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
   "repository": {

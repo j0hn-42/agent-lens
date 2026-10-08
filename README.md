@@ -151,6 +151,12 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
 
+## Releasing
+
+1. Bump `version` in `extension/package.json` and `app/package.json` (they must match) and add a `## <version>` entry at the top of `extension/CHANGELOG.md`. Every user-visible change (feature, fix, behaviour change) gets a line there, with its issue number, in the same PR that introduces it or at the latest when bumping.
+2. `node scripts/release-check.js` verifies the two versions and the CHANGELOG entry (it also runs in CI).
+3. Push a tag `vX.Y.Z` matching the version. The `Release` workflow builds the webview and extension, packages `agent-lens.vsix` as a workflow artifact and attaches it to a GitHub Release. It can also be run by hand (`workflow_dispatch`, never on `develop`) to get the `.vsix` artifact only. Nothing is published to the Marketplace or Open VSX and no secret is used.
+
 ## Accessibility testing
 
 Three layers run in CI (see `.github/workflows/ci.yml`):
