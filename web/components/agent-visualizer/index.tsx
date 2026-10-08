@@ -21,7 +21,7 @@ import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
 import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiPrefs } from "@/lib/ui-preferences"
-import { dockStore } from "@/lib/panel-layout"
+import { dockStore, SHEET_BREAKPOINT } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
 import { COLORS } from "@/lib/colors"
 import { LearnMoreLink } from "./learn-more-link"
@@ -479,8 +479,10 @@ export function AgentVisualizer() {
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
+  // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
+  // Conversation right after the card would hide the inspector (and closing it would drop the selection).
   useEffect(() => {
-    if (selection.selectedAgentId) openConversation()
+    if (selection.selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
   }, [selection.selectedAgentId, openConversation])
 
   // Context menu items

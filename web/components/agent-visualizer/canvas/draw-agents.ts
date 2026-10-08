@@ -397,7 +397,7 @@ function drawAgentLabel(
   }
 
   // Short status text for every agent: state never relies on colour alone (WCAG 1.4.1)
-  ctx.fillStyle = staleText ? COLORS.textMuted : color
+  ctx.fillStyle = staleText ? FRESHNESS_DRAW.staleTextColor : color
   fillLabelText(ctx, layout.statusLine, agent.x, y)
   y += gap
 
@@ -411,6 +411,11 @@ function drawAgentLabel(
     const x0 = agent.x - (bw + rw) / 2
     ctx.beginPath()
     ctx.roundRect(x0, y - 1, bw, gap + 1, 4)
+    // Dark contour like the label text: an edge crossing the pill does not merge with it
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = AGENT_DRAW.labelHaloWidth
+    ctx.strokeStyle = COLORS.void
+    ctx.stroke()
     ctx.fillStyle = ORCHESTRATOR_DRAW.accent
     ctx.fill()
     ctx.textAlign = 'left'

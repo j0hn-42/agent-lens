@@ -688,6 +688,8 @@ export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 export const FRESHNESS_DRAW = {
   /** Neutral grey of a stale node (state colours say "live") */
   staleColor: '#8a94a0',
+  /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
+  staleTextColor: '#c5ced8',
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */

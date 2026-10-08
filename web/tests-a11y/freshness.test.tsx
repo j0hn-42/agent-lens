@@ -267,7 +267,7 @@ test('canvas: a fresh node (and a never-observed one) is neither dimmed nor labe
 // Concrete drawn values (no comparison against the constants under test)
 const THINKING_COLOR = '#b79cff'
 const STALE_GREY = '#8a94a0'
-const MUTED_TEXT = '#66ccffb0'
+const STALE_TEXT = '#c5ced8' // neutral light grey, opaque: legible over the dark violet halo of a session (#145)
 
 test('canvas constants: the stale look is a grey, clearly dimmed (alpha well below 1)', () => {
   assert.equal(FRESHNESS_DRAW.staleColor, STALE_GREY)
@@ -287,11 +287,11 @@ test('canvas: a stale node draws grey strokes at alpha 0.45, a fresh one the sta
   assert.equal(freshStrokes.some(c => String(c.strokeStyle).startsWith(STALE_GREY)), false)
 })
 
-test('canvas: the stale label reads "last known state: Thinking" in the muted text colour, fully opaque', () => {
+test('canvas: the stale label reads "last known state: Thinking" in an opaque light grey (not the translucent muted blue), fully opaque', () => {
   const label = drawOne({ lastEventAt: T0 }, T0 + STALE_AFTER_MS + 1).find(c => c.fn === 'fillText' && c.text === 'last known state: Thinking')
   assert.ok(label)
   assert.equal(label.alpha, 1)
-  assert.equal(label.fillStyle, MUTED_TEXT, 'the stale label is muted text, not the state colour')
+  assert.equal(label.fillStyle, STALE_TEXT, 'the stale label is a legible grey, not the state colour')
   const freshCalls = drawOne({ lastEventAt: T0 }, T0 + STALE_AFTER_MS)
   const fresh = freshCalls.find(c => c.fn === 'fillText' && c.text === 'thinking')
   assert.ok(fresh, 'a fresh node still says its state in words')
