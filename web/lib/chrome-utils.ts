@@ -11,7 +11,7 @@ import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionIn
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
 export const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff]'
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 

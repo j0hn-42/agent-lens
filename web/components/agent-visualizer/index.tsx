@@ -1,5 +1,6 @@
 "use client"
 
+import { useThemeVersion } from '@/lib/theme'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -70,6 +71,8 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
+  // A theme switch re-renders the whole tree so every COLORS-based inline style repaints
+  useThemeVersion()
 
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.

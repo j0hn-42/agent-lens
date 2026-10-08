@@ -79,7 +79,7 @@ const STATE_PATTERN: Record<TimelineStateKey, PatternKind> = {
 
 // ─── Legend (static DOM — no perf cost) ─────────────────────────────────────
 
-const LEGEND_ITEMS: { state: TimelineStateKey; color: string }[] = [
+const legendItems = (): { state: TimelineStateKey; color: string }[] => [
   { state: 'idle', color: COLORS.idle },
   { state: 'thinking', color: COLORS.thinking },
   { state: 'tool_call', color: COLORS.tool },
@@ -529,7 +529,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
         {/* Legend (static DOM) */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
-          {LEGEND_ITEMS.map(item => (
+          {legendItems().map(item => (
             <div key={item.state} className="flex items-center gap-1">
               <div
                 className="w-3 h-3 rounded-sm"

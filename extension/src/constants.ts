@@ -84,8 +84,8 @@ export const NONCE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 
 // ─── Webview Colors ─────────────────────────────────────────────────────────
 
-/** Void background color — matches the web COLORS.void value */
-export const WEBVIEW_BG_COLOR = '#050510'
+/** Void background color of the default theme (graphite) — the colour shown before the app's own theme applies */
+export const WEBVIEW_BG_COLOR = '#121212'
 
 /** Loading screen text color (dev mode only) */
 export const WEBVIEW_LOADING_TEXT = '#66ccff80'

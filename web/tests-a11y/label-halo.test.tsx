@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
+import { COLORS } from '@/lib/colors'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function recordingCtx() {
@@ -67,6 +68,6 @@ test('the MAIN / LEAD pill of an orchestrator has a dark contour drawn before it
   const i = log.indexOf('pill')
   assert.ok(i >= 0, 'the pill is drawn')
   assert.match(log[i + 1], /^stroke:/, `contour first, got ${log.slice(i, i + 3).join(' ')}`)
-  assert.equal(log[i + 1], 'stroke:#050510', 'dark (void) contour')
+  assert.equal(log[i + 1], `stroke:${COLORS.void}`, 'dark (void) contour')
   assert.equal(log[i + 2], 'fill:#ffd166', 'then the accent fill')
 })

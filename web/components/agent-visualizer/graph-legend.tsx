@@ -12,7 +12,7 @@ import { LearnMoreLink } from './learn-more-link'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
-const CONTEXT_SEGMENTS: Array<{ label: string; color: string }> = [
+const contextSegmentList = (): Array<{ label: string; color: string }> => [
   { label: 'System prompt', color: COLORS.contextSystem },
   { label: 'User messages', color: COLORS.contextUser },
   { label: 'Tool results', color: COLORS.contextToolResults },
@@ -146,7 +146,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Context usage</Heading>
           <ul>
-            {CONTEXT_SEGMENTS.map(seg => (
+            {contextSegmentList().map(seg => (
               <Row key={seg.label} icon={<Swatch color={seg.color} />}>{seg.label}</Row>
             ))}
           </ul>

@@ -4,7 +4,8 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffec
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
+import { useThemeVersion } from '@/lib/theme'
 import { formatModelName, pluralize } from '@/lib/utils'
 import { formatTokenUsage, usageFromAgent } from '@/lib/usage'
 import { getStateLabel } from '@/lib/state-labels'
@@ -67,13 +68,13 @@ interface SessionListPanelProps {
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
 }
 
-const STATE_COLOR: Record<string, string> = {
+const STATE_COLOR: Record<string, string> = themed(() => ({
   thinking: COLORS.thinking,
   tool_calling: COLORS.tool_calling,
   waiting_permission: COLORS.waiting_permission,
   error: COLORS.error,
   complete: COLORS.complete,
-}
+}))
 
 /** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
 function StateMarker({ state }: { state: string }) {
@@ -131,6 +132,7 @@ interface AgentItemProps {
 
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
+  useThemeVersion() // memoized row: repaint on a theme switch
   const a = node.agent
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId

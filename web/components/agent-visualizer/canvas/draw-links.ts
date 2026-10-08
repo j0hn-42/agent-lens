@@ -1,5 +1,5 @@
 import type { Agent } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import {
@@ -19,12 +19,12 @@ interface LinkStyle {
   alpha: number
 }
 
-const LINK_STYLES: Record<LinkState, LinkStyle> = {
+const LINK_STYLES: Record<LinkState, LinkStyle> = themed(() => ({
   in_flight: { color: COLORS.dispatch, width: 3, dash: [9, 5], alpha: 0.95 },
   recent: { color: COLORS.return, width: 2.5, dash: [], alpha: 0.85 },
   error: { color: COLORS.error, width: 2.5, dash: [2, 4], alpha: 0.95 },
   idle: { color: COLORS.holoBase, width: 1.75, dash: [], alpha: 0.5 },
-}
+}))
 
 /** Line width grows slowly with the message count (never more than +2 px). */
 export function linkWidth(base: number, count: number): number {

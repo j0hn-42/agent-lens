@@ -10,7 +10,7 @@ import { themeBootstrapScript } from '../../extension/src/theme-bootstrap'
 const WEBVIEW_DIR = path.join(__dirname, 'webview')
 
 export const HTML_SHELL = `<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-theme="graphite">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -18,7 +18,7 @@ export const HTML_SHELL = `<!DOCTYPE html>
   <link rel="stylesheet" href="/index.css">
   <style>html, body { height: 100%; margin: 0; padding: 0; }</style>
 </head>
-<body class="font-sans antialiased" style="background: #0a0a1a;">
+<body class="font-sans antialiased" style="background: var(--lens-void, #121212);">
   <script src="/theme.js"></script>
   <div id="root" style="height: 100%;"></div>
   <script src="/index.js"></script>

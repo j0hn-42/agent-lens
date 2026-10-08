@@ -4,7 +4,7 @@ import { emptyState } from '@/lib/ui-glossary'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Agent } from '@/lib/agent-types'
 import { Z } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
 import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
@@ -18,11 +18,11 @@ interface LinkPanelProps {
   onClose: () => void
 }
 
-const TYPE_COLOR: Record<LinkPanelEntry['type'], string> = {
+const TYPE_COLOR: Record<LinkPanelEntry['type'], string> = themed(() => ({
   dispatch: COLORS.dispatch,
   return: COLORS.return,
   message: COLORS.holoBase,
-}
+}))
 
 /**
  * Detail panel of a communication link: every message of the link in chronological order, with sender,

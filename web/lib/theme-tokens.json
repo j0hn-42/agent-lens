@@ -1,0 +1,179 @@
+{
+  "name": "Agent Lens",
+  "version": 1,
+  "color": {
+    "themes": [
+      {
+        "id": "neon",
+        "name": "Neon (default)"
+      },
+      {
+        "id": "graphite",
+        "name": "Graphite"
+      },
+      {
+        "id": "paper",
+        "name": "Paper"
+      }
+    ],
+    "tokens": [
+      {
+        "name": "void",
+        "value": {
+          "neon": "#050510",
+          "graphite": "#121212",
+          "paper": "#f6f6f4"
+        },
+        "usage": "Page background behind everything, including the canvas. Text on it: `ink`, `ink-muted`."
+      },
+      {
+        "name": "surface",
+        "value": {
+          "neon": "#0a0f1e",
+          "graphite": "#1b1b1c",
+          "paper": "#ffffff"
+        },
+        "usage": "Glass cards, panels, popovers. Text on it: `ink`, `ink-muted`, status colours."
+      },
+      {
+        "name": "surface-raised",
+        "value": {
+          "neon": "#121a30",
+          "graphite": "#262627",
+          "paper": "#ececea"
+        },
+        "usage": "Hovered rows, selected rows, inputs inside a card. Text on it: `ink`, `ink-muted`."
+      },
+      {
+        "name": "edge",
+        "value": {
+          "neon": "#1c3750",
+          "graphite": "#343436",
+          "paper": "#d9d9d6"
+        },
+        "usage": "Decorative card and divider edge only. Never the sole boundary of a control: use `control-border`."
+      },
+      {
+        "name": "control-border",
+        "value": {
+          "neon": "#386e8e",
+          "graphite": "#7a7a7e",
+          "paper": "#8a8a86"
+        },
+        "usage": "Border of buttons, inputs and selects. At least 3:1 on `surface` and `void` in every theme."
+      },
+      {
+        "name": "ink",
+        "value": {
+          "neon": "#aaeeff",
+          "graphite": "#ececec",
+          "paper": "#1a1a1a"
+        },
+        "usage": "Primary text and icons on `void`, `surface`, `surface-raised`."
+      },
+      {
+        "name": "ink-muted",
+        "value": {
+          "neon": "#7fc3e0",
+          "graphite": "#a3a3a6",
+          "paper": "#5c5c58"
+        },
+        "usage": "Secondary labels, hints, empty-state copy on `void`, `surface`, `surface-raised`. 4.5:1 or more."
+      },
+      {
+        "name": "accent",
+        "value": {
+          "neon": "#66ccff",
+          "graphite": "#d4d4d6",
+          "paper": "#2b2b2a"
+        },
+        "usage": "Idle and thinking agents, primary buttons, scrubber fill, selected marker."
+      },
+      {
+        "name": "on-accent",
+        "value": {
+          "neon": "#050510",
+          "graphite": "#121212",
+          "paper": "#ffffff"
+        },
+        "usage": "Text and icons placed on a filled `accent`."
+      },
+      {
+        "name": "focus",
+        "value": {
+          "neon": "#99e0ff",
+          "graphite": "#ffffff",
+          "paper": "#000000"
+        },
+        "usage": "Focus ring, 2px solid with 2px offset. 3:1 or more on every surface."
+      },
+      {
+        "name": "ok",
+        "value": {
+          "neon": "#66ffaa",
+          "graphite": "#8fd3a8",
+          "paper": "#1a6e42"
+        },
+        "usage": "Complete state, returns, cost, added lines. Always paired with a word or icon."
+      },
+      {
+        "name": "warn",
+        "value": {
+          "neon": "#ffbb44",
+          "graphite": "#e0b25c",
+          "paper": "#8a5a00"
+        },
+        "usage": "Tool calls, waiting for permission, expensive tool results. Always paired with a word or icon."
+      },
+      {
+        "name": "danger",
+        "value": {
+          "neon": "#ff6666",
+          "graphite": "#ee8a8a",
+          "paper": "#b3261e"
+        },
+        "usage": "Errors, removed lines, unread dot. Always paired with a word or icon."
+      },
+      {
+        "name": "delegate",
+        "value": {
+          "neon": "#cc88ff",
+          "graphite": "#b9a9d6",
+          "paper": "#6b3fb0"
+        },
+        "usage": "Dispatch edges, reasoning share of context, teammate default."
+      },
+      {
+        "name": "info",
+        "value": {
+          "neon": "#22d3ee",
+          "graphite": "#9fb7c4",
+          "paper": "#0b6a86"
+        },
+        "usage": "MCP tool calls and neutral informational marks."
+      },
+      {
+        "name": "context-system",
+        "value": {
+          "neon": "#7777a0",
+          "graphite": "#8c8c90",
+          "paper": "#7a7a76"
+        },
+        "usage": "Fixed system overhead slice in the context bar. Non-text, 3:1 or more."
+      }
+    ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-card",
+        "value": {
+          "neon": "0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08)",
+          "graphite": "0 1px 2px rgba(0, 0, 0, 0.4)",
+          "paper": "0 1px 2px rgba(0, 0, 0, 0.08)"
+        },
+        "usage": "Glass card elevation. Neon adds the cyan top highlight; Graphite and Paper stay flat."
+      }
+    ]
+  }
+}

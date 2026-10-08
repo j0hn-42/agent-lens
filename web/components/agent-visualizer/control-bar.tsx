@@ -3,6 +3,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, memo } from 'react'
 import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
+import { useThemeVersion } from '@/lib/theme'
 import { formatDuration, pluralize } from '@/lib/utils'
 import { FOCUS_RING, blurFlagAction, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 
@@ -68,6 +69,7 @@ const EventMarkers = memo(function EventMarkers({ events, totalDuration, classNa
   /** Pass events.length to bust memo when array is mutated in place */
   eventCount?: number
 }) {
+  useThemeVersion() // memoized: repaint on a theme switch
   // Down-sample to MAX_SCRUBBER_DOTS evenly spaced events when list is large
   const visible = events.length > MAX_SCRUBBER_DOTS
     ? Array.from({ length: MAX_SCRUBBER_DOTS }, (_, i) => events[Math.floor(i * events.length / MAX_SCRUBBER_DOTS)])

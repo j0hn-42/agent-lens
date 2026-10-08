@@ -12,6 +12,12 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
 
+## Themes
+
+The **Theme** selector in the top bar (View controls) offers three themes: **Graphite** (the default, neutral dark), **Neon** (the original cyan look) and **Paper** (neutral light). The choice is stored in the browser (`agent-lens-theme`) and applied before the first paint. `?theme=neon|graphite|paper` picks a theme when nothing is stored; the old values `dark` and `light` still work (graphite and paper).
+
+For contributors: the colours are defined by role in `web/lib/theme-tokens.json` (copy of the design tokens) and generated into `--lens-<role>` custom properties per `[data-theme]` in `web/app/themes.css` (`pnpm run gen:themes`). The canvas cannot read `var()`, so `COLORS` (`web/lib/colors.ts`) is rebuilt from the computed properties on every theme change: read `COLORS.<key>` when you draw or render, never cache it at module load (use `themed(() => ...)` for a module-level table). Colour never carries a state alone: a word or an icon always goes with it.
+
 ## Honest values
 
 | You see | It means |

@@ -1,244 +1,72 @@
 /**
- * Holographic color palette and role color definitions.
+ * Color palette and role color definitions.
+ *
+ * COLORS follows the active theme (neon | graphite | paper). Its API is unchanged: callers read
+ * `COLORS.<key>` at draw/render time. The canvas 2D context does not understand var(), so the values are
+ * concrete colour strings, rebuilt from the `--lens-<role>` custom properties computed on :root
+ * (getComputedStyle) by `refreshColors()` whenever the theme changes (see lib/theme.ts). Read COLORS when
+ * you draw or render, never cache a value at module load: it would go stale on a theme switch.
  *
  * Extracted from agent-types.ts to keep that file focused on type definitions.
  * All colors are re-exported from agent-types.ts for backward compatibility.
  */
 
 import type { AgentState, ContextBreakdown } from './agent-types'
+import { currentThemeId, readTokens } from './theme-dom'
+import { paletteFor, type ColorKey } from './theme-palette'
+import { DEFAULT_THEME, type ThemeId } from './theme-tokens'
 
-// Holographic Color Palette
-export const COLORS = {
-  // Background
-  void: '#050510',
-  hexGrid: '#0d0d1f',
+export type { ColorKey } from './theme-palette'
 
-  // Primary Hologram
-  holoBase: '#66ccff',
-  holoBright: '#aaeeff',
-  holoHot: '#ffffff',
+/**
+ * Live palette (mutated in place by refreshColors so imports stay valid). It starts on the default theme so the
+ * first client render of a server-rendered page matches the server markup; `syncColors()` (called by the theme
+ * hooks of lib/theme.ts before any component paints) moves it to the theme the document actually shows.
+ */
+export const COLORS: { -readonly [K in ColorKey]: string } = paletteFor(DEFAULT_THEME)
 
-  // Agent States
-  idle: '#66ccff',
-  thinking: '#66ccff',
-  tool_calling: '#ffbb44',
-  complete: '#66ffaa',
-  error: '#ff5566',
-  paused: '#888899',
-  waiting_permission: '#ffaa33',
+/** Theme COLORS is currently built for */
+let paletteTheme: ThemeId = DEFAULT_THEME
 
-  // Edge/Particle Colors
-  dispatch: '#cc88ff',
-  return: '#66ffaa',
-  tool: '#ffbb44',
-  /** MCP tool calls (cyan, distinct from the amber of native tools) */
-  mcp: '#22d3ee',
-  message: '#66ccff',
+/** Rebuild COLORS for a theme (default: the one the document shows). Returns COLORS. */
+export function refreshColors(id: ThemeId = currentThemeId()): typeof COLORS {
+  Object.assign(COLORS, paletteFor(id, readTokens(id)))
+  paletteTheme = id
+  return COLORS
+}
 
-  // Context breakdown colors
-  contextSystem: '#7777a0',     // gray-blue — fixed overhead (>= 3:1 non-text)
-  contextUser: '#66ccff',       // blue — user input
-  contextToolResults: '#ffbb44', // amber — expensive!
-  contextReasoning: '#cc88ff',  // purple — agent thinking
-  contextSubagent: '#66ffaa',   // green — child agent results
+/** Rebuild COLORS only when the document shows another theme than the one it was built for. */
+export function syncColors(): void {
+  const id = currentThemeId()
+  if (id !== paletteTheme) refreshColors(id)
+}
 
-  // UI Chrome
-  nodeInterior: 'rgba(10, 15, 40, 0.5)',
-  textPrimary: '#aaeeff',
-  textDim: '#66ccffa0',      // >= 4.5:1 text on void/glass — headings of empty states, secondary labels
-  textMuted: '#66ccffb0',    // >= 4.5:1 text — muted body copy, brighter than textDim
-  textHint: 'rgba(170, 238, 255, 0.6)', // >= 4.5:1 text — hints below an empty-state heading (second tier)
-
-  // Glass card
-  glassBg: 'rgba(10, 15, 30, 0.7)',
-  controlBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — border of buttons/inputs that are real controls (glassBorder is decoration only)
-  glassBorder: 'rgba(102, 204, 255, 0.22)', // decorative card edge only (not a control boundary, no 3:1 requirement)
-  glassHighlight: 'rgba(100, 200, 255, 0.08)',
-
-  // Holo background/border opacities (avoids scattered rgba literals)
-  holoBg03: 'rgba(100, 200, 255, 0.03)',
-  holoBg05: 'rgba(100, 200, 255, 0.05)',
-  holoBg10: 'rgba(100, 200, 255, 0.1)',
-  holoBorder06: 'rgba(100, 200, 255, 0.06)',
-  holoBorder08: 'rgba(100, 200, 255, 0.08)',
-  holoBorder10: 'rgba(100, 200, 255, 0.1)',
-  holoBorder12: 'rgba(100, 200, 255, 0.12)',
-
-  // Panel chrome
-  panelBg: 'rgba(8, 12, 24, 0.85)',
-  panelSeparator: 'rgba(100, 200, 255, 0.04)',
-
-  // Toggle button states
-  toggleActive: 'rgba(100, 200, 255, 0.15)',
-  toggleInactive: 'rgba(100, 200, 255, 0.05)',
-  toggleBorder: 'rgba(102, 204, 255, 0.5)',   // >= 3:1 non-text — inactive toggle boundary
-  toggleBorderActive: '#66ccff',              // >= 3:1 non-text — pressed toggle, fully opaque so it reads stronger than toggleBorder
-
-  // Non-text tracks (scrubber, progress bars), >= 3:1 on glass/void
-  controlTrack: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — scrubber/progress track
-
-  // Live indicator
-  liveDot: '#ff4444',
-  liveText: '#ff6666',
-  liveResumeBg: 'rgba(255, 68, 68, 0.15)',
-  liveResumeBorder: 'rgba(255, 68, 68, 0.7)', // >= 3:1 non-text — live-resume button boundary
-
-  // Discovery type colors
-  discoveryFile: '#66ccff',
-  discoveryPattern: '#cc88ff',
-  discoveryFinding: '#66ffaa',
-  discoveryCode: '#ffbb44',
-
-  // Session tab states
-  tabSelectedBg: 'rgba(100, 200, 255, 0.15)',
-  tabInactiveBg: 'rgba(100, 200, 255, 0.03)',
-  tabSelectedBorder: '#66ccff',                     // >= 3:1 non-text — selected tab, fully opaque (use with tabSelectedBg + 2px border)
-  tabInactiveBorder: 'rgba(102, 204, 255, 0.5)',    // >= 3:1 non-text — inactive tab boundary (1px)
-  tabClose: '#ff6688',
-
-  // Role colors (message bubbles)
-  roleAssistantBg: 'rgba(80, 160, 220, 0.12)',
-  roleAssistantBgSelected: 'rgba(80, 160, 220, 0.2)',
-  roleAssistantText: '#a0d4f0',
-  roleThinkingBg: 'rgba(140, 100, 200, 0.12)',
-  roleThinkingBgSelected: 'rgba(140, 100, 200, 0.2)',
-  roleThinkingText: '#c0a0e0',
-  roleUserBg: 'rgba(200, 160, 80, 0.12)',
-  roleUserBgSelected: 'rgba(200, 160, 80, 0.2)',
-  roleUserText: '#e0c888',
-
-  // Result/success
-  resultBg: 'rgba(102, 255, 170, 0.05)',
-  resultBorder: 'rgba(102, 255, 170, 0.1)',
-
-  // Unread indicator
-  unreadDot: '#ff6666',
-
-  // Play button
-  playBtnBg: 'rgba(102, 204, 255, 0.12)',
-  playBtnActiveBg: 'rgba(102, 204, 255, 0.2)',
-  playBtnBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — play button boundary
-  playBtnGlow: '0 0 12px rgba(102, 204, 255, 0.15)',
-
-  // Scrubber
-  // Both stops >= 3:1 against controlTrack (the fill is painted over the track); tested in scripts/contrast.test.ts
-  scrubberFill: 'linear-gradient(90deg, rgba(170,238,255,0.8), rgba(170,238,255,0.95))',
-  scrubberHeadGlow: '0 0 10px rgba(102, 204, 255, 0.6), 0 0 20px rgba(102, 204, 255, 0.2)',
-  reviewBtnBorder: 'rgba(102, 204, 255, 0.5)', // >= 3:1 non-text — review button boundary
-
-  // Cost overlay
-  costActiveBg: 'rgba(102, 255, 170, 0.15)',
-
-  // Canvas drawing — bubble base colors (partial rgba, alpha appended at draw time)
-  bubbleThinkingBase: 'rgba(140, 100, 200,',
-  bubbleUserBase: 'rgba(200, 160, 80,',
-  bubbleAssistantBase: 'rgba(80, 160, 220,',
-
-  // Canvas drawing — tool card backgrounds (partial rgba, alpha appended at draw time)
-  toolCardErrorBase: 'rgba(40, 10, 15,',
-  toolCardSelectedBase: 'rgba(100, 200, 255,',
-  toolCardBase: 'rgba(10, 15, 30,',
-
-  // Canvas drawing — agent/tool card backgrounds
-  cardBgDark: 'rgba(5, 5, 16, 0.8)',
-  cardBg: 'rgba(10, 15, 30, 0.6)',
-  cardBgSelected: 'rgba(10, 15, 30, 0.8)',
-  cardBgError: 'rgba(40, 10, 15, 0.8)',
-  cardBgSelectedHolo: 'rgba(100, 200, 255, 0.15)',
-  cardBgFaintOverlay: 'rgba(0, 0, 0, 0.01)',
-
-  // Active tool indicator (detail card)
-  mcpIndicatorBg: 'rgba(34, 211, 238, 0.1)',
-  mcpIndicatorBorder: 'rgba(34, 211, 238, 0.25)',
-  toolIndicatorBg: 'rgba(255, 187, 68, 0.1)',
-  toolIndicatorBorder: 'rgba(255, 187, 68, 0.2)',
-  toolIndicatorText: '#ffbb44',
-
-  // Canvas drawing — cost labels
-  costText: '#66ffaa',
-  costTextDim: '#66ffaaa0',
-  costPillBg: 'rgba(10, 20, 40, 0.75)',
-  costPillStroke: 'rgba(102, 255, 170, 0.3)',
-
-  // Canvas drawing — cost panel bar fills
-  barFillMain: 'rgba(102, 204, 255, 0.15)',
-  barFillSub: 'rgba(204, 136, 255, 0.15)',
-
-  // ─── Transcript / message feed colors ───────────────────────────────────────
-
-  // User messages
-  userMsgBg: 'rgba(255, 187, 68, 0.06)',
-  userMsgBorder: 'rgba(255, 187, 68, 0.12)',
-  userLabel: '#ffbb44a0',
-  userText: '#ffcc66',
-
-  // Assistant messages
-  assistantLabel: '#66ccffa0',
-  assistantText: '#aaeeff',
-
-  // Thinking messages
-  thinkingBgExpanded: 'rgba(180, 140, 255, 0.06)',
-  thinkingBgCollapsed: 'rgba(180, 140, 255, 0.03)',
-  thinkingBorder: 'rgba(180, 140, 255, 0.08)',
-  thinkingLabel: '#bb99ffc0',
-  thinkingArrow: '#bb99ffc0',
-  thinkingPreview: '#bb99ff',
-  thinkingTextExpanded: '#bb99ffc0',
-  thinkingBorderLeft: 'rgba(180, 140, 255, 0.15)',
-
-  // Tool call messages
-  toolCallBg: 'rgba(255, 187, 68, 0.05)',
-  toolCallBorder: 'rgba(255, 187, 68, 0.1)',
-
-  // Tool result messages
-  bashResultBg: 'rgba(0,0,0,0.25)',
-  toolResultBg: 'rgba(102, 255, 170, 0.04)',
-  bashResultBorder: 'rgba(255, 187, 68, 0.1)',
-  toolResultBorder: 'rgba(102, 255, 170, 0.08)',
-  bashResultText: '#aaeeffa0',
-  toolResultText: '#66ffaaa0',
-  textFaint: '#aaeeffa0', // >= 4.5:1 text — faint/tertiary text; use instead of text + opacity
-
-  // Search highlight
-  searchHighlightBg: 'rgba(255,187,68,0.3)',
-
-  // ─── Diff / code block colors ───────────────────────────────────────────────
-
-  codeBlockBg: 'rgba(0,0,0,0.3)',
-  diffRemoved: '#ff6666',
-  diffRemovedBg: 'rgba(255,80,80,0.08)',
-  diffAdded: '#66ff88',
-  diffAddedBg: 'rgba(80,255,120,0.08)',
-
-  // ─── Tool content colors ────────────────────────────────────────────────────
-
-  filePathActive: '#66ccff',
-  filePathInactive: '#66ccffa0',
-  todoCompleted: '#66ffaa',
-  todoCompletedText: '#66ffaaa0', // >= 4.5:1 text as rendered — completed todo content, render WITHOUT an extra opacity
-  todoPending: '#66ccffa0', // >= 4.5:1 as rendered — pending todo icon, render WITHOUT an extra opacity
-  contentDim: '#aaeeffa0',
-  searchIcon: '#66ccff60',
-
-  // ─── Panel header / chrome text ─────────────────────────────────────────────
-
-  panelLabel: '#66ccffa0',
-  panelLabelDim: '#66ccffa0',
-  scrollBtnText: '#66ccff',
-  scrollbarThumb: 'rgba(102,204,255,0.5)', // >= 3:1 non-text — scrollbar thumb (mirrors globals.css)
-
-  // Status dot rings (non-color-only state cue)
-  statusDotRing: '#aaeeff',      // >= 3:1 non-text — light ring around a status dot on void/glass
-  statusDotRingInner: '#050510', // dark gap between dot and ring; ring-vs-gap contrast >= 3:1
-} as const
+/**
+ * A lookup table of colours that follows the theme: `themed(() => ({ ... COLORS.x ... }))` rebuilds the
+ * table on each read, so a module-level table never goes stale after a theme switch.
+ */
+export function themed<T extends object>(factory: () => T): T {
+  return new Proxy({} as T, {
+    get: (_t, key) => Reflect.get(factory(), key),
+    has: (_t, key) => Reflect.has(factory(), key),
+    ownKeys: () => Reflect.ownKeys(factory()),
+    getOwnPropertyDescriptor: (_t, key) => {
+      const d = Reflect.getOwnPropertyDescriptor(factory(), key)
+      return d ? { ...d, configurable: true } : undefined
+    },
+  })
+}
 
 // ─── Role Colors (message feed & bubbles) ───────────────────────────────────
 
-export const ROLE_COLORS: Record<string, { bg: string; bgSelected: string; text: string; label: string }> = {
-  assistant: { bg: COLORS.roleAssistantBg, bgSelected: COLORS.roleAssistantBgSelected, text: COLORS.roleAssistantText, label: 'CLAUDE' },
-  thinking:  { bg: COLORS.roleThinkingBg,  bgSelected: COLORS.roleThinkingBgSelected,  text: COLORS.roleThinkingText,  label: 'THINKING' },
-  user:      { bg: COLORS.roleUserBg,       bgSelected: COLORS.roleUserBgSelected,       text: COLORS.roleUserText,       label: 'USER' },
-} as const
+type RoleColor = { bg: string; bgSelected: string; text: string; label: string }
+
+/** Getters, not snapshots: the colours follow the theme every time a role is read. */
+export const ROLE_COLORS: Record<string, RoleColor> = {
+  get assistant(): RoleColor { return { bg: COLORS.roleAssistantBg, bgSelected: COLORS.roleAssistantBgSelected, text: COLORS.roleAssistantText, label: 'CLAUDE' } },
+  get thinking(): RoleColor { return { bg: COLORS.roleThinkingBg, bgSelected: COLORS.roleThinkingBgSelected, text: COLORS.roleThinkingText, label: 'THINKING' } },
+  get user(): RoleColor { return { bg: COLORS.roleUserBg, bgSelected: COLORS.roleUserBgSelected, text: COLORS.roleUserText, label: 'USER' } },
+}
 
 // ─── Color Helper Functions ──────────────────────────────────────────────────
 
