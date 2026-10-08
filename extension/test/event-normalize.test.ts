@@ -4,7 +4,7 @@
  * throw, counters must be exact, caps must hold.
  */
 import './helpers/alias-vscode'
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import * as fs from 'node:fs'
@@ -378,7 +378,9 @@ describe('corpus: Claude JSONL', () => {
     }
   })
 
-  it('10k children in one line: the spawns and dispatches stay under the cap and the drops are counted', async () => {
+  it('10k children in one line: the spawns and dispatches stay under the cap and the drops are counted', () => {
+    mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    try {
     const { parser, events, feed } = transcriptHarness()
     const blocks = Array.from({ length: 10_000 }, (_, i) => ({ type: 'tool_use', id: 'tu' + i, name: 'Agent', input: { name: 'c' + i, description: 'd' + i, prompt: 'p' } }))
     assert.doesNotThrow(() => feed(claudeLine(blocks)))
@@ -390,11 +392,12 @@ describe('corpus: Claude JSONL', () => {
     assert.equal(stats.droppedByCap, 10_000 - NORM_MAX_CHILDREN_PER_AGENT)
     assert.equal(isTruncated(stats), true)
     // the UI is told: once the throttle interval has passed, the final counters are published
-    await new Promise(r => setTimeout(r, NORM_STATS_MIN_INTERVAL_MS + 300))
+    mock.timers.tick(NORM_STATS_MIN_INTERVAL_MS)
     const reported = events.filter(e => e.type === 'normalization_stats').pop()
     assert.ok(reported)
     assert.equal(reported.payload.droppedByCap, stats.droppedByCap)
     assertClean(events)
+    } finally { mock.timers.reset() }
   })
 
   it('a line that makes processing throw is contained and counted as malformed', () => {
