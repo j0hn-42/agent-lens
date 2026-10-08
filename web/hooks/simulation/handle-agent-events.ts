@@ -13,6 +13,7 @@ import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
+import { advanceActiveTime } from '../../lib/active-time'
 import { mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 export function handleAgentSpawn(
@@ -163,7 +164,15 @@ export function handleAgentComplete(
   const name = agentKeyOf(sessionId, idString(payload.name))
   const agent = state.agents.get(name)
   if (agent && agent.state !== 'complete') {
-    state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
+    // An inactivity timeout is not a witnessed end: the work stopped at the last event heard from the agent
+    const lastHeard = asBoolean(payload.inactivity) && agent.activeSince !== undefined && agent.lastEventAt !== undefined
+      ? advanceActiveTime({ activeMs: agent.activeMs, activeSince: agent.activeSince }, false, Math.max(agent.lastEventAt, agent.activeSince))
+      : {}
+    const { activeSince: _since, ...settled } = agent
+    state.agents.set(name, {
+      ...(Object.keys(lastHeard).length ? settled : agent), ...lastHeard,
+      state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
+    })
 
     const entry = state.timelineEntries.get(name)
     if (entry) {
@@ -225,7 +234,11 @@ export function handleAgentIdle(
 ): void {
   const idleName = agentKeyOf(sessionId, idString(payload.name))
   const idleAgent = state.agents.get(idleName)
-  if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+  if (!idleAgent) return
+  // End of a turn: the agent is waiting for the next prompt, not working (its active span closes)
+  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+    state.agents.set(idleName, { ...idleAgent, state: 'idle', currentTool: undefined })
+  } else if (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission') {
     state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
   }
 }

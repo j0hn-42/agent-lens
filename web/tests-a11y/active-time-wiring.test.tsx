@@ -133,3 +133,43 @@ test('a spawned agent has no reported tokens until an event reports them (unknow
   send(view, [{ sessionId: 's1', time: 2, type: 'context_update', payload: { agent: 'alpha', tokens: 0 } }])
   assert.equal(byName(view, 'alpha').tokensReported, true, 'a reported 0 is a real 0')
 })
+
+const turnEnd = (name: string, time: number): SimulationEvent =>
+  ({ sessionId: 's1', time, type: 'agent_idle', payload: { name, turnEnd: true } })
+
+test('end of turn (#107): the orchestrator is paused, the reading time after it is not counted', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  advance(4_000)
+  send(view, [turnEnd('alpha', 2)])
+  const paused = byName(view, 'alpha')
+  assert.equal(paused.state, 'idle', 'a finished turn is a pause')
+  assert.equal(paused.activeSince, undefined, 'span closed')
+  const closed = paused.activeMs!
+  assert.ok(closed >= 4_000 && closed < 6_000, `about 4 s of work, got ${closed}`)
+  advance(40 * 60_000)
+  assert.equal(byName(view, 'alpha').activeMs, closed, 'the reading pause adds nothing')
+})
+
+test('an agent_idle without turnEnd keeps the agent working (permission answered: back to thinking)', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  send(view, [{ sessionId: 's1', time: 2, type: 'agent_idle', payload: { name: 'alpha' } }])
+  assert.equal(byName(view, 'alpha').state, 'thinking')
+  assert.ok(byName(view, 'alpha').activeSince !== undefined)
+})
+
+test('the inactivity completion closes the span at the last event, not at its own reception (#107)', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  advance(2_000)
+  send(view, [{ sessionId: 's1', time: 2, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }])
+  advance(5 * 60_000)
+  send(view, [{ ...complete('alpha', 3), payload: { name: 'alpha', inactivity: true } }])
+  const a = byName(view, 'alpha')
+  assert.equal(a.state, 'complete')
+  assert.ok(a.activeMs! >= 2_000 && a.activeMs! < 4_000, `about 2 s of work, not 5 minutes, got ${a.activeMs}`)
+})

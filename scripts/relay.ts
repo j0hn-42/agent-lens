@@ -275,7 +275,7 @@ function resetInactivityTimer(sessionId: string) {
       broadcastEvent({
         time: elapsed(sessionId),
         type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME },
+        payload: { name: ORCHESTRATOR_NAME, inactivity: true },
         sessionId,
       })
       broadcastSessionLifecycle('ended', sessionId, session.label)
