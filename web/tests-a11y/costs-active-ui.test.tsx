@@ -53,7 +53,7 @@ function panel(agents: Map<string, never>, clock: FreshnessClock) {
     <SessionListPanel
       visible onClose={noop} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set(['s1', 's2'])}
       onSelectSession={noop} onCloseSession={noop} agents={agents as never} selectedAgentId={null} onSelectAgent={noop}
-      teams={new Map([['T', { members: [] } as never]])} now={10_000} freshnessClock={clock}
+      teams={new Map([['T', { members: [{ name: 'main' }] } as never]])} now={10_000} freshnessClock={clock}
     />
   )
 }
