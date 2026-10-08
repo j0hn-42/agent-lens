@@ -119,6 +119,22 @@
 html[data-theme="light"] { color-scheme: light; }
 html[data-theme="dark"] { color-scheme: dark; }
 
+/* ANSI palette of Bash output (web/lib/ansi.ts): >= 4.5:1 on the result background, checked in scripts/ansi.test.ts */
+:root {
+  --ansi-0: #9aa0b4; --ansi-1: #ff6b7a; --ansi-2: #5fdc8f; --ansi-3: #f0c24b;
+  --ansi-4: #6fa8ff; --ansi-5: #d68cff; --ansi-6: #4fd8e0; --ansi-7: #d8dbe6;
+  --ansi-8: #b0b6c8; --ansi-9: #ff8e9a; --ansi-10: #86efac; --ansi-11: #ffd866;
+  --ansi-12: #93bfff; --ansi-13: #e3a9ff; --ansi-14: #7ae8ee; --ansi-15: #ffffff;
+  --ansi-fg: #e6e9f2; --ansi-bg: #07080f;
+}
+html[data-theme="light"] {
+  --ansi-0: #2d3340; --ansi-1: #9f1128; --ansi-2: #0a5f2c; --ansi-3: #6b4500;
+  --ansi-4: #1a3fb0; --ansi-5: #7a22b0; --ansi-6: #08596a; --ansi-7: #374151;
+  --ansi-8: #374151; --ansi-9: #b01030; --ansi-10: #14532d; --ansi-11: #5f3d00;
+  --ansi-12: #1b3a99; --ansi-13: #6b21a8; --ansi-14: #0a4f5f; --ansi-15: #1f2937;
+  --ansi-fg: #111827; --ansi-bg: #ffffff;
+}
+
 @layer base {
   :focus-visible {
     outline: 2px solid #aaeeff;
