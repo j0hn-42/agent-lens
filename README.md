@@ -48,7 +48,7 @@ Open http://localhost:3000 and start a Claude Code session in another terminal â
 
 ### VS Code Extension
 
-The extension is not published on a marketplace. Build the `.vsix` from source and install it:
+Build the `.vsix` from source and install it:
 
 ```bash
 pnpm i

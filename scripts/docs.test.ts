@@ -46,7 +46,7 @@ test('README gives a reproducible extension install, with compatibility (#134)',
   assert.match(readme, /pnpm --filter agent-lens run package/)
   assert.match(readme, /1\.85/)
   for (const ide of ['Cursor', 'Windsurf']) assert.ok(readme.includes(ide))
-  assert.ok(!/marketplace\.visualstudio\.com|open-vsx\.org/i.test(readme), 'no Marketplace link: the extension is not published there')
+  assert.ok(!/not published/i.test(readme), 'no unproven claim about marketplace publication')
   assert.match(readme, /\| `pnpm --filter agent-lens run package` \|/, 'package script is in the scripts table')
   assert.equal(JSON.parse(read('extension/package.json')).scripts.package, 'vsce package')
 })
