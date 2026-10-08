@@ -18,10 +18,8 @@ import axe from 'axe-core'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
-import { SessionTranscriptPanel } from '@/components/agent-visualizer/session-transcript-panel'
-import { MessageFeedPanel } from '@/components/agent-visualizer/message-feed-panel'
+import { ConversationPanel, type ConversationPanelProps } from '@/components/agent-visualizer/conversation-panel'
 import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention-panel'
-import { AgentChatPanel } from '@/components/agent-visualizer/chat-panel'
 import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup'
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
@@ -98,7 +96,7 @@ const topBarProps: TopBarProps = {
   sessions, selectedSessionId: 's1', sessionsWithActivity: new Set(['s2']),
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 1000, totalCost: 0.12,
-  showFileAttention: false, showTranscript: false, showCostOverlay: false, showTimeline: false, isMuted: false,
+  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
@@ -175,36 +173,56 @@ test('panel: sessions list with a team and runtime badges', async () => {
   await check('session-list-panel-team', container)
 })
 
-test('panel: transcript', async () => {
-  const { container } = render(
-    <SessionTranscriptPanel visible conversation={messages} onClose={noop} />,
+test('panel: sessions list grouped by project', async () => {
+  const grouped = [
+    { ...sessions[0], projectId: 'pa', projectName: 'alpha' },
+    { ...sessions[1], projectId: 'pb', projectName: 'beta' },
+  ]
+  const { container, getByText } = render(
+    <SessionListPanel
+      visible onClose={noop} sessions={grouped} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      onSelectSession={noop} onCloseSession={noop} agents={listAgents} selectedAgentId={null} onSelectAgent={noop}
+      now={10_000}
+    />,
   )
-  await check('transcript', container)
+  assert.ok(getByText('alpha') && getByText('beta'), 'one heading per project')
+  await check('session-list-panel-projects', container)
 })
 
-test('panel: message feed (collapsed and expanded)', async () => {
+// The panel is controlled by its parent (open / pill): this wrapper plays the part of the shell.
+function Conversation(props: Omit<ConversationPanelProps, 'open' | 'onOpen' | 'onClose'> & { initialOpen?: boolean }) {
+  const { initialOpen = false, ...rest } = props
+  const [open, setOpen] = React.useState(initialOpen)
+  return <ConversationPanel {...rest} open={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />
+}
+
+test('panel: conversation (collapsed pill and open panel)', async () => {
   const agents = new Map<string, Agent>([['a1', agent]])
   const conversations = new Map<string, ConversationMessage[]>([['a1', messages]])
   const { container } = render(
-    <MessageFeedPanel conversations={conversations} agents={agents} onAgentClick={noop} selectedAgentId={null} />,
+    <Conversation conversations={conversations} agents={agents} onAgentClick={noop} selectedAgentId={null} />,
   )
-  await check('feed-collapsed', container)
+  await check('conversation-collapsed', container)
   const pill = container.querySelector('button')
-  assert.ok(pill, 'feed exposes a button to expand it')
+  assert.ok(pill, 'the pill is a button that opens the panel')
   await act(async () => { fireEvent.click(pill) })
-  await check('feed-expanded', container)
+  assert.ok(container.querySelector('[role="log"]'), 'the open panel lists the messages')
+  await check('conversation-open', container)
+})
+
+test('panel: conversation open from the start, including tool calls (transcript and agent preset)', async () => {
+  const agents = new Map<string, Agent>([['a1', agent]])
+  const conversations = new Map<string, ConversationMessage[]>([['a1', messages]])
+  const { container } = render(
+    <Conversation initialOpen conversations={conversations} agents={agents} onAgentClick={noop} selectedAgentId="a1" />,
+  )
+  assert.ok(container.textContent?.includes('Read'), 'tool calls are listed')
+  await check('conversation-agent-preset', container)
 })
 
 test('panel: file attention', async () => {
   const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} onOpenFile={noop} />)
   await check('file-attention', container)
-})
-
-test('panel: chat', async () => {
-  const { container } = render(
-    <AgentChatPanel visible agentName="main" agentState="thinking" conversation={messages} onClose={noop} />,
-  )
-  await check('chat', container)
 })
 
 test('popup: tool detail', async () => {
@@ -283,11 +301,11 @@ test('panel: link panel (collapsed and expanded long message)', async () => {
   await check('link-panel-expanded', container)
 })
 
-test('panel: message feed with links and teams', async () => {
+test('panel: conversation with links and teams', async () => {
   const conversations = new Map<string, ConversationMessage[]>([['a1', messages]])
   const links = new Map<string, AgentLink>([[teamLink.id, teamLink]])
   const { container } = render(
-    <MessageFeedPanel
+    <Conversation
       conversations={conversations} agents={teamAgents} onAgentClick={noop} selectedAgentId={null}
       links={links} droppedMessages={new Map([['a1', 3]])} teams={teamMap}
     />,
@@ -295,7 +313,7 @@ test('panel: message feed with links and teams', async () => {
   const pill = container.querySelector('button')
   assert.ok(pill)
   await act(async () => { fireEvent.click(pill) })
-  await check('feed-teams', container)
+  await check('conversation-teams', container)
 })
 
 test('canvas chrome: graph legend (closed and open, with a team)', async () => {

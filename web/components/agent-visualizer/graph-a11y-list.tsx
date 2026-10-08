@@ -1,8 +1,11 @@
 'use client'
 
+import { emptyState } from '@/lib/ui-glossary'
 import { useCallback, type KeyboardEvent } from 'react'
 import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './canvas/a11y-model'
 import type { NavNode } from './canvas/keyboard-nav'
+import type { LinkMessageItem } from './canvas/edge-bubble-set'
+import { clusterNoun, clusterNounLower } from './canvas/cluster-model'
 
 interface GraphA11yListProps {
   model: A11yModel
@@ -16,6 +19,8 @@ interface GraphA11yListProps {
   onDiscoveryClick?: (discoveryId: string | null) => void
   /** Open the link panel for a communication link */
   onLinkClick?: (linkId: string) => void
+  /** Recent messages of the links (the same ones the bubbles on the edges show), each opening the link panel */
+  linkMessages?: LinkMessageItem[]
   /** Id of the link whose panel is open (aria-current) */
   selectedLinkId?: string | null
   /** Zoom to a session / team cluster (same action as a click on its halo label) */
@@ -34,7 +39,7 @@ interface GraphA11yListProps {
  */
 export function GraphA11yList({
   model, communications, announcements, focusedNode,
-  onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
+  onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, linkMessages, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
 }: GraphA11yListProps) {
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
@@ -93,7 +98,7 @@ export function GraphA11yList({
       </button>
       <p>
         {agent.orchestrator === 'lead' ? 'Orchestrator, lead of the team. ' : agent.orchestrator === 'main' ? 'Orchestrator, main agent of the session. ' : ''}
-        {agent.teamName ? `Teammate in team ${agent.teamName}. ` : ''}
+        {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
         {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
       </p>
@@ -138,13 +143,13 @@ export function GraphA11yList({
         <h2>Agent graph outline</h2>
         <p>Use arrow keys to move between items and Enter to open details.</p>
         {model.agents.length === 0 ? (
-          <p>No agents yet.</p>
+          <p>{emptyState('agents')}</p>
         ) : (
           <>
             {ungrouped.length > 0 && <ul>{ungrouped.map(agent => renderAgent(agent))}</ul>}
             {groups.map(group => (
               <div key={group.cluster.key}>
-                <h3>{group.cluster.kind === 'team' ? 'Team' : 'Session'} {group.cluster.title}</h3>
+                <h3>{clusterNoun(group.cluster)} {group.cluster.title}</h3>
                 <p>{group.cluster.text}</p>
                 {onClusterClick && (
                   <button
@@ -154,10 +159,10 @@ export function GraphA11yList({
                     aria-current={group.cluster.key === selectedClusterKey ? 'true' : undefined}
                     onClick={() => onClusterClick(group.cluster.key)}
                   >
-                    Zoom to {group.cluster.kind === 'team' ? 'team' : 'session'} {group.cluster.title}
+                    Zoom to {clusterNounLower(group.cluster)} {group.cluster.title}
                   </button>
                 )}
-                <ul aria-label={`Agents of ${group.cluster.kind === 'team' ? 'team' : 'session'} ${group.cluster.title}`}>
+                <ul aria-label={`Agents of ${clusterNounLower(group.cluster)} ${group.cluster.title}`}>
                   {group.agents.map(agent => renderAgent(agent))}
                 </ul>
               </div>
@@ -193,6 +198,22 @@ export function GraphA11yList({
                 </li>
               ))}
             </ul>
+            {linkMessages && linkMessages.length > 0 && (
+              <ul aria-label="Link messages">
+                {linkMessages.map(item => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      data-graph-node=""
+                      tabIndex={-1}
+                      onClick={() => onLinkClick?.(item.linkId)}
+                    >
+                      {item.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </>
         )}
 

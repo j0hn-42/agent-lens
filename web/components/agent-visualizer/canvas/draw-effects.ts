@@ -1,10 +1,10 @@
 import { COLORS } from '@/lib/colors'
-import { SPAWN_FX, COMPLETE_FX } from '@/lib/canvas-constants'
+import { SPAWN_FX, COMPLETE_FX, MCP_DRAW } from '@/lib/canvas-constants'
 import { drawHexagon } from './draw-misc'
 import { alphaHex } from '@/lib/utils'
 
 export interface VisualEffect {
-  type: 'spawn' | 'complete' | 'shatter'
+  type: 'spawn' | 'complete' | 'shatter' | 'mcp'
   x: number
   y: number
   color: string
@@ -88,6 +88,21 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
         ctx.beginPath()
         ctx.arc(fx.x, fx.y, ringRadius + COMPLETE_FX.glowOuter, 0, Math.PI * 2)
         ctx.fill()
+        break
+      }
+
+      case 'mcp': {
+        // Staggered sonar rings, no flash (safe for WCAG 2.3.1)
+        for (let i = 0; i < MCP_DRAW.pulseRings; i++) {
+          const p = progress - i * 0.25
+          if (p <= 0 || p >= 1) continue
+          ctx.globalAlpha = (1 - p) * 0.7
+          ctx.beginPath()
+          ctx.arc(fx.x, fx.y, MCP_DRAW.pulseRingStart + p * MCP_DRAW.pulseRingExpand, 0, Math.PI * 2)
+          ctx.strokeStyle = fx.color
+          ctx.lineWidth = 2 * (1 - p) + 0.5
+          ctx.stroke()
+        }
         break
       }
 

@@ -27,16 +27,19 @@ export interface SessionLifecycleEvent {
   runtime?: string
   workspace?: string
   cwd?: string
+  projectId?: string
+  projectName?: string
 }
 
 /** The optional tag fields of a lifecycle event, as session info fields. */
-export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'teamName' | 'memberName' | 'runtime' | 'workspace' | 'cwd'> {
+export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'teamName' | 'memberName' | 'runtime' | 'workspace' | 'cwd' | 'projectId' | 'projectName'> {
   return {
     ...(l.teamName ? { teamName: l.teamName } : {}),
     ...(l.memberName ? { memberName: l.memberName } : {}),
     ...(l.runtime ? { runtime: l.runtime } : {}),
     ...(l.workspace ? { workspace: l.workspace } : {}),
     ...(l.cwd ? { cwd: l.cwd } : {}),
+    ...(l.projectId && l.projectName ? { projectId: l.projectId, projectName: l.projectName } : {}),
   }
 }
 

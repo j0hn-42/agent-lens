@@ -52,7 +52,7 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
 
 // Plain JS string (tsx would inject a __name helper the page lacks). Resolves once the bounding
 // boxes of all visible interactive elements and landmarks are unchanged over two consecutive
-// animation frames AND have not changed for QUIET_MS, so late-rendering content (transcript rows,
+// animation frames AND have not changed for QUIET_MS, so late-rendering content (Conversation rows,
 // panels animating in) is measured only after it exists. Rejects after the timeout.
 const QUIET_MS = 750
 const STABLE_SCRIPT = `new Promise((resolve, reject) => {
@@ -100,7 +100,7 @@ function expectClean(scenario: string, r: { unexpected: string[]; stale: string[
 }
 
 describe('demo mode: axe-core, serious and critical only', () => {
-  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['chat', 'Chat'], ['timeline', 'Timeline'], ['cost', '$Cost']]
+  const panels: Array<[string, string]> = [['initial page', ''], ['files', 'Files'], ['conversation', 'Conversation'], ['timeline', 'Timeline'], ['cost', '$Cost']]
   for (const [name, button] of panels) {
     test(`e2e: ${name}`, async t => {
       if (skipReason) return t.skip(skipReason)
@@ -163,8 +163,8 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
       return r.left < -1 || r.right > vw + 1
     }).map(el => {
       const r = el.getBoundingClientRect()
-      // Structural, not text-based: tracked in #23 when inside the transcript log or the graph outline.
-      const tracked = el.closest('[aria-label="Session transcript"], [aria-label="Agent graph outline"], [aria-label^="Agent graph:"]') !== null
+      // Structural, not text-based: tracked in #23 when inside the Conversation log or the graph outline.
+      const tracked = el.closest('[role="log"], [aria-label="Agent graph outline"], [aria-label^="Agent graph:"]') !== null
       return \`\${tracked ? 'TRACKED ' : ''}\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
     })
     return {
@@ -181,7 +181,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const add = (rule: string, detail: string) => { f.rules.add(rule); f.details.push(`[${where} @${width}px] ${rule}: ${detail}`) }
     if (m.doc > m.inner || m.body > m.inner) add('page-overflow', `doc=${m.doc} body=${m.body}`)
     if (m.clippedContainers.length) add('clipped-container', m.clippedContainers.join('; '))
-    // The allow-list entry covers only the elements tracked in issue #23 (transcript row buttons and
+    // The allow-list entry covers only the elements tracked in issue #23 (Conversation row buttons and
     // the Agent graph region); any other clipped control is a new, never allow-listed rule.
     const tracked = m.outside.filter(o => KNOWN_OUTSIDE.test(o))
     const untracked = m.outside.filter(o => !KNOWN_OUTSIDE.test(o))
@@ -189,7 +189,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     if (untracked.length) add('outside-viewport-untracked', untracked.join('; '))
   }
 
-  const TRACKED_OBSTRUCTED = /^\^(Files|Chat)/
+  const TRACKED_OBSTRUCTED = /^\^(Files|Conversation)/
   // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
   // so the remaining steps still run.
   async function openPanelChecked(page: Page, name: RegExp, f: Findings, where: string) {
@@ -197,7 +197,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     try {
       await btn.click({ timeout: 3000 })
     } catch {
-      // Only the Files/Chat toolbar buttons are tracked in #23; any other obstructed control is new.
+      // Only the Files/Conversation toolbar buttons are tracked in #23; any other obstructed control is new.
       f.rules.add(TRACKED_OBSTRUCTED.test(name.source) ? 'pointer-obstructed' : 'pointer-obstructed-untracked')
       f.details.push(`[${where}] pointer-obstructed: a panel covers the "${name.source}" button`)
       await btn.focus()
@@ -222,7 +222,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
         await waitForStableLayout(page)
         record(f, width, 'review mode', await page.evaluate<Measure>(MEASURE))
-        for (const [label, re] of [['files panel', /^Files/], ['chat panel', /^Chat/]] as const) {
+        for (const [label, re] of [['files panel', /^Files/], ['conversation panel', /^Conversation/]] as const) {
           await openPanelChecked(page, re, f, `${label} @${width}px`)
           record(f, width, label, await page.evaluate<Measure>(MEASURE))
         }
@@ -297,7 +297,7 @@ describe('demo mode: keyboard', () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
-      await page.getByRole('button', { name: 'Chat' }).click()
+      await page.getByRole('button', { name: 'Conversation (C)' }).click()
       await waitForStableLayout(page)
       const hidden = (await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)).filter(h => !h.startsWith('nextjs-portal'))
       const { unexpected, stale } = compareViolations(

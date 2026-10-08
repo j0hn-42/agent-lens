@@ -5,16 +5,18 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
+import { newestTranscriptMtime } from '../extension/src/discovery-activity'
 import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { readNewFileLines, foldPathCase } from '../extension/src/fs-utils'
+import { readNewFileLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
+import { projectTags } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
@@ -29,10 +31,11 @@ import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, isValidSessionId,
+  listProjectDirs, discoverSessionFiles, isValidSessionId, observationsRoute,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
+import { createObservationsAction, parseObservationsInput, AgentStateTracker } from '../extension/src/observations'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -110,6 +113,8 @@ function broadcast(data: string, sessionId?: string) {
 // ─── Event buffering ────────────────────────────────────────────────────────
 
 const eventBuffer = new Map<string, AgentEvent[]>()
+/** Agent states for /observations: fed on every event, not subject to the replay buffer's eviction */
+const agentTracker = new AgentStateTracker()
 
 /**
  * Single entry point for every event, whatever its source. Events go through the reconciler
@@ -134,6 +139,7 @@ function deliverEvent(event: AgentEvent) {
   if (event.sessionId) {
     // Bounded per session, in number of sessions and in total events (see relay-guards.ts)
     appendBounded(eventBuffer, event.sessionId, event)
+    agentTracker.ingest(event)
   }
 
   broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
@@ -165,6 +171,7 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
     ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
     ...(workspace ? { workspace } : {}),
     ...(cwd ? { cwd } : {}),
+    ...projectTags(sessionCwd.get(session.sessionId)),
   }
 }
 
@@ -425,14 +432,11 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
     if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
       // Main file is idle: a running subagent may still be active
       const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
-      try {
-        let n = 0
-        for (const subFile of fs.readdirSync(subagentsDir)) {
-          if (!subFile.endsWith('.jsonl') || ++n > 100) continue
-          const subStat = fs.statSync(path.join(subagentsDir, subFile))
-          if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-        }
-      } catch {}
+      // Includes Workflow-tool agents (subagents/workflows/<id>/agent-*.jsonl): an orchestrator blocked on
+      // the Workflow tool leaves its own file idle while those keep growing (same listing as the extension)
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(subagentsDir), newestMtime, Date.now() - ACTIVE_SESSION_AGE_S * 1000,
+      )
     }
     if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
       candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
@@ -490,6 +494,8 @@ export interface Relay {
   handleStatus: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle GET /context?session=<id>: project context (CLAUDE.md, memory) of a watched session */
   handleContext: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  /** Handle GET /observations and /observations/schema: the typed action Claude can query (loopback only, rate-limited) */
+  handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
@@ -666,6 +672,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const contextLimiter = new KeyedRateLimiter(RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const observationsLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const observations = createObservationsAction(() => {
+    const list: SessionInfo[] = []
+    for (const session of sessions.values()) if (session.sessionDetected) list.push(toSessionInfo(session))
+    if (codexWatcher) list.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
+    return { sessions: list, agents: agentTracker }
+  })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
@@ -745,6 +758,50 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         'X-Content-Type-Options': 'nosniff',
       })
       res.end(req.method === 'HEAD' ? undefined : body)
+    },
+
+    handleObservations(req: http.IncomingMessage, res: http.ServerResponse) {
+      applySecurityHeaders(res, 'api')
+      const sendJson = (status: number, value: unknown) => {
+        const body = JSON.stringify(value)
+        res.writeHead(status, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Length': Buffer.byteLength(body),
+          'X-Content-Type-Options': 'nosniff',
+        })
+        res.end(req.method === 'HEAD' ? undefined : body)
+      }
+      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' })
+        res.end('Forbidden')
+        return
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
+        res.end('Method not allowed')
+        return
+      }
+      if (!observationsLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
+        res.end('Too many requests')
+        return
+      }
+      if (observations.disposed) return sendJson(503, { error: 'observations action is shut down' })
+      const route = observationsRoute(req.url)
+      if (route === 'schema') return sendJson(200, observations.definition)
+      let query: URL
+      try { query = new URL(req.url ?? '/', 'http://localhost') } catch { return sendJson(400, { error: 'bad url' }) }
+      const raw: Record<string, unknown> = {}
+      const session = query.searchParams.get('session')
+      if (session !== null) raw.session = session
+      const agents = query.searchParams.get('agents')
+      if (agents !== null) raw.includeAgents = isTruthyFlag(agents)
+      for (const k of query.searchParams.keys()) if (k !== 'session' && k !== 'agents') return sendJson(400, { error: `unknown query parameter: ${k}` })
+      const parsed = parseObservationsInput(raw)
+      if (!parsed.ok) return sendJson(400, { error: parsed.error })
+      const out = observations.run(parsed.input)
+      return out.ok ? sendJson(200, out.result) : sendJson(500, { error: out.error })
     },
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
@@ -838,6 +895,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
+      observations.dispose()
       const models = [...observedModels].sort().join(',').slice(0, 128)
       const runtimes = [wantClaude && 'claude', wantCodex && 'codex'].filter(Boolean).join(',')
       telemetry?.emit({
@@ -865,6 +923,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) unwatchSession(id)
       eventBuffer.clear()
+      agentTracker.clear()
     },
   }
 }

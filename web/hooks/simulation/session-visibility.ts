@@ -3,6 +3,7 @@
  * crowd of tiny clusters, so by default only active ones count. Pure: no React, no DOM.
  */
 import type { SessionInfo } from '../../lib/bridge-types'
+import { isGroupActive, type GroupSummary } from './team-info'
 
 /** A session with an event younger than this counts as active even when its status says completed */
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000
@@ -20,6 +21,8 @@ export interface SessionVisibilityInput {
   teamSessions?: ReadonlyMap<string, ReadonlySet<string>>
   /** Members currently working per team name */
   teamWorking?: ReadonlyMap<string, number>
+  /** Tracked members / done members per team name (a workflow idle between calls stays active) */
+  teamSummaries?: ReadonlyMap<string, GroupSummary>
   now: number
   windowMs?: number
 }
@@ -30,7 +33,7 @@ export interface SessionVisibilityInput {
  * events (not in the list) are judged by their last event alone.
  */
 export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
-  const { sessions, lastEventAt, selectedId, teamSessions, teamWorking, now } = input
+  const { sessions, lastEventAt, selectedId, teamSessions, teamWorking, teamSummaries, now } = input
   const windowMs = input.windowMs ?? ACTIVE_WINDOW_MS
   const recent = (t: number | undefined): boolean => typeof t === 'number' && Number.isFinite(t) && now - t <= windowMs
   const out = new Set<string>()
@@ -41,11 +44,11 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   if (teamWorking) {
     if (teamSessions) {
       for (const [team, ids] of teamSessions) {
-        if ((teamWorking.get(team) ?? 0) > 0) for (const id of ids) out.add(id)
+        if (isGroupActive(teamSummaries?.get(team), teamWorking.get(team))) for (const id of ids) out.add(id)
       }
     }
     // A team tagged on the session itself counts too
-    for (const s of sessions) if (s.teamName && (teamWorking.get(s.teamName) ?? 0) > 0) out.add(s.id)
+    for (const s of sessions) if (s.teamName && isGroupActive(teamSummaries?.get(s.teamName), teamWorking.get(s.teamName))) out.add(s.id)
   }
   return out
 }
@@ -56,6 +59,40 @@ export function finishedSessionIds(
   active: ReadonlySet<string>,
 ): string[] {
   return sessions.filter(s => !active.has(s.id)).map(s => s.id)
+}
+
+type StampSession = Pick<SessionInfo, 'status' | 'lastActivityTime'>
+
+/**
+ * A session the list already marks completed whose last activity is older than the window. The relay replays
+ * every session buffer on connect, so an event of such a session is history, not activity (#36).
+ */
+export function isStaleCompleted(session: StampSession | undefined, now: number, windowMs: number = ACTIVE_WINDOW_MS): boolean {
+  if (!session || session.status !== 'completed') return false
+  const t = session.lastActivityTime
+  return typeof t === 'number' && Number.isFinite(t) && now - t > windowMs
+}
+
+/** Whether an event received now should stamp its session as recently active. */
+export function shouldStampActivity(session: StampSession | undefined, now: number, windowMs: number = ACTIVE_WINDOW_MS): boolean {
+  return !isStaleCompleted(session, now, windowMs)
+}
+
+/**
+ * Remove the stamps of sessions that turn out to be stale-completed (events replayed before the list arrived).
+ * Mutates `lastEventAt`; returns how many were dropped.
+ */
+export function pruneReplayStamps(
+  lastEventAt: Map<string, number>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'status' | 'lastActivityTime'>>,
+  now: number,
+  windowMs: number = ACTIVE_WINDOW_MS,
+): number {
+  let dropped = 0
+  for (const s of sessions) {
+    if (lastEventAt.has(s.id) && isStaleCompleted(s, now, windowMs)) { lastEventAt.delete(s.id); dropped++ }
+  }
+  return dropped
 }
 
 /** Stable identity of a visibility set (null = everything visible), to detect changes cheaply. */
