@@ -76,8 +76,8 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
     : current?.status === 'error' || current?.status === 'loading' ? current.stale : undefined
 
   return (
-    <SlidingPanel visible={visible} position={{ top: 48, right: 12 }} zIndex={Z.sidePanel} width={360}>
-      <div className="glass-card relative">
+    <SlidingPanel visible={visible} position={{ top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }} zIndex={Z.sidePanel} width={360}>
+      <div className="glass-card relative" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (
@@ -96,7 +96,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
           <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>PROJECT CONTEXT</span>
         </PanelHeader>
 
-        <div className="max-h-[70vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - var(--topbar-h, 60px) - 96px)', scrollbarWidth: 'thin' }}>
           {unavailableReason ? <Note>{unavailableReason}</Note>
             : sessionId === null ? <Note>Select a single session to see its project context.</Note>
             : current?.status === 'unavailable' ? <Note>No project context is available for this session (its working directory is unknown).</Note>

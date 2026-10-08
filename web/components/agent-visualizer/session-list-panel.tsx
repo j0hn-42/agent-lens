@@ -132,13 +132,13 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
-        className={`flex w-full min-h-6 items-center gap-1.5 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+        className={`flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
         <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
         <StateMarker state={stale ? 'idle' : a.state} />
         <span className="sr-only">{role}, </span>
-        <span className="truncate min-w-0 flex-1">{a.name}</span>
+        <span className="truncate min-w-[7ch] basis-[7ch] flex-1">{a.name}</span>
         <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
         <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokenUsage(usageFromAgent(a))}</span>
         {branch && <RollupLabel total={branch} label="branch total" />}
@@ -285,7 +285,7 @@ export function SessionListPanel({
     <FreshnessAnnouncer agents={agents} clock={freshnessClock} />
     <SlidingPanel
       visible={visible}
-      position={{ top: 48, left: 12 }}
+      position={{ top: 'calc(var(--topbar-h, 60px) + 8px)', left: 12 }}
       axis="X"
       offset={-8}
       zIndex={Z.sidePanel}
@@ -335,7 +335,7 @@ export function SessionListPanel({
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
-              const rowBase = `flex w-full min-h-6 items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowBase = `flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
               if (row.kind === 'project') {
@@ -429,7 +429,7 @@ export function SessionListPanel({
                         ,{' '}
                       </span>
                       {badge && <span className="sr-only">{badge.label} session, </span>}
-                      <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                      <span className="truncate min-w-[7ch] basis-[7ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       {unobserved && (
                         <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={statusHelp}>
                           {SESSION_STATUS_TEXT[kind]}
