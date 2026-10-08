@@ -58,6 +58,24 @@ describe('project identity (git-common-dir)', () => {
     assert.equal(resolveProjectIdentity(''), null)
   })
 
+  it('never spawns git: a hostile repo config and a fake git on the PATH have no effect', () => {
+    clearProjectIdentityCache()
+    const marker = path.join(tmp, 'executed')
+    const fakeBin = path.join(tmp, 'fakebin')
+    fs.mkdirSync(fakeBin)
+    fs.writeFileSync(path.join(fakeBin, 'git'), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 })
+    fs.appendFileSync(path.join(main, '.git', 'config'), `[core]\n\tfsmonitor = touch "${marker}"\n`)
+    const oldPath = process.env.PATH
+    process.env.PATH = `${fakeBin}${path.delimiter}${oldPath}`
+    try {
+      assert.ok(resolveProjectIdentity(main))
+      assert.ok(resolveProjectIdentity(worktree))
+    } finally {
+      process.env.PATH = oldPath
+    }
+    assert.equal(fs.existsSync(marker), false)
+  })
+
   it('does not run git twice for the same cwd', () => {
     clearProjectIdentityCache()
     let calls = 0

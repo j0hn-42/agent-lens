@@ -1,16 +1,15 @@
 /**
- * Project identity of a session: `git rev-parse --git-common-dir`, hashed. A repository and all its
+ * Project identity of a session: the git common dir, hashed. A repository and all its
  * worktrees share one common dir, so their sessions share one identity; outside a git repository
  * there is none (null) and the session stays ungrouped.
  */
-import { execFileSync } from 'child_process'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 
 export const PROJECT_ID_LENGTH = 12
 const PROJECT_NAME_MAX = 80
-const GIT_TIMEOUT_MS = 2000
+const MAX_WALK_DEPTH = 64
 const CACHE_MAX = 1000
 
 export interface ProjectIdentity {
@@ -20,13 +19,36 @@ export interface ProjectIdentity {
   projectName: string
 }
 
-/** Prints the `--git-common-dir` of `cwd` (possibly relative to it); throws outside a repository. */
+/** Returns the git common dir of `cwd` (possibly relative to it); throws outside a repository. */
 export type GitCommonDirRunner = (cwd: string) => string
 
-const defaultRunner: GitCommonDirRunner = cwd =>
-  execFileSync('git', ['rev-parse', '--git-common-dir'], {
-    cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
-  })
+const isDir = (p: string): boolean => { try { return fs.statSync(p).isDirectory() } catch { return false } }
+const readText = (p: string): string | null => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
+
+/**
+ * Finds the common dir by reading `.git` on disk. No process is spawned: `cwd` comes from transcript
+ * data, so running `git` there would honour that directory's own config (and resolve `git` on the PATH).
+ */
+const defaultRunner: GitCommonDirRunner = cwd => {
+  let dir = path.resolve(cwd)
+  for (let depth = 0; depth < MAX_WALK_DEPTH; depth++) {
+    const dotGit = path.join(dir, '.git')
+    if (isDir(dotGit)) return dotGit
+    const pointer = readText(dotGit) // a linked worktree or submodule: `gitdir: <path>`
+    const match = pointer && /^gitdir:\s*(.+?)\s*$/m.exec(pointer)
+    if (match) {
+      const gitDir = path.resolve(dir, match[1])
+      const common = readText(path.join(gitDir, 'commondir'))?.trim()
+      return common ? path.resolve(gitDir, common) : gitDir
+    }
+    const bare = isDir(path.join(dir, 'objects')) && isDir(path.join(dir, 'refs')) && readText(path.join(dir, 'HEAD')) !== null
+    if (bare) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  throw new Error('not a git repository')
+}
 
 // Insertion-ordered, oldest evicted first; failures are cached too so a non-repo cwd costs one git call
 const cache = new Map<string, ProjectIdentity | null>()
