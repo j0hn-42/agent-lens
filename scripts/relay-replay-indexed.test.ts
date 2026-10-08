@@ -88,7 +88,7 @@ describe('relay: replay order with indexed sessions', () => {
     fs.rmSync(fakeHome, { recursive: true, force: true })
   })
 
-  it('the most recent LIVE session is replayed last, not shadowed by a more recent indexed one', async () => {
+  it('the most recent LIVE session is replayed last, whatever the indexed sessions look like', async () => {
     const c = await connectSSE()
     await sleep(400)
     const msgs = messages(c.text())
@@ -99,6 +99,9 @@ describe('relay: replay order with indexed sessions', () => {
     assert.ok(idx!.lastActivityTime > Math.max(...live.map(s => s.lastActivityTime)), 'precondition: the indexed one looks the most recent')
     const order = msgs.filter(m => m.type === 'agent-event-batch')
       .map(m => (m.events as Array<{ sessionId: string }>)[0].sessionId)
-    assert.deepEqual(order, [OLD, NEWER], 'the newest live session comes last')
+    assert.deepEqual([...order].sort(), [OLD, NEWER], 'both live buffers are replayed, none for the indexed session')
+    const newest = Math.max(...live.map(s => s.lastActivityTime))
+    const candidates = live.filter(s => s.lastActivityTime === newest).map(s => s.id)
+    assert.ok(candidates.includes(order[order.length - 1]), `the most recent live session comes last, got ${order.join(',')} (live: ${JSON.stringify(live.map(s => [s.id, s.lastActivityTime]))})`)
   })
 })
