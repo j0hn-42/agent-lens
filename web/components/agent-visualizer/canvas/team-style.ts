@@ -16,8 +16,6 @@ import { MIN_VISIBLE_OPACITY, STATE_LABEL_SHORT, AGENT_DRAW, ORCHESTRATOR_DRAW }
 export function teamDefaultColor(): string {
   return COLORS.teamDefault
 }
-/** Neon value of teamDefaultColor(), kept for importers outside the canvas that still read a constant. Prefer the function. */
-export const TEAM_DEFAULT_COLOR = '#b794f6'
 /** Draw opacity of archived (finished, kept) agents */
 export const ARCHIVED_OPACITY = 0.55
 /** Draw scale factor of archived agents (reduced node) */

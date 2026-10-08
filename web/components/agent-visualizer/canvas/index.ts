@@ -32,7 +32,7 @@ export { setOverlayHits, clearOverlayHits, overlayHits } from './overlay-state'
 export { resolveLinks, resolveAgentRef, linkState, findLinkAt, linkCurve, LINK_STATE_LABEL_TEXT } from './link-geometry'
 export type { ResolvedLink, LinkState } from './link-geometry'
 export {
-  safeTeamColor, computeTeamHalos, isOrchestrator, orchestratorRole, orchestratorInfo, agentDrawRadius, isAgentVisible, hasSeveralSessions, layoutAgentLabel, forceTeamCohesion,
+  safeTeamColor, teamDefaultColor, legibleOnVoid, computeTeamHalos, isOrchestrator, orchestratorRole, orchestratorInfo, agentDrawRadius, isAgentVisible, hasSeveralSessions, layoutAgentLabel, forceTeamCohesion,
 } from './team-style'
 export type { TeamHalo } from './team-style'
 export { detectTeamChanges, createTeamPrev } from './team-changes'

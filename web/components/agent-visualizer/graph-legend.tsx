@@ -5,7 +5,7 @@ import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { STATE_LABEL_SHORT, STATE_LABEL_LONG, LEGEND_OPEN_KEY } from '@/lib/canvas-constants'
 import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
-import { TEAM_DEFAULT_COLOR } from './canvas/team-style'
+import { teamDefaultColor } from './canvas/team-style'
 import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
@@ -119,12 +119,12 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Teams</Heading>
           <ul>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(8, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><polygon points={hexPoints(10.5, 12, 12)} fill="none" stroke={TEAM_DEFAULT_COLOR} strokeWidth="2" /></svg>}>Coloured outer ring: teammate (team colour)</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(8, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><polygon points={hexPoints(10.5, 12, 12)} fill="none" stroke={teamDefaultColor()} strokeWidth="2" /></svg>}>Coloured outer ring: teammate (team colour)</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Hollow ring: teammate idle</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 6 A6 6 0 1 1 6 12" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Open arc: teammate working</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill={COLORS.holoBase} /></svg>}>Filled dot: teammate done</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>Faded dashed outline: archived agent (still clickable)</Row>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${TEAM_DEFAULT_COLOR}1a`} stroke={TEAM_DEFAULT_COLOR} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team or workflow. Its label starts with Team or Workflow and names it; a finished workflow is drawn fainter</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${teamDefaultColor()}1a`} stroke={teamDefaultColor()} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team or workflow. Its label starts with Team or Workflow and names it; a finished workflow is drawn fainter</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="1 4" strokeLinecap="round" /></svg>}>Dotted halo: session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill={COLORS.crownAccent} /></svg>}>Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator</Row>
             {teams.map(team => (

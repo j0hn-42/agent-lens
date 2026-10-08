@@ -143,5 +143,5 @@ test('GraphLegend: documents the orchestrator, the halos and the edge bubbles, a
   assert.ok(getByText(/Bubble on a link/))
   const strokes = Array.from(document.querySelectorAll('svg [stroke]')).map(e => e.getAttribute('stroke'))
   assert.ok(strokes.includes(teamDefaultColor()))
-  assert.equal(document.body.innerHTML.includes('#b794f6'), true, 'the shared constant value is what is drawn')
+  assert.equal(document.body.innerHTML.includes(teamDefaultColor()), true, 'the themed default colour is what is drawn')
 })

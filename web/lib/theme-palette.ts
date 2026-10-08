@@ -586,7 +586,7 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     swimlaneError: danger,
     swimlaneMessage: delegate,
     textMutedOpaque: muted,
-    crownAccent: warn,
+    crownAccent: accent,
   }
 }
 
