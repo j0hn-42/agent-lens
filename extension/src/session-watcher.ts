@@ -185,7 +185,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
 
@@ -207,7 +207,7 @@ export class SessionWatcher implements AgentSessionWatcher {
             ...(tm.agentType ? { agentType: tm.agentType } : {}),
           } : {}
           this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent, child: sub.agentName, task, ...ids } }, sessionId)
-          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...teammateExtras, ...(model ?? tm?.model ? { model: model ?? tm?.model } : {}) } }, sessionId)
+          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...teammateExtras, ...(model ? { model, modelSource: 'runtime' as const } : tm?.model ? { model: tm.model, modelSource: 'configured' as const } : {}) } }, sessionId)
         }
         sub.spawnEmitted = false
       }
@@ -553,7 +553,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
       session.sessionDetected = true
@@ -634,7 +634,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
       this.fireLifecycle('started', sessionId, session.label)
@@ -653,7 +653,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         this.emit({
           time: this.elapsed(sessionId),
           type: 'agent_complete',
-          payload: { name: ORCHESTRATOR_NAME },
+          payload: { name: ORCHESTRATOR_NAME, inactivity: true },
         }, sessionId)
         this.fireLifecycle('ended', sessionId, session.label)
       }

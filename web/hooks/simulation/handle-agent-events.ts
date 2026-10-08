@@ -13,7 +13,8 @@ import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
-import { mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
+import { advanceActiveTime } from '../../lib/active-time'
+import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -104,7 +105,7 @@ export function handleAgentSpawn(
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: false,
+    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
     tokensMax: ctx.getContextWindowSize(initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, toolErrors: 0, timeAlive: 0,
@@ -163,7 +164,15 @@ export function handleAgentComplete(
   const name = agentKeyOf(sessionId, idString(payload.name))
   const agent = state.agents.get(name)
   if (agent && agent.state !== 'complete') {
-    state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
+    // An inactivity timeout is not a witnessed end: the work stopped at the last event heard from the agent
+    const lastHeard = asBoolean(payload.inactivity) && agent.activeSince !== undefined && agent.lastEventAt !== undefined
+      ? advanceActiveTime({ activeMs: agent.activeMs, activeSince: agent.activeSince }, false, Math.max(agent.lastEventAt, agent.activeSince))
+      : {}
+    const { activeSince: _since, ...settled } = agent
+    state.agents.set(name, {
+      ...(Object.keys(lastHeard).length ? settled : agent), ...lastHeard,
+      state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
+    })
 
     const entry = state.timelineEntries.get(name)
     if (entry) {
@@ -225,7 +234,11 @@ export function handleAgentIdle(
 ): void {
   const idleName = agentKeyOf(sessionId, idString(payload.name))
   const idleAgent = state.agents.get(idleName)
-  if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+  if (!idleAgent) return
+  // End of a turn: the agent is waiting for the next prompt, not working (its active span closes)
+  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+    state.agents.set(idleName, { ...idleAgent, state: 'idle', currentTool: undefined })
+  } else if (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission') {
     state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
   }
 }
@@ -240,11 +253,17 @@ export function handleModelDetected(
   const model = cappedString(payload.model, MAX_ID_LEN)
   const effort = parseEffort(payload.effort)
   const agent = state.agents.get(agentName)
-  if (agent && model) {
+  if (agent && model && !isPseudoModel(model)) {
     // Reported by the transcript itself: the strongest source
     const merged = mergeModel(agent, { model, source: 'runtime' })
+    // A Codex report is authoritative for the effort (re-emitted when it changes, absent = none), and a
+    // switch to another model no longer carries the effort configured for the previous one. Claude's own
+    // reports never carry an effort: there the one configured at spawn stays.
+    const effortStale = !effort && (agent.runtime === 'codex' || (!!agent.model && agent.model !== model))
+    const { effort: _previous, ...withoutEffort } = agent
+    const rest = effortStale ? withoutEffort : agent
     state.agents.set(agentName, {
-      ...agent,
+      ...rest,
       ...merged,
       modelsUsed: recordModelUsed(agent.modelsUsed, model),
       tokensMax: ctx.getContextWindowSize(model),

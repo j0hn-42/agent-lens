@@ -372,7 +372,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       this._onEvent.fire({
         time: (Date.now() - session.sessionStartTime) / 1000,
         type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true },
+        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true, inactivity: true },
         sessionId,
       })
       this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: session.label })

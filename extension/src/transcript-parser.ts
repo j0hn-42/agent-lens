@@ -130,6 +130,11 @@ export function* readLinesChunked(filePath: string, size: number, chunkBytes = P
 /** Claude Code's text for a tool call the user interrupted (Esc / cancel) */
 const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
 
+/** A model that ran: Claude Code writes "<synthetic>" (an <angle-bracket> pseudo-model) on messages it makes itself. */
+function isRealModel(model: unknown): model is string {
+  return typeof model === 'string' && model.trim() !== '' && !/^<.*>$/.test(model.trim())
+}
+
 export class TranscriptParser {
   /** Per-subagent dedup state for inline progress events, keyed by parentToolUseID */
   private inlineSubagentState = new Map<string, {
@@ -384,7 +389,7 @@ export class TranscriptParser {
 
     // Extract model from assistant messages (updates tokensMax on the frontend).
     // Per-agent tracking: re-emit when the model changes (e.g. /model switch).
-    if (session && entry.type === 'assistant' && msg.model && session.modelDetectedAgents.get(agentName) !== msg.model) {
+    if (session && entry.type === 'assistant' && isRealModel(msg.model) && session.modelDetectedAgents.get(agentName) !== msg.model) {
       session.modelDetectedAgents.set(agentName, msg.model)
       if (!session.model) session.model = msg.model
       this.delegate.emit({
@@ -830,7 +835,7 @@ export class TranscriptParser {
             }
           }
           // Extract model from first assistant message
-          if (entry.type === 'assistant' && entry.message?.model && !session.model) {
+          if (entry.type === 'assistant' && isRealModel(entry.message?.model) && !session.model) {
             session.model = entry.message.model
           }
           // Collect emittable entries (user and assistant turns)

@@ -20,6 +20,8 @@ export interface UnattributedUsage {
   sessionId: string
   reason: UnattributedReason
   tokens: number
+  /** True as soon as one part of the remainder is an estimate (never claimed exact) */
+  estimated: boolean
 }
 
 /** Distinct addressed names tracked apart; past it, usages fold into one overflow entry. */
@@ -59,6 +61,7 @@ export function addUnattributed(
   reason: UnattributedReason,
   tokens: number,
   mode: 'add' | 'set',
+  estimated = false,
 ): void {
   if (!Number.isFinite(tokens) || tokens <= 0) return
   const existing = map.get(key)
@@ -66,11 +69,11 @@ export function addUnattributed(
     // The overflow entry cannot tell names apart, so an absolute reading cannot replace its predecessor: drop it
     if (mode === 'set') return
     const over = map.get(OVERFLOW_KEY)
-    map.set(OVERFLOW_KEY, { sessionId: '', reason: over?.reason ?? reason, tokens: (over?.tokens ?? 0) + tokens })
+    map.set(OVERFLOW_KEY, { sessionId: '', reason: over?.reason ?? reason, tokens: (over?.tokens ?? 0) + tokens, estimated: (over?.estimated ?? false) || estimated })
     return
   }
   const next = mode === 'add' && existing ? existing.tokens + tokens : tokens
-  map.set(key, { sessionId, reason, tokens: next })
+  map.set(key, { sessionId, reason, tokens: next, estimated: mode === 'add' && existing ? existing.estimated || estimated : estimated })
 }
 
 export interface CostSummary {
@@ -119,12 +122,14 @@ export interface SessionUsage {
  * Qualified session totals: per-agent figures keep their completeness (agents with no data make the total a
  * lower bound, estimates are flagged) and the unattributed remainder (#61) counts in the session total.
  */
-export function sessionUsage(agents: Iterable<Agent>, unattributed: Iterable<{ tokens: number }>): SessionUsage {
+export function sessionUsage(agents: Iterable<Agent>, unattributed: Iterable<{ tokens: number; estimated?: boolean }>): SessionUsage {
   const list = Array.from(agents)
-  const summary = summarizeCosts(list, unattributed)
+  const remainder = Array.from(unattributed)
+  const summary = summarizeCosts(list, remainder)
   const rest = summary.unattributedTokens > 0
-  const restTokens: UsageTotal = { value: summary.unattributedTokens, status: 'available', estimated: false }
-  const restCost: UsageTotal = { value: summary.unattributedCost, status: 'available', estimated: false }
+  const restEstimated = remainder.some(u => u.estimated === true)
+  const restTokens: UsageTotal = { value: summary.unattributedTokens, status: 'available', estimated: restEstimated }
+  const restCost: UsageTotal = { value: summary.unattributedCost, status: 'available', estimated: restEstimated }
   return {
     tokens: combineUsage(rest ? [...list.map(usageFromAgent), restTokens] : list.map(usageFromAgent)),
     cost: combineUsage(rest ? [...list.map(agentCostUsage), restCost] : list.map(agentCostUsage)),

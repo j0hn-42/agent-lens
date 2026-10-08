@@ -3,6 +3,7 @@
 
 import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
+import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -213,7 +214,7 @@ export interface Edge {
   /** parent-child only: true when the events agree on the link (call, start, same name and id); false = drawn dashed */
   verified?: boolean
   /** parent-child only: why the link is not proven (see UnverifiedReason) */
-  unverifiedReason?: string
+  unverifiedReason?: UnverifiedReason
 }
 
 export interface Particle {

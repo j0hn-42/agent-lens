@@ -44,6 +44,25 @@ export function sanitizeRole(value: unknown): string | undefined {
   return ROLE_RE.test(role) ? role : undefined
 }
 
+const SESSION_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/
+
+/** Session id of a request, or undefined when malformed (the id is only ever looked up, never run). */
+export function sanitizeSessionParam(value: unknown): string | undefined {
+  return typeof value === 'string' && SESSION_RE.test(value) ? value : undefined
+}
+
+/**
+ * Which repository the links of a node come from. The node's own session decides (its cwd); a session
+ * of an unknown project cannot be proven to belong to the relay's repository when the relay serves
+ * every workspace, so nothing is shown rather than another project's issues.
+ */
+export type IssueScope = { kind: 'cwd'; cwd: string } | { kind: 'workspace' } | { kind: 'unknown' }
+export function issueLinksScope(opts: { session?: string; cwd?: string; allWorkspaces: boolean }): IssueScope {
+  if (opts.cwd) return { kind: 'cwd', cwd: opts.cwd }
+  if (opts.session && opts.allWorkspaces) return { kind: 'unknown' }
+  return { kind: 'workspace' }
+}
+
 const OWNER_REPO = '([A-Za-z0-9_.-]{1,100})/([A-Za-z0-9_.-]{1,100}?)'
 const REMOTE_RES = [
   new RegExp(`^https://github\\.com/${OWNER_REPO}(?:\\.git)?/?$`),

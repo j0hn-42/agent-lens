@@ -26,6 +26,7 @@ import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
 import { createLogger } from './logger'
+import { filterOrchestratorCompletion } from './orchestrator-completion'
 import { wireWatcherToPanel } from './session-runtime'
 import type { AgentRuntime } from './session-runtime'
 
@@ -37,17 +38,6 @@ const log = createLogger('ClaudeRuntime')
 const SUBAGENT_LIFECYCLE_EVENTS = new Set<AgentEvent['type']>([
   'agent_spawn', 'subagent_dispatch', 'subagent_return', 'agent_complete',
 ])
-
-/** Convert orchestrator agent_complete to agent_idle unless it's a session end.
- *  Prevents premature "completed" state during long API calls. */
-function filterOrchestratorCompletion(event: AgentEvent): AgentEvent | null {
-  if (event.type !== 'agent_complete') return event
-  const agentName = event.payload?.agent ?? event.payload?.name
-  const isOrchestrator = agentName === ORCHESTRATOR_NAME || !agentName
-  if (!isOrchestrator) return event
-  if (event.payload?.sessionEnd) return event
-  return { ...event, type: 'agent_idle' }
-}
 
 export async function startClaudeRuntime(
   context: vscode.ExtensionContext,

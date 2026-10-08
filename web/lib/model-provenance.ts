@@ -25,6 +25,12 @@ export const MAX_MODELS_USED = 8
 /** Reasoning effort levels we accept; anything else is not shown. */
 export const EFFORT_LEVELS: readonly string[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
+/** Pseudo-models such as "<synthetic>" (written by Claude Code for its own messages) are not a model that ran. */
+export function isPseudoModel(model: string): boolean {
+  const m = model.trim()
+  return m === '' || /^<.*>$/.test(m)
+}
+
 export function parseModelSource(v: unknown): ModelSource | undefined {
   return v === 'requested' || v === 'configured' || v === 'runtime' ? v : undefined
 }

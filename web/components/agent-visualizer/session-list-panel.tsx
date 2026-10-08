@@ -437,7 +437,7 @@ export function SessionListPanel({
                       )}
                       {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
                       {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
-                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                     </button>
                     <button
                       type="button"
