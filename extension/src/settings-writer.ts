@@ -46,12 +46,22 @@ export function readSettingsStrict(filePath: string, maxBytes = SETTINGS_FILE_MA
   return parsed as Record<string, unknown>
 }
 
-/** Write via a temporary file then rename, so readers never see a truncated settings.json. */
+/**
+ * Write via a temporary file then rename, so readers never see a truncated settings.json.
+ * A symlinked file is written through (the link survives) and the original file mode is kept.
+ */
 export function writeFileAtomic(filePath: string, content: string): void {
-  const tmpPath = `${filePath}.${process.pid}.tmp`
+  let target = filePath
+  let mode: number | undefined
   try {
-    fs.writeFileSync(tmpPath, content)
-    fs.renameSync(tmpPath, filePath)
+    target = fs.realpathSync(filePath)
+    mode = fs.statSync(target).mode & 0o777
+  } catch { /* new file: default mode */ }
+  const tmpPath = `${target}.${process.pid}.tmp`
+  try {
+    fs.writeFileSync(tmpPath, content, mode === undefined ? undefined : { mode })
+    if (mode !== undefined) { fs.chmodSync(tmpPath, mode) }
+    fs.renameSync(tmpPath, target)
   } catch (err) {
     try { fs.unlinkSync(tmpPath) } catch { /* nothing to clean */ }
     throw err

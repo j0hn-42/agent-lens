@@ -63,6 +63,43 @@ describe('setup.js configureHooks', () => {
   })
 })
 
+describe('setup.js mode, symlink and outdated hook.js', () => {
+  const hookPath = path.join(fakeHome, '.claude', 'agent-lens', 'hook.js')
+  let dir: string
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(fakeHome, 'mode-')) })
+
+  it('keeps the 0600 mode of settings.json', { skip: process.platform === 'win32' }, () => {
+    const file = path.join(dir, 'settings.json')
+    fs.writeFileSync(file, '{"env":{"K":"secret"}}', { mode: 0o600 })
+    fs.chmodSync(file, 0o600)
+    setup.configureHooks({ settingsPath: file, hookCommand: HOOK })
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+  })
+
+  it('writes through a symlinked settings.json', { skip: process.platform === 'win32' }, () => {
+    const real = path.join(dir, 'dotfiles.json')
+    const link = path.join(dir, 'settings.json')
+    fs.writeFileSync(real, '{"model":"opus"}')
+    fs.symlinkSync(real, link)
+    setup.configureHooks({ settingsPath: link, hookCommand: HOOK })
+    assert.ok(fs.lstatSync(link).isSymbolicLink())
+    assert.ok(JSON.parse(fs.readFileSync(real, 'utf-8')).hooks.Stop)
+  })
+
+  it('redeploys an outdated hook.js for an already configured user', () => {
+    delete process.env.CLAUDE_CONFIG_DIR
+    fs.rmSync(path.join(fakeHome, '.claude'), { recursive: true, force: true })
+    setup.ensureSetup()
+    assert.equal(setup.isAlreadySetup(), true)
+    fs.writeFileSync(hookPath, '// hook.js v3')
+    assert.equal(setup.isAlreadySetup(), false, 'a stale hook.js is not "set up"')
+    setup.ensureSetup()
+    assert.notEqual(fs.readFileSync(hookPath, 'utf8'), '// hook.js v3')
+    assert.equal(setup.isAlreadySetup(), true)
+    fs.rmSync(path.join(fakeHome, '.claude', 'settings.json'))
+  })
+})
+
 describe('setup.js with CLAUDE_CONFIG_DIR', () => {
   after(() => {
     delete process.env.CLAUDE_CONFIG_DIR

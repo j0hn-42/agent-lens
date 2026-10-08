@@ -81,6 +81,31 @@ describe('updateSettings', () => {
   })
 })
 
+describe('updateSettings: mode and symlink', () => {
+  let dir: string
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-writer-mode-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const add = (s: Record<string, unknown>) => { s.hooks = { Stop: [] } }
+
+  it('keeps the 0600 mode of the original file', { skip: process.platform === 'win32' }, () => {
+    const file = path.join(dir, 'settings.json')
+    fs.writeFileSync(file, '{"env":{"K":"secret"}}', { mode: 0o600 })
+    fs.chmodSync(file, 0o600)
+    updateSettings(file, add)
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+  })
+
+  it('writes through a symlink instead of replacing it', { skip: process.platform === 'win32' }, () => {
+    const real = path.join(dir, 'dotfiles.json')
+    const link = path.join(dir, 'settings.json')
+    fs.writeFileSync(real, '{"model":"opus"}')
+    fs.symlinkSync(real, link)
+    updateSettings(link, add)
+    assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link is still a link')
+    assert.deepEqual(JSON.parse(fs.readFileSync(real, 'utf-8')), { model: 'opus', hooks: { Stop: [] } })
+  })
+})
+
 describe('readSettingsStrict', () => {
   it('returns null for a missing file', () => {
     assert.equal(readSettingsStrict(path.join(os.tmpdir(), 'al-no-such-dir', 'settings.json')), null)

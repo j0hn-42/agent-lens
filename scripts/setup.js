@@ -229,6 +229,25 @@ function readSettingsStrict(filePath) {
   return parsed
 }
 
+/** Atomic write (tmp + rename) that follows a symlinked file and keeps the original file mode. */
+function writeFileAtomic(filePath, content) {
+  let target = filePath
+  let mode
+  try {
+    target = fs.realpathSync(filePath)
+    mode = fs.statSync(target).mode & 0o777
+  } catch {}
+  const tmpPath = `${target}.${process.pid}.tmp`
+  try {
+    fs.writeFileSync(tmpPath, content, mode === undefined ? undefined : { mode })
+    if (mode !== undefined) fs.chmodSync(tmpPath, mode)
+    fs.renameSync(tmpPath, target)
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath) } catch {}
+    throw err
+  }
+}
+
 /** Apply mutate() to the settings and write atomically (tmp + rename), keeping a one-time .bak of the original. */
 function updateSettingsFile(filePath, mutate) {
   const existing = readSettingsStrict(filePath)
@@ -242,14 +261,7 @@ function updateSettingsFile(filePath, mutate) {
     const backupPath = `${filePath}.bak`
     if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath)
   }
-  const tmpPath = `${filePath}.${process.pid}.tmp`
-  try {
-    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2) + '\n')
-    fs.renameSync(tmpPath, filePath)
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath) } catch {}
-    throw err
-  }
+  writeFileAtomic(filePath, JSON.stringify(settings, null, 2) + '\n')
   return true
 }
 
@@ -280,6 +292,10 @@ function configureHooks(options = {}) {
 function isAlreadySetup() {
   // Check hook script exists
   if (!fs.existsSync(HOOK_SCRIPT_PATH)) return false
+  // An outdated hook.js (older release) must be redeployed: not "set up" until its content is current
+  try {
+    if (fs.readFileSync(HOOK_SCRIPT_PATH, 'utf8') !== getHookScriptContent()) return false
+  } catch { return false }
 
   // Check hooks are configured in settings.json
   try {
