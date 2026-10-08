@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/feed-utils'
@@ -29,6 +30,16 @@ function Note({ children, role }: { children: React.ReactNode; role?: 'alert' | 
 }
 
 function FileBlock({ file }: { file: ProjectContextFile }) {
+  // The text block is a scroll container: it joins the tab order only while it actually scrolls, so a keyboard
+  // user can scroll it (WCAG 2.1.1) without a static tabIndex on a non-interactive element (set imperatively,
+  // as in the link panel).
+  const preRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const el = preRef.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) el.setAttribute('tabindex', '0')
+    else el.removeAttribute('tabindex')
+  }, [file.text, file.found])
   return (
     <section aria-label={file.name} className="mb-2">
       <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{file.name}</h3>
@@ -42,7 +53,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
             </p>
           )}
           <pre
-            tabIndex={0}
+            ref={preRef}
             aria-label={`${file.name} content`}
             className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING}`}
             style={{ background: COLORS.holoBg05, color: COLORS.assistantText, scrollbarWidth: 'thin' }}
