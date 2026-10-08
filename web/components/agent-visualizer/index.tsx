@@ -7,7 +7,7 @@ import { useSelectionState } from "@/hooks/use-selection-state"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { AgentCanvas } from "./canvas"
 import { ControlBar } from "./control-bar"
-import { AgentDetailCard } from "./agent-detail-card"
+import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
@@ -34,6 +34,7 @@ import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
 import { totalAgentCost, totalCostUsage } from "@/lib/cost"
 import { combineUsage, usageFromAgent } from "@/lib/usage"
+import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
@@ -439,6 +440,10 @@ export function AgentVisualizer() {
   const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
+  // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
+  const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
+  inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
+  const selectedGone = !!selection.selectedAgentId && !selectedAgent
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
@@ -692,7 +697,19 @@ export function AgentVisualizer() {
       {selectedAgent && selection.selectedAgentWorldPos && (
         <div {...stopPropagationHandlers}>
           <AgentDetailCard
+            key={selectedAgent.id}
             agent={selectedAgent}
+            toolErrors={selectedAgent.toolErrors}
+            onClose={selection.clearAgent}
+            onEscape={escapeFromDetailCard}
+          />
+        </div>
+      )}
+      {selectedGone && selection.selectedAgentWorldPos && (
+        <div {...stopPropagationHandlers}>
+          <AgentGoneCard
+            key={selection.selectedAgentId}
+            name={inspectorMemoryRef.current?.name ?? null}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
           />

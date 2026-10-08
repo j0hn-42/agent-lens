@@ -308,7 +308,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const agents = new Map<string, Agent>()
     for (const [id, agent] of prev.agents) {
       if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, messageBubbles: [], timeAlive: 0 })
+        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
       }
     }
 

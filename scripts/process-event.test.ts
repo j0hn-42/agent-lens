@@ -229,3 +229,19 @@ test('droppedFromLog counts the events that fall off a capped log', () => {
   assert.equal(droppedFromLog(98, 5, 100), 3)
   assert.equal(droppedFromLog(100, 1, 100), 1)
 })
+
+test('tool errors are counted per agent and survive the fade-out of the tool call nodes', () => {
+  const s = run([
+    { sessionId: 's1', type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    { sessionId: 's2', type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    { sessionId: 's1', type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'x' } },
+    { sessionId: 's1', type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: 'boom', isError: true } },
+    { sessionId: 's1', type: 'tool_call_start', payload: { agent: 'a', tool: 'Read', args: 'y' } },
+    { sessionId: 's1', type: 'tool_call_end', payload: { agent: 'a', tool: 'Read', result: 'ok', isError: false } },
+    { sessionId: 's1', type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'z' } },
+    { sessionId: 's1', type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: 'boom', isError: true } },
+  ])
+  s.toolCalls.clear() // what cleanupFaded does once the nodes have faded
+  assert.equal(s.agents.get(agentKeyOf('s1', 'a'))!.toolErrors, 2)
+  assert.equal(s.agents.get(agentKeyOf('s2', 'a'))!.toolErrors, 0)
+})

@@ -10,6 +10,9 @@ import { GlassCard } from './glass-card'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
+import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
+import { deriveFreshness, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { goneText } from '@/lib/inspector-model'
 
 interface AgentDetailCardProps {
   agent: {
@@ -29,22 +32,51 @@ interface AgentDetailCardProps {
     teamColor?: string
     teamKind?: 'team' | 'workflow'
     activity?: 'working' | 'idle' | 'done'
+    /** The node's OWN last event (wall clock) and where it comes from: never the anchor session's */
+    lastEventAt?: number
+    freshnessSource?: 'live' | 'history'
+    sessionLabel?: string
   }
+  /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
+  toolErrors?: number
   onClose: () => void
   /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
   onEscape?: () => void
+  /** Freshness clock override for tests */
+  freshnessClock?: FreshnessClock
+}
+
+const FRESHNESS_TEXT: Record<Freshness, string> = {
+  fresh: 'Live',
+  stale: 'No longer reporting',
+  interrupted: 'Interrupted',
+  error: 'Failed',
+  closed: 'Closed',
+  'never-observed': 'Not observed yet',
+}
+
+function formatClockTime(ms: number): string {
+  const d = new Date(ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
 export function AgentDetailCard({
   agent,
+  toolErrors,
   onClose,
   onEscape,
+  freshnessClock,
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
   useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
+  // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
+  const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
+  const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
+  const sessionLabel = safeLabel(agent.sessionLabel)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -105,7 +137,23 @@ export function AgentDetailCard({
         <div className="flex gap-3 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
           <span>{pluralize(agent.toolCalls, 'tool')}</span>
           <span>{formatDuration(agent.timeAlive)} alive</span>
-          <span style={{ color: stateColor }}>{getStateLabel(agent.state)}</span>
+          <span style={{ color: freshness === 'stale' ? COLORS.textMuted : stateColor }}>{stateText}</span>
+        </div>
+
+        {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
+          <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
+          <span data-testid="inspector-last-event">
+            {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
+              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
+              : 'no event observed'}
+          </span>
+          {typeof toolErrors === 'number' && (
+            <span data-testid="inspector-errors" style={{ color: toolErrors > 0 ? COLORS.error : undefined }}>
+              {pluralize(toolErrors, 'tool error')}
+            </span>
+          )}
+          {sessionLabel && <span className="truncate">{sessionLabel}</span>}
         </div>
 
         {/* Teammate info */}
@@ -146,6 +194,46 @@ export function AgentDetailCard({
             </div>
           )
         })()}
+      </GlassCard>
+    </div>
+  )
+}
+
+/**
+ * Shown when the selected node left the graph (closed, hidden, session removed): says so instead of
+ * keeping the old values or substituting another node's.
+ */
+export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null; onClose: () => void; onEscape?: () => void }) {
+  const titleId = useId()
+  const ref = useRef<HTMLDivElement>(null)
+  useDialogBehavior(ref, onClose, { ignoreSelector: '[data-companion-panel]' })
+  // Same left dock slot as the detail card it replaces
+  const dock = useDockPanel('detail', true)
+  const { rect } = dock
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
+      {...dockAttrs('detail', 'left', dock)}
+      className="agent-detail-card outline-none"
+      style={{
+        position: 'absolute',
+        left: rect?.x ?? 12,
+        top: rect?.y ?? 'calc(var(--topbar-h, 60px) + 8px)',
+        width: rect?.w ?? 240,
+        zIndex: Z.detailCard,
+        display: dock.hidden ? 'none' : undefined,
+      }}
+    >
+      <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
+        <PanelHeader onClose={onClose} className="mb-1" titleId={titleId}>
+          <span role="status" className="text-xs font-mono" style={{ color: COLORS.textMuted }} data-testid="inspector-gone">
+            {goneText(name)}
+          </span>
+        </PanelHeader>
       </GlassCard>
     </div>
   )

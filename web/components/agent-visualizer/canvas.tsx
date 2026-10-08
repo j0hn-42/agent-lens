@@ -20,6 +20,7 @@ import {
   drawAgents,
   drawMessageBubblesWorld,
   drawEdges, getActiveEdgeIds,
+  delegationPathEdges, drawDelegationPath, createPathAnimation,
   drawParticles, buildEdgeMap,
   drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
@@ -447,6 +448,8 @@ export function AgentCanvas({
   // Stable ref so the rAF loop always calls the latest draw without
   // re-subscribing when the callback identity changes.
   const drawRef = useRef<(timestamp: number) => void>(() => {})
+  // Delegation path (#56): restarts whenever the selected node changes
+  const pathAnimRef = useRef(createPathAnimation())
   const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
 
   const draw = useCallback((timestamp: number) => {
@@ -634,6 +637,11 @@ export function AgentCanvas({
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawSessionLinks(ctx, sessionLinkSegments(clusters, sessionLinksRef.current ?? []), opts)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
+      {
+        const pathTarget = selectedAgentId ?? selectedToolCallId ?? null
+        const elapsed = pathAnimRef.current.elapsed(pathTarget, timestamp)
+        if (elapsed !== null) drawDelegationPath(ctx, delegationPathEdges(pathTarget, edges), agents, toolCalls, elapsed, reducedMotion)
+      }
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,
         hoverTargetRef.current?.type === 'link' ? hoverTargetRef.current.id : null,
