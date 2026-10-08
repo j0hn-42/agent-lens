@@ -314,11 +314,13 @@ function workflowSession(sid: string, name: string): SimulationState {
   return run(events)
 }
 
-test('Hide inactive agents ON: a workflow with 3 working, 1 idle, 1 done agents is not drawn empty', () => {
+test('Hide inactive agents ON: a workflow with 3 working, 1 idle, 1 done agents keeps those that work or wait and hides the done one (#147)', () => {
   const s = workflowSession('S', 'tempo-wave-a')
   const shown = visibleAgents(s.agents, true)
-  for (const n of ['a', 'b', 'c', 'd', 'e']) assert.ok(shown.has(`S:impl:${n}`), `impl:${n} stays visible while its workflow is active`)
+  for (const n of ['a', 'b', 'c', 'd']) assert.ok(shown.has(`S:impl:${n}`), `impl:${n} stays visible while its workflow is active`)
+  assert.equal(shown.has('S:impl:e'), false, 'impl:e is done: hidden although its workflow is active')
   assert.ok(shown.has('S:orch'))
+  assert.equal(visibleAgents(s.agents, false), s.agents, 'button off: everything is drawn as before')
 })
 
 test('Hide inactive agents ON: an idle-between-calls workflow stays visible, a finished one is hidden', () => {

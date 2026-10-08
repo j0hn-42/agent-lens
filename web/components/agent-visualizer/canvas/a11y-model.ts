@@ -161,6 +161,8 @@ export interface A11yAgentItem {
   teamName?: string
   /** 'workflow' when the group is a Workflow run */
   teamKind?: 'team' | 'workflow'
+  /** Phase the workflow announced for this agent (workflow agents only, never inferred) */
+  phase?: string
   /** 'working' | 'idle' | 'done' for teammates */
   activityText?: string
   archived: boolean
@@ -328,6 +330,7 @@ export function buildA11yModel(
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
       teamName: cleanText(a.teamName) || undefined,
       teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
+      phase: a.teamKind === 'workflow' ? cleanText(a.phase, 40) || undefined : undefined,
       activityText: teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,

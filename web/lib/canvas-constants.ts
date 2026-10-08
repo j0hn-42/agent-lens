@@ -187,6 +187,10 @@ export const CLUSTER_LAYOUT = {
   holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
+  /** Share of the distance a workflow member covers towards the centre of its phase, per tick */
+  phasePullStrength: 0.06,
+  /** Centres of the phases of a workflow sit on a ring of this fraction of the cluster radius */
+  phaseRingFactor: 0.5,
   /** Archived agents drift to this fraction of the cluster radius */
   archivedRingFactor: 0.85,
   ringStrength: 0.06,
