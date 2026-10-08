@@ -126,7 +126,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                   item.onClick()
                   onClose()
                 }}
-                className="min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-white/5 focus-visible:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#99e0ff]"
+                className="min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
                 style={{ color: item.danger ? COLORS.error : COLORS.textPrimary }}
               >
                 {item.label}

@@ -32,6 +32,12 @@
   --lens-input-focus-glow: 0 0 8px rgba(102, 204, 255, 0.1);
   --lens-scrollbar-thumb: rgba(102, 204, 255, 0.5);
   --lens-scrollbar-thumb-hover: rgba(102, 204, 255, 0.7);
+  --lens-hover: rgba(255, 255, 255, 0.1);
+  --lens-hover-subtle: rgba(255, 255, 255, 0.05);
+  --lens-grip: rgba(255, 255, 255, 0.3);
+  --lens-grip-hover: rgba(255, 255, 255, 0.6);
+  --lens-scrim: rgba(0, 0, 0, 0.5);
+  --lens-live-halo: 0 0 8px #ff4444, 0 0 16px rgba(255, 68, 68, 0.3);
   --lens-hover-05: rgba(255, 255, 255, 0.05);
   --lens-hover-10: rgba(255, 255, 255, 0.1);
   --lens-focus-strong: #ffffff;
@@ -102,6 +108,12 @@
   --lens-input-focus-glow: none;
   --lens-scrollbar-thumb: #7a7a7e;
   --lens-scrollbar-thumb-hover: #a3a3a6;
+  --lens-hover: #262627;
+  --lens-hover-subtle: #262627;
+  --lens-grip: #7a7a7e;
+  --lens-grip-hover: #a3a3a6;
+  --lens-scrim: rgba(0, 0, 0, 0.5);
+  --lens-live-halo: none;
   --lens-hover-05: color-mix(in srgb, var(--lens-ink) 8%, transparent);
   --lens-hover-10: color-mix(in srgb, var(--lens-ink) 12%, transparent);
   --lens-focus-strong: #ffffff;
@@ -171,6 +183,12 @@
   --lens-input-focus-glow: none;
   --lens-scrollbar-thumb: #8a8a86;
   --lens-scrollbar-thumb-hover: #5c5c58;
+  --lens-hover: #ececea;
+  --lens-hover-subtle: #ececea;
+  --lens-grip: #8a8a86;
+  --lens-grip-hover: #5c5c58;
+  --lens-scrim: rgba(26, 26, 26, 0.45);
+  --lens-live-halo: none;
   --lens-hover-05: color-mix(in srgb, var(--lens-ink) 8%, transparent);
   --lens-hover-10: color-mix(in srgb, var(--lens-ink) 12%, transparent);
   --lens-focus-strong: #000000;
