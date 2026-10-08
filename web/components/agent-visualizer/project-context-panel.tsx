@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/feed-utils'
@@ -64,15 +64,32 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
   )
 }
 
+/**
+ * Context and Files are mutually exclusive: Context takes the 'files' slot of the right dock, so the shared
+ * layout places it (below the top bar and the message feed, above the control bar). Mounted only while open:
+ * a mounted-but-closed registration would close the Files panel's slot.
+ */
+function ContextDock({ children }: { children: (maxHeight: number | string) => ReactNode }) {
+  const dock = useDockPanel('files', true)
+  const { rect } = dock
+  return (
+    <SlidingPanel
+      visible
+      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
+      zIndex={Z.sidePanel}
+      width={rect?.w ?? 360}
+      attrs={dockAttrs('files', 'right', dock)}
+      style={dock.hidden ? { display: 'none' } : undefined}
+    >
+      {children(rect?.h ?? '70vh')}
+    </SlidingPanel>
+  )
+}
+
 export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, onClose }: ProjectContextPanelProps) {
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
-
-  // Context and Files are mutually exclusive: Context takes the 'files' slot of the right dock, so it is
-  // placed by the shared layout (below the top bar and the message feed, above the control bar)
-  const dock = useDockPanel('files', visible)
-  const { rect } = dock
 
   if (!visible) return null
 
@@ -81,15 +98,9 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
     : current?.status === 'error' || current?.status === 'loading' ? current.stale : undefined
 
   return (
-    <SlidingPanel
-      visible={visible}
-      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
-      zIndex={Z.sidePanel}
-      width={rect?.w ?? 360}
-      attrs={dockAttrs('files', 'right', dock)}
-      style={dock.hidden ? { display: 'none' } : undefined}
-    >
-      <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h ?? '70vh' }}>
+    <ContextDock>
+      {maxHeight => (
+      <div className="glass-card relative flex flex-col" style={{ maxHeight }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (
@@ -139,6 +150,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
           )}
         </div>
       </div>
-    </SlidingPanel>
+      )}
+    </ContextDock>
   )
 }
