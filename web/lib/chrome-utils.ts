@@ -423,12 +423,14 @@ export interface CanvasSessionMeta {
   label: string
   runtime?: 'claude' | 'codex'
   workspace?: string
+  projectId?: string
+  projectName?: string
   status: 'active' | 'completed'
 }
 
 /** Per-session facts for the cluster halos (title, runtime, workspace, status), keyed by session id. */
 export function buildSessionMeta(
-  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime' | 'workspace' | 'status'>>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'runtime' | 'workspace' | 'status' | 'projectId' | 'projectName'>>,
 ): Map<string, CanvasSessionMeta> {
   const out = new Map<string, CanvasSessionMeta>()
   for (const s of sessions) {
@@ -437,7 +439,19 @@ export function buildSessionMeta(
       status: s.status,
       ...(s.runtime ? { runtime: s.runtime } : {}),
       ...(s.workspace ? { workspace: s.workspace } : {}),
+      ...(s.projectId && s.projectName ? { projectId: s.projectId, projectName: s.projectName } : {}),
     })
+  }
+  return out
+}
+
+/** sessionId -> repository for the fleet layout; sessions outside git (no projectId) are left out, never grouped. */
+export function buildSessionProjects(
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'projectId' | 'projectName'>>,
+): Map<string, { projectId: string; projectName: string }> {
+  const out = new Map<string, { projectId: string; projectName: string }>()
+  for (const s of sessions) {
+    if (s.projectId && s.projectName) out.set(s.id, { projectId: s.projectId, projectName: s.projectName })
   }
   return out
 }

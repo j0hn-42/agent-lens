@@ -2,12 +2,12 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { ALL_SESSIONS_ID, teamSelectionId, type SessionInfo } from '../web/lib/bridge-types'
 import {
-  buildSessionMeta, clusterSelectionTarget, observeTopbarHeight, topbarOffsetPx,
+  buildSessionMeta, buildSessionProjects, clusterSelectionTarget, observeTopbarHeight, topbarOffsetPx,
 } from '../web/lib/chrome-utils'
 import {
   ACTIVE_WINDOW_MS, activeSessionIds, finishedSessionIds, pruneReplayStamps, shouldStampActivity, isStaleCompleted,
 } from '../web/hooks/simulation/session-visibility'
-import { computeClusters } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { computeClusters, clusterLabelLines, clusterAnnouncement } from '../web/components/agent-visualizer/canvas/cluster-model'
 import {
   EMPTY_PAIR, pairAfterShiftClick, pairChipLabel, prunePair,
 } from '../web/lib/pair-filter'
@@ -85,6 +85,28 @@ test('session meta from the list gives the halo its label, runtime and workspace
   const bare = computeClusters(agents, undefined).find(c => c.sessionIds.includes('sess-a'))
   assert.ok(bare)
   assert.equal(bare.title, 'sess-a')
+})
+
+test('project (#86): the halo carries the repository name only when every session of the cluster proves the same one', () => {
+  const list = [
+    session('s1', { label: 'a', projectId: 'P1', projectName: 'alpha' }),
+    session('s2', { label: 'b', projectId: 'P1', projectName: 'alpha' }),
+    session('s3', { label: 'c', projectId: 'P2', projectName: 'beta' }),
+    session('s4', { label: 'd' }),
+    session('s5', { label: 'e', projectId: 'P1' }),
+  ]
+  const projects = buildSessionProjects(list)
+  assert.deepEqual(Array.from(projects.keys()), ['s1', 's2', 's3'], 'outside git or without a name: no project')
+  const meta = buildSessionMeta(list)
+  const clusters = computeClusters([agent('m1', 's1'), agent('m2', 's2'), agent('m3', 's3'), agent('m4', 's4'), agent('m5', 's5')], undefined, { sessions: meta })
+  const byTitle = (l: string) => clusters.find(c => c.title === l)!
+  assert.equal(byTitle('a').projectName, 'alpha')
+  assert.equal(byTitle('c').projectName, 'beta')
+  assert.equal(byTitle('d').projectName, undefined)
+  assert.equal(byTitle('e').projectName, undefined)
+  assert.match(clusterLabelLines(byTitle('a')).detail, /alpha/)
+  assert.doesNotMatch(clusterLabelLines(byTitle('d')).detail, /alpha|beta/)
+  assert.match(clusterAnnouncement(byTitle('a')), /project alpha/)
 })
 
 test('halo click: a session cluster selects its session, a team cluster the team tab, All stays All with several sessions', () => {
