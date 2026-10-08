@@ -47,6 +47,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 5.8, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'Grep', result: '28 matches in 9 files — concentrated in services/ and routes/', tokenCost: 700, discovery: { type: 'pattern', label: 'Payment references', content: '28 matches across 9 files\nConcentrated in services/ and routes/\nNo webhook handling found' } } },
   { time: 6.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 11500, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 6500, reasoning: 2800, subagentResults: 0 } } },
 
+  // MCP tool call (rendered with the cyan MCP style: server badge, orbiting dots, dotted beam)
+  { time: 6.2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', args: 'limit: 10' } },
+  { time: 7.4, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', result: '10 payment intents (7 succeeded, 2 pending, 1 failed)', tokenCost: 900 } },
+
   // ── Phase 2: Planning (thinking — deciding on approach) ───────────────────
   { time: 8.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'TodoWrite', args: 'planning implementation', inputData: {
     todos: [
@@ -64,10 +68,10 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
 
   // ── Phase 3: Parallel Research via Subagents (thinking — planning delegation)
   { time: 9.7, type: 'message', payload: { agent: 'orchestrator', content: 'Dispatching agents for parallel research and schema analysis...' } },
-  { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'explore-agent', task: 'Deep-dive into payment flow and DB schema' } },
-  { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', task: 'Research Stripe & PayPal API patterns' } },
-  { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', task: 'Analyze payment flow and database schema' } },
-  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', task: 'Research Stripe & PayPal integration patterns' } },
+  { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'explore-agent', toolUseId: 'toolu_mock_explore', task: 'Deep-dive into payment flow and DB schema' } },
+  { time: 9.9, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'research-agent', toolUseId: 'toolu_mock_research', task: 'Research Stripe & PayPal API patterns' } },
+  { time: 10.2, type: 'agent_spawn', payload: { name: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_mock_explore', task: 'Analyze payment flow and database schema' } },
+  { time: 10.2, type: 'agent_spawn', payload: { name: 'research-agent', parent: 'orchestrator', toolUseId: 'toolu_mock_research', task: 'Research Stripe & PayPal integration patterns' } },
   { time: 10.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
   { time: 10.5, type: 'context_update', payload: { agent: 'research-agent', tokens: 1800, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
 
@@ -83,7 +87,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 13.0, type: 'tool_call_start', payload: { agent: 'explore-agent', tool: 'Grep', args: '"catch|error|throw" src/services/', inputData: { pattern: 'catch|error|throw', path: 'src/services/' } } },
   { time: 13.3, type: 'tool_call_end', payload: { agent: 'explore-agent', tool: 'Grep', result: '15 matches — minimal error handling, no retry logic', tokenCost: 500, discovery: { type: 'finding', label: 'Weak error handling', content: 'No retry logic in payment flow\nGeneric catch blocks only\nNo idempotency keys' } } },
   { time: 13.5, type: 'context_update', payload: { agent: 'explore-agent', tokens: 6500, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 2500, reasoning: 2200, subagentResults: 0 } } },
-  { time: 14.0, type: 'subagent_return', payload: { child: 'explore-agent', parent: 'orchestrator', summary: 'Legacy Stripe v2 direct calls, Prisma Payment model, weak error handling, no webhooks' } },
+  { time: 14.0, type: 'subagent_return', payload: { child: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_mock_explore', summary: 'Legacy Stripe v2 direct calls, Prisma Payment model, weak error handling, no webhooks' } },
   { time: 14.0, type: 'agent_complete', payload: { name: 'explore-agent' } },
 
   // research-agent: web search (1.5s initial thinking — slow: network)
@@ -98,7 +102,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 18.4, type: 'tool_call_start', payload: { agent: 'research-agent', tool: 'WebSearch', args: 'PayPal Orders API v2 Node.js SDK', inputData: { query: 'PayPal Orders API v2 Node.js SDK 2026' } } },
   { time: 20.7, type: 'tool_call_end', payload: { agent: 'research-agent', tool: 'WebSearch', result: '8 results — PayPal Checkout Server SDK with Orders API v2', tokenCost: 2000 } },
   { time: 21.0, type: 'context_update', payload: { agent: 'research-agent', tokens: 12000, breakdown: { systemPrompt: 1400, userMessages: 400, toolResults: 8500, reasoning: 1700, subagentResults: 0 } } },
-  { time: 21.5, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', summary: 'Stripe PaymentIntents + webhooks, PayPal Orders API v2, both have Node.js SDKs' } },
+  { time: 21.5, type: 'subagent_return', payload: { child: 'research-agent', parent: 'orchestrator', toolUseId: 'toolu_mock_research', summary: 'Stripe PaymentIntents + webhooks, PayPal Orders API v2, both have Node.js SDKs' } },
   { time: 21.5, type: 'agent_complete', payload: { name: 'research-agent' } },
 
   // ── Phase 4: Implementation (thinking — planning implementation) ──────────
@@ -138,8 +142,8 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 33.0, type: 'message', payload: { agent: 'orchestrator', content: 'Core implementation done. Dispatching test agent for comprehensive testing...' } },
 
   // ── Phase 5: Testing ──────────────────────────────────────────────────────
-  { time: 33.5, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'test-runner', task: 'Write and run integration tests for payment adapters and webhooks' } },
-  { time: 33.8, type: 'agent_spawn', payload: { name: 'test-runner', parent: 'orchestrator', task: 'Write and run payment integration tests' } },
+  { time: 33.5, type: 'subagent_dispatch', payload: { parent: 'orchestrator', child: 'test-runner', toolUseId: 'toolu_mock_test', task: 'Write and run integration tests for payment adapters and webhooks' } },
+  { time: 33.8, type: 'agent_spawn', payload: { name: 'test-runner', parent: 'orchestrator', toolUseId: 'toolu_mock_test', task: 'Write and run payment integration tests' } },
   { time: 34.0, type: 'context_update', payload: { agent: 'test-runner', tokens: 2000, breakdown: { systemPrompt: 1400, userMessages: 600, toolResults: 0, reasoning: 0, subagentResults: 0 } } },
 
   // Write test files (1.5s initial thinking, then chain immediately)
@@ -183,7 +187,7 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 56.0, type: 'tool_call_end', payload: { agent: 'test-runner', tool: 'Bash', result: 'Test Suites: 3 passed, 3 total\nTests: 18 passed, 18 total\nCoverage: 91.3% stmts, 87.2% branches', tokenCost: 400, discovery: { type: 'finding', label: 'All 18 tests pass', content: '18/18 tests passing\n91.3% statement coverage\n87.2% branch coverage' } } },
 
   { time: 56.3, type: 'context_update', payload: { agent: 'test-runner', tokens: 8500, breakdown: { systemPrompt: 1400, userMessages: 600, toolResults: 3500, reasoning: 3000, subagentResults: 0 } } },
-  { time: 56.5, type: 'subagent_return', payload: { child: 'test-runner', parent: 'orchestrator', summary: '18 tests passing with 91% coverage, fixed webhook error classification' } },
+  { time: 56.5, type: 'subagent_return', payload: { child: 'test-runner', parent: 'orchestrator', toolUseId: 'toolu_mock_test', summary: '18 tests passing with 91% coverage, fixed webhook error classification' } },
   { time: 56.5, type: 'agent_complete', payload: { name: 'test-runner' } },
 
   // ── Phase 6: Final Verification (thinking — deciding on final steps) ──────

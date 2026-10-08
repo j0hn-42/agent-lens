@@ -1,13 +1,14 @@
 'use client'
 
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRef, useEffect, useState, useCallback, type ChangeEvent } from 'react'
 import { Agent, Particle, Edge, Discovery, DepthParticle } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
+import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { COLORS } from '@/lib/colors'
 import {
   ANIM_SPEED, PERF_OVERLAY, PERF_OVERLAY_ENABLED, A11Y_SNAPSHOT_MS, FLASH_MAX_PER_SECOND,
-  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, CAMERA, STATE_LABEL_LONG, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
+  ANIM_PAUSE_KEY, NEVER_HIDE_KEY, TOOL_EXPIRY_CHOICES_S, loadToolExpiryS, setToolExpiryS, CAMERA, STATE_LABEL_LONG, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
 } from '@/lib/canvas-constants'
 import { formatModelName } from '@/lib/utils'
 import { BloomRenderer } from './bloom-renderer'
@@ -19,15 +20,16 @@ import {
   drawAgents,
   drawMessageBubblesWorld,
   drawEdges, getActiveEdgeIds,
+  delegationPathEdges, drawDelegationPath, createPathAnimation,
   drawParticles, buildEdgeMap,
   drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   detectStateChanges as detectStateChangesPure,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
-  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, resolveLinks, hasSeveralSessions,
-  computeClusters, planOverlays, selectEdgeBubble, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
-  type Cluster, type SessionMeta, type EdgeBubble, type OverlayPlanResult,
+  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, drawSessionLinks, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
+  type Cluster, type SessionMeta, type OverlayPlanResult,
   detectTeamChanges, createTeamPrev, type TeamPrev, type ResolvedLink,
   createFlashLimiter, buildA11yModel, enqueueAnnouncements, createAnnouncementQueue, a11yRecorder,
   type AnnouncementItem, type AnnouncementQueue,
@@ -38,7 +40,12 @@ import { measureTextCached } from './canvas/render-cache'
 import { measureOverlayInsets } from './canvas/overlay-insets'
 import { safeRect, NO_INSETS, type Insets } from './canvas/camera-fit'
 import { visibleAgents } from '@/lib/inactive-agents'
+import { createCollapseMemory, evaluateCollapse, applyCollapse, applyCollapseToContent, selectionOwners, toggleBranch, type CollapseMemory, type CollapseView } from './canvas/branch-collapse'
+import { drawBranchBadges } from './canvas/draw-branch-badges'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
+import { selectEdgeBubbles, capEdgeBubbles, buildLinkMessageItems, type KeyedEdgeBubble, type LinkMessageItem } from './canvas/edge-bubble-set'
+import { attachBubbleLayer, syncBubbleButtons, type BubbleButtonSpec } from './canvas/edge-bubble-dom'
+import { planKey } from './canvas/overlay-plan'
 import { GraphA11yList } from './graph-a11y-list'
 import { GraphLegend } from './graph-legend'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
@@ -76,6 +83,8 @@ interface CanvasProps {
   selectedLinkId?: string | null
   /** Facts about sessions the agents do not carry (workspace, label, runtime), keyed by session id: shown on the cluster labels */
   sessions?: ReadonlyMap<string, SessionMeta>
+  /** Proven parent -> child links between sessions, drawn between the session halos of the 'All' view */
+  sessionLinks?: ReadonlyArray<SessionLink>
   /**
    * A cluster label (or its outline entry) was activated: the canvas has already zoomed to the cluster;
    * the app can also select the session / team (e.g. its session tab).
@@ -84,6 +93,24 @@ interface CanvasProps {
 }
 
 const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
+
+const EMPTY_COLLAPSE: CollapseView = { branches: new Map(), hidden: new Set() }
+
+/**
+ * Agents to draw: the 'hide inactive' filter, then the automatic collapse of inactive sub-trees.
+ * Only the selected agent keeps a branch open (hovering must not make the graph jump).
+ */
+function sceneAgents(
+  all: Map<string, Agent>, hideInactive: boolean, keepIds: ReadonlyArray<string | null | undefined>,
+  selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
+  memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
+): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
+  const base = visibleAgents(all, hideInactive, keepIds)
+  // A selected card keeps the branch of its owner open, like a selected agent
+  const owners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
+  const collapse = evaluateCollapse(base, memory, owners)
+  return { agents: applyCollapse(base, collapse), collapse, ...applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse) }
+}
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -100,7 +127,7 @@ export function AgentCanvas({
   simulationRef,
   selectedAgentId, hoveredAgentId, showStats, showHexGrid, zoomToFitTrigger, pauseAutoFit,
   onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick, selectedDiscoveryId, showCostOverlay, hideInactive = false,
-  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, onClusterSelect, scopeKey,
+  links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey,
 }: CanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -146,6 +173,7 @@ export function AgentCanvas({
   const [osReducedMotion, setOsReducedMotion] = useState(false)
   const [animationsPaused, setAnimationsPaused] = useState(false)
   const [neverHide, setNeverHide] = useState(false)
+  const [toolExpiryS, setToolExpiryState] = useState<number>(TOOL_EXPIRY_CHOICES_S[2])
   const reducedMotionRef = useRef(false)
   reducedMotionRef.current = osReducedMotion || animationsPaused
   const animationsPausedRef = useRef(false)
@@ -157,6 +185,7 @@ export function AgentCanvas({
     // Stored preferences are read after mount so server and first client render match
     setAnimationsPaused(readStoredFlag(ANIM_PAUSE_KEY))
     setNeverHide(readStoredFlag(NEVER_HIDE_KEY))
+    setToolExpiryState(loadToolExpiryS())
     if (typeof window.matchMedia !== 'function') return
     const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
     setOsReducedMotion(mql.matches)
@@ -170,6 +199,10 @@ export function AgentCanvas({
   }, [])
   const toggleNeverHide = useCallback(() => {
     setNeverHide(prev => { writeStoredFlag(NEVER_HIDE_KEY, !prev); return !prev })
+  }, [])
+
+  const changeToolExpiry = useCallback((e: ChangeEvent<HTMLSelectElement>) => {
+    setToolExpiryState(setToolExpiryS(Number(e.target.value)))
   }, [])
 
   // ─── Keyboard focus + accessible mirror state ───────────────────────────
@@ -187,6 +220,13 @@ export function AgentCanvas({
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([])
   const announcementsRef = useRef<AnnouncementQueue>(createAnnouncementQueue())
   const a11ySignatureRef = useRef('')
+  const [linkMessages, setLinkMessages] = useState<LinkMessageItem[]>([])
+  const linkMessagesSigRef = useRef('')
+  /** DOM layer holding the focusable buttons of the edge bubbles, and the message ids hovered / focused in it */
+  const bubbleLayerRef = useRef<HTMLDivElement>(null)
+  const heldBubbleKeysRef = useRef<ReadonlySet<string>>(new Set())
+  const onLinkClickRef = useRef(onLinkClick)
+  onLinkClickRef.current = onLinkClick
   const teamPrevRef = useRef<TeamPrev>(createTeamPrev())
   // Props read by the draw loop and the snapshot timer without re-subscribing
   const linksPropRef = useRef(linksProp)
@@ -195,6 +235,8 @@ export function AgentCanvas({
   teamsRef.current = teams
   const sessionsRef = useRef(sessions)
   sessionsRef.current = sessions
+  const sessionLinksRef = useRef(sessionLinks)
+  sessionLinksRef.current = sessionLinks
   const onClusterSelectRef = useRef(onClusterSelect)
   onClusterSelectRef.current = onClusterSelect
   /** Clusters and overlay plan of the last drawn frame (read by the cluster click handler) */
@@ -217,9 +259,19 @@ export function AgentCanvas({
   const sim = simulationRef.current
   const hideInactiveRef = useRef(hideInactive)
   hideInactiveRef.current = hideInactive
-  const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => ({
-    agents: visibleAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId]), toolCalls: sim.toolCalls,
-    particles: sim.particles, edges: sim.edges, discoveries: sim.discoveries,
+  // Collapse of inactive sub-trees: the user's choices live here for the life of the canvas
+  const collapseMemoryRef = useRef<CollapseMemory>(createCollapseMemory())
+  const collapseViewRef = useRef<CollapseView>(EMPTY_COLLAPSE)
+  const handleToggleBranch = useCallback((id: string) => {
+    toggleBranch(collapseMemoryRef.current, collapseViewRef.current, id)
+  }, [])
+  const makeDrawProps = (prev?: { isDragging: boolean; links: ResolvedLink[] }) => {
+    const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
+      { agentId: selectedAgentId, toolCallId: selectedToolCallId ?? null, discoveryId: selectedDiscoveryId ?? null }, collapseMemoryRef.current, sim)
+    collapseViewRef.current = scene.collapse
+    return {
+    agents: scene.agents, collapse: scene.collapse, onToggleBranch: handleToggleBranch, toolCalls: scene.toolCalls,
+    particles: sim.particles, edges: sim.edges, discoveries: scene.discoveries,
     selectedAgentId, hoveredAgentId, showStats, showHexGrid,
     showCostOverlay, selectedToolCallId, selectedDiscoveryId, selectedLinkId,
     simTime: sim.currentTime, pauseAutoFit, dimensions,
@@ -230,7 +282,8 @@ export function AgentCanvas({
     onToolCallClick, onDiscoveryClick, onLinkClick,
     onClusterClick: (key: string) => handleClusterClickRef.current(key),
     isDragging: prev?.isDragging ?? false,
-  })
+    }
+  }
   const handleClusterClickRef = useRef<(key: string) => void>(() => {})
   const drawPropsRef = useRef(makeDrawProps())
   drawPropsRef.current = makeDrawProps(drawPropsRef.current)
@@ -335,6 +388,18 @@ export function AgentCanvas({
     }
   }, [])
 
+  // ─── Edge bubble buttons: click / Enter opens the link panel; hover and focus keep a bubble alive ───
+  useEffect(() => {
+    const layer = bubbleLayerRef.current
+    if (!layer) return
+    const dispose = attachBubbleLayer(layer, {
+      onOpen: linkId => onLinkClickRef.current?.(linkId),
+      onHoldChange: (_ids, keys) => { heldBubbleKeysRef.current = keys },
+      forwardTarget: () => mainCanvasRef.current,
+    })
+    return () => { dispose(); heldBubbleKeysRef.current = new Set() }
+  }, [])
+
   // ─── Accessible mirror: throttled snapshot of the simulation ───────────
   useEffect(() => {
     const snapshot = () => {
@@ -342,9 +407,13 @@ export function AgentCanvas({
       const s = simulationRef.current
       // Tool calls and communications are recorded per frame by the simulation step (a11yRecorder);
       // this timer only publishes them to React state.
-      const model = buildA11yModel(visibleAgents(s.agents, hideInactiveRef.current, [drawPropsRef.current.selectedAgentId]), s.toolCalls, s.discoveries, a11yRecorder.tools, {
-        links: linksPropRef.current ?? s.links, teams: teamsRef.current, simTime: s.currentTime,
-        sessions: sessionsRef.current,
+      const dp = drawPropsRef.current
+      const scene = sceneAgents(s.agents, hideInactiveRef.current, [dp.selectedAgentId],
+        { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+      collapseViewRef.current = scene.collapse
+      const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
+        links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
+        sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current,
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
@@ -352,6 +421,12 @@ export function AgentCanvas({
       a11ySignatureRef.current = signature
       setA11yModel(model)
       setCommunications(comms)
+      const items = buildLinkMessageItems(linksPropRef.current ?? s.links, s.agents)
+      const itemsSig = items.map(i => `${i.id}:${i.text}`).join('\n')
+      if (itemsSig !== linkMessagesSigRef.current) {
+        linkMessagesSigRef.current = itemsSig
+        setLinkMessages(items)
+      }
     }
     snapshot()
     const timer = window.setInterval(snapshot, A11Y_SNAPSHOT_MS)
@@ -369,10 +444,14 @@ export function AgentCanvas({
   // ─── Detect state changes → spawn effects + live-region announcements ───
 
   const detectStateChanges = useCallback(() => {
-    const { agents, toolCalls } = drawPropsRef.current
+    const { agents } = drawPropsRef.current
+    // States come from the whole simulation, only the shown agents are announced: expanding a
+    // branch reveals agents that did not just start.
+    const sim = simulationRef.current
     const { effects, transitions, newAgentStates, newToolStates } = detectStateChangesPure(
-      agents, toolCalls,
+      sim.agents, sim.toolCalls,
       prevAgentStatesRef.current, prevToolStatesRef.current,
+      agents,
     )
     if (!reducedMotionRef.current) {
       // Global flash limiter: at most FLASH_MAX_PER_SECOND bright flashes per second
@@ -408,6 +487,8 @@ export function AgentCanvas({
   // Stable ref so the rAF loop always calls the latest draw without
   // re-subscribing when the callback identity changes.
   const drawRef = useRef<(timestamp: number) => void>(() => {})
+  // Delegation path (#56): restarts whenever the selected node changes
+  const pathAnimRef = useRef(createPathAnimation())
   const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
 
   const draw = useCallback((timestamp: number) => {
@@ -423,11 +504,15 @@ export function AgentCanvas({
       {
         const s = simulationRef.current
         const p = drawPropsRef.current
-        p.agents = visibleAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId])
-        p.toolCalls = s.toolCalls
+        const scene = sceneAgents(s.agents, hideInactiveRef.current, [p.selectedAgentId, p.hoveredAgentId],
+          { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null }, collapseMemoryRef.current, s)
+        collapseViewRef.current = scene.collapse
+        p.agents = scene.agents
+        p.collapse = scene.collapse
+        p.toolCalls = scene.toolCalls
         p.particles = s.particles
         p.edges = s.edges
-        p.discoveries = s.discoveries
+        p.discoveries = scene.discoveries
         p.simTime = s.currentTime
         p.links = resolveLinks(linksPropRef.current ?? s.links, p.agents, s.currentTime)
       }
@@ -511,19 +596,22 @@ export function AgentCanvas({
       clustersRef.current = clusters
       const hoverTarget = hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
-      const edgeBubbles: EdgeBubble[] = []
+      const edgeBubbles: KeyedEdgeBubble[] = []
       {
         ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
         const measure = (t: string) => measureTextCached(ctx, t)
+        const heldKeys = heldBubbleKeysRef.current
         for (const r of resolvedLinks) {
           const held = expiryHold.neverHide || expiryHold.paused || r.id === selectedLinkId || r.id === hoveredLinkId
-          const b = selectEdgeBubble(r, agents, simTime, held, measure)
-          if (b) edgeBubbles.push(b)
+          edgeBubbles.push(...selectEdgeBubbles(r, agents, simTime, { held, heldKeys, measure }))
         }
       }
+      const cappedEdgeBubbles = capEdgeBubbles(edgeBubbles)
+      const heldBubbleKeys = new Set<string>()
+      for (const b of cappedEdgeBubbles) if (heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: getSafeArea(w, h), lod: lodForZoom(transform.scale),
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: simTimeRef.current, teams: teamsRef.current,
@@ -590,14 +678,21 @@ export function AgentCanvas({
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
+      drawSessionLinks(ctx, sessionLinkSegments(clusters, sessionLinksRef.current ?? []), opts)
       drawEdges(ctx, edges, agents, toolCalls, activeEdgeIds, timeRef.current, opts)
+      {
+        const pathTarget = selectedAgentId ?? selectedToolCallId ?? null
+        const elapsed = pathAnimRef.current.elapsed(pathTarget, timestamp)
+        if (elapsed !== null) drawDelegationPath(ctx, delegationPathEdges(pathTarget, edges), agents, toolCalls, elapsed, reducedMotion)
+      }
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,
         hoverTargetRef.current?.type === 'link' ? hoverTargetRef.current.id : null,
         timeRef.current, opts,
       )
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
-      drawEdgeBubbles(ctx, edgeBubbles, selectedLinkId, hoveredLinkId, opts)
+      drawBranchBadges(ctx, agents, drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)
+      drawEdgeBubbles(ctx, cappedEdgeBubbles, selectedLinkId, hoveredLinkId, opts)
       drawMessageBubblesWorld(ctx, agents, simTimeRef.current, opts)
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId, opts)
@@ -629,7 +724,24 @@ export function AgentCanvas({
       // Cluster labels live in screen space: readable at any zoom, placed without overlap
       drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey)
 
-      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls)
+      // Focusable buttons over the edge bubbles, at the places the overlay plan chose
+      if (bubbleLayerRef.current) {
+        const specs: BubbleButtonSpec[] = []
+        if (opts.plan && lodForZoom(transform.scale).details) {
+          for (const b of cappedEdgeBubbles) {
+            const place = opts.plan.get(planKey.edgeBubble(b.key))
+            if (!place || place.hidden || !place.rect) continue
+            specs.push({
+              key: b.key, linkId: b.linkId, messageId: b.messageId,
+              label: place.collapsed && b.groupCount > 1 ? `${b.ariaLabel}, and ${b.groupCount - 1} more on this link` : b.ariaLabel,
+              x: place.rect.x, y: place.rect.y, w: place.rect.w, h: place.rect.h, collapsed: place.collapsed,
+            })
+          }
+        }
+        syncBubbleButtons(bubbleLayerRef.current, specs)
+      }
+
+      if (showCostOverlay) drawCostSummaryPanel(ctx, agents, toolCalls, simulationRef.current.unattributed.values())
       if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
@@ -743,14 +855,22 @@ export function AgentCanvas({
           className="w-full h-full"
         />
       </div>
+      {/* Focusable buttons of the bubbles anchored on the edges (positioned each frame by the draw loop) */}
+      <div
+        ref={bubbleLayerRef}
+        data-edge-bubble-layer=""
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
+      />
       <p id="graph-keyboard-help" className="sr-only">
-        Arrow keys move between nodes. Enter opens details. Plus and minus zoom, zero fits the graph.
+        Arrow keys move between nodes. On an agent, Right opens a folded branch or enters its first sub-agent,
+        Left folds an open branch or goes to the parent. Enter opens details. Plus and minus zoom, zero fits the graph.
         Shift with arrow keys pans. The context menu key or Shift F10 opens the context menu.
       </p>
 
       <GraphA11yList
         model={a11yModel}
         onLinkClick={onLinkClick}
+        linkMessages={linkMessages}
         selectedLinkId={selectedLinkId}
         onClusterClick={selectCluster}
         selectedClusterKey={selectedClusterKey}
@@ -761,6 +881,7 @@ export function AgentCanvas({
         onToolCallClick={onToolCallClick}
         onDiscoveryClick={onDiscoveryClick}
         onFocusNode={focusNode}
+        onToggleBranch={handleToggleBranch}
       />
 
       {/* Hover / focus tooltip (mirrors information available in the outline, so hidden from AT) */}
@@ -844,6 +965,14 @@ export function AgentCanvas({
         >
           Keep cards visible
         </button>
+        <label className={`${CONTROL_BUTTON_CLASS} gap-1`} style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}>
+          Expire unanswered calls after
+          <select value={toolExpiryS} onChange={changeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
+            {TOOL_EXPIRY_CHOICES_S.map(n => (
+              <option key={n} value={n} style={{ color: '#000' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <GraphLegend teams={a11yModel.teams} />

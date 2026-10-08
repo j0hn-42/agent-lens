@@ -429,6 +429,7 @@ export class HookServer implements vscode.Disposable {
         tool: toolName,
         result: result.slice(0, isSubagentTool ? MESSAGE_MAX : RESULT_MAX),
         tokenCost,
+        tokenSource: 'estimated',
         ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
         ...(discovery ? { discovery } : {}),
       },
@@ -446,8 +447,10 @@ export class HookServer implements vscode.Disposable {
         agent: agentName,
         tool: toolName,
         result: `[FAILED] ${(payload.tool_response ? summarizeResult(payload.tool_response) : '').slice(0, FAILED_RESULT_MAX)}`,
-        tokenCost: 0,
+        // No tokenCost: a failed call reports no usage, which is not the same as zero tokens
         isError: true,
+        // The user stopped the call: neither a success nor a tool failure
+        ...(payload.is_interrupt === true ? { outcome: 'cancelled' } : {}),
         ...(payload.tool_use_id ? { toolUseId: payload.tool_use_id } : {}),
       },
     }, payload.session_id)

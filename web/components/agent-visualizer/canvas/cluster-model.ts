@@ -6,9 +6,12 @@
  * No React and no canvas: unit-testable under node:test (relative runtime imports only).
  */
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
-import { agentCost } from '../../../lib/cost'
+import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
+import { totalCostUsage } from '../../../lib/cost'
+import { formatCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
+import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import {
   cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, HALO_PADDING, isOrchestrator,
 } from './team-style'
@@ -18,6 +21,9 @@ export interface SessionMeta {
   label?: string
   workspace?: string
   runtime?: 'claude' | 'codex'
+  /** Repository of the session (both fields or none); see SessionInfo.projectId */
+  projectId?: string
+  projectName?: string
 }
 
 export type ClusterStatus = 'error' | 'waiting' | 'working' | 'idle' | 'complete'
@@ -39,11 +45,16 @@ export interface Cluster {
   sessionIds: string[]
   /** Team name for team clusters */
   teamName?: string
+  /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
+  teamKind?: GroupKind
   runtime: 'Claude' | 'Codex'
   workspace?: string
+  /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
+  projectName?: string
   status: ClusterStatus
   statusText: string
-  cost: number
+  /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
+  cost: number | null
   costText: string
 }
 
@@ -67,7 +78,8 @@ export function sessionColor(sessionIdIn: string | undefined): string {
  */
 function groupSession(sessionIdIn: string | undefined, teamName: string, teams?: ReadonlyMap<string, TeamSummary>): string {
   const sessionId = sessionIdIn || DEFAULT_SESSION
-  const t = teams?.get(teamName)
+  // The team of that name this session takes part in: two teams may share a name under different leads
+  const t = findTeam(teams, teamName, sessionId)
   if (!t) return sessionId
   if (sessionId === t.leadSessionId || t.members.some(m => m.sessionId === sessionId)) return t.leadSessionId
   return sessionId
@@ -117,6 +129,22 @@ export function clusterStatus(states: Iterable<Agent['state']>): ClusterStatus {
   return any && allComplete ? 'complete' : 'idle'
 }
 
+/**
+ * State used for the halo status. A teammate's `activity` (working / idle / done) says more than its
+ * `state` (a teammate idling between turns still has a live session); errors and permission waits always win.
+ */
+export function effectiveClusterState(a: Pick<Agent, 'state' | 'kind' | 'activity'>): Agent['state'] {
+  if (a.kind !== 'teammate' || !a.activity) return a.state
+  if (a.state === 'error' || a.state === 'waiting_permission') return a.state
+  return a.activity === 'working' ? 'thinking' : a.activity === 'done' ? 'complete' : 'idle'
+}
+
+/** Member as teamHaloStatus reads it: a teammate that reports `done` is complete whatever its idle state says. */
+function teamMemberState(a: Agent): Pick<Agent, 'state' | 'activity'> {
+  const done = a.kind === 'teammate' && a.activity === 'done' && a.state !== 'error' && a.state !== 'waiting_permission'
+  return { state: done ? 'complete' : a.state, activity: a.activity }
+}
+
 const STATUS_TEXT: Record<ClusterStatus, string> = {
   error: 'error',
   waiting: 'waiting for permission',
@@ -136,6 +164,20 @@ function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: S
   const sessionId = sessionIdIn || DEFAULT_SESSION
   const label = cleanText(meta?.label, 40) || cleanText(agents.find(a => a.sessionLabel)?.sessionLabel, 40)
   return label || cleanText(sessionId, 24) || 'session'
+}
+
+/** Name of the repository all the sessions belong to; undefined as soon as one of them has none or another one. */
+function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): string | undefined {
+  let id: string | undefined
+  let name: string | undefined
+  for (const s of sessionIds) {
+    const m = sessions?.get(s)
+    if (!m?.projectId || !m.projectName) return undefined
+    if (id !== undefined && id !== m.projectId) return undefined
+    id = m.projectId
+    name = cleanText(m.projectName, 40) || undefined
+  }
+  return name
 }
 
 /**
@@ -164,6 +206,9 @@ export function computeClusters(
     if (!showAll && members.length < minMembers) continue
     const isTeam = key.startsWith('team:')
     const teamName = isTeam ? cleanText(members.find(m => cleanText(m.teamName))?.teamName) : undefined
+    const teamKind: GroupKind | undefined = isTeam
+      ? (members.some(m => m.teamKind === 'workflow') || teams?.get(teamName ?? '')?.kind === 'workflow' ? 'workflow' : 'team')
+      : undefined
     const main = members.find(isOrchestrator) ?? members.find(m => m.isMain)
     const sessionIds = Array.from(new Set(members.map(m => m.sessionId || DEFAULT_SESSION)))
     const meta = options.sessions?.get((main ?? members[0]).sessionId || DEFAULT_SESSION)
@@ -178,16 +223,16 @@ export function computeClusters(
     let color: string
     if (isTeam) {
       color = members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
-        ?? teams?.get(teamName ?? '')?.members.map(m => safeTeamColor(m.color)).find(Boolean)
+        ?? members.map(m => teamOfAgent(teams, m)?.members.map(tm => safeTeamColor(tm.color)).find(Boolean)).find(Boolean)
         ?? TEAM_DEFAULT_COLOR
     } else {
       color = sessionColor(members[0].sessionId)
     }
 
+    const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
-    const status = clusterStatus(members.map(m => m.state))
-    let cost = 0
-    for (const m of members) cost += agentCost(m.tokensUsed, m.model)
+    const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
+    const costUsage = totalCostUsage(members)
 
     out.push({
       key,
@@ -199,30 +244,53 @@ export function computeClusters(
       orchestratorId: main?.id,
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
+      teamKind,
       runtime: runtimeRaw === 'codex' ? 'Codex' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
+      ...(project ? { projectName: project } : {}),
       status,
       statusText: STATUS_TEXT[status],
-      cost,
-      costText: formatCost(cost),
+      cost: costUsage.value,
+      costText: formatCostUsage(costUsage),
     })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
 }
 
+/** "Session" | "Team" | "Workflow": the word that names a cluster everywhere (halo label, outline, legend). */
+export function clusterNoun(c: Pick<Cluster, 'kind' | 'teamKind'>): string {
+  if (c.kind !== 'team') return 'Session'
+  return groupHeading(normalizeGroupKind(c.teamKind), '').trim()
+}
+
+/** Lower-case form of {@link clusterNoun}, for sentences ("Zoom to workflow x"). */
+export function clusterNounLower(c: Pick<Cluster, 'kind' | 'teamKind'>): string {
+  return c.kind === 'team' ? groupNounLower(c.teamKind) : 'session'
+}
+
+/** A workflow cluster whose agents are all complete: drawn reduced so it does not crowd the live view. */
+export function isFinishedWorkflow(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>): boolean {
+  return c.kind === 'team' && c.teamKind === 'workflow' && c.status === 'complete'
+}
+
+/** Alpha suffixes (hex) of a cluster halo: fill and outline, reduced for a finished workflow. */
+export function haloAlphas(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>, selected: boolean): { fill: string; stroke: string } {
+  if (isFinishedWorkflow(c)) return selected ? { fill: '14', stroke: '88' } : { fill: '08', stroke: '44' }
+  return selected ? { fill: '22', stroke: 'cc' } : { fill: '12', stroke: '88' }
+}
+
 /** Two lines of a cluster label: the title, then runtime, workspace, status and cost. */
-export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): { title: string; detail: string } {
-  const kind = c.kind === 'team' ? 'Team' : 'Session'
+export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): { title: string; detail: string } {
   const n = c.memberIds.length
-  const detail = [c.runtime, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
-  return { title: `${kind} ${c.title} (${n})`, detail }
+  const detail = [c.runtime, c.projectName, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
+  return { title: `${clusterNoun(c)} ${c.title} (${n})`, detail }
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): string {
-  const kind = c.kind === 'team' ? 'Team' : 'Session'
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): string {
   const n = c.memberIds.length
-  const parts = [`${kind} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
+  const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
+  if (c.projectName) parts.push(`project ${c.projectName}`)
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
   parts.push(c.statusText, `cost ${c.costText}`)
   return parts.join(', ')

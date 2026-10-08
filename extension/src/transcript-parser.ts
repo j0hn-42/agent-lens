@@ -127,6 +127,9 @@ export function* readLinesChunked(filePath: string, size: number, chunkBytes = P
   }
 }
 
+/** Claude Code's text for a tool call the user interrupted (Esc / cancel) */
+const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
+
 export class TranscriptParser {
   /** Per-subagent dedup state for inline progress events, keyed by parentToolUseID */
   private inlineSubagentState = new Map<string, {
@@ -600,7 +603,7 @@ export class TranscriptParser {
         kind: 'teammate', teamName: spawn.teamName, backendType: 'in-process',
         ...(spawn.color ? { color: spawn.color } : {}),
         ...(spawn.agentType ? { agentType: spawn.agentType } : {}),
-        ...(spawn.model ? { model: spawn.model } : {}),
+        ...(spawn.model ? { model: spawn.model, modelSource: 'configured' } : {}),
       },
     }, sessionId)
   }
@@ -689,9 +692,11 @@ export class TranscriptParser {
         tool: toolName,
         result: result.slice(0, isSubagentTool ? MESSAGE_MAX : RESULT_MAX),
         tokenCost,
+        tokenSource: 'estimated',
         toolUseId: block.tool_use_id,
         ...(discovery ? { discovery } : {}),
         ...(isError ? { isError, errorMessage } : {}),
+        ...(isError && INTERRUPTED_RESULT.test(result) ? { outcome: 'cancelled' } : {}),
       },
     }, sessionId)
 

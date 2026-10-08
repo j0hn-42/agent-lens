@@ -9,6 +9,8 @@ import type {
   TimelineEntry,
   SimulationEvent,
 } from '../../lib/agent-types'
+import type { SessionProjects } from './fleet-layout'
+import type { UnattributedUsage } from '../../lib/attribution'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
 export interface SimulationState {
@@ -24,6 +26,8 @@ export interface SimulationState {
   links: Map<string, AgentLink>
   /** Agent Teams seen in this view (from team_info events), keyed by team name */
   teams: Map<string, TeamSummary>
+  /** Usage that belongs to no single agent (orphan or ambiguous target), by addressed agentKey; see lib/attribution */
+  unattributed: Map<string, UnattributedUsage>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
@@ -50,6 +54,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     conversations: new Map(),
     links: new Map(),
     teams: new Map(),
+    unattributed: new Map(),
     droppedMessages: new Map(),
     droppedEvents: 0,
     currentTime: 0,
@@ -193,6 +198,8 @@ export interface UseAgentSimulationOptions {
   /** Seconds to add to the event time of each session in union views ('All' / team), keyed by session id.
    *  Events carry time relative to their own session start; offsets put them on a common wall-clock axis. */
   sessionOffsetsRef?: React.RefObject<ReadonlyMap<string, number> | undefined>
+  /** Repository of each session (only those whose project is known): clusters of a same project are laid out side by side */
+  sessionProjects?: SessionProjects
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
 }

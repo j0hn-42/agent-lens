@@ -7,6 +7,7 @@ import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D } from './canvas/draw-misc'
 import { TEAM_DEFAULT_COLOR } from './canvas/team-style'
 import type { A11yTeamItem } from './canvas/a11y-model'
+import { memberNoun } from '@/lib/ui-glossary'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -106,8 +107,11 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
 
           <Heading>Edges and particles</Heading>
           <ul>
-            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="3" /></svg>}>Thick line: parent to sub-agent (confirmed by the events)</Row>
+            <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.holoBase} strokeWidth="1.4" strokeDasharray="4 3" /></svg>}>Dashed line: parent link not verified</Row>
             <Row icon={<svg width="24" height="10" viewBox="0 0 24 10"><line x1="1" y1="5" x2="23" y2="5" stroke={COLORS.tool} strokeWidth="1.5" /></svg>}>Thin amber line: tool call</Row>
+            <Row icon={<span className="rounded-full border px-1 text-[10px]" style={{ borderColor: COLORS.holoBase }}>+3</span>}>+N badge: N agents hidden in a folded branch (click to unfold)</Row>
+            <Row icon={<span className="inline-flex items-center gap-0.5 rounded-full border px-1 text-[10px]" style={{ borderColor: COLORS.complete }}><Swatch color={COLORS.complete} round />2</span>}>Green badge: active agents in a folded branch</Row>
             <Row icon={<Swatch color={COLORS.dispatch} round />}>Purple dot: task dispatched</Row>
             <Row icon={<Swatch color={COLORS.return} round />}>Green dot: result returned</Row>
           </ul>
@@ -119,13 +123,13 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><path d="M12 6 A6 6 0 1 1 6 12" fill="none" stroke={COLORS.holoBase} strokeWidth="2" /></svg>}>Open arc: teammate working</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill={COLORS.holoBase} /></svg>}>Filled dot: teammate done</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(9, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="3 3" opacity="0.55" /></svg>}>Faded dashed outline: archived agent (still clickable)</Row>
-            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${TEAM_DEFAULT_COLOR}1a`} stroke={TEAM_DEFAULT_COLOR} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team. Its label names the team</Row>
+            <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill={`${TEAM_DEFAULT_COLOR}1a`} stroke={TEAM_DEFAULT_COLOR} strokeWidth="1.5" strokeDasharray="4 3" /></svg>}>Dashed halo: team or workflow. Its label starts with Team or Workflow and names it; a finished workflow is drawn fainter</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" strokeDasharray="1 4" strokeLinecap="round" /></svg>}>Dotted halo: session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster</Row>
             <Row icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={COLORS.holoBase} strokeWidth="1.5" /><path d="M16 3 L16 7 L21 7 L21 3 L19.5 5 L18.5 2.5 L17.5 5 Z" fill="#ffd166" /></svg>}>Larger hexagon with a crown and a LEAD (team) or MAIN (session) badge: orchestrator</Row>
             {teams.map(team => (
               <Row key={team.key} icon={<Swatch color={team.color} round />}>
                 <span className="font-semibold">{team.name}</span>
-                <span style={{ color: COLORS.textMuted }}> ({team.memberNames.length} members)</span>
+                <span style={{ color: COLORS.textMuted }}> ({team.teamKind === 'workflow' ? 'workflow, ' : ''}{team.memberNames.length} {memberNoun(team.teamKind, team.memberNames.length)})</span>
               </Row>
             ))}
           </ul>

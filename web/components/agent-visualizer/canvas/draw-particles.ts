@@ -1,6 +1,6 @@
 import { Agent, ToolCallNode, Particle, Edge, BEAM, FX } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { PARTICLE_DRAW } from '@/lib/canvas-constants'
+import { PARTICLE_DRAW, MCP_DRAW } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
 import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edges'
 import { getGlowSprite } from './render-cache'
@@ -60,7 +60,10 @@ export function drawParticles(
 
     // Comet trail — flip direction for return particles (progress goes 1→0)
     const isReturn = particle.type === 'return' || particle.type === 'tool_return'
+    const dotted = particle.mcp === true
     for (let i = reducedMotion ? 0 : FX.trailSegments; i >= 0; i--) {
+      // MCP: dotted trail (skip alternate segments), reads as a call to an external server
+      if (dotted && i > 0 && i % MCP_DRAW.trailSegmentStep !== 0) continue
       const offset = (i / FX.trailSegments) * BEAM.wobble.trailOffset
       const tt = isReturn
         ? Math.min(1, t + offset)
@@ -83,7 +86,7 @@ export function drawParticles(
     // Particle core
     ctx.beginPath()
     ctx.fillStyle = particle.color
-    ctx.arc(px, py, particle.size, 0, Math.PI * 2)
+    ctx.arc(px, py, particle.size * (dotted ? MCP_DRAW.particleScale : 1), 0, Math.PI * 2)
     ctx.fill()
     ctx.beginPath()
     ctx.fillStyle = COLORS.holoHot + '80'

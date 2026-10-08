@@ -1,14 +1,16 @@
 import { useState, useCallback } from "react"
-import type { Agent, ToolCallNode, Discovery } from "@/lib/agent-types"
+import type { Agent, ToolCallNode, ToolCallState, Discovery } from "@/lib/agent-types"
 import { contextMenuPosition } from "@/lib/chrome-utils"
 
 export interface ToolDataSnapshot {
   id: string
   toolName: string
-  state: 'running' | 'complete' | 'error'
+  state: ToolCallState
   args: string
   result?: string
-  tokenCost?: number
+  tokenCost?: number | null
+  tokenSource?: ToolCallNode['tokenSource']
+  endObserved?: boolean
   inputData?: Record<string, unknown>
 }
 
@@ -101,7 +103,7 @@ export function useSelectionState(deps: {
         // Snapshot data so popup persists after tool card fades
         setSelectedToolData({
           id: tool.id, toolName: tool.toolName, state: tool.state, args: tool.args,
-          result: tool.result, tokenCost: tool.tokenCost, inputData: tool.inputData,
+          result: tool.result, tokenCost: tool.tokenCost, tokenSource: tool.tokenSource, endObserved: tool.endObserved, inputData: tool.inputData,
         })
       }
     } else {

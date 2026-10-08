@@ -69,7 +69,7 @@ test('filterActiveSessions: an unobserved session is not counted as active (but 
 
 test('buildSessionRows: unobserved sessions come after the proven active ones, before completed', () => {
   const sessions = [session('done', 'completed', 9), session('ghost', 'active', 8), session('seen', 'active', 1)]
-  const rows = buildSessionRows(sessions, [], new Map(), s => s.id === 'seen')
+  const rows = buildSessionRows(sessions, [], new Map(), undefined, undefined, s => s.id === 'seen')
   assert.deepEqual(rows.filter(r => r.kind === 'session').map(r => r.id), ['seen', 'ghost', 'done'])
 })
 

@@ -15,6 +15,7 @@
 import type { Agent } from '../../lib/agent-types'
 import type { MutableEventState } from './process-event'
 import { MAX_TEAM_MEMBERS, MAX_TEAMS } from './team-info'
+import { findTeam } from './team-key'
 import { appendConversation } from './types'
 
 /** Archived agents kept per session (oldest completed are evicted first) */
@@ -117,18 +118,21 @@ export interface SpawnCandidateInfo { sessionId: string; isMain: boolean; teamNa
 export function admitSpawn(state: MutableEventState, c: SpawnCandidateInfo): boolean {
   let total = 0
   let inSession = 0
-  const teams = new Set<string>(state.teams.keys())
+  // Teams are counted like state.teams does (one per map key, i.e. per lead session + name); agents
+  // whose team has no entry yet (a teammate spawn before team_info) count once per name.
+  const unresolved = new Set<string>()
   const team: Agent[] = []
   for (const a of state.agents.values()) {
     total++
     if (a.sessionId === c.sessionId) inSession++
     if (a.teamName) {
-      teams.add(a.teamName)
+      if (!findTeam(state.teams, a.teamName, a.sessionId)) unresolved.add(a.teamName)
       if (a.teamName === c.teamName && a.kind === 'teammate') team.push(a)
     }
   }
   if (c.teamName && !c.isMain) {
-    if (!teams.has(c.teamName) && teams.size >= MAX_TEAMS) return false
+    const known = findTeam(state.teams, c.teamName, c.sessionId) !== undefined || unresolved.has(c.teamName)
+    if (!known && state.teams.size + unresolved.size >= MAX_TEAMS) return false
     if (team.length >= MAX_TEAM_MEMBERS) {
       const finished = team.filter(a => a.archived).sort(byAge)
       const need = team.length - MAX_TEAM_MEMBERS + 1

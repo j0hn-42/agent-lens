@@ -119,7 +119,8 @@ test('sessions panel: arrows move between rows, one row is in the tab order, cli
   assert.deepEqual(pickedAgents, ['a:sub'])
   // ArrowLeft folds the agents of the focused session
   fireEvent.keyDown(rows[1], { key: 'ArrowLeft' })
-  assert.equal(container.querySelectorAll('[data-row-main]').length, 3)
+  // The folded agents stay mounted (for the animation) but are inert: only reachable rows remain
+  assert.equal(Array.from(container.querySelectorAll('[data-row-main]')).filter(r => !r.closest('[inert]')).length, 3)
   getByRole('button', { name: 'Expand agents of Sa' })
 })
 

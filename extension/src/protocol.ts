@@ -58,10 +58,15 @@ export type AgentKind = 'main' | 'subagent' | 'teammate'
 /** What a teammate is doing right now. Idle teammates stay on screen. */
 export type AgentActivity = 'working' | 'idle' | 'done'
 
+/** 'team' = Claude Code Agent Team (default); 'workflow' = one Workflow tool run (#79). */
+export type TeamKind = 'team' | 'workflow'
+
 /** Extra fields an `agent_spawn` payload carries for teammates (all optional, untrusted strings). */
 export interface TeammateSpawnExtras {
   kind: 'teammate'
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   /** Team color as '#rrggbb' only; anything else must be dropped by the consumer */
   color?: string
   /** Role reported by the team config (e.g. 'general-purpose', 'team-lead') */
@@ -80,6 +85,8 @@ export interface AgentActivityPayload {
 /** Payload of `team_info`: one Agent Team as read from ~/.claude/teams/<team>/config.json. */
 export interface TeamInfoPayload {
   teamName: string
+  /** Group flavour; absent = 'team' */
+  teamKind?: TeamKind
   leadSessionId: string
   leadName?: string
   members: Array<{
@@ -90,6 +97,8 @@ export interface TeamInfoPayload {
     /** Session id when the member is a separate session */
     sessionId?: string
     joinedAt?: number
+    /** Workflow groups only: phase label of the agent (capped at 40 chars) */
+    phase?: string
   }>
 }
 
@@ -134,6 +143,14 @@ export interface SessionInfo {
   workspace?: string
   /** Working directory read from the transcript (untrusted, capped) */
   cwd?: string
+  /** Session that launched this one (Task), when the source declares it (untrusted, capped) */
+  parentSessionId?: string
+  /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
+  indexedOnly?: boolean
+  /** Hash of the repository's git common dir: shared by all worktrees of a repo; absent outside git */
+  projectId?: string
+  /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */
+  projectName?: string
 }
 
 // ─── Extension → Webview Messages ────────────────────────────────────────────
@@ -172,6 +189,8 @@ export interface RelayStatus {
   hooksConfigured: boolean
   sessionCount: number
   allWorkspaces: boolean
+  /** Optional session index (#66): present only when one is configured */
+  sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────
@@ -276,6 +295,10 @@ export function emitSubagentSpawn(
       name: child, parent, task,
       ...(extra?.toolUseId ? { toolUseId: extra.toolUseId } : {}),
       ...(extra?.label ? { label: extra.label } : {}),
+      // What the dispatching call asked for; the UI ranks it below configured and runtime models (#60)
+      ...(extra?.model ? { requestedModel: extra.model } : {}),
+      // The role behind the agent:<role> issue labels (#63)
+      ...(extra?.subagentType ? { subagentType: extra.subagentType } : {}),
       ...(spawnExtras ?? {}),
     },
   }, sessionId)

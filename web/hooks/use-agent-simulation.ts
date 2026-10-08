@@ -10,11 +10,10 @@ import {
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { TOOL_CARD_W, TOOL_CARD_H, FORCE, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide, type Simulation } from 'd3-force'
-import { layoutInfo, createClusterForce, type ClusterNodeInfo } from './simulation/fleet-layout'
+import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
+import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
-import type { SimulationState, ForceNode, ForceLink, UseAgentSimulationOptions } from './simulation/types'
+import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
 import { processEvent, eventSessionId, type ProcessEventContext } from './simulation/process-event'
 import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
@@ -22,18 +21,21 @@ import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
+import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
 
 /** ms between React state updates — canvas uses frameRef for smooth 60fps */
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects } = options
   const reviewingRef = useRef(isReviewing)
   reviewingRef.current = isReviewing
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
+  // The stored orphan-call expiry delay is read once after mount (server and first client render match)
+  useEffect(() => { loadToolExpiryS() }, [])
 
   // ─── State management ──────────────────────────────────────────────────────
   // frameRef: source of truth, updated every animation frame (no React render).
@@ -51,9 +53,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   const animationRef = useRef<number>(0)
   const lastTimeRef = useRef<number>(0)
-  const forceSimRef = useRef<Simulation<ForceNode, ForceLink> | null>(null)
-  /** Per-agent cluster anchor/role used by the cluster force (rebuilt on every sync) */
-  const clusterInfoRef = useRef<Map<string, ClusterNodeInfo>>(new Map())
+  /** d3-force cluster layout: positions are copied into frameRef after every tick (see force-layout.ts) */
+  const layoutRef = useRef<ForceLayout | null>(null)
   const blockIdCounter = useRef(0)
   const skipForceSyncRef = useRef(false)
   const animateRef = useRef<(timestamp: number) => void>(() => {})
@@ -62,69 +63,26 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   // ─── d3-force simulation ─────────────────────────────────────────────────
   useEffect(() => {
-    const sim = forceSimulation<ForceNode, ForceLink>([])
-      .force('charge', forceManyBody().strength(FORCE.chargeStrength))
-      .force('center', forceCenter(0, 0).strength(FORCE.centerStrength))
-      .force('collide', forceCollide(FORCE.collideRadius))
-      .force('cluster', createClusterForce(id => clusterInfoRef.current.get(id)))
-      .force('link', forceLink<ForceNode, ForceLink>([]).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
-      .alphaDecay(FORCE.alphaDecay)
-      .velocityDecay(FORCE.velocityDecay)
-      .on('tick', () => {
-        // Force tick only updates positions — write to frameRef, no React render
-        const prev = frameRef.current
-        const newAgents = new Map(prev.agents)
-        let changed = false
-        for (const node of sim.nodes()) {
-          const agent = newAgents.get(node.id)
-          if (agent && !agent.pinned && node.x !== undefined && node.y !== undefined) {
-            if (Math.abs(agent.x - node.x) > 0.1 || Math.abs(agent.y - node.y) > 0.1) {
-              newAgents.set(node.id, { ...agent, x: node.x, y: node.y })
-              changed = true
-            }
-          }
-        }
-        if (changed) {
-          frameRef.current = { ...prev, agents: newAgents }
-        }
-      })
-
-    sim.stop()
-    forceSimRef.current = sim
-    return () => { sim.stop(); forceSimRef.current = null }
+    const layout = createForceLayout()
+    layoutRef.current = layout
+    return () => { layout.destroy(); layoutRef.current = null }
   }, [])
 
   // ─── Force simulation sync ───────────────────────────────────────────────
-  const syncForceSimulation = useCallback((agents: Map<string, Agent>, edges: Edge[]) => {
-    const sim = forceSimRef.current
-    if (!sim) return
-
-    const nodes: ForceNode[] = Array.from(agents.values()).map(a => ({
-      id: a.id,
-      x: a.x, y: a.y,
-      vx: a.vx, vy: a.vy,
-      fx: a.pinned ? a.x : undefined,
-      fy: a.pinned ? a.y : undefined,
-    }))
-
-    const links: ForceLink[] = edges
-      .filter(e => e.type === 'parent-child')
-      .map(e => ({ id: e.id, source: e.from, target: e.to }))
-
-    // Cluster layout: anchors per team/session, orchestrator held at the center of its cluster
-    const { info } = layoutInfo(agents, frameRef.current.teams)
-    clusterInfoRef.current = info
-    // The mean-centering force would drag the held orchestrators off their anchors
-    const centerForce = sim.force('center') as ReturnType<typeof forceCenter> | undefined
-    if (centerForce) centerForce.strength(0)
-
-    sim.nodes(nodes)
-    const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
-    if (linkForce) linkForce.links(links)
-    sim.alpha(0.3).restart()
-    for (let i = 0; i < 15; i++) sim.tick()
-    sim.stop()
+  // Rebuilds the nodes and anchors, runs the initial ticks and writes the positions into frameRef.
+  // It reads frameRef (current positions), not the snapshot it is called with: syncs are deferred
+  // (setTimeout) and the snapshot may be older than the frames that ran in between.
+  const sessionProjectsRef = useRef(sessionProjects)
+  sessionProjectsRef.current = sessionProjects
+  const syncForceSimulation = useCallback((_agents: Map<string, Agent>, _edges: Edge[]) => {
+    const layout = layoutRef.current
+    if (!layout) return
+    frameRef.current = layout.syncState(frameRef.current, sessionProjectsRef.current)
   }, [])
+  // A session learns its project after its agents appeared: lay the clusters out again
+  useEffect(() => {
+    syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
+  }, [sessionProjects, syncForceSimulation])
 
   // ─── Tool slot placement ─────────────────────────────────────────────────
   const findToolSlot = useCallback((
@@ -266,6 +224,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         currentState = processEventWithContext(timedEvent, currentState)
         // Freshness: the agents this event touched are heard from now (wall clock)
         currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
+        // Active time: a move between working and paused opens or closes the agent's active span. A replayed
+        // (history) event carries no wall-clock proof of when the agent worked: its active time stays unknown
+        if (!timedEvent.replayed) {
+          currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
+        }
         newEvents.push(timedEvent)
       }
       // Sync simulation clock to latest event so active state renders correctly
@@ -296,13 +259,14 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       mockScenarioLength: MOCK_SCENARIO.length,
       mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
       speed,
+      toolExpiryS: toolExpiryConfig.seconds,
     })
 
     // Write to frameRef (canvas reads this every frame)
     frameRef.current = result
 
-    // Force tick — updates agent positions in frameRef
-    if (forceSimRef.current) forceSimRef.current.tick()
+    // Force tick: copies the simulation positions into the agents of frameRef (no-op once settled)
+    if (layoutRef.current) frameRef.current = layoutRef.current.stepState(frameRef.current)
 
     // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef
     if (newEvents.length > 0) {
@@ -356,7 +320,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     const agents = new Map<string, Agent>()
     for (const [id, agent] of prev.agents) {
       if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, messageBubbles: [], timeAlive: 0 })
+        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
       }
     }
 
@@ -397,10 +361,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (agent) newAgents.set(agentId, { ...agent, x, y, pinned: true })
     frameRef.current = { ...prev, agents: newAgents }
 
-    if (forceSimRef.current) {
-      const node = forceSimRef.current.nodes().find(n => n.id === agentId)
-      if (node) { node.fx = x; node.fy = y }
-    }
+    layoutRef.current?.pin(agentId, x, y)
   }, [])
 
   /** Seek to a specific time — replays events from scratch up to targetTime */
@@ -427,8 +388,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     skipForceSyncRef.current = false
 
     // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
-    replayState = { ...replayState, agents: carryFreshness(prev.agents, replayState.agents) }
-    replayState = snapVisualState(replayState, targetTime)
+    replayState = { ...replayState, agents: carryActiveTime(prev.agents, carryFreshness(prev.agents, replayState.agents)) }
+    replayState = snapVisualState(replayState, targetTime, toolExpiryConfig.seconds)
     replayState.currentTime = targetTime
     replayState.eventIndex = newEventIndex
 
@@ -467,6 +428,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedEvents: state.droppedEvents,
     /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
     droppedMessages: state.droppedMessages,
+    /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
+    unattributed: state.unattributed,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

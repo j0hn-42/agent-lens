@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from '../web/node_modules/d3-force'
-import { clusterKeyOf, layoutInfo, createClusterForce } from '../web/hooks/simulation/fleet-layout'
+import { createForceLayout } from '../web/hooks/simulation/force-layout'
+import { clusterKeyOf, layoutInfo } from '../web/hooks/simulation/fleet-layout'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
-import { createEmptyState, type SimulationState, type ForceNode, type ForceLink } from '../web/hooks/simulation/types'
+import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import {
-  MAX_AGENTS_TOTAL, MAX_AGENTS_PER_SESSION, MAX_LINKS_PER_SESSION,
+  MAX_AGENTS_TOTAL, MAX_AGENTS_PER_SESSION, MAX_LINKS_PER_SESSION, admitSpawn,
 } from '../web/hooks/simulation/archive'
 import {
   MAX_TEAM_MEMBERS, MAX_TEAMS, eventMatchesSelection, createTeamTracker,
@@ -69,6 +69,20 @@ test('300 distinct team names stay bounded by MAX_TEAMS', () => {
   const teams = new Set(Array.from(s.agents.values()).map(a => a.teamName).filter(Boolean))
   assert.ok(teams.size <= MAX_TEAMS, `${teams.size} teams`)
   assert.ok(s.agents.size <= MAX_TEAMS + 1)
+})
+
+test('admitSpawn counts teams by state.teams key: same-named teams of different leads count separately', () => {
+  const state = createEmptyState()
+  for (let i = 0; i < MAX_TEAMS; i++) {
+    state.teams.set(i === 0 ? 'same' : `same@L${i}`, { name: 'same', leadSessionId: `L${i}`, members: [] })
+  }
+  assert.equal(state.teams.size, MAX_TEAMS)
+  // a teammate of an unknown team in another session would be the 51st team
+  assert.equal(admitSpawn(state, { sessionId: 'X', isMain: false, teamName: 'other' }), false)
+  // a teammate of an existing team (name + lead session) is still admitted
+  assert.equal(admitSpawn(state, { sessionId: 'L3', isMain: false, teamName: 'same' }), true)
+  // the same name from a session that is in no team would also open a new team
+  assert.equal(admitSpawn(state, { sessionId: 'X', isMain: false, teamName: 'same' }), false)
 })
 
 test('global caps: agents per session and overall, never a live agent or a lead', () => {
@@ -144,29 +158,23 @@ function simulate(sessions: number, perSession: number): { dists: number[]; lead
   }
   const state = run(evs)
   const { info } = layoutInfo(state.agents, state.teams)
-  const nodes: ForceNode[] = Array.from(state.agents.values()).map(a => ({ id: a.id, x: a.x, y: a.y, vx: 0, vy: 0 }))
-  const links: ForceLink[] = state.edges.map(e => ({ id: e.id, source: e.from, target: e.to }))
-  const sim = forceSimulation<ForceNode, ForceLink>(nodes)
-    .force('charge', forceManyBody().strength(FORCE.chargeStrength))
-    .force('center', forceCenter(0, 0).strength(0))
-    .force('collide', forceCollide(FORCE.collideRadius))
-    .force('cluster', createClusterForce(id => info.get(id)))
-    .force('link', forceLink<ForceNode, ForceLink>(links).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
-    .alphaDecay(FORCE.alphaDecay)
-    .velocityDecay(FORCE.velocityDecay)
-    .stop()
-  for (let i = 0; i < 600; i++) sim.tick()
+  // The production controller (no private replica of its force setup)
+  const layout = createForceLayout()
+  let laid = layout.syncState(state)
+  for (let i = 0; i < 600; i++) laid = layout.stepState(laid)
+  layout.destroy()
+  const nodes = Array.from(laid.agents.values())
   let leadErr = 0
   for (const [id, inf] of info) {
     if (inf.role !== 'lead') continue
-    const n = nodes.find(x => x.id === id)!
-    leadErr = Math.max(leadErr, Math.hypot(n.x! - inf.anchor.x, n.y! - inf.anchor.y))
+    const n = laid.agents.get(id)!
+    leadErr = Math.max(leadErr, Math.hypot(n.x - inf.anchor.x, n.y - inf.anchor.y))
   }
   const dists: number[] = []
   let maxOverlap = 0
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
-      const d = Math.hypot(nodes[i].x! - nodes[j].x!, nodes[i].y! - nodes[j].y!)
+      const d = Math.hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y)
       dists.push(d)
       maxOverlap = Math.max(maxOverlap, FORCE.collideRadius * 2 - d)
     }

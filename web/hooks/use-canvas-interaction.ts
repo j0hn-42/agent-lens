@@ -5,6 +5,7 @@ import { hitTestAt, type HitTarget, type ResolvedLink } from '@/components/agent
 import {
   keyToAction, stepFocus, buildNodeOrder, locateNode, sameNode, type NavNode,
 } from '@/components/agent-visualizer/canvas/keyboard-nav'
+import { treeKeyAction, type CollapseView } from '@/components/agent-visualizer/canvas/branch-collapse'
 import type { Transform } from './use-canvas-camera'
 
 interface InteractionCallbacks {
@@ -19,6 +20,8 @@ interface InteractionCallbacks {
   onLinkClick?: (linkId: string) => void
   /** A cluster label (session / team halo) was clicked */
   onClusterClick?: (clusterKey: string) => void
+  /** The badge of a collapsed branch was clicked, or Left / Right asked to fold / unfold it */
+  onToggleBranch?: (agentId: string) => void
 }
 
 interface InteractionOptions {
@@ -28,6 +31,8 @@ interface InteractionOptions {
     discoveries: Discovery[]
     /** Resolved communication links, hit-tested last (they are drawn under the nodes) */
     links?: ResolvedLink[]
+    /** Collapse state of the branches (badges are hit-tested and Left / Right drive it) */
+    collapse?: CollapseView
   } & InteractionCallbacks>
   transformRef: MutableRefObject<Transform>
   userHasNavigatedRef: MutableRefObject<boolean>
@@ -69,7 +74,7 @@ export function useCanvasInteraction({
   /** True while the pointer is over something clickable (drives the `pointer` cursor) */
   const [overInteractive, setOverInteractive] = useState(false)
   const isDraggingRef = useRef(false)
-  const dragTargetRef = useRef<{ type: 'canvas' | 'agent'; id?: string; startX: number; startY: number } | null>(null)
+  const dragTargetRef = useRef<{ type: 'canvas' | 'agent'; id?: string; startX: number; startY: number; originX: number; originY: number } | null>(null)
   isDraggingRef.current = isDragging
 
   // Floaty agent drag
@@ -136,9 +141,9 @@ export function useCanvasInteraction({
     panVelocityRef.current = { vx: 0, vy: 0, active: false }
     setIsDragging(true)
     if (hit?.type === 'agent') {
-      dragTargetRef.current = { type: 'agent', id: hit.id, startX: e.clientX, startY: e.clientY }
+      dragTargetRef.current = { type: 'agent', id: hit.id, startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
     } else {
-      dragTargetRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY }
+      dragTargetRef.current = { type: 'canvas', startX: e.clientX, startY: e.clientY, originX: e.clientX, originY: e.clientY }
       lastPanPosRef.current = { x: e.clientX, y: e.clientY, time: performance.now() }
     }
   }, [hitTest, panVelocityRef])
@@ -212,8 +217,9 @@ export function useCanvasInteraction({
         panVelocityRef.current.active = true
       }
     }
+    // Distance from where the press began: a pan re-bases startX/startY on every move, so it cannot tell a pan from a click
     const screenDist = dt_
-      ? Math.abs(e.clientX - dt_.startX) + Math.abs(e.clientY - dt_.startY)
+      ? Math.abs(e.clientX - dt_.originX) + Math.abs(e.clientY - dt_.originY)
       : 0
     if (screenDist < ANIM.dragThresholdPx) {
       const hit = hitTest(e.clientX, e.clientY)
@@ -228,6 +234,8 @@ export function useCanvasInteraction({
         p.onLinkClick?.(hit.id)
       } else if (hit?.type === 'cluster') {
         p.onClusterClick?.(hit.id)
+      } else if (hit?.type === 'branch') {
+        p.onToggleBranch?.(hit.id)
       } else {
         p.onAgentClick(null)
         p.onToolCallClick?.(null)
@@ -341,9 +349,21 @@ export function useCanvasInteraction({
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // Only react to keys pressed on the graph itself, not on controls nested inside it
     if (e.target !== e.currentTarget) return
+    const current = focusedNodeRef.current
+    // Tree-style Left / Right on an agent (fold, unfold, parent, first child); other cases use the graph map below
+    if (current?.type === 'agent' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+      const p = drawPropsRef.current
+      const tree = p.collapse ? treeKeyAction(e.key, current.id, p.agents, p.collapse) : null
+      if (tree) {
+        if (tree.kind === 'toggle') p.onToggleBranch?.(tree.id)
+        else focusNode({ type: 'agent', id: tree.id })
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+    }
     const action = keyToAction(e)
     if (!action) return
-    const current = focusedNodeRef.current
     switch (action.kind) {
       case 'step': {
         const p = drawPropsRef.current

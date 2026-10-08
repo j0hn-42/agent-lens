@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  computeClusterAnchors, clusterKeyOf, clustersOf, clusterRadius, spawnPosition, createClusterForce, layoutInfo,
+  computeClusterAnchors, clusterKeyOf, clustersOf, clusterRadius, spawnPosition, createClusterForce, constrainToClusters, layoutInfo,
   type ClusterInput,
 } from '../web/hooks/simulation/fleet-layout'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
@@ -153,8 +153,8 @@ test('layout roles: lead held, archived agents flagged, others members', () => {
   assert.deepEqual(clustersOf(s.agents.values()), [{ key: 'session:s1', size: 3 }])
 })
 
-test('cluster force holds the lead at its anchor and pulls archived agents to the outer ring', () => {
-  const lead = { id: 'l', x: 40, y: -30, vx: 0, vy: 0 }
+test('cluster force eases the lead onto its anchor, zeroes its velocity and pushes archived agents to the outer ring', () => {
+  const lead = { id: 'l', x: 40, y: -30, vx: 5, vy: 5 }
   const arch = { id: 'x', x: 0, y: 0.5, vx: 0, vy: 0 }
   const infos = new Map([
     ['l', { key: 'k', anchor: { x: 0, y: 0 }, radius: 500, role: 'lead' as const }],
@@ -163,24 +163,30 @@ test('cluster force holds the lead at its anchor and pulls archived agents to th
   const f = createClusterForce(id => infos.get(id))
   f.initialize([lead, arch])
   f(1)
-  assert.ok(lead.vx < 0 && lead.vy > 0, 'lead is pulled back to the anchor')
+  assert.ok(lead.x < 40 && lead.x > 0 && lead.y > -30 && lead.y < 0, 'lead moves towards the anchor')
+  assert.deepEqual([lead.vx, lead.vy], [0, 0], 'other forces cannot push the lead away')
   assert.ok(arch.vy > 0, 'archived agent is pushed outward from the anchor')
   lead.x = 0.1; lead.y = 0.1
   f(1)
   assert.deepEqual([lead.x, lead.y], [0, 0], 'lead snaps exactly to the anchor')
 })
 
-test('cluster force pushes overlapping clusters apart', () => {
-  const a = { id: 'a', x: 0, y: 0, vx: 0, vy: 0 }
-  const b = { id: 'b', x: 100, y: 0, vx: 0, vy: 0 }
-  const infos = new Map([
-    ['a', { key: 'A', anchor: { x: 0, y: 0 }, radius: 400, role: 'member' as const }],
-    ['b', { key: 'B', anchor: { x: 0, y: 0 }, radius: 400, role: 'member' as const }],
-  ])
-  const f = createClusterForce(id => infos.get(id))
-  f.initialize([a, b])
-  f(1)
-  assert.ok(a.vx < 0 && b.vx > 0)
+test('constrainToClusters pulls members back inside their disc, leaves leads and pinned nodes alone, reports settling', () => {
+  const info = (role: 'lead' | 'member') => ({ key: 'k', anchor: { x: 100, y: 0 }, radius: 400, role })
+  const infos = new Map([['l', info('lead')], ['m', info('member')], ['in', info('member')], ['p', info('member')]])
+  const limit = 400 * CLUSTER_LAYOUT.containFactor
+  const lead = { id: 'l', x: 100, y: 0 }
+  const inside = { id: 'in', x: 150, y: 20 }
+  const pinned = { id: 'p', x: 5000, y: 0, fx: 5000, fy: 0 }
+  const far = { id: 'm', x: 100 + 1000, y: 0, vx: 3, vy: 0 }
+  assert.equal(constrainToClusters([lead, inside, pinned, far], id => infos.get(id)), true)
+  assert.ok(far.x < 1100 && far.x > 100 + limit, 'moves in steps, no teleport')
+  assert.equal(far.vx, 0, 'outward velocity is cancelled')
+  assert.deepEqual([inside.x, inside.y, pinned.x], [150, 20, 5000])
+  let moving = true
+  for (let i = 0; i < 100 && moving; i++) moving = constrainToClusters([lead, inside, pinned, far], id => infos.get(id))
+  assert.equal(moving, false, 'settles')
+  assert.ok(Math.abs(far.x - 100 - limit) < 1e-9 && far.y === 0, 'ends exactly on the disc edge')
 })
 
 // ─── eviction rule ──────────────────────────────────────────────────────────
@@ -225,4 +231,67 @@ test('team tracker caps members per team and keeps counts consistent', () => {
   assert.equal(t.working('alpha'), MAX_TEAM_MEMBERS - 2)
   t.clear()
   assert.equal(t.memberCount('alpha'), 0)
+})
+
+// ─── Clusters of a same project side by side (#86) ──────────────────────────
+
+const proj = (sessionId: string) => ({ sessionId, teamName: undefined, clusterKey: undefined })
+const projectsOf = (entries: Array<[string, string, string]>) =>
+  new Map(entries.map(([s, id, name]) => [s, { projectId: id, projectName: name }]))
+
+test('anchors: clusters of one project are contiguous on the ring, whatever the arrival order', () => {
+  const clusters: ClusterInput[] = [
+    { key: 'session:a1', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:b1', size: 1, projectId: 'B', projectName: 'beta' },
+    { key: 'session:a2', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:b2', size: 1, projectId: 'B', projectName: 'beta' },
+  ]
+  assert.deepEqual(Array.from(computeClusterAnchors(clusters).keys()), ['session:a1', 'session:a2', 'session:b1', 'session:b2'])
+})
+
+test('anchors: clusters without projectId are never grouped and keep their arrival slot', () => {
+  const clusters: ClusterInput[] = [
+    { key: 'session:x', size: 1 },
+    { key: 'session:a1', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:y', size: 1 },
+    { key: 'session:a2', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:z', size: 1 },
+  ]
+  assert.deepEqual(
+    Array.from(computeClusterAnchors(clusters).keys()),
+    ['session:x', 'session:a1', 'session:a2', 'session:y', 'session:z'],
+  )
+  // Without any project the order is the arrival order, unchanged
+  const plain: ClusterInput[] = ['s3', 's1', 's2'].map(key => ({ key, size: 1 }))
+  assert.deepEqual(Array.from(computeClusterAnchors(plain).keys()), ['s3', 's1', 's2'])
+})
+
+test('anchors: grouped clusters still never overlap', () => {
+  const clusters: ClusterInput[] = Array.from({ length: 8 }, (_, i) => ({ key: `s${i}`, size: 1 + (i % 3), projectId: i % 2 ? 'A' : 'B', projectName: 'p' }))
+  assertNoOverlap(clusters)
+})
+
+test('clustersOf: carries the project of a session, only when every session of the cluster agrees', () => {
+  const projects = projectsOf([['s1', 'A', 'alpha'], ['s2', 'A', 'alpha'], ['s3', 'B', 'beta']])
+  const list = clustersOf([proj('s1'), proj('s2'), proj('s3'), proj('s4')], undefined, projects)
+  assert.deepEqual(list.map(c => [c.key, c.projectId, c.projectName]), [
+    ['session:s1', 'A', 'alpha'], ['session:s2', 'A', 'alpha'], ['session:s3', 'B', 'beta'], ['session:s4', undefined, undefined],
+  ])
+  // A team that spans two projects, or a project and an unknown session, proves nothing
+  const mixed = clustersOf([
+    { sessionId: 's1', teamName: 'x', clusterKey: 'team:s1:x' },
+    { sessionId: 's3', teamName: 'x', clusterKey: 'team:s1:x' },
+    { sessionId: 's2', teamName: 'y', clusterKey: 'team:s2:y' },
+    { sessionId: 's9', teamName: 'y', clusterKey: 'team:s2:y' },
+  ], undefined, projects)
+  assert.deepEqual(mixed.map(c => c.projectId), [undefined, undefined])
+})
+
+test('layoutInfo: two worktrees of one repository are neighbours, a session outside git stays apart', () => {
+  const state = run([main('s1'), main('s2'), main('s3'), main('s4')])
+  const projects = projectsOf([['s1', 'A', 'alpha'], ['s3', 'A', 'alpha']])
+  const { anchors } = layoutInfo(state.agents, state.teams, projects)
+  assert.deepEqual(Array.from(anchors.keys()), ['session:s1', 'session:s3', 'session:s2', 'session:s4'])
+  const none = layoutInfo(state.agents, state.teams)
+  assert.deepEqual(Array.from(none.anchors.keys()), ['session:s1', 'session:s2', 'session:s3', 'session:s4'])
 })

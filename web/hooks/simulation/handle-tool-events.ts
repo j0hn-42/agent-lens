@@ -1,12 +1,49 @@
 import { COLORS } from '../../lib/colors'
 import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
-import { appendConversation, asString, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
+import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
+import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
+import { readToolOutcome } from '../../lib/tool-lifecycle'
+import { readTokenCost, readTokenSource } from '../../lib/usage'
+import type { Agent, ToolCallNode } from '../../lib/agent-types'
+import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
   return asString(inputData?.file_path) || args?.split(' ')[0] || ''
+}
+
+/**
+ * The call an end belongs to. A running call wins; an expired one only when the tool_use_id proves the
+ * match (a late end), since without an id it could belong to anything.
+ */
+function findCallToClose(toolCalls: Map<string, ToolCallNode>, agentId: string, toolName: string, toolUseId: string | undefined): string | undefined {
+  let expired: string | undefined
+  for (const [id, tc] of toolCalls) {
+    if (tc.agentId !== agentId || tc.toolName !== toolName) continue
+    const idMatches = toolUseId === undefined || tc.toolUseId === undefined || tc.toolUseId === toolUseId
+    if (idMatches && tc.state === 'running') return id
+    if (tc.state === 'expired' && toolUseId !== undefined && tc.toolUseId === toolUseId) expired = id
+  }
+  return expired
+}
+
+/** Token counters after one more figure: a present value adds up, an absent one only widens the gap. */
+export function addToken(
+  agent: Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokenGaps' | 'tokensEstimated'>,
+  cost: number | null,
+  source: 'reported' | 'estimated',
+): Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokenGaps' | 'tokensEstimated'> {
+  const hasValue = (agent.tokenStatus ?? (agent.tokensUsed > 0 ? 'available' : 'unavailable')) !== 'unavailable'
+  const gaps = (agent.tokenGaps ?? 0) + (cost === null ? 1 : 0)
+  const known = hasValue || cost !== null
+  return {
+    tokensUsed: agent.tokensUsed + (cost ?? 0),
+    tokenGaps: gaps,
+    tokenStatus: !known ? 'unavailable' : gaps > 0 ? 'partial' : 'available',
+    tokensEstimated: (agent.tokensEstimated === true) || (cost !== null && source === 'estimated'),
+  }
 }
 
 export function handleToolCallStart(
@@ -49,8 +86,11 @@ export function handleToolCallStart(
 
     const pos = ctx.findToolSlot(agent, state.agents, state.toolCalls, currentTime)
 
+    const mcp = parseMcpTool(toolName)
+
     state.toolCalls.set(toolId, {
       id: toolId, agentId: agentName, toolName,
+      ...(mcp ? { mcp } : {}),
       state: 'running',
       args,
       inputData,
@@ -66,15 +106,16 @@ export function handleToolCallStart(
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
-      type: 'tool_call', color: COLORS.tool,
+      type: 'tool_call', color: mcp ? COLORS.mcp : COLORS.tool,
       size: 4, trailLength: 0.15,
-      label: `${toolName} ${args}`.slice(0, LABEL_LEN_PARTICLE),
+      ...(mcp ? { mcp: true } : {}),
+      label: `${formatToolName(toolName)} ${args}`.slice(0, LABEL_LEN_PARTICLE),
     })
 
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${toolName}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: COLORS.tool }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? COLORS.mcp : COLORS.tool }, ctx)
     }
 
     // Track file attention
@@ -110,25 +151,42 @@ export function handleToolCallEnd(
   const agentName = agentKeyOf(sessionId, idString(payload.agent))
   const toolName = idString(payload.tool)
   const result = cappedString(payload.result, undefined, 'Done')
-  const tokenCost = typeof payload.tokenCost === 'number' ? payload.tokenCost : undefined
-  const isError = asBoolean(payload.isError)
+  // Absent stays null (never 0): a missing figure must not look like a free call
+  const tokenCost = readTokenCost(payload.tokenCost)
+  const tokenSource = readTokenSource(payload.tokenSource)
+  const outcome = readToolOutcome(payload)
+  const isError = outcome !== 'complete'
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
 
+  // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
+  const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
+  if (target.kind !== 'attributed' && tokenCost) {
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add')
+  }
+
   if (agent) {
     state.agents.set(agentName, {
       ...agent,
-      state: isError ? 'error' : 'thinking',
+      // A cancelled call is neither a success nor an agent failure
+      state: outcome === 'error' ? 'error' : 'thinking',
       currentTool: undefined,
-      tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
+      // A usage addressing no single instance never lands on an agent (it went to the remainder above)
+      ...(target.kind === 'attributed'
+        ? { ...addToken(agent, tokenCost, tokenSource), tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported }
+        : {}),
+      ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
     })
 
-    const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'
+    const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome
+    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
-      const idMatches = toolUseId === undefined || tc.toolUseId === undefined || tc.toolUseId === toolUseId
-      if (idMatches && tc.agentId === agentName && tc.toolName === toolName && tc.state === 'running') {
-        state.toolCalls.set(id, { ...tc, state: toolState, completeTime: currentTime, result, tokenCost, errorMessage: isError ? (errorMessage || result) : undefined })
+      if (id === matchedId) {
+        state.toolCalls.set(id, {
+          ...tc, state: toolState, completeTime: currentTime, result, tokenCost, tokenSource, endObserved: true,
+          errorMessage: isError ? (errorMessage || result) : undefined,
+        })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
@@ -153,14 +211,14 @@ export function handleToolCallEnd(
         const lastBlock = entry.blocks[entry.blocks.length - 1]
         if (lastBlock && !lastBlock.endTime) {
           lastBlock.color = COLORS.error
-          lastBlock.label = `${toolName}: FAILED`
+          lastBlock.label = `${toolName}: ${outcome === 'cancelled' ? 'CANCELLED' : 'FAILED'}`
         }
       }
       pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)
     }
 
     // File attention token cost
-    if (tokenCost) {
+    if (tokenCost) { // 0 and null add nothing
       const matchedTc = Array.from(state.toolCalls.values()).find(tc => tc.agentId === agentName && tc.toolName === toolName)
       const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
       if (filePath) {
@@ -173,11 +231,11 @@ export function handleToolCallEnd(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
-      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens)` : ''}`,
+      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? ', estimé' : ''})` : ''}`,
       timestamp: currentTime,
       toolName,
       toolUseId,
-      ...(isError ? { isError } : {}),
+      ...(outcome === 'error' ? { isError: true } : {}),
     }, state.droppedMessages)
   }
 }

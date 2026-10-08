@@ -1,6 +1,9 @@
 // Agent Visualizer Types — Holographic Edition v2
 // Now with actual information visibility
 
+import type { UsageStatus, TokenSource } from './usage'
+import type { ModelSource } from './model-provenance'
+
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
 // Context window composition — the key insight
@@ -34,8 +37,10 @@ export interface Agent {
   state: AgentState
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
-  /** Agent Team the agent belongs to */
+  /** Agent Team (or Workflow run) the agent belongs to */
   teamName?: string
+  /** What the group is: an Agent Team (default) or a Workflow run */
+  teamKind?: 'team' | 'workflow'
   /** Layout cluster: team name when the agent belongs to a team, else its session id */
   clusterKey?: string
   /** Team color, validated '#rrggbb' only */
@@ -49,10 +54,21 @@ export interface Agent {
   /** Finished agents kept on screen (reduced, dashed) so their conversation stays reachable */
   archived?: boolean
   parentId: string | null
+  /** Known token count (a lower bound unless `tokenStatus` is 'available'); meaningless while 'unavailable' */
   tokensUsed: number
+  /** Completeness of `tokensUsed`; absent on legacy agents (inferred from the counter) */
+  tokenStatus?: UsageStatus
+  /** Number of token figures that were expected but missing since the last absolute update */
+  tokenGaps?: number
+  /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
+  tokensEstimated?: boolean
+  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
+  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
+  /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
+  toolErrors?: number
   timeAlive: number
   x: number
   y: number
@@ -66,6 +82,16 @@ export interface Agent {
   /** Model ID last reported for this agent (agent_spawn / model_detected).
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
+  /** Where `model` comes from (runtime > configured > requested); see lib/model-provenance */
+  modelSource?: ModelSource
+  /** Model the dispatching call asked for, kept apart so a requested/actual mismatch stays visible */
+  requestedModel?: string
+  /** Distinct models the runtime really reported for this agent, in order (bounded) */
+  modelsUsed?: string[]
+  /** Reasoning effort, only when a source configured one (never inferred) */
+  effort?: string
+  /** Subagent type of the dispatch (e.g. 'frontend-engineer'): the role behind `agent:<role>` issue labels */
+  subagentType?: string
   currentTool?: string
   task?: string
   spawnTime: number
@@ -74,6 +100,10 @@ export interface Agent {
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
   freshnessSource?: 'live' | 'history'
+  /** Active time of closed working spans, ms (issue #59); absent = never observed working */
+  activeMs?: number
+  /** Wall-clock ms when the running working span started; absent = not working */
+  activeSince?: number
   opacity: number
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
@@ -93,15 +123,25 @@ export interface MessageBubble {
   _cachedWrappedFont?: string
 }
 
+/** Lifecycle of a tool call: running, then one of four outcomes (completed, failed, cancelled, expired). */
+export type ToolCallState = 'running' | 'complete' | 'error' | 'cancelled' | 'expired'
+
 // Rich tool call with actual content
 export interface ToolCallNode {
   id: string
   agentId: string
   toolName: string
-  state: 'running' | 'complete' | 'error'
+  /** Set when toolName is an MCP tool (`mcp__<server>__<tool>`) */
+  mcp?: { server: string; tool: string }
+  state: ToolCallState
   args: string          // human-readable argument summary
   result?: string       // human-readable result summary
-  tokenCost?: number    // how many tokens this result consumed
+  /** Tokens this result consumed; null = not reported (never 0 by default), undefined while running */
+  tokenCost?: number | null
+  /** Whether `tokenCost` was announced by the runtime or estimated */
+  tokenSource?: TokenSource
+  /** False when the end of the call was never seen (expired); true or absent otherwise */
+  endObserved?: boolean
   inputData?: Record<string, unknown>  // rich tool input (diffs, todos, commands)
   /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
   toolUseId?: string
@@ -172,6 +212,10 @@ export interface Edge {
   to: string
   type: 'parent-child' | 'tool'
   opacity: number
+  /** parent-child only: true when the events agree on the link (call, start, same name and id); false = drawn dashed */
+  verified?: boolean
+  /** parent-child only: why the link is not proven (see UnverifiedReason) */
+  unverifiedReason?: string
 }
 
 export interface Particle {
@@ -182,6 +226,8 @@ export interface Particle {
   color: string
   size: number
   trailLength: number
+  /** Particle belongs to an MCP tool call (drawn with a dotted trail) */
+  mcp?: boolean
   label?: string        // what's flowing (e.g., "auth.ts 142 lines")
   /** Full subagent dispatch/return data (prompt, report, ...) carried by dispatch/return particles */
   detail?: ParticleDetail
@@ -200,10 +246,18 @@ export interface ParticleDetail {
 
 /** An Agent Team as the UI sees it (built from team_info events). Strings are untrusted and already sanitised. */
 export interface TeamSummary {
+  /**
+   * Display name. For a workflow it is the script name, NOT assumed unique: a second run of the same script
+   * in a session is announced as '<script> #<last 4 chars of the wf_id>', and two sessions may run the same one.
+   * Identity is the key of the teams map (team-key.ts), never the name.
+   */
   name: string
   leadSessionId: string
   leadName?: string
-  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string }>
+  /** 'workflow' for a Workflow-tool run whose members are its agents; absent means an Agent Team */
+  kind?: 'team' | 'workflow'
+  /** `phase`: workflow groups only, capped at 40 characters (MAX_PHASE_LEN, the extension's WORKFLOW_PHASE_MAX) */
+  members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 
 export interface SimulationEvent {
@@ -226,6 +280,8 @@ export interface SimulationEvent {
     | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
+  replayed?: boolean
 }
 
 export interface DepthParticle {
@@ -248,7 +304,6 @@ export const CARD = {
   detail: { width: 240, height: 200 },
 
   chat: { width: 300, maxHeight: 360, messagesMinHeight: 100, messagesMaxHeight: 240 },
-  transcript: { width: 380 },
   margin: 8,
   offsetX: 40,     // horizontal offset from agent to detail card
   offsetY: -80,    // vertical offset from agent to detail card
@@ -259,7 +314,6 @@ export const Z = {
   sidePanel: 40,
   controlBar: 50,
   chatPanel: 50,
-  transcriptPanel: 60,
   detailCard: 100,
   contextMenu: 200,
 } as const

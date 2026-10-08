@@ -73,8 +73,34 @@ export const TOOL_CARD_H = 44
 
 /** Seconds a completed tool call stays visible before fading */
 export const TOOL_MIN_DISPLAY_S = 4.0
-/** Seconds before an orphan running tool fades out */
-export const TOOL_MAX_RUNNING_S = 10
+/** Default seconds without an observed end before a running tool call becomes `expired` (a long Bash or a sub-agent legitimately runs for minutes) */
+export const TOOL_EXPIRY_S = 300
+/** Delays the user can pick for the orphan-call expiry */
+export const TOOL_EXPIRY_CHOICES_S = [60, 120, 300, 600, 1800] as const
+export const TOOL_EXPIRY_KEY = 'agent-viz-tool-expiry-s'
+
+/** Reads a stored expiry delay; anything that is not one of the offered choices falls back to the default. */
+export function parseToolExpiryS(raw: string | null | undefined): number {
+  const n = Number(raw)
+  return (TOOL_EXPIRY_CHOICES_S as readonly number[]).includes(n) ? n : TOOL_EXPIRY_S
+}
+
+/** Live setting read by the simulation on each frame and each seek (set from the canvas controls). */
+export const toolExpiryConfig = { seconds: TOOL_EXPIRY_S }
+
+/** Loads the stored delay into the live setting and returns it (storage may be unavailable). */
+export function loadToolExpiryS(): number {
+  try { toolExpiryConfig.seconds = parseToolExpiryS(window.localStorage.getItem(TOOL_EXPIRY_KEY)) } catch { /* default */ }
+  return toolExpiryConfig.seconds
+}
+
+/** Applies and stores a new delay; a value outside the choices falls back to the default. */
+export function setToolExpiryS(seconds: number): number {
+  const next = parseToolExpiryS(String(seconds))
+  toolExpiryConfig.seconds = next
+  try { window.localStorage.setItem(TOOL_EXPIRY_KEY, String(next)) } catch { /* storage unavailable */ }
+  return next
+}
 /** Seconds a discovery card stays visible before fading */
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */
@@ -139,7 +165,6 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  centerStrength: 0.03,
   collideRadius: 140,
   linkDistance: 350,
   linkStrength: 0.4,
@@ -158,8 +183,8 @@ export const CLUSTER_LAYOUT = {
   gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
-  /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.6,
+  /** Share of the distance a lead (orchestrator) covers towards its anchor, per tick */
+  holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
@@ -167,8 +192,6 @@ export const CLUSTER_LAYOUT = {
   ringStrength: 0.06,
   /** Members are kept within this fraction of the cluster radius */
   containFactor: 0.95,
-  containStrength: 0.08,
-  separationStrength: 0.5,
 } as const
 
 // ─── Tool slot placement config ─────────────────────────────────────────────
@@ -336,6 +359,34 @@ export const TOOL_DRAW = {
   tokenFontSize: 11,
   /** Y offset for two-line card layout */
   twoLineOffset: 7,
+} as const
+
+// ─── MCP tool call drawing constants ────────────────────────────────────────
+
+export const MCP_DRAW = {
+  /** Server badge above the card */
+  badgeHeight: 11,
+  badgeFontSize: 9,
+  badgePadX: 5,
+  badgeGap: 3,
+  /** Orbiting dots around a running MCP card */
+  orbitDots: 3,
+  orbitPadding: 8,
+  orbitSpeed: 2.2,
+  orbitDotSize: 2.2,
+  /** Dashed rim on the calling agent */
+  agentRimPadding: 6,
+  agentRimDash: [3, 5] as readonly number[],
+  agentRimSpeed: 18,
+  /** Dotted comet trail: draw every Nth trail segment */
+  trailSegmentStep: 2,
+  /** Particle core size multiplier */
+  particleScale: 1.25,
+  /** Completion pulse (no bright flash, so it is safe for WCAG 2.3.1) */
+  pulseDuration: 0.9,
+  pulseRingStart: 14,
+  pulseRingExpand: 46,
+  pulseRings: 2,
 } as const
 
 // ─── Cost overlay drawing constants ─────────────────────────────────────────
@@ -585,6 +636,16 @@ export const EDGE_BUBBLE = {
   anchorT: 1 / 3,
   /** Chars of message text kept for a bubble (before wrapping) */
   maxChars: 240,
+  /** Max bubbles shown per link (the newest messages): bounds memory and DOM buttons */
+  maxPerLink: 3,
+  /** Max bubbles shown on the whole canvas (the newest win) */
+  maxTotal: 12,
+  /** Fraction of the curve where a peer (teammate) message is anchored */
+  peerT: 0.5,
+  /** Words of the message kept in the accessible name of a bubble button */
+  ariaWords: 10,
+  /** Messages per link mirrored in the DOM list */
+  listedPerLink: 5,
 } as const
 
 export const CLUSTER_DRAW = {
@@ -592,6 +653,8 @@ export const CLUSTER_DRAW = {
   detailFontSize: 11,
   labelHeight: 36,
   labelMaxWidth: 260,
+  /** The title starts this many px right of the detail line (room for the colour dot) */
+  titleIndent: 10,
   /** Padding between members and the halo edge (world px) */
   padding: 56,
 } as const

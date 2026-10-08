@@ -6,14 +6,22 @@
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
-import { agentCost } from '../../../lib/cost'
+import { agentCostUsage } from '../../../lib/cost'
+import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
+import { formatToolName } from '../../../lib/mcp-tool'
+import { describeModel } from '../../../lib/model-provenance'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
 import {
   cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
-import { computeClusters, clusterAnnouncement, type SessionMeta } from './cluster-model'
+import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
+import { clusterLinkNotes } from './session-link-model'
+import type { SessionLink } from '../../../lib/session-links'
+import { isUnverifiedEdge } from './edge-style'
+import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -28,6 +36,14 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
+/** "1.5k / 200k tokens", "au moins 1.5k estimé / 200k tokens" or "tokens non renseigné". */
+function tokenSummary(a: Agent): string {
+  const usage = usageFromAgent(a)
+  return usage.status === 'unavailable'
+    ? `tokens ${formatTokenUsage(usage)}`
+    : `${formatTokenUsage(usage)} / ${formatTokens(a.tokensMax)} tokens`
+}
+
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────
 
 export interface ToolHistoryEntry {
@@ -38,7 +54,9 @@ export interface ToolHistoryEntry {
   state: ToolCallNode['state']
   error: string
   result: string
-  tokenCost?: number
+  tokenCost?: number | null
+  /** Caveat when the end of the call was not observed; empty otherwise */
+  warning: string
 }
 
 /**
@@ -55,12 +73,13 @@ export function updateToolHistory(
     const entry: ToolHistoryEntry = {
       id,
       agentId: tc.agentId,
-      name: tc.toolName,
+      name: tc.mcp ? `MCP tool ${formatToolName(tc.toolName)}` : tc.toolName,
       args: clip(tc.args),
       state: tc.state,
       error: tc.state === 'error' ? clip(tc.errorMessage || tc.result) : '',
       result: tc.state === 'complete' ? clip(tc.result, 120) : '',
       tokenCost: tc.tokenCost,
+      warning: toolEndWarning(tc) ?? '',
     }
     history.set(id, entry) // Map.set keeps the original insertion order for existing ids
   }
@@ -140,6 +159,8 @@ export interface A11yAgentItem {
   kind: NonNullable<Agent['kind']>
   /** Team name of a teammate (cleaned) */
   teamName?: string
+  /** 'workflow' when the group is a Workflow run */
+  teamKind?: 'team' | 'workflow'
   /** 'working' | 'idle' | 'done' for teammates */
   activityText?: string
   archived: boolean
@@ -149,12 +170,26 @@ export interface A11yAgentItem {
   orchestrator?: 'lead' | 'main'
   /** Cluster (session / team) the agent belongs to, when that cluster is shown */
   clusterKey?: string
+  /** Collapsible branch state (agents with sub-agents that are not the root of a tree) */
+  branch?: { collapsed: boolean; pinned: boolean; text: string }
+}
+
+/** Mirror wording of a branch: the same facts as its canvas badge. */
+function branchItem(info: BranchInfo | undefined): A11yAgentItem['branch'] {
+  if (!info) return undefined
+  if (!info.collapsed) {
+    const n = info.children.length
+    return { collapsed: false, pinned: info.pinned, text: `Expanded branch, ${n} sub-agent${n === 1 ? '' : 's'}` }
+  }
+  return { collapsed: true, pinned: info.pinned, text: `Collapsed branch, ${branchBadge(info).label}` }
 }
 
 /** A session or team cluster: a heading of the outline, with the agents it holds */
 export interface A11yClusterItem {
   key: string
   kind: 'session' | 'team'
+  /** Team clusters: 'workflow' for a Workflow run */
+  teamKind?: 'team' | 'workflow'
   title: string
   /** "Session X, 3 agents, Claude, workspace w, working, cost $0.12" */
   text: string
@@ -171,7 +206,9 @@ export interface A11yTeamItem {
   color: string
   memberIds: string[]
   memberNames: string[]
-  /** "Team X: a (working), b (idle)" */
+  /** 'workflow' for a Workflow run (members are its agents) */
+  teamKind?: 'team' | 'workflow'
+  /** "Team X: a (working), b (idle)" or "Workflow X: ..." */
   text: string
 }
 
@@ -210,10 +247,16 @@ export interface A11yModel {
 /** Optional inputs of the team-aware DOM model */
 export interface A11yExtras {
   links?: Map<string, AgentLink>
+  /** Parent -> child edges: lets the mirror say which parent links are unverified */
+  edges?: Edge[]
+  /** Collapse state of the branches (see branch-collapse.ts) */
+  collapse?: CollapseView
   teams?: Map<string, TeamSummary>
   simTime?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
   sessions?: ReadonlyMap<string, SessionMeta>
+  /** Proven parent -> child session links, worded in the heading of the clusters they connect */
+  sessionLinks?: ReadonlyArray<SessionLink>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -243,7 +286,7 @@ export function buildA11yModel(
   for (const entry of history.values()) {
     let list = toolsByAgent.get(entry.agentId)
     if (!list) { list = []; toolsByAgent.set(entry.agentId, list) }
-    list.push({ ...entry, stateText: entry.state, live: toolCalls.has(entry.id) })
+    list.push({ ...entry, stateText: toolStateText(entry), live: toolCalls.has(entry.id) })
   }
   const childNames = new Map<string, string[]>()
   for (const a of agents.values()) {
@@ -256,8 +299,11 @@ export function buildA11yModel(
 
   const showSession = hasSeveralSessions(agents.values())
   const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
+  const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
+  const unverifiedChildren = new Set<string>()
+  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.add(e.to)
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -267,23 +313,25 @@ export function buildA11yModel(
       name: a.name,
       state: a.state,
       stateText: stateText(a.state),
-      model: a.model ? formatModelName(a.model) : 'unknown model',
+      model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : 'Claude',
-      tokens: `${formatTokens(a.tokensUsed)} / ${formatTokens(a.tokensMax)} tokens`,
-      cost: formatCost(agentCost(a.tokensUsed, a.model)),
+      tokens: tokenSummary(a),
+      cost: formatCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
-      relation: parent ? `child of ${parent.name}` : a.isMain ? 'main agent' : 'no parent',
+      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ' (unverified link)' : ''}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
       teamName: cleanText(a.teamName) || undefined,
+      teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
       activityText: teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
       clusterKey: clusterOf.get(a.id),
+      branch: branchItem(extras.collapse?.branches.get(a.id)),
     })
   }
 
@@ -295,7 +343,7 @@ export function buildA11yModel(
     teams,
     links,
     clusters: clusterList.map(c => ({
-      key: c.key, kind: c.kind, title: c.title, text: clusterAnnouncement(c), memberIds: c.memberIds, color: c.color,
+      key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: [clusterAnnouncement(c), ...(linkNotes.get(c.key) ?? [])].join(', '), memberIds: c.memberIds, color: c.color,
     })),
     agents: agentItems,
     discoveries: discoveries.map(d => ({
@@ -332,7 +380,8 @@ export function buildTeamItems(
         color: c.color || TEAM_DEFAULT_COLOR,
         memberIds: members.map(m => m.id),
         memberNames: members.map(m => cleanText(m.name, 60)),
-        text: `Team ${c.title}: ${parts.join(', ')}`,
+        teamKind: c.teamKind ?? 'team',
+        text: `${clusterNoun(c)} ${c.title}: ${parts.join(', ')}`,
       }
     })
 }

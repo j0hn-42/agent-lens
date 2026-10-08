@@ -7,8 +7,18 @@
  */
 import type { Agent, TeamSummary } from '../../lib/agent-types'
 import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants'
+import { findTeam, teamOfAgent } from './team-key'
 
-export interface ClusterInput { key: string; size: number }
+export interface ClusterInput {
+  key: string
+  size: number
+  /** Repository the cluster provably belongs to (see {@link clustersOf}); absent when unknown */
+  projectId?: string
+  /** Display name of that repository; only ever present together with projectId */
+  projectName?: string
+}
+/** sessionId -> repository, from the session list (only sessions whose project is known). */
+export type SessionProjects = ReadonlyMap<string, { projectId: string; projectName: string }>
 export interface ClusterAnchor { key: string; x: number; y: number; radius: number }
 
 type ClusterAgent = Pick<Agent, 'id' | 'sessionId' | 'teamName' | 'isMain' | 'clusterKey'>
@@ -29,9 +39,8 @@ export const SESSION_CLUSTER_PREFIX = 'session:'
  * cluster model so the simulation and the halos agree on what one cluster is.
  */
 function groupSession(sessionId: string, teamName: string, teams?: ReadonlyMap<string, TeamSummary>): string {
-  const t = teams?.get(teamName)
-  if (!t) return sessionId
-  return sessionId === t.leadSessionId || t.members.some(m => m.sessionId === sessionId) ? t.leadSessionId : sessionId
+  const t = findTeam(teams, teamName, sessionId)
+  return t ? t.leadSessionId : sessionId
 }
 
 /**
@@ -41,13 +50,8 @@ function groupSession(sessionId: string, teamName: string, teams?: ReadonlyMap<s
  */
 export function clusterKeyOf(agent: Pick<Agent, 'sessionId' | 'teamName'>, teams?: ReadonlyMap<string, TeamSummary>): string {
   if (agent.teamName) return `${TEAM_CLUSTER_PREFIX}${groupSession(agent.sessionId, agent.teamName, teams)}:${agent.teamName}`
-  if (teams) {
-    for (const t of teams.values()) {
-      if (t.leadSessionId === agent.sessionId || t.members.some(m => m.sessionId === agent.sessionId)) {
-        return `${TEAM_CLUSTER_PREFIX}${t.leadSessionId}:${t.name}`
-      }
-    }
-  }
+  const t = teamOfAgent(teams, agent)
+  if (t) return `${TEAM_CLUSTER_PREFIX}${t.leadSessionId}:${t.name}`
   return SESSION_CLUSTER_PREFIX + agent.sessionId
 }
 
@@ -108,17 +112,40 @@ function spiralAnchors(items: Array<{ key: string; radius: number }>): ClusterAn
 }
 
 /**
- * Anchor of every cluster, in the order given (first appearance). One cluster is centred on
+ * Clusters of a same project made contiguous: a project sits where its first cluster arrived, its
+ * other clusters follow it. Clusters without projectId are never grouped and keep their slot.
+ */
+function groupByProject(clusters: ClusterInput[]): ClusterInput[] {
+  const byProject = new Map<string, ClusterInput[]>()
+  for (const c of clusters) {
+    if (!c.projectId) continue
+    const list = byProject.get(c.projectId)
+    if (list) list.push(c); else byProject.set(c.projectId, [c])
+  }
+  const out: ClusterInput[] = []
+  for (const c of clusters) {
+    if (!c.projectId) { out.push(c); continue }
+    const list = byProject.get(c.projectId)
+    if (!list) continue
+    out.push(...list)
+    byProject.delete(c.projectId)
+  }
+  return out
+}
+
+/**
+ * Anchor of every cluster, in the order given (first appearance, a project's clusters together). One cluster is centred on
  * (0,0). Discs (anchor, radius) never overlap. Pure and deterministic.
  */
 export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Map<string, ClusterAnchor> {
   const seen = new Set<string>()
-  const items: Array<{ key: string; radius: number }> = []
+  const unique: ClusterInput[] = []
   for (const c of clusters) {
     if (seen.has(c.key)) continue
     seen.add(c.key)
-    items.push({ key: c.key, radius: clusterRadius(c.size) })
+    unique.push(c)
   }
+  const items = groupByProject(unique).map(c => ({ key: c.key, radius: clusterRadius(c.size) }))
   const out = new Map<string, ClusterAnchor>()
   if (items.length === 0) return out
   const list = items.length === 1
@@ -132,13 +159,25 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Ma
 export function clustersOf(
   agents: Iterable<Pick<Agent, 'sessionId' | 'teamName' | 'clusterKey'>>,
   teams?: ReadonlyMap<string, TeamSummary>,
+  projects?: SessionProjects,
 ): ClusterInput[] {
   const counts = new Map<string, number>()
+  // Per cluster: the project every member agrees on, or null as soon as one member cannot prove it
+  const owners = new Map<string, { projectId: string; projectName: string } | null>()
   for (const a of agents) {
     const key = keyOf(a, teams)
     counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (!projects) continue
+    const p = projects.get(a.sessionId)
+    const prev = owners.get(key)
+    if (prev === null || !p) owners.set(key, null)
+    else if (prev === undefined) owners.set(key, p)
+    else if (prev.projectId !== p.projectId) owners.set(key, null)
   }
-  return Array.from(counts, ([key, size]) => ({ key, size }))
+  return Array.from(counts, ([key, size]) => {
+    const p = owners.get(key)
+    return p ? { key, size, projectId: p.projectId, projectName: p.projectName } : { key, size }
+  })
 }
 
 /** The lead of a cluster: its first main agent (by insertion order). */
@@ -231,8 +270,9 @@ export interface ClusterNodeInfo {
 export function layoutInfo(
   agents: ReadonlyMap<string, Agent>,
   teams?: ReadonlyMap<string, TeamSummary>,
+  projects?: SessionProjects,
 ): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
-  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams))
+  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
     const key = keyOf(a, teams)
@@ -251,81 +291,84 @@ export function layoutInfo(
 
 interface PosNode { id: string; x?: number; y?: number; vx?: number; vy?: number; fx?: number | null; fy?: number | null }
 
+const isPinned = (n: PosNode): boolean => n.fx != null || n.fy != null
+
 /**
- * d3 force: leads are held at their anchor, members get a weak pull to it and are kept inside
- * their cluster disc, archived agents drift to its outer ring, and cluster discs are pushed
- * apart when their centroids get closer than the sum of their radii.
+ * d3 force: leads are eased onto their anchor (their velocity is overridden, so the other forces
+ * cannot push them away), members get a weak pull to it and archived agents drift to the outer
+ * ring of their cluster disc. Keeping members inside the disc is done by constrainToClusters.
+ * Register it last so it runs after the forces that would move the leads.
  */
 export function createClusterForce(getInfo: (id: string) => ClusterNodeInfo | undefined) {
   let nodes: PosNode[] = []
   const force = (alpha: number): void => {
-    const sums = new Map<string, { x: number; y: number; n: number; r: number }>()
     for (const node of nodes) {
       const info = getInfo(node.id)
-      if (!info || node.x === undefined || node.y === undefined) continue
+      if (!info || node.x === undefined || node.y === undefined || isPinned(node)) continue
       const dx = node.x - info.anchor.x
       const dy = node.y - info.anchor.y
       const d = Math.hypot(dx, dy)
-      const s = sums.get(info.key) ?? { x: 0, y: 0, n: 0, r: info.radius }
-      s.x += node.x; s.y += node.y; s.n++
-      sums.set(info.key, s)
-      if (node.fx != null || node.fy != null) continue
+      if (info.role === 'lead') {
+        node.vx = 0
+        node.vy = 0
+        if (d < LEAD_SNAP) { node.x = info.anchor.x; node.y = info.anchor.y } else {
+          node.x -= dx * CLUSTER_LAYOUT.holdStrength
+          node.y -= dy * CLUSTER_LAYOUT.holdStrength
+        }
+        continue
+      }
       let vx = node.vx ?? 0
       let vy = node.vy ?? 0
-      if (info.role === 'lead') {
-        if (d < 0.5) { node.x = info.anchor.x; node.y = info.anchor.y; vx = 0; vy = 0 } else {
-          vx -= dx * CLUSTER_LAYOUT.holdStrength
-          vy -= dy * CLUSTER_LAYOUT.holdStrength
-        }
+      if (info.role === 'archived' && d > 1e-6) {
+        const pull = (d - info.radius * CLUSTER_LAYOUT.archivedRingFactor) * CLUSTER_LAYOUT.ringStrength * alpha
+        vx -= (dx / d) * pull
+        vy -= (dy / d) * pull
       } else {
-        if (info.role === 'archived' && d > 1e-6) {
-          const pull = (d - info.radius * CLUSTER_LAYOUT.archivedRingFactor) * CLUSTER_LAYOUT.ringStrength * alpha
-          vx -= (dx / d) * pull
-          vy -= (dy / d) * pull
-        } else {
-          vx -= dx * CLUSTER_LAYOUT.pullStrength * alpha
-          vy -= dy * CLUSTER_LAYOUT.pullStrength * alpha
-        }
-        const limit = info.radius * CLUSTER_LAYOUT.containFactor
-        if (d > limit && d > 1e-6) {
-          const pull = (d - limit) * CLUSTER_LAYOUT.containStrength
-          vx -= (dx / d) * pull
-          vy -= (dy / d) * pull
-        }
+        vx -= dx * CLUSTER_LAYOUT.pullStrength * alpha
+        vy -= dy * CLUSTER_LAYOUT.pullStrength * alpha
       }
       node.vx = vx
       node.vy = vy
     }
-    // Cluster-vs-cluster separation on centroids
-    const list = Array.from(sums, ([key, s]) => ({ key, cx: s.x / s.n, cy: s.y / s.n, r: s.r }))
-    if (list.length < 2) return
-    const push = new Map<string, { x: number; y: number }>()
-    for (let i = 0; i < list.length; i++) {
-      for (let j = i + 1; j < list.length; j++) {
-        const a = list[i], b = list[j]
-        let dx = b.cx - a.cx, dy = b.cy - a.cy
-        let d = Math.hypot(dx, dy)
-        const min = a.r + b.r
-        if (d >= min) continue
-        if (d < 1e-6) { dx = 1; dy = 0; d = 1 }
-        const f = (min - d) * CLUSTER_LAYOUT.separationStrength * alpha / 2
-        const pa = push.get(a.key) ?? { x: 0, y: 0 }
-        const pb = push.get(b.key) ?? { x: 0, y: 0 }
-        pa.x -= (dx / d) * f; pa.y -= (dy / d) * f
-        pb.x += (dx / d) * f; pb.y += (dy / d) * f
-        push.set(a.key, pa); push.set(b.key, pb)
-      }
-    }
-    if (push.size === 0) return
-    for (const node of nodes) {
-      const info = getInfo(node.id)
-      const p = info && push.get(info.key)
-      if (p && info.role !== 'lead' && node.fx == null && node.fy == null) {
-        node.vx = (node.vx ?? 0) + p.x
-        node.vy = (node.vy ?? 0) + p.y
-      }
-    }
   }
   force.initialize = (n: PosNode[]): void => { nodes = n }
   return force
+}
+
+/** A lead closer than this to its anchor is snapped onto it */
+const LEAD_SNAP = 0.5
+/** Share of the excess outside the disc removed per tick (exponential approach, no teleport) */
+const CONTAIN_RATE = 0.35
+
+/**
+ * Post-integration constraint: every non-lead node ends up inside its cluster disc
+ * (radius * containFactor). Returns true while something still had to move (lead away from its
+ * anchor, or a member outside its disc), false once the layout is settled.
+ */
+export function constrainToClusters(
+  nodes: Iterable<PosNode>,
+  getInfo: (id: string) => ClusterNodeInfo | undefined,
+): boolean {
+  let moving = false
+  for (const node of nodes) {
+    const info = getInfo(node.id)
+    if (!info || node.x === undefined || node.y === undefined || isPinned(node)) continue
+    const dx = node.x - info.anchor.x
+    const dy = node.y - info.anchor.y
+    const d = Math.hypot(dx, dy)
+    if (info.role === 'lead') {
+      if (d >= LEAD_SNAP) moving = true
+      continue
+    }
+    const limit = info.radius * CLUSTER_LAYOUT.containFactor
+    const excess = d - limit
+    if (excess <= 0 || d < 1e-9) continue
+    moving = true
+    const target = excess <= LEAD_SNAP ? limit : d - excess * CONTAIN_RATE
+    node.x = info.anchor.x + (dx / d) * target
+    node.y = info.anchor.y + (dy / d) * target
+    // The force may not push it out again this tick
+    if (node.vx !== undefined && node.vy !== undefined && node.vx * dx + node.vy * dy > 0) { node.vx = 0; node.vy = 0 }
+  }
+  return moving
 }
