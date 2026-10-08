@@ -267,8 +267,11 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
         currentState = processEventWithContext(timedEvent, currentState)
         // Freshness: the agents this event touched are heard from now (wall clock)
         currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
-        // Active time: a move between working and paused opens or closes the agent's active span
-        currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
+        // Active time: a move between working and paused opens or closes the agent's active span. A replayed
+        // (history) event carries no wall-clock proof of when the agent worked: its active time stays unknown
+        if (!timedEvent.replayed) {
+          currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
+        }
         newEvents.push(timedEvent)
       }
       // Sync simulation clock to latest event so active state renders correctly

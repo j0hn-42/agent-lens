@@ -50,6 +50,8 @@ export interface Agent {
   archived?: boolean
   parentId: string | null
   tokensUsed: number
+  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
+  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
@@ -230,6 +232,8 @@ export interface SimulationEvent {
     | 'agent_activity'
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
+  replayed?: boolean
 }
 
 export interface DepthParticle {

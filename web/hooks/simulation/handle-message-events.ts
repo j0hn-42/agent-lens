@@ -81,6 +81,8 @@ export function handleContextUpdate(
     state.agents.set(agentName, {
       ...agent,
       tokensUsed: tokens,
+      // Only a number in the payload is a report; a missing one leaves the count as it was known
+      tokensReported: typeof payload.tokens === 'number' ? true : agent.tokensReported,
       tokensMax: tokensMaxOverride ?? agent.tokensMax,
       contextBreakdown: breakdown || agent.contextBreakdown,
       state: agent.state === 'complete' ? 'complete' : 'thinking'

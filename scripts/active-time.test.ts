@@ -134,3 +134,18 @@ test('carryActiveTime restores the fields after a rebuild', () => {
   assert.equal(out.get('a')!.activeMs, 7)
   assert.equal(out.get('b'), next.get('b'))
 })
+
+test('carryActiveTime drops a running span when the rebuilt agent is paused, and the closed time of a working one stays', () => {
+  const prev = new Map([['a', ag('a', 'thinking', { activeSince: 100, activeMs: 7 })], ['b', ag('b', 'idle', { activeMs: 9 })]])
+  const next = new Map([['a', ag('a', 'idle')], ['b', ag('b', 'thinking')]])
+  const out = carryActiveTime(prev, next)
+  assert.equal(out.get('a')!.activeSince, undefined)
+  assert.equal(out.get('a')!.activeMs, undefined, 'phase differs: unknown')
+  assert.equal(out.get('b')!.activeMs, undefined)
+})
+
+test('trackActiveTime: a working agent without a known start does not get one from a later event', () => {
+  const prev = new Map([['a', ag('a', 'thinking')]])
+  const next = new Map([['a', ag('a', 'tool_calling')]])
+  assert.equal(trackActiveTime(prev, next, 5000).get('a')!.activeSince, undefined)
+})

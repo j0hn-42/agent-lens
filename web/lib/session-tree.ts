@@ -17,6 +17,8 @@ export interface AgentLike {
   kind?: 'main' | 'subagent' | 'teammate'
   currentTool?: string
   tokensUsed: number
+  /** True once an event reported a token count; anything else = unknown (issue #58) */
+  tokensReported?: boolean
   /** Model ID, to price the tokens with the right family rate (issue #58) */
   model?: string
   spawnTime: number

@@ -190,7 +190,7 @@ export function SessionListPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
   }, [sessions, teams, teamWorking, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   // Session and team (family) totals; the team total counts an agent shared by two sessions once
-  const rollups = useMemo(() => rollupRows(rows), [rows])
+  const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
   const shownSessionCount =rows.filter(r => r.kind === 'session').length
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 

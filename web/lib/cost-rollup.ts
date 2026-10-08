@@ -7,6 +7,7 @@
 import { agentCost } from './cost'
 import { formatCost, formatTokens } from './utils'
 import type { AgentLike, AgentNode, SessionRow } from './session-tree'
+import type { SessionInfo } from './bridge-types'
 
 /** Deeper branches are cut and the total flagged incomplete (also keeps the walk bounded). */
 export const ROLLUP_MAX_DEPTH = 64
@@ -17,7 +18,7 @@ export const ROLLUP_UNKNOWN_TEXT = 'unknown'
 export const ROLLUP_INCOMPLETE_TEXT = '(incomplete)'
 /** Accessible explanation of the incomplete badge. */
 export const ROLLUP_INCOMPLETE_HELP =
-  'Incomplete total: some agents have an unknown token count, a missing parent, or are nested too deeply, so the real figure is higher.'
+  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, or branches are nested too deeply, so the real figure is higher.'
 
 export interface RollupTotal {
   tokens: number
@@ -56,8 +57,9 @@ function walk(roots: ReadonlyArray<AgentNode<CostAgent>>, total: RollupTotal, se
     if (depth > ROLLUP_MAX_DEPTH || total.agents >= ROLLUP_MAX_AGENTS) { total.complete = false; continue }
     seen.add(id)
     total.agents++
+    // Known only when an event reported it: tokensUsed starts at 0 on spawn, which is not a measure
     const t = node.agent.tokensUsed as unknown
-    if (typeof t === 'number' && Number.isFinite(t) && t >= 0) {
+    if (node.agent.tokensReported === true && typeof t === 'number' && Number.isFinite(t) && t >= 0) {
       total.known++
       total.tokens += t
       total.cost += agentCost(t, node.agent.model)
@@ -108,7 +110,15 @@ export function rollupFamily(roots: ReadonlyArray<AgentNode<CostAgent>>): Rollup
  * Totals for the rows of the sessions panel, by row id: a session row gets its session's total, a
  * team row the total of the whole family (all its member sessions) counting each agent once.
  */
-export function rollupRows(rows: ReadonlyArray<SessionRow>): Map<string, RollupTotal> {
+export function rollupRows(
+  rows: ReadonlyArray<SessionRow>,
+  /**
+   * Whole data the rows were cut from. With it a team total covers every member session, not only the
+   * listed rows (an 'Active only' filter or a single-session view hides some), and is flagged incomplete
+   * when a member session has no agent data at all.
+   */
+  whole?: { sessions: ReadonlyArray<SessionInfo>; forests: ReadonlyMap<string, AgentNode[]> },
+): Map<string, RollupTotal> {
   const out = new Map<string, RollupTotal>()
   const byTeam = new Map<string, AgentNode[]>()
   for (const row of rows) {
@@ -121,7 +131,13 @@ export function rollupRows(rows: ReadonlyArray<SessionRow>): Map<string, RollupT
     }
   }
   for (const row of rows) {
-    if (row.kind === 'team' && row.teamName) out.set(row.id, rollupFamily(byTeam.get(row.teamName) ?? []))
+    if (row.kind !== 'team' || !row.teamName) continue
+    if (!whole) { out.set(row.id, rollupFamily(byTeam.get(row.teamName) ?? [])); continue }
+    const members = whole.sessions.filter(s => s.teamName === row.teamName)
+    const total = rollupFamily(members.flatMap(s => whole.forests.get(s.id) ?? []))
+    // A member session without any agent data is a missing link, not a zero
+    if (members.some(s => (whole.forests.get(s.id) ?? []).length === 0)) total.complete = false
+    out.set(row.id, total)
   }
   return out
 }

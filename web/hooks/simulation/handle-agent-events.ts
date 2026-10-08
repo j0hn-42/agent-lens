@@ -85,7 +85,7 @@ export function handleAgentSpawn(
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: 0, tokensMax: ctx.getContextWindowSize(model),
+    tokensUsed: 0, tokensReported: false, tokensMax: ctx.getContextWindowSize(model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,

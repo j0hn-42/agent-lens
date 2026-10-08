@@ -99,12 +99,37 @@ test('working opens a span, a pause closes it, the pause itself is not counted',
   assert.equal(byName(view, 'alpha').activeMs, closed, 'the pause adds nothing')
 })
 
-test('seeking keeps the active time already recorded', () => {
+test('seeking to a moment where the agent was idle drops the running span (no counter for an idle agent)', () => {
   const view = mount()
   send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
-  const before = byName(view, 'alpha').activeSince
-  assert.ok(before !== undefined)
+  assert.ok(byName(view, 'alpha').activeSince !== undefined)
   advance(5_000)
   act(() => { view.result.current.seekToTime(1.5) })
-  assert.equal(byName(view, 'alpha').activeSince, before)
+  assert.equal(byName(view, 'alpha').state, 'idle')
+  assert.equal(byName(view, 'alpha').activeSince, undefined)
+})
+
+test('replayed (history) events leave the active time unknown, even in one batch', () => {
+  const view = mount()
+  const replay = (e: SimulationEvent): SimulationEvent => ({ ...e, replayed: true })
+  send(view, [replay(spawn('alpha', 1)), replay(toolStart('alpha', 2)), replay(complete('alpha', 1200))])
+  assert.equal(byName(view, 'alpha').activeMs, undefined, 'not 0:00')
+  assert.equal(byName(view, 'alpha').activeSince, undefined)
+})
+
+test('an agent left working by a replay does not get an invented span from the next live event', () => {
+  const view = mount()
+  send(view, [{ ...spawn('alpha', 1), replayed: true }, { ...toolStart('alpha', 2), replayed: true }])
+  assert.equal(byName(view, 'alpha').activeSince, undefined)
+  const thinkingAgain: SimulationEvent = { sessionId: 's1', time: 3, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }
+  send(view, [thinkingAgain])
+  assert.equal(byName(view, 'alpha').activeSince, undefined, 'start of the span is unproven')
+})
+
+test('a spawned agent has no reported tokens until an event reports them (unknown, not 0)', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  assert.equal(byName(view, 'alpha').tokensReported, false)
+  send(view, [{ sessionId: 's1', time: 2, type: 'context_update', payload: { agent: 'alpha', tokens: 0 } }])
+  assert.equal(byName(view, 'alpha').tokensReported, true, 'a reported 0 is a real 0')
 })

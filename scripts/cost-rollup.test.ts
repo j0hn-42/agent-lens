@@ -8,7 +8,7 @@ import {
 
 type A = AgentLike & { model?: string }
 const agent = (id: string, parentKey: string | null, tokensUsed: unknown, over: Partial<A> = {}): A => ({
-  id, sessionId: id.split(':')[0], parentKey, name: id, state: 'idle', tokensUsed: tokensUsed as number, spawnTime: 0, ...over,
+  id, sessionId: id.split(':')[0], parentKey, name: id, state: 'idle', tokensUsed: tokensUsed as number, tokensReported: true, spawnTime: 0, ...over,
 })
 const node = (a: A, children: AgentNode<A>[] = []): AgentNode<A> => ({ agent: a, children })
 const session = (id: string, teamName?: string) => ({ id, label: id, status: 'active' as const, startTime: 0, lastActivityTime: 0, teamName })
@@ -112,4 +112,33 @@ test('rollupRows: a session row totals its session, a team row the whole family 
   assert.equal(totals.get('s2')!.tokens, 300)
   assert.equal(totals.get('team:T')!.tokens, 420)
   assert.equal(totals.get('s3')!.tokens, 7)
+})
+
+test('an agent that never reported tokens is unknown, not a known 0 (the spawn placeholder)', () => {
+  const t = rollupBranch(node(agent('s:main', null, 100), [node(agent('s:sub', 's:main', 0, { tokensReported: false }))]))
+  assert.equal(t.known, 1)
+  assert.equal(t.unknown, 1)
+  assert.equal(t.complete, false)
+  assert.ok(formatRollup(t).includes(ROLLUP_INCOMPLETE_TEXT))
+  const none = rollupBranch(node(agent('s:main', null, 0, { tokensReported: false })))
+  assert.equal(formatRollup(none), ROLLUP_UNKNOWN_TEXT, 'a session with nothing reported reads unknown, not 0')
+  assert.equal(rollupBranch(node(agent('s:x', null, 0, { tokensReported: undefined }))).known, 0, 'no evidence = unknown')
+  assert.equal(rollupBranch(node(agent('s:y', null, 0))).known, 1, 'a reported 0 is a real 0')
+})
+
+test('rollupRows with the whole data: the team total covers hidden member sessions and flags missing ones', () => {
+  const sessions = [session('s1', 'T'), session('s2', 'T'), session('s3', 'T')]
+  const forests = buildAgentForests([
+    agent('s1:main', null, 10, { sessionId: 's1' }), agent('s2:main', null, 20, { sessionId: 's2' }),
+  ])
+  // 'Active only' kept s1 alone: the rows hide s2 and s3
+  const rows = buildSessionRows([sessions[0]], ['T'], forests)
+  const filtered = rollupRows(rows)
+  assert.equal(filtered.get('team:T')!.tokens, 10, 'rows alone only see s1')
+  const whole = rollupRows(rows, { sessions, forests }).get('team:T')!
+  assert.equal(whole.tokens, 30, 'hidden s2 still counts')
+  assert.equal(whole.complete, false, 's3 has no agent data: incomplete')
+  const full = rollupRows(rows, { sessions: sessions.slice(0, 2), forests }).get('team:T')!
+  assert.equal(full.tokens, 30)
+  assert.equal(full.complete, true)
 })

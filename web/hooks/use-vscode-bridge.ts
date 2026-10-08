@@ -270,6 +270,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         type: event.type as SimulationEvent['type'],
         payload: event.payload,
         sessionId: event.sessionId,
+        ...(event.replayed === true ? { replayed: true } : {}),
       }
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
@@ -492,11 +493,12 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       const all = allEventsRef.current
       for (let i = Math.max(0, fromIndex - allBaseRef.current); i < all.length; i++) {
         // matchesSelection also applies the 'All' finished-sessions filter, so a flush and live delivery agree
-        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push(all[i])
+        if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push({ ...all[i], replayed: true })
       }
     } else {
       const buffered = sessionEventsRef.current.get(sessionId) || []
-      pendingEventsRef.current.push(...buffered.slice(fromIndex))
+      // Re-fed from the buffer: the wall-clock moment of these events is lost, so they count as history
+      pendingEventsRef.current.push(...buffered.slice(fromIndex).map(e => ({ ...e, replayed: true })))
     }
     setEventVersion(v => v + 1)
   }, [matchesSelection])

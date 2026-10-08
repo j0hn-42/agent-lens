@@ -122,6 +122,7 @@ export function handleToolCallEnd(
       state: isError ? 'error' : 'thinking',
       currentTool: undefined,
       tokensUsed: agent.tokensUsed + (tokenCost ?? 0),
+      tokensReported: tokenCost !== undefined ? true : agent.tokensReported,
     })
 
     const toolState: 'error' | 'complete' = isError ? 'error' : 'complete'

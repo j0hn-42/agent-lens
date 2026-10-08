@@ -46,7 +46,7 @@ const sessions: SessionInfo[] = [
   { id: 's2', label: 'Second', status: 'active', startTime: 0, lastActivityTime: 2, teamName: 'T' },
 ]
 const mk = (id: string, sessionId: string, parentKey: string | null, tokensUsed: unknown, spawnTime = 1) =>
-  [id, { id, sessionId, parentKey, name: id.split(':')[1], state: 'idle', tokensUsed, spawnTime, lastEventAt: T0 }] as const
+  [id, { id, sessionId, parentKey, name: id.split(':')[1], state: 'idle', tokensUsed, tokensReported: true, spawnTime, lastEventAt: T0 }] as const
 
 function panel(agents: Map<string, never>, clock: FreshnessClock) {
   return (
@@ -140,4 +140,12 @@ test('detail card shows the active time line and passes axe', async () => {
   const { container } = render(<AgentDetailCard agent={agent} onClose={noop} />)
   assert.ok(container.textContent!.includes('0:04 active'))
   assert.deepEqual(await axeViolations(container), [])
+})
+
+test('panel: viewing a single session, the team total flags the sessions whose agents are not in view', () => {
+  const agents = new Map([mk('s1:main', 's1', null, 1000)])
+  const { container } = render(panel(agents as never, fakeClock()))
+  const text = container.textContent!
+  assert.ok(text.includes('family total, '))
+  assert.ok(text.includes(ROLLUP_INCOMPLETE_TEXT), 's2 has no agent data in this view: the family total is incomplete')
 })
