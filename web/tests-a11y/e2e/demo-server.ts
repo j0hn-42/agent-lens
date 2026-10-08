@@ -2,7 +2,7 @@
 // afterwards, so `pnpm --dir web run test:e2e` needs no server started by hand and never touches the
 // ports a developer's own servers use (3000 / 3001). E2E_BASE_URL still points the tests at a server
 // that is already running; nothing is started then.
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
@@ -10,6 +10,33 @@ import path from 'node:path'
 const WEB_DIR = path.resolve(__dirname, '..', '..')
 const LOG_FILE = path.join(WEB_DIR, 'test-results', 'demo-server.log')
 const START_TIMEOUT_MS = 180_000
+
+/** Own build directory, so the demo server never contends for `.next/dev/lock` with a developer's `next dev`. */
+export const E2E_DIST_DIR = '.next-e2e'
+
+export function demoServerEnv<T extends Record<string, string | undefined>>(base: T): T & Record<"NEXT_DIST_DIR" | "NEXT_PUBLIC_DEMO" | "NEXT_TELEMETRY_DISABLED", string> {
+  return { ...base, NEXT_PUBLIC_DEMO: '1', NEXT_TELEMETRY_DISABLED: '1', NEXT_DIST_DIR: E2E_DIST_DIR }
+}
+
+/**
+ * Spawns a detached process group and makes sure it dies with this process, including on Ctrl+C or a
+ * kill that skips the test hooks (the SIGINT of a terminal only reaches the foreground group).
+ */
+export function spawnGuarded(command: string, args: string[], options: SpawnOptions): ChildProcess {
+  const child = spawn(command, args, { ...options, detached: true })
+  const killGroup = () => { try { if (child.pid) process.kill(-child.pid, 'SIGKILL') } catch { /* already gone */ } }
+  const onSigint = () => { killGroup(); process.kill(process.pid, 'SIGINT') }
+  const onSigterm = () => { killGroup(); process.kill(process.pid, 'SIGTERM') }
+  process.once('exit', killGroup)
+  process.once('SIGINT', onSigint)
+  process.once('SIGTERM', onSigterm)
+  child.once('exit', () => {
+    process.off('exit', killGroup)
+    process.off('SIGINT', onSigint)
+    process.off('SIGTERM', onSigterm)
+  })
+  return child
+}
 
 export interface DemoServer {
   url: string
@@ -57,11 +84,10 @@ export async function startDemoServer(): Promise<DemoServer> {
   fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true })
   const log = fs.openSync(LOG_FILE, 'w')
   // Own process group so the whole next dev tree (pnpm, next, its workers) is stopped with one signal.
-  const child = spawn('pnpm', ['exec', 'next', 'dev', '-H', '127.0.0.1', '-p', String(port)], {
+  const child = spawnGuarded('pnpm', ['exec', 'next', 'dev', '-H', '127.0.0.1', '-p', String(port)], {
     cwd: WEB_DIR,
-    env: { ...process.env, NEXT_PUBLIC_DEMO: '1', NEXT_TELEMETRY_DISABLED: '1' },
+    env: demoServerEnv(process.env),
     stdio: ['ignore', log, log],
-    detached: true,
   })
   let hasExited = false
   const closed = new Promise<void>(resolve => child.once('exit', () => { hasExited = true; resolve() }))

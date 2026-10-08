@@ -3,6 +3,7 @@ dist
 .vite
 *.local
 .next
+.next-e2e
 *.vsix
 
 # Auto-generated
