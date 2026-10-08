@@ -7,9 +7,11 @@ Agent Lens is based on Agent Flow. Entries below 0.9.1 and earlier were written 
 Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 
 - Honest figures: tool-call lifecycle with expired/cancelled outcomes, "at least X" totals and an "estimated" badge, no invented zero token cost; branch, session and family cost totals with an incomplete badge; unattributed remainder when a usage addresses no single agent; active time instead of wall-clock duration (#49, #50, #58, #59, #61)
-- Graph: parent-child edges validated by events (unverified ones dashed), automatic collapse of inactive sub-trees with `+N` / active badges and tree keyboard navigation, unambiguous parent/child session links between session halos (#54, #55, #65)
-- Nodes and inspector: per-agent model with provenance and configured reasoning effort, per-peer freshness, clock and error counters, issue and PR links from `agent:<role>` through `gh` (#57, #60, #63)
+- Graph: parent-child edges validated by events (unverified ones dashed), automatic collapse of inactive sub-trees with `+N` / active badges and tree keyboard navigation, unambiguous parent/child session links between session halos, animated delegation path from the root to the selected node (#54, #55, #56, #65)
+- Nodes and inspector: per-agent model with provenance and configured reasoning effort, per-peer freshness, clock and error counters, issue and PR links from `agent:<role>` through `gh` (#48, #57, #60, #63)
 - Sessions panel: sessions grouped by project, in-place rendering, optional read-only versioned session index, on-demand project context panel, clusters of the same project grouped in the All view (#62, #64, #66, #69, #86)
+- Sources and robustness: defensive validation of incoming events with a "truncated graph" warning, sessions listed but not observed shown as "activity not observed", hooks/JSONL reconciliation (buffer, deduplication, priority) (#51, #52, #53)
+- Relay and local server: robust SSE relay (reconnection, backoff, race protection), hardened local server (ephemeral port, CSP, a single refresh in flight), atomic writes and validated snapshots to share state across processes (#67, #68, #71)
 - Observations: typed `agent_activity` observations exposed by the relay (#72)
 - Accessibility: inline theme bootstrap without flash following host and system, focus ring no longer clipped, forced-colors support (#70)
 - Release: `Release` workflow producing the `.vsix`, version and CHANGELOG consistency check (#133)

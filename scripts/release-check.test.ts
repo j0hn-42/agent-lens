@@ -63,3 +63,11 @@ test('checkRelease reports unreadable files instead of throwing', () => {
   assert.ok(errors.length >= 1)
   assert.match(errors.join('\n'), /app\/package\.json/)
 })
+
+test('the 0.10.0 CHANGELOG entry cites every ticket of the Tempo wave (#48 to #72, #86)', () => {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'extension/CHANGELOG.md'), 'utf8')
+  const entry = text.split(/^## /m).find((s) => s.startsWith('0.10.0')) ?? ''
+  const cited = new Set((entry.match(/#\d+/g) ?? []).map((m) => Number(m.slice(1))))
+  const expected = [...Array.from({ length: 25 }, (_, i) => 48 + i), 86]
+  assert.deepEqual(expected.filter((n) => !cited.has(n)), [])
+})
