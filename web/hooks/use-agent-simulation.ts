@@ -32,7 +32,7 @@ const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: stri
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects, hideInactive = false } = options
   const reviewingRef = useRef(isReviewing)
   reviewingRef.current = isReviewing
   const internalFilterRef = useRef(sessionFilter)
@@ -73,6 +73,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     layoutRef.current = layout
     return () => { layout.destroy(); layoutRef.current = null }
   }, [])
+
+  // The layout centres a parent on the children that are drawn: it follows 'Hide inactive agents'
+  useEffect(() => { layoutRef.current?.setHideInactive(hideInactive) }, [hideInactive])
 
   // ─── Force simulation sync ───────────────────────────────────────────────
   // Rebuilds the nodes and anchors, runs the initial ticks and writes the positions into frameRef.

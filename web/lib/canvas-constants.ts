@@ -187,6 +187,10 @@ export const CLUSTER_LAYOUT = {
   holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
+  /** Share of the gap between a parent and the middle of its children's extent closed per tick (#151): the easing of the centring */
+  centreStrength: 0.1,
+  /** A parent is only centred on at least this many children: with one child the "middle" would be the child itself */
+  minCentredChildren: 2,
   /** Share of the distance a workflow member covers towards the centre of its phase, per tick */
   phasePullStrength: 0.06,
   /** Centres of the phases of a workflow sit on a ring of this fraction of the cluster radius */
