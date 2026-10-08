@@ -2,6 +2,7 @@
 // Now with actual information visibility
 
 import type { UsageStatus, TokenSource } from './usage'
+import type { ModelSource } from './model-provenance'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -81,6 +82,16 @@ export interface Agent {
   /** Model ID last reported for this agent (agent_spawn / model_detected).
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
+  /** Where `model` comes from (runtime > configured > requested); see lib/model-provenance */
+  modelSource?: ModelSource
+  /** Model the dispatching call asked for, kept apart so a requested/actual mismatch stays visible */
+  requestedModel?: string
+  /** Distinct models the runtime really reported for this agent, in order (bounded) */
+  modelsUsed?: string[]
+  /** Reasoning effort, only when a source configured one (never inferred) */
+  effort?: string
+  /** Subagent type of the dispatch (e.g. 'frontend-engineer'): the role behind `agent:<role>` issue labels */
+  subagentType?: string
   currentTool?: string
   task?: string
   spawnTime: number

@@ -72,6 +72,8 @@ interface BridgeHookResult {
   loadDemo: () => void
   /** Relay port when known (standalone mode), for user-facing messages */
   relayPort: string
+  /** Origin of the relay HTTP API ('' = same origin) when a relay feeds this view, else null (extension / demo) */
+  relayOrigin: string | null
   /** True after the relay SSE connection failed and until it reconnects */
   relayUnreachable: boolean
   /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
@@ -578,6 +580,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     restoreSession,
     loadDemo,
     relayPort,
+    relayOrigin: relayEnabled ? (relayPort ? `http://127.0.0.1:${relayPort}` : '') : null,
     relayUnreachable,
     connectionDetail: relayEnabled ? source.detail : null,
     reconnectAttempt: relayEnabled ? source.attempt : 0,

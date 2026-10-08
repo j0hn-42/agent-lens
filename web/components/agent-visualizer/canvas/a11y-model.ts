@@ -10,6 +10,7 @@ import { agentCostUsage } from '../../../lib/cost'
 import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
+import { describeModel } from '../../../lib/model-provenance'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
@@ -312,7 +313,7 @@ export function buildA11yModel(
       name: a.name,
       state: a.state,
       stateText: stateText(a.state),
-      model: a.model ? formatModelName(a.model) : 'unknown model',
+      model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : 'Claude',
       tokens: tokenSummary(a),
       cost: formatCostUsage(agentCostUsage(a)),

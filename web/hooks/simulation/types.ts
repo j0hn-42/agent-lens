@@ -9,6 +9,7 @@ import type {
   TimelineEntry,
   SimulationEvent,
 } from '../../lib/agent-types'
+import type { UnattributedUsage } from '../../lib/attribution'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
 export interface SimulationState {
@@ -24,6 +25,8 @@ export interface SimulationState {
   links: Map<string, AgentLink>
   /** Agent Teams seen in this view (from team_info events), keyed by team name */
   teams: Map<string, TeamSummary>
+  /** Usage that belongs to no single agent (orphan or ambiguous target), by addressed agentKey; see lib/attribution */
+  unattributed: Map<string, UnattributedUsage>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
@@ -50,6 +53,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     conversations: new Map(),
     links: new Map(),
     teams: new Map(),
+    unattributed: new Map(),
     droppedMessages: new Map(),
     droppedEvents: 0,
     currentTime: 0,

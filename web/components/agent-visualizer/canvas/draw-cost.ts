@@ -1,8 +1,10 @@
 import { Agent, ToolCallNode } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
-import { agentCost, modelCostRate, agentCostUsage, totalCostUsage } from '@/lib/cost'
-import { formatCostUsage, formatTokenUsage, usageFromAgent, combineUsage, type UsageTotal } from '@/lib/usage'
+import { formatTokens, formatCost } from '@/lib/utils'
+import { agentCost, modelCostRate, agentCostUsage } from '@/lib/cost'
+import { formatCostUsage, formatTokenUsage, type UsageTotal } from '@/lib/usage'
+import { summarizeCosts, sessionUsage, type UnattributedUsage } from '@/lib/attribution'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -11,6 +13,9 @@ import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
 import { planKey, resolvePlacement } from './overlay-plan'
 
 export { modelCostRate, agentCost }
+
+/** Label of the remainder row: usage tied to no single agent */
+export const UNATTRIBUTED_LABEL = 'Unattributed'
 
 /** Tool name -> color for mini cost bar */
 export function toolTypeColor(toolName: string): string {
@@ -134,18 +139,22 @@ export function drawCostSummaryPanel(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
+  unattributed: Iterable<UnattributedUsage> = [],
 ) {
   const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
-  if (agentList.length === 0) return
+  // Usage that belongs to no single agent is shown apart, never folded into one (#61)
+  const summary = summarizeCosts(agentList, unattributed)
+  const hasRest = summary.unattributedTokens > 0
+  if (agentList.length === 0 && !hasRest) return
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
     .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model), usage: agentCostUsage(a) }))
     .sort((a, b) => b.cost - a.cost)
-  const totalCost = agentBreakdown.reduce((s, a) => s + a.cost, 0)
-  // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged
-  const costUsage = totalCostUsage(agents.values())
-  const tokenUsage = combineUsage(Array.from(agents.values(), usageFromAgent))
+  const totalCost = summary.sessionCost
+  // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
+  // the unattributed remainder counts in the session total
+  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), unattributed)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
@@ -178,7 +187,8 @@ export function drawCostSummaryPanel(
   const sectionGap = COST_PANEL.sectionGap
   const agentRows = Math.min(agentBreakdown.length, COST_PANEL.maxRows)
   const toolRows = Math.min(toolList.length, COST_PANEL.maxRows)
-  const panelH = headerH + (agentRows * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
+  const restRows = hasRest ? 1 : 0
+  const panelH = headerH + ((agentRows + restRows) * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
 
   ctx.save()
 
@@ -240,6 +250,24 @@ export function drawCostSummaryPanel(
     ctx.fillStyle = COLORS.costText
     ctx.fillText(costLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
+    y += lineH
+  }
+
+  // Unattributed remainder: orphan or ambiguous usage, priced at the default rate (the model is unknown)
+  if (hasRest) {
+    ctx.strokeStyle = COLORS.textMuted
+    ctx.lineWidth = 1
+    ctx.setLineDash([3, 3])
+    ctx.beginPath()
+    ctx.roundRect(panelX + COST_PANEL.contentPadding, y + 1, barW, lineH - 3, COST_PANEL.barRadius)
+    ctx.stroke()
+    ctx.setLineDash([])
+    ctx.font = '11px monospace'
+    ctx.fillStyle = COLORS.textMuted
+    ctx.textAlign = 'left'
+    ctx.fillText(UNATTRIBUTED_LABEL, panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
+    ctx.textAlign = 'right'
+    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
     y += lineH
   }
 

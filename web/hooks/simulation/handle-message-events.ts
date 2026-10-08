@@ -5,6 +5,7 @@ import type { MutableEventState } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
 export function handleMessage(
   payload: Record<string, unknown>,
@@ -79,6 +80,15 @@ export function handleContextUpdate(
     ? payload.tokensMax
     : undefined
   const agent = state.agents.get(agentName)
+  // Context size is an absolute reading: it belongs to one agent or to the remainder, never to a guess (#61)
+  const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
+  if (target.kind !== 'attributed') {
+    // A name that became ambiguous keeps its first holder's last attributed reading; adding this one on top would
+    // count the same context twice, and which instance it belongs to is unknown, so state/max/breakdown stay put.
+    if (target.kind === 'ambiguous' && agent && agent.tokensUsed > 0) return
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokens ?? 0, 'set')
+    return
+  }
   if (agent) {
     state.agents.set(agentName, {
       ...agent,

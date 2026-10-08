@@ -9,6 +9,9 @@ import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
+import { modelBadge, type ModelSource } from '@/lib/model-provenance'
+import { useIssueLinks } from '@/hooks/use-issue-links'
+import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-links'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
@@ -21,6 +24,10 @@ interface AgentDetailCardProps {
     name: string
     state: AgentState
     model?: string
+    modelSource?: ModelSource
+    requestedModel?: string
+    modelsUsed?: string[]
+    effort?: string
     tokensUsed: number
     tokenStatus?: UsageStatus
     tokensEstimated?: boolean
@@ -39,9 +46,13 @@ interface AgentDetailCardProps {
     sessionLabel?: string
     activeMs?: number
     activeSince?: number
+    subagentType?: string
+    agentType?: string
   }
   /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
+  /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
+  relayOrigin?: string | null
   onClose: () => void
   /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
   onEscape?: () => void
@@ -67,6 +78,7 @@ function formatClockTime(ms: number): string {
 export function AgentDetailCard({
   agent,
   toolErrors,
+  relayOrigin = null,
   onClose,
   onEscape,
   freshnessClock,
@@ -80,6 +92,9 @@ export function AgentDetailCard({
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
   const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
   const sessionLabel = safeLabel(agent.sessionLabel)
+  const badge = modelBadge(agent)
+  const role = agentRoleOf(agent)
+  const issueLinks = useIssueLinks(relayOrigin, role)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -117,12 +132,35 @@ export function AgentDetailCard({
               {agent.name}
             </span>
             {agent.model && (
-              <span className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-                {formatModelName(agent.model)}
+              <span className="flex flex-wrap items-center gap-x-2 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+                <span>{formatModelName(agent.model)}</span>
+                {badge && (
+                  <span
+                    data-testid="model-badge"
+                    data-kind={badge.kind}
+                    className="rounded px-1 text-[10px]"
+                    style={{ border: `1px solid ${COLORS.glassBorder}`, color: badge.kind === 'mismatch' ? COLORS.toolIndicatorText : COLORS.textMuted }}
+                  >
+                    {badge.label}
+                  </span>
+                )}
+                {agent.effort && <span data-testid="model-effort">effort {agent.effort}</span>}
               </span>
             )}
           </span>
         </PanelHeader>
+
+        {/* Models that really ran (runtime-reported), and the requested one when it differs */}
+        {(agent.modelsUsed?.length || (badge?.kind === 'mismatch' && agent.requestedModel)) && (
+          <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-testid="models-used">
+            {badge?.kind === 'mismatch' && agent.requestedModel && (
+              <div>Requested: {formatModelName(agent.requestedModel)}</div>
+            )}
+            {agent.modelsUsed && agent.modelsUsed.length > 0 && (
+              <div>Used: {agent.modelsUsed.map(formatModelName).join(', ')}</div>
+            )}
+          </div>
+        )}
 
         {/* Context bar */}
         <div className="mb-3">
@@ -200,6 +238,32 @@ export function AgentDetailCard({
             </div>
           )
         })()}
+
+        {/* Issues / PRs carrying the agent:<role> label of this node (silent when gh is unavailable) */}
+        {role && issueLinks.length > 0 && (
+          <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
+            <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
+            <ul className="flex flex-col gap-0.5" aria-label={`Issues and pull requests labelled agent:${role}`}>
+              {issueLinks.slice(0, ISSUE_LINKS_SHOWN).map(link => (
+                <li key={link.url} className="min-w-0">
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                    style={{ color: COLORS.textPrimary }}
+                    title={issueLinkLabel(link)}
+                  >
+                    {issueLinkLabel(link)}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            {issueLinks.length > ISSUE_LINKS_SHOWN && (
+              <div style={{ color: COLORS.textDim }}>+{issueLinks.length - ISSUE_LINKS_SHOWN} more</div>
+            )}
+          </div>
+        )}
       </GlassCard>
     </div>
   )

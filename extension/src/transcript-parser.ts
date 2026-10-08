@@ -603,7 +603,7 @@ export class TranscriptParser {
         kind: 'teammate', teamName: spawn.teamName, backendType: 'in-process',
         ...(spawn.color ? { color: spawn.color } : {}),
         ...(spawn.agentType ? { agentType: spawn.agentType } : {}),
-        ...(spawn.model ? { model: spawn.model } : {}),
+        ...(spawn.model ? { model: spawn.model, modelSource: 'configured' } : {}),
       },
     }, sessionId)
   }

@@ -32,8 +32,7 @@ import { MOCK_DURATION } from "@/lib/mock-scenario"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer } from "./chrome-announcer"
-import { totalAgentCost, totalCostUsage } from "@/lib/cost"
-import { combineUsage, usageFromAgent } from "@/lib/usage"
+import { sessionUsage } from "@/lib/attribution"
 import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
@@ -92,6 +91,7 @@ export function AgentVisualizer() {
     conversations,
     droppedEvents,
     droppedMessages,
+    unattributed,
     links,
     teams,
     play,
@@ -433,11 +433,13 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  // Totals never show a missing figure as 0: agents without data make them a lower bound
-  const tokenUsage = useMemo(() => combineUsage(Array.from(agents.values(), usageFromAgent)), [agents])
-  const totalTokens = tokenUsage.value ?? 0
-  const costUsage = useMemo(() => totalCostUsage(agents.values()), [agents])
-  const totalCost = useMemo(() => totalAgentCost(agents.values()), [agents])
+  // Totals never show a missing figure as 0: agents without data make them a lower bound; usage that belongs
+  // to no single agent is kept apart (#61) but counts in the session total
+  const usage = useMemo(() => sessionUsage(agents.values(), unattributed.values()), [agents, unattributed])
+  const tokenUsage = usage.tokens
+  const costUsage = usage.cost
+  const totalTokens = usage.summary.sessionTokens
+  const totalCost = usage.summary.sessionCost
 
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
@@ -611,6 +613,7 @@ export function AgentVisualizer() {
         totalCost={totalCost}
         tokenUsage={tokenUsage}
         costUsage={costUsage}
+        unattributedCost={usage.summary.unattributedCost}
         showFileAttention={showFileAttention}
         showConversation={showConversation}
         showContext={showContext}
@@ -700,6 +703,7 @@ export function AgentVisualizer() {
             key={selectedAgent.id}
             agent={selectedAgent}
             toolErrors={selectedAgent.toolErrors}
+            relayOrigin={bridge.relayOrigin}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
           />

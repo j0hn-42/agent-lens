@@ -380,6 +380,11 @@ export const SESSION_INDEX_TIMEOUT_MS = 1000
 
 /** Token bucket per client address for GET /status: burst and sustained refill (tokens/s) */
 export const RELAY_STATUS_RATE_BURST = 20
+/** GET /issue-links (#63): each call may run gh, so it is limited harder than /status, and answers are cached */
+export const RELAY_ISSUE_LINKS_RATE_BURST = 30
+export const RELAY_ISSUE_LINKS_RATE_PER_S = 2
+export const RELAY_ISSUE_LINKS_CACHE_TTL_MS = 60_000
+export const RELAY_ISSUE_LINKS_CACHE_MAX_ROLES = 64
 export const RELAY_STATUS_RATE_PER_S = 5
 /** Max distinct clients tracked by the /status rate limiter */
 export const RELAY_STATUS_RATE_MAX_KEYS = 64

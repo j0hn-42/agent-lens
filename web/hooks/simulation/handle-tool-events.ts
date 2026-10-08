@@ -7,6 +7,7 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
 import type { Agent, ToolCallNode } from '../../lib/agent-types'
+import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -159,15 +160,23 @@ export function handleToolCallEnd(
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
 
+  // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
+  const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
+  if (target.kind !== 'attributed' && tokenCost) {
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add')
+  }
+
   if (agent) {
     state.agents.set(agentName, {
       ...agent,
       // A cancelled call is neither a success nor an agent failure
       state: outcome === 'error' ? 'error' : 'thinking',
       currentTool: undefined,
-      ...addToken(agent, tokenCost, tokenSource),
+      // A usage addressing no single instance never lands on an agent (it went to the remainder above)
+      ...(target.kind === 'attributed'
+        ? { ...addToken(agent, tokenCost, tokenSource), tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported }
+        : {}),
       ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
-      tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported,
     })
 
     const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome
