@@ -113,7 +113,8 @@ export function buildLinkPanelModel(link: AgentLink, agents: Map<string, Agent>)
       content,
       long: isLongMessage(content),
       isError: !!m.isError,
-      truncatedChars: fullLength > LINK_MESSAGE_MAX_CHARS ? fullLength - (LINK_MESSAGE_MAX_CHARS - 1) : 0,
+      // Ingestion cap (recorded on the message) plus the display cap of this panel
+      truncatedChars: (m.cutChars ?? 0) + (fullLength > LINK_MESSAGE_MAX_CHARS ? fullLength - (LINK_MESSAGE_MAX_CHARS - 1) : 0),
     }
   })
 

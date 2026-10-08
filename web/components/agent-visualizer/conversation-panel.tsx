@@ -22,6 +22,7 @@ import {
 } from '@/lib/feed-utils'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
+import { formatDroppedMessages } from '@/lib/chrome-utils'
 import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
@@ -110,7 +111,9 @@ export function ConversationPanel({
     [allMessages, activeTab, pairActive, pair.a, pair.b],
   )
   const messages = useMemo(() => filterBySearch(tabMessages, searchQuery), [tabMessages, searchQuery])
-  const droppedMarker = droppedMarkerFor(droppedMessages, pairActive ? 'none' : activeTab)
+  // A pair is read from the conversations of its two agents: older messages dropped from either may be pair messages
+  const pairDropped = pairActive ? (droppedMessages?.get(pair.a) ?? 0) + (droppedMessages?.get(pair.b) ?? 0) : 0
+  const droppedMarker = pairActive ? formatDroppedMessages(pairDropped) : droppedMarkerFor(droppedMessages, activeTab)
   const multiSession = hasMultipleSessions(agents)
 
   // Virtual list with auto-scroll
@@ -366,11 +369,13 @@ export function ConversationPanel({
     receiver: m.to ? agentNameOf(agents, m.to) : undefined,
     time: formatElapsed(m.timestamp).label,
     content: m.content,
+    truncatedChars: m.cutChars,
   })
   const copyMessage = async (m: FeedMessage) => {
     const e = entryOf(m)
     const ok = await copyText(m.content)
-    notify(ok ? `${e.label} copied` : 'Copy failed: select the text and copy it by hand')
+    const cut = e.truncatedChars ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
+    notify(ok ? `${e.label} copied${cut}` : 'Copy failed: select the text and copy it by hand')
   }
   const exportConversation = () => {
     const title = `Conversation: ${exportScope}`

@@ -11,7 +11,7 @@ import {
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
-import { clearPair } from '@/lib/pair-filter-store'
+import { clearPair, setPair } from '@/lib/pair-filter-store'
 import type { Agent } from '@/lib/agent-types'
 import type { AgentLink, ConversationMessage } from '@/hooks/simulation/types'
 import { ConversationHarness, createPanelRegistry } from './conversation-harness'
@@ -101,10 +101,10 @@ test('copyText resolves false instead of throwing when the clipboard refuses and
 })
 
 // ── Link panel ──
-const long = 'x'.repeat(LINK_MESSAGE_MAX_CHARS + 50)
+const long = 'x'.repeat(LINK_MESSAGE_MAX_CHARS)
 const link = {
   id: 'l', from: 'o', to: 'u', kind: 'spawn', sessionId: 's', dropped: 2,
-  messages: [msg('d1', 'dispatch', 5, 'do the audit', { from: 'o', to: 'u' }), msg('r1', 'return', 9, long, { from: 'u', to: 'o' })],
+  messages: [msg('d1', 'dispatch', 5, 'do the audit', { from: 'o', to: 'u' }), msg('r1', 'return', 9, long, { from: 'u', to: 'o', cutChars: 51 })],
 } as unknown as AgentLink
 
 test('link panel: every message has a keyboard-reachable Copy button that copies the full content and announces it', async () => {
@@ -192,4 +192,33 @@ test('conversation panel: export lists the visible messages and flags hidden too
   assert.doesNotMatch(text, /Read\(file\.ts\)/)
   assert.match(text, /Incomplete: tool calls and results were hidden/)
   assert.match(text, /Incomplete: .*dropped/i)
+})
+
+test('conversation panel: a copied report cut at ingestion says so, and so does the export', async () => {
+  const cut = new Map<string, ConversationMessage[]>([
+    ['o', [msg('r1', 'return', 8, 'x'.repeat(LINK_MESSAGE_MAX_CHARS), { from: 'u', to: 'o', cutChars: 700 })]],
+  ])
+  const r = render(
+    <ConversationHarness registry={createPanelRegistry()} conversations={cut} agents={agents} selectedAgentId={null} onAgentClick={() => {}} initialOpen />,
+  )
+  fireEvent.click(r.getByRole('button', { name: /^Copy return/ }))
+  await flush()
+  assert.match(r.getAllByRole('status').map(s => s.textContent).join(' '), /RETURN copied \(truncated: 700 characters were cut\)/)
+  fireEvent.click(r.getByRole('button', { name: 'Export conversation' }))
+  assert.match(downloads[0].text, /Truncated: 700 characters were cut/)
+})
+
+test('conversation panel: export of an active pair reports the older messages dropped for its agents', () => {
+  const r = render(
+    <ConversationHarness
+      registry={createPanelRegistry()} conversations={conversations} agents={agents} selectedAgentId={null}
+      onAgentClick={() => {}} initialOpen droppedMessages={new Map([['o', 4], ['x', 9]])}
+    />,
+  )
+  act(() => { setPair('o', 'u') })
+  fireEvent.click(r.getByRole('button', { name: 'Export conversation' }))
+  const text = downloads[0].text
+  assert.match(text, /^# Conversation: orchestrator and audit-ux/)
+  assert.match(text, /Incomplete: .*4 older messages dropped/)
+  assert.doesNotMatch(text, /13 older/)
 })
