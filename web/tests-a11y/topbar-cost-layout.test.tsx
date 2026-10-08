@@ -5,7 +5,7 @@ import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
-import { costPanelTop } from '@/components/agent-visualizer/canvas/draw-cost'
+import { costPanelTop, costHeaderWraps } from '@/components/agent-visualizer/canvas/draw-cost'
 import { COST_PANEL } from '@/lib/canvas-constants'
 
 afterEach(() => {
@@ -41,4 +41,10 @@ test('cost panel top falls back to the default when the bar height is unknown or
   assert.equal(costPanelTop(''), COST_PANEL.yStart)
   assert.equal(costPanelTop('abc'), COST_PANEL.yStart)
   assert.equal(costPanelTop('20px'), COST_PANEL.yStart)
+})
+
+test('cost panel header puts tokens on a second line when both do not fit side by side (#116)', () => {
+  assert.equal(costHeaderWraps(60, 60), false)
+  // « $0.069 estimated » + « 11k estimated tokens » dépassaient les 232 px du panneau
+  assert.equal(costHeaderWraps(114, 126), true)
 })
