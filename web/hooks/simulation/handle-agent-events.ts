@@ -105,7 +105,7 @@ export function handleAgentSpawn(
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensReported: lateUsage > 0, tokensEstimated: false,
+    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensReported: lateUsage > 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
     tokensMax: ctx.getContextWindowSize(initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, toolErrors: 0, timeAlive: 0,

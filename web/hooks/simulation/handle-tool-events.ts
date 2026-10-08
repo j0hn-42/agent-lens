@@ -164,7 +164,7 @@ export function handleToolCallEnd(
   // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
   const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
   if (target.kind !== 'attributed' && tokenCost) {
-    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add')
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add', tokenSource !== 'reported')
   }
 
   if (agent) {

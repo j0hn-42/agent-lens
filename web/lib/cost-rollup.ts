@@ -5,6 +5,7 @@
  * turned into 0.
  */
 import { agentCost } from './cost'
+import { USAGE_LABELS } from './usage'
 import { formatCost, formatTokens } from './utils'
 import type { AgentLike, AgentNode, SessionRow } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -31,12 +32,14 @@ export interface RollupTotal {
   unknown: number
   /** False when a gap (unknown count, cycle, depth cut, missing parent) can make the sums too low */
   complete: boolean
+  /** True when a counted figure is an estimate, not an announced count */
+  estimated: boolean
 }
 
 type CostAgent = AgentLike & { model?: string }
 
 function emptyTotal(): RollupTotal {
-  return { tokens: 0, cost: 0, agents: 0, known: 0, unknown: 0, complete: true }
+  return { tokens: 0, cost: 0, agents: 0, known: 0, unknown: 0, complete: true, estimated: false }
 }
 
 /**
@@ -61,6 +64,7 @@ function walk(roots: ReadonlyArray<AgentNode<CostAgent>>, total: RollupTotal, se
     const t = node.agent.tokensUsed as unknown
     if (node.agent.tokensReported === true && typeof t === 'number' && Number.isFinite(t) && t >= 0) {
       total.known++
+      if (node.agent.tokensEstimated === true) total.estimated = true
       total.tokens += t
       total.cost += agentCost(t, node.agent.model)
     } else {
@@ -145,6 +149,6 @@ export function rollupRows(
 /** "$0.123 · 4.2k", plus the incomplete badge; "unknown" when no agent had a known token count. */
 export function formatRollup(total: RollupTotal): string {
   if (total.known === 0) return ROLLUP_UNKNOWN_TEXT
-  const text = `${formatCost(total.cost)} · ${formatTokens(total.tokens)}`
+  const text = `${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${USAGE_LABELS.estimated}` : ''}`
   return total.complete ? text : `${text} ${ROLLUP_INCOMPLETE_TEXT}`
 }

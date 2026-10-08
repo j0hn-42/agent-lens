@@ -142,3 +142,12 @@ test('rollupRows with the whole data: the team total covers hidden member sessio
   assert.equal(full.tokens, 30)
   assert.equal(full.complete, true)
 })
+
+test('a total containing an estimated agent says "estimé"; exact agents do not', () => {
+  const exact = rollupBranch(node(agent('s:a', null, 4000)))
+  assert.equal(exact.estimated, false)
+  assert.ok(!formatRollup(exact).includes('estimé'))
+  const t = rollupBranch(node(agent('s:a', null, 1000), [node(agent('s:b', 's:a', 3000, { tokensEstimated: true }))]))
+  assert.equal(t.estimated, true)
+  assert.ok(formatRollup(t).includes('4k estimé'), formatRollup(t))
+})
