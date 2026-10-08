@@ -23,7 +23,7 @@ import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
-  RELAY_MAX_SSE_CLIENTS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
+  RELAY_MAX_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
@@ -98,6 +98,8 @@ function writeToClient(res: http.ServerResponse, payload: string) {
   }
   try { res.write(`data: ${payload}\n\n`) } catch { dropClient(res) }
 }
+
+const HEARTBEAT_PAYLOAD = JSON.stringify({ type: 'heartbeat' })
 
 function sendSSE(res: http.ServerResponse, data: unknown) {
   writeToClient(res, JSON.stringify(data))
@@ -530,6 +532,8 @@ export interface RelayOptions {
   /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
    *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
   sessionIndex?: RelaySessionIndexOptions
+  /** Period of the SSE keep-alive (ms). Injectable for tests; defaults to RELAY_SSE_HEARTBEAT_MS. */
+  sseHeartbeatMs?: number
 }
 
 export interface RelaySessionIndexOptions {
@@ -592,6 +596,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   let hookServer: HookServer | null = null
   let scanTicker: SharedTicker | null = null
   let scanNow: (() => void) | null = null
+  // Keep-alive (#141): one shared timer, running only while an SSE client is connected. EventSource hides SSE
+  // comments from the page, so the beat is a data frame the web client reads as proof of life and discards.
+  const heartbeatTicker = new SharedTicker(() => {
+    for (const res of [...sseClients]) writeToClient(res, HEARTBEAT_PAYLOAD)
+  }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   const scanCoalescer = new KeyedCoalescer<void>()
   const statusCoalescer = new KeyedCoalescer<{ sessionCount: number; hooksConfigured: boolean }>()
   let statusComputations = 0
@@ -973,6 +982,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       log(`[sse] Client connected (${sseClients.size} total)`)
       // First client starts the shared scan timer; the last one leaving stops it
       const releaseTicker = scanTicker?.acquire()
+      const releaseHeartbeat = heartbeatTicker.acquire()
 
       // Clean up on every way a connection can end; idempotent.
       let closed = false
@@ -980,6 +990,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (closed) return
         closed = true
         releaseTicker?.()
+        releaseHeartbeat()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
         log(`[sse] Client disconnected (${sseClients.size} total)`)
@@ -1021,6 +1032,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     debugState: () => ({
       sseClients: sseClients.size,
       scanTimerActive: scanTicker?.active ?? false,
+      heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
       statusRuns: statusComputations,
       dedupSessions: reconciler.rememberedSessions,
@@ -1031,6 +1043,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
+      heartbeatTicker.stop()
       observations.dispose()
       const models = [...observedModels].sort().join(',').slice(0, 128)
       const runtimes = [wantClaude && 'claude', wantCodex && 'codex'].filter(Boolean).join(',')
