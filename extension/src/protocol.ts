@@ -319,6 +319,8 @@ export interface PendingToolCall {
 export interface SubagentState {
   watcher: import('fs').FSWatcher | null
   fileSize: number
+  /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
+  fileTail: string
   agentName: string
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>
@@ -338,6 +340,8 @@ export interface WatchedSession {
   fileWatcher: import('fs').FSWatcher | null
   pollTimer: NodeJS.Timeout | null
   fileSize: number
+  /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
+  fileTail: string
   sessionStartTime: number
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>

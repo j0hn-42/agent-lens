@@ -51,6 +51,26 @@ export function readNewFileLines(
   return { lines, newSize: stat.size, tail }
 }
 
+/** Suivi d'un fichier JSONL lu en continu : offset et fragment de ligne non terminée. */
+export interface TailedFile {
+  fileSize: number
+  /** Octets après le dernier saut de ligne de la lecture précédente. */
+  fileTail: string
+}
+
+/**
+ * Lit les nouvelles lignes de `filePath` en mettant à jour `state` (fileSize + fileTail) en place.
+ * Point d'entrée unique des watchers : une ligne coupée entre deux lectures est réassemblée.
+ * Retourne null s'il n'y a rien de nouveau, [] après une troncature (état remis à zéro).
+ */
+export function readTrackedLines(filePath: string, state: TailedFile): string[] | null {
+  const result = readNewFileLines(filePath, state.fileSize, state.fileTail)
+  if (!result) return null
+  state.fileSize = result.newSize
+  state.fileTail = result.tail
+  return result.lines
+}
+
 /** Case-fold a path string for comparison on Windows, where the filesystem is
  *  case-insensitive and tools disagree on drive-letter case (VS Code reports
  *  `c:\...`, Claude Code and most shells report `C:\...`). Identity elsewhere. */

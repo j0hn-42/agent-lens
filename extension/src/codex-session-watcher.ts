@@ -19,7 +19,7 @@ import {
   ACTIVE_SESSION_AGE_S, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
 } from './constants'
-import { readNewFileLines } from './fs-utils'
+import { readTrackedLines } from './fs-utils'
 import { createLogger } from './logger'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
@@ -340,10 +340,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
-    const result = readNewFileLines(session.filePath, session.fileSize, session.fileTail)
-    if (!result) return
-    session.fileSize = result.newSize
-    session.fileTail = result.tail
+    const lines = readTrackedLines(session.filePath, session)
+    if (!lines) return
     session.lastActivityTime = Date.now()
 
     // Re-activate if the session had been marked complete on inactivity —
@@ -354,7 +352,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
     }
 
-    for (const line of result.lines) {
+    for (const line of lines) {
       try { session.parser.processLine(line, session.rolloutState) }
       catch (err) { log.debug('Parser threw on line:', err) }
     }

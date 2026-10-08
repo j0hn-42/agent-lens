@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { readNewFileLines } from '../src/fs-utils'
+import { readNewFileLines, readTrackedLines } from '../src/fs-utils'
 
 describe('readNewFileLines', () => {
   let dir: string
@@ -100,5 +100,43 @@ describe('readNewFileLines', () => {
 
   it('returns null when the file does not exist', () => {
     assert.equal(readNewFileLines(path.join(dir, 'missing.jsonl'), 0), null)
+  })
+})
+
+describe('readTrackedLines (suivi fileSize + fileTail)', () => {
+  let dir: string
+  let file: string
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-lens-tracked-'))
+    file = path.join(dir, 'tracked.jsonl')
+  })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it('réassemble une ligne JSON écrite en deux morceaux : un seul événement, aucune perte', () => {
+    const state = { fileSize: 0, fileTail: '' }
+    const full = JSON.stringify({ type: 'assistant', text: 'x'.repeat(50) })
+    fs.writeFileSync(file, full.slice(0, 20))
+    assert.deepEqual(readTrackedLines(file, state), [])
+    assert.equal(state.fileTail, full.slice(0, 20))
+    fs.appendFileSync(file, full.slice(20) + '\n')
+    assert.deepEqual(readTrackedLines(file, state), [full])
+    assert.equal(state.fileTail, '')
+    assert.equal(state.fileSize, fs.statSync(file).size)
+  })
+
+  it('retourne null sans nouveaux octets', () => {
+    const state = { fileSize: fs.statSync(file).size, fileTail: '' }
+    assert.equal(readTrackedLines(file, state), null)
+  })
+
+  it('troncature : le tail est remis à zéro avec fileSize', () => {
+    const state = { fileSize: 0, fileTail: '' }
+    fs.writeFileSync(file, 'abc\npartial')
+    readTrackedLines(file, state)
+    assert.equal(state.fileTail, 'partial')
+    fs.writeFileSync(file, 'z\n')
+    assert.deepEqual(readTrackedLines(file, state), [])
+    assert.equal(state.fileSize, 0)
+    assert.equal(state.fileTail, '')
   })
 })

@@ -21,7 +21,7 @@ import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
 } from './constants'
-import { readNewFileLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
+import { readTrackedLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -210,6 +210,7 @@ function startWatchingSubagentFile(
   const state: SubagentState = {
     watcher: null,
     fileSize: 0,
+    fileTail: '',
     agentName,
     pendingToolCalls: new Map(),
     seenToolUseIds: new Set(),
@@ -447,17 +448,16 @@ export function readSubagentNewLines(
   const state = session.subagentWatchers.get(filePath)
   if (!state) return
 
-  const result = readNewFileLines(filePath, state.fileSize)
-  if (!result) {
+  const lines = readTrackedLines(filePath, state)
+  if (!lines) {
     // No new bytes: a teammate may still turn idle once the recent-write window passes
     emitTeammateActivity(delegate, state, sessionId)
     return
   }
-  state.fileSize = result.newSize
   if (state.teammate) {
     let mtime = Date.now()
     try { mtime = fs.statSync(filePath).mtimeMs } catch { /* vanished */ }
-    for (const line of result.lines) state.teammate.tracker.feed(line, mtime)
+    for (const line of lines) state.teammate.tracker.feed(line, mtime)
   }
 
   // If inline progress events are handling this subagent, skip event emission
@@ -483,7 +483,7 @@ export function readSubagentNewLines(
     }
   }
 
-  for (const line of result.lines) {
+  for (const line of lines) {
     parser.processTranscriptLine(line, state.agentName, state.pendingToolCalls, state.seenToolUseIds, sessionId)
   }
 

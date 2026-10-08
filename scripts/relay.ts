@@ -12,7 +12,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { readNewFileLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -324,7 +324,7 @@ function watchSession(sessionId: string, filePath: string) {
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
   const session: WatchedSession = {
     sessionId, filePath,
-    fileWatcher: null, pollTimer: null, fileSize: 0,
+    fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
     sessionStartTime: Date.now(),
     pendingToolCalls: new Map(),
     seenToolUseIds: new Set(),
@@ -389,16 +389,15 @@ function readNewLines(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return
 
-  const result = readNewFileLines(session.filePath, session.fileSize)
-  if (!result) return
+  const lines = readTrackedLines(session.filePath, session)
+  if (!lines) return
   // The size cap is also enforced after discovery: a transcript that grows past it is dropped
-  if (result.newSize > RELAY_MAX_SESSION_FILE_BYTES) {
+  if (session.fileSize > RELAY_MAX_SESSION_FILE_BYTES) {
     log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${RELAY_MAX_SESSION_FILE_BYTES} bytes — no longer watched`)
     unwatchSession(sessionId)
     return
   }
-  session.fileSize = result.newSize
-  for (const line of result.lines) {
+  for (const line of lines) {
     parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
   }
 

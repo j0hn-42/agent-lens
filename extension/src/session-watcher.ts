@@ -10,7 +10,7 @@ import {
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
-import { readNewFileLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -503,6 +503,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       fileWatcher: null,
       pollTimer: null,
       fileSize: 0,
+      fileTail: '',
       sessionStartTime: Date.now(),
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
@@ -597,10 +598,9 @@ export class SessionWatcher implements AgentSessionWatcher {
     const session = this.sessions.get(sessionId)
     if (!session) { return }
 
-    const result = readNewFileLines(session.filePath, session.fileSize)
-    if (!result) return
-    session.fileSize = result.newSize
-    for (const line of result.lines) {
+    const lines = readTrackedLines(session.filePath, session)
+    if (!lines) return
+    for (const line of lines) {
       this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
     }
 
