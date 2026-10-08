@@ -11,7 +11,7 @@ export const ACTIVE_WINDOW_MS = 10 * 60 * 1000
 export const SHOW_FINISHED_STORAGE_KEY = 'agent-lens:show-finished-sessions'
 
 export interface SessionVisibilityInput {
-  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'status' | 'lastActivityTime' | 'teamName'>>
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'status' | 'lastActivityTime' | 'teamName' | 'indexedOnly'>>
   /** Wall-clock time (ms) of the latest event seen per session */
   lastEventAt?: ReadonlyMap<string, number>
   /** The selected tab (a session id, 'All' or a team pseudo selection): a selected session is always shown */
@@ -35,6 +35,7 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   const recent = (t: number | undefined): boolean => typeof t === 'number' && Number.isFinite(t) && now - t <= windowMs
   const out = new Set<string>()
   for (const s of sessions) {
+    if (s.indexedOnly) continue // nothing to draw: not part of the 'All' view
     if (s.status === 'active' || recent(s.lastActivityTime) || recent(lastEventAt?.get(s.id)) || s.id === selectedId) out.add(s.id)
   }
   if (lastEventAt) for (const [id, t] of lastEventAt) if (recent(t)) out.add(id)
@@ -45,17 +46,17 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
       }
     }
     // A team tagged on the session itself counts too
-    for (const s of sessions) if (s.teamName && (teamWorking.get(s.teamName) ?? 0) > 0) out.add(s.id)
+    for (const s of sessions) if (!s.indexedOnly && s.teamName && (teamWorking.get(s.teamName) ?? 0) > 0) out.add(s.id)
   }
   return out
 }
 
 /** Sessions of the list that are not in the active set (the 'finished' ones). */
 export function finishedSessionIds(
-  sessions: ReadonlyArray<Pick<SessionInfo, 'id'>>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'indexedOnly'>>,
   active: ReadonlySet<string>,
 ): string[] {
-  return sessions.filter(s => !active.has(s.id)).map(s => s.id)
+  return sessions.filter(s => !s.indexedOnly && !active.has(s.id)).map(s => s.id)
 }
 
 type StampSession = Pick<SessionInfo, 'status' | 'lastActivityTime'>

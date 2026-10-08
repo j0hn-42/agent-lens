@@ -12,7 +12,7 @@ import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
-import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
+import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, freshnessKey, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { FreshnessAnnouncer } from './freshness-announcer'
@@ -338,7 +338,8 @@ export function SessionListPanel({
 
               const session = row.session!
               const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
-              const unobserved = kind === 'unobserved'
+              const unobserved = kind === 'unobserved' || kind === 'indexed'
+              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : SESSION_NOT_OBSERVED_HELP
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const model = modelId ? formatModelName(modelId) : null
@@ -371,13 +372,13 @@ export function SessionListPanel({
                         ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
                         : <SessionMarker kind={kind} />}
                       <span className="sr-only">
-                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${SESSION_NOT_OBSERVED_HELP}` : SESSION_STATUS_TEXT[kind]}
+                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
                         ,{' '}
                       </span>
                       {badge && <span className="sr-only">{badge.label} session, </span>}
                       <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       {unobserved && (
-                        <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
+                        <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={statusHelp}>
                           {SESSION_STATUS_TEXT[kind]}
                         </span>
                       )}

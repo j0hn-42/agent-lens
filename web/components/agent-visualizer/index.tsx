@@ -39,6 +39,7 @@ import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-reg
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
+import { detectedSessions } from "@/lib/session-model"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
 
@@ -488,7 +489,7 @@ export function AgentVisualizer() {
   const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
   const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
   const allViewSessionIds = bridge.allViewSessionIds
-  const shownSessionCount = allViewSessionIds ? bridge.sessions.filter(s => allViewSessionIds.has(s.id)).length : bridge.sessions.length
+  const shownSessionCount = detectedSessions(bridge.sessions).filter(s => !allViewSessionIds || allViewSessionIds.has(s.id)).length
   // A halo label click selects its session / team tab (kept in refs: the canvas holds the latest callback)
   const clusterStateRef = useRef({ selectedId: bridge.selectedSessionId, shown: shownSessionCount })
   clusterStateRef.current = { selectedId: bridge.selectedSessionId, shown: shownSessionCount }
@@ -538,7 +539,7 @@ export function AgentVisualizer() {
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
     const ids = bridge.allViewSessionIds
-    return ids ? bridge.sessions.filter(s => ids.has(s.id)).length : bridge.sessions.length
+    return detectedSessions(bridge.sessions).filter(s => !ids || ids.has(s.id)).length
   }, [bridge.allViewSessionIds, bridge.sessions])
 
   const connection = connectionDisplay(bridge.connectionStatus, bridge.useMockData)
@@ -554,7 +555,7 @@ export function AgentVisualizer() {
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
     relayPort: bridge.relayPort || undefined,
-    sessionCount: bridge.sessions.length,
+    sessionCount: detectedSessions(bridge.sessions).length,
   })
 
   return (

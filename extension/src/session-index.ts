@@ -243,3 +243,22 @@ export function mergeIndexedSessions(live: ReadonlyArray<SessionInfo>, indexed: 
   for (const i of indexed) if (!known.has(i.id)) out.push(indexedToSessionInfo(i))
   return out
 }
+
+function comparablePath(p: string): string {
+  const slashed = p.replace(/\\/g, '/').replace(/\/+$/, '')
+  return process.platform === 'win32' ? slashed.toLowerCase() : slashed
+}
+
+/**
+ * Rows of the index that belong to `workspace` (their workspace or cwd is the workspace or inside it).
+ * A row naming neither is dropped: its project cannot be proven, so it is not shown in a scoped relay.
+ */
+export function filterIndexedByWorkspace(sessions: ReadonlyArray<IndexedSession>, workspace: string): IndexedSession[] {
+  const ws = comparablePath(workspace)
+  const inside = (p: string | undefined): boolean => {
+    if (!p) return false
+    const c = comparablePath(p)
+    return c === ws || c.startsWith(ws + '/')
+  }
+  return sessions.filter(s => inside(s.workspace) || inside(s.cwd))
+}

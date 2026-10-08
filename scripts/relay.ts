@@ -16,7 +16,7 @@ import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../ex
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
-import { readSessionIndex, mergeIndexedSessions, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
+import { readSessionIndex, mergeIndexedSessions, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -558,7 +558,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const now = Date.now()
     if (indexCache && now - indexCache.at < (indexConfig.cacheMs ?? 30_000)) return indexCache.result
     const { opener, cacheMs: _cacheMs, ...rest } = indexConfig
-    const result = opener === undefined ? readSessionIndex(rest) : readSessionIndex(rest, opener)
+    const raw = opener === undefined ? readSessionIndex(rest) : readSessionIndex(rest, opener)
+    // Scoped relay (default): only the index rows of this workspace, like the live scan
+    const result = allWorkspaces ? raw : { ...raw, sessions: filterIndexedByWorkspace(raw.sessions, workspace) }
     if (result.status !== 'ok' && result.message && result.message !== indexCache?.result.message) log(`[relay] ${result.message}`)
     indexCache = { at: now, result }
     return result

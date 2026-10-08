@@ -9,7 +9,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
-  readSessionIndex, indexedToSessionInfo, nodeSqliteOpener, SESSION_INDEX_MAX_SCHEMA_VERSION,
+  readSessionIndex, indexedToSessionInfo, filterIndexedByWorkspace, nodeSqliteOpener, SESSION_INDEX_MAX_SCHEMA_VERSION,
   type IndexConnection, type IndexOpener,
 } from '../src/session-index'
 
@@ -222,5 +222,19 @@ describe('node:sqlite driver', () => {
     const r = await readSessionIndex({ path: file }, opener)
     assert.equal(r.status, 'degraded')
     assert.match(r.message ?? '', /sessions/)
+  })
+})
+
+describe('filterIndexedByWorkspace', () => {
+  const row = (id: string, extra: Record<string, unknown> = {}) => ({ id, startTime: 1, lastActivityTime: 2, ...extra })
+  it('keeps rows whose workspace or cwd is the workspace or inside it, drops the others and the unlocated', () => {
+    const kept = filterIndexedByWorkspace([
+      row('ws', { workspace: '/p/app' }),
+      row('cwd-inside', { cwd: '/p/app/packages/x/' }),
+      row('sibling', { cwd: '/p/app-other' }),
+      row('elsewhere', { workspace: '/q' }),
+      row('unlocated'),
+    ], '/p/app/')
+    assert.deepEqual(kept.map(s => s.id), ['ws', 'cwd-inside'])
   })
 })

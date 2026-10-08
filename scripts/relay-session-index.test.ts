@@ -25,6 +25,7 @@ let server: http.Server
 let port = 0
 let mode: 'ok' | 'newer' = 'ok'
 let opens = 0
+const wsDir = path.join(fakeHome, 'workspace')
 const open: http.ClientRequest[] = []
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
@@ -33,10 +34,12 @@ const opener: IndexOpener = () => {
   return {
     all(sql: string) {
       if (/PRAGMA user_version/i.test(sql)) return [{ user_version: mode === 'newer' ? 99 : 1 }]
-      if (/PRAGMA table_info/i.test(sql)) return ['id', 'started_at', 'label', 'parent_id'].map(name => ({ name }))
+      if (/PRAGMA table_info/i.test(sql)) return ['id', 'started_at', 'label', 'parent_id', 'cwd', 'workspace'].map(name => ({ name }))
       return [
-        { id: 'idx-parent', started_at: 1_700_000_000_000, label: 'Indexed parent', parent_id: null },
-        { id: 'idx-child', started_at: 1_700_000_001_000, label: 'Indexed child', parent_id: 'idx-parent' },
+        { id: 'idx-parent', started_at: 1_700_000_000_000, label: 'Indexed parent', parent_id: null, cwd: path.join(wsDir, 'sub') },
+        { id: 'idx-child', started_at: 1_700_000_001_000, label: 'Indexed child', parent_id: 'idx-parent', workspace: wsDir },
+        { id: 'idx-other', started_at: 1_700_000_002_000, label: 'Other project', cwd: path.join(fakeHome, 'other-project') },
+        { id: 'idx-nowhere', started_at: 1_700_000_003_000, label: 'No project' },
       ]
     },
     close() { /* nothing */ },
@@ -105,6 +108,15 @@ describe('relay with an optional session index', () => {
     assert.equal(byId.get('idx-parent')?.status, 'completed')
     assert.equal((byId.get('idx-parent') as { indexedOnly?: boolean }).indexedOnly, true, 'index-only entries are marked, so the web never auto-selects them')
     assert.equal(byId.get('idx-child')?.parentSessionId, 'idx-parent')
+  })
+
+  it('a scoped relay (no all-workspaces) leaves out the rows of other projects and rows naming no project', async () => {
+    const c = await connectSSE()
+    await sleep(200)
+    const ids = sessionLists(c.text())[0].map(s => s.id).sort()
+    assert.deepEqual(ids, ['idx-child', 'idx-parent'])
+    const body = JSON.parse((await get('/status')).body)
+    assert.equal(body.sessionIndex.count, 2, '/status counts what is shown')
   })
 
   it('/status reports the index state', async () => {
