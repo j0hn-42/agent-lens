@@ -139,7 +139,6 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  centerStrength: 0.03,
   collideRadius: 140,
   linkDistance: 350,
   linkStrength: 0.4,
@@ -158,8 +157,8 @@ export const CLUSTER_LAYOUT = {
   gap: 80,
   /** Up to this many clusters sit on a ring, more on a phyllotaxis spiral */
   maxRingClusters: 8,
-  /** Lead (orchestrator) held at its anchor, per tick */
-  holdStrength: 0.6,
+  /** Share of the distance a lead (orchestrator) covers towards its anchor, per tick */
+  holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
   /** Archived agents drift to this fraction of the cluster radius */
@@ -167,8 +166,6 @@ export const CLUSTER_LAYOUT = {
   ringStrength: 0.06,
   /** Members are kept within this fraction of the cluster radius */
   containFactor: 0.95,
-  containStrength: 0.08,
-  separationStrength: 0.5,
 } as const
 
 // ─── Tool slot placement config ─────────────────────────────────────────────
@@ -336,6 +333,34 @@ export const TOOL_DRAW = {
   tokenFontSize: 11,
   /** Y offset for two-line card layout */
   twoLineOffset: 7,
+} as const
+
+// ─── MCP tool call drawing constants ────────────────────────────────────────
+
+export const MCP_DRAW = {
+  /** Server badge above the card */
+  badgeHeight: 11,
+  badgeFontSize: 9,
+  badgePadX: 5,
+  badgeGap: 3,
+  /** Orbiting dots around a running MCP card */
+  orbitDots: 3,
+  orbitPadding: 8,
+  orbitSpeed: 2.2,
+  orbitDotSize: 2.2,
+  /** Dashed rim on the calling agent */
+  agentRimPadding: 6,
+  agentRimDash: [3, 5] as readonly number[],
+  agentRimSpeed: 18,
+  /** Dotted comet trail: draw every Nth trail segment */
+  trailSegmentStep: 2,
+  /** Particle core size multiplier */
+  particleScale: 1.25,
+  /** Completion pulse (no bright flash, so it is safe for WCAG 2.3.1) */
+  pulseDuration: 0.9,
+  pulseRingStart: 14,
+  pulseRingExpand: 46,
+  pulseRings: 2,
 } as const
 
 // ─── Cost overlay drawing constants ─────────────────────────────────────────
@@ -585,6 +610,16 @@ export const EDGE_BUBBLE = {
   anchorT: 1 / 3,
   /** Chars of message text kept for a bubble (before wrapping) */
   maxChars: 240,
+  /** Max bubbles shown per link (the newest messages): bounds memory and DOM buttons */
+  maxPerLink: 3,
+  /** Max bubbles shown on the whole canvas (the newest win) */
+  maxTotal: 12,
+  /** Fraction of the curve where a peer (teammate) message is anchored */
+  peerT: 0.5,
+  /** Words of the message kept in the accessible name of a bubble button */
+  ariaWords: 10,
+  /** Messages per link mirrored in the DOM list */
+  listedPerLink: 5,
 } as const
 
 export const CLUSTER_DRAW = {
@@ -592,6 +627,8 @@ export const CLUSTER_DRAW = {
   detailFontSize: 11,
   labelHeight: 36,
   labelMaxWidth: 260,
+  /** The title starts this many px right of the detail line (room for the colour dot) */
+  titleIndent: 10,
   /** Padding between members and the halo edge (world px) */
   padding: 56,
 } as const

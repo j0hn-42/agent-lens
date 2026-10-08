@@ -339,6 +339,29 @@ export const TEAM_DEDUPE_WINDOW_MS = 60_000
 export const TEAM_DEDUPE_MAX_ENTRIES = 512
 /** A tmux member session is matched to a config member when it started within this window after joinedAt */
 export const TEAM_JOIN_MATCH_WINDOW_MS = 120_000
+// ─── Workflow groups (Workflow tool runs, #79) ───────────────────────────────
+// subagents/workflows/<wf_id>/ is untrusted local input like everything else under ~/.claude.
+// Every limit below is covered by extension/test/workflow-group.test.ts.
+
+/** Workflow agents: a transcript written less than this many ms ago is 'working' */
+export const WORKFLOW_RECENT_WRITE_MS = 15_000
+/** Workflow agents: a finished turn (final text, no pending tool) with no write for this long is 'done' */
+export const WORKFLOW_DONE_QUIET_MS = 60_000
+/** Max agents announced per workflow (the most recently written transcripts win) */
+export const WORKFLOW_MAX_AGENTS = 200
+/** Max workflows followed per session (the most recently written folders win) */
+export const WORKFLOW_MAX_PER_SESSION = 20
+/** Max bytes read from the END of a workflow journal.jsonl */
+export const WORKFLOW_JOURNAL_MAX_BYTES = 1024 * 1024
+/** Max agent ids remembered from one journal */
+export const WORKFLOW_JOURNAL_MAX_IDS = 1000
+/** Max chars of a workflow phase label */
+export const WORKFLOW_PHASE_MAX = 40
+/** Max entries read from workflows/scripts to find the workflow name */
+export const WORKFLOW_SCRIPTS_MAX_ENTRIES = 500
+/** Agent type reported for every workflow agent */
+export const WORKFLOW_AGENT_TYPE = 'workflow-subagent'
+
 /** Bytes read from the head of a session transcript to learn its cwd / start time */
 export const SESSION_HEADER_MAX_BYTES = 16 * 1024
 /** Max chars of team/member/runtime/workspace tags on session list entries */
@@ -424,3 +447,23 @@ export const NORM_KEY_MAX = 128
 export const NORM_MAX_KNOWN_AGENTS = 1024
 /** Sessions whose shared normalization counters are tracked at once (oldest forgotten first). */
 export const NORM_MAX_TRACKED_SESSIONS = 256
+
+// ─── Shared state snapshots (#71) and observations (#72) ─────────────────────
+
+/** Version of the snapshot envelope; a reader refuses any other value */
+export const SNAPSHOT_SCHEMA_VERSION = 1
+/** A snapshot file (and its payload once serialized) never exceeds this; bigger files are refused on read */
+export const SNAPSHOT_MAX_BYTES = 256 * 1024
+/** Nesting / array / key bounds of a snapshot payload */
+export const SNAPSHOT_MAX_DEPTH = 8
+export const SNAPSHOT_MAX_ARRAY_LENGTH = 1000
+export const SNAPSHOT_MAX_KEYS = 200
+/** A snapshot older than this is stale (same threshold as a silent agent on the canvas) */
+export const SNAPSHOT_STALE_AFTER_MS = 30_000
+/** A snapshot dated further than this in the future is rejected (clock skew we cannot prove) */
+export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5_000
+
+/** Observations action: caps on what is returned to Claude */
+export const OBSERVATIONS_MAX_SESSIONS = 25
+export const OBSERVATIONS_MAX_AGENTS_PER_SESSION = 50
+export const OBSERVATIONS_NAME_MAX = 64

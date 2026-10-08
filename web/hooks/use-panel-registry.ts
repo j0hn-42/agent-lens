@@ -34,7 +34,11 @@ export function createPanelRegistry(): PanelRegistry {
       entries = [...entries.filter(p => p.id !== id), entry]
       return () => { entries = entries.filter(p => p !== entry) }
     },
-    escape: () => runEscapeHandlers(entries.map(p => p.onEscape)),
+    // A throwing handler must neither break Escape for the panels below it nor leave the key press
+    // half-handled: it counts as "nothing to close" and the next panel is asked.
+    escape: () => runEscapeHandlers(entries.map(p => () => {
+      try { return p.onEscape() } catch (err) { console.error(`Escape handler of panel "${p.id}" threw`, err); return false }
+    })),
     ids: () => entries.map(p => p.id),
   }
 }

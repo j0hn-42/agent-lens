@@ -115,6 +115,10 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Theme: the inline bootstrap sets data-theme + .dark before first paint; this mirrors it for native controls */
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
 @layer base {
   :focus-visible {
     outline: 2px solid #aaeeff;
@@ -214,6 +218,11 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+/* Foldable section (grid rows 0fr <-> 1fr); the content is inert while closed */
+[data-collapsible] {
+  transition: grid-template-rows 200ms ease;
+}
+
 /* Honor the OS reduced-motion preference (WCAG 2.2.2, 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -223,5 +232,38 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* Windows high contrast / forced colors: system colours only, nothing relies on a custom background */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .glass-card {
+    border: 1px solid CanvasText;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: none;
+  }
+  .glass-card::before {
+    display: none;
+  }
+  .glass-card input,
+  .glass-card textarea,
+  .glass-card select {
+    border: 1px solid CanvasText !important;
+    color: FieldText !important;
+    background: Field !important;
+  }
+  /* A selected row keeps its marker once its background colour is dropped */
+  [aria-current="true"],
+  [aria-pressed="true"] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  button:disabled {
+    color: GrayText;
   }
 }

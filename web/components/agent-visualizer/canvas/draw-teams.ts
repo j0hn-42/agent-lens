@@ -1,7 +1,7 @@
 import { COLORS } from '@/lib/colors'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
-import { type Cluster, clusterLabelLines } from './cluster-model'
+import { type Cluster, clusterLabelLines, haloAlphas } from './cluster-model'
 import { CLUSTER_DRAW } from '@/lib/canvas-constants'
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
@@ -67,10 +67,11 @@ export function drawClusterHalos(
     ctx.save()
     ctx.beginPath()
     ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2)
-    ctx.fillStyle = c.color + (selected ? '22' : '12')
+    const alpha = haloAlphas(c, selected)
+    ctx.fillStyle = c.color + alpha.fill
     ctx.fill()
     ctx.setLineDash(c.kind === 'team' ? [10 * k, 6 * k] : [2 * k, 5 * k])
-    ctx.strokeStyle = c.color + (selected ? 'cc' : '88')
+    ctx.strokeStyle = c.color + alpha.stroke
     ctx.lineWidth = (selected ? 2.5 : 1.5) * k
     ctx.stroke()
     ctx.restore()
