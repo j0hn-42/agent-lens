@@ -157,7 +157,7 @@ test('top bar: the Context button is a native toggle that reports aria-pressed a
     selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(),
     showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
     activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
-    showFileAttention: false, showTranscript: false, showCostOverlay: false, showTimeline: false, isMuted: false,
+    showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
     onTogglePanel: p => asked.push(p), onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
   }
   const { getByRole, rerender } = render(<TopBar {...base} />)
