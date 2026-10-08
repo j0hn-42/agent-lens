@@ -10,6 +10,7 @@ import * as path from 'path'
 export const PROJECT_ID_LENGTH = 12
 const PROJECT_NAME_MAX = 80
 const MAX_WALK_DEPTH = 64
+const MAX_FILE_BYTES = 4096
 const CACHE_MAX = 1000
 
 export interface ProjectIdentity {
@@ -23,7 +24,14 @@ export interface ProjectIdentity {
 export type GitCommonDirRunner = (cwd: string) => string
 
 const isDir = (p: string): boolean => { try { return fs.statSync(p).isDirectory() } catch { return false } }
-const readText = (p: string): string | null => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
+/** Only small regular files: a FIFO, a device or a huge file planted at `.git` must not block or exhaust the relay. */
+const readText = (p: string): string | null => {
+  try {
+    const st = fs.statSync(p)
+    if (!st.isFile() || st.size > MAX_FILE_BYTES) return null
+    return fs.readFileSync(p, 'utf8')
+  } catch { return null }
+}
 
 /**
  * Finds the common dir by reading `.git` on disk. No process is spawned: `cwd` comes from transcript

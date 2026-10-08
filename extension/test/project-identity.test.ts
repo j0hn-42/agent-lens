@@ -76,6 +76,19 @@ describe('project identity (git-common-dir)', () => {
     assert.equal(fs.existsSync(marker), false)
   })
 
+  it('ignores a .git that is a FIFO or an oversized file instead of blocking or reading it', () => {
+    clearProjectIdentityCache()
+    const fifoDir = path.join(tmp, 'fifo')
+    const bigDir = path.join(tmp, 'big')
+    fs.mkdirSync(fifoDir)
+    fs.mkdirSync(bigDir)
+    if (process.platform !== 'win32') execFileSync('mkfifo', [path.join(fifoDir, '.git')])
+    else fs.writeFileSync(path.join(fifoDir, '.git'), '')
+    fs.writeFileSync(path.join(bigDir, '.git'), `gitdir: ${main}/.git\n${'x'.repeat(1 << 20)}`)
+    assert.equal(resolveProjectIdentity(fifoDir, undefined), null)
+    assert.equal(resolveProjectIdentity(bigDir, undefined), null)
+  })
+
   it('does not run git twice for the same cwd', () => {
     clearProjectIdentityCache()
     let calls = 0
