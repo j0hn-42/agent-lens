@@ -30,6 +30,7 @@ import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/compo
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
 import { planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
+import { currentThemeId } from '@/lib/theme-dom'
 import { createPerfStats, drawPerfOverlay } from '@/components/agent-visualizer/canvas/perf-overlay'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
@@ -359,7 +360,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       }
 
       if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed) }
-      if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
+      // Additive glow belongs to neon only: graphite and paper are flat, and on a light ground it would wash the scene out
+      if (bloomRef.current && !reducedMotion && currentThemeId() === 'neon') bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
       positionTooltip(deps.tooltipRef.current, transform, w, h, deps.drawPropsRef.current, deps.tooltipTargetRef.current)
