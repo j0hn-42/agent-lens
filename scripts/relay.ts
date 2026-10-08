@@ -18,7 +18,7 @@ import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extensi
 import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { projectTags } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
-import { readSessionIndex, mergeIndexedSessions, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
+import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -38,7 +38,7 @@ import {
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
 import { createObservationsAction, parseObservationsInput, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, sanitizeRole, type IssueLink } from '../extension/src/issue-links'
+import { fetchIssueLinks, resolveRepoUrl, sanitizeRole, sanitizeSessionParam, issueLinksScope, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -178,6 +178,9 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
   }
 }
 
+/** Adds the facts of the session index (declared parent, cwd) to a session entry; set up by createRelay. */
+let enrichSession: (info: SessionInfo) => SessionInfo = info => info
+
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
   if (type === 'started') {
     const live = sessions.get(sessionId)
@@ -186,7 +189,7 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
       : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
     broadcast(JSON.stringify({
       type: 'session-started',
-      session: { ...base, label, status: 'active', lastActivityTime: Date.now() } as SessionInfo,
+      session: enrichSession({ ...base, label, status: 'active', lastActivityTime: Date.now() } as SessionInfo),
     }), sessionId)
   } else if (type === 'ended') {
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
@@ -259,7 +262,7 @@ function resetInactivityTimer(sessionId: string) {
     broadcastEvent({
       time: elapsed(sessionId),
       type: 'agent_spawn',
-      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model } : {}) },
+      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model, modelSource: 'runtime' } : {}) },
       sessionId,
     })
     broadcastSessionLifecycle('started', sessionId, session.label)
@@ -357,7 +360,7 @@ function watchSession(sessionId: string, filePath: string) {
     broadcastSessionLifecycle('started', sessionId, session.label)
     broadcastEvent({
       time: 0, type: 'agent_spawn',
-      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model } : {}) },
+      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model, modelSource: 'runtime' } : {}) },
       sessionId,
     })
     session.sessionDetected = true
@@ -525,7 +528,7 @@ export interface RelayOptions {
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
   /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
    *  workspace's GitHub `origin`. Must resolve to [] (not reject) when nothing can be proven, but a rejection is tolerated. */
-  issueLinksProbe?: (role: string) => Promise<IssueLink[]>
+  issueLinksProbe?: (role: string, cwd?: string) => Promise<IssueLink[]>
   /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
    *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
   sessionIndex?: RelaySessionIndexOptions
@@ -580,6 +583,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (result.status !== 'ok' && result.message && result.message !== indexCache?.result.message) log(`[relay] ${result.message}`)
     indexCache = { at: now, result }
     return result
+  }
+
+  enrichSession = info => {
+    const indexed = readIndex()
+    return indexed ? withIndexedFacts(info, indexed.sessions.find(s => s.id === info.id)) : info
   }
 
   const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
@@ -725,10 +733,17 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const issueLinksCoalescer = new KeyedCoalescer<IssueLink[]>()
   const issueLinksCache = new Map<string, { at: number; links: IssueLink[] }>()
-  let repoUrlPromise: Promise<string | undefined> | undefined
-  const issueLinksProbe = options.issueLinksProbe ?? (async (role: string): Promise<IssueLink[]> => {
-    repoUrlPromise ??= resolveRepoUrl(workspace)
-    const repoUrl = await repoUrlPromise
+  // One repository lookup per directory: a node's links come from the repository of its own session
+  const repoUrlByDir = new Map<string, Promise<string | undefined>>()
+  const issueLinksProbe = options.issueLinksProbe ?? (async (role: string, cwd?: string): Promise<IssueLink[]> => {
+    const dir = cwd ?? workspace
+    let pending = repoUrlByDir.get(dir)
+    if (!pending) {
+      if (repoUrlByDir.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) repoUrlByDir.delete(repoUrlByDir.keys().next().value as string)
+      pending = resolveRepoUrl(dir)
+      repoUrlByDir.set(dir, pending)
+    }
+    const repoUrl = await pending
     return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
   })
 
@@ -758,14 +773,31 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Invalid role parameter')
         return
       }
+      let sessionParams: string[] = []
+      try { sessionParams = new URL(req.url ?? '', 'http://localhost').searchParams.getAll('session') } catch { /* no session */ }
+      const sessionParam = sessionParams.length === 0 ? undefined : sessionParams.length === 1 ? sanitizeSessionParam(sessionParams[0]) : undefined
+      if (sessionParams.length > 0 && !sessionParam) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' })
+        res.end('Invalid session parameter')
+        return
+      }
+      const scope = issueLinksScope({
+        session: sessionParam,
+        cwd: sessionParam ? (sessionCwd.get(sessionParam) ?? readIndex()?.sessions.find(s => s.id === sessionParam)?.cwd) : undefined,
+        allWorkspaces,
+      })
+      const cwd = scope.kind === 'cwd' ? scope.cwd : undefined
+      const cacheKey = `${cwd ?? ''}\u0001${role}`
       const now = Date.now()
       let links: IssueLink[]
-      const cached = issueLinksCache.get(role)
-      if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
+      const cached = issueLinksCache.get(cacheKey)
+      if (scope.kind === 'unknown') {
+        links = [] // the project of this node is unknown: the relay's own repository would be another project's issues
+      } else if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
         links = cached.links
       } else {
         try {
-          links = await issueLinksCoalescer.run(role, () => issueLinksProbe(role))
+          links = await issueLinksCoalescer.run(cacheKey, () => issueLinksProbe(role, cwd))
         } catch {
           links = [] // gh absent, unauthenticated or failing: no link, no error
         }
@@ -773,7 +805,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
           const oldest = issueLinksCache.keys().next().value
           if (oldest !== undefined) issueLinksCache.delete(oldest)
         }
-        issueLinksCache.set(role, { at: Date.now(), links })
+        issueLinksCache.set(cacheKey, { at: Date.now(), links })
       }
       if (res.destroyed || res.headersSent) return
       const body = JSON.stringify({ role, links })

@@ -133,6 +133,8 @@ export interface SessionInfo {
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
+  /** True when lastActivityTime only stands for the start: usable to sort, never to display */
+  lastActivityUnknown?: boolean
   /** Agent Team the session belongs to (lead or tmux member), when known */
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */

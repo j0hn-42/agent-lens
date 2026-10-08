@@ -23,6 +23,7 @@ interface AgentDetailCardProps {
     id: string
     name: string
     state: AgentState
+    sessionId?: string
     model?: string
     modelSource?: ModelSource
     requestedModel?: string
@@ -94,7 +95,7 @@ export function AgentDetailCard({
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
-  const issueLinks = useIssueLinks(relayOrigin, role)
+  const issueLinks = useIssueLinks(relayOrigin, role, agent.sessionId)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 

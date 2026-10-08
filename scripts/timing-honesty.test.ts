@@ -68,6 +68,20 @@ test('#109 a model_detected that reports no effort clears the previous one', () 
   assert.equal(s.agents.get(key)!.model, 'gpt-5-mini')
 })
 
+test('#109 a Codex report without effort clears it even for the same model; a Claude one keeps the configured effort', () => {
+  const codex = run([
+    { ...spawn, payload: { ...spawn.payload, runtime: 'codex' } },
+    { type: 'model_detected', payload: { agent: 'orchestrator', model: 'gpt-5', effort: 'high' } },
+    { type: 'model_detected', payload: { agent: 'orchestrator', model: 'gpt-5' } },
+  ])
+  assert.equal(codex.agents.get(key)!.effort, undefined)
+  const claude = run([
+    { ...spawn, payload: { ...spawn.payload, model: 'claude-opus-4-6', modelSource: 'runtime', effort: 'high' } },
+    { type: 'model_detected', payload: { agent: 'orchestrator', model: 'claude-opus-4-6' } },
+  ])
+  assert.equal(claude.agents.get(key)!.effort, 'high')
+})
+
 test('#109 a model_detected with an effort sets it', () => {
   const s = run([spawn, { type: 'model_detected', payload: { agent: 'orchestrator', model: 'gpt-5', effort: 'high' } }])
   assert.equal(s.agents.get(key)!.effort, 'high')

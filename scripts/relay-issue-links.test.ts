@@ -21,6 +21,7 @@ let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
 let server: http.Server
 let port = 0
 const probeCalls: string[] = []
+const probeCwds: Array<string | undefined> = []
 let probeMode: 'ok' | 'fail' = 'ok'
 
 function get(urlPath: string, opts: { method?: string; headers?: http.OutgoingHttpHeaders } = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
@@ -52,8 +53,9 @@ describe('relay GET /issue-links', () => {
     fs.mkdirSync(workspace, { recursive: true })
     relay = await createRelay({
       workspace, runtime: 'claude',
-      issueLinksProbe: async role => {
+      issueLinksProbe: async (role, cwd) => {
         probeCalls.push(role)
+        probeCwds.push(cwd)
         if (probeMode === 'fail') throw new Error('gh is not installed')
         return [link]
       },
@@ -86,6 +88,18 @@ describe('relay GET /issue-links', () => {
     await get('/issue-links?role=backend-engineer')
     await get('/issue-links?role=backend-engineer')
     assert.deepEqual(probeCalls, ['backend-engineer'])
+  })
+
+  it('a session the relay does not know falls back to the workspace in a scoped relay', async () => {
+    probeCwds.length = 0
+    await get('/issue-links?role=designer&session=unknown-session')
+    assert.deepEqual(probeCwds, [undefined])
+  })
+
+  it('rejects a malformed session parameter with 400', async () => {
+    for (const q of ['&session=a%20b', '&session=a&session=b', `&session=${'x'.repeat(130)}`, '&session=..%2F..']) {
+      assert.equal((await get(`/issue-links?role=qa${q}`)).status, 400, q)
+    }
   })
 
   it('rejects a missing, malformed or repeated role with 400 and never runs gh', async () => {

@@ -256,8 +256,12 @@ export function handleModelDetected(
   if (agent && model && !isPseudoModel(model)) {
     // Reported by the transcript itself: the strongest source
     const merged = mergeModel(agent, { model, source: 'runtime' })
-    // The effort is the one of this report: a source that stops reporting one clears it (never carried over)
-    const { effort: _previous, ...rest } = agent
+    // A Codex report is authoritative for the effort (re-emitted when it changes, absent = none), and a
+    // switch to another model no longer carries the effort configured for the previous one. Claude's own
+    // reports never carry an effort: there the one configured at spawn stays.
+    const effortStale = !effort && (agent.runtime === 'codex' || (!!agent.model && agent.model !== model))
+    const { effort: _previous, ...withoutEffort } = agent
+    const rest = effortStale ? withoutEffort : agent
     state.agents.set(agentName, {
       ...rest,
       ...merged,

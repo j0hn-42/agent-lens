@@ -31,8 +31,10 @@ export function agentRoleOf(agent: Pick<Agent, 'subagentType' | 'agentType'>): s
   return undefined
 }
 
-export function issueLinksUrl(origin: string, role: string): string {
-  return `${origin}/issue-links?role=${encodeURIComponent(role)}`
+/** `sessionId` lets the relay answer with the repository of the node's own project (the placeholder session is no session). */
+export function issueLinksUrl(origin: string, role: string, sessionId?: string): string {
+  const session = sessionId && sessionId !== 'default' ? `&session=${encodeURIComponent(sessionId)}` : ''
+  return `${origin}/issue-links?role=${encodeURIComponent(role)}${session}`
 }
 
 /** Keep only well-formed entries whose URL is exactly the issue/PR page they claim to be. */
@@ -62,9 +64,9 @@ export function parseIssueLinks(data: unknown): IssueLink[] {
 export type FetchLike = (url: string, init?: { signal?: AbortSignal; cache?: 'no-store' }) => Promise<{ ok: boolean; json: () => Promise<unknown> }>
 
 /** Links of a role; [] on any failure. Never throws. */
-export async function loadIssueLinks(origin: string, role: string, fetchImpl: FetchLike, signal?: AbortSignal): Promise<IssueLink[]> {
+export async function loadIssueLinks(origin: string, role: string, fetchImpl: FetchLike, signal?: AbortSignal, sessionId?: string): Promise<IssueLink[]> {
   try {
-    const res = await fetchImpl(issueLinksUrl(origin, role), { signal, cache: 'no-store' })
+    const res = await fetchImpl(issueLinksUrl(origin, role, sessionId), { signal, cache: 'no-store' })
     if (!res.ok) return []
     return parseIssueLinks(await res.json())
   } catch {

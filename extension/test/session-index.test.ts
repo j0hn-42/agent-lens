@@ -76,7 +76,7 @@ describe('readSessionIndex', () => {
     })
     const bare = await readSessionIndex({ path: dbFile }, fakeOpener({ columns: COLS, rows: [row('c')] }))
     assert.equal(bare.status, 'ok')
-    assert.equal(bare.sessions[0].lastActivityTime, bare.sessions[0].startTime)
+    assert.equal(bare.sessions[0].lastActivityTime, undefined, 'no last activity is invented from the start')
     assert.equal(bare.sessions[0].label, undefined)
   })
 
@@ -178,6 +178,18 @@ describe('indexedToSessionInfo', () => {
     const info = indexedToSessionInfo({ id: 'a', startTime: 1, lastActivityTime: 2, label: 'L', cwd: '/x', parentSessionId: 'p' })
     assert.deepEqual(info, { id: 'a', label: 'L', status: 'completed', indexedOnly: true, startTime: 1, lastActivityTime: 2, cwd: '/x', parentSessionId: 'p' })
     assert.equal(indexedToSessionInfo({ id: 'abcdefghijkl', startTime: 1, lastActivityTime: 1 }).label, 'abcdefgh')
+  })
+
+  it('a session without a known last activity sorts by its start but says the activity is unknown', () => {
+    const info = indexedToSessionInfo({ id: 'a', startTime: 5 })
+    assert.equal(info.lastActivityTime, 5)
+    assert.equal(info.lastActivityUnknown, true)
+    assert.equal('lastActivityUnknown' in indexedToSessionInfo({ id: 'a', startTime: 5, lastActivityTime: 6 }), false)
+  })
+
+  it('a NULL last_activity_at in the column is unknown too', async () => {
+    const r = await readSessionIndex({ path: dbFile }, fakeOpener({ columns: [...COLS, 'last_activity_at'], rows: [row('c', { last_activity_at: null })] }))
+    assert.equal(r.sessions[0].lastActivityTime, undefined)
   })
 })
 
