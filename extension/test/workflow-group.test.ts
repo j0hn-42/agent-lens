@@ -253,7 +253,7 @@ describe('workflow agents are always announced', () => {
     fs.writeFileSync(path.join(fx.scripts, 'tempo-wave-a-wf_test0001-abc.js'), '')
     const now = Date.now()
     // idle: turn not ended, no pending tool, written 30 s ago
-    addAgent(fx, 'wf_test0001-abc', 'idle0001', { entries: [userText('go'), assistantThinking()], mtimeMs: now - 30 * SEC })
+    addAgent(fx, 'wf_test0001-abc', 'idle0001', { entries: [userText('go'), assistantThinking('hmm')], mtimeMs: now - 30 * SEC })
     // working: pending tool_use in a file written 5 minutes ago
     addAgent(fx, 'wf_test0001-abc', 'work0002', { entries: [userText('go'), assistantToolUse('tu-1')], mtimeMs: now - 5 * MIN })
     // finished: final text, silent for 3 minutes

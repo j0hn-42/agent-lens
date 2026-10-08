@@ -33,6 +33,12 @@ jobs:
       - name: Extension typecheck
         run: pnpm --filter agent-lens run lint
 
+      - name: Extension tests typecheck
+        run: pnpm --filter agent-lens run lint:test
+
+      - name: Scripts typecheck (scripts/*.ts and *.test.ts)
+        run: pnpm run lint:scripts
+
       - name: Web typecheck
         run: pnpm --dir web exec tsc --noEmit
 
