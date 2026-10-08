@@ -8,7 +8,7 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, constrainToClusters, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
 export const SYNC_TICKS = 30
@@ -16,6 +16,8 @@ export const SYNC_TICKS = 30
 const SYNC_ALPHA = 0.3
 /** Positions closer than this to the previous ones are not written back (no churn) */
 const POSITION_EPSILON = 0.01
+/** Ticks the centring may keep the layout awake once the simulation has cooled (children against the disc edge can leave a small gap for good) */
+const CENTRING_TICKS = 600
 
 export interface ForceLayout {
   /** Rebuild the nodes from the agents/edges, recompute the cluster anchors and run the initial ticks. */
@@ -30,6 +32,8 @@ export interface ForceLayout {
   stepState(state: SimulationState): SimulationState
   /** Hold a node at a position (user drag): the simulation keeps it there and moves the others around it. */
   pin(id: string, x: number, y: number): void
+  /** 'Hide inactive agents' (#151): hidden children do not count when a parent is centred on its children. */
+  setHideInactive(hide: boolean): void
   /** True while the layout still moves */
   readonly active: boolean
   destroy(): void
@@ -38,12 +42,19 @@ export interface ForceLayout {
 export function createForceLayout(): ForceLayout {
   let info = new Map<string, ClusterNodeInfo>()
   let active = false
+  let hideInactive = false
+  let children: Map<string, string[]> = new Map()
+  let family: Map<string, string[]> = new Map()
+  let childrenKey = ''
+  let centringBudget = 0
+  const centring = createCentringForce(() => children, () => family, id => info.get(id))
   const sim: Simulation<ForceNode, ForceLink> = forceSimulation<ForceNode, ForceLink>([])
     .force('charge', forceManyBody().strength(FORCE.chargeStrength))
     .force('collide', forceCollide(FORCE.collideRadius))
     .force('link', forceLink<ForceNode, ForceLink>([]).id(d => d.id).distance(FORCE.linkDistance).strength(FORCE.linkStrength))
     // Last: it overrides the velocity of the held leads after the other forces added theirs
     .force('cluster', createClusterForce(id => info.get(id)))
+    .force('centre', centring)
     .alphaDecay(FORCE.alphaDecay)
     .velocityDecay(FORCE.velocityDecay)
   // Stepped by hand only: never let d3's own timer run
@@ -52,7 +63,9 @@ export function createForceLayout(): ForceLayout {
   const tick = (): boolean => {
     sim.tick()
     const moving = constrainToClusters(sim.nodes(), id => info.get(id))
-    active = moving || sim.alpha() >= sim.alphaMin()
+    const cooled = sim.alpha() < sim.alphaMin()
+    if (cooled && centring.residual() > 0 && centringBudget > 0) centringBudget--
+    active = moving || (centring.residual() > 0 && centringBudget > 0) || sim.alpha() >= sim.alphaMin()
     return active
   }
 
@@ -69,6 +82,18 @@ export function createForceLayout(): ForceLayout {
     return out
   }
 
+  /** Parents and the children they are centred on; true when that changed (a child appeared, finished or got hidden). */
+  const refreshChildren = (agents: Map<string, Agent>): boolean => {
+    children = centredChildren(agents, hideInactive)
+    family = familyOf(agents)
+    let key = ''
+    for (const [parent, list] of children) key += `${parent}>${list.join(',')};`
+    const changed = key !== childrenKey
+    childrenKey = key
+    if (changed) centringBudget = CENTRING_TICKS
+    return changed
+  }
+
   const layout: ForceLayout = {
     sync(agents, edges, teams, projects) {
       const nodes: ForceNode[] = Array.from(agents.values()).map(a => ({
@@ -82,6 +107,7 @@ export function createForceLayout(): ForceLayout {
         .filter(e => e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to))
         .map(e => ({ id: e.id, source: e.from, target: e.to }))
       info = layoutInfo(agents, teams, projects).info
+      refreshChildren(agents as Map<string, Agent>)
       sim.nodes(nodes)
       const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
       if (linkForce) linkForce.links(links)
@@ -97,11 +123,14 @@ export function createForceLayout(): ForceLayout {
       return agents === state.agents ? state : { ...state, agents }
     },
     stepState(state) {
+      // Not a sync: no reheating of the simulation, the centring alone eases the parent to its new middle
+      if (refreshChildren(state.agents)) active = true
       if (!active) return state
       tick()
       const agents = apply(state.agents)
       return agents === state.agents ? state : { ...state, agents }
     },
+    setHideInactive(hide) { hideInactive = hide },
     pin(id, x, y) {
       const node = sim.nodes().find(n => n.id === id)
       if (!node) return
@@ -112,7 +141,7 @@ export function createForceLayout(): ForceLayout {
       active = true
     },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map() },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; centringBudget = 0 },
   }
   return layout
 }

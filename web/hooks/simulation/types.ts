@@ -210,6 +210,8 @@ export interface UseAgentSimulationOptions {
   sessionOffsetsRef?: React.RefObject<ReadonlyMap<string, number> | undefined>
   /** Repository of each session (only those whose project is known): clusters of a same project are laid out side by side */
   sessionProjects?: SessionProjects
+  /** 'Hide inactive agents' is on: hidden children do not count when a parent is centred on its children (#151) */
+  hideInactive?: boolean
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
 }
