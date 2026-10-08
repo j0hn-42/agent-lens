@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, nextTabIndex, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
-  emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -104,4 +105,23 @@ test('escape handlers run newest first and stop at the first that closes somethi
   assert.equal(runEscapeHandlers([h('a', false), h('b', false)]), false)
   assert.deepEqual(calls, ['b', 'a'])
   assert.equal(runEscapeHandlers([]), false)
+})
+
+test('agent counts: an agent whose status is older than the freshness limit is not counted as active (#145)', () => {
+  const now = 1_000_000
+  const old = now - STALE_AFTER_MS - 1
+  const agents = [
+    { state: 'thinking', lastEventAt: now },
+    { state: 'tool_calling', lastEventAt: old },
+    { state: 'idle', lastEventAt: old },
+    { state: 'complete', lastEventAt: old },
+  ]
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2 })
+  assert.equal(formatAgentCounts(1, 1, 2), '4 agents: 1 active - 2 last known state - 1 done')
+  assert.equal(formatAgentCounts(0, 0, 9), '9 agents: 0 active - 9 last known state - 0 done')
+})
+
+test('agent counts: without stale agents the text is unchanged; agents never heard from stay counted as before', () => {
+  assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
+  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
 })

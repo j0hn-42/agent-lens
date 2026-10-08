@@ -9,7 +9,7 @@ import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, 
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
 import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
-import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
+import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 
@@ -143,6 +143,8 @@ export interface TopBarProps {
   isDemo?: boolean
   // Stats
   activeAgentCount: number
+  /** Agents whose status is older than the freshness limit (not counted as active) */
+  staleAgentCount?: number
   doneAgentCount: number
   totalTokens: number
   /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
@@ -174,7 +176,7 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   connectionStatus, isDemo = false,
-  activeAgentCount, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, isMuted,
   onTogglePanel, onToggleTimeline, onToggleMute, onOpenShortcuts,
 }: TopBarProps) {
@@ -210,7 +212,7 @@ export const TopBar = memo(function TopBar({
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {unobservedCount > 0 && (
           <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
-            {unobservedCount} {SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}
+            {unobservedCount} {unobservedCount === 1 ? 'session' : 'sessions'} not observed
           </span>
         )}
         {sessionsWithActivity.size > 0 && (
@@ -249,9 +251,9 @@ export const TopBar = memo(function TopBar({
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount)}</span>
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount)}</span>
         )}
         <span>
           {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}

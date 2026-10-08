@@ -44,7 +44,8 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-age
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { useFreshnessValue } from "@/hooks/use-freshness-clock"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
@@ -555,11 +556,17 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
-  const { activeAgentCount, doneAgentCount } = useMemo(() => {
-    let done = 0
-    for (const a of agents.values()) if (a.state === 'complete') done++
-    return { activeAgentCount: agents.size - done, doneAgentCount: done }
-  }, [agents])
+  // Agents whose status is older than the freshness limit are counted apart: they are not "active" any more (#145)
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  const countsKey = useFreshnessValue(now => {
+    const c = agentActivityCounts(agentsRef.current.values(), now)
+    return `${c.active}|${c.done}|${c.stale}`
+  })
+  const { activeAgentCount, doneAgentCount, staleAgentCount } = useMemo(() => {
+    const [active, done, stale] = countsKey.split('|').map(Number)
+    return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale }
+  }, [countsKey, agents])
 
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
@@ -611,6 +618,7 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         isDemo={bridge.useMockData}
         activeAgentCount={activeAgentCount}
+        staleAgentCount={staleAgentCount}
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
