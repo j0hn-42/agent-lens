@@ -23,7 +23,8 @@ function unavailable(): UsageTotal {
   return { value: null, status: 'unavailable', estimated: false }
 }
 
-function isValue(v: unknown): v is number {
+/** A finite, non-negative number is a value; anything else is absent. */
+export function isValue(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0
 }
 
@@ -56,9 +57,14 @@ export function combineUsage(parts: Iterable<UsageTotal>): UsageTotal {
   return { value: sum, status: degraded ? 'partial' : 'available', estimated }
 }
 
+/** An agent's token status; without an explicit one (legacy) it is inferred from the counter. */
+export function effectiveTokenStatus(a: { tokensUsed: number; tokenStatus?: UsageStatus }): UsageStatus {
+  return a.tokenStatus ?? (a.tokensUsed > 0 ? 'available' : 'unavailable')
+}
+
 /** Reads an agent's token counter; agents without an explicit status infer it from the counter (legacy). */
 export function usageFromAgent(a: { tokensUsed: number; tokenStatus?: UsageStatus; tokensEstimated?: boolean }): UsageTotal {
-  const status = a.tokenStatus ?? (a.tokensUsed > 0 ? 'available' : 'unavailable')
+  const status = effectiveTokenStatus(a)
   if (status === 'unavailable') return unavailable()
   return { value: a.tokensUsed, status, estimated: a.tokensEstimated === true }
 }

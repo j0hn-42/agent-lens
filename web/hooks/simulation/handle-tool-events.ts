@@ -5,7 +5,7 @@ import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION
 import { idString } from './agent-keys'
 import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
-import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import type { Agent, ToolCallNode } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
@@ -35,7 +35,7 @@ export function addToken(
   cost: number | null,
   source: 'reported' | 'estimated',
 ): Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokenGaps' | 'tokensEstimated'> {
-  const hasValue = (agent.tokenStatus ?? (agent.tokensUsed > 0 ? 'available' : 'unavailable')) !== 'unavailable'
+  const hasValue = effectiveTokenStatus(agent) !== 'unavailable'
   const gaps = (agent.tokenGaps ?? 0) + (cost === null ? 1 : 0)
   const known = hasValue || cost !== null
   return {
