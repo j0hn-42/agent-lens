@@ -24,6 +24,7 @@ const ghLog = path.join(base, 'gh.log')
 
 const FAKE_GH = `#!/bin/sh
 echo "$*" >> "${ghLog}"
+sleep 0.3
 case "$1" in
   pr) echo '[{"number":5,"title":"A PR","url":"${REPO}/pull/5","state":"OPEN","isDraft":true}]' ;;
   issue) echo '[{"number":7,"title":"An issue","url":"${REPO}/issues/7","state":"OPEN"}]' ;;
@@ -91,6 +92,15 @@ function suite(name: string, startIt: () => Promise<Running>) {
       assert.equal((await get(srv.port, '/issue-links')).status, 400)
       assert.equal((await get(srv.port, '/issue-links?role=--repo')).status, 400)
       assert.equal((await get(srv.port, '/issue-links?role=qa', 'POST')).status, 405)
+    })
+
+    it('two concurrent requests for a role share one gh lookup (pr + issue), not two', async () => {
+      const role = `coalesce-${srv.port}` // the gh log is shared by both servers
+      const [a, b] = await Promise.all([get(srv.port, `/issue-links?role=${role}`), get(srv.port, `/issue-links?role=${role}`)])
+      assert.equal(a.status, 200)
+      assert.equal(b.body, a.body)
+      const runs = fs.readFileSync(ghLog, 'utf8').split('\n').filter(l => l.includes(`agent:${role}`))
+      assert.equal(runs.length, 2, runs.join(' | '))
     })
 
     it('a lookalike path is not the route', async () => {
