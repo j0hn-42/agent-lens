@@ -24,6 +24,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Release consistency (extension/app versions, CHANGELOG)
+        run: node scripts/release-check.js
+
       - name: Root tests (scripts, app)
         run: pnpm test
 
