@@ -68,7 +68,8 @@ export function withValue(usage: UsageTotal, value: number | null): UsageTotal {
   return usage.value === null || value === null ? unavailable() : { ...usage, value }
 }
 
-function qualify(usage: UsageTotal, text: string): string {
+/** Qualifies any figure derived from a usage total (a percentage, a ratio) the way the total itself is. */
+export function qualify(usage: UsageTotal, text: string): string {
   if (usage.value === null || usage.status === 'unavailable') return USAGE_LABELS.unavailable
   const lead = usage.status === 'partial' ? `${USAGE_LABELS.atLeast} ` : ''
   const tail = usage.estimated ? ` ${USAGE_LABELS.estimated}` : ''

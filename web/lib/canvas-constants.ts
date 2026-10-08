@@ -73,8 +73,34 @@ export const TOOL_CARD_H = 44
 
 /** Seconds a completed tool call stays visible before fading */
 export const TOOL_MIN_DISPLAY_S = 4.0
-/** Seconds without an observed end before a running tool call becomes `expired` (overridable per run) */
-export const TOOL_EXPIRY_S = 120
+/** Default seconds without an observed end before a running tool call becomes `expired` (a long Bash or a sub-agent legitimately runs for minutes) */
+export const TOOL_EXPIRY_S = 300
+/** Delays the user can pick for the orphan-call expiry */
+export const TOOL_EXPIRY_CHOICES_S = [60, 120, 300, 600, 1800] as const
+export const TOOL_EXPIRY_KEY = 'agent-viz-tool-expiry-s'
+
+/** Reads a stored expiry delay; anything that is not one of the offered choices falls back to the default. */
+export function parseToolExpiryS(raw: string | null | undefined): number {
+  const n = Number(raw)
+  return (TOOL_EXPIRY_CHOICES_S as readonly number[]).includes(n) ? n : TOOL_EXPIRY_S
+}
+
+/** Live setting read by the simulation on each frame and each seek (set from the canvas controls). */
+export const toolExpiryConfig = { seconds: TOOL_EXPIRY_S }
+
+/** Loads the stored delay into the live setting and returns it (storage may be unavailable). */
+export function loadToolExpiryS(): number {
+  try { toolExpiryConfig.seconds = parseToolExpiryS(window.localStorage.getItem(TOOL_EXPIRY_KEY)) } catch { /* default */ }
+  return toolExpiryConfig.seconds
+}
+
+/** Applies and stores a new delay; a value outside the choices falls back to the default. */
+export function setToolExpiryS(seconds: number): number {
+  const next = parseToolExpiryS(String(seconds))
+  toolExpiryConfig.seconds = next
+  try { window.localStorage.setItem(TOOL_EXPIRY_KEY, String(next)) } catch { /* storage unavailable */ }
+  return next
+}
 /** Seconds a discovery card stays visible before fading */
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */

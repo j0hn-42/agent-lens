@@ -1,4 +1,4 @@
-import type { ToolCallNode, ToolCallState } from './agent-types'
+import type { Agent, ToolCallNode, ToolCallState } from './agent-types'
 
 /** User-facing label of each lifecycle state (never show the raw identifier). */
 export const TOOL_STATE_LABELS: Record<ToolCallState, string> = {
@@ -39,9 +39,22 @@ export function expireToolCall(tc: ToolCallNode, at: number): ToolCallNode {
   return { ...tc, state: 'expired', endObserved: false, completeTime: at }
 }
 
+type SubagentView = ReadonlyMap<string, Pick<Agent, 'parentId' | 'state' | 'spawnTime'>>
+
+/** An Agent / Task call is not orphaned while a sub-agent it launched is still alive: that is proof it is running. */
+export function hasLiveSubagent(tc: Pick<ToolCallNode, 'agentId' | 'toolName' | 'startTime'>, agents: SubagentView): boolean {
+  if (tc.toolName !== 'Agent' && tc.toolName !== 'Task') return false
+  for (const a of agents.values()) {
+    if (a.parentId === tc.agentId && a.state !== 'complete' && a.spawnTime >= tc.startTime) return true
+  }
+  return false
+}
+
 /** The call as it must be at `now`: an orphan is expired at its deadline (start + delay), anything else is untouched. */
-export function settleToolCall(tc: ToolCallNode, now: number, expiryS: number): ToolCallNode {
-  return isOrphan(tc, now, expiryS) ? expireToolCall(tc, tc.startTime + expiryS) : tc
+export function settleToolCall(tc: ToolCallNode, now: number, expiryS: number, agents?: SubagentView): ToolCallNode {
+  if (!isOrphan(tc, now, expiryS)) return tc
+  if (agents && hasLiveSubagent(tc, agents)) return tc
+  return expireToolCall(tc, tc.startTime + expiryS)
 }
 
 /** Caveat to show next to the outcome / result of a call, or null when its end was observed. */

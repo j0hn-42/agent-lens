@@ -10,7 +10,7 @@ import {
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED } from '@/lib/canvas-constants'
+import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
@@ -33,6 +33,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const internalFilterRef = useRef(sessionFilter)
   internalFilterRef.current = sessionFilter
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
+  // The stored orphan-call expiry delay is read once after mount (server and first client render match)
+  useEffect(() => { loadToolExpiryS() }, [])
 
   // ─── State management ──────────────────────────────────────────────────────
   // frameRef: source of truth, updated every animation frame (no React render).
@@ -245,6 +247,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       mockScenarioLength: MOCK_SCENARIO.length,
       mockScenarioEndTime: MOCK_SCENARIO.length > 0 ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time : 0,
       speed,
+      toolExpiryS: toolExpiryConfig.seconds,
     })
 
     // Write to frameRef (canvas reads this every frame)
@@ -374,7 +377,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
     replayState = { ...replayState, agents: carryFreshness(prev.agents, replayState.agents) }
-    replayState = snapVisualState(replayState, targetTime)
+    replayState = snapVisualState(replayState, targetTime, toolExpiryConfig.seconds)
     replayState.currentTime = targetTime
     replayState.eventIndex = newEventIndex
 

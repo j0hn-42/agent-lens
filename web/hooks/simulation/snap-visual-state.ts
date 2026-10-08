@@ -1,6 +1,6 @@
 import type { SimulationState } from './types'
 import { ARCHIVED_OPACITY } from './archive'
-import { releaseAgentsOfExpiredCalls } from './animate'
+import { closeExpiredTimelineBlocks } from './animate'
 import { settleToolCall } from '../../lib/tool-lifecycle'
 import { TOOL_MIN_DISPLAY_S, TOOL_EXPIRY_S, DISCOVERY_HOLD_S, BUBBLE_VISIBLE_S, MIN_VISIBLE_OPACITY } from '../../lib/canvas-constants'
 
@@ -30,7 +30,7 @@ export function snapVisualState(state: SimulationState, targetTime: number, tool
 
   const newToolCalls = new Map(state.toolCalls)
   for (const [id, current] of newToolCalls) {
-    const tc = settleToolCall(current, targetTime, toolExpiryS)
+    const tc = settleToolCall(current, targetTime, toolExpiryS, newAgents)
     const snapped = { ...tc }
     if (tc.state === 'running') {
       snapped.opacity = 1
@@ -41,7 +41,7 @@ export function snapVisualState(state: SimulationState, targetTime: number, tool
     newToolCalls.set(id, snapped)
   }
 
-  const releasedAgents = releaseAgentsOfExpiredCalls(newAgents, state.toolCalls, newToolCalls)
+  const timelineEntries = closeExpiredTimelineBlocks(state.timelineEntries, state.toolCalls, newToolCalls)
 
   // Filter edges: only keep edges where both endpoints are visible
   const newEdges = state.edges
@@ -62,7 +62,7 @@ export function snapVisualState(state: SimulationState, targetTime: number, tool
 
   return {
     ...state,
-    agents: releasedAgents, toolCalls: newToolCalls,
+    agents: newAgents, toolCalls: newToolCalls, timelineEntries,
     edges: newEdges, particles: [], discoveries: newDiscoveries,
   }
 }

@@ -5,6 +5,7 @@ import {
 } from '@/lib/canvas-constants'
 import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { alphaHex, formatTokens, formatDuration, pluralize } from '@/lib/utils'
+import { formatTokenUsage, usageFromAgent, qualify } from '@/lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -94,7 +95,7 @@ export function drawContextComposition(
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(`${formatTokens(total)} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+    ctx.fillText(`${formatTokenUsage(usageFromAgent(agent))} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
   }
 
   // Segments
@@ -188,7 +189,7 @@ export function drawContextRing(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
     ctx.fillStyle = usage > CONTEXT_RING.criticalThreshold ? COLORS.error : usage > CONTEXT_RING.warningThreshold ? COLORS.tool : COLORS.textDim
-    ctx.fillText(`${Math.floor(usage * 100)}%`, agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
+    ctx.fillText(qualify(usageFromAgent(agent), `${Math.floor(usage * 100)}%`), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
   }
 }
 

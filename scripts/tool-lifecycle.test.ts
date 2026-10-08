@@ -4,7 +4,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
 import { computeNextFrame, type AnimateOptions } from '../web/hooks/simulation/animate'
 import { snapVisualState } from '../web/hooks/simulation/snap-visual-state'
-import { TOOL_EXPIRY_S, TOOL_MIN_DISPLAY_S } from '../web/lib/canvas-constants'
+import { TOOL_EXPIRY_S, TOOL_MIN_DISPLAY_S, parseToolExpiryS } from '../web/lib/canvas-constants'
 import { readToolOutcome, toolEndWarning, TOOL_STATE_LABELS, EXPIRED_WARNING } from '../web/lib/tool-lifecycle'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
@@ -93,14 +93,48 @@ test('an expired call stays visible for the minimum display time, then fades and
   assert.equal(s.toolCalls.size, 0)
 })
 
-test('expiry releases the agent from "calling tool" when nothing else is running', () => {
+test('expiry alone does not force the agent to idle: nothing proves it stopped working', () => {
   const key = agentKeyOf('default', 'orchestrator')
   let s = run([orch, start()])
   assert.equal(s.agents.get(key)!.state, 'tool_calling')
   s = advance(s, 1 + TOOL_EXPIRY_S + 2)
-  const a = s.agents.get(key)!
-  assert.notEqual(a.state, 'tool_calling')
-  assert.equal(a.currentTool, undefined)
+  assert.equal(only(s).state, 'expired')
+  assert.equal(s.agents.get(key)!.state, 'tool_calling')
+})
+
+test('the timeline block of an expired call is closed at the deadline and says its end was not observed', () => {
+  const key = agentKeyOf('default', 'orchestrator')
+  let s = run([orch, start()])
+  const open = s.timelineEntries.get(key)!.blocks.find(b => b.type === 'tool_call')!
+  assert.equal(open.endTime, undefined)
+  s = advance(s, 1 + TOOL_EXPIRY_S + 1)
+  const closed = s.timelineEntries.get(key)!.blocks.find(b => b.type === 'tool_call')!
+  assert.equal(closed.endTime, 1 + TOOL_EXPIRY_S)
+  assert.match(closed.label, /expiré, fin non observée/)
+  const snapped = snapVisualState(run([orch, start()]), 1 + TOOL_EXPIRY_S + 1)
+  const snappedBlock = snapped.timelineEntries.get(key)!.blocks.find(b => b.type === 'tool_call')!
+  assert.equal(snappedBlock.endTime, 1 + TOOL_EXPIRY_S)
+  assert.match(snappedBlock.label, /fin non observée/)
+})
+
+test('an Agent call is not expired while the sub-agent it launched is alive; a Bash call still is', () => {
+  const agentStart = { type: 'tool_call_start' as const, time: 1, payload: { agent: 'orchestrator', tool: 'Agent', args: 'review', toolUseId: 'toolu_a' } }
+  const spawnChild = { type: 'agent_spawn' as const, time: 2, payload: { name: 'worker', parent: 'orchestrator' } }
+  const s = advance(run([orch, agentStart, spawnChild]), 1 + TOOL_EXPIRY_S + 60)
+  assert.equal(only(s).state, 'running', 'a live sub-agent proves the call is still running')
+  const snapped = snapVisualState(run([orch, agentStart, spawnChild]), 1 + TOOL_EXPIRY_S + 60)
+  assert.equal(only(snapped).state, 'running')
+  const done = run([orch, agentStart, spawnChild, { type: 'agent_complete', time: 3, payload: { name: 'worker' } }])
+  assert.equal(only(snapVisualState(done, 1 + TOOL_EXPIRY_S + 60)).state, 'expired', 'once the sub-agent is over, nothing keeps the call alive')
+  assert.equal(only(advance(run([orch, start()]), 1 + TOOL_EXPIRY_S + 1)).state, 'expired')
+})
+
+test('the default delay allows a multi-minute command, and the setting only accepts the offered choices', () => {
+  assert.ok(TOOL_EXPIRY_S >= 300)
+  assert.equal(parseToolExpiryS('600'), 600)
+  assert.equal(parseToolExpiryS('7'), TOOL_EXPIRY_S)
+  assert.equal(parseToolExpiryS(null), TOOL_EXPIRY_S)
+  assert.equal(parseToolExpiryS('abc'), TOOL_EXPIRY_S)
 })
 
 test('expiry keeps the agent busy while another parallel call is still running', () => {
