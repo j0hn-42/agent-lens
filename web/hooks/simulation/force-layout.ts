@@ -8,7 +8,7 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, constrainToClusters, type ClusterNodeInfo } from './fleet-layout'
+import { layoutInfo, createClusterForce, constrainToClusters, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
 export const SYNC_TICKS = 30
@@ -19,13 +19,13 @@ const POSITION_EPSILON = 0.01
 
 export interface ForceLayout {
   /** Rebuild the nodes from the agents/edges, recompute the cluster anchors and run the initial ticks. */
-  sync(agents: ReadonlyMap<string, Agent>, edges: readonly Edge[], teams: SimulationState['teams']): void
+  sync(agents: ReadonlyMap<string, Agent>, edges: readonly Edge[], teams: SimulationState['teams'], projects?: SessionProjects): void
   /** One simulation step; false when nothing moves any more (settled). */
   tick(): boolean
   /** Copy the simulation positions into the agents (same Map when nothing moved; pinned agents are never moved). */
   apply(agents: Map<string, Agent>): Map<string, Agent>
   /** sync + apply on a whole state */
-  syncState(state: SimulationState): SimulationState
+  syncState(state: SimulationState, projects?: SessionProjects): SimulationState
   /** tick + apply on a whole state (one animation frame) */
   stepState(state: SimulationState): SimulationState
   /** Hold a node at a position (user drag): the simulation keeps it there and moves the others around it. */
@@ -70,7 +70,7 @@ export function createForceLayout(): ForceLayout {
   }
 
   const layout: ForceLayout = {
-    sync(agents, edges, teams) {
+    sync(agents, edges, teams, projects) {
       const nodes: ForceNode[] = Array.from(agents.values()).map(a => ({
         id: a.id,
         x: a.x, y: a.y,
@@ -81,7 +81,7 @@ export function createForceLayout(): ForceLayout {
       const links: ForceLink[] = edges
         .filter(e => e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to))
         .map(e => ({ id: e.id, source: e.from, target: e.to }))
-      info = layoutInfo(agents, teams).info
+      info = layoutInfo(agents, teams, projects).info
       sim.nodes(nodes)
       const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
       if (linkForce) linkForce.links(links)
@@ -91,8 +91,8 @@ export function createForceLayout(): ForceLayout {
     },
     tick,
     apply,
-    syncState(state) {
-      layout.sync(state.agents, state.edges, state.teams)
+    syncState(state, projects) {
+      layout.sync(state.agents, state.edges, state.teams, projects)
       const agents = apply(state.agents)
       return agents === state.agents ? state : { ...state, agents }
     },

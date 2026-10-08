@@ -44,7 +44,7 @@ import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-age
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
@@ -74,6 +74,8 @@ export function AgentVisualizer() {
   // Union views ('All' / team) put every session on one wall-clock axis (offsets in seconds per session)
   const sessionOffsetsRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
   sessionOffsetsRef.current = useMemo(() => computeSessionOffsets(bridge.sessions), [bridge.sessions])
+
+  const sessionProjects = useMemo(() => buildSessionProjects(bridge.sessions), [bridge.sessions])
 
   const {
     frameRef,
@@ -113,6 +115,7 @@ export function AgentVisualizer() {
     disable1MContext: bridge.disable1MContext,
     isReviewing,
     sessionOffsetsRef,
+    sessionProjects,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })

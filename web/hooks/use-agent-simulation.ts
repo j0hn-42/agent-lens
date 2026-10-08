@@ -28,7 +28,7 @@ import { observedSessions } from '@/lib/session-model'
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects } = options
   const reviewingRef = useRef(isReviewing)
   reviewingRef.current = isReviewing
   const internalFilterRef = useRef(sessionFilter)
@@ -72,11 +72,17 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   // Rebuilds the nodes and anchors, runs the initial ticks and writes the positions into frameRef.
   // It reads frameRef (current positions), not the snapshot it is called with: syncs are deferred
   // (setTimeout) and the snapshot may be older than the frames that ran in between.
+  const sessionProjectsRef = useRef(sessionProjects)
+  sessionProjectsRef.current = sessionProjects
   const syncForceSimulation = useCallback((_agents: Map<string, Agent>, _edges: Edge[]) => {
     const layout = layoutRef.current
     if (!layout) return
-    frameRef.current = layout.syncState(frameRef.current)
+    frameRef.current = layout.syncState(frameRef.current, sessionProjectsRef.current)
   }, [])
+  // A session learns its project after its agents appeared: lay the clusters out again
+  useEffect(() => {
+    syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
+  }, [sessionProjects, syncForceSimulation])
 
   // ─── Tool slot placement ─────────────────────────────────────────────────
   const findToolSlot = useCallback((

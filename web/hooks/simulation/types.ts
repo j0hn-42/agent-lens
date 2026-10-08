@@ -9,6 +9,7 @@ import type {
   TimelineEntry,
   SimulationEvent,
 } from '../../lib/agent-types'
+import type { SessionProjects } from './fleet-layout'
 import type { UnattributedUsage } from '../../lib/attribution'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
@@ -197,6 +198,8 @@ export interface UseAgentSimulationOptions {
   /** Seconds to add to the event time of each session in union views ('All' / team), keyed by session id.
    *  Events carry time relative to their own session start; offsets put them on a common wall-clock axis. */
   sessionOffsetsRef?: React.RefObject<ReadonlyMap<string, number> | undefined>
+  /** Repository of each session (only those whose project is known): clusters of a same project are laid out side by side */
+  sessionProjects?: SessionProjects
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
 }

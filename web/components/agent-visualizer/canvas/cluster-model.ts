@@ -21,6 +21,9 @@ export interface SessionMeta {
   label?: string
   workspace?: string
   runtime?: 'claude' | 'codex'
+  /** Repository of the session (both fields or none); see SessionInfo.projectId */
+  projectId?: string
+  projectName?: string
 }
 
 export type ClusterStatus = 'error' | 'waiting' | 'working' | 'idle' | 'complete'
@@ -46,6 +49,8 @@ export interface Cluster {
   teamKind?: GroupKind
   runtime: 'Claude' | 'Codex'
   workspace?: string
+  /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
+  projectName?: string
   status: ClusterStatus
   statusText: string
   /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
@@ -161,6 +166,20 @@ function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: S
   return label || cleanText(sessionId, 24) || 'session'
 }
 
+/** Name of the repository all the sessions belong to; undefined as soon as one of them has none or another one. */
+function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): string | undefined {
+  let id: string | undefined
+  let name: string | undefined
+  for (const s of sessionIds) {
+    const m = sessions?.get(s)
+    if (!m?.projectId || !m.projectName) return undefined
+    if (id !== undefined && id !== m.projectId) return undefined
+    id = m.projectId
+    name = cleanText(m.projectName, 40) || undefined
+  }
+  return name
+}
+
 /**
  * Clusters of the visible agents. A cluster is returned when it has `minMembers` agents, or whenever
  * several clusters are on screen (so three single-agent sessions still get three halos).
@@ -210,6 +229,7 @@ export function computeClusters(
       color = sessionColor(members[0].sessionId)
     }
 
+    const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
     const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
     const costUsage = totalCostUsage(members)
@@ -227,6 +247,7 @@ export function computeClusters(
       teamKind,
       runtime: runtimeRaw === 'codex' ? 'Codex' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
+      ...(project ? { projectName: project } : {}),
       status,
       statusText: STATUS_TEXT[status],
       cost: costUsage.value,
@@ -259,16 +280,17 @@ export function haloAlphas(c: Pick<Cluster, 'kind' | 'teamKind' | 'status'>, sel
 }
 
 /** Two lines of a cluster label: the title, then runtime, workspace, status and cost. */
-export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): { title: string; detail: string } {
+export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): { title: string; detail: string } {
   const n = c.memberIds.length
-  const detail = [c.runtime, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
+  const detail = [c.runtime, c.projectName, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
   return { title: `${clusterNoun(c)} ${c.title} (${n})`, detail }
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'statusText' | 'costText'>): string {
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): string {
   const n = c.memberIds.length
   const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
+  if (c.projectName) parts.push(`project ${c.projectName}`)
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
   parts.push(c.statusText, `cost ${c.costText}`)
   return parts.join(', ')

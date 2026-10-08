@@ -9,7 +9,16 @@ import type { Agent, TeamSummary } from '../../lib/agent-types'
 import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants'
 import { findTeam, teamOfAgent } from './team-key'
 
-export interface ClusterInput { key: string; size: number }
+export interface ClusterInput {
+  key: string
+  size: number
+  /** Repository the cluster provably belongs to (see {@link clustersOf}); absent when unknown */
+  projectId?: string
+  /** Display name of that repository; only ever present together with projectId */
+  projectName?: string
+}
+/** sessionId -> repository, from the session list (only sessions whose project is known). */
+export type SessionProjects = ReadonlyMap<string, { projectId: string; projectName: string }>
 export interface ClusterAnchor { key: string; x: number; y: number; radius: number }
 
 type ClusterAgent = Pick<Agent, 'id' | 'sessionId' | 'teamName' | 'isMain' | 'clusterKey'>
@@ -103,17 +112,40 @@ function spiralAnchors(items: Array<{ key: string; radius: number }>): ClusterAn
 }
 
 /**
- * Anchor of every cluster, in the order given (first appearance). One cluster is centred on
+ * Clusters of a same project made contiguous: a project sits where its first cluster arrived, its
+ * other clusters follow it. Clusters without projectId are never grouped and keep their slot.
+ */
+function groupByProject(clusters: ClusterInput[]): ClusterInput[] {
+  const byProject = new Map<string, ClusterInput[]>()
+  for (const c of clusters) {
+    if (!c.projectId) continue
+    const list = byProject.get(c.projectId)
+    if (list) list.push(c); else byProject.set(c.projectId, [c])
+  }
+  const out: ClusterInput[] = []
+  for (const c of clusters) {
+    if (!c.projectId) { out.push(c); continue }
+    const list = byProject.get(c.projectId)
+    if (!list) continue
+    out.push(...list)
+    byProject.delete(c.projectId)
+  }
+  return out
+}
+
+/**
+ * Anchor of every cluster, in the order given (first appearance, a project's clusters together). One cluster is centred on
  * (0,0). Discs (anchor, radius) never overlap. Pure and deterministic.
  */
 export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Map<string, ClusterAnchor> {
   const seen = new Set<string>()
-  const items: Array<{ key: string; radius: number }> = []
+  const unique: ClusterInput[] = []
   for (const c of clusters) {
     if (seen.has(c.key)) continue
     seen.add(c.key)
-    items.push({ key: c.key, radius: clusterRadius(c.size) })
+    unique.push(c)
   }
+  const items = groupByProject(unique).map(c => ({ key: c.key, radius: clusterRadius(c.size) }))
   const out = new Map<string, ClusterAnchor>()
   if (items.length === 0) return out
   const list = items.length === 1
@@ -127,13 +159,25 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Ma
 export function clustersOf(
   agents: Iterable<Pick<Agent, 'sessionId' | 'teamName' | 'clusterKey'>>,
   teams?: ReadonlyMap<string, TeamSummary>,
+  projects?: SessionProjects,
 ): ClusterInput[] {
   const counts = new Map<string, number>()
+  // Per cluster: the project every member agrees on, or null as soon as one member cannot prove it
+  const owners = new Map<string, { projectId: string; projectName: string } | null>()
   for (const a of agents) {
     const key = keyOf(a, teams)
     counts.set(key, (counts.get(key) ?? 0) + 1)
+    if (!projects) continue
+    const p = projects.get(a.sessionId)
+    const prev = owners.get(key)
+    if (prev === null || !p) owners.set(key, null)
+    else if (prev === undefined) owners.set(key, p)
+    else if (prev.projectId !== p.projectId) owners.set(key, null)
   }
-  return Array.from(counts, ([key, size]) => ({ key, size }))
+  return Array.from(counts, ([key, size]) => {
+    const p = owners.get(key)
+    return p ? { key, size, projectId: p.projectId, projectName: p.projectName } : { key, size }
+  })
 }
 
 /** The lead of a cluster: its first main agent (by insertion order). */
@@ -226,8 +270,9 @@ export interface ClusterNodeInfo {
 export function layoutInfo(
   agents: ReadonlyMap<string, Agent>,
   teams?: ReadonlyMap<string, TeamSummary>,
+  projects?: SessionProjects,
 ): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
-  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams))
+  const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
     const key = keyOf(a, teams)

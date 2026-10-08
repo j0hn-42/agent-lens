@@ -232,3 +232,66 @@ test('team tracker caps members per team and keeps counts consistent', () => {
   t.clear()
   assert.equal(t.memberCount('alpha'), 0)
 })
+
+// ─── Clusters of a same project side by side (#86) ──────────────────────────
+
+const proj = (sessionId: string) => ({ sessionId, teamName: undefined, clusterKey: undefined })
+const projectsOf = (entries: Array<[string, string, string]>) =>
+  new Map(entries.map(([s, id, name]) => [s, { projectId: id, projectName: name }]))
+
+test('anchors: clusters of one project are contiguous on the ring, whatever the arrival order', () => {
+  const clusters: ClusterInput[] = [
+    { key: 'session:a1', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:b1', size: 1, projectId: 'B', projectName: 'beta' },
+    { key: 'session:a2', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:b2', size: 1, projectId: 'B', projectName: 'beta' },
+  ]
+  assert.deepEqual(Array.from(computeClusterAnchors(clusters).keys()), ['session:a1', 'session:a2', 'session:b1', 'session:b2'])
+})
+
+test('anchors: clusters without projectId are never grouped and keep their arrival slot', () => {
+  const clusters: ClusterInput[] = [
+    { key: 'session:x', size: 1 },
+    { key: 'session:a1', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:y', size: 1 },
+    { key: 'session:a2', size: 1, projectId: 'A', projectName: 'alpha' },
+    { key: 'session:z', size: 1 },
+  ]
+  assert.deepEqual(
+    Array.from(computeClusterAnchors(clusters).keys()),
+    ['session:x', 'session:a1', 'session:a2', 'session:y', 'session:z'],
+  )
+  // Without any project the order is the arrival order, unchanged
+  const plain: ClusterInput[] = ['s3', 's1', 's2'].map(key => ({ key, size: 1 }))
+  assert.deepEqual(Array.from(computeClusterAnchors(plain).keys()), ['s3', 's1', 's2'])
+})
+
+test('anchors: grouped clusters still never overlap', () => {
+  const clusters: ClusterInput[] = Array.from({ length: 8 }, (_, i) => ({ key: `s${i}`, size: 1 + (i % 3), projectId: i % 2 ? 'A' : 'B', projectName: 'p' }))
+  assertNoOverlap(clusters)
+})
+
+test('clustersOf: carries the project of a session, only when every session of the cluster agrees', () => {
+  const projects = projectsOf([['s1', 'A', 'alpha'], ['s2', 'A', 'alpha'], ['s3', 'B', 'beta']])
+  const list = clustersOf([proj('s1'), proj('s2'), proj('s3'), proj('s4')], undefined, projects)
+  assert.deepEqual(list.map(c => [c.key, c.projectId, c.projectName]), [
+    ['session:s1', 'A', 'alpha'], ['session:s2', 'A', 'alpha'], ['session:s3', 'B', 'beta'], ['session:s4', undefined, undefined],
+  ])
+  // A team that spans two projects, or a project and an unknown session, proves nothing
+  const mixed = clustersOf([
+    { sessionId: 's1', teamName: 'x', clusterKey: 'team:s1:x' },
+    { sessionId: 's3', teamName: 'x', clusterKey: 'team:s1:x' },
+    { sessionId: 's2', teamName: 'y', clusterKey: 'team:s2:y' },
+    { sessionId: 's9', teamName: 'y', clusterKey: 'team:s2:y' },
+  ], undefined, projects)
+  assert.deepEqual(mixed.map(c => c.projectId), [undefined, undefined])
+})
+
+test('layoutInfo: two worktrees of one repository are neighbours, a session outside git stays apart', () => {
+  const state = run([main('s1'), main('s2'), main('s3'), main('s4')])
+  const projects = projectsOf([['s1', 'A', 'alpha'], ['s3', 'A', 'alpha']])
+  const { anchors } = layoutInfo(state.agents, state.teams, projects)
+  assert.deepEqual(Array.from(anchors.keys()), ['session:s1', 'session:s3', 'session:s2', 'session:s4'])
+  const none = layoutInfo(state.agents, state.teams)
+  assert.deepEqual(Array.from(none.anchors.keys()), ['session:s1', 'session:s2', 'session:s3', 'session:s4'])
+})
