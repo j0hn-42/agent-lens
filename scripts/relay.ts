@@ -29,7 +29,6 @@ import {
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
 } from '../extension/src/constants'
-import { readProjectContext } from '../extension/src/project-context'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
 import { setLogLevel } from '../extension/src/logger'
@@ -40,11 +39,15 @@ import {
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
-import { createObservationsAction, parseObservationsInput, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, sanitizeRole, sanitizeSessionParam, issueLinksScope, type IssueLink } from '../extension/src/issue-links'
+import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
+import { fetchIssueLinks, resolveRepoUrl, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
+import { createIssueLinksRoute } from './routes/issue-links'
+import { createStatusRoute } from './routes/status'
+import { createContextRoute } from './routes/context'
+import { createObservationsRoute } from './routes/observations'
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -735,6 +738,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const statusLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const contextLimiter = new KeyedRateLimiter(RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const observationsLimiter = new KeyedRateLimiter(RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const observations = createObservationsAction(() => {
     const list: SessionInfo[] = []
     for (const session of sessions.values()) if (session.sessionDetected) list.push(toSessionInfo(session))
@@ -744,13 +748,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
   const runtimeList = [wantClaude && 'claude', wantCodex && 'codex'].filter((r): r is string => typeof r === 'string')
 
-  // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once
-  const issueLinksLimiter = new KeyedRateLimiter(RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
-  const issueLinksCoalescer = new KeyedCoalescer<IssueLink[]>()
-  const issueLinksCache = new Map<string, { at: number; links: IssueLink[] }>()
-  // Cache keys whose gh runs right now (a same-key request joins it), and the start times of recent runs (#102)
-  const issueLinksRunning = new Set<string>()
-  let issueLinksProbeStarts: number[] = []
+  // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
   const repoUrlByDir = new Map<string, Promise<string | undefined>>()
   const issueLinksProbe = options.issueLinksProbe ?? (async (role: string, cwd?: string): Promise<IssueLink[]> => {
@@ -765,223 +763,38 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
   })
 
+  // Routes HTTP : chacune dans scripts/routes/, derrière les mêmes gardes (guardedRoute)
+  const handleIssueLinks = createIssueLinksRoute({
+    limiter: issueLinksLimiter,
+    allWorkspaces,
+    cwdOf: sessionId => sessionCwd.get(sessionId) ?? readIndex()?.sessions.find(s => s.id === sessionId)?.cwd,
+    probe: issueLinksProbe,
+  })
+  const handleStatus = createStatusRoute({
+    limiter: statusLimiter,
+    coalescer: statusCoalescer,
+    computeSnapshot: async () => {
+      statusComputations++
+      const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
+      let sessionCount = 0
+      for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
+      if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
+      return { sessionCount, hooksConfigured }
+    },
+    base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList, allWorkspaces },
+    readIndex,
+  })
+  const handleContext = createContextRoute({
+    limiter: contextLimiter,
+    cwdOf: sessionId => sessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined,
+  })
+  const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
+
   return {
-    async handleIssueLinks(req: http.IncomingMessage, res: http.ServerResponse) {
-      applySecurityHeaders(res, 'api')
-      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' })
-        res.end('Forbidden')
-        return
-      }
-      // A page on another site can fire this GET blind: each miss would run gh with the user's token (#102)
-      if (isCrossOriginRequest(req.headers, req.headers.host)) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' })
-        res.end('Forbidden')
-        return
-      }
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
-        res.end('Method not allowed')
-        return
-      }
-      if (!issueLinksLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
-        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
-        res.end('Too many requests')
-        return
-      }
-      let roles: string[] = []
-      try { roles = new URL(req.url ?? '', 'http://localhost').searchParams.getAll('role') } catch { /* 400 below */ }
-      const role = roles.length === 1 ? sanitizeRole(roles[0]) : undefined
-      if (!role) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' })
-        res.end('Invalid role parameter')
-        return
-      }
-      let sessionParams: string[] = []
-      try { sessionParams = new URL(req.url ?? '', 'http://localhost').searchParams.getAll('session') } catch { /* no session */ }
-      const sessionParam = sessionParams.length === 0 ? undefined : sessionParams.length === 1 ? sanitizeSessionParam(sessionParams[0]) : undefined
-      if (sessionParams.length > 0 && !sessionParam) {
-        res.writeHead(400, { 'Content-Type': 'text/plain' })
-        res.end('Invalid session parameter')
-        return
-      }
-      const scope = issueLinksScope({
-        session: sessionParam,
-        cwd: sessionParam ? (sessionCwd.get(sessionParam) ?? readIndex()?.sessions.find(s => s.id === sessionParam)?.cwd) : undefined,
-        allWorkspaces,
-      })
-      const cwd = scope.kind === 'cwd' ? scope.cwd : undefined
-      const cacheKey = `${cwd ?? ''}\u0001${role}`
-      const now = Date.now()
-      let links: IssueLink[]
-      const cached = issueLinksCache.get(cacheKey)
-      if (scope.kind === 'unknown') {
-        links = [] // the project of this node is unknown: the relay's own repository would be another project's issues
-      } else if (cached && now - cached.at < RELAY_ISSUE_LINKS_CACHE_TTL_MS) {
-        links = cached.links
-      } else {
-        if (!issueLinksRunning.has(cacheKey)) {
-          // A new gh run: bounded globally (in flight, and per window), independently of the limiter key
-          issueLinksProbeStarts = issueLinksProbeStarts.filter(t => now - t < RELAY_ISSUE_LINKS_PROBE_WINDOW_MS)
-          if (issueLinksRunning.size >= RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT || issueLinksProbeStarts.length >= RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW) {
-            res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
-            res.end('Busy')
-            return
-          }
-          issueLinksProbeStarts.push(now)
-          issueLinksRunning.add(cacheKey)
-        }
-        try {
-          links = await issueLinksCoalescer.run(cacheKey, () => issueLinksProbe(role, cwd))
-        } catch {
-          links = [] // gh absent, unauthenticated or failing: no link, no error
-        } finally {
-          issueLinksRunning.delete(cacheKey)
-        }
-        if (issueLinksCache.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) {
-          const oldest = issueLinksCache.keys().next().value
-          if (oldest !== undefined) issueLinksCache.delete(oldest)
-        }
-        issueLinksCache.set(cacheKey, { at: Date.now(), links })
-      }
-      if (res.destroyed || res.headersSent) return
-      const body = JSON.stringify({ role, links })
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'Content-Length': Buffer.byteLength(body),
-        'X-Content-Type-Options': 'nosniff',
-      })
-      res.end(req.method === 'HEAD' ? undefined : body)
-    },
-
-    async handleStatus(req: http.IncomingMessage, res: http.ServerResponse) {
-      applySecurityHeaders(res, 'api')
-      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' })
-        res.end('Forbidden')
-        return
-      }
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
-        res.end('Method not allowed')
-        return
-      }
-      if (!statusLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
-        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
-        res.end('Too many requests')
-        return
-      }
-      // ONE in-flight refresh: concurrent requests share the same computation
-      let snapshot: { sessionCount: number; hooksConfigured: boolean }
-      try {
-        snapshot = await statusCoalescer.run('status', async () => {
-          statusComputations++
-          const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
-          let sessionCount = 0
-          for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
-          if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
-          return { sessionCount, hooksConfigured }
-        })
-      } catch {
-        if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('Status unavailable') }
-        return
-      }
-      if (res.destroyed || res.headersSent) return
-      const status: RelayStatus = {
-        relayVersion: agentFlowVersion,
-        workspace: normalizePath(workspace),
-        runtimes: runtimeList,
-        hooksConfigured: snapshot.hooksConfigured,
-        sessionCount: snapshot.sessionCount,
-        allWorkspaces,
-      }
-      const indexed = readIndex()
-      if (indexed) {
-        status.sessionIndex = {
-          status: indexed.status, count: indexed.sessions.length, truncated: indexed.truncated,
-          ...(indexed.message ? { message: indexed.message } : {}),
-        }
-      }
-      const body = JSON.stringify(status)
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'Content-Length': Buffer.byteLength(body),
-        'X-Content-Type-Options': 'nosniff',
-      })
-      res.end(req.method === 'HEAD' ? undefined : body)
-    },
-
-    /** GET /context?session=<id>: CLAUDE.md + memory of the session's cwd (#64). Read on every call; the client caches. */
-    handleContext(req: http.IncomingMessage, res: http.ServerResponse) {
-      applySecurityHeaders(res, 'api')
-      const plain = (code: number, text: string, extra: http.OutgoingHttpHeaders = {}) => {
-        res.writeHead(code, { 'Content-Type': 'text/plain', ...extra })
-        res.end(text)
-      }
-      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) return plain(403, 'Forbidden')
-      if (req.method !== 'GET' && req.method !== 'HEAD') return plain(405, 'Method not allowed', { Allow: 'GET, HEAD' })
-      if (!contextLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) return plain(429, 'Too many requests', { 'Retry-After': '1' })
-      let sessionId: string | null = null
-      try { sessionId = new URL(req.url ?? '', 'http://localhost').searchParams.get('session') } catch { /* handled below */ }
-      if (!isValidSessionId(sessionId)) return plain(400, 'Invalid session parameter')
-      // The path comes from the session's transcript header, never from the request
-      const cwd = sessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined
-      if (!cwd) return plain(404, 'No project context for this session')
-      const body = JSON.stringify({ sessionId, loadedAt: Date.now(), ...readProjectContext(cwd, claudeConfigDir()) })
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'Content-Length': Buffer.byteLength(body),
-        'X-Content-Type-Options': 'nosniff',
-      })
-      res.end(req.method === 'HEAD' ? undefined : body)
-    },
-
-    handleObservations(req: http.IncomingMessage, res: http.ServerResponse) {
-      applySecurityHeaders(res, 'api')
-      const sendJson = (status: number, value: unknown) => {
-        const body = JSON.stringify(value)
-        res.writeHead(status, {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'Content-Length': Buffer.byteLength(body),
-          'X-Content-Type-Options': 'nosniff',
-        })
-        res.end(req.method === 'HEAD' ? undefined : body)
-      }
-      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
-        res.writeHead(403, { 'Content-Type': 'text/plain' })
-        res.end('Forbidden')
-        return
-      }
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405, { 'Content-Type': 'text/plain', Allow: 'GET, HEAD' })
-        res.end('Method not allowed')
-        return
-      }
-      if (!observationsLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
-        res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
-        res.end('Too many requests')
-        return
-      }
-      if (observations.disposed) return sendJson(503, { error: 'observations action is shut down' })
-      const route = observationsRoute(req.url)
-      if (route === 'schema') return sendJson(200, observations.definition)
-      let query: URL
-      try { query = new URL(req.url ?? '/', 'http://localhost') } catch { return sendJson(400, { error: 'bad url' }) }
-      const raw: Record<string, unknown> = {}
-      const session = query.searchParams.get('session')
-      if (session !== null) raw.session = session
-      const agents = query.searchParams.get('agents')
-      if (agents !== null) raw.includeAgents = isTruthyFlag(agents)
-      for (const k of query.searchParams.keys()) if (k !== 'session' && k !== 'agents') return sendJson(400, { error: `unknown query parameter: ${k}` })
-      const parsed = parseObservationsInput(raw)
-      if (!parsed.ok) return sendJson(400, { error: parsed.error })
-      const out = observations.run(parsed.input)
-      return out.ok ? sendJson(200, out.result) : sendJson(500, { error: out.error })
-    },
+    handleIssueLinks,
+    handleStatus,
+    handleContext,
+    handleObservations,
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
