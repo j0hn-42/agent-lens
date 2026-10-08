@@ -12,7 +12,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { readNewFileLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -35,7 +35,7 @@ import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, isValidSessionId, observationsRoute,
+  listProjectDirs, discoverSessionFiles, createColdScan, isValidSessionId, observationsRoute,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -329,7 +329,7 @@ function watchSession(sessionId: string, filePath: string) {
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
   const session: WatchedSession = {
     sessionId, filePath,
-    fileWatcher: null, pollTimer: null, fileSize: 0,
+    fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
     sessionStartTime: Date.now(),
     pendingToolCalls: new Map(),
     seenToolUseIds: new Set(),
@@ -371,7 +371,7 @@ function watchSession(sessionId: string, filePath: string) {
     parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
 
-  session.fileWatcher = fs.watch(filePath, (eventType) => {
+  session.fileWatcher = safeWatch(filePath, (eventType) => {
     if (eventType === 'change') readNewLines(sessionId)
   })
 
@@ -394,16 +394,15 @@ function readNewLines(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return
 
-  const result = readNewFileLines(session.filePath, session.fileSize)
-  if (!result) return
+  const lines = readTrackedLines(session.filePath, session)
+  if (!lines) return
   // The size cap is also enforced after discovery: a transcript that grows past it is dropped
-  if (result.newSize > RELAY_MAX_SESSION_FILE_BYTES) {
+  if (session.fileSize > RELAY_MAX_SESSION_FILE_BYTES) {
     log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${RELAY_MAX_SESSION_FILE_BYTES} bytes — no longer watched`)
     unwatchSession(sessionId)
     return
   }
-  session.fileSize = result.newSize
-  for (const line of result.lines) {
+  for (const line of lines) {
     parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
   }
 
@@ -413,6 +412,8 @@ function readNewLines(sessionId: string) {
 }
 
 // ─── Session scanner ────────────────────────────────────────────────────────
+
+const coldScan = createColdScan()
 
 function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
@@ -434,7 +435,8 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
 
   const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
-  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES })) {
+  coldScan.cycle++
+  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES, cold: coldScan })) {
     if (sessions.has(f.sessionId)) continue
     let newestMtime = f.mtimeMs
     if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
@@ -667,7 +669,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const projectDir = path.join(CLAUDE_DIR, encoded)
     if (fs.existsSync(projectDir)) {
       try {
-        projectDirWatcher = fs.watch(projectDir, (_eventType, filename) => {
+        projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
           if (filename?.endsWith('.jsonl')) scanNow?.()
         })
       } catch {}

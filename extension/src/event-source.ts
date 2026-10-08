@@ -2,7 +2,8 @@ import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent } from './protocol'
-import { readNewFileLines } from './fs-utils'
+import { POLL_FALLBACK_MS } from './constants'
+import { safeWatch, readTrackedLines, TailedFile } from './fs-utils'
 
 /**
  * Watches a JSONL file for agent events.
@@ -11,7 +12,8 @@ import { readNewFileLines } from './fs-utils'
  */
 export class JsonlEventSource implements vscode.Disposable {
   private watcher: fs.FSWatcher | null = null
-  private fileSize = 0
+  private pollTimer: ReturnType<typeof setInterval> | null = null
+  private tracked: TailedFile = { fileSize: 0, fileTail: '' }
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onStatus = new vscode.EventEmitter<'connected' | 'disconnected'>()
 
@@ -29,15 +31,18 @@ export class JsonlEventSource implements vscode.Disposable {
 
     // Read existing content
     const stat = fs.statSync(this.filePath)
-    this.fileSize = stat.size
+    this.tracked.fileSize = stat.size
     this.processExistingContent()
 
     // Watch for changes
-    this.watcher = fs.watch(this.filePath, (eventType) => {
+    this.watcher = safeWatch(this.filePath, (eventType) => {
       if (eventType === 'change') {
         this.readNewLines()
       }
     })
+
+    // Polling de secours : fs.watch peut échouer (ENOSPC/EMFILE) ou tomber en erreur
+    this.pollTimer = setInterval(() => this.readNewLines(), POLL_FALLBACK_MS)
 
     this._onStatus.fire('connected')
   }
@@ -54,10 +59,9 @@ export class JsonlEventSource implements vscode.Disposable {
   }
 
   private readNewLines(): void {
-    const result = readNewFileLines(this.filePath, this.fileSize)
-    if (!result) return
-    this.fileSize = result.newSize
-    for (const line of result.lines) {
+    const lines = readTrackedLines(this.filePath, this.tracked)
+    if (!lines) return
+    for (const line of lines) {
       const event = this.parseLine(line)
       if (event) {
         this._onEvent.fire(event)
@@ -80,6 +84,7 @@ export class JsonlEventSource implements vscode.Disposable {
   dispose(): void {
     this.watcher?.close()
     this.watcher = null
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null }
     this._onEvent.dispose()
     this._onStatus.dispose()
   }

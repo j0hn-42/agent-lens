@@ -1,4 +1,4 @@
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
-  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle,
+  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan,
 } from '../src/relay-guards'
 
 const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
@@ -155,5 +155,52 @@ describe('safe discovery', () => {
   it('caps files per directory', () => {
     const found = discoverSessionFiles({ dirs: [path.join(root, 'proj-a')], maxFilesPerDir: 1, maxFileBytes: 1_000_000 })
     assert.ok(found.length <= 1)
+  })
+
+  it('le plafond garde les plus récents, pas les premiers de readdir (1 000 transcripts)', () => {
+    const dir = path.join(root, 'proj-big')
+    fs.mkdirSync(dir)
+    const old = new Date(Date.now() - 3_600_000)
+    for (let i = 0; i < 1000; i++) {
+      const f = path.join(dir, `s-${String(i).padStart(4, '0')}.jsonl`)
+      fs.writeFileSync(f, '{}\n')
+      fs.utimesSync(f, old, old)
+    }
+    // Dernier dans l'ordre de readdir (alphabétique), mais le seul récent
+    fs.writeFileSync(path.join(dir, 'zzz-newest.jsonl'), '{}\n')
+    const found = discoverSessionFiles({ dirs: [dir], maxFileBytes: 1_000_000 })
+    assert.equal(found.length, 500)
+    assert.ok(found.some(f => f.sessionId === 'zzz-newest'))
+    const capped = discoverSessionFiles({ dirs: [dir], maxFilesPerDir: 3, maxFileBytes: 1_000_000 })
+    assert.equal(capped.length, 3)
+    assert.equal(capped[0].sessionId, 'zzz-newest')
+  })
+
+  it('les fichiers au-delà du plafond sont mis au froid : plus de lstat avant COLD_RESCAN_CYCLES cycles', () => {
+    const dir = path.join(root, 'proj-cold')
+    fs.mkdirSync(dir)
+    const old = new Date(Date.now() - 3_600_000)
+    for (let i = 0; i < 20; i++) {
+      const f = path.join(dir, `c-${i}.jsonl`)
+      fs.writeFileSync(f, '{}\n')
+      fs.utimesSync(f, old, old)
+    }
+    const cold = createColdScan()
+    const opts = { dirs: [dir], maxFilesPerDir: 5, maxFileBytes: 1_000_000, cold }
+    const lstat = mock.method(require('node:fs'), 'lstatSync')
+    try {
+      discoverSessionFiles(opts)
+      assert.equal(lstat.mock.callCount(), 20, 'premier cycle : tout est examiné')
+      lstat.mock.resetCalls()
+      cold.cycle++
+      discoverSessionFiles(opts)
+      assert.equal(lstat.mock.callCount(), 5, 'cycles suivants : seulement les non-froids')
+      lstat.mock.resetCalls()
+      fs.writeFileSync(path.join(dir, 'new-one.jsonl'), '{}\n')
+      cold.cycle++
+      const found = discoverSessionFiles(opts)
+      assert.equal(lstat.mock.callCount(), 6, 'un nouveau fichier est examiné tout de suite')
+      assert.ok(found.some(f => f.sessionId === 'new-one'))
+    } finally { lstat.mock.restore() }
   })
 })

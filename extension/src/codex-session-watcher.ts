@@ -16,10 +16,10 @@ import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
-  ACTIVE_SESSION_AGE_S, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
+  ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
 } from './constants'
-import { readNewFileLines } from './fs-utils'
+import { safeWatch, readTrackedLines } from './fs-utils'
 import { createLogger } from './logger'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
@@ -137,6 +137,11 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   private scanInterval: NodeJS.Timeout | null = null
   /** One-shot flag so the cwd-mismatch hint is logged at most once per process. */
   private cwdMismatchWarned = false
+  /** One-shot flag for the tracked-sessions cap warning. */
+  private capWarned = false
+  /** Position de lecture des sessions libérées : un fichier qui reprend repart d'où il s'était arrêté
+   *  (pas de rejeu de l'historique). Borné, les plus anciennes entrées sont oubliées. */
+  private retired = new Map<string, Pick<WatchedCodexSession, 'fileSize' | 'fileTail' | 'rolloutState' | 'sessionStartTime' | 'label'>>()
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -194,8 +199,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const root = sessionsRoot()
     if (fs.existsSync(root)) {
       try {
-        const rootWatcher = fs.watch(root, { recursive: false }, () => this.scanForSessions())
-        this.dirWatchers.set(root, rootWatcher)
+        const rootWatcher = safeWatch(root, () => this.scanForSessions(), { recursive: false })
+        if (rootWatcher) this.dirWatchers.set(root, rootWatcher)
       } catch (err) { log.debug('Root dir watch failed:', err) }
     }
 
@@ -205,14 +210,24 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   private scanForSessions(): void {
     const now = new Date()
     let skippedByCwd = 0
-    for (const dir of recentSessionDirs(now)) {
+    this.releaseEndedSessions()
+    const windowDirs = recentSessionDirs(now)
+    // Les jours sortis de la fenêtre n'ont plus besoin de watcher
+    const root = sessionsRoot()
+    for (const [dir, w] of this.dirWatchers) {
+      if (dir === root || windowDirs.includes(dir)) continue
+      try { w.close() } catch { /* already closed */ }
+      this.dirWatchers.delete(dir)
+    }
+    const candidates: { filePath: string; stat: fs.Stats }[] = []
+    for (const dir of windowDirs) {
       if (!fs.existsSync(dir)) continue
 
       // Watch this day's directory so we pick up new rollout files quickly
       if (!this.dirWatchers.has(dir)) {
         try {
-          const w = fs.watch(dir, () => this.scanForSessions())
-          this.dirWatchers.set(dir, w)
+          const w = safeWatch(dir, () => this.scanForSessions())
+          if (w) this.dirWatchers.set(dir, w)
         } catch (err) { log.debug('Dir watch failed:', dir, err) }
       }
 
@@ -231,20 +246,32 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
         if (stat.size === 0) continue
         const ageS = (Date.now() - stat.mtimeMs) / 1000
         if (ageS > ACTIVE_SESSION_AGE_S) continue
-
-        // Workspace filter — only attach if cwd matches (or no workspace set)
-        if (this.workspacePath) {
-          const cwd = readSessionCwd(filePath)
-          if (cwd === null) continue
-          const resolvedCwd = this.resolvePath(cwd)
-          if (!resolvedCwd || !this.pathMatchesWorkspace(resolvedCwd)) {
-            skippedByCwd++
-            continue
-          }
-        }
-
-        this.attachSession(filePath, stat)
+        candidates.push({ filePath, stat })
       }
+    }
+
+    // Plus récentes d'abord : le plafond de sessions suivies va aux sessions les plus actives
+    candidates.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs)
+    for (const { filePath, stat } of candidates) {
+      // Workspace filter — only attach if cwd matches (or no workspace set)
+      if (this.workspacePath) {
+        const cwd = readSessionCwd(filePath)
+        if (cwd === null) continue
+        const resolvedCwd = this.resolvePath(cwd)
+        if (!resolvedCwd || !this.pathMatchesWorkspace(resolvedCwd)) {
+          skippedByCwd++
+          continue
+        }
+      }
+
+      if (this.sessions.size >= CODEX_MAX_WATCHED_SESSIONS) {
+        if (!this.capWarned) {
+          this.capWarned = true
+          log.warn(`Plafond de ${CODEX_MAX_WATCHED_SESSIONS} sessions Codex suivies atteint : les plus anciennes sont ignorées.`)
+        }
+        break
+      }
+      this.attachSession(filePath, stat)
     }
 
     // Recent Codex activity exists but none of it belongs to this workspace —
@@ -257,6 +284,29 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
         `Codex sessions are only shown for the current workspace — launch the visualizer from the ` +
         `directory where Codex runs (or open that folder in VS Code).`,
       )
+    }
+  }
+
+  /** Détache les sessions terminées depuis plus de ACTIVE_SESSION_AGE_S (watcher, timers, parser libérés).
+   *  Le scan les rattache si leur fichier reprend. */
+  private releaseEndedSessions(): void {
+    const now = Date.now()
+    for (const [id, s] of this.sessions) {
+      if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+      s.fileWatcher?.close()
+      if (s.pollTimer) clearInterval(s.pollTimer)
+      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
+      this.sessions.delete(id)
+      this.retired.delete(id)
+      this.retired.set(id, {
+        fileSize: s.fileSize, fileTail: s.fileTail, rolloutState: s.rolloutState,
+        sessionStartTime: s.sessionStartTime, label: s.label,
+      })
+      if (this.retired.size > CODEX_MAX_WATCHED_SESSIONS * 4) {
+        const oldest = this.retired.keys().next().value
+        if (oldest !== undefined) this.retired.delete(oldest)
+      }
+      log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
   }
 
@@ -316,6 +366,11 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       rolloutState: createCodexRolloutState(),
       parser,
     }
+    const retired = this.retired.get(sessionId)
+    if (retired) {
+      Object.assign(session, retired)
+      this.retired.delete(sessionId)
+    }
     this.sessions.set(sessionId, session)
 
     // Drain existing content first, so late-opening panels see full history.
@@ -326,7 +381,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     this._onSessionLifecycle.fire({ type: 'started', sessionId, label })
 
     try {
-      session.fileWatcher = fs.watch(filePath, () => this.readNewLines(sessionId))
+      session.fileWatcher = safeWatch(filePath, () => this.readNewLines(sessionId))
     } catch (err) { log.debug('File watch failed:', filePath, err) }
 
     // fs.watch on macOS sometimes silently stops after long idle — poll as backup.
@@ -340,10 +395,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
-    const result = readNewFileLines(session.filePath, session.fileSize, session.fileTail)
-    if (!result) return
-    session.fileSize = result.newSize
-    session.fileTail = result.tail
+    const lines = readTrackedLines(session.filePath, session)
+    if (!lines) return
     session.lastActivityTime = Date.now()
 
     // Re-activate if the session had been marked complete on inactivity —
@@ -354,7 +407,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
     }
 
-    for (const line of result.lines) {
+    for (const line of lines) {
       try { session.parser.processLine(line, session.rolloutState) }
       catch (err) { log.debug('Parser threw on line:', err) }
     }
@@ -389,6 +442,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     }
     this.sessions.clear()
+    this.retired.clear()
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
