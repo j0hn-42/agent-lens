@@ -1,9 +1,9 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { projectTags } from './project-identity'
+import { claudeProjectsDir, claudeTeamsDir } from './claude-config-dir'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
@@ -40,8 +40,8 @@ const log = createLogger('SessionWatcher')
 // WatchedSession and SubagentState are defined in protocol.ts and re-exported here for convenience
 export type { WatchedSession, SubagentState } from './protocol'
 
-const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
-const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
+const CLAUDE_DIR = claudeProjectsDir()
+const TEAMS_DIR = claudeTeamsDir()
 
 export class SessionWatcher implements AgentSessionWatcher {
   private dirWatcher: fs.FSWatcher | null = null

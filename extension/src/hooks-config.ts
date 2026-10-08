@@ -1,35 +1,32 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 import { ClaudeHookEntry } from './protocol'
 import { HOOK_URL_PREFIX, HOOK_TIMEOUT_S } from './constants'
 import {
   getHookCommand, ensureHookScript,
   addWorkspaceToManifest,
 } from './discovery'
-import { isAgentLensHook, settingsHaveAgentLensHooks, readSettingsFile, isHooksConfigured } from './claude-settings'
+import { applyAgentLensHooks, settingsHaveAgentLensHooks, readSettingsFile, isHooksConfigured } from './claude-settings'
+import { claudeSettingsPath } from './claude-config-dir'
+import { updateSettings, SettingsUnreadableError } from './settings-writer'
 import { createLogger } from './logger'
 
 const log = createLogger('Hooks')
 
-const GLOBAL_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
+/** Claude's global settings.json (follows CLAUDE_CONFIG_DIR); resolved on each call. */
+function globalSettingsPath(): string { return claudeSettingsPath() }
 
-/** Read and parse Claude Code's global settings.json. Returns null on failure. */
+/** Read Claude Code's global settings.json for read-only checks. Null when missing or unreadable. */
 function readGlobalSettings(): Record<string, unknown> | null {
-  try {
-    if (!fs.existsSync(GLOBAL_SETTINGS_PATH)) { return null }
-    return JSON.parse(fs.readFileSync(GLOBAL_SETTINGS_PATH, 'utf-8'))
-  } catch (err) {
-    log.debug('Failed to read Claude settings:', err)
-    return null
-  }
+  const settings = readSettingsFile(globalSettingsPath())
+  return settings && typeof settings === 'object' ? settings as Record<string, unknown> : null
 }
 
 // ─── Detection ────────────────────────────────────────────────────────────────
 
 function hooksAlreadyConfigured(): boolean {
-  if (hasAgentLensHooks(GLOBAL_SETTINGS_PATH)) { return true }
+  if (hasAgentLensHooks(globalSettingsPath())) { return true }
 
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
@@ -73,26 +70,18 @@ export async function configureClaudeHooks(): Promise<void> {
     SessionEnd: [hookEntry],
   }
 
-  // Read existing settings
-  let settings: Record<string, unknown> = readGlobalSettings() ?? {}
-
-  // Merge hooks — preserve existing hooks, replace ours
-  const existingHooks = (settings.hooks || {}) as Record<string, unknown[]>
-  for (const [event, entries] of Object.entries(hooksConfig)) {
-    const existing = existingHooks[event] || []
-    // Remove previous agent-lens hooks (command or legacy HTTP)
-    const filtered = existing.filter((entry: unknown) => !isAgentLensHook(entry as ClaudeHookEntry))
-    existingHooks[event] = [...filtered, ...entries]
+  try {
+    updateSettings(globalSettingsPath(), settings => applyAgentLensHooks(settings, hooksConfig))
+  } catch (err) {
+    if (err instanceof SettingsUnreadableError) {
+      log.error(err.message)
+      vscode.window.showErrorMessage(
+        `Agent Lens: ${err.filePath} is not valid JSON (${err.reason}). Hooks were not configured and the file was left untouched. Fix it, then run the "Configure Claude Code hooks" command.`,
+      )
+      return
+    }
+    throw err
   }
-
-  settings.hooks = existingHooks
-
-  // Write
-  const dir = path.dirname(GLOBAL_SETTINGS_PATH)
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
-  fs.writeFileSync(GLOBAL_SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n')
 
   vscode.window.showInformationMessage(
     'Claude Code hooks configured. New sessions will stream events to Agent Lens.',
@@ -104,7 +93,7 @@ export async function configureClaudeHooks(): Promise<void> {
 /** Replace legacy HTTP hooks with command hooks. Called once on activation.
  *  Caller must call ensureHookScript() first. */
 export function migrateHttpHooks(): void {
-  const pathsToCheck: string[] = [GLOBAL_SETTINGS_PATH]
+  const pathsToCheck: string[] = [globalSettingsPath()]
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
   if (workspaceFolder) {
     pathsToCheck.push(path.join(workspaceFolder, '.claude', 'settings.local.json'))
@@ -115,32 +104,27 @@ export function migrateHttpHooks(): void {
   for (const settingsPath of pathsToCheck) {
     try {
       if (!fs.existsSync(settingsPath)) { continue }
-      const raw = fs.readFileSync(settingsPath, 'utf-8')
-      const settings = JSON.parse(raw)
-      const hooks = settings.hooks
-      if (!hooks || typeof hooks !== 'object') { continue }
-
-      let changed = false
-      for (const entries of Object.values(hooks) as unknown[][]) {
-        if (!Array.isArray(entries)) { continue }
-        for (const entry of entries) {
-          const e = entry as ClaudeHookEntry
-          if (!e.hooks) { continue }
-          for (const h of e.hooks) {
-            if (h.url?.startsWith(HOOK_URL_PREFIX)) {
-              // Replace HTTP hook with command hook
-              delete h.url
-              h.type = 'command'
-              h.command = hookCommand
-              if (h.timeout === undefined) { h.timeout = HOOK_TIMEOUT_S }
-              changed = true
+      const changed = updateSettings(settingsPath, settings => {
+        const hooks = settings.hooks
+        if (!hooks || typeof hooks !== 'object') { return }
+        for (const entries of Object.values(hooks as Record<string, unknown>)) {
+          if (!Array.isArray(entries)) { continue }
+          for (const entry of entries) {
+            const e = entry as ClaudeHookEntry
+            if (!Array.isArray(e?.hooks)) { continue }
+            for (const h of e.hooks) {
+              if (h?.url?.startsWith(HOOK_URL_PREFIX)) {
+                // Replace HTTP hook with command hook
+                delete h.url
+                h.type = 'command'
+                h.command = hookCommand
+                if (h.timeout === undefined) { h.timeout = HOOK_TIMEOUT_S }
+              }
             }
           }
         }
-      }
-
+      })
       if (changed) {
-        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n')
         log.info(`Migrated HTTP hooks → command hooks in ${settingsPath}`)
         // Ensure migrated project-level hooks are tracked in the manifest
         if (workspaceFolder && settingsPath.includes(workspaceFolder)) {

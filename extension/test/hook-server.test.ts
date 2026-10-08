@@ -14,6 +14,7 @@ import { HOOK_RATE_IP_BURST, HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, HT
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-hook-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 type HookServerCtor = typeof import('../src/hook-server').HookServer

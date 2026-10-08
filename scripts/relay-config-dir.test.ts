@@ -1,7 +1,6 @@
 /**
- * --all-workspaces / AGENT_LENS_ALL_WORKSPACES: sessions from other workspaces are
- * discovered, but only real .jsonl files directly inside real project dirs under
- * ~/.claude/projects (no symlinks, size cap, safe ids).
+ * #138 : with CLAUDE_CONFIG_DIR set (second account), the relay discovers the sessions of that account
+ * and not those of ~/.claude. The variable is fixed BEFORE the modules are imported, as in real use.
  */
 import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
@@ -11,33 +10,28 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
-const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-all-'))
+const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'al-relay-cfg-'))
+const configDir = path.join(fakeHome, 'second-account')
 process.env.HOME = fakeHome
-delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
-// Exercise the env var path (no explicit option passed to createRelay)
+process.env.CLAUDE_CONFIG_DIR = configDir
 process.env.AGENT_LENS_ALL_WORKSPACES = '1'
 
-const line = JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello from another workspace' } }) + '\n'
+const line = JSON.stringify({ type: 'user', message: { role: 'user', content: 'hello' } }) + '\n'
 
-describe('relay --all-workspaces', () => {
+describe('relay + CLAUDE_CONFIG_DIR', () => {
   let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
   let server: http.Server
   let port = 0
 
   before(async () => {
-    const projects = path.join(fakeHome, '.claude', 'projects')
-    const other = path.join(projects, '-some-other-workspace')
-    const outside = path.join(fakeHome, 'outside')
-    fs.mkdirSync(other, { recursive: true })
-    fs.mkdirSync(outside, { recursive: true })
-    fs.writeFileSync(path.join(other, 'other-session.jsonl'), line)
-    fs.writeFileSync(path.join(other, 'bad name.jsonl'), line)
-    fs.writeFileSync(path.join(outside, 'escaped.jsonl'), line)
-    fs.symlinkSync(path.join(outside, 'escaped.jsonl'), path.join(other, 'symlinked.jsonl'))
-    fs.symlinkSync(outside, path.join(projects, 'linked-project'))
-
-    const ws = path.join(fakeHome, 'my-workspace')
+    const second = path.join(configDir, 'projects', '-second-ws')
+    const home = path.join(fakeHome, '.claude', 'projects', '-home-ws')
+    fs.mkdirSync(second, { recursive: true })
+    fs.mkdirSync(home, { recursive: true })
+    fs.writeFileSync(path.join(second, 'second-session.jsonl'), line)
+    fs.writeFileSync(path.join(home, 'home-session.jsonl'), line)
+    const ws = path.join(fakeHome, 'ws')
     fs.mkdirSync(ws, { recursive: true })
     const { createRelay } = await import('./relay')
     relay = await createRelay({ workspace: ws, runtime: 'claude' })
@@ -52,7 +46,7 @@ describe('relay --all-workspaces', () => {
     fs.rmSync(fakeHome, { recursive: true, force: true })
   })
 
-  it('discovers sessions of other workspaces but never symlinked or oddly named files', async () => {
+  it('lists the sessions of the second account, not those of ~/.claude', async () => {
     const ids = await new Promise<string[]>((resolve, reject) => {
       const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
         res.setEncoding('utf8')
@@ -67,6 +61,6 @@ describe('relay --all-workspaces', () => {
       req.on('error', reject)
       setTimeout(() => { req.destroy(); resolve([]) }, 3000)
     })
-    assert.deepEqual(ids, ['other-session'])
+    assert.deepEqual(ids, ['second-session'])
   })
 })

@@ -27,6 +27,7 @@ import { makeSession } from './helpers/teams-fixtures'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-norm-home-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 /** Fails when any value of the events breaks the documented caps. */

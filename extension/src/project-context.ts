@@ -67,10 +67,10 @@ function readEntry(kind: ProjectContextFile['kind'], name: string, filePath: str
   return { kind, name, found: false, ...(unreadable ? { unreadable } : {}), text: '', bytes: 0, truncated: false }
 }
 
-/** Load CLAUDE.md (in `cwd`) and MEMORY.md (in `<home>/.claude/projects/<encoded cwd>/memory`). */
-export function readProjectContext(cwd: string, homeDir: string): ProjectContext {
+/** Load CLAUDE.md (in `cwd`) and MEMORY.md (in `<claudeDir>/projects/<encoded cwd>/memory`). */
+export function readProjectContext(cwd: string, claudeDir: string): ProjectContext {
   const usable = typeof cwd === 'string' && cwd.length > 0 && path.isAbsolute(cwd)
-  const memoryRoot = path.join(homeDir, '.claude', 'projects')
+  const memoryRoot = path.join(claudeDir, 'projects')
   const files = [
     readEntry('claude-md', 'CLAUDE.md', usable ? path.join(cwd, 'CLAUDE.md') : undefined, cwd),
     readEntry('memory', 'MEMORY.md', usable ? path.join(memoryRoot, encodeProjectDir(cwd), 'memory', 'MEMORY.md') : undefined, memoryRoot),
