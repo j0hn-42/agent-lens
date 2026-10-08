@@ -258,6 +258,13 @@ export function restampClusterKeys(agents: Map<string, Agent>, teams?: ReadonlyM
   return changed
 }
 
+/** Phases of the drawn workflow agents per cluster, as one string: changes when a phase appears or disappears from the display. */
+export function phaseSignature(agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>): string {
+  let out = ''
+  for (const a of visibleAgents(agents, hideInactive).values()) if (a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
+  return out
+}
+
 /** Re-stamp `phase` on every workflow agent from the team summaries; returns true when any changed. */
 export function restampPhases(agents: Map<string, Agent>, teams?: ReadonlyMap<string, TeamSummary>): boolean {
   let changed = false
@@ -284,7 +291,8 @@ export function phaseAnchors(
 ): Map<string, { x: number; y: number }> {
   const out = new Map<string, { x: number; y: number }>()
   const unique = Array.from(new Set(phases))
-  const ring = radius * CLUSTER_LAYOUT.phaseRingFactor
+  // A single phase has nothing to be told apart from: it stays around the anchor (the orchestrator), not off to one side
+  const ring = unique.length > 1 ? radius * CLUSTER_LAYOUT.phaseRingFactor : 0
   unique.forEach((phase, i) => {
     const angle = -Math.PI / 2 + (i / unique.length) * 2 * Math.PI
     out.set(phase, { x: center.x + Math.cos(angle) * ring, y: center.y + Math.sin(angle) * ring })
@@ -306,6 +314,7 @@ export function layoutInfo(
   agents: ReadonlyMap<string, Agent>,
   teams?: ReadonlyMap<string, TeamSummary>,
   projects?: SessionProjects,
+  hideInactive = false,
 ): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
   const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
   const leads = new Map<string, string>()
@@ -314,8 +323,10 @@ export function layoutInfo(
     if (a.isMain && !leads.has(key)) leads.set(key, a.id)
   }
   // Phases of each workflow cluster, in order of first appearance (only phases an agent really announced)
+  // Only the drawn agents count: a phase whose members are all hidden leaves no empty slot on the ring (nor drags the
+  // phase that remains off the orchestrator)
   const phasesByCluster = new Map<string, string[]>()
-  for (const a of agents.values()) {
+  for (const a of visibleAgents(agents as Map<string, Agent>, hideInactive).values()) {
     if (a.teamKind !== 'workflow' || !a.phase) continue
     const key = keyOf(a, teams)
     const list = phasesByCluster.get(key)
@@ -433,20 +444,24 @@ export function constrainToClusters(
  * Children each parent is centred on: the direct children that are drawn ('Hide inactive agents' taken into account,
  * archived agents are parked on the outer ring and never count), for the parents with at least
  * `minCentredChildren` of them. Sub-orchestrators are parents like any other. A parent whose children are grouped by
- * workflow phase (#146) is left out: the phase centres, on a ring around the anchor, already lay them out.
+ * workflow phases (#146) is left out when they span several phases: the phase centres, on a ring around the anchor,
+ * already lay them out. With a single phase the parent is centred like any other.
  * Insertion order, so the result is stable.
  */
 export function centredChildren(agents: Map<string, Agent>, hideInactive: boolean): Map<string, string[]> {
   const shown = visibleAgents(agents, hideInactive)
   const byParent = new Map<string, string[]>()
-  const phased = new Set<string>()
+  const phases = new Map<string, Set<string>>()
   for (const a of shown.values()) {
     if (!a.parentId || a.archived || !shown.has(a.parentId)) continue
-    if (a.teamKind === 'workflow' && a.phase) phased.add(a.parentId)
+    if (a.teamKind === 'workflow' && a.phase) {
+      const set = phases.get(a.parentId)
+      if (set) set.add(a.phase); else phases.set(a.parentId, new Set([a.phase]))
+    }
     const list = byParent.get(a.parentId)
     if (list) list.push(a.id); else byParent.set(a.parentId, [a.id])
   }
-  for (const [parent, list] of byParent) if (list.length < CLUSTER_LAYOUT.minCentredChildren || phased.has(parent)) byParent.delete(parent)
+  for (const [parent, list] of byParent) if (list.length < CLUSTER_LAYOUT.minCentredChildren || (phases.get(parent)?.size ?? 0) > 1) byParent.delete(parent)
   return byParent
 }
 
