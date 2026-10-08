@@ -122,26 +122,42 @@ process.stdin.on('end', () => {
 
   if (!matches.length) process.exit(0);
 
+  // Most specific workspace first; instances of the same workspace form one tier.
   matches.sort((a, b) => b.wsLen - a.wsLen);
-  const bestLen = matches[0].wsLen;
-  const targets = matches.filter(m => m.wsLen === bestLen);
-
-  let pending = targets.length;
-  for (const { d } of targets) {
-    let settled = false;
-    const finish = () => { if (settled) return; settled = true; done(); };
-    const req = http.request({
-      hostname: '127.0.0.1', port: d.port, method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      timeout: ${HOOK_FORWARD_TIMEOUT_MS},
-    }, res => { res.resume(); res.on('end', finish); });
-    req.on('error', finish);
-    req.on('timeout', () => { req.destroy(); });
-    req.write(input);
-    req.end();
+  const tiers = [];
+  for (const m of matches) {
+    const last = tiers[tiers.length - 1];
+    if (last && last[0].wsLen === m.wsLen) last.push(m); else tiers.push([m]);
   }
 
-  function done() { if (--pending <= 0) process.exit(0); }
+  // Forward to the best tier. If every instance of it refuses the connection (stale discovery
+  // file of a crashed instance), drop the file and fall back to the next, less specific tier.
+  function sendTier(i) {
+    if (i >= tiers.length) process.exit(0);
+    const targets = tiers[i];
+    let pending = targets.length;
+    let reached = false;
+    for (const { d, file } of targets) {
+      let settled = false;
+      const finish = (ok, refused) => {
+        if (settled) return; settled = true;
+        if (ok) reached = true;
+        if (refused) { try { fs.unlinkSync(path.join(DIR, file)); } catch {} }
+        if (--pending <= 0) { if (reached) process.exit(0); else sendTier(i + 1); }
+      };
+      const req = http.request({
+        hostname: '127.0.0.1', port: d.port, method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        timeout: ${HOOK_FORWARD_TIMEOUT_MS},
+      }, res => { res.resume(); res.on('end', () => finish(true, false)); });
+      // Only a refused connection proves the instance is gone; other errors may follow a delivery.
+      req.on('error', e => finish(!(e && e.code === 'ECONNREFUSED'), !!(e && e.code === 'ECONNREFUSED')));
+      req.on('timeout', () => { req.destroy(); });
+      req.write(input);
+      req.end();
+    }
+  }
+  sendTier(0);
 });
 `
 }
@@ -298,7 +314,7 @@ function ensureSetup() {
 }
 
 module.exports = {
-  ensureSetup, isAlreadySetup, configureHooks, updateSettingsFile, readSettingsStrict,
+  ensureSetup, getHookScriptContent, isAlreadySetup, configureHooks, updateSettingsFile, readSettingsStrict,
   claudeConfigDir, SettingsUnreadableError,
 }
 

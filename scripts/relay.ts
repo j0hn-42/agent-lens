@@ -30,6 +30,7 @@ import {
 } from '../extension/src/constants'
 import { readProjectContext } from '../extension/src/project-context'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
+import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
 import { setLogLevel } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
@@ -619,6 +620,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     })
 
     writeDiscoveryFile(hookPort, workspace)
+    void purgeStaleDiscoveryFiles({ dir: DISCOVERY_DIR }).catch(() => {})
 
     scanForActiveSessions(workspace, allWorkspaces)
     // One shared interval for all SSE clients, stopped when the last one leaves (issue #68).

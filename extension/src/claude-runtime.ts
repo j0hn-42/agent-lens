@@ -25,6 +25,7 @@ import { migrateHttpHooks } from './hooks-config'
 import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
+import { purgeStaleDiscoveryFiles } from './discovery-purge'
 import { createLogger } from './logger'
 import { wireWatcherToPanel } from './session-runtime'
 import type { AgentRuntime } from './session-runtime'
@@ -76,6 +77,7 @@ export async function startClaudeRuntime(
     if (workspace) {
       ensureHookScript()
       writeDiscoveryFile(hookPort, workspace)
+      void purgeStaleDiscoveryFiles().catch(err => log.debug('Discovery purge failed:', err))
       migrateHttpHooks()
     }
   }
