@@ -13,6 +13,12 @@ import { freshnessKey } from '@/hooks/simulation/freshness'
 import { STALE_AFTER_MS, FRESHNESS_DRAW, TERMINAL_STATUS_VISIBLE_MS } from '@/lib/canvas-constants'
 import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
 import type { SessionInfo } from '@/lib/bridge-types'
+import { refreshColors } from '@/lib/colors'
+import { applyThemeToDocument } from '@/lib/theme-dom'
+
+// The concrete colours below are neon's: pin the palette (the other themes are covered by scripts/canvas-theme.test.ts)
+applyThemeToDocument('neon')
+refreshColors('neon')
 
 afterEach(() => cleanup())
 

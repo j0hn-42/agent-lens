@@ -196,7 +196,7 @@ export function drawContextRing(
 
 function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
   ctx.save()
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+  ctx.shadowColor = COLORS.depthShadow
   ctx.shadowBlur = AGENT_DRAW.shadowBlur
   ctx.shadowOffsetX = AGENT_DRAW.shadowOffsetX
   ctx.shadowOffsetY = AGENT_DRAW.shadowOffsetY
@@ -420,7 +420,7 @@ function drawAgentLabel(
     ctx.fill()
     ctx.textAlign = 'left'
     ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
-    ctx.fillStyle = '#11161c'
+    ctx.fillStyle = ORCHESTRATOR_DRAW.textColor
     ctx.fillText(layout.badgeText, x0 + 5, y)
     if (rest) {
       ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`

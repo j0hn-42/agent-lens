@@ -251,6 +251,35 @@ export const NEON_COLORS = {
   info: '#22d3ee',
   shadowCard: '0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08)',
   glassBlur: 'blur(20px)',
+
+  // Canvas scene colours (added for the canvas zone; neon keeps the literals the canvas always used)
+  perfBg: 'rgba(0, 0, 0, 0.75)',
+  perfText: '#cccccc',
+  fpsGood: '#44ff44',
+  fpsCaution: '#ffaa00',
+  fpsWarning: '#ff4444',
+  /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too) */
+  stateThinking: '#b79cff',
+  stateWaitingPermission: '#ff7ad9',
+  /** Crown badge (LEAD / MAIN): fill and text on it */
+  crownFill: '#ffd166',
+  crownText: '#11161c',
+  /** Stale node and its "last known state" label */
+  staleNode: '#8a94a0',
+  staleText: '#c5ced8',
+  /** Halo of a teammate whose team colour is missing */
+  teamDefault: '#b794f6',
+  /** Shadow under an agent node */
+  depthShadow: 'rgba(0, 0, 0, 0.5)',
+  /** Halo colours of sessions */
+  session0: '#66ccff',
+  session1: '#7ee0a8',
+  session2: '#ffcc66',
+  session3: '#ff9ec7',
+  session4: '#b79cff',
+  session5: '#9ad0ff',
+  session6: '#ffa978',
+  session7: '#8de3de',
 } as const
 
 export type ColorKey = keyof typeof NEON_COLORS
@@ -493,6 +522,28 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     info,
     shadowCard,
     glassBlur: 'none',
+
+    perfBg: rgba(surface, 0.9),
+    perfText: ink,
+    fpsGood: ok,
+    fpsCaution: warn,
+    fpsWarning: danger,
+    stateThinking: delegate,
+    stateWaitingPermission: info,
+    crownFill: accent,
+    crownText: t['on-accent'],
+    staleNode: t['context-system'],
+    staleText: muted,
+    teamDefault: delegate,
+    depthShadow: 'rgba(0, 0, 0, 0)',
+    session0: accent,
+    session1: ok,
+    session2: warn,
+    session3: delegate,
+    session4: info,
+    session5: mix(ok, info, 0.5),
+    session6: mix(warn, danger, 0.5),
+    session7: mix(delegate, danger, 0.5),
   }
 }
 

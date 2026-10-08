@@ -10,7 +10,7 @@ import { LinkPanel } from '@/components/agent-visualizer/link-panel'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { GraphA11yList } from '@/components/agent-visualizer/graph-a11y-list'
 import { buildA11yModel } from '@/components/agent-visualizer/canvas/a11y-model'
-import { TEAM_DEFAULT_COLOR } from '@/components/agent-visualizer/canvas/team-style'
+import { teamDefaultColor } from '@/components/agent-visualizer/canvas/team-style'
 
 afterEach(() => {
   cleanup()
@@ -142,6 +142,6 @@ test('GraphLegend: documents the orchestrator, the halos and the edge bubbles, a
   assert.ok(getByText(/Dotted halo: session/))
   assert.ok(getByText(/Bubble on a link/))
   const strokes = Array.from(document.querySelectorAll('svg [stroke]')).map(e => e.getAttribute('stroke'))
-  assert.ok(strokes.includes(TEAM_DEFAULT_COLOR))
+  assert.ok(strokes.includes(teamDefaultColor()))
   assert.equal(document.body.innerHTML.includes('#b794f6'), true, 'the shared constant value is what is drawn')
 })

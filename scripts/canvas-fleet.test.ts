@@ -8,7 +8,7 @@ import {
 } from '../web/components/agent-visualizer/canvas/cluster-model'
 import {
   isOrchestrator, orchestratorRole, orchestratorInfo, agentDrawScale, agentDrawRadius, layoutAgentLabel,
-  TEAM_DEFAULT_COLOR,
+  teamDefaultColor,
 } from '../web/components/agent-visualizer/canvas/team-style'
 import { selectEdgeBubble } from '../web/components/agent-visualizer/canvas/edge-bubbles'
 import { resolveLinks, linkCurve, curvePoint, findLinkAt } from '../web/components/agent-visualizer/canvas/link-geometry'
@@ -193,7 +193,7 @@ test('clusters: the session that hosts a team is one team cluster, and the lead 
 
 test('clusters: invalid team colour falls back to the shared default', () => {
   const agents = map(agent({ id: 's1:a', teamName: 'x', teamColor: 'red; background:url(x)' }), agent({ id: 's1:b', teamName: 'x', x: 10 }))
-  assert.equal(computeClusters(agents.values())[0].color, TEAM_DEFAULT_COLOR)
+  assert.equal(computeClusters(agents.values())[0].color, teamDefaultColor())
   assert.match(sessionColor('whatever'), /^#[0-9a-f]{6}$/)
   assert.equal(clusterStatus(['complete', 'complete']), 'complete')
   assert.equal(clusterStatus(['idle', 'waiting_permission']), 'waiting')
