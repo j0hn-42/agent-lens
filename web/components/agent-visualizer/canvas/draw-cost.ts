@@ -135,6 +135,16 @@ export function drawCostLabels(
   }
 }
 
+/** Top of the panel: under the top bar, whose published height (--topbar-h) grows when its controls wrap. */
+export function costPanelTop(topbarH: string | null | undefined): number {
+  const px = parseFloat(topbarH ?? '')
+  return Number.isFinite(px) && px > COST_PANEL.yStart ? Math.round(px) : COST_PANEL.yStart
+}
+
+function readTopbarH(): string {
+  try { return typeof document === 'undefined' ? '' : document.documentElement.style.getPropertyValue('--topbar-h') } catch { return '' }
+}
+
 export function drawCostSummaryPanel(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
@@ -184,7 +194,7 @@ export function drawCostSummaryPanel(
   const canvasW = ctx.canvas.width / dpr
   const panelW = COST_PANEL.width
   const panelX = canvasW - panelW - COST_PANEL.xMargin
-  const panelY = COST_PANEL.yStart
+  const panelY = costPanelTop(readTopbarH())
   const lineH = COST_PANEL.lineHeight
   const headerH = COST_PANEL.headerHeight
   const sectionGap = COST_PANEL.sectionGap

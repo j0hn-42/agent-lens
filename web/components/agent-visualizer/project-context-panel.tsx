@@ -100,7 +100,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
   return (
     <ContextDock>
       {maxHeight => (
-      <div className="glass-card relative flex flex-col" style={{ maxHeight }}>
+      <div className="glass-card relative flex flex-col" style={{ maxHeight, background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (

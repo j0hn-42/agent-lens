@@ -264,6 +264,8 @@ export const AGENT_DRAW = {
   labelFontSize: 11,
   /** Vertical distance between the name line and the state-label line */
   stateLabelGap: 13,
+  /** Width of the dark outline drawn behind label text */
+  labelHaloWidth: 3,
   /** Agent name label width multiplier of radius */
   labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */

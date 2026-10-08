@@ -345,6 +345,19 @@ function drawWaitingRipples(ctx: CanvasRenderingContext2D, agent: Agent, r: numb
   }
 }
 
+/** Label text with a dark outline so edges and neighbours passing behind it do not cut the letters. */
+function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  const fill = ctx.fillStyle
+  ctx.save()
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = AGENT_DRAW.labelHaloWidth
+  ctx.strokeStyle = COLORS.void
+  ctx.strokeText(text, x, y)
+  ctx.restore()
+  ctx.fillStyle = fill
+  ctx.fillText(text, x, y)
+}
+
 /**
  * Name, status text, the orchestrator badge ('LEAD' / 'MAIN' + team or session name) and (with several
  * sessions on screen) the session label under the node. Teammates get up to two name lines; the hover
@@ -372,20 +385,20 @@ function drawAgentLabel(
   if (place.collapsed) {
     // Crowded: one line "name · status" (the full label is in the tooltip and the outline)
     ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
-    ctx.fillText(ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
+    fillLabelText(ctx, ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
     ctx.restore()
     return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
   }
 
   ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
   for (const line of layout.nameLines) {
-    ctx.fillText(line, agent.x, y)
+    fillLabelText(ctx, line, agent.x, y)
     y += gap
   }
 
   // Short status text for every agent: state never relies on colour alone (WCAG 1.4.1)
   ctx.fillStyle = staleText ? COLORS.textMuted : color
-  ctx.fillText(layout.statusLine, agent.x, y)
+  fillLabelText(ctx, layout.statusLine, agent.x, y)
   y += gap
 
   if (layout.badgeText && layout.groupLine) {
@@ -415,7 +428,7 @@ function drawAgentLabel(
 
   if (layout.sessionLine) {
     ctx.fillStyle = COLORS.textMuted
-    ctx.fillText(layout.sessionLine, agent.x, y)
+    fillLabelText(ctx, layout.sessionLine, agent.x, y)
   }
   ctx.restore()
   return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }

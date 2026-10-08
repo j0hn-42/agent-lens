@@ -127,9 +127,10 @@ export function drawToolCalls(
 
     if (!showText) { ctx.restore(); continue }
 
+    // The MCP badge left a smaller font on the context: measure with the font the card text is drawn in
+    ctx.font = `${TOOL_DRAW.fontSize}px monospace`
     const truncatedLabel = truncateText(ctx, toolLabel, cardW - 8)
 
-    ctx.font = `${TOOL_DRAW.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
