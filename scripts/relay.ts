@@ -12,7 +12,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -341,6 +341,16 @@ function unwatchSession(sessionId: string) {
   teamWatcher?.forgetSession(sessionId)
 }
 
+/** A watcher or poll callback of the session threw: log it, stop watching, tell the clients (#206). */
+function detachSessionOnError(sessionId: string, err: unknown) {
+  const session = sessions.get(sessionId)
+  console.error(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} read failed, no longer watched:`, err)
+  if (!session) return
+  const announced = session.sessionDetected
+  unwatchSession(sessionId)
+  if (announced) broadcastSessionLifecycle('ended', sessionId, session.label)
+}
+
 /**
  * Make room for one more watched session. Only completed sessions idle for longer than
  * the discovery window are evicted (they cannot be rediscovered); returns false when full.
@@ -404,17 +414,19 @@ function watchSession(sessionId: string, filePath: string) {
     parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
 
+  // An exception here would reach uncaughtException and stop the relay for every client (#206)
+  const detachOnError = (err: unknown) => detachSessionOnError(sessionId, err)
   session.fileWatcher = safeWatch(filePath, (eventType) => {
-    if (eventType === 'change') readNewLines(sessionId)
+    if (eventType === 'change') runGuarded(() => readNewLines(sessionId), detachOnError)
   })
 
-  session.pollTimer = setInterval(() => {
+  session.pollTimer = setInterval(() => runGuarded(() => {
     readNewLines(sessionId)
     for (const [subPath] of session.subagentWatchers) {
       readSubagentNewLines(watcherDelegate, parser, subPath, sessionId)
     }
     scanSubagentsDir(watcherDelegate, parser, sessionId)
-  }, POLL_FALLBACK_MS)
+  }, detachOnError), POLL_FALLBACK_MS)
 
   session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
   scanSubagentsDir(watcherDelegate, parser, sessionId)

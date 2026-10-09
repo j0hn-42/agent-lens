@@ -19,7 +19,7 @@ import {
   ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
   POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
 } from './constants'
-import { safeWatch, readTrackedLines } from './fs-utils'
+import { safeWatch, readTrackedLines, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
@@ -293,20 +293,25 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
       if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
-      s.fileWatcher?.close()
-      if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
-      this.sessions.delete(id)
-      this.retired.delete(id)
-      this.retired.set(id, {
-        fileSize: s.fileSize, fileTail: s.fileTail, rolloutState: s.rolloutState,
-        sessionStartTime: s.sessionStartTime, label: s.label,
-      })
-      if (this.retired.size > CODEX_MAX_WATCHED_SESSIONS * 4) {
-        const oldest = this.retired.keys().next().value
-        if (oldest !== undefined) this.retired.delete(oldest)
-      }
+      this.retire(id, s)
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
+    }
+  }
+
+  /** Ferme watcher et timers d'une session et garde son offset : le scan la rattache sans rejouer l'historique. */
+  private retire(id: string, s: WatchedCodexSession): void {
+    s.fileWatcher?.close()
+    if (s.pollTimer) clearInterval(s.pollTimer)
+    if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
+    this.sessions.delete(id)
+    this.retired.delete(id)
+    this.retired.set(id, {
+      fileSize: s.fileSize, fileTail: s.fileTail, rolloutState: s.rolloutState,
+      sessionStartTime: s.sessionStartTime, label: s.label,
+    })
+    if (this.retired.size > CODEX_MAX_WATCHED_SESSIONS * 4) {
+      const oldest = this.retired.keys().next().value
+      if (oldest !== undefined) this.retired.delete(oldest)
     }
   }
 
@@ -375,6 +380,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
 
     // Drain existing content first, so late-opening panels see full history.
     this.readNewLines(sessionId)
+    if (this.sessions.get(sessionId) !== session) return // detached by a read failure
 
     session.sessionDetected = true
     this._onSessionDetected.fire(sessionId)
@@ -391,7 +397,21 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
   }
 
+  /** Called from watchers and timers: an exception is logged and detaches the session (#206). */
   private readNewLines(sessionId: string): void {
+    runGuarded(() => this.readNewLinesUnguarded(sessionId), err => this.detachOnError(sessionId, err))
+  }
+
+  /** Stops watching a session whose read threw; the scan reattaches it from the same offset if the file resumes. */
+  private detachOnError(sessionId: string, err: unknown): void {
+    const s = this.sessions.get(sessionId)
+    log.warn(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}: read failed, detached:`, err)
+    if (!s) return
+    this.retire(sessionId, s)
+    if (s.sessionDetected) this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: s.label })
+  }
+
+  private readNewLinesUnguarded(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
 

@@ -47,8 +47,12 @@ export function readNewFileLines(
   // d'un caractère multi-octets produirait des U+FFFD. Seules les lignes complètes sont décodées.
   const length = stat.size - lastSize
   const chunk = Buffer.alloc(length)
-  const fd = fs.openSync(filePath, 'r')
-  try { fs.readSync(fd, chunk, 0, length, lastSize) } finally { fs.closeSync(fd) }
+  // Supprimé ou verrouillé entre stat et open (EPERM d'une suppression différée sous Windows, purge,
+  // chemin devenu un dossier) : rien de lisible, comme un stat en échec (#206)
+  try {
+    const fd = fs.openSync(filePath, 'r')
+    try { fs.readSync(fd, chunk, 0, length, lastSize) } finally { fs.closeSync(fd) }
+  } catch { return null }
   const data = Buffer.concat([Buffer.from(lastTail, 'latin1'), chunk])
   const lastNl = data.lastIndexOf(0x0a)
   // Tout ce qui suit le dernier saut de ligne est une ligne partielle à reporter.
@@ -99,6 +103,19 @@ export function safeWatch(
     onError?.(err)
   })
   return watcher
+}
+
+/**
+ * Exécute un callback de watcher ou de timer sans laisser fuir d'exception : dans le relais, une
+ * exception non interceptée termine le processus (#206). L'erreur est confiée à `onError`, qui ne
+ * peut pas lever non plus.
+ */
+export function runGuarded(fn: () => void, onError: (err: unknown) => void): void {
+  try {
+    fn()
+  } catch (err) {
+    try { onError(err) } catch (again) { watchLog.warn('Error handler failed:', again) }
+  }
 }
 
 /** Remet à zéro l'avertissement de limite (tests). */
