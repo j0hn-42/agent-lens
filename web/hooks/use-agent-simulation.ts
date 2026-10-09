@@ -3,25 +3,29 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   Agent,
-  ToolCallNode,
   Edge,
   SimulationEvent,
   type TimelineEntry,
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { TOOL_CARD_W, TOOL_CARD_H, TOOL_SLOT, BUBBLE_VISIBLE_S, MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
+import { MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
-import { processEvent, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { processEventBatch, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { findToolSlot } from './simulation/tool-slot'
+import {
+  createCatchUp, enqueueCatchUp, runCatchUpSlice, catchUpProgress, clearCatchUp, copyCatchUp,
+  CATCH_UP_FRAME_BUDGET_MS, type CatchUpQueue, type CatchUpProgress,
+} from './simulation/catch-up'
 import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
 import { agentKeyOf } from './simulation/types'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
-import { stampTouchedAgents, carryFreshness } from './simulation/freshness'
-import { trackActiveTime, carryActiveTime } from './simulation/track-active-time'
+import { carryFreshness } from './simulation/freshness'
+import { carryActiveTime } from './simulation/track-active-time'
 import { observedSessions } from '@/lib/session-model'
 import { trackForeignAttention, type ForeignAttention } from '@/lib/attention'
 import { sameSessionProjects } from '@/lib/chrome-utils'
@@ -32,7 +36,9 @@ const EMPTY_PROJECTS: ReadonlyMap<string, { projectId: string; projectName: stri
 const UI_THROTTLE_MS = 250
 
 export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
-  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects, hideInactive = false } = options
+  const { useMockData = true, externalEvents, onExternalEventsConsumed, sessionFilter, sessionFilterRef: externalFilterRef, disable1MContext = false, isReviewing = false, sessionOffsetsRef, sessionProjects, hideInactive = false, catchUpFrameBudgetMs = CATCH_UP_FRAME_BUDGET_MS } = options
+  const catchUpBudgetRef = useRef(catchUpFrameBudgetMs)
+  catchUpBudgetRef.current = catchUpFrameBudgetMs
   const reviewingRef = useRef(isReviewing)
   reviewingRef.current = isReviewing
   const internalFilterRef = useRef(sessionFilter)
@@ -98,48 +104,6 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
   }, [sessionProjects, syncForceSimulation])
 
-  // ─── Tool slot placement ─────────────────────────────────────────────────
-  const findToolSlot = useCallback((
-    agent: Agent, agents: Map<string, Agent>,
-    toolCalls: Map<string, ToolCallNode>, currentTime: number,
-  ): { x: number; y: number } => {
-    const visibleBubbles = agent.messageBubbles.filter(b => currentTime - b.time <= BUBBLE_VISIBLE_S)
-    const bubbleRect = visibleBubbles.length > 0 ? {
-      x1: agent.x + 30, y1: agent.y - 30,
-      x2: agent.x + 300, y2: agent.y - 20 + visibleBubbles.length * 60 + 20,
-    } : null
-
-    const overlaps = (cx: number, cy: number) => {
-      if (bubbleRect && cx + TOOL_CARD_W / 2 > bubbleRect.x1 && cx - TOOL_CARD_W / 2 < bubbleRect.x2
-        && cy + TOOL_CARD_H / 2 > bubbleRect.y1 && cy - TOOL_CARD_H / 2 < bubbleRect.y2) return true
-      for (const tc of toolCalls.values()) {
-        if (Math.abs(cx - tc.x) < TOOL_CARD_W && Math.abs(cy - tc.y) < TOOL_CARD_H) return true
-      }
-      return false
-    }
-
-    let outAngle = -Math.PI / 2
-    if (agent.parentId) {
-      const parent = agents.get(agent.parentId)
-      if (parent) {
-        outAngle = Math.atan2(agent.y - parent.y, agent.x - parent.x)
-      }
-    }
-
-    for (let ring = 1; ring <= TOOL_SLOT.maxRings; ring++) {
-      const dist = TOOL_SLOT.baseDistance + ring * TOOL_SLOT.ringIncrement
-      const steps = TOOL_SLOT.baseSteps + ring * TOOL_SLOT.stepsPerRing
-      for (let i = 0; i < steps; i++) {
-        const sweep = (i / (steps - 1) - 0.5) * Math.PI
-        const angle = outAngle + sweep
-        const cx = agent.x + Math.cos(angle) * dist
-        const cy = agent.y + Math.sin(angle) * dist
-        if (!overlaps(cx, cy)) return { x: cx, y: cy }
-      }
-    }
-    return { x: agent.x + Math.cos(outAngle) * TOOL_SLOT.fallbackDistance, y: agent.y + Math.sin(outAngle) * TOOL_SLOT.fallbackDistance }
-  }, [])
-
   const getContextWindowSize = useCallback((modelId?: string): number => {
     if (!modelId) return disable1MContext ? DEFAULT_CONTEXT_SIZE : FALLBACK_CONTEXT_SIZE
     const id = modelId.toLowerCase()
@@ -149,16 +113,39 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     return DEFAULT_CONTEXT_SIZE
   }, [disable1MContext])
 
-  const processEventWithContext = useCallback((event: SimulationEvent, prev: SimulationState): SimulationState => {
-    const ctx: ProcessEventContext = {
-      syncForceSimulation,
-      findToolSlot,
-      getContextWindowSize,
-      blockIdCounter,
-      skipForceSync: skipForceSyncRef.current,
+  // A burst of spawns schedules one deferred layout sync per agent: the first one runs, the others queued
+  // behind it are skipped (each sync rebuilds every node, and it reads frameRef, so one sees every spawn)
+  const forceSyncDoneRef = useRef(false)
+  const requestForceSync = useCallback((agents: Map<string, Agent>, edges: Edge[]) => {
+    if (forceSyncDoneRef.current) return
+    forceSyncDoneRef.current = true
+    setTimeout(() => { forceSyncDoneRef.current = false }, 0)
+    syncForceSimulation(agents, edges)
+  }, [syncForceSimulation])
+
+  const makeContext = useCallback((): ProcessEventContext => ({
+    syncForceSimulation: requestForceSync,
+    findToolSlot,
+    getContextWindowSize,
+    blockIdCounter,
+    skipForceSync: skipForceSyncRef.current,
+  }), [requestForceSync, getContextWindowSize])
+
+  // ─── History catch-up (#210) ─────────────────────────────────────────────
+  // Received events wait in this queue and are reduced a frame budget at a time, so a burst (switch to
+  // 'All', relay replay) never blocks the page; its progress is published for the loading indicator.
+  const catchUpRef = useRef<CatchUpQueue>(createCatchUp())
+  const [catchUp, setCatchUp] = useState<CatchUpProgress | null>(null)
+  const publishedCatchUpRef = useRef<CatchUpProgress | null>(null)
+  /** Publish the progress: always when a backlog starts or ends, otherwise only when `refresh` */
+  const publishCatchUp = useCallback((refresh: boolean) => {
+    const next = catchUpProgress(catchUpRef.current)
+    const prev = publishedCatchUpRef.current
+    if ((next === null) !== (prev === null) || (refresh && next && (next.done !== prev?.done || next.total !== prev?.total))) {
+      publishedCatchUpRef.current = next
+      setCatchUp(next)
     }
-    return processEvent(event, prev, ctx)
-  }, [syncForceSimulation, findToolSlot, getContextWindowSize])
+  }, [])
 
   // ─── Animation loop ──────────────────────────────────────────────────────
   // Reads/writes frameRef directly. Only calls commitState when new events
@@ -201,20 +188,19 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     let currentState = prev
     const newEvents: SimulationEvent[] = []
 
+    const ctx = makeContext()
     if (useMockData) {
       while (newEventIndex < MOCK_SCENARIO.length && MOCK_SCENARIO[newEventIndex].time <= newTime) {
-        const evt = MOCK_SCENARIO[newEventIndex]
-        observedSessions.mark(evt.sessionId)
-        currentState = processEventWithContext(evt, currentState)
-        newEvents.push(evt)
+        observedSessions.mark(MOCK_SCENARIO[newEventIndex].sessionId)
+        newEvents.push(MOCK_SCENARIO[newEventIndex])
         newEventIndex++
       }
+      currentState = processEventBatch(newEvents, currentState, ctx).state
     } else {
-      while (newEventIndex < currentState.eventLog.length && currentState.eventLog[newEventIndex].time <= newTime) {
-        const evt = currentState.eventLog[newEventIndex]
-        currentState = processEventWithContext(evt, currentState)
-        newEventIndex++
-      }
+      const log = currentState.eventLog
+      const from = newEventIndex
+      while (newEventIndex < log.length && log[newEventIndex].time <= newTime) newEventIndex++
+      currentState = processEventBatch(log.slice(from, newEventIndex), currentState, ctx).state
     }
 
     // Process captured external events (snapshotted outside the main
@@ -236,20 +222,16 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       // followed so a request answered while its session was in view does not linger)
       const tracked = trackForeignAttention(foreignAttentionRef.current, capturedEvents, Date.now())
       if (tracked !== foreignAttentionRef.current) { foreignAttentionRef.current = tracked; setForeignAttention(tracked) }
-      const receivedAt = Date.now()
-      for (const timedEvent of stamped) {
-        currentState = { ...currentState, currentTime: timedEvent.time }
-        const before = currentState
-        currentState = processEventWithContext(timedEvent, currentState)
-        // Freshness: the agents this event touched are heard from now (wall clock)
-        currentState = { ...currentState, agents: stampTouchedAgents(before.agents, currentState.agents, receivedAt) }
-        // Active time: a move between working and paused opens or closes the agent's active span. A replayed
-        // (history) event carries no wall-clock proof of when the agent worked: its active time stays unknown
-        if (!timedEvent.replayed) {
-          currentState = { ...currentState, agents: trackActiveTime(before.agents, currentState.agents, receivedAt) }
-        }
-        newEvents.push(timedEvent)
-      }
+      // Queued with their reception time: the agents an event touches are heard from then (freshness), and a
+      // non-replayed event moves their active span (a replayed one carries no wall-clock proof of work)
+      enqueueCatchUp(catchUpRef.current, stamped, Date.now())
+    }
+
+    // Catch up the received events within the frame budget; the rest waits for the next frames
+    if (catchUpProgress(catchUpRef.current)) {
+      const slice = runCatchUpSlice(catchUpRef.current, currentState, ctx, { budgetMs: catchUpBudgetRef.current, now: () => performance.now() })
+      currentState = slice.state
+      for (const e of slice.processed) newEvents.push(e)
       // Sync simulation clock to latest event so active state renders correctly
       newTime = Math.max(newTime, currentState.currentTime)
       maxT = Math.max(maxT, newTime)
@@ -288,16 +270,19 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (layoutRef.current) frameRef.current = layoutRef.current.stepState(frameRef.current)
 
     // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef
+    let uiRefresh = false
     if (newEvents.length > 0) {
       if (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS) {
         setState(frameRef.current)
         lastUIUpdateRef.current = timestamp
+        uiRefresh = true
       }
     }
+    publishCatchUp(uiRefresh)
 
     animationRef.current = requestAnimationFrame(animateRef.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionFilter intentionally omitted; we read sessionFilterRef.current
-  }, [processEventWithContext, useMockData, externalEvents, onExternalEventsConsumed])
+  }, [makeContext, publishCatchUp, useMockData, externalEvents, onExternalEventsConsumed])
 
   animateRef.current = animate
 
@@ -330,6 +315,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   const restart = useCallback((keepActive = false) => {
     blockIdCounter.current = 0
+    // The backlog belongs to the view being left
+    clearCatchUp(catchUpRef.current)
+    publishCatchUp(true)
     if (!keepActive) {
       commitState(createEmptyState({ isPlaying: true, speed: frameRef.current.speed }))
       return
@@ -370,7 +358,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     }
     commitState(next)
     setTimeout(() => syncForceSimulation(next.agents, next.edges), 0)
-  }, [syncForceSimulation, commitState])
+  }, [syncForceSimulation, commitState, publishCatchUp])
 
   const updateAgentPosition = useCallback((agentId: string, x: number, y: number) => {
     // Drag updates — write to frameRef only (canvas reads it, no React render)
@@ -398,12 +386,9 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     skipForceSyncRef.current = true
     blockIdCounter.current = 0
     let newEventIndex = 0
-    for (const event of events) {
-      if (event.time > targetTime) break
-      replayState.currentTime = event.time
-      replayState = { ...processEventWithContext(event, replayState), currentTime: event.time }
-      newEventIndex++
-    }
+    while (newEventIndex < events.length && events[newEventIndex].time <= targetTime) newEventIndex++
+    // One batch: the collections are copied once for the whole replay (#210)
+    replayState = processEventBatch(events.slice(0, newEventIndex), replayState, makeContext(), { advanceClock: true }).state
     skipForceSyncRef.current = false
 
     // The replay rebuilt the agents from the log: keep the wall-clock freshness they had
@@ -414,19 +399,23 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
     commitState(replayState)
     setTimeout(() => syncForceSimulation(replayState.agents, replayState.edges), 0)
-  }, [processEventWithContext, useMockData, syncForceSimulation, commitState])
+  }, [makeContext, useMockData, syncForceSimulation, commitState])
 
   // ─── Session state save/restore ──────────────────────────────────────────
-  const saveSnapshot = useCallback((): { simState: SimulationState; blockId: number } => ({
+  // A snapshot keeps the events still waiting to be caught up: they were already handed over by the bridge
+  const saveSnapshot = useCallback((): { simState: SimulationState; blockId: number; catchUp: CatchUpQueue } => ({
     simState: frameRef.current,
     blockId: blockIdCounter.current,
+    catchUp: copyCatchUp(catchUpRef.current),
   }), [])
 
-  const restoreSnapshot = useCallback((snapshot: { simState: SimulationState; blockId: number }) => {
+  const restoreSnapshot = useCallback((snapshot: { simState: SimulationState; blockId: number; catchUp?: CatchUpQueue }) => {
     blockIdCounter.current = snapshot.blockId
+    catchUpRef.current = snapshot.catchUp ? copyCatchUp(snapshot.catchUp) : createCatchUp()
+    publishCatchUp(true)
     commitState({ ...snapshot.simState, isPlaying: true })
     setTimeout(() => syncForceSimulation(snapshot.simState.agents, snapshot.simState.edges), 0)
-  }, [syncForceSimulation, commitState])
+  }, [syncForceSimulation, commitState, publishCatchUp])
 
   return {
     // Canvas reads frameRef directly for 60fps rendering
@@ -451,6 +440,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     unattributed: state.unattributed,
     /** Agents of other sessions blocked on a permission (see lib/attention) */
     foreignAttention,
+    /** Received events still being caught up (#210), null when none wait */
+    catchUp,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
     saveSnapshot, restoreSnapshot,

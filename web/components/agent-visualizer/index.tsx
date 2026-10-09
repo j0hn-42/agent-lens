@@ -40,6 +40,7 @@ import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS, FullscreenIcon } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
+import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { sessionUsage } from "@/lib/attribution"
 import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
@@ -123,6 +124,7 @@ export function AgentVisualizer() {
     droppedMessages,
     unattributed,
     foreignAttention,
+    catchUp,
     links,
     teams,
     play,
@@ -681,6 +683,9 @@ export function AgentVisualizer() {
       />
 
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
+
+      {/* Burst of received events being caught up over several frames (#210) */}
+      <HistoryLoadingIndicator progress={catchUp} />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <div style={{ display: immersive ? 'none' : 'contents' }}>

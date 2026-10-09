@@ -59,17 +59,28 @@ export function lastKnownStateText(state: string): string {
   return `last known state: ${getStateLabel(state)}`
 }
 
-/** Mark the agents whose object changed between `prev` and `next` as just heard from (live events). */
+/** `agent` heard from at `nowMs` by a live event. */
+export function heardFrom(agent: Agent, nowMs: number): Agent {
+  return { ...agent, lastEventAt: nowMs, freshnessSource: 'live' }
+}
+
+/**
+ * Mark the agents whose object changed between `prev` and `next` as just heard from (live events).
+ * `touched` lists the agents the event may have changed: only those are visited (#210); without it,
+ * every agent of `next` is.
+ */
 export function stampTouchedAgents(
   prev: ReadonlyMap<string, Agent>,
   next: Map<string, Agent>,
   nowMs: number,
+  touched?: Iterable<string>,
 ): Map<string, Agent> {
   let out: Map<string, Agent> | null = null
-  for (const [id, agent] of next) {
-    if (prev.get(id) === agent) continue
+  for (const id of touched ?? next.keys()) {
+    const agent = next.get(id)
+    if (!agent || prev.get(id) === agent) continue
     if (!out) out = new Map(next)
-    out.set(id, { ...agent, lastEventAt: nowMs, freshnessSource: 'live' })
+    out.set(id, heardFrom(agent, nowMs))
   }
   return out ?? next
 }

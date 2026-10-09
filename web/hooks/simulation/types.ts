@@ -214,4 +214,6 @@ export interface UseAgentSimulationOptions {
   hideInactive?: boolean
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
+  /** Time (ms) a frame gives to catching up a burst of received events (#210). Default CATCH_UP_FRAME_BUDGET_MS */
+  catchUpFrameBudgetMs?: number
 }
