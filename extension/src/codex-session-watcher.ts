@@ -17,7 +17,7 @@ import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
   ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, ORCHESTRATOR_NAME,
-  POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY,
+  POLL_FALLBACK_MS, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY, WATCH_SCAN_DEBOUNCE_MS,
 } from './constants'
 import { safeWatch, readTrackedLines, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
@@ -98,7 +98,7 @@ function recentSessionDirs(now: Date): string[] {
  *  it far larger — keep reading in chunks until the first newline, up to a
  *  1MB cap. Past the cap we give up: JSON.parse fails on the truncated object
  *  and we return null rather than emit a corrupted cwd. */
-function readSessionCwd(filePath: string): string | null {
+function readSessionCwd(filePath: string): { cwd: string | null; final: boolean } {
   const CHUNK_SIZE = 65536
   const MAX_FIRST_LINE = 1048576
   try {
@@ -119,19 +119,27 @@ function readSessionCwd(filePath: string): string | null {
         total += read
         if (newlineAt >= 0) { end = total - read + newlineAt; break }
       }
+      // Définitif si la première ligne est complète (saut de ligne) ou dépasse le plafond ; sinon le
+      // fichier est encore en cours d'écriture et une lecture ultérieure peut donner autre chose.
+      const final = end >= 0 || total >= MAX_FIRST_LINE
       const data = Buffer.concat(chunks)
       const line = data.subarray(0, end >= 0 ? end : data.length).toString('utf-8')
       const parsed = JSON.parse(line) as { type?: string; payload?: { cwd?: string } }
-      if (parsed.type !== 'session_meta') return null
-      return typeof parsed.payload?.cwd === 'string' ? parsed.payload.cwd : null
+      if (parsed.type !== 'session_meta') return { cwd: null, final }
+      return { cwd: typeof parsed.payload?.cwd === 'string' ? parsed.payload.cwd : null, final }
     } finally { fs.closeSync(fd) }
-  } catch { return null }
+  } catch { return { cwd: null, final: false } }
 }
 
 // ─── Watcher ───────────────────────────────────────────────────────────────
 
 export class CodexSessionWatcher implements AgentSessionWatcher {
   private dirWatchers = new Map<string, fs.FSWatcher>()
+  /** Scan différé déclenché par les événements fs.watch (coalescés, voir requestScan). */
+  private scanDebounce: NodeJS.Timeout | null = null
+  /** cwd lu par chemin de rollout (le cwd d'une session ne change pas), positif comme négatif.
+   *  Évite de relire jusqu'à 1 Mo de session_meta à chaque scan pour les sessions d'autres espaces de travail. */
+  private cwdCache = new Map<string, string | null>()
   private sessions = new Map<string, WatchedCodexSession>()
   private workspacePath: string | null = null
   private scanInterval: NodeJS.Timeout | null = null
@@ -199,12 +207,35 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const root = sessionsRoot()
     if (fs.existsSync(root)) {
       try {
-        const rootWatcher = safeWatch(root, () => this.scanForSessions(), { recursive: false })
+        const rootWatcher = safeWatch(root, () => this.requestScan(), { recursive: false })
         if (rootWatcher) this.dirWatchers.set(root, rootWatcher)
       } catch (err) { log.debug('Root dir watch failed:', err) }
     }
 
     log.info(`Watching ${root} for workspace ${this.workspacePath ?? '<any>'}`)
+  }
+
+  /** Fs.watch d'un dossier se déclenche à chaque ligne écrite par n'importe quelle session : un seul scan
+   *  est armé, WATCH_SCAN_DEBOUNCE_MS après le premier événement (pas de report indéfini sous écriture continue). */
+  private requestScan(): void {
+    if (this.scanDebounce) return
+    this.scanDebounce = setTimeout(() => {
+      this.scanDebounce = null
+      runGuarded(() => this.scanForSessions(), err => log.warn('Scan Codex différé en échec :', err))
+    }, WATCH_SCAN_DEBOUNCE_MS)
+  }
+
+  private cwdOf(filePath: string): string | null {
+    if (this.cwdCache.has(filePath)) return this.cwdCache.get(filePath) ?? null
+    const { cwd, final } = readSessionCwd(filePath)
+    if (final) {
+      this.cwdCache.set(filePath, cwd)
+      if (this.cwdCache.size > CODEX_MAX_WATCHED_SESSIONS * 40) {
+        const oldest = this.cwdCache.keys().next().value
+        if (oldest !== undefined) this.cwdCache.delete(oldest)
+      }
+    }
+    return cwd
   }
 
   private scanForSessions(): void {
@@ -226,7 +257,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       // Watch this day's directory so we pick up new rollout files quickly
       if (!this.dirWatchers.has(dir)) {
         try {
-          const w = safeWatch(dir, () => this.scanForSessions())
+          const w = safeWatch(dir, () => this.requestScan())
           if (w) this.dirWatchers.set(dir, w)
         } catch (err) { log.debug('Dir watch failed:', dir, err) }
       }
@@ -255,7 +286,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     for (const { filePath, stat } of candidates) {
       // Workspace filter — only attach if cwd matches (or no workspace set)
       if (this.workspacePath) {
-        const cwd = readSessionCwd(filePath)
+        const cwd = this.cwdOf(filePath)
         if (cwd === null) continue
         const resolvedCwd = this.resolvePath(cwd)
         if (!resolvedCwd || !this.pathMatchesWorkspace(resolvedCwd)) {
@@ -454,6 +485,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval) }
+    if (this.scanDebounce) { clearTimeout(this.scanDebounce); this.scanDebounce = null }
+    this.cwdCache.clear()
     for (const w of this.dirWatchers.values()) w.close()
     this.dirWatchers.clear()
     for (const s of this.sessions.values()) {
