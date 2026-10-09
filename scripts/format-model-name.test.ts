@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { formatModelName } from '../web/lib/utils'
+import { formatModelName, modelTierColor } from '../web/lib/utils'
 import { CLAUDE_FAMILIES } from '../web/lib/canvas-constants'
 
 test('formats new Claude model ids', () => {
@@ -31,6 +31,22 @@ test('formats GPT model ids', () => {
   assert.equal(formatModelName('gpt-5-2025-01-01'), 'GPT-5')
   assert.equal(formatModelName('gpt-4o-2024-08-06'), 'GPT-4o')
   assert.equal(formatModelName('chatgpt-4o-latest'), 'GPT-4o-latest')
+})
+
+test('modelTierColor scales colour with model size', () => {
+  const red = '#ff5a5a', orange = '#ff9a3c', blue = '#5aa9ff'
+  assert.equal(modelTierColor('claude-fable-5-1'), red)
+  assert.equal(modelTierColor('claude-opus-5-5'), orange)
+  assert.equal(modelTierColor('claude-haiku-4-5-20251001'), blue)
+  assert.equal(modelTierColor('gpt-5.6-sol'), red)
+  assert.equal(modelTierColor('gpt-5.6-terra'), orange)
+  assert.equal(modelTierColor('gpt-5.6-luna'), blue)
+  assert.equal(modelTierColor('gpt-5.5-pro'), red)
+  assert.equal(modelTierColor('gpt-5.4-mini'), blue)
+  assert.equal(modelTierColor('o3'), orange)
+  assert.equal(modelTierColor('o4-mini'), blue)
+  assert.equal(modelTierColor('gpt-4.1-nano'), blue)
+  assert.equal(modelTierColor('gpt-oss-120b'), orange)
 })
 
 test('falls back to stripped base model id for unknown formats', () => {

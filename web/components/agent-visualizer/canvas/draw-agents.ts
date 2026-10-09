@@ -5,7 +5,7 @@ import {
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
-import { alphaHex, formatTokens, formatDuration, pluralize } from '../../../lib/utils'
+import { alphaHex, formatTokens, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
@@ -316,7 +316,19 @@ function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, 
     ctx.textBaseline = 'middle'
     ctx.fillText('\u25C6', agent.x, agent.y)
   } else if (agent.isMain) {
-    drawAgentBrand(ctx, agent.x, agent.y, r, color + '90', agent.runtime)
+    const modelName = agent.model ? formatModelName(agent.model) : ''
+    // With a known model the logo moves up a little to leave room for its name underneath
+    const logoDy = modelName ? -r * 0.14 : 0
+    drawAgentBrand(ctx, agent.x, agent.y + logoDy, r, color + '90', agent.runtime)
+    if (modelName) {
+      ctx.save()
+      ctx.fillStyle = modelTierColor(agent.model)
+      ctx.font = `bold ${Math.max(6, r * 0.22)}px monospace`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(modelName, agent.x, agent.y + r * 0.4, r * 1.3)
+      ctx.restore()
+    }
   } else {
     ctx.fillStyle = color + '90'
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
