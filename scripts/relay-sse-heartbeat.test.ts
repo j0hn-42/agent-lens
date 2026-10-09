@@ -16,7 +16,15 @@ process.env.HOME = fakeHome
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Polls `cond` until it holds (true) or `ms` elapse (false). Waits for what the relay does, never for a fixed time. */
+async function waitFor(cond: () => boolean, ms = 8000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await new Promise(r => setTimeout(r, 10))
+  }
+  return cond()
+}
 const HEARTBEAT_MS = 40
 
 let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
@@ -68,15 +76,14 @@ describe('relay: SSE heartbeat', () => {
     const a = await connectSSE()
     const b = await connectSSE()
     assert.equal(relay.debugState().heartbeatTimerActive, true)
-    await sleep(HEARTBEAT_MS * 3.5)
+    assert.ok(await waitFor(() => heartbeats(a.text()) >= 2 && heartbeats(b.text()) >= 2), 'both clients got two heartbeats')
     assert.ok(heartbeats(a.text()) >= 2, `client a: ${a.text()}`)
     assert.ok(heartbeats(b.text()) >= 2, `client b: ${b.text()}`)
     a.req.destroy(); b.req.destroy()
   })
 
   it('stops the timer when the last client leaves', async () => {
-    await sleep(100)
-    assert.equal(relay.debugState().sseClients, 0)
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 0), 'the closed clients are gone')
     assert.equal(relay.debugState().heartbeatTimerActive, false)
   })
 })

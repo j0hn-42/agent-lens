@@ -91,7 +91,7 @@
     "package": "vsce package",
     "lint": "tsc --noEmit",
     "lint:test": "tsc --noEmit --project tsconfig.test.json",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test \"test/**/*.test.ts\"",
     "vscode:uninstall": "node scripts/uninstall.js"
   },
   "devDependencies": {
