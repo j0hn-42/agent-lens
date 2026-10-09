@@ -27,6 +27,7 @@ const ghLog = path.join(base, 'gh.log')
 const FAKE_GH = `#!/bin/sh
 echo "$*" >> "${ghLog}"
 sleep 0.3
+case "$*" in *agent:gh-down*) echo 'HTTP 401: Bad credentials' >&2; exit 1 ;; esac
 case "$1" in
   pr) echo '[{"number":5,"title":"A PR","url":"${REPO}/pull/5","state":"OPEN","isDraft":true}]' ;;
   issue) echo '[{"number":7,"title":"An issue","url":"${REPO}/issues/7","state":"OPEN"}]' ;;
@@ -103,6 +104,12 @@ function suite(name: string, startIt: () => Promise<Running>) {
       assert.equal(b.body, a.body)
       const runs = fs.readFileSync(ghLog, 'utf8').split('\n').filter(l => l.includes(`agent:${role}`))
       assert.equal(runs.length, 2, runs.join(' | '))
+    })
+
+    it('a failing gh is a non-200 answer, not an empty list (#205)', async () => {
+      const r = await get(srv.port, '/issue-links?role=gh-down')
+      assert.equal(r.status, 502, r.body)
+      assert.ok(!r.body.includes('"links"'), r.body)
     })
 
     it('a lookalike path is not the route', async () => {
