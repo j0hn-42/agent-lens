@@ -104,4 +104,14 @@ i18n ; mémorisation de la progression entre visites ; modification du tour exis
 
 ## 9. Livraison
 
-Branche dédiée du fork, PR vers `jobailla/agent-lens` (jamais vers l'upstream). Branche de base de l'implémentation à confirmer : `docs/demo.md`, `docs/reading-the-ui.md` et les derniers thèmes ne sont pas dans `origin/main` à la date de cette spec.
+Branche dédiée du fork, PR vers `jobailla/agent-lens` (jamais vers l'upstream). Branche de base : `develop` (`docs/demo.md`, `docs/reading-the-ui.md` et les derniers thèmes ne sont pas dans `origin/main`).
+
+## 10. Corrections issues de la lecture du code (2026-10-09, avant le plan)
+
+La lecture du code de `develop` a corrigé cinq points de cette spec ; le plan fait foi.
+
+- **Reculer** : `seekToTime` sait déjà rejouer depuis zéro. Précédent est donc instantané, et le lecteur n'est pas modifié. La visite réutilise la séquence du `onSeek` de la barre de lecture (pause, seek, zoom-to-fit), extraite en `handleSeek` dans `index.tsx`.
+- **Entrées non démontrables** : aucun événement de la simulation ne produit l'état `paused`, et le repli de branche (`+N`), le lien de message en erreur, l'agent archivé, le lien parent non vérifié et le halo de session dépendent d'actions ou de conditions réelles. Ces entrées sont **expliquées en texte seulement** (`DESCRIBED_ONLY`) ; le texte de l'étape dit qu'elles ne sont pas montrées dans la démo. La section 1 (« voir **tous** les éléments ») se lit donc : tous les éléments sont soit montrés, soit explicitement signalés comme non démontrables.
+- **Clavier** : `←`, `→` et `Échap` ne valent que lorsque le focus est dans la carte, pour ne pas détourner la navigation clavier du graphe.
+- **Plomberie** : `GraphLegend` est monté par `canvas.tsx`, pas par `index.tsx`. Un contexte React (`TourBridge`) porte l'ouverture de la légende et la conversion monde vers écran (`canvasToScreen`, déjà fournie par `use-canvas-camera`), au lieu de props. Le bouton « Guided tour » n'apparaît que sur `?scenario=guided` : les instants des étapes ne valent que pour ce scénario.
+- **Base** : `develop`, pas `main`.
