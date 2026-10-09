@@ -650,10 +650,13 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
-    // Errors: the structured is_error flag is authoritative. Free-text heuristics only
-    // run for ordinary tools — a subagent report is prose that may legitimately
-    // contain words like "failed" or "not found".
-    const isError = block.is_error === true || (!isSubagentTool && detectError(result))
+    // Errors: when the structured is_error flag is present it is the sole authority
+    // (true or false). The free-text heuristic only runs when the flag is absent, and
+    // never for subagents: a report is prose that may legitimately contain words like
+    // "failed" or "not found".
+    const isError = typeof block.is_error === 'boolean'
+      ? block.is_error
+      : !isSubagentTool && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
