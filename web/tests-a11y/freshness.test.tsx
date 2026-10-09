@@ -74,6 +74,8 @@ const sessions: SessionInfo[] = [
   { id: 'done', label: 'Done session', status: 'completed', startTime: 0, lastActivityTime: 3 },
 ]
 
+import { showAllSessions } from './sessions-filter-helpers'
+
 function panel(extra: Partial<React.ComponentProps<typeof SessionListPanel>> = {}) {
   return (
     <SessionListPanel
@@ -91,7 +93,9 @@ function rowOf(container: HTMLElement, label: string): HTMLElement {
 }
 
 test('unobserved session: "listed - activity not observed", explanatory text, no activity marker', () => {
-  const { container } = render(panel())
+  const view = render(panel())
+  const { container } = view
+  showAllSessions(view)
   const ghost = rowOf(container, 'Ghost session')
   assert.ok(ghost.textContent!.includes(SESSION_NOT_OBSERVED_TEXT), 'visible status text')
   assert.ok(ghost.textContent!.includes(SESSION_NOT_OBSERVED_HELP), 'accessible explanation in the accessible name')
@@ -176,7 +180,9 @@ test('panel: an error older than the terminal window reads "closed, last known s
 })
 
 test('unobserved session: the visible status carries the explanation as a tooltip', () => {
-  const { container } = render(panel())
+  const view = render(panel())
+  const { container } = view
+  showAllSessions(view)
   const ghost = rowOf(container, 'Ghost session')
   const tip = Array.from(ghost.querySelectorAll<HTMLElement>('[title]')).find(e => e.textContent === SESSION_NOT_OBSERVED_TEXT)
   assert.ok(tip, 'status text element')

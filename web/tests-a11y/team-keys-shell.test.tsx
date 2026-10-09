@@ -5,6 +5,7 @@ import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup } from '@testing-library/react'
+import { showAllSessions } from './sessions-filter-helpers'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { teamColorOf } from '@/lib/feed-utils'
@@ -29,6 +30,7 @@ function panel(sessions: ReturnType<typeof session>[], t: Map<string, TeamSummar
       teams={t} teamMemberCounts={counts} teamWorking={working} now={5000}
     />,
   )
+  showAllSessions(r)
   return Array.from(r.container.querySelectorAll<HTMLElement>('[data-row-main]')).map(el => el.textContent ?? '')
 }
 

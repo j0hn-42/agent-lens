@@ -265,7 +265,7 @@ export function SessionListPanel({
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const [activeOnly, setActiveOnly] = useState(false)
+  const [activeOnly, setActiveOnly] = useState(true)
 
   // Search and project / runtime filter (#125)
   const [query, setQuery] = useState('')

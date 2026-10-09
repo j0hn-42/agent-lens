@@ -8,6 +8,7 @@ import { shouldHandleShortcut } from '@/hooks/use-keyboard-shortcuts'
 import { nextTabIndex, scrubberKeyTarget } from '@/lib/chrome-utils'
 import { nextMenuIndex } from '@/lib/menu-nav'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
+import { showAllSessions } from './sessions-filter-helpers'
 import { compareViolations, validateKnownViolations } from './axe-compare'
 
 afterEach(() => {
@@ -101,6 +102,7 @@ test('sessions panel: arrows move between rows, one row is in the tab order, cli
       agents={agents} selectedAgentId={null} onSelectAgent={id => pickedAgents.push(id)} now={5000}
     />,
   )
+  showAllSessions({ getByRole })
   const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-row-main]'))
   // All sessions, session a, main, sub, session b (agents sit under their session)
   assert.equal(rows.length, 5)
@@ -124,6 +126,16 @@ test('sessions panel: arrows move between rows, one row is in the tab order, cli
   getByRole('button', { name: 'Expand agents of Sa' })
 })
 
+test('sessions panel: the Active only button is aria-pressed="true" by default', () => {
+  const { getByRole } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={[]} selectedSessionId={null} sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+    />,
+  )
+  assert.equal(getByRole('button', { name: 'Active only' }).getAttribute('aria-pressed'), 'true')
+})
+
 test('sessions panel: the Active only toggle hides finished sessions and keeps the selected one', () => {
   const sessions = [
     { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
@@ -137,14 +149,16 @@ test('sessions panel: the Active only toggle hides finished sessions and keeps t
       observedSessionIds={new Set(['live'])}
     />,
   )
-  assert.ok(queryByText('Old one'))
   const toggle = getByRole('button', { name: 'Active only' })
-  assert.equal(toggle.getAttribute('aria-pressed'), 'false')
-  fireEvent.click(toggle)
-  assert.equal(toggle.getAttribute('aria-pressed'), 'true')
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true', 'the Active only filter is on by default')
   assert.equal(queryByText('Old one'), null)
   assert.ok(queryByText('Live one'))
   assert.ok(queryByText('Selected old'), 'the selected session stays listed')
+  fireEvent.click(toggle)
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false')
+  assert.ok(queryByText('Old one'), 'turning the filter off lists finished sessions again')
+  assert.ok(queryByText('Live one'))
+  assert.ok(queryByText('Selected old'))
 })
 
 test('sessions panel: the Active only toggle also hides an active session nobody has heard from', () => {
@@ -159,10 +173,12 @@ test('sessions panel: the Active only toggle also hides an active session nobody
       observedSessionIds={new Set(['live'])}
     />,
   )
-  assert.ok(queryByText('Ghost one'), 'listed before filtering')
-  fireEvent.click(getByRole('button', { name: 'Active only' }))
+  assert.equal(getByRole('button', { name: 'Active only' }).getAttribute('aria-pressed'), 'true')
   assert.ok(queryByText('Live one'))
   assert.equal(queryByText('Ghost one'), null, 'an unobserved session is not counted as active')
+  fireEvent.click(getByRole('button', { name: 'Active only' }))
+  assert.ok(queryByText('Ghost one'), 'listed once the filter is off')
+  assert.ok(queryByText('Live one'))
 })
 
 test('sessions panel: a session row shows only its name, model and time', () => {
