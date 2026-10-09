@@ -30,7 +30,12 @@ import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 import { selectionLabel } from "@/lib/session-tree"
 
-import { MOCK_DURATION } from "@/lib/mock-scenario"
+import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
+import { GUIDED_STEPS } from "@/lib/guided-steps"
+import { useGuidedTour } from "@/hooks/use-guided-tour"
+import { GuidedTourCard } from "./guided-tour-card"
+import { TourHighlight } from "./tour-highlight"
+import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
@@ -94,6 +99,10 @@ export function AgentVisualizer() {
     setHideInactive(hide)
     try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
   }, [])
+  // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
+  // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
+  const [tourShowsInactive, setTourShowsInactive] = useState(false)
+  const hideInactiveShown = hideInactive && !tourShowsInactive
 
   const {
     frameRef,
@@ -135,7 +144,7 @@ export function AgentVisualizer() {
     isReviewing,
     sessionOffsetsRef,
     sessionProjects,
-    hideInactive,
+    hideInactive: hideInactiveShown,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -229,11 +238,14 @@ export function AgentVisualizer() {
   useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
-  // Auto-play on mount
+  // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
+  const isGuidedDemo = IS_GUIDED_DEMO && bridge.useMockData
+  // Auto-play on mount (not in the guided demo: the tour holds the scenario at each step's time)
   useEffect(() => {
+    if (isGuidedDemo) return
     const timer = setTimeout(() => play(), TIMING.autoPlayDelayMs)
     return () => clearTimeout(timer)
-  }, [play])
+  }, [play, isGuidedDemo])
 
   // Per-session state cache: save/restore simulation state on tab switch
   // so sessions stay up to date and switching is instant.
@@ -620,7 +632,7 @@ export function AgentVisualizer() {
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
   const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
   // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
-  const listAgents = useMemo(() => listedAgents(agents, hideInactive, hiddenKeepIds), [agents, hideInactive, hiddenKeepIds])
+  const listAgents = useMemo(() => listedAgents(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -628,8 +640,34 @@ export function AgentVisualizer() {
     sessionCount: detectedSessions(bridge.sessions).length,
   })
 
+  const handleSeek = (time: number) => {
+    seekingRef.current = true
+    pause()
+    seekToTime(time)
+    setZoomToFitTrigger(n => n + 1)
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
+  }
+
+  // Guided tour (demo ?scenario=guided): step times only match the guided scenario, so it is offered nowhere else
+  const tour = useGuidedTour({ steps: GUIDED_STEPS, seek: handleSeek, play })
+  const canvasToScreenRef = useRef<TourBridge['canvasToScreenRef']['current']>(null)
+  // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical.
+  // A real source taking over ends the tour: its step times do not match the real event log.
+  const [guidedDemo, setGuidedDemo] = useState(false)
+  useEffect(() => {
+    setGuidedDemo(isGuidedDemo)
+    if (isGuidedDemo) tour.start()
+    else if (tour.active) tour.exit()
+  }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
+  const startTour = guidedDemo && !tour.active ? tour.start : undefined
+  const tourBridge = useMemo(() => ({ legendOpen: Boolean(tour.step?.opensLegend), canvasToScreenRef, startTour }), [tour.step, startTour])
+  const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])
+  useEffect(() => { setTourShowsInactive(tour.active) }, [tour.active])
+
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
+    <TourBridgeContext.Provider value={tourBridge}>
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
     <div className="h-screen w-full relative overflow-hidden" style={{ background: SCENE.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
@@ -638,7 +676,7 @@ export function AgentVisualizer() {
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity}
       />
 
-      <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactive} keepIds={hiddenKeepIds} />
+      <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar
@@ -742,7 +780,7 @@ export function AgentVisualizer() {
         onDiscoveryClick={selection.handleDiscoveryClick}
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
-        hideInactive={hideInactive}
+        hideInactive={hideInactiveShown}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -835,14 +873,7 @@ export function AgentVisualizer() {
         onRestart={handleClearHistory}
         onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData}
-        onSeek={(time) => {
-          seekingRef.current = true
-          pause()
-          seekToTime(time)
-          setZoomToFitTrigger(n => n + 1)
-          if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
-          resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
-        }}
+        onSeek={handleSeek}
         timelineEvents={timelineEvents}
         isReviewing={isReviewing}
         eventCount={timelineEvents.length}
@@ -914,6 +945,13 @@ export function AgentVisualizer() {
         />
       </div>
 
+      {tour.active && tour.step && (
+        <>
+          <TourHighlight key={tour.step.id} target={tour.step.target} getAgents={getTourAgents} />
+          <GuidedTourCard steps={GUIDED_STEPS} index={tour.index} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={tour.exit} />
+        </>
+      )}
+
       <ToastRegion
         toasts={toasts}
         onAction={runToastAction}
@@ -947,6 +985,7 @@ export function AgentVisualizer() {
       />
     </div>
     </OpenFileProvider>
+    </TourBridgeContext.Provider>
     </PanelRegistryContext.Provider>
   )
 }

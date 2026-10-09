@@ -2,6 +2,7 @@ import type { SimulationEvent } from './agent-types'
 import type { SessionInfo } from './bridge-types'
 import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
 import { TOUR_SCENARIO, TOUR_SESSIONS } from './tour-scenario'
+import { GUIDED_SCENARIO } from './guided-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
 // Add ?stress=light|medium|heavy|extreme to the URL to load a stress scenario.
@@ -256,7 +257,11 @@ const SCENARIO_NAME = getScenarioName()
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
   : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
+  : SCENARIO_NAME === 'guided' ? GUIDED_SCENARIO
   : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+
+/** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
+export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
 
 /** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
 export const MOCK_SESSIONS: SessionInfo[] = !stressLevel && SCENARIO_NAME === 'tour' ? TOUR_SESSIONS : []

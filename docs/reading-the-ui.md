@@ -12,6 +12,19 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
 
+### See the legend in action
+
+The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
+
+- **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
+- **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
+- **Edges and particles**: steps *Tool calls*, *Sub-agents* and *Results come back*. The dispatch and return particles are described only, in *Sub-agents* and *Results come back*: the tour pauses the scene at each step, and a paused scene draws no particle. The unverified parent link and the two folded-branch badges are described only (*Seen only in a real session*).
+- **Teams**: step *Agent Teams* (and *Delivered messages and finished teammates* for a finished teammate, *Results come back* for an archived agent). The session halo is described only (*Seen only in a real session*).
+- **Message links**: steps *Messages between agents*, *Delivered messages and finished teammates* and *Quiet links*. The error link is described only (*Seen only in a real session*).
+- **Context usage**: step *Context usage*.
+- **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
+- **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
+
 ## Themes
 
 The **Theme** selector in the top bar (View controls) offers nine themes, all dark:

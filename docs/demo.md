@@ -56,3 +56,68 @@ Ces fonctionnalités demandent un vrai relais et ne se voient qu'avec `pnpm run 
 ## Modifier le scénario
 
 `web/lib/tour-scenario.ts` écrit les événements acte par acte. Le test `scripts/tour-scenario.test.ts` garantit que le tableau reste trié par temps (le lecteur le consomme dans l'ordre), que chaque type d'événement est joué, que chaque session déclarée est utilisée, et que le tour contient bien un agent Codex, un modèle demandé différent du modèle réel, un effort, une équipe, un workflow avec phases, un lien Comms avec messages, un coût non attribué et un appel en erreur.
+
+## Visite guidée
+
+Une seconde démo, pas à pas, qui explique chaque entrée de la légende du graphe (**Legend**, en bas à gauche) sur 13 étapes. Elle utilise son propre scénario, `guided`, et non le tour des sept actes ci-dessus.
+
+```bash
+pnpm run dev:demo:guided     # http://localhost:3000
+```
+
+On peut aussi ajouter `?scenario=guided` à l'URL de n'importe quelle instance en mode démo.
+
+### Les contrôles
+
+Une carte affiche le titre et le texte de l'étape, avec :
+
+- **Previous** et **Next** pour passer d'une étape à l'autre (désactivés à la première et à la dernière) ;
+- une liste **Go to step** pour sauter directement à une étape ;
+- **Exit tour** pour quitter la visite ;
+- les touches `←` `→` (étape précédente, suivante) et `Échap` (quitter), qui ne fonctionnent que lorsque le focus est dans la carte : elles ne prennent donc pas les flèches à la navigation clavier du graphe.
+
+Pendant la visite :
+
+- le scénario est mis en pause à chaque étape, et la lecture reprend quand on quitte la visite ;
+- un anneau entoure l'élément expliqué (un agent du graphe, ou une section de la légende) ;
+- sur les étapes qui parlent de la légende, elle s'ouvre toute seule, sans modifier la préférence enregistrée ;
+- les agents inactifs restent affichés même si **Hide inactive agents** est actif, sans changer la préférence enregistrée ;
+- le graphe reste explorable (zoom, clic sur un agent).
+
+Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette démo : il relance la visite après une sortie.
+
+### Les 13 étapes
+
+| N° | Titre | Entrées de légende expliquées |
+| --- | --- | --- |
+| 1 | Meet your agent | forme d'agent principal, état *thinking*, logo Claude |
+| 2 | Tool calls | état *tool calling*, carte d'outil, ligne d'outil |
+| 3 | Sub-agents | forme de sous-agent, ligne parent-enfant ; la particule d'envoi de tâche est décrite seulement |
+| 4 | Results come back | forme terminée (contour en tirets), état *complete*, agent archivé (estompé, contour en tirets, toujours cliquable) ; la particule de retour est décrite seulement |
+| 5 | Context usage | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
+| 6 | Waiting for you | état *waiting for permission* |
+| 7 | When something fails | état *error* |
+| 8 | Agent Teams | état *idle*, anneau d'équipe, coéquipier au travail, coéquipier inactif, halo d'équipe, orchestrateur (couronne et badge LEAD), ligne d'équipe |
+| 9 | Messages between agents | lien de message en vol, bulle du dernier message |
+| 10 | Delivered messages and finished teammates | lien de message récent, coéquipier terminé |
+| 11 | Two runtimes | logo Codex |
+| 12 | Quiet links | lien calme (ligne fine avec badge du nombre de messages) |
+| 13 | Seen only in a real session | les entrées ci-dessous, décrites seulement |
+
+### Vues seulement dans une session réelle
+
+L'étape 13 décrit en mots les entrées qu'aucun événement ne peut produire dans une démo : elles dépendent de conditions réelles ou de vos clics. Elles ne sont pas visibles dans la visite.
+
+Les particules (point violet d'envoi de tâche, point vert de retour) sont dans le même cas pendant la visite : chaque étape met le scénario en pause à un instant précis, et une scène figée n'affiche aucune particule. Les étapes 3 et 4 les décrivent en le disant ; elles ne se voient que dans une lecture normale du scénario, rejouée depuis le début, hors de la visite.
+
+| Entrée | Ce que dit l'étape |
+| --- | --- |
+| état *paused* | un agent en pause |
+| lien parent non vérifié | un lien parent en tirets |
+| badge « +N » (masqué) | un badge « +N » sur une branche repliée |
+| badge de branche (actif) | décrit avec le badge « +N » ; l'étape ne donne pas plus de détail |
+| lien de message en erreur | un lien de message rouge |
+| halo de session | le halo pointillé de session |
+| cartes de découverte : fichier, motif, résultat, code | les quatre cartes de découverte |
+
+Gardez la légende ouverte pour les reconnaître plus tard.
