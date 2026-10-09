@@ -2,14 +2,14 @@
  * COLORS palettes per theme.
  *
  * - `neon` is the palette the app has always shipped, kept literally (the look must not move).
- * - `graphite` and `paper` are derived from their design tokens (`theme-tokens.ts`) by `derivePalette`,
+ * - the other themes (every theme but `neon`) are derived from their design tokens (`theme-tokens.ts`) by `derivePalette`,
  *   following the design README: colours by role, neutral grounds, flat cards, solid text colours
  *   (>= 4.5:1) and control boundaries (>= 3:1).
  *
  * Pure module (no DOM) so it can be unit-tested; `lib/colors.ts` exposes the live `COLORS` object.
  */
 
-import { TOKENS, DARK_THEMES, SHADOW_CARD, type ThemeId, type ThemeTokens } from './theme-tokens'
+import { TOKENS, SHADOW_CARD, type ThemeId, type ThemeTokens } from './theme-tokens'
 
 // Neon palette (current look). The role-named keys at the end (surface ... info) are the neon design tokens.
 export const NEON_COLORS = {
@@ -334,19 +334,42 @@ function mix(a: string, b: string, t: number): string {
   return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`
 }
 
+function luminance(hex: string): number {
+  const f = rgb(hex).map(v => v / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+}
+
+/** WCAG contrast ratio of two '#rrggbb' colours. */
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
 /**
  * Palette of a theme from its design tokens. Text colours are the solid role colours (no alpha), so the
  * contrast promised by the tokens is the contrast painted. Overlays (hover tints, borders) use the role
- * colour at low alpha, which stays subtle on both dark and light grounds.
+ * colour at low alpha.
  */
-export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCard: string): Palette {
+export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Palette {
   const { void: ground, surface, ink, accent, warn, danger, delegate, info, ok } = t
   const raised = t['surface-raised']
   const muted = t['ink-muted']
   const ctl = t['control-border']
   const edge = t.edge
-  // Black overlays (code blocks): strong on a dark ground, a faint tint on a light one
-  const shade = (a: number) => rgba('#000000', light ? a / 6 : a)
+  // Black overlays (code blocks)
+  const shade = (a: number) => rgba('#000000', a)
+  // Scrubber: opaque ink fill over a track made of the control border. When the border is too close to the ink for the fill to stand
+  // out (High contrast, Catppuccin), the fill is brightened and the track darkened toward the ground, keeping it >= 3:1 on the surface
+  let fill = ink
+  let track = ctl
+  if (contrastRatio(ink, ctl) < 3.2) {
+    fill = mix(ink, '#ffffff', 0.5)
+    for (let k = 1; k <= 40 && contrastRatio(fill, track) < 3.1; k++) {
+      const next = mix(ctl, surface, k / 40)
+      if (contrastRatio(next, surface) < 3.1) break
+      track = next
+    }
+  }
   const errCard = mix(danger, ground, 0.85)
   const flat = 'none'
   return {
@@ -404,7 +427,7 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     toggleBorder: ctl,
     toggleBorderActive: accent,
 
-    controlTrack: ctl,
+    controlTrack: track,
 
     liveDot: danger,
     liveText: danger,
@@ -429,7 +452,7 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     roleThinkingBgSelected: rgba(delegate, 0.2),
     roleThinkingText: delegate,
     roleUserBg: rgba(warn, 0.12),
-    roleUserBgSelected: rgba(warn, light ? 0.14 : 0.2),
+    roleUserBgSelected: rgba(warn, 0.2),
     roleUserText: warn,
 
     resultBg: rgba(ok, 0.05),
@@ -442,7 +465,7 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     playBtnBorder: ctl,
     playBtnGlow: flat,
 
-    scrubberFill: `linear-gradient(90deg, ${ink}, ${ink})`, // opaque: a translucent fill would fall under 3:1 against the grey track
+    scrubberFill: `linear-gradient(90deg, ${fill}, ${fill})`, // opaque: a translucent fill would fall under 3:1 against the grey track
     scrubberHeadGlow: flat,
     reviewBtnBorder: ctl,
 
@@ -505,7 +528,7 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     toolResultText: ok,
     textFaint: muted,
 
-    searchHighlightBg: rgba(warn, 0.3),
+    searchHighlightBg: rgba(warn, 0.24),
 
     codeBlockBg: shade(0.3),
     diffRemoved: danger,
@@ -573,8 +596,8 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
     commReturnBg: rgba(ok, 0.08),
     commReturnBgSelected: rgba(ok, 0.14),
     commReturnText: ok,
-    commErrorBg: rgba(danger, 0.08),
-    commErrorBgSelected: rgba(danger, 0.14),
+    commErrorBg: rgba(danger, 0.05),
+    commErrorBgSelected: rgba(danger, 0.08),
     commErrorText: danger,
     commMessageBg: rgba(delegate, 0.08),
     commMessageBgSelected: rgba(delegate, 0.14),
@@ -593,5 +616,5 @@ export function derivePalette(t: Readonly<ThemeTokens>, light: boolean, shadowCa
 /** Palette of a theme: neon is the literal legacy palette, the others are derived from their tokens. */
 export function paletteFor(id: ThemeId, tokens: Readonly<ThemeTokens> = TOKENS[id]): Palette {
   if (id === 'neon') return { ...NEON_COLORS }
-  return derivePalette(tokens, !DARK_THEMES.includes(id), SHADOW_CARD[id])
+  return derivePalette(tokens, SHADOW_CARD[id])
 }

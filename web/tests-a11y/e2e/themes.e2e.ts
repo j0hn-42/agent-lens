@@ -1,4 +1,4 @@
-// Browser checks of the themes: graphite by default, the selector switches neon / graphite / paper, the choice
+// Browser checks of the themes: Catppuccin Macchiato by default, the selector switches the nine themes, the choice
 // survives a reload, the canvas palette follows, and no theme breaks the page. Runs against the demo app:
 //
 //   pnpm --dir web run test:e2e
@@ -32,33 +32,37 @@ const rootState = (page: Page) => page.evaluate(() => {
   }
 })
 
-test('graphite is the default; the selector switches themes and the choice survives a reload', async () => {
+test('catppuccin-macchiato is the default; the selector switches themes and the choice survives a reload', async () => {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
   const page = await context.newPage()
   try {
     await page.goto(server.url)
     const select = page.getByRole('combobox', { name: 'Theme' })
     await select.waitFor()
-    assert.equal(await select.inputValue(), 'graphite')
+    assert.equal(await select.inputValue(), 'catppuccin-macchiato')
     let s = await rootState(page)
-    assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['graphite', true, 'dark', '#121212'])
+    assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['catppuccin-macchiato', true, 'dark', '#181926'])
     assert.equal(s.bodyBg, 'rgb(5, 5, 16)', 'the page background is the scene ground, not themed')
 
-    await select.selectOption('paper')
-    s = await rootState(page)
-    assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['paper', false, 'light', '#f6f6f4'])
-    assert.equal(s.bodyBg, 'rgb(5, 5, 16)', 'paper: the page background stays the scene ground')
+    // (the browser serialises #000000 as #000)
+    for (const [id, voidColor] of [['graphite', '#121212'], ['midnight', '#0b0e1c'], ['ember', '#15110e'], ['anthropic', '#0e0e0d'], ['contrast', '#000'], ['catppuccin-mocha', '#11111b'], ['catppuccin-frappe', '#232634'], ['neon', '#050510']] as const) {
+      await select.selectOption(id)
+      s = await rootState(page)
+      assert.deepEqual([s.theme, s.dark, s.scheme, s.void], [id, true, 'dark', voidColor])
+      assert.equal(s.bodyBg, 'rgb(5, 5, 16)', `${id}: the page background stays the scene ground`)
+    }
+    await select.selectOption('graphite')
 
     await select.selectOption('neon')
     s = await rootState(page)
     assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['neon', true, 'dark', '#050510'])
     assert.equal(s.bodyBg, 'rgb(5, 5, 16)')
 
-    await select.selectOption('paper')
+    await select.selectOption('graphite')
     await page.reload()
     await page.getByRole('combobox', { name: 'Theme' }).waitFor()
-    assert.equal(await page.getByRole('combobox', { name: 'Theme' }).inputValue(), 'paper')
-    assert.equal((await rootState(page)).theme, 'paper')
+    assert.equal(await page.getByRole('combobox', { name: 'Theme' }).inputValue(), 'graphite')
+    assert.equal((await rootState(page)).theme, 'graphite')
   } finally {
     await context.close()
   }
@@ -77,8 +81,8 @@ test('?theme= picks the theme when nothing is stored, and the selector reflects 
   }
 })
 
-test('a theme stored by an earlier version (dark / light) maps to graphite / paper', async () => {
-  for (const [stored, expected] of [['dark', 'graphite'], ['light', 'paper']] as const) {
+test('a theme stored by an earlier version (dark / light / paper) maps to catppuccin-macchiato', async () => {
+  for (const [stored, expected] of [['dark', 'catppuccin-macchiato'], ['light', 'catppuccin-macchiato'], ['paper', 'catppuccin-macchiato'], ['graphite', 'graphite'], ['anthropic', 'anthropic']] as const) {
     const context = await browser.newContext()
     await context.addInitScript(value => { try { localStorage.setItem('agent-lens-theme', value) } catch { /* blocked */ } }, stored)
     const page = await context.newPage()
@@ -100,7 +104,7 @@ test('the selector is reachable and operable with the keyboard', async () => {
     const select = page.getByRole('combobox', { name: 'Theme' })
     await select.focus()
     await page.keyboard.press('ArrowDown')
-    assert.equal((await rootState(page)).theme, 'paper', 'ArrowDown moves from graphite to paper')
+    assert.equal((await rootState(page)).theme, 'catppuccin-mocha', 'ArrowDown moves from macchiato to mocha')
   } finally {
     await context.close()
   }
@@ -113,13 +117,13 @@ test('a stored non-default theme hydrates without a mismatch and paints with its
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
   page.on('pageerror', e => errors.push(String(e)))
   try {
-    await page.goto(`${server.url}?theme=paper`)
+    await page.goto(`${server.url}?theme=catppuccin-frappe`)
     await page.getByRole('combobox', { name: 'Theme' }).waitFor()
     await page.waitForTimeout(1500)
     assert.deepEqual(errors.filter(e => /hydrat/i.test(e)), [])
-    // A COLORS-based inline style (the select border) uses the paper control border, not graphite's
+    // A COLORS-based inline style (the select border) uses the Frappe overlay1 control border, not the default's
     const border = await page.getByRole('combobox', { name: 'Theme' }).evaluate(el => getComputedStyle(el).borderTopColor)
-    assert.equal(border, 'rgb(138, 138, 134)')
+    assert.equal(border, 'rgb(131, 139, 167)')
   } finally {
     await context.close()
   }

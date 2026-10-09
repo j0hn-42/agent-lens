@@ -1,4 +1,4 @@
-// Contrast of every theme (neon, graphite, paper): WCAG 1.4.3 (text >= 4.5:1) and 1.4.11 (controls >= 3:1).
+// Contrast of every theme (every theme): WCAG 1.4.3 (text >= 4.5:1) and 1.4.11 (controls >= 3:1).
 // scripts/contrast.test.ts keeps pinning the neon pixels; this file checks the palette each theme really paints.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -160,10 +160,104 @@ for (const id of THEME_IDS) {
   })
 }
 
-test('palettes of the three themes define the same keys', () => {
+test('palettes of every theme define the same keys', () => {
   const keys = (id: ThemeId) => Object.keys(paletteFor(id)).sort()
-  assert.deepEqual(keys('graphite'), keys('neon'))
-  assert.deepEqual(keys('paper'), keys('neon'))
+  for (const id of THEME_IDS) assert.deepEqual(keys(id), keys('neon'), id)
+})
+
+// ─── Roles on every ground, for every theme (the table the design system promises) ─────────────
+
+const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info'] as const
+const COMPONENT_ROLES = ['control-border', 'focus', 'context-system'] as const
+
+for (const id of THEME_IDS) {
+  test(`${id}: every text role is >= 4.5:1 on void, surface and surface-raised; control roles >= 3:1`, () => {
+    const t = TOKENS[id]
+    const failures: string[] = []
+    for (const bg of ['void', 'surface', 'surface-raised'] as const) {
+      for (const role of TEXT_ROLES) {
+        const r = ratio(rgb(t[role]), rgb(t[bg]))
+        if (r < 4.5) failures.push(`${role} on ${bg}: ${r.toFixed(2)}`)
+      }
+      for (const role of COMPONENT_ROLES) {
+        // context-system is a slice of the context bar (on surface); the other control roles sit on every ground
+        if (role === 'context-system' && bg !== 'surface') continue
+        const r = ratio(rgb(t[role]), rgb(t[bg]))
+        if (r < 3) failures.push(`${role} on ${bg}: ${r.toFixed(2)}`)
+      }
+    }
+    assert.deepEqual(failures, [])
+  })
+}
+
+// ─── Colour-blind safe states: ok / warn / danger / delegate differ by luminance, not only by hue ─────────────
+
+for (const id of ['midnight', 'ember', 'contrast'] as const) {
+  test(`${id}: ok, warn, danger and delegate are told apart by luminance (>= 1.2:1 between any two)`, () => {
+    const t = TOKENS[id]
+    const roles = ['ok', 'warn', 'danger', 'delegate'] as const
+    const failures: string[] = []
+    for (let i = 0; i < roles.length; i++) {
+      for (let j = i + 1; j < roles.length; j++) {
+        const r = ratio(rgb(t[roles[i]]), rgb(t[roles[j]]))
+        if (r < 1.2) failures.push(`${roles[i]} vs ${roles[j]}: ${r.toFixed(2)}`)
+      }
+    }
+    assert.deepEqual(failures, [])
+  })
+}
+
+// ─── High contrast: text >= 7:1 (WCAG AAA 1.4.6), components and focus >= 4.5:1 ─────────────
+
+test('contrast: every text role is >= 7:1 on void, surface and surface-raised', () => {
+  const t = TOKENS.contrast
+  const failures: string[] = []
+  for (const bg of ['void', 'surface', 'surface-raised'] as const) {
+    for (const role of TEXT_ROLES) {
+      const r = ratio(rgb(t[role]), rgb(t[bg]))
+      if (r < 7) failures.push(`${role} on ${bg}: ${r.toFixed(2)}`)
+    }
+  }
+  assert.ok(ratio(rgb(t['on-accent']), rgb(t.accent)) >= 7, 'on-accent on accent')
+  assert.deepEqual(failures, [])
+})
+
+test('contrast: control border, focus ring, card edge and context slice are >= 4.5:1 on every ground', () => {
+  const t = TOKENS.contrast
+  const failures: string[] = []
+  for (const bg of ['void', 'surface', 'surface-raised'] as const) {
+    for (const role of ['control-border', 'focus', 'edge', 'context-system'] as const) {
+      const r = ratio(rgb(t[role]), rgb(t[bg]))
+      if (r < 4.5) failures.push(`${role} on ${bg}: ${r.toFixed(2)}`)
+    }
+  }
+  assert.deepEqual(failures, [])
+  assert.equal(t.void, '#000000')
+  assert.equal(t.ink, '#ffffff')
+  const v = extraVars('contrast')
+  assert.equal(v['--lens-focus-width'], '3px')
+  assert.equal(v['--lens-glass-border'], t['control-border'])
+})
+
+test('contrast: the palette the interface paints keeps text >= 7:1 on its grounds (solid roles and tinted rows)', () => {
+  const t = TOKENS.contrast
+  const p = paletteFor('contrast')
+  const grounds: Record<string, Rgb> = { void: rgb(t.void), glass: over(p.glassBg, rgb(t.void)), raised: rgb(t['surface-raised']) }
+  const failures: string[] = []
+  for (const [name, bg] of Object.entries(grounds)) {
+    for (const k of TEXT_KEYS) {
+      const r = ratio(over(p[k], bg), bg)
+      if (r < 7) failures.push(`${k}=${p[k]} on ${name}: ${r.toFixed(2)}`)
+    }
+  }
+  for (const [name, bgKey, keys] of TINTED) {
+    const bg = over(p[bgKey], grounds.glass)
+    for (const k of keys) {
+      const r = ratio(over(p[k], bg), bg)
+      if (r < 7) failures.push(`${name}: ${k} on ${bgKey}: ${r.toFixed(2)}`)
+    }
+  }
+  assert.deepEqual(failures, [])
 })
 
 test('neon: the panel and feed colours keep their historical values', () => {

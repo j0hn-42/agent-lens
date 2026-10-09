@@ -19,12 +19,12 @@ afterEach(() => {
   window.localStorage.clear()
 })
 
-test('the selector is a named combobox listing neon, graphite and paper, graphite selected by default', () => {
+test('the selector is a named combobox listing the nine dark themes, Catppuccin Macchiato selected by default', () => {
   const { getByRole } = render(<ThemeSelect />)
   const select = getByRole('combobox', { name: 'Theme' }) as HTMLSelectElement
-  assert.deepEqual(Array.from(select.options).map(o => o.value), ['neon', 'graphite', 'paper'])
-  assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Neon', 'Graphite', 'Paper'])
-  assert.equal(select.value, 'graphite')
+  assert.deepEqual(Array.from(select.options).map(o => o.value), ['catppuccin-macchiato', 'catppuccin-mocha', 'catppuccin-frappe', 'midnight', 'graphite', 'neon', 'ember', 'anthropic', 'contrast'])
+  assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Catppuccin Macchiato', 'Catppuccin Mocha', 'Catppuccin Frappe', 'Midnight', 'Graphite', 'Neon', 'Ember', 'Anthropic', 'High contrast'])
+  assert.equal(select.value, 'catppuccin-macchiato')
   assert.ok(select.title)
 })
 
@@ -32,13 +32,15 @@ test('choosing a theme switches the document, persists the choice and repaints C
   const { getByRole } = render(<ThemeSelect />)
   const select = getByRole('combobox', { name: 'Theme' }) as HTMLSelectElement
 
-  fireEvent.change(select, { target: { value: 'paper' } })
-  assert.equal(select.value, 'paper', 'the announced value follows the choice')
-  assert.equal(document.documentElement.dataset.theme, 'paper')
-  assert.equal(document.documentElement.classList.contains('dark'), false)
-  assert.equal(document.documentElement.style.colorScheme, 'light')
-  assert.equal(window.localStorage.getItem(THEME_STORAGE_KEY), 'paper')
-  assert.equal(COLORS.void, TOKENS.paper.void)
+  for (const id of ['graphite', 'midnight', 'ember', 'anthropic', 'contrast', 'catppuccin-mocha', 'catppuccin-frappe'] as const) {
+    fireEvent.change(select, { target: { value: id } })
+    assert.equal(select.value, id, 'the announced value follows the choice')
+    assert.equal(document.documentElement.dataset.theme, id)
+    assert.equal(document.documentElement.classList.contains('dark'), true, `${id}: every theme is dark`)
+    assert.equal(document.documentElement.style.colorScheme, 'dark')
+    assert.equal(window.localStorage.getItem(THEME_STORAGE_KEY), id)
+    assert.equal(COLORS.void, TOKENS[id].void)
+  }
 
   fireEvent.change(select, { target: { value: 'neon' } })
   assert.equal(document.documentElement.dataset.theme, 'neon')
@@ -51,10 +53,11 @@ test('choosing a theme switches the document, persists the choice and repaints C
 test('an unknown value is ignored', () => {
   const { getByRole } = render(<ThemeSelect />)
   const select = getByRole('combobox', { name: 'Theme' }) as HTMLSelectElement
-  fireEvent.change(select, { target: { value: 'paper' } })
+  fireEvent.change(select, { target: { value: 'ember' } })
   setTheme('purple' as never)
-  assert.equal(getTheme(), 'paper')
-  assert.equal(window.localStorage.getItem(THEME_STORAGE_KEY), 'paper')
+  setTheme('paper' as never)
+  assert.equal(getTheme(), 'ember', 'the removed paper theme is not selectable any more')
+  assert.equal(window.localStorage.getItem(THEME_STORAGE_KEY), 'ember')
 })
 
 test('a theme set from elsewhere updates the selector (shared store)', () => {
@@ -79,6 +82,6 @@ test('the top bar repaints with the new theme colours', () => {
   assert.ok(toolbar.contains(select), 'the selector sits in the view controls toolbar')
   const border = () => (toolbar.querySelector('#topbar-toggle-timeline') as HTMLElement).style.border
   const before = border()
-  fireEvent.change(select, { target: { value: 'paper' } })
+  fireEvent.change(select, { target: { value: 'contrast' } })
   assert.notEqual(border(), before, 'a memoized top bar button repaints')
 })
