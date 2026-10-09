@@ -76,6 +76,7 @@ export function SettingsDialog({
   hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts,
 }: SettingsDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const themeId = useId()
   const onCloseRef = useRef(onClose)
@@ -90,39 +91,56 @@ export function SettingsDialog({
     }
   }, [open])
 
-  if (!open) return null
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
+  // Native listeners rather than JSX handlers: the backdrop and the dialog container are not
+  // interactive elements, so jsx-a11y rejects onMouseDown/onKeyDown on them.
+  useEffect(() => {
+    const backdrop = backdropRef.current
+    const dialog = ref.current
+    if (!open || !backdrop || !dialog) return
+    const onBackdropMouseDown = (e: MouseEvent) => {
       e.stopPropagation()
-      onCloseRef.current()
-      return
+      if (e.target === e.currentTarget) onCloseRef.current()
     }
-    if (e.key !== 'Tab' || !ref.current) return
-    const nodes = Array.from(ref.current.querySelectorAll<HTMLElement>(FOCUSABLE))
-    if (nodes.length === 0) {
-      e.preventDefault()
-      return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== 'Tab' || !dialog) return
+      const nodes = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+      if (nodes.length === 0) {
+        e.preventDefault()
+        return
+      }
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const active = document.activeElement
+      if (e.shiftKey && (active === first || active === dialog)) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     }
-    const first = nodes[0]
-    const last = nodes[nodes.length - 1]
-    const active = document.activeElement
-    if (e.shiftKey && (active === first || active === ref.current)) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault()
-      first.focus()
+    backdrop.addEventListener('mousedown', onBackdropMouseDown)
+    dialog.addEventListener('keydown', onKeyDown)
+    return () => {
+      backdrop.removeEventListener('mousedown', onBackdropMouseDown)
+      dialog.removeEventListener('keydown', onKeyDown)
     }
-  }
+  }, [open])
+
+  if (!open) return null
 
   return (
     <div
+      ref={backdropRef}
       {...stopPropagationHandlers}
       className="fixed inset-0 flex items-center justify-center p-3"
       style={{ zIndex: Z.contextMenu + 1, background: 'rgba(0, 0, 0, 0.5)' }}
-      onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
     >
       <div
         ref={ref}
@@ -130,7 +148,6 @@ export function SettingsDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        onKeyDown={onKeyDown}
         className="max-h-[calc(100vh-24px)] w-[420px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
