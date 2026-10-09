@@ -363,6 +363,8 @@ export interface WatchedSession {
   subagentsDir: string | null
   label: string
   labelSet: boolean
+  /** Rank of the session title the label came from (see SESSION_TITLE_RANK); unset = first prompt */
+  titleRank?: number
   model: string | null
   /** Maps agent names to their last emitted model ID — re-emits on model change */
   modelDetectedAgents: Map<string, string>

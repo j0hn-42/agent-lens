@@ -113,6 +113,9 @@ export const SESSION_LABEL_MAX = 14
 /** Truncated label text (label - ellipsis) */
 export const SESSION_LABEL_TRUNCATED = SESSION_LABEL_MAX - 2
 
+/** Max length of a session name (custom-title / ai-title) used as label */
+export const SESSION_TITLE_MAX = 40
+
 /** File path in discovery labels */
 export const DISCOVERY_LABEL_MAX = 40
 
