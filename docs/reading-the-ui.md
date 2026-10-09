@@ -62,6 +62,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
 | **non renseigné** | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
+| **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
 ## The `observations` action
