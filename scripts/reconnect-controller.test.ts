@@ -4,7 +4,7 @@ import { test, beforeEach, afterEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   createReconnectingSource, createLoadToken, backoffDelay, filterForSession,
-  BACKOFF_BASE_MS, HEARTBEAT_INTERVAL_MS, SILENCE_TIMEOUT_MS, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, REPLAY_WINDOW_MS, DEDUPE_CAPACITY, createEventDedupe,
+  BACKOFF_BASE_MS, CONNECT_TIMEOUT_MS, POLL_AFTER_FAILURES, HEARTBEAT_INTERVAL_MS, SILENCE_TIMEOUT_MS, POLL_INTERVAL_MS, POLL_TIMEOUT_MS, REPLAY_WINDOW_MS, DEDUPE_CAPACITY, createEventDedupe,
   type EventSourceLike, type SourceStatus,
 } from '../web/lib/reconnect'
 
@@ -319,12 +319,49 @@ test('silence: recovery resets the failure counter once the new stream opens', a
   assert.equal(last().status, 'connected', 'the watchdog restarts with the new stream')
 })
 
-test('silence: no watchdog before the stream opens, none after close()', async () => {
+test('silence: close() stops the watchdog of an open stream', async () => {
   const source = start()
-  await tick(10 * SILENCE_TIMEOUT_MS)
-  assert.equal(FakeES.all.length, 1, 'a connecting stream is not judged silent (onerror handles failures)')
   FakeES.last.open()
   source.close()
   await tick(10 * SILENCE_TIMEOUT_MS)
+  assert.equal(FakeES.all.length, 1)
+})
+
+// Connection guard (#207): a request that never answers must not stay "connecting" forever
+
+test('connect timeout: a source that never fires onopen nor onerror is closed and retried with backoff', async () => {
+  start()
+  assert.equal(last().status, 'connecting')
+  await tick(CONNECT_TIMEOUT_MS - 1)
+  assert.equal(FakeES.all.length, 1)
+  assert.equal(FakeES.last.closed, false, 'not one ms early')
+  await tick(1)
+  assert.equal(FakeES.all[0].closed, true)
+  assert.equal(last().status, 'disconnected')
+  assert.equal(last().attempt, 1)
+  await tick(BACKOFF_BASE_MS)
+  assert.equal(FakeES.all.length, 2, 'a new attempt is scheduled')
+})
+
+test('connect timeout: repeated hangs switch to polling after POLL_AFTER_FAILURES', async () => {
+  start()
+  for (let i = 0; i < POLL_AFTER_FAILURES; i++) {
+    await tick(CONNECT_TIMEOUT_MS)
+    if (i < POLL_AFTER_FAILURES - 1) await tick(backoffDelay(i + 1, () => 0))
+  }
+  assert.equal(last().status, 'disconnected')
+  assert.equal(last().mode, 'polling')
+  await tick(POLL_INTERVAL_MS)
+  assert.equal(probes.length, 1, 'the reachability probe runs')
+})
+
+test('connect timeout: onopen in time disarms the connect guard, close() cancels it', async () => {
+  const source = start()
+  await tick(CONNECT_TIMEOUT_MS - 1)
+  FakeES.last.open()
+  await tick(SILENCE_TIMEOUT_MS - 1)
+  assert.equal(last().status, 'connected')
+  source.close()
+  await tick(10 * CONNECT_TIMEOUT_MS)
   assert.equal(FakeES.all.length, 1)
 })
