@@ -45,8 +45,8 @@ shell and with a timeout, `gh pr list` and `gh issue list` on the workspace's `o
 - the role comes from the node's dispatch subagent type (else its team role) and must match `[a-z0-9][a-z0-9_-]{0,39}`;
 - the repository must be a plain `github.com/<owner>/<name>` remote; any other URL disables the feature;
 - every returned URL must be exactly `<repo>/issues/<n>` or `<repo>/pull/<n>`, and the web client checks it again;
-- if `gh` is missing, unauthenticated, slow or fails, the relay answers an empty list and the inspector shows nothing;
-- the web client tells "no link" (a successful answer, even empty, cached 60 s) from "unavailable" (a 503 "Busy", a network error, a timeout or an unreadable answer, #149): the latter is never cached, the inspector says "Issue and PR links unavailable for now." and the request is retried with a short backoff (1 s doubling up to 30 s, longer if `Retry-After` asks for it, at most 4 retries).
+- if `gh` or `git` is missing, unauthenticated, rate-limited, slow or fails (or prints something other than a list), the relay answers `502` with `Retry-After` and caches nothing (#205); a workspace without repository, without `origin` or with a non-GitHub remote is a true empty list. A failed repository lookup is not kept: the next request looks again;
+- the web client tells "no link" (a successful answer, even empty, cached 60 s) from "unavailable" (a 502 or 503, a network error, a timeout or an unreadable answer, #149): the latter is never cached, the inspector says "Issue and PR links unavailable for now." and the request is retried with a short backoff (1 s doubling up to 30 s, longer if `Retry-After` asks for it, at most 4 retries).
 
 Only relay mode (dev relay, standalone app) serves links; the VS Code webview has no relay and shows none. In
 `--all-workspaces` mode the repository is that of the relay's own workspace.

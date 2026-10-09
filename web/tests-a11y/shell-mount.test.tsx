@@ -146,12 +146,15 @@ test('Shift-click on the canvas picks the pair, and the pair is pruned when its 
   const canvas = r.container.querySelector('canvas')!
   assert.equal(getPair().a, '')
   const done = () => getPair().a !== '' && getPair().b !== ''
-  // The layout settles asynchronously: rescan (letting the simulation advance in between) until the pair is complete
+  // The layout settles asynchronously: rescan from a clean pair (letting the simulation advance in between) until the pair is complete
   let picked = false
   const deadline = Date.now() + 25_000
   while (!picked && Date.now() < deadline) {
     picked = shiftClickScan(canvas, done)
-    if (!picked) await wait(200)
+    if (!picked) {
+      clearPair()
+      await wait(200)
+    }
   }
   assert.ok(picked, 'two Shift-clicks on two agents complete the pair')
   const pair = getPair()

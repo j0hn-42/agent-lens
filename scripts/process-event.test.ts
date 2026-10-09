@@ -245,3 +245,53 @@ test('tool errors are counted per agent and survive the fade-out of the tool cal
   assert.equal(s.agents.get(agentKeyOf('s1', 'a'))!.toolErrors, 2)
   assert.equal(s.agents.get(agentKeyOf('s2', 'a'))!.toolErrors, 0)
 })
+
+// #214: entries of the previous state must never be mutated, or memoised views (table view) keep stale rows
+function step(prev: SimulationState, e: Pick<SimulationEvent, 'type' | 'payload'> & { time: number }): SimulationState {
+  return processEvent({ time: e.time, type: e.type, payload: e.payload, sessionId: 's1' }, { ...prev, currentTime: e.time }, ctx)
+}
+
+function timelineSnapshot(s: SimulationState): string {
+  return JSON.stringify(Array.from(s.timelineEntries))
+}
+
+test('tool_call_start publishes a new timeline map and leaves the previous entry untouched (#214)', () => {
+  const prev = step(createEmptyState(), { time: 1, type: 'agent_spawn', payload: { name: 'a', isMain: true } })
+  const id = agentKeyOf('s1', 'a')
+  const before = prev.timelineEntries.get(id)!
+  const length = before.blocks.length
+  const next = step(prev, { time: 2, type: 'tool_call_start', payload: { agent: 'a', tool: 'Read', args: 'a.ts' } })
+  assert.equal(prev.timelineEntries.get(id)!.blocks.length, length, 'the previous entry keeps its block count')
+  assert.equal(prev.timelineEntries.get(id)!.blocks[length - 1].endTime, undefined, 'the previous last block stays open')
+  assert.notEqual(next.timelineEntries, prev.timelineEntries)
+  assert.notEqual(next.timelineEntries.get(id), before)
+  assert.equal(next.timelineEntries.get(id)!.blocks.length, length + 1)
+  assert.equal(next.timelineEntries.get(id)!.blocks[length - 1].endTime, 2)
+})
+
+test('no timeline event mutates an entry or a block of the previous state (#214)', () => {
+  const events: Array<Pick<SimulationEvent, 'type' | 'payload'>> = [
+    { type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    { type: 'agent_spawn', payload: { name: 'child', parent: 'a' } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'x' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: 'boom', isError: true } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'y' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: '', outcome: 'cancelled' } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Read', args: 'z' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Read', result: 'ok' } },
+    { type: 'permission_requested', payload: { agent: 'a', tool: 'Bash' } },
+    { type: 'agent_complete', payload: { name: 'a' } },
+  ]
+  let state = createEmptyState()
+  events.forEach((e, i) => {
+    const before = timelineSnapshot(state)
+    const next = step(state, { ...e, time: i + 1 })
+    assert.equal(timelineSnapshot(state), before, `${e.type} left the previous timeline unchanged`)
+    assert.notEqual(next.timelineEntries, state.timelineEntries, `${e.type} publishes a new timeline map`)
+    state = next
+  })
+  const a = state.timelineEntries.get(agentKeyOf('s1', 'a'))!
+  assert.equal(a.endTime, 10)
+  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Thinking...', 'Bash: CANCELLED'])
+  assert.equal(state.timelineEntries.get(agentKeyOf('s1', 'child'))!.endTime, 10)
+})

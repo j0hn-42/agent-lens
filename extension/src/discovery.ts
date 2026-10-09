@@ -24,10 +24,9 @@ const DISCOVERY_DIR = discoveryDir()
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
 const WORKSPACES_MANIFEST_PATH = path.join(DISCOVERY_DIR, 'workspaces.json')
 
-/** Identifier substring used to detect our command hooks in settings.json */
-export const HOOK_COMMAND_MARKER = 'agent-lens/hook.js'
-/** Marker of hooks installed under the project's former name; still recognised so they get cleaned up. */
-export const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
+/** Command markers of our hooks (agent-lens/hook.js) and of those installed under the project's former
+ *  name (agent-flow/hook.js, replaced on activation); defined once in ../scripts/claude-hooks.js. */
+export { HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER } from '../scripts/claude-hooks'
 
 /** Resolve the absolute path to the `node` binary.
  *  VS Code's extension host runs in Electron, so process.execPath is not node.

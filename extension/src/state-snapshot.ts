@@ -13,6 +13,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { readTextFileSafe } from './fs-utils'
+import { writeFileAtomic } from '../scripts/claude-hooks'
 import {
   SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_MAX_BYTES, SNAPSHOT_MAX_DEPTH, SNAPSHOT_MAX_ARRAY_LENGTH,
   SNAPSHOT_MAX_KEYS, SNAPSHOT_STALE_AFTER_MS, SNAPSHOT_FUTURE_TOLERANCE_MS,
@@ -113,28 +114,9 @@ export function readSnapshotFile(filePath: string, opts: ReadSnapshotOptions = {
   }
 }
 
-/**
- * Atomic publish: temp file in the same directory (exclusive create, 0600), fsync, rename over `finalPath`.
- * The temp file is removed when anything fails. Throws on failure; the previous file is then untouched.
- */
-export function writeFileAtomic(finalPath: string, content: string): void {
-  const dir = path.dirname(finalPath)
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tmp = `${finalPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`
-  let fd: number | undefined
-  try {
-    fd = fs.openSync(tmp, 'wx', 0o600)
-    fs.writeSync(fd, content)
-    fs.fsyncSync(fd)
-    fs.closeSync(fd)
-    fd = undefined
-    fs.renameSync(tmp, finalPath)
-  } catch (err) {
-    if (fd !== undefined) { try { fs.closeSync(fd) } catch { /* already closed */ } }
-    try { fs.unlinkSync(tmp) } catch { /* never created or already gone */ }
-    throw err
-  }
-}
+// Atomic publish (unique temp file, exclusive create, fsync, rename; new files 0600): the single
+// implementation shared with the settings.json writers (#217).
+export { writeFileAtomic }
 
 /**
  * Among snapshots of one kind, the one to believe. Per owner the highest generation wins (the clock may

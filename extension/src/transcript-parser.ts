@@ -12,7 +12,7 @@ import {
   TranscriptEntry, ToolUseBlock, ToolResultBlock,
   emitSubagentSpawn,
 } from './protocol'
-import { readFileChunk } from './fs-utils'
+import { readLinesChunked } from './fs-utils'
 import { claudeProjectsDir } from './claude-config-dir'
 import {
   PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX,
@@ -66,6 +66,35 @@ export function coerceToolUseBlock(block: Record<string, unknown>): ToolUseBlock
   return { type: 'tool_use', id, name, input }
 }
 
+/**
+ * A tool_result block with a string tool_use_id; content is kept when it is a string, an array or an
+ * object (anything else becomes ''), is_error only when boolean. Anything without an id is rejected.
+ */
+export function coerceToolResultBlock(block: Record<string, unknown>): ToolResultBlock | null {
+  if (typeof block.tool_use_id !== 'string') return null
+  const raw = block.content
+  const content: ToolResultBlock['content'] = typeof raw === 'string' || Array.isArray(raw) || isRecord(raw) ? raw : ''
+  return {
+    type: 'tool_result',
+    tool_use_id: block.tool_use_id,
+    content,
+    ...(typeof block.is_error === 'boolean' ? { is_error: block.is_error } : {}),
+  }
+}
+
+/** The user/assistant turn of a parsed line, or null for any other line or a turn without a message object. */
+function toTranscriptEntry(parsed: Record<string, unknown>): TranscriptEntry | null {
+  if (parsed.type !== 'user' && parsed.type !== 'assistant') return null
+  const msg = parsed.message
+  if (!isRecord(msg)) return null
+  return {
+    sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : '',
+    type: parsed.type,
+    uuid: typeof parsed.uuid === 'string' ? parsed.uuid : undefined,
+    message: msg as TranscriptEntry['message'],
+  }
+}
+
 /** Safely extract trimmed text from a text block */
 function safeText(block: unknown): string {
   if (!isRecord(block)) return ''
@@ -100,32 +129,8 @@ const REDACTED_THINKING_LABEL = 'Thinking...'
 
 const PRESCAN_KEEP_HEAD = 50
 const PRESCAN_KEEP_TAIL = 400
-const PRESCAN_CHUNK_BYTES = 4 * 1024 * 1024
 
-/** Yield the lines of the first `size` bytes of a file, reading PRESCAN_CHUNK_BYTES at a time. */
-export function* readLinesChunked(filePath: string, size: number, chunkBytes = PRESCAN_CHUNK_BYTES): Generator<string> {
-  const fd = fs.openSync(filePath, 'r')
-  try {
-    let offset = 0
-    let carry: Buffer = Buffer.alloc(0)
-    while (offset < size) {
-      const len = Math.min(chunkBytes, size - offset)
-      const buf = Buffer.alloc(len)
-      const n = fs.readSync(fd, buf, 0, len, offset)
-      if (n <= 0) break
-      offset += n
-      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
-      const cut = data.lastIndexOf(0x0a)
-      if (cut < 0) { carry = Buffer.from(data); continue }
-      carry = Buffer.from(data.subarray(cut + 1))
-      data = data.subarray(0, cut)
-      for (const line of data.toString('utf-8').split(/\r?\n/)) yield line
-    }
-    if (carry.length) yield carry.toString('utf-8')
-  } finally {
-    fs.closeSync(fd)
-  }
-}
+export { readLinesChunked }
 
 /** Claude Code's text for a tool call the user interrupted (Esc / cancel) */
 const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
@@ -443,8 +448,9 @@ export class TranscriptParser {
         ctxSeen.add(toolBlock.id)
         this.handleToolUse(toolBlock, agentName, ctxPending, sessionId)
       } else if (block.type === 'tool_result') {
-        if (typeof block.tool_use_id !== 'string') { norm.noteMalformed(); continue }
-        this.handleToolResult(block as unknown as ToolResultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
+        const resultBlock = coerceToolResultBlock(block)
+        if (!resultBlock) { norm.noteMalformed(); continue }
+        this.handleToolResult(resultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
       } else if (block.type === 'text' && 'text' in block) {
         this.handleTextBlock(block, emitRole, entry.uuid, agentName, seenMsgs, session, sessionId)
       } else if (block.type === 'thinking' && 'thinking' in block) {
@@ -650,10 +656,13 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
-    // Errors: the structured is_error flag is authoritative. Free-text heuristics only
-    // run for ordinary tools — a subagent report is prose that may legitimately
-    // contain words like "failed" or "not found".
-    const isError = block.is_error === true || (!isSubagentTool && detectError(result))
+    // Errors: when the structured is_error flag is present it is the sole authority
+    // (true or false). The free-text heuristic only runs when the flag is absent, and
+    // never for subagents: a report is prose that may legitimately contain words like
+    // "failed" or "not found".
+    const isError = typeof block.is_error === 'boolean'
+      ? block.is_error
+      : !isSubagentTool && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
@@ -762,8 +771,12 @@ export class TranscriptParser {
    * Pre-scan existing file content:
    * 1. Build seenToolUseIds dedup set (prevents re-emitting old tool calls)
    * 2. Return all entries for catch-up emission
+   * 3. Position the session for readTrackedLines: fileSize at the end of what was read, and an
+   *    unfinished last line (still being written) kept in fileTail, never parsed here.
    */
   prescanExistingContent(filePath: string, size: number, session: WatchedSession): TranscriptEntry[] {
+    session.fileSize = size
+    session.fileTail = ''
     if (size === 0) { return [] }
     const catchUpEntries: TranscriptEntry[] = []
     try {
@@ -772,19 +785,26 @@ export class TranscriptParser {
       // been accounted for in fileSize, causing readNewLines to silently skip them.
       // Streamed in bounded chunks: a multi-hundred-MB lead transcript is never held in memory at once.
       const norm = this.getNormalizer(session.sessionId)
-      for (const line of readLinesChunked(filePath, size)) {
+      for (const line of readLinesChunked(filePath, size, undefined, session)) {
         if (!line.trim()) { continue }
         try {
           const parsedEntry = norm.parseLine(line)
           if (!parsedEntry) { continue }
           this.setSessionTitle(session, parsedEntry)
-          const entry = parsedEntry as unknown as TranscriptEntry
+          const entry = toTranscriptEntry(parsedEntry)
+          if (!entry) {
+            // Same rule as the live path: a turn without a message object is malformed
+            if (parsedEntry.type === 'user' || parsedEntry.type === 'assistant') norm.noteMalformed()
+            continue
+          }
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
-          const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
-          if (entry.message && Array.isArray(entry.message.content)) {
-            for (const block of entry.message.content) {
-              if (block.type === 'tool_use' && (block as ToolUseBlock).id) {
-                const toolBlock = block as ToolUseBlock
+          const isUser = entry.message.role === 'user' || entry.message.role === 'human'
+          if (Array.isArray(entry.message.content)) {
+            for (const block of entry.message.content as unknown[]) {
+              if (!isRecord(block)) { norm.noteMalformed(); continue }
+              if (block.type === 'tool_use') {
+                const toolBlock = coerceToolUseBlock(block)
+                if (!toolBlock) { norm.noteMalformed(); continue }
                 session.seenToolUseIds.add(toolBlock.id)
                 // Track subagent names so startWatchingSubagentFile assigns correct names
                 // and handleToolResult can resolve the child name on completion
@@ -794,7 +814,7 @@ export class TranscriptParser {
                   record.spawned = true
                   session.spawnedSubagents.add(record.name)
                   this.subagentChildNames.set(toolBlock.id, record.name)
-                  if (sanitizeTeamField(toolBlock.input?.team_name) && this.teammateSpawnIds.size < 256) {
+                  if (sanitizeTeamField(toolBlock.input.team_name) && this.teammateSpawnIds.size < 256) {
                     this.teammateSpawnIds.add(toolBlock.id)
                   }
                 }
@@ -804,11 +824,10 @@ export class TranscriptParser {
                 const filePath = typeof rawPath === 'string' ? rawPath : undefined
                 session.pendingToolCalls.set(toolBlock.id, { name: toolBlock.name, args, filePath, startTime: Date.now() })
               } else if (block.type === 'tool_result') {
-                const resultBlock = block as ToolResultBlock
+                const resultBlock = coerceToolResultBlock(block)
+                if (!resultBlock) { norm.noteMalformed(); continue }
                 // Clear matched pending tool call
-                if (resultBlock.tool_use_id) {
-                  session.pendingToolCalls.delete(resultBlock.tool_use_id)
-                }
+                session.pendingToolCalls.delete(resultBlock.tool_use_id)
                 // Accumulate tool result tokens
                 session.contextBreakdown.toolResults += estimateTokensFromContent(resultBlock.content)
               } else if (block.type === 'text' && 'text' in block) {
@@ -830,7 +849,7 @@ export class TranscriptParser {
                 }
               }
             }
-          } else if (entry.type === 'user' && typeof entry.message?.content === 'string') {
+          } else if (entry.type === 'user' && typeof entry.message.content === 'string') {
             const text = entry.message.content.trim()
             if (text) {
               const hashKey = entry.uuid ? `user:${entry.uuid}` : `user:${text.slice(0, HASH_PREFIX_MAX)}`
@@ -839,15 +858,13 @@ export class TranscriptParser {
             }
           }
           // Extract model from first assistant message
-          if (entry.type === 'assistant' && isRealModel(entry.message?.model) && !session.model) {
+          if (entry.type === 'assistant' && isRealModel(entry.message.model) && !session.model) {
             session.model = entry.message.model
           }
           // Collect emittable entries (user and assistant turns)
-          if (entry.type === 'user' || entry.type === 'assistant') {
-            catchUpEntries.push(entry)
-            // Only the head (session label) and the recent tail (current turn) are needed for catch-up
-            if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
-          }
+          catchUpEntries.push(entry)
+          // Only the head (session label) and the recent tail (current turn) are needed for catch-up
+          if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
         } catch (err) { norm.noteMalformed(); log.debug('Skipping malformed transcript line:', err) }
       }
       log.info(`Pre-scanned ${session.seenToolUseIds.size} existing tool_use IDs, ${catchUpEntries.length} entries total`)
@@ -855,6 +872,9 @@ export class TranscriptParser {
       return catchUpEntries
     } catch (err) {
       log.error('Pre-scan failed:', err)
+      // What could not be read is skipped, not replayed (the position the callers used to set)
+      session.fileSize = size
+      session.fileTail = ''
       return []
     }
   }

@@ -30,6 +30,8 @@ export const HEARTBEAT_INTERVAL_MS = 15_000
 export const SILENCE_INTERVALS = 3
 /** No byte for this long: the connection is half-open */
 export const SILENCE_TIMEOUT_MS = HEARTBEAT_INTERVAL_MS * SILENCE_INTERVALS
+/** A connection attempt that fires neither onopen nor onerror for this long is abandoned (#207) */
+export const CONNECT_TIMEOUT_MS = 20_000
 /** Replayed events remembered to drop the duplicates a reconnect replays */
 export const DEDUPE_CAPACITY = 20_000
 
@@ -210,7 +212,7 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   }
 
   // Half-open connection (proxy, port-forward, sleep): no onerror, no byte. Any frame, heartbeat included, re-arms it.
-  const armWatchdog = (src: EventSourceLike) => {
+  const armWatchdog = (src: EventSourceLike, timeoutMs = SILENCE_TIMEOUT_MS) => {
     if (watchdog) clearTimeout(watchdog)
     watchdog = setTimeout(() => {
       watchdog = null
@@ -219,12 +221,14 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       src.close()
       es = null
       fail('error')
-    }, SILENCE_TIMEOUT_MS)
+    }, timeoutMs)
   }
 
   const connect = () => {
     const src = opts.createEventSource(opts.url)
     es = src
+    // The request may never answer (frozen relay, proxy accepting TCP only): neither onopen nor onerror would fire
+    armWatchdog(src, CONNECT_TIMEOUT_MS)
     src.onopen = () => {
       if (!alive() || es !== src) return
       const reconnected = hasConnected

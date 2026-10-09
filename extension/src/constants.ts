@@ -12,6 +12,8 @@ export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /** Interval between active-session directory scans (ms) */
 export const SCAN_INTERVAL_MS = 1000
+/** Les événements fs.watch du dossier du jour (un par ligne écrite par une session Codex) sont coalescés en un scan par fenêtre de cette durée. */
+export const WATCH_SCAN_DEBOUNCE_MS = 250
 
 /** Plafond de sessions Codex suivies en même temps (watcher + timer chacune), comme RELAY_MAX_WATCHED_SESSIONS côté Claude */
 export const CODEX_MAX_WATCHED_SESSIONS = 25
@@ -50,7 +52,7 @@ export const BRIDGE_INIT_MAX_RETRIES = 50
 export const BRIDGE_INIT_RETRY_MS = 100
 
 /** Default dev server port */
-export const DEFAULT_DEV_PORT = 3002
+export const DEFAULT_DEV_PORT = 3000
 
 /** Default SSE relay port (used by dev relay, standalone app, and webview build) */
 export const DEFAULT_RELAY_PORT = 3001
@@ -179,9 +181,8 @@ export const HASH_PREFIX_MAX = 200
 
 /** Hook server listen address */
 export const HOOK_SERVER_HOST = '127.0.0.1'
-
-/** URL prefix for hook server on localhost */
-export const HOOK_URL_PREFIX = `http://${HOOK_SERVER_HOST}:`
+// No URL-prefix constant on purpose: a hook is recognised as ours by its command marker only,
+// a user's own http hook to 127.0.0.1 is never touched (#199).
 
 /** Default agent name for the main orchestrator */
 export const ORCHESTRATOR_NAME = 'orchestrator'

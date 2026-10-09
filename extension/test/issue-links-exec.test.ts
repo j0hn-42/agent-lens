@@ -49,16 +49,17 @@ describe('defaultExec', () => {
     await assert.rejects(defaultExec(path.join(dir, 'no-such-gh'), []), /ENOENT/)
   })
 
-  it('a gh that never answers is killed after the 8 s timeout, and no link is shown', async () => {
+  it('a gh that never answers is killed after the 8 s timeout, and the lookup fails (never "no link", #205)', async () => {
     const slow = bin('slow', 'exec sleep 30')
     const started = Date.now()
+    const outcome = (e: Error & { killed?: boolean }) => (e.killed ? 'killed' : `rejected: ${e.message}`)
     const [direct, links] = await Promise.all([
-      defaultExec(slow, []).then(() => 'resolved', (e: Error & { killed?: boolean }) => (e.killed ? 'killed' : `rejected: ${e.message}`)),
-      fetchIssueLinks('qa', { repoUrl: 'https://github.com/o/r', exec: (_f, a, o) => defaultExec(slow, a, o) }),
+      defaultExec(slow, []).then(() => 'resolved', outcome),
+      fetchIssueLinks('qa', { repoUrl: 'https://github.com/o/r', exec: (_f, a, o) => defaultExec(slow, a, o) }).then(() => 'resolved', outcome),
     ])
     const elapsed = Date.now() - started
     assert.equal(direct, 'killed')
-    assert.deepEqual(links, [], 'silent degradation: no link, no throw')
+    assert.equal(links, 'killed', 'the timeout is a failure, not an empty list')
     assert.ok(elapsed >= 7_500 && elapsed < 15_000, `timeout around 8 s, got ${elapsed} ms`)
   })
 })

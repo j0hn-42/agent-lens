@@ -107,6 +107,11 @@ test('known-violations.json is well formed', () => {
   assert.deepEqual(validateKnownViolations(known), [])
 })
 
+test('every known violation cites an open issue', () => {
+  const { open } = JSON.parse(fs.readFileSync(path.join(__dirname, 'open-baseline-issues.json'), 'utf8'))
+  assert.deepEqual(validateKnownViolations(known, open), [])
+})
+
 test('shell: top bar', async () => {
   // index.tsx provides #visualizer-main (target of the tabs' aria-controls)
   const { container } = render(<><TopBar {...topBarProps} /><main id="visualizer-main" /></>)

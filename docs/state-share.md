@@ -17,7 +17,9 @@ A process that wants to share its state publishes **one JSON file per (kind, own
 | `payload` | Plain JSON object, depth <= 8, arrays <= 1000, <= 200 keys per object |
 
 - **Atomic write**: temp file in the same directory (`wx`, mode 0600), `fsync`, `rename`. A reader sees the old
-  file or the new one, never a partial one; the temp file is removed on failure.
+  file or the new one, never a partial one; the temp file is removed on failure. It is the single
+  `writeFileAtomic` (`extension/scripts/claude-hooks.js`), also used for every settings.json rewrite by the
+  extension, `scripts/setup.js` and the uninstall script (#217); an existing file keeps its mode.
 - **Strict read**: symlinks refused, size cap (256 KiB), unknown or missing keys refused, wrong types refused,
   corrupt JSON refused, a `writtenAt` more than 5 s in the future refused. The reason is returned
   (`missing | too_large | unreadable | corrupt | invalid | future`), never thrown.

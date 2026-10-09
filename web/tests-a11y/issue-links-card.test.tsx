@@ -285,3 +285,11 @@ test('AgentDetailCard says "unavailable" (accessible status text) when the links
   assert.equal(v.queryByTestId('issue-links'), null)
   assert.equal(within(box).queryAllByRole('link').length, 0)
 })
+
+test('AgentDetailCard says "unavailable" when gh or git failed on the relay (502, #205)', async () => {
+  respond = async () => ({ ok: false, status: 502, headers: { get: (n: string) => (n.toLowerCase() === 'retry-after' ? '10' : null) }, json: async () => ({}) })
+  const v = render(<AgentDetailCard agent={agent({ subagentType: 'card-role-5' })} toolErrors={0} onClose={() => {}} freshnessClock={clock} relayOrigin={ORIGIN} />)
+  await flush()
+  assert.match(within(v.getByTestId('issue-links-unavailable')).getByRole('status').textContent ?? '', /unavailable for now/)
+  assert.equal(v.queryByTestId('issue-links'), null)
+})

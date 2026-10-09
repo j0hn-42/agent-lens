@@ -27,7 +27,7 @@ pnpm run dev:demo       # web app with mock data on http://localhost:3000
 
 ## Checks to run before a pull request
 
-These are the commands of `.github/workflows/ci.yml`. All must pass.
+These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` only (not `develop`, to save GitHub Actions minutes) — run these commands locally before merging into `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -71,6 +71,25 @@ Two files act as guard rails. They record known violations; they are not a place
   - `lint:a11y -- --write` rewrites the baseline. Use it only after you **fixed** violations, so the file shrinks; review the diff, and refuse any added entry or any entry without an issue number.
 - `web/tests-a11y/known-violations.json`: axe-core findings (jsdom and `e2e:*` browser scenarios) tolerated for a tracked issue. The tests fail on a new violation and when a listed one disappears.
   - A new entry needs an existing issue and a `note`; it is a last resort, reviewed like code. When you fix a listed violation, remove its entry in the same pull request.
+- **The issue must be open.** An entry that cites a closed issue is a bug: a closed issue means the violation was declared fixed. `web/tests-a11y/open-baseline-issues.json` is the hand-maintained list of open issues the two baselines may cite (kept offline, so the tests need no network). Add the issue number there when you file the tracking issue, remove it when the issue is closed; `pnpm --dir web run test:a11y` and `lint:a11y` fail on any baseline entry whose issue is not listed. If the violation survives a closed issue, reopen it or file a new one.
+- A deliberate design choice is not a baseline entry. Scrollable regions that take `tabIndex={0}` (WCAG 2.1.1) are exempted by name in `web/eslint.config.mjs` (`region`, `group`, `log` roles and `<section>`); inline `eslint-disable` comments are disabled on purpose.
+
+## Branch protection (owner)
+
+The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks on `main` (the CI does not run on `develop`, so do not require them there):
+
+```bash
+gh api -X PUT "repos/j0hn-42/agent-lens/branches/main/protection" --input - <<'JSON'
+{
+  "required_status_checks": { "strict": false, "contexts": ["test", "e2e-a11y"] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
 
 ## Pull requests
 

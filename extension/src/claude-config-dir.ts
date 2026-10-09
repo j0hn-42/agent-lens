@@ -10,15 +10,10 @@
  */
 import * as os from 'os'
 import * as path from 'path'
+import { claudeConfigDir as sharedClaudeConfigDir } from '../scripts/claude-hooks'
 
-/** Root of Claude Code's config. Blank values fall back to ~/.claude. */
-export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
-  const raw = env.CLAUDE_CONFIG_DIR?.trim()
-  if (!raw) { return path.join(home, '.claude') }
-  if (raw === '~') { return home }
-  if (raw.startsWith('~/') || raw.startsWith('~\\')) { return path.join(home, raw.slice(2)) }
-  return path.resolve(raw)
-}
+/** Root of Claude Code's config. Blank values fall back to ~/.claude. Shared with setup.js and uninstall.js. */
+export const claudeConfigDir: (env?: NodeJS.ProcessEnv, home?: string) => string = sharedClaudeConfigDir
 
 export function claudeProjectsDir(configDir: string = claudeConfigDir()): string {
   return path.join(configDir, 'projects')

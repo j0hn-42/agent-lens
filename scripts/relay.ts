@@ -5,14 +5,13 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
-import { newestTranscriptMtime } from '../extension/src/discovery-activity'
 import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -32,21 +31,21 @@ import {
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
-import { setLogLevel } from '../extension/src/logger'
+import { setLogLevel, createLogger } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
+  listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, type IssueLink } from '../extension/src/issue-links'
+import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
-import { createStatusRoute } from './routes/status'
+import { createStatusRoute, type StatusSnapshot } from './routes/status'
 import { createContextRoute } from './routes/context'
 import { createObservationsRoute } from './routes/observations'
 
@@ -82,6 +81,31 @@ function resolveAgentLensVersion(): string {
 
 function log(...args: unknown[]) {
   if (verbose) console.log(...args)
+}
+
+/** Shown without --verbose: what the user must know (a session Agent Lens stopped following). */
+const relayLog = createLogger('Relay')
+
+/** Transcript size past which a session is no longer followed (injectable for tests). */
+let maxSessionFileBytes = RELAY_MAX_SESSION_FILE_BYTES
+
+/**
+ * Sessions the relay does not follow, by reason, for GET /status (#208): watch limit reached when
+ * the session was found, or transcript grown past the size cap. Distinct ids, bounded.
+ */
+const SKIPPED_SESSIONS_MAX = 1000
+const skippedSessions = { watchLimit: new Set<string>(), sizeLimit: new Set<string>() }
+
+/** Records a skipped session; true the first time it is recorded for that reason. */
+function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): boolean {
+  const set = skippedSessions[reason]
+  if (set.has(sessionId)) return false
+  if (set.size >= SKIPPED_SESSIONS_MAX) {
+    const oldest = set.values().next().value
+    if (oldest !== undefined) set.delete(oldest)
+  }
+  set.add(sessionId)
+  return true
 }
 
 // ─── SSE client management ──────────────────────────────────────────────────
@@ -341,6 +365,16 @@ function unwatchSession(sessionId: string) {
   teamWatcher?.forgetSession(sessionId)
 }
 
+/** A watcher or poll callback of the session threw: log it, stop watching, tell the clients (#206). */
+function detachSessionOnError(sessionId: string, err: unknown) {
+  const session = sessions.get(sessionId)
+  console.error(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} read failed, no longer watched:`, err)
+  if (!session) return
+  const announced = session.sessionDetected
+  unwatchSession(sessionId)
+  if (announced) broadcastSessionLifecycle('ended', sessionId, session.label)
+}
+
 /**
  * Make room for one more watched session. Only completed sessions idle for longer than
  * the discovery window are evicted (they cannot be rediscovered); returns false when full.
@@ -358,6 +392,8 @@ function ensureWatchCapacity(): boolean {
 }
 
 function watchSession(sessionId: string, filePath: string) {
+  skippedSessions.watchLimit.delete(sessionId)
+  skippedSessions.sizeLimit.delete(sessionId)
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
   const session: WatchedSession = {
     sessionId, filePath,
@@ -388,8 +424,8 @@ function watchSession(sessionId: string, filePath: string) {
   // and replayed, deduplicated against the history, when the load ends (issue #53).
   reconciler.withHistory(() => {
     const stat = fs.statSync(filePath)
+    // Also positions the tail (fileSize, unfinished last line in fileTail) for readNewLines
     const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
-    session.fileSize = stat.size
     parser.extractSessionLabel(catchUpEntries, session)
 
     broadcastSessionLifecycle('started', sessionId, session.label)
@@ -404,17 +440,19 @@ function watchSession(sessionId: string, filePath: string) {
     parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
 
+  // An exception here would reach uncaughtException and stop the relay for every client (#206)
+  const detachOnError = (err: unknown) => detachSessionOnError(sessionId, err)
   session.fileWatcher = safeWatch(filePath, (eventType) => {
-    if (eventType === 'change') readNewLines(sessionId)
+    if (eventType === 'change') runGuarded(() => readNewLines(sessionId), detachOnError)
   })
 
-  session.pollTimer = setInterval(() => {
+  session.pollTimer = setInterval(() => runGuarded(() => {
     readNewLines(sessionId)
     for (const [subPath] of session.subagentWatchers) {
       readSubagentNewLines(watcherDelegate, parser, subPath, sessionId)
     }
     scanSubagentsDir(watcherDelegate, parser, sessionId)
-  }, POLL_FALLBACK_MS)
+  }, detachOnError), POLL_FALLBACK_MS)
 
   session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
   scanSubagentsDir(watcherDelegate, parser, sessionId)
@@ -429,9 +467,12 @@ function readNewLines(sessionId: string) {
 
   const lines = readTrackedLines(session.filePath, session)
   if (!lines) return
-  // The size cap is also enforced after discovery: a transcript that grows past it is dropped
-  if (session.fileSize > RELAY_MAX_SESSION_FILE_BYTES) {
-    log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${RELAY_MAX_SESSION_FILE_BYTES} bytes — no longer watched`)
+  // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
+  // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
+  if (session.fileSize > maxSessionFileBytes) {
+    relayLog.warn(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${maxSessionFileBytes} bytes — no longer watched`)
+    noteSkipped('sizeLimit', sessionId)
+    broadcastSessionLifecycle('ended', sessionId, session.label)
     unwatchSession(sessionId)
     return
   }
@@ -447,6 +488,51 @@ function readNewLines(sessionId: string) {
 // ─── Session scanner ────────────────────────────────────────────────────────
 
 const coldScan = createColdScan()
+
+// Transcripts froids (#211) : un événement de watch les réveille tout de suite, sinon ils sont réexaminés
+// tous les COLD_RESCAN_CYCLES scans. Un watcher par dossier de projet (borné par RELAY_MAX_PROJECT_DIRS)
+// et, pour les sessions inactives, un sur leur dossier subagents (borné par COLD_SUBAGENT_WATCH_MAX).
+const COLD_SUBAGENT_WATCH_MAX = 64
+const projectDirWakeWatchers = new Map<string, fs.FSWatcher>()
+const subagentWakeWatchers = new Map<string, { w: fs.FSWatcher; mtimeMs: number }>()
+let wakeScan: (() => void) | null = null
+
+function wakeAndRescan(woken: boolean) {
+  if (woken) wakeScan?.()
+}
+
+function watchProjectDirsForWake(dirs: string[]) {
+  for (const dir of dirs) {
+    if (projectDirWakeWatchers.has(dir)) continue
+    const w = safeWatch(dir, (_eventType, filename) => {
+      if (!filename || !filename.endsWith('.jsonl')) return
+      wakeAndRescan(wakeColdFile(coldScan, path.join(dir, filename)))
+    }, undefined, () => projectDirWakeWatchers.delete(dir))
+    if (w) projectDirWakeWatchers.set(dir, w)
+  }
+}
+
+function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath: string; mtimeMs: number }) {
+  if (subagentWakeWatchers.has(f.filePath)) return
+  const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
+  if (!fs.existsSync(subagentsDir)) return
+  // Plein : les sessions les plus récentes gardent leur surveillance (une ancienne n'occupe pas la place à vie)
+  const slot = admitWatchSlot(subagentWakeWatchers, COLD_SUBAGENT_WATCH_MAX, f.mtimeMs)
+  if (!slot.admit) return
+  if (slot.evict) {
+    try { subagentWakeWatchers.get(slot.evict)?.w.close() } catch {}
+    subagentWakeWatchers.delete(slot.evict)
+  }
+  let w: fs.FSWatcher | null = null
+  const release = () => {
+    if (subagentWakeWatchers.get(f.filePath)?.w !== w) return // déjà évincée ou remplacée
+    try { w?.close() } catch {}
+    subagentWakeWatchers.delete(f.filePath)
+  }
+  w = safeWatch(subagentsDir, () => { release(); wakeAndRescan(wakeColdFile(coldScan, f.filePath)) }, { recursive: true }, release)
+  if (w) subagentWakeWatchers.set(f.filePath, { w, mtimeMs: f.mtimeMs })
+}
+
 
 function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
@@ -467,31 +553,24 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   // --all-workspaces: every real (non-symlink) project dir directly under ~/.claude/projects
   const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
 
-  const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
   coldScan.cycle++
-  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES, cold: coldScan })) {
-    if (sessions.has(f.sessionId)) continue
-    let newestMtime = f.mtimeMs
-    if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
-      // Main file is idle: a running subagent may still be active
-      const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
-      // Includes Workflow-tool agents (subagents/workflows/<id>/agent-*.jsonl): an orchestrator blocked on
-      // the Workflow tool leaves its own file idle while those keep growing (same listing as the extension)
-      newestMtime = newestTranscriptMtime(
-        listSubagentTranscripts(subagentsDir), newestMtime, Date.now() - ACTIVE_SESSION_AGE_S * 1000,
-      )
-    }
-    if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
-      candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
-    }
-  }
+  watchProjectDirsForWake(dirsToScan)
+  const candidates = findActiveSessions({
+    dirs: dirsToScan, maxFileBytes: maxSessionFileBytes, cold: coldScan, activeAgeS: ACTIVE_SESSION_AGE_S,
+    skip: (id) => sessions.has(id),
+    onIdle: watchIdleSubagentsDir,
+  })
 
   // Newest first so the bounded watcher budget goes to the most recent sessions
   candidates.sort((a, b) => b.newestMtime - a.newestMtime)
-  for (const c of candidates) {
+  for (const [i, c] of candidates.entries()) {
     if (sessions.has(c.sessionId)) continue
     if (!ensureWatchCapacity()) {
-      log(`[session] Watch limit (${RELAY_MAX_WATCHED_SESSIONS}) reached — skipping ${c.sessionId.slice(0, SESSION_ID_DISPLAY)}`)
+      // Every remaining candidate is skipped: counted in /status, warned once per session
+      for (const skipped of candidates.slice(i)) {
+        if (sessions.has(skipped.sessionId) || !noteSkipped('watchLimit', skipped.sessionId)) continue
+        relayLog.warn(`Watch limit (${RELAY_MAX_WATCHED_SESSIONS}) reached — session ${skipped.sessionId.slice(0, SESSION_ID_DISPLAY)} is not watched`)
+      }
       break
     }
     try { watchSession(c.sessionId, c.filePath) } catch (e) {
@@ -564,13 +643,16 @@ export interface RelayOptions {
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
   /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
-   *  workspace's GitHub `origin`. Must resolve to [] (not reject) when nothing can be proven, but a rejection is tolerated. */
+   *  workspace's GitHub `origin`. Resolves [] only when there is truly no link; rejects when gh or git fails (the route answers 502, #205). */
   issueLinksProbe?: (role: string, cwd?: string) => Promise<IssueLink[]>
   /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
    *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
   sessionIndex?: RelaySessionIndexOptions
   /** Period of the SSE keep-alive (ms). Injectable for tests; defaults to RELAY_SSE_HEARTBEAT_MS. */
   sseHeartbeatMs?: number
+  /** Transcript size past which a Claude session is not (or no longer) watched. Injectable for tests;
+   *  defaults to RELAY_MAX_SESSION_FILE_BYTES. */
+  maxSessionFileBytes?: number
 }
 
 export interface RelaySessionIndexOptions {
@@ -606,6 +688,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     throw new Error('createRelay() can only be called once per process')
   }
   relayCreated = true
+  maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
   // Optional session index: read lazily, cached briefly, never fatal (a degraded index only logs and shows in /status)
   const indexConfig: RelaySessionIndexOptions | undefined = options.sessionIndex
@@ -646,7 +729,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   const scanCoalescer = new KeyedCoalescer<void>()
-  const statusCoalescer = new KeyedCoalescer<{ sessionCount: number; hooksConfigured: boolean }>()
+  const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
 
@@ -681,6 +764,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces))
         .catch(e => log('[scan] Failed:', e))
     }
+    wakeScan = scanNow
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
@@ -794,16 +878,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
-  const repoUrlByDir = new Map<string, Promise<string | undefined>>()
+  // A git failure is not kept: only a resolved repository is (#205)
+  const repoUrlOf = createRepoUrlCache(dir => resolveRepoUrl(dir), RELAY_ISSUE_LINKS_CACHE_MAX_ROLES)
   const issueLinksProbe = options.issueLinksProbe ?? (async (role: string, cwd?: string): Promise<IssueLink[]> => {
-    const dir = cwd ?? workspace
-    let pending = repoUrlByDir.get(dir)
-    if (!pending) {
-      if (repoUrlByDir.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) repoUrlByDir.delete(repoUrlByDir.keys().next().value as string)
-      pending = resolveRepoUrl(dir)
-      repoUrlByDir.set(dir, pending)
-    }
-    const repoUrl = await pending
+    const repoUrl = await repoUrlOf(cwd ?? workspace)
     return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
   })
 
@@ -824,7 +902,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
-      return { sessionCount, hooksConfigured }
+      return {
+        sessionCount, hooksConfigured,
+        skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size },
+      }
     },
     base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList, allWorkspaces },
     readIndex,
@@ -977,6 +1058,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
+        for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
+        projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {
           session.fileWatcher?.close()
           if (session.pollTimer) clearInterval(session.pollTimer)

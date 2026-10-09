@@ -6,45 +6,19 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import type { ClaudeHookEntry } from './protocol'
-import { HOOK_URL_PREFIX, SETTINGS_FILE_MAX_BYTES } from './constants'
+import { SETTINGS_FILE_MAX_BYTES } from './constants'
 import { claudeConfigDir, claudeSettingsPath } from './claude-config-dir'
-import { HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER } from './discovery'
+import { settingsHaveAgentLensHooks, migrateLegacyHooks, updateSettings } from '../scripts/claude-hooks'
 
-/** Check whether a single hook entry belongs to Agent Lens (command, legacy marker or legacy HTTP url). */
-export function isAgentLensHook(entry: unknown): boolean {
-  if (!entry || typeof entry !== 'object') { return false }
-  const hooks = (entry as ClaudeHookEntry).hooks
-  if (!Array.isArray(hooks)) { return false }
-  return hooks.some(h => {
-    if (!h || typeof h !== 'object') { return false }
-    // Normalize backslashes so Windows paths (C:\\Users\\...\\agent-lens\\hook.js) match the marker.
-    const command = typeof h.command === 'string' ? h.command.replace(/\\/g, '/') : ''
-    return command.includes(HOOK_COMMAND_MARKER)
-      || command.includes(LEGACY_HOOK_COMMAND_MARKER)
-      || (typeof h.url === 'string' && h.url.startsWith(HOOK_URL_PREFIX))
-  })
-}
+/** Title of the agentVisualizer.configureHooks command, as shown in the palette (category: title). */
+export const CONFIGURE_HOOKS_COMMAND_TITLE = 'Agent Lens: Configure Claude Code Hooks'
 
-/** Merge Agent Lens hooks into `settings` in place: user hooks are kept, previous Agent Lens entries replaced. */
-export function applyAgentLensHooks(settings: Record<string, unknown>, hooksConfig: Record<string, unknown[]>): void {
-  const existingHooks = (settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {}) as Record<string, unknown>
-  for (const [event, entries] of Object.entries(hooksConfig)) {
-    const current = Array.isArray(existingHooks[event]) ? existingHooks[event] as unknown[] : []
-    existingHooks[event] = [...current.filter(entry => !isAgentLensHook(entry)), ...entries]
-  }
-  settings.hooks = existingHooks
-}
-
-/** True when a parsed settings object contains at least one Agent Lens hook. */
-export function settingsHaveAgentLensHooks(settings: unknown): boolean {
-  if (!settings || typeof settings !== 'object') { return false }
-  const hooks = (settings as { hooks?: unknown }).hooks
-  if (!hooks || typeof hooks !== 'object') { return false }
-  return Object.values(hooks as Record<string, unknown>).some(
-    entries => Array.isArray(entries) && entries.some(isAgentLensHook),
-  )
-}
+// Detection and merging live in one CommonJS module shared with scripts/setup.js and uninstall.js (#217).
+// Only command markers count (#199); legacy agent-flow hooks are replaced but are not "configured" (#175).
+export {
+  isAgentLensHook, isCurrentAgentLensHook, applyAgentLensHooks, settingsHaveAgentLensHooks,
+  settingsHaveLegacyHooks, migrateLegacyHooks, removeAgentLensHooks,
+} from '../scripts/claude-hooks'
 
 /** Parse a settings file; null when missing, not a regular file, too large or invalid JSON. */
 export function readSettingsFile(filePath: string, maxBytes = SETTINGS_FILE_MAX_BYTES): unknown {
@@ -67,4 +41,29 @@ export function claudeSettingsPaths(workspace?: string, configDir = claudeConfig
 /** Whether any of the settings files configures Agent Lens hooks. */
 export function isHooksConfigured(workspace?: string, configDir = claudeConfigDir()): boolean {
   return claudeSettingsPaths(workspace, configDir).some(p => settingsHaveAgentLensHooks(readSettingsFile(p)))
+}
+
+/**
+ * Rewrite legacy agent-flow/hook.js hooks to `entry` in each settings file (#175). Missing files are
+ * skipped and unreadable ones left untouched (reported through `onError`); user hooks, including
+ * their own http hooks to 127.0.0.1, are never modified (#199). Returns the files that changed.
+ */
+export function migrateLegacyHookFiles(
+  paths: readonly string[], entry: unknown, onError?: (file: string, err: unknown) => void,
+): string[] {
+  const changed: string[] = []
+  for (const file of paths) {
+    try {
+      if (updateSettings(file, settings => { migrateLegacyHooks(settings, entry) })) { changed.push(file) }
+    } catch (err) {
+      onError?.(file, err)
+    }
+  }
+  return changed
+}
+
+/** Message for a settings file Agent Lens refused to modify: the actual reason and the exact command title (#175). */
+export function unreadableSettingsMessage(err: { filePath: string; reason: string }): string {
+  return `Agent Lens: ${err.filePath} cannot be used (${err.reason}). Hooks were not configured and the file `
+    + `was left untouched. Fix it, then run the "${CONFIGURE_HOOKS_COMMAND_TITLE}" command.`
 }

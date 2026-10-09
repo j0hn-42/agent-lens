@@ -116,7 +116,7 @@ export function handleToolCallStart(
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx))
     }
 
     // Track file attention
@@ -209,15 +209,15 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      if (isError || isCancelled) {
-        const lastBlock = entry.blocks[entry.blocks.length - 1]
-        if (lastBlock && !lastBlock.endTime) {
-          // A cancelled call is not a failure: neutral color, never the error red
-          lastBlock.color = isError ? SCENE.error : SCENE.idle
-          lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
-        }
+      let base = entry
+      const last = entry.blocks.length - 1
+      if ((isError || isCancelled) && last >= 0 && !entry.blocks[last].endTime) {
+        const blocks = entry.blocks.slice()
+        // A cancelled call is not a failure: neutral color, never the error red
+        blocks[last] = { ...blocks[last], color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        base = { ...entry, blocks }
       }
-      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(base, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
     }
 
     // File attention token cost
