@@ -674,7 +674,7 @@ export function AgentVisualizer() {
         showFinished={bridge.showFinished}
         finishedSessionCount={bridge.finishedSessionCount}
         onToggleShowFinished={bridge.setShowFinished}
-        hideInactive={hideInactiveShown}
+        hideInactive={hideInactive}
         onToggleHideInactive={updateHideInactive}
         selectedSessionId={bridge.selectedSessionId}
         sessionsWithActivity={bridge.sessionsWithActivity}
