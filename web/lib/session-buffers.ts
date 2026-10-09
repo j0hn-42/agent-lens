@@ -15,7 +15,7 @@ const LIFECYCLE_TYPES = new Set(['agent_spawn', 'subagent_dispatch', 'team_info'
 export interface SessionBuffers {
   /** Insertion order = least recently written first */
   events: Map<string, SimulationEvent[]>
-  /** Events dropped from the front side of each buffer */
+  /** Events dropped from each buffer (kept after release so positions never go back) */
   base: Map<string, number>
 }
 
@@ -61,9 +61,12 @@ export function appendSessionEvent(
   }
 }
 
+/** Free a session's events. Its base is kept (one number per session): the visualizer caches a snapshot with
+ *  the absolute count, and a count that went back to 0 would make it skip the events that arrive later. */
 export function releaseSessionBuffer(s: SessionBuffers, sessionId: string): void {
+  const total = sessionEventCount(s, sessionId)
   s.events.delete(sessionId)
-  s.base.delete(sessionId)
+  if (total > 0) s.base.set(sessionId, total)
 }
 
 export function clearSessionBuffers(s: SessionBuffers): void {

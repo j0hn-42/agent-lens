@@ -7,7 +7,7 @@ import { renderHook, act, cleanup } from '@testing-library/react'
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import {
   SESSION_BUFFER_MAX_EVENTS, SESSION_BUFFER_MAX_SESSIONS, SESSION_BUFFER_LIFECYCLE_RESERVE,
-  createSessionBuffers, appendSessionEvent, sessionEventCount, sessionEventsFrom,
+  createSessionBuffers, appendSessionEvent, releaseSessionBuffer, sessionEventCount, sessionEventsFrom,
 } from '@/lib/session-buffers'
 import { RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_REPLAY_LIFECYCLE_RESERVE } from '../../extension/src/constants'
 import type { SimulationEvent } from '@/lib/agent-types'
@@ -45,6 +45,26 @@ test('the number of buffered sessions is bounded, least recently written first, 
   assert.ok(s.events.has(`s${SESSION_BUFFER_MAX_SESSIONS + 4}`))
 })
 
+test('a released buffer keeps its absolute positions: a cursor taken before release still sees later events', () => {
+  const s = createSessionBuffers()
+  for (let i = 0; i < 30; i++) appendSessionEvent(s, 'a', sev('a', i))
+  const cursor = sessionEventCount(s, 'a') // what the visualizer caches with its snapshot
+  releaseSessionBuffer(s, 'a')
+  assert.equal(s.events.has('a'), false, 'events are freed')
+  assert.equal(sessionEventCount(s, 'a'), cursor, 'count never goes back')
+  appendSessionEvent(s, 'a', sev('a', 100))
+  appendSessionEvent(s, 'a', sev('a', 101))
+  assert.deepEqual(sessionEventsFrom(s, 'a', cursor).map(e => e.time), [100, 101])
+
+  // Same through the session-count eviction
+  for (let i = 0; i < SESSION_BUFFER_MAX_SESSIONS + 1; i++) appendSessionEvent(s, `o${i}`, sev(`o${i}`, i))
+  assert.equal(s.events.has('a'), false, 'evicted as least recently written')
+  const cursor2 = sessionEventCount(s, 'a')
+  assert.equal(cursor2, cursor + 2)
+  appendSessionEvent(s, 'a', sev('a', 200))
+  assert.deepEqual(sessionEventsFrom(s, 'a', cursor2).map(e => e.time), [200])
+})
+
 const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
 const info = (id: string) => ({ id, label: id, status: 'active', startTime: Date.now() - 1000, lastActivityTime: Date.now() })
 const bev = (sessionId: string, time: number, type: string) => ({
@@ -68,6 +88,16 @@ test('bridge: after N+k events a selected session is still rebuilt from its capp
   assert.equal(pending[0].type, 'agent_spawn')
   assert.ok(pending.every(e => e.replayed === true))
 
+  const cursorB = result.current.getSessionEventCount('b')
   act(() => { result.current.removeSession('b') })
-  assert.equal(result.current.getSessionEventCount('b'), 0, 'removed session buffer is freed')
+  assert.equal(result.current.getSessionEventCount('b'), cursorB, 'absolute count survives the release')
+  act(() => { result.current.selectSession('b') })
+  act(() => { result.current.flushSessionEvents('b') })
+  assert.equal(result.current.pendingEvents.length, 0, 'removed session buffer is freed')
+  // An event arriving after the removal is still seen from the cursor cached with the snapshot
+  act(() => { post(bev('b', 2, 'agent_activity')) })
+  act(() => { result.current.selectSession('a') })
+  act(() => { result.current.selectSession('b') })
+  act(() => { result.current.flushSessionEvents('b', cursorB) })
+  assert.deepEqual(result.current.pendingEvents.map(e => e.time), [2])
 })
