@@ -153,6 +153,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 
 - [Reading the UI](docs/reading-the-ui.md): views, and what "Not observed", "at least", "estimated" and "unattributed" mean
 - [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
+- [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
 - [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
