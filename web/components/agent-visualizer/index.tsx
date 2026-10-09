@@ -41,6 +41,7 @@ import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
+import { SettingsDialog } from "./settings-dialog"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
 import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
@@ -152,6 +153,9 @@ export function AgentVisualizer() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const openShortcuts = useCallback(() => setShowShortcuts(true), [])
   const closeShortcuts = useCallback(() => setShowShortcuts(false), [])
+  const [showSettings, setShowSettings] = useState(false)
+  const openSettings = useCallback(() => setShowSettings(true), [])
+  const closeSettings = useCallback(() => setShowSettings(false), [])
 
   // Surface bridge notices (relay down/up, malformed data, session reset) as non-blocking toasts
   const lastNoticeIdRef = useRef(0)
@@ -673,6 +677,7 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
+        onOpenSettings={openSettings}
         attention={attention}
         onJumpToAttention={jumpToAttention}
         notifyState={notifyState}
@@ -917,6 +922,22 @@ export function AgentVisualizer() {
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
       </main>
+
+      <SettingsDialog
+        open={showSettings}
+        onClose={closeSettings}
+        hexGrid={showHexGrid}
+        onHexGridChange={setShowHexGrid}
+        muted={isMuted}
+        onToggleMute={handleToggleMute}
+        showFinished={bridge.showFinished}
+        onShowFinishedChange={bridge.setShowFinished}
+        hideInactive={hideInactive}
+        onHideInactiveChange={updateHideInactive}
+        singleKeyEnabled={singleKeyShortcuts}
+        onSingleKeyEnabledChange={updateSingleKeyShortcuts}
+        onOpenShortcuts={openShortcuts}
+      />
 
       <ShortcutsDialog
         open={showShortcuts}
