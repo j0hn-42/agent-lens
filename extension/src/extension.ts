@@ -69,6 +69,22 @@ export async function activate(context: vscode.ExtensionContext) {
     log.info(`Partial startup — ${failures.join(', ')} failed but ${runtimes.map(r => r.mode).join(', ')} active`)
   }
 
+  // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
+
+  // Open the panel on the first detected session (Claude, Codex or Copilot) when autoOpen is on.
+  // Read at event time, so toggling the setting needs no reload.
+  for (const r of runtimes) {
+    context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
+  }
+  if (collectActiveSessions().length > 0) { autoOpenIfEnabled(context) }
+
+  applyEventLogPath(context)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('agentVisualizer.eventLogPath')) { applyEventLogPath(context) }
+    }),
+  )
+
   // ─── Commands ──────────────────────────────────────────────────────────────
 
   context.subscriptions.push(
@@ -137,6 +153,26 @@ export async function activate(context: vscode.ExtensionContext) {
       wirePanel(panel)
     },
   })
+}
+
+/** Open the panel when `agentVisualizer.autoOpen` is on and none is open yet. */
+function autoOpenIfEnabled(context: vscode.ExtensionContext): void {
+  const enabled = vscode.workspace.getConfiguration('agentVisualizer').get<boolean>('autoOpen', false)
+  if (!enabled || VisualizerPanel.getCurrent()) { return }
+  const panel = VisualizerPanel.create(context.extensionUri, vscode.ViewColumn.Beside)
+  wirePanel(panel)
+  promptHookSetupIfNeededForClaude(context)
+}
+
+/** Follow `agentVisualizer.eventLogPath`: watch the file when set, stop watching when cleared. */
+function applyEventLogPath(context: vscode.ExtensionContext): void {
+  const configured = vscode.workspace.getConfiguration('agentVisualizer').get<string>('eventLogPath', '').trim()
+  if (configured) {
+    log.info(`Watching JSONL event log from settings: ${configured}`)
+    connectToJsonl(configured, context)
+  } else if (eventSource) {
+    disconnectEventSource()
+  }
 }
 
 /** Only prompt for Claude hook setup if a Claude runtime is active —
@@ -235,15 +271,13 @@ function connectToJsonl(filePath: string, context: vscode.ExtensionContext): voi
   eventSource = new JsonlEventSource(filePath)
   context.subscriptions.push(eventSource)
 
-  const panel = VisualizerPanel.getCurrent()
-  if (!panel) { return }
-
+  // Resolve the panel at event time: the log may be configured before any panel is open
   eventSource.onEvent((event) => {
-    panel.sendEvent(event)
+    VisualizerPanel.getCurrent()?.sendEvent(event)
   })
 
   eventSource.onStatus((status) => {
-    panel.setConnectionStatus(
+    VisualizerPanel.getCurrent()?.setConnectionStatus(
       status === 'connected' ? 'watching' : 'disconnected',
       filePath,
     )
