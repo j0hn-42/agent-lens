@@ -8,17 +8,23 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import {
   isAgentLensHook, settingsHaveAgentLensHooks, readSettingsFile, claudeSettingsPaths, isHooksConfigured, applyAgentLensHooks,
+  migrateLegacyHookFiles, unreadableSettingsMessage, CONFIGURE_HOOKS_COMMAND_TITLE,
 } from '../src/claude-settings'
+import { SettingsUnreadableError } from '../src/settings-writer'
+import { SETTINGS_FILE_MAX_BYTES } from '../src/constants'
+import { SETTINGS_FILE_MAX_BYTES as SHARED_MAX_BYTES } from '../scripts/claude-hooks'
 
 const ourHook = { hooks: [{ type: 'command', command: 'node /home/u/.claude/agent-lens/hook.js', timeout: 2 }] }
 const otherHook = { hooks: [{ type: 'command', command: 'echo hi' }] }
 
 describe('settingsHaveAgentLensHooks', () => {
-  it('detects command hooks, legacy markers, legacy http hooks and Windows paths', () => {
+  it('detects current command hooks, Windows paths included', () => {
     assert.equal(settingsHaveAgentLensHooks({ hooks: { PreToolUse: [otherHook, ourHook] } }), true)
-    assert.equal(settingsHaveAgentLensHooks({ hooks: { Stop: [{ hooks: [{ command: 'node /h/.claude/agent-flow/hook.js' }] }] } }), true)
-    assert.equal(settingsHaveAgentLensHooks({ hooks: { Stop: [{ hooks: [{ type: 'http', url: 'http://127.0.0.1:4000/hook' }] }] } }), true)
     assert.equal(settingsHaveAgentLensHooks({ hooks: { Stop: [{ hooks: [{ command: 'node C:\\Users\\me\\.claude\\agent-lens\\hook.js' }] }] } }), true)
+  })
+  it('does not count legacy agent-flow hooks (#175) nor user http hooks to 127.0.0.1 (#199)', () => {
+    assert.equal(settingsHaveAgentLensHooks({ hooks: { Stop: [{ hooks: [{ command: 'node /h/.claude/agent-flow/hook.js' }] }] } }), false)
+    assert.equal(settingsHaveAgentLensHooks({ hooks: { Stop: [{ hooks: [{ type: 'http', url: 'http://127.0.0.1:4000/hook' }] }] } }), false)
   })
   it('is false for other hooks and for hostile shapes (never throws)', () => {
     for (const v of [null, undefined, 42, 'x', [], {}, { hooks: null }, { hooks: 'x' }, { hooks: { A: 'x' } }, { hooks: { A: [null, 1, {}, { hooks: 'x' }, { hooks: [null, 5, { command: 7 }] }] } }, { hooks: { PreToolUse: [otherHook] } }]) {
@@ -101,5 +107,55 @@ describe('applyAgentLensHooks', () => {
       applyAgentLensHooks(settings, { Stop: [fresh] })
       assert.deepEqual(settings.hooks, { Stop: [fresh] })
     }
+  })
+})
+
+describe('migrateLegacyHookFiles (#175, #199)', () => {
+  const fresh = { hooks: [{ type: 'command', command: '"node" "/h/.claude/agent-lens/hook.js"', timeout: 2 }] }
+  const legacy = { hooks: [{ type: 'command', command: 'node /h/.claude/agent-flow/hook.js' }] }
+  const userHttp = { hooks: [{ type: 'http', url: 'http://127.0.0.1:8080/xyz' }] }
+
+  it('legacy-only settings: not configured, then migrated to Agent Lens and configured', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-migrate-'))
+    try {
+      const file = path.join(dir, 'settings.json')
+      fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [legacy, otherHook] } }))
+      assert.equal(isHooksConfigured(undefined, dir), false)
+      assert.deepEqual(migrateLegacyHookFiles([file, path.join(dir, 'missing.json')], fresh), [file])
+      assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf-8')).hooks.Stop, [otherHook, fresh])
+      assert.equal(isHooksConfigured(undefined, dir), true)
+      assert.equal(fs.existsSync(path.join(dir, 'missing.json')), false)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  it('never modifies a user http hook to 127.0.0.1, and reports unreadable files without touching them', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-migrate-'))
+    try {
+      const file = path.join(dir, 'settings.json')
+      const content = JSON.stringify({ hooks: { PreToolUse: [userHttp] } })
+      fs.writeFileSync(file, content)
+      const broken = path.join(dir, 'broken.json')
+      fs.writeFileSync(broken, '{ nope')
+      const errors: string[] = []
+      assert.deepEqual(migrateLegacyHookFiles([file, broken], fresh, f => errors.push(f)), [])
+      assert.equal(fs.readFileSync(file, 'utf-8'), content)
+      assert.equal(fs.readFileSync(broken, 'utf-8'), '{ nope')
+      assert.deepEqual(errors, [broken])
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('unreadableSettingsMessage (#175)', () => {
+  it('uses the real reason and the exact command title', () => {
+    const msg = unreadableSettingsMessage(new SettingsUnreadableError('/x/settings.json', 'file too large'))
+    assert.match(msg, /file too large/)
+    assert.doesNotMatch(msg, /not valid JSON/)
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'))
+    const cmd = pkg.contributes.commands.find((c: { command: string }) => c.command === 'agentVisualizer.configureHooks')
+    assert.equal(CONFIGURE_HOOKS_COMMAND_TITLE, `${cmd.category}: ${cmd.title}`)
+    assert.ok(msg.includes(`"${CONFIGURE_HOOKS_COMMAND_TITLE}"`))
+  })
+  it('the shared settings size cap matches the extension constant', () => {
+    assert.equal(SHARED_MAX_BYTES, SETTINGS_FILE_MAX_BYTES)
   })
 })

@@ -179,9 +179,8 @@ export const HASH_PREFIX_MAX = 200
 
 /** Hook server listen address */
 export const HOOK_SERVER_HOST = '127.0.0.1'
-
-/** URL prefix for hook server on localhost */
-export const HOOK_URL_PREFIX = `http://${HOOK_SERVER_HOST}:`
+// No URL-prefix constant on purpose: a hook is recognised as ours by its command marker only,
+// a user's own http hook to 127.0.0.1 is never touched (#199).
 
 /** Default agent name for the main orchestrator */
 export const ORCHESTRATOR_NAME = 'orchestrator'
