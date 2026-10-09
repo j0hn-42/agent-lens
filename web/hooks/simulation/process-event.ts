@@ -46,16 +46,20 @@ export function eventSessionId(event: Pick<SimulationEvent, 'sessionId'>): strin
   return typeof event.sessionId === 'string' && event.sessionId ? event.sessionId : DEFAULT_SESSION_ID
 }
 
-/** Close the last open block on a timeline entry and push a new one. */
+/**
+ * Copy of `entry` with its last open block closed and a new block appended.
+ * Never mutates `entry`: it may belong to the previous state (#214).
+ */
 export function pushTimelineBlock(
   entry: TimelineEntry,
   currentTime: number,
   block: Pick<TimelineBlock, 'type' | 'label' | 'color'> & { endTime?: number },
   ctx: ProcessEventContext,
-): void {
-  const lastBlock = entry.blocks[entry.blocks.length - 1]
-  if (lastBlock && !lastBlock.endTime) lastBlock.endTime = currentTime
-  entry.blocks.push({
+): TimelineEntry {
+  const blocks = entry.blocks.slice()
+  const last = blocks.length - 1
+  if (last >= 0 && !blocks[last].endTime) blocks[last] = { ...blocks[last], endTime: currentTime }
+  blocks.push({
     id: `block-${ctx.blockIdCounter.current++}`,
     type: block.type,
     startTime: currentTime,
@@ -63,6 +67,7 @@ export function pushTimelineBlock(
     label: block.label,
     color: block.color,
   })
+  return { ...entry, blocks }
 }
 
 /** Shallow-compare two Maps by reference equality of values */
