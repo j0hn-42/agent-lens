@@ -11,6 +11,9 @@ import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo,
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
+import {
+  createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
+} from '@/lib/session-buffers'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -170,7 +173,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     eventMatchesSelection(selected, sessionId, teamTrackerRef.current, sessionsRef.current, visibleRef.current), [])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const selectedSessionIdRef = useRef<string | null>(null)
-  const sessionEventsRef = useRef<Map<string, SimulationEvent[]>>(new Map())
+  /** Bounded per-session buffers (cap, session count, absolute positions): see lib/session-buffers */
+  const sessionBuffersRef = useRef(createSessionBuffers())
   /** Every event in arrival order (feeds the 'All' tab). `allBaseRef` counts events trimmed from its front,
    *  so positions stay absolute and survive the cap. */
   const allEventsRef = useRef<SimulationEvent[]>([])
@@ -323,9 +327,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
 
       // Always buffer by session (for replay on session switch)
       if (event.sessionId) {
-        const buf = sessionEventsRef.current.get(event.sessionId) || []
-        buf.push(simEvent)
-        sessionEventsRef.current.set(event.sessionId, buf)
+        appendSessionEvent(sessionBuffersRef.current, event.sessionId, simEvent, selectedSessionIdRef.current)
       }
       // ... and in arrival order for the 'All' tab
       allEventsRef.current.push(simEvent)
@@ -388,7 +390,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
         pendingEventsRef.current.length = 0
-        sessionEventsRef.current.clear()
+        clearSessionBuffers(sessionBuffersRef.current)
         modelTrackerRef.current.clear()
         setSessionModels(new Map())
         allEventsRef.current = []
@@ -527,16 +529,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (matchesSelection(sessionId, all[i].sessionId)) pendingEventsRef.current.push({ ...all[i], replayed: true })
       }
     } else {
-      const buffered = sessionEventsRef.current.get(sessionId) || []
       // Re-fed from the buffer: the wall-clock moment of these events is lost, so they count as history
-      pendingEventsRef.current.push(...buffered.slice(fromIndex).map(e => ({ ...e, replayed: true })))
+      pendingEventsRef.current.push(...sessionEventsFrom(sessionBuffersRef.current, sessionId, fromIndex).map(e => ({ ...e, replayed: true })))
     }
     setEventVersion(v => v + 1)
   }, [matchesSelection])
 
   const getSessionEventCount = useCallback((sessionId: string): number => {
     if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return allBaseRef.current + allEventsRef.current.length
-    return sessionEventsRef.current.get(sessionId)?.length ?? 0
+    return sessionEventCount(sessionBuffersRef.current, sessionId)
   }, [])
 
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
@@ -547,6 +548,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (session) { dismissedSessionsRef.current.set(sessionId, session) }
       return prev.filter(s => s.id !== sessionId)
     })
+    // A removed session no longer needs its replay buffer (the selected one keeps it until deselected)
+    if (selectedSessionIdRef.current !== sessionId) releaseSessionBuffer(sessionBuffersRef.current, sessionId)
     setSessionsWithActivity(prev => {
       if (!prev.has(sessionId)) return prev
       const next = new Set(prev)
