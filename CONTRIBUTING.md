@@ -27,7 +27,7 @@ pnpm run dev:demo       # web app with mock data on http://localhost:3000
 
 ## Checks to run before a pull request
 
-These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` and `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
+These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` only (not `develop`, to save GitHub Actions minutes) — run these commands locally before merging into `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -76,11 +76,10 @@ Two files act as guard rails. They record known violations; they are not a place
 
 ## Branch protection (owner)
 
-The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks on `main` and `develop`:
+The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks on `main` (the CI does not run on `develop`, so do not require them there):
 
 ```bash
-for b in main develop; do
-  gh api -X PUT "repos/j0hn-42/agent-lens/branches/$b/protection" --input - <<'JSON'
+gh api -X PUT "repos/j0hn-42/agent-lens/branches/main/protection" --input - <<'JSON'
 {
   "required_status_checks": { "strict": false, "contexts": ["test", "e2e-a11y"] },
   "enforce_admins": false,
@@ -90,7 +89,6 @@ for b in main develop; do
   "allow_deletions": false
 }
 JSON
-done
 ```
 
 ## Pull requests
