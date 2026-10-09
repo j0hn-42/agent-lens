@@ -23,6 +23,7 @@ export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
   'particle-dispatch', 'particle-return',
   'state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
   'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
+  'rt-copilot',
 ]
 
 // A main agent is labelled by its first prompt (cut to 40 characters), not by the name in the events.
@@ -67,6 +68,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'When no new message has gone through for a while, the link fades to a thin quiet line with a message-count badge. Click it to read the messages.',
     covers: ['link-quiet'] },
   { id: 'not-in-demo', time: 44.5, target: { kind: 'dom', id: 'legend-edges' }, opensLegend: true, title: 'Seen only in a real session',
-    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, the dotted session halo and the discovery cards (file, pattern, finding, code). Keep the legend open to recognise them later.',
-    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },
+    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, the dotted session halo, the discovery cards (file, pattern, finding, code) and the visor logo of a GitHub Copilot agent. Keep the legend open to recognise them later.',
+    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code', 'rt-copilot'] },
 ] as const

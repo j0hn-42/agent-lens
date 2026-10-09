@@ -49,6 +49,7 @@ test('filter: project and runtime combine with the text', () => {
 test('filter: options list the projects and runtimes present', () => {
   assert.deepEqual(projectOptions(list), [{ projectId: 'pa', projectName: 'alpha' }, { projectId: 'pb', projectName: 'Beta' }])
   assert.deepEqual(runtimeOptions(list), ['claude', 'codex'])
+  assert.deepEqual(runtimeOptions([...list, s('assist', { runtime: 'copilot' })]), ['claude', 'codex', 'copilot'])
   assert.deepEqual(runtimeOptions([s('x')]), [])
 })
 
@@ -65,6 +66,7 @@ test('ui-prefs: project and runtime filters persist, malformed values fall back 
   assert.equal(DEFAULT_UI_PREFS.sessionFilterProject, null)
   assert.equal(DEFAULT_UI_PREFS.sessionFilterRuntime, null)
   assert.equal(sanitizePref('sessionFilterRuntime', 'codex'), 'codex')
+  assert.equal(sanitizePref('sessionFilterRuntime', 'copilot'), 'copilot')
   assert.equal(sanitizePref('sessionFilterRuntime', 'gemini'), null)
   assert.equal(sanitizePref('sessionFilterRuntime', 3), null)
   assert.equal(sanitizePref('sessionFilterProject', 'abc'), 'abc')
@@ -73,4 +75,10 @@ test('ui-prefs: project and runtime filters persist, malformed values fall back 
   const out = sanitizePrefs({ v: 1, prefs: { sessionFilterProject: 'p1', sessionFilterRuntime: 'claude' } })
   assert.equal(out.sessionFilterProject, 'p1')
   assert.equal(out.sessionFilterRuntime, 'claude')
+})
+
+test('filter: a Copilot session is selected by the Copilot runtime filter only', () => {
+  const withCopilot = [...list, s('assist', { runtime: 'copilot' })]
+  assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'copilot' }))), ['assist'])
+  assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'claude' }))), ['fix-login', 'plain'])
 })

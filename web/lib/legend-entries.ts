@@ -10,7 +10,7 @@ export const LEGEND_ENTRIES = {
   links: ['link-flight', 'link-recent', 'link-error', 'link-quiet', 'link-bubble'],
   context: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'],
   discoveries: ['disc-file', 'disc-pattern', 'disc-finding', 'disc-code'],
-  runtime: ['rt-claude', 'rt-codex'],
+  runtime: ['rt-claude', 'rt-codex', 'rt-copilot'],
 } as const
 
 export type LegendSectionId = keyof typeof LEGEND_ENTRIES

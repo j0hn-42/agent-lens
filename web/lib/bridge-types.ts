@@ -26,7 +26,7 @@ export interface SessionInfo {
   /** True when lastActivityTime only stands for the start: usable to sort, never to display */
   lastActivityUnknown?: boolean
   /** Agent runtime of the session, when the extension reports it */
-  runtime?: 'claude' | 'codex'
+  runtime?: 'claude' | 'codex' | 'copilot'
   /** Workspace name/path of the session, when known */
   workspace?: string
   /** Working directory of the session, when known */
@@ -103,7 +103,7 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && typeof v.startTime === 'number'
     && typeof v.lastActivityTime === 'number'
     && (v.lastActivityUnknown === undefined || typeof v.lastActivityUnknown === 'boolean')
-    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex')
+    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
     && (v.projectId === undefined || typeof v.projectId === 'string')

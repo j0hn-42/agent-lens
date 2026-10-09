@@ -242,6 +242,7 @@ test('formatTeamSummary and runtimeBadge', () => {
   assert.equal(formatTeamSummary('X', 3, 2), 'Team X: 3 members, 2 working')
   assert.equal(formatTeamSummary('X', 1, 0), 'Team X: 1 member, 0 working')
   assert.deepEqual(runtimeBadge('codex'), { short: 'CX', label: 'Codex' })
+  assert.deepEqual(runtimeBadge('copilot'), { short: 'GC', label: 'GitHub Copilot' })
   assert.equal(runtimeBadge('claude')!.label, 'Claude Code')
   assert.equal(runtimeBadge(undefined), null)
 })

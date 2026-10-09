@@ -485,6 +485,7 @@ export function SessionListPanel({
               <option value="">All runtimes</option>
               <option value="claude">Claude Code</option>
               <option value="codex">Codex</option>
+              <option value="copilot">GitHub Copilot</option>
             </select>
           )}
           {(branches.length > 0 || filter.branch !== null) && (

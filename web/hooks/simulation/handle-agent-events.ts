@@ -51,7 +51,7 @@ export function handleAgentSpawn(
   const requestedModel = typeof payload.requestedModel === 'string' ? cappedString(payload.requestedModel, MAX_ID_LEN) || undefined : undefined
   const effort = parseEffort(payload.effort)
   const subagentType = typeof payload.subagentType === 'string' ? cappedString(payload.subagentType, MAX_ID_LEN) || undefined : undefined
-  const runtime = payload.runtime === 'codex' ? 'codex' as const : undefined
+  const runtime = payload.runtime === 'codex' || payload.runtime === 'copilot' ? payload.runtime : undefined
 
   const team = parseTeammateExtras(payload)
   const teamFields = team ? {

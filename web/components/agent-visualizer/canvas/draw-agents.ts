@@ -7,7 +7,7 @@ import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
 import { alphaHex, formatTokens, formatDuration, pluralize } from '../../../lib/utils'
 import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
-import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX } from './draw-misc'
+import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
@@ -57,6 +57,27 @@ export function drawOpenAILogo(ctx: CanvasRenderingContext2D, cx: number, cy: nu
   ctx.restore()
 }
 
+/** Copilot mark: a visor (two lenses joined by a bridge), drawn as paths so it needs no asset.
+ *  Same footprint as the Claude spark. Geometry is shared with the legend (COPILOT_MARK_PATH). */
+export function drawCopilotMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+  ctx.save()
+  ctx.translate(cx, cy)
+  const scale = (r * AGENT_DRAW.sparkScale) / COPILOT_MARK_VIEWBOX
+  ctx.scale(scale, scale)
+  ctx.translate(-COPILOT_MARK_VIEWBOX / 2, -COPILOT_MARK_VIEWBOX / 2)
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 6 / scale
+  ctx.fill(getCopilotMarkPath())
+  ctx.restore()
+}
+
+let _copilotMarkPath: Path2D | null = null
+function getCopilotMarkPath() {
+  if (!_copilotMarkPath) _copilotMarkPath = new Path2D(COPILOT_MARK_PATH)
+  return _copilotMarkPath
+}
+
 /** Pick the brand logo for the agent's runtime. Defaults to Claude. */
 export function drawAgentBrand(
   ctx: CanvasRenderingContext2D,
@@ -64,6 +85,7 @@ export function drawAgentBrand(
   runtime: Agent['runtime'],
 ) {
   if (runtime === 'codex') drawOpenAILogo(ctx, cx, cy, r, color)
+  else if (runtime === 'copilot') drawCopilotMark(ctx, cx, cy, r, color)
   else drawClaudeSpark(ctx, cx, cy, r, color)
 }
 

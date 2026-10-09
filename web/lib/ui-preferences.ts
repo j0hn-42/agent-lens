@@ -40,7 +40,7 @@ export interface UiPrefs {
   /** Session list filter (#125): projectId to keep (null = all projects) */
   sessionFilterProject: string | null
   /** Session list filter (#125): runtime to keep (null = both) */
-  sessionFilterRuntime: 'claude' | 'codex' | null
+  sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | null
   /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
   sessionFilterBranch: string | null
 }
@@ -69,7 +69,7 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   const fallback = DEFAULT_UI_PREFS[key]
   switch (key) {
     case 'sessionFilterRuntime':
-      return (value === 'claude' || value === 'codex' ? value : null) as UiPrefs[K]
+      return (value === 'claude' || value === 'codex' || value === 'copilot' ? value : null) as UiPrefs[K]
     case 'sessionFilterBranch':
     case 'sessionFilterProject':
     case 'lastSelectedSessionId': {

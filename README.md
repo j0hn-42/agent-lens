@@ -2,7 +2,7 @@
 
 > Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow) by Simon Patole (Apache License 2.0). See [Origin and credits](#origin-and-credits).
 
-Real-time visualization of Claude Code and Codex agent orchestration. Watch your agents think, branch, and coordinate as they work. 
+Real-time visualization of Claude Code, Codex and GitHub Copilot agent orchestration. Watch your agents think, branch, and coordinate as they work. 
 
 ## Why Agent Lens?
 
@@ -18,8 +18,9 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 ## Features
 
 - **Live agent visualization**: Watch agent execution as an interactive node graph with real-time tool calls, branching, and return flows
-- **Claude Code + Codex**: Auto-detects sessions from both runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
+- **Claude Code + Codex + GitHub Copilot**: Auto-detects sessions from all runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
 - **Claude Code hooks**: Lightweight HTTP hook server receives events directly from Claude Code for zero-latency streaming
+- **Copilot session tailing**: Reads local `~/.copilot/session-state/<id>/events.jsonl` (respects `COPILOT_HOME`), matched to the workspace through `workspace.yaml`, and surfaces messages, tool calls and sub-agent activity. Cloud-hosted Copilot agent sessions are not covered
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
@@ -63,20 +64,20 @@ Use `cursor` or `windsurf` instead of `code` for those editors (or **Extensions:
 Then:
 
 1. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
-2. Start a Claude Code or Codex session in your workspace. Agent Lens will auto-detect it
+2. Start a Claude Code, Codex or Copilot session in your workspace. Agent Lens will auto-detect it
 
 Agent Lens automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Lens: Configure Claude Code Hooks** from the Command Palette.
 
 ### Runtime selection
 
-By default Agent Lens watches both Claude Code (`~/.claude/projects/`) and Codex (`~/.codex/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-lens-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) and local GitHub Copilot (`~/.copilot/session-state/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-lens-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
 
 To restrict to one runtime:
 
-- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` in your settings
-- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude` or `codex` (defaults to watching both)
+- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` / `"copilot"` in your settings
+- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex` or `copilot` (defaults to watching all)
 
-For non-default Codex installs, set the `CODEX_HOME` environment variable.
+For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`.
 
 ### Event sources and the local server
 
@@ -108,7 +109,7 @@ You can also point Agent Lens at a JSONL event log file:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (both), `"claude"`, or `"codex"` |
+| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, or `"copilot"` |
 | `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode) |
 | `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
 | `agentVisualizer.autoOpen` | `false` | Auto-open when an agent session starts |
