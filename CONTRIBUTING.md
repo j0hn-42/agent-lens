@@ -27,7 +27,7 @@ pnpm run dev:demo       # web app with mock data on http://localhost:3000
 
 ## Checks to run before a pull request
 
-These are the commands of `.github/workflows/ci.yml`. All must pass.
+These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` and `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -71,6 +71,25 @@ Two files act as guard rails. They record known violations; they are not a place
   - `lint:a11y -- --write` rewrites the baseline. Use it only after you **fixed** violations, so the file shrinks; review the diff, and refuse any added entry or any entry without an issue number.
 - `web/tests-a11y/known-violations.json`: axe-core findings (jsdom and `e2e:*` browser scenarios) tolerated for a tracked issue. The tests fail on a new violation and when a listed one disappears.
   - A new entry needs an existing issue and a `note`; it is a last resort, reviewed like code. When you fix a listed violation, remove its entry in the same pull request.
+
+## Branch protection (owner)
+
+The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks on `main` and `develop`:
+
+```bash
+for b in main develop; do
+  gh api -X PUT "repos/j0hn-42/agent-lens/branches/$b/protection" --input - <<'JSON'
+{
+  "required_status_checks": { "strict": false, "contexts": ["test", "e2e-a11y"] },
+  "enforce_admins": false,
+  "required_pull_request_reviews": null,
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+done
+```
 
 ## Pull requests
 
