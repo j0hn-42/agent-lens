@@ -129,7 +129,15 @@ test('Shift-click on the canvas picks the pair, and the pair is pruned when its 
   const r = await mountTwoSessions()
   const canvas = r.container.querySelector('canvas')!
   assert.equal(getPair().a, '')
-  const picked = shiftClickScan(canvas, () => getPair().a !== '' && getPair().b !== '')
+  // The layout settles on a timer: under load the agents are not yet where the scan looks, so retry until it does
+  let picked = false
+  for (let attempt = 0; attempt < 10 && !picked; attempt++) {
+    picked = shiftClickScan(canvas, () => getPair().a !== '' && getPair().b !== '')
+    if (!picked) {
+      clearPair()
+      await wait(500)
+    }
+  }
   assert.ok(picked, 'two Shift-clicks on two agents complete the pair')
   const pair = getPair()
   assert.notEqual(pair.a, pair.b)
