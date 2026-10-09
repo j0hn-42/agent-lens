@@ -262,6 +262,22 @@ export function wakeColdSession(cold: ColdScan, dirPath: string, sessionId: stri
   return wakeColdFile(cold, path.join(dirPath, `${sessionId}.jsonl`))
 }
 
+/**
+ * Admission dans un ensemble borné de surveillances (dossiers subagents des sessions froides). Plein, il
+ * garde les sessions les plus récentes : sinon les premières sessions inactives vues (souvent très
+ * anciennes) occuperaient les places pour toute la vie du relais et une session devenue inactive plus tard
+ * n'aurait jamais de réveil par son dossier subagents.
+ */
+export function admitWatchSlot(
+  slots: ReadonlyMap<string, { mtimeMs: number }>, max: number, mtimeMs: number,
+): { admit: boolean; evict?: string } {
+  if (slots.size < max) return { admit: true }
+  let oldest: string | undefined
+  let oldestMtime = Infinity
+  for (const [key, s] of slots) { if (s.mtimeMs < oldestMtime) { oldestMtime = s.mtimeMs; oldest = key } }
+  return oldest !== undefined && mtimeMs > oldestMtime ? { admit: true, evict: oldest } : { admit: false }
+}
+
 export interface ActiveSessionsOptions extends DiscoveryOptions {
   /** Au-delà de cet âge (s), le transcript principal est jugé inactif : on regarde ses sous-agents */
   activeAgeS: number

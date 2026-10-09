@@ -92,6 +92,29 @@ describe('CodexSessionWatcher : scans à froid (#215)', () => {
     assert.equal(read.mock.callCount(), first)
   })
 
+  it('une session_meta au-delà du plafond de 1 Mo n\'est lue qu\'une fois (cwd négatif mis en cache)', () => {
+    const huge = JSON.stringify({ type: 'session_meta', payload: { cwd: '/ailleurs', base_instructions: 'x'.repeat(1_100_000) } }) + '\n'
+    fs.writeFileSync(rollout(1), huge)
+    watcher = new CodexSessionWatcher(ws)
+    const read = mock.method(fs, 'readSync')
+    watcher.start()
+    const first = read.mock.callCount()
+    assert.ok(first >= 16, `le premier scan lit jusqu'au plafond (${first} lectures)`)
+    mock.timers.tick(SCAN_INTERVAL_MS * 5)
+    assert.equal(read.mock.callCount(), first, 'pas de relecture de 1 Mo à chaque scan')
+  })
+
+  it('une première ligne complète mais illisible (JSON invalide) n\'est lue qu\'une fois', () => {
+    fs.writeFileSync(rollout(1), '{"type":"session_meta",\n{}\n')
+    watcher = new CodexSessionWatcher(ws)
+    const read = mock.method(fs, 'readSync')
+    watcher.start()
+    const first = read.mock.callCount()
+    assert.ok(first >= 1)
+    mock.timers.tick(SCAN_INTERVAL_MS * 5)
+    assert.equal(read.mock.callCount(), first)
+  })
+
   it('une première ligne encore incomplète n\'est pas mise en cache : le cwd est lu une fois complète', () => {
     fs.writeFileSync(rollout(1), meta(ws).slice(0, 20)) // pas de saut de ligne
     watcher = new CodexSessionWatcher(ws)

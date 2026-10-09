@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { createColdScan, findActiveSessions, wakeColdSession } from '../src/relay-guards'
+import { createColdScan, findActiveSessions, wakeColdSession, admitWatchSlot } from '../src/relay-guards'
 
 // #211 : un transcript examiné et jugé inactif (principal + sous-agents) est mis au froid
 const AGE_S = 600
@@ -97,5 +97,33 @@ describe('findActiveSessions : mise au froid des transcripts inactifs (#211)', (
       cold.cycle++; findActiveSessions(opts)
       assert.deepEqual(idle, ['x'])
     } finally { fs.rmSync(d, { recursive: true, force: true }) }
+  })
+})
+
+describe('admitWatchSlot : surveillances subagents bornées, réservées aux sessions les plus récentes (#211)', () => {
+  const slots = (...m: number[]) => new Map(m.map((mtimeMs, i) => [`s${i}`, { mtimeMs }]))
+
+  it('admet sans éviction tant qu\'il reste de la place', () => {
+    assert.deepEqual(admitWatchSlot(slots(1, 2), 3, 0), { admit: true })
+  })
+
+  it('plein : une session plus récente évince la plus ancienne surveillée', () => {
+    assert.deepEqual(admitWatchSlot(slots(30, 10, 20), 3, 40), { admit: true, evict: 's1' })
+  })
+
+  it('plein : une session plus ancienne que toutes celles surveillées est refusée', () => {
+    assert.deepEqual(admitWatchSlot(slots(30, 10, 20), 3, 5), { admit: false })
+  })
+
+  it('les sessions devenues inactives tard dans la vie du relais obtiennent une surveillance', () => {
+    const map = new Map<string, { mtimeMs: number }>()
+    const add = (id: string, mtimeMs: number) => {
+      const r = admitWatchSlot(map, 2, mtimeMs)
+      if (r.evict) map.delete(r.evict)
+      if (r.admit) map.set(id, { mtimeMs })
+    }
+    add('vieille-1', 1); add('vieille-2', 2) // premier scan : sessions anciennes
+    add('recente', 100) // une session récente passe au froid plus tard
+    assert.deepEqual([...map.keys()].sort(), ['recente', 'vieille-2'])
   })
 })

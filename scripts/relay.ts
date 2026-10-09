@@ -35,7 +35,7 @@ import { setLogLevel, createLogger } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, findActiveSessions, wakeColdFile, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
+  listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -494,7 +494,7 @@ const coldScan = createColdScan()
 // et, pour les sessions inactives, un sur leur dossier subagents (borné par COLD_SUBAGENT_WATCH_MAX).
 const COLD_SUBAGENT_WATCH_MAX = 64
 const projectDirWakeWatchers = new Map<string, fs.FSWatcher>()
-const subagentWakeWatchers = new Map<string, fs.FSWatcher>()
+const subagentWakeWatchers = new Map<string, { w: fs.FSWatcher; mtimeMs: number }>()
 let wakeScan: (() => void) | null = null
 
 function wakeAndRescan(woken: boolean) {
@@ -512,13 +512,25 @@ function watchProjectDirsForWake(dirs: string[]) {
   }
 }
 
-function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath: string }) {
-  if (subagentWakeWatchers.has(f.filePath) || subagentWakeWatchers.size >= COLD_SUBAGENT_WATCH_MAX) return
+function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath: string; mtimeMs: number }) {
+  if (subagentWakeWatchers.has(f.filePath)) return
   const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
   if (!fs.existsSync(subagentsDir)) return
-  const release = () => { try { subagentWakeWatchers.get(f.filePath)?.close() } catch {} subagentWakeWatchers.delete(f.filePath) }
-  const w = safeWatch(subagentsDir, () => { release(); wakeAndRescan(wakeColdFile(coldScan, f.filePath)) }, { recursive: true }, release)
-  if (w) subagentWakeWatchers.set(f.filePath, w)
+  // Plein : les sessions les plus récentes gardent leur surveillance (une ancienne n'occupe pas la place à vie)
+  const slot = admitWatchSlot(subagentWakeWatchers, COLD_SUBAGENT_WATCH_MAX, f.mtimeMs)
+  if (!slot.admit) return
+  if (slot.evict) {
+    try { subagentWakeWatchers.get(slot.evict)?.w.close() } catch {}
+    subagentWakeWatchers.delete(slot.evict)
+  }
+  let w: fs.FSWatcher | null = null
+  const release = () => {
+    if (subagentWakeWatchers.get(f.filePath)?.w !== w) return // déjà évincée ou remplacée
+    try { w?.close() } catch {}
+    subagentWakeWatchers.delete(f.filePath)
+  }
+  w = safeWatch(subagentsDir, () => { release(); wakeAndRescan(wakeColdFile(coldScan, f.filePath)) }, { recursive: true }, release)
+  if (w) subagentWakeWatchers.set(f.filePath, { w, mtimeMs: f.mtimeMs })
 }
 
 
@@ -1046,7 +1058,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
-        for (const w of [...projectDirWakeWatchers.values(), ...subagentWakeWatchers.values()]) { try { w.close() } catch {} }
+        for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
         projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {
           session.fileWatcher?.close()

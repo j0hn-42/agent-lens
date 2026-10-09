@@ -124,8 +124,10 @@ function readSessionCwd(filePath: string): { cwd: string | null; final: boolean 
       const final = end >= 0 || total >= MAX_FIRST_LINE
       const data = Buffer.concat(chunks)
       const line = data.subarray(0, end >= 0 ? end : data.length).toString('utf-8')
-      const parsed = JSON.parse(line) as { type?: string; payload?: { cwd?: string } }
-      if (parsed.type !== 'session_meta') return { cwd: null, final }
+      let parsed: { type?: string; payload?: { cwd?: string } }
+      // Une ligne complète illisible, ou tronquée au plafond, ne changera plus : résultat définitif aussi
+      try { parsed = JSON.parse(line) } catch { return { cwd: null, final } }
+      if (parsed?.type !== 'session_meta') return { cwd: null, final }
       return { cwd: typeof parsed.payload?.cwd === 'string' ? parsed.payload.cwd : null, final }
     } finally { fs.closeSync(fd) }
   } catch { return { cwd: null, final: false } }
