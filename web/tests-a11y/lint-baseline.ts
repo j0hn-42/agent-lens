@@ -46,7 +46,7 @@ async function main() {
     return
   }
 
-  const errors = validateLintBaseline(baseline)
+  const errors = validateLintBaseline(baseline, JSON.parse(fs.readFileSync(path.join(__dirname, 'open-baseline-issues.json'), 'utf8')).open)
   const { unexpected, stale } = compareLint(findings, baseline)
   if (!errors.length && !unexpected.length && !stale.length) {
     console.log(`jsx-a11y: ${findings.length} known violations, none new, none fixed-but-listed.`)

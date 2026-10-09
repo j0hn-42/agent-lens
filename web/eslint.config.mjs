@@ -20,7 +20,13 @@ export default [
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     plugins: { 'jsx-a11y': jsxA11y, 'react-hooks': reactHooksStub },
-    rules: { ...jsxA11y.flatConfigs.strict.rules },
+    rules: {
+      ...jsxA11y.flatConfigs.strict.rules,
+      // Scrollable named regions must be focusable so keyboard users can scroll them
+      // (WCAG 2.1.1, design choice of #13). Only labelled region/group/log roles and
+      // <section> are exempt; a tabIndex on any other non-interactive element still fails.
+      'jsx-a11y/no-noninteractive-tabindex': ['error', { roles: ['region', 'group', 'log'], tags: ['section'] }],
+    },
     // Inline eslint-disable comments must not bypass the baseline.
     linterOptions: { noInlineConfig: true },
   },

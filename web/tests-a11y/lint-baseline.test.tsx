@@ -14,6 +14,17 @@ test('the committed lint baseline is well formed', () => {
   assert.deepEqual(validateLintBaseline(real), [])
 })
 
+test('every lint baseline entry cites an open issue', () => {
+  const real = JSON.parse(fs.readFileSync(path.join(__dirname, 'lint-baseline.json'), 'utf8'))
+  const { open } = JSON.parse(fs.readFileSync(path.join(__dirname, 'open-baseline-issues.json'), 'utf8'))
+  assert.deepEqual(validateLintBaseline(real, open), [])
+})
+
+test('validateLintBaseline rejects an issue that is not in the open list', () => {
+  assert.equal(validateLintBaseline(base, [1]).length, 1)
+  assert.deepEqual(validateLintBaseline(base, [13]), [])
+})
+
 test('a second violation of a listed rule in the same file is new', () => {
   const r = compareLint([{ file: 'a.tsx', rule: R }, { file: 'a.tsx', rule: R }], base)
   assert.equal(r.unexpected.length, 1)

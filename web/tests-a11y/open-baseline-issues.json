@@ -1,0 +1,4 @@
+{
+  "comment": "Hand-maintained list of OPEN GitHub issues that lint-baseline.json and known-violations.json may cite. Remove an issue here when it is closed (and drop or re-home its baseline entries); the tests fail on any baseline entry whose issue is not listed.",
+  "open": [258]
+}

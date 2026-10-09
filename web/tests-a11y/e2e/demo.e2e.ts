@@ -150,23 +150,30 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const clippedContainers = containers
       .filter(el => el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible')
       .map(el => \`\${label(el)} scrollWidth=\${el.scrollWidth} clientWidth=\${el.clientWidth}\`)
+    // A visually hidden (sr-only) ancestor is clipped to ~1px, so its descendants never show on screen
+    // even though their own boxes can extend past the viewport: they cannot cause a reflow defect.
+    const clippedAway = (el) => {
+      for (let a = el.parentElement; a; a = a.parentElement) {
+        const r = a.getBoundingClientRect()
+        const cs = getComputedStyle(a)
+        if (r.width <= 1 && r.height <= 1 && cs.overflowX !== 'visible' && cs.overflowY !== 'visible') return true
+      }
+      return false
+    }
     const outside = Array.from(document.querySelectorAll(
       'a[href], button, input, select, textarea, [role="button"], [role="slider"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])',
     )).filter(visible).filter(el => {
       const r = el.getBoundingClientRect()
-      return r.left < -1 || r.right > vw + 1
+      return (r.left < -1 || r.right > vw + 1) && !clippedAway(el)
     }).map(el => {
       const r = el.getBoundingClientRect()
-      // Structural, not text-based: tracked in #23 when inside the Conversation log or the graph outline.
-      const tracked = el.closest('[role="log"], [aria-label="Agent graph outline"], [aria-label^="Agent graph:"]') !== null
-      return \`\${tracked ? 'TRACKED ' : ''}\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
+      return \`\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
     })
     return {
       doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: vw,
       clippedContainers, outside,
     }
   })()`
-  const KNOWN_OUTSIDE = /^TRACKED /
   type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
   // Findings are collected over every step (initial, review mode, panels) and compared with the
   // allow-list once, so a known defect does not hide a new one in a later step.
@@ -175,12 +182,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const add = (rule: string, detail: string) => { f.rules.add(rule); f.details.push(`[${where} @${width}px] ${rule}: ${detail}`) }
     if (m.doc > m.inner || m.body > m.inner) add('page-overflow', `doc=${m.doc} body=${m.body}`)
     if (m.clippedContainers.length) add('clipped-container', m.clippedContainers.join('; '))
-    // The allow-list entry covers only the elements tracked in issue #23 (Conversation row buttons and
-    // the Agent graph region); any other clipped control is a new, never allow-listed rule.
-    const tracked = m.outside.filter(o => KNOWN_OUTSIDE.test(o))
-    const untracked = m.outside.filter(o => !KNOWN_OUTSIDE.test(o))
-    if (tracked.length) add('outside-viewport', tracked.join('; '))
-    if (untracked.length) add('outside-viewport-untracked', untracked.join('; '))
+    if (m.outside.length) add('outside-viewport', m.outside.join('; '))
   }
 
   const TRACKED_OBSTRUCTED = /^\^(Files|Conversation)/
@@ -332,7 +334,7 @@ describe('demo mode: keyboard', () => {
       assert.deepEqual(unexpected, [], `invisible controls must not be in the Tab order: ${hidden.join(', ')} (fix, or allow-list in known-violations.json with an issue number)`)
       assert.deepEqual(stale, [], 'no invisible control is focusable any more: remove "e2e:tab-order" from web/tests-a11y/known-violations.json')
 
-      // Even while #10 is allow-listed, a Tab stop must be one of the invisible focusables found
+      // Even if an invisible focusable were allow-listed, a Tab stop must be one of the invisible focusables found
       // by the static scan above; a new invisible stop elsewhere fails.
       const knownHidden = new Set(hidden)
       const stops: string[] = []
