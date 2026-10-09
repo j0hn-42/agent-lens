@@ -491,11 +491,15 @@ export const PERF_OVERLAY_ENABLED = typeof window !== 'undefined'
     return p.has('perf') || p.has('stress')
   })()
 
+/** ?perf=full: baseline for measurements, every frame is drawn in full (no idle gate, no viewport culling) */
+export const PERF_BASELINE = typeof window !== 'undefined'
+  && (() => new URLSearchParams(window.location.search).get('perf') === 'full')()
+
 export const PERF_OVERLAY = {
   x: 8,
   y: 8,
   width: 260,
-  height: 140,
+  height: 176,
   padding: 8,
   lineHeight: 18,
   font: '12px monospace',

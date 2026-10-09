@@ -79,7 +79,7 @@ export function AgentCanvas(props: CanvasProps) {
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
     transformRef, userHasNavigatedRef, panVelocityRef,
-    screenToCanvas, doZoomToFit, updateCamera, zoomBy, panBy, canvasToScreen, ensureVisible, zoomToCircle,
+    screenToCanvas, doZoomToFit, updateCamera, isCameraBusy, zoomBy, panBy, canvasToScreen, ensureVisible, zoomToCircle,
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
@@ -126,7 +126,7 @@ export function AgentCanvas(props: CanvasProps) {
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
     reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, neverHideRef: prefs.neverHideRef,
-    updateCamera, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
+    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
   })
 
   // ─── Tooltip target (hover or keyboard focus) ──────────────────────────
