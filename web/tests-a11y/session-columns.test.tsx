@@ -12,7 +12,7 @@ import type { SessionInfo } from '@/lib/bridge-types'
 import { ACTIVE_UNKNOWN_TEXT } from '@/lib/active-time'
 import type { RollupTotal } from '@/lib/cost-rollup'
 import {
-  NO_VALUE, agentTimeCell, formatDurationCompact, modelCell, rollupTokensCell, sessionTimeCell, tokensCell,
+  NO_VALUE, activityCell, agentTimeCell, branchCell, costCell, formatDurationCompact, modelCell, rollupTokensCell, runtimeCell, sessionTimeCell, tokensCell,
 } from '@/lib/session-columns'
 
 const T0 = 1_000_000_000_000
@@ -81,6 +81,26 @@ test('sessionTimeCell: elapsed while active, start to last activity once complet
   assert.equal(sessionTimeCell({ startTime: T0 + 5, lastActivityTime: 0, status: 'active' }, T0).empty, true, 'a start in the future is not a duration')
 })
 
+test('costCell: money with its lower-bound / estimate marks spelled out, a named dash without data', () => {
+  const total = (over: Partial<RollupTotal>): RollupTotal => ({ tokens: 1, cost: 0.1234, agents: 1, known: 1, unknown: 0, complete: true, estimated: false, ...over })
+  assert.equal(costCell(total({})).text, '$0.123')
+  const inc = costCell(total({ complete: false, estimated: true }))
+  assert.equal(inc.text, '≥~$0.123')
+  assert.match(inc.label, /estimated/)
+  assert.match(inc.label, /incomplete/)
+  assert.deepEqual([costCell(total({ known: 0 })).empty, costCell(null).label], [true, 'cost unknown'])
+})
+
+test('branchCell / runtimeCell / activityCell: value, or a dash that says why', () => {
+  assert.deepEqual([branchCell('feat/x').text, branchCell('feat/x').label], ['feat/x', 'branch feat/x'])
+  assert.equal(branchCell(undefined).label, 'branch not recorded')
+  assert.deepEqual([runtimeCell('claude').text, runtimeCell('codex').text], ['Claude', 'Codex'])
+  assert.equal(runtimeCell('codex').label, 'runtime Codex')
+  assert.equal(runtimeCell(undefined).label, 'runtime not reported')
+  assert.equal(activityCell({ lastActivityTime: T0 - 120_000 }, T0).text, '2 min ago')
+  assert.equal(activityCell({ lastActivityTime: T0, lastActivityUnknown: true }, T0).label, 'activity unknown')
+})
+
 // ─── Rendered panel ──────────────────────────────────────────────────────────
 
 const LONG = 'A very long agent name that cannot possibly fit in the name column of the panel'
@@ -116,7 +136,7 @@ test('panel: header and a Name / Model / Tokens / Time value on every session an
   ])
   const { container, getByTestId } = render(panel(agents as never, new Map([['s1', 'claude-sonnet-4-5-20250929']])))
   const header = getByTestId('session-columns-header')
-  assert.deepEqual([...header.children].map(c => c.textContent), ['Name', 'Model', 'Tokens', 'Time'])
+  assert.deepEqual([...header.children].map(c => c.textContent), ['Name', 'Model', 'Runtime', 'Branch', 'Tokens', 'Cost', 'Time', 'Activity'])
   assert.equal(header.getAttribute('aria-hidden'), 'true', 'each cell names itself: the visible header is not read twice')
 
   const rows = [...container.querySelectorAll<HTMLElement>('[data-row-main]')]
@@ -139,6 +159,29 @@ test('panel: header and a Name / Model / Tokens / Time value on every session an
   assert.ok(longName?.className.includes('truncate'))
   // A completed session has a duration from its own times
   assert.match(cells(byKey('session:s2')).time.textContent!, /5m 00s long/)
+})
+
+test('panel: Cost, Branch, Runtime and Activity cells on session rows, a cost on agent rows', () => {
+  const withMeta = sessions.map(x => (x.id === 's1' ? { ...x, runtime: 'claude' as const, branch: 'feat/columns' } : x))
+  const agents = new Map([agent('s1:main', 's1', null, 'orchestrator', { model: 'claude-opus-4-5-20251101' })])
+  const { container } = render(
+    <SessionListPanel
+      visible onClose={noop} sessions={withMeta} selectedSessionId="s1" sessionsWithActivity={new Set(['s1', 's2'])}
+      onSelectSession={noop} onCloseSession={noop} agents={agents as never} selectedAgentId={null} onSelectAgent={noop} now={T0} freshnessClock={clock()}
+    />,
+  )
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-row-main]')]
+  const s1 = cells(rows.find(r => r.dataset.rowKey === 'session:s1')!)
+  assert.equal(s1.branch.getAttribute('title'), 'feat/columns')
+  assert.match(s1.runtime.textContent!, /runtime Claude Code/)
+  assert.match(s1.cost.textContent!, /Cost, .*cost/)
+  assert.match(s1.activity.textContent!, /last activity just now/)
+  const s2 = cells(rows.find(r => r.dataset.rowKey === 'session:s2')!)
+  assert.match(s2.branch.textContent!, /branch not recorded/)
+  assert.match(s2.activity.textContent!, /last activity 5 min ago/)
+  const main = cells(rows.find(r => r.dataset.rowKey === 'agent:s1:main')!)
+  assert.match(main.cost.textContent!, /cost/)
+  assert.equal(cells(rows.find(r => r.dataset.rowKey === 'agent:s1:main')!).branch, undefined, 'an agent has no branch: blank slot, nothing to read')
 })
 
 test('panel: every row is still a button of the roving list', () => {

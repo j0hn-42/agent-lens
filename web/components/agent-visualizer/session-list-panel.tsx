@@ -9,7 +9,7 @@ import { useThemeVersion } from '@/lib/theme'
 import { pluralize } from '@/lib/utils'
 import { usageFromAgent } from '@/lib/usage'
 import { deriveFreshness } from '@/hooks/simulation/freshness'
-import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell } from '@/lib/session-columns'
+import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -33,7 +33,7 @@ import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSna
 import { clampDockWidth } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
-import { COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
+import { BlankCell, COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
 
 export type SessionListAgent = AgentLike
 
@@ -154,6 +154,8 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
   const { detail, stale, role } = agentRowView(a, freshnessNow)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
   const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
+  // This agent alone (its sub-agents are in the branch total)
+  const own = useMemo(() => rollupBranch({ agent: node.agent, children: [] }), [node.agent])
   return (
     <li>
       <button
@@ -174,8 +176,12 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
           <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
         </span>
         <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <BlankCell column="runtime" />
+        <BlankCell column="branch" />
         <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
+        <ColumnValue column="cost" cell={costCell(own)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
+        <BlankCell column="activity" />
         {branch && (
           <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
             <RollupLabel total={branch} label="branch total" />
@@ -622,8 +628,12 @@ export function SessionListPanel({
                         <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       </span>
                       <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
+                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
+                      <ColumnValue column="branch" cell={branchCell(session.branch)} title={session.branch} />
                       <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
+                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null)} />
                       <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
+                      <ColumnValue column="activity" cell={activityCell(session, currentTime)} />
                       <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
                         {unobserved && (
                           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>
@@ -635,8 +645,9 @@ export function SessionListPanel({
                             <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
                           </span>
                         )}
-                        {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
-                        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                        {/* Cost and activity have their own columns from this width on */}
+                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="session total" /></span>}
+                        <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>
                     <button

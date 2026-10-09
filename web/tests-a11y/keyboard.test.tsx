@@ -165,9 +165,9 @@ test('sessions panel: the Active only toggle also hides an active session nobody
   assert.equal(queryByText('Ghost one'), null, 'an unobserved session is not counted as active')
 })
 
-test('sessions panel: a session row shows only its name, model and time', () => {
+test('sessions panel: a session row shows its name, model and time, not its workspace nor a CC badge', () => {
   const sessions = [{ id: 's1', label: 'Refactor payments', status: 'active' as const, startTime: 0, lastActivityTime: 0, workspace: 'shop', runtime: 'claude' as const }]
-  const { getByText, queryByText } = render(
+  const { getByText, getAllByText, queryByText } = render(
     <SessionListPanel
       visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
       sessionModels={new Map([['s1', 'claude-opus-4-6-20250514']])}
@@ -176,7 +176,7 @@ test('sessions panel: a session row shows only its name, model and time', () => 
   )
   getByText('Refactor payments')
   getByText('Opus 4.6')
-  getByText('3 min ago')
+  assert.ok(getAllByText('3 min ago').length >= 1, 'stacked line and Activity column')
   assert.equal(queryByText('shop'), null)
   assert.equal(queryByText('CC'), null)
 })
