@@ -108,7 +108,7 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 
 L'étape 13 décrit en mots les entrées qu'aucun événement ne peut produire dans une démo : elles dépendent de conditions réelles ou de vos clics. Elles ne sont pas visibles dans la visite.
 
-Les particules (point violet d'envoi de tâche, point vert de retour) sont dans le même cas pendant la visite : chaque étape met le scénario en pause à un instant précis, et une scène figée n'affiche aucune particule. Les étapes 3 et 4 les décrivent en le disant ; elles se voient dès que la lecture reprend, après la sortie de la visite.
+Les particules (point violet d'envoi de tâche, point vert de retour) sont dans le même cas pendant la visite : chaque étape met le scénario en pause à un instant précis, et une scène figée n'affiche aucune particule. Les étapes 3 et 4 les décrivent en le disant ; elles ne se voient que dans une lecture normale du scénario, rejouée depuis le début, hors de la visite.
 
 | Entrée | Ce que dit l'étape |
 | --- | --- |
