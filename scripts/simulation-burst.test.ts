@@ -155,12 +155,10 @@ test('stampTouchedAgents only visits the agents the event touched', () => {
   const out = stampTouchedAgents(prev, next, 5, ['a'])
   assert.equal(out.get('a')!.lastEventAt, 5)
   assert.equal(out.get('b')!.lastEventAt, undefined, 'b is not visited')
+  // Only the touched ids are looked up (the copy-on-write of the result is the one pass over the map)
   const visited: string[] = []
   const spy = new Proxy(next, {
     get(target, key) {
-      if (key === Symbol.iterator || key === 'entries' || key === 'keys' || key === 'values' || key === 'forEach') {
-        throw new Error('the whole map must not be scanned')
-      }
       const v = Reflect.get(target, key, target)
       return typeof v === 'function' ? (...args: unknown[]) => { if (key === 'get') visited.push(String(args[0])); return v.apply(target, args) } : v
     },

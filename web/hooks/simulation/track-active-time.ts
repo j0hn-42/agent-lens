@@ -5,26 +5,41 @@
 import type { Agent } from '../../lib/agent-types'
 import { advanceActiveTime, isActiveState } from '../../lib/active-time'
 
-/** Agents whose object changed between `prev` and `next`: start or close their active span. */
+/**
+ * `agent` after a live event changed it from `before` (undefined: new agent): its active span opens or
+ * closes with the wall clock. Returns `agent` itself when nothing is recorded.
+ */
+export function advanceAgentActiveTime(before: Agent | undefined, agent: Agent, nowMs: number): Agent {
+  if (before === agent) return agent
+  const working = isActiveState(agent.state)
+  // Same phase as the recorded one (still working, or still paused): nothing to record
+  if (working === (agent.activeSince !== undefined)) return agent
+  // Already working before this event (e.g. seen through a history replay) but with no known start:
+  // the live event does not witness the start of the span, so it stays unknown
+  if (working && before && isActiveState(before.state) && before.activeSince === undefined) return agent
+  const fields = advanceActiveTime({ activeMs: agent.activeMs, activeSince: agent.activeSince }, working, nowMs)
+  const { activeMs: _ms, activeSince: _since, ...rest } = agent
+  return { ...rest, ...fields }
+}
+
+/**
+ * Agents whose object changed between `prev` and `next`: start or close their active span. `touched` lists
+ * the agents the event may have changed: only those are visited (#210); without it, every agent of `next` is.
+ */
 export function trackActiveTime(
   prev: ReadonlyMap<string, Agent>,
   next: Map<string, Agent>,
   nowMs: number,
+  touched?: Iterable<string>,
 ): Map<string, Agent> {
   let out: Map<string, Agent> | null = null
-  for (const [id, agent] of next) {
-    if (prev.get(id) === agent) continue
-    const working = isActiveState(agent.state)
-    // Same phase as the recorded one (still working, or still paused): nothing to record
-    if (working === (agent.activeSince !== undefined)) continue
-    // Already working before this event (e.g. seen through a history replay) but with no known start:
-    // the live event does not witness the start of the span, so it stays unknown
-    const before = prev.get(id)
-    if (working && before && isActiveState(before.state) && before.activeSince === undefined) continue
-    const fields = advanceActiveTime({ activeMs: agent.activeMs, activeSince: agent.activeSince }, working, nowMs)
+  for (const id of touched ?? next.keys()) {
+    const agent = next.get(id)
+    if (!agent) continue
+    const updated = advanceAgentActiveTime(prev.get(id), agent, nowMs)
+    if (updated === agent) continue
     if (!out) out = new Map(next)
-    const { activeMs: _ms, activeSince: _since, ...rest } = agent
-    out.set(id, { ...rest, ...fields })
+    out.set(id, updated)
   }
   return out ?? next
 }
