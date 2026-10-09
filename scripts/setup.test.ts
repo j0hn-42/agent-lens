@@ -100,6 +100,72 @@ describe('setup.js mode, symlink and outdated hook.js', () => {
   })
 })
 
+describe('hook detection parity: setup.js, uninstall.js, claude-settings.ts (#199, #217)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const uninstall = require('../extension/scripts/uninstall.js') as { isAgentLensHook: (e: unknown) => boolean }
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const ext = require('../extension/src/claude-settings') as { isAgentLensHook: (e: unknown) => boolean }
+  const setupDetect = (setup as unknown as { isAgentLensHook: (e: unknown) => boolean }).isAgentLensHook
+
+  const cases: Array<[string, unknown, boolean]> = [
+    ['POSIX command', { type: 'command', command: '"/usr/bin/node" "/home/x/.claude/agent-lens/hook.js"' }, true],
+    ['Windows command', { type: 'command', command: '"C:\\node.exe" "C:\\Users\\x\\.claude\\agent-lens\\hook.js"' }, true],
+    ['legacy agent-flow command', { type: 'command', command: 'node /home/x/.claude/agent-flow/hook.js' }, true],
+    ['legacy agent-flow Windows command', { type: 'command', command: 'node C:\\Users\\x\\.claude\\agent-flow\\hook.js' }, true],
+    ['user http hook on 127.0.0.1', { type: 'http', url: 'http://127.0.0.1:8080/xyz' }, false],
+    ['user command', { type: 'command', command: 'echo hi' }, false],
+  ]
+  for (const [label, hook, expected] of cases) {
+    it(`${label}: ${expected ? 'recognised' : 'ignored'} by all three`, () => {
+      const entry = { hooks: [hook] }
+      assert.equal(setupDetect(entry), expected, 'setup.js')
+      assert.equal(uninstall.isAgentLensHook(entry), expected, 'uninstall.js')
+      assert.equal(ext.isAgentLensHook(entry), expected, 'claude-settings.ts')
+    })
+  }
+})
+
+describe('setup.js with user http hooks and legacy agent-flow hooks (#175, #199)', () => {
+  let file: string
+  beforeEach(() => { file = path.join(fs.mkdtempSync(path.join(fakeHome, 'legacy-')), 'settings.json') })
+  const userHttp = { type: 'http', url: 'http://127.0.0.1:8080/audit' }
+  const userCmd = { type: 'command', command: 'echo mine' }
+  const legacy = { type: 'command', command: 'node /h/.claude/agent-flow/hook.js' }
+
+  it('keeps a user http hook to 127.0.0.1 and its sibling hooks on --force', () => {
+    fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [{ hooks: [userHttp, userCmd] }] } }))
+    setup.configureHooks({ settingsPath: file, hookCommand: HOOK })
+    const stop = JSON.parse(fs.readFileSync(file, 'utf-8')).hooks.Stop
+    assert.deepEqual(stop[0], { hooks: [userHttp, userCmd] })
+    assert.equal(stop[1].hooks[0].command, HOOK)
+    assert.equal(stop.length, 2)
+  })
+
+  it('replaces legacy agent-flow hooks and keeps the user hooks of the same entry', () => {
+    fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [{ hooks: [legacy, userCmd] }], Notification: [{ hooks: [legacy] }] } }))
+    setup.configureHooks({ settingsPath: file, hookCommand: HOOK })
+    const hooks = JSON.parse(fs.readFileSync(file, 'utf-8')).hooks
+    assert.deepEqual(hooks.Stop[0], { hooks: [userCmd] })
+    assert.equal(hooks.Stop.length, 2)
+    assert.equal(hooks.Notification.length, 1)
+    assert.equal(hooks.Notification[0].hooks[0].command, HOOK)
+    assert.doesNotMatch(JSON.stringify(hooks), /agent-flow/)
+  })
+
+  it('a settings.json with only legacy hooks is not "already set up", and ensureSetup migrates it', () => {
+    delete process.env.CLAUDE_CONFIG_DIR
+    const settings = path.join(fakeHome, '.claude', 'settings.json')
+    fs.rmSync(path.join(fakeHome, '.claude'), { recursive: true, force: true })
+    setup.ensureSetup() // installs the current hook.js
+    fs.writeFileSync(settings, JSON.stringify({ hooks: { Stop: [{ hooks: [legacy] }] } }))
+    assert.equal(setup.isAlreadySetup(), false)
+    setup.ensureSetup()
+    assert.equal(setup.isAlreadySetup(), true)
+    assert.doesNotMatch(fs.readFileSync(settings, 'utf-8'), /agent-flow/)
+    fs.rmSync(settings)
+  })
+})
+
 describe('setup.js with CLAUDE_CONFIG_DIR', () => {
   after(() => {
     delete process.env.CLAUDE_CONFIG_DIR

@@ -21,7 +21,7 @@ import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
 } from './constants'
-import { migrateHttpHooks } from './hooks-config'
+import { migrateLegacyHooks } from './hooks-config'
 import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
@@ -68,7 +68,7 @@ export async function startClaudeRuntime(
       ensureHookScript()
       writeDiscoveryFile(hookPort, workspace)
       void purgeStaleDiscoveryFiles().catch(err => log.debug('Discovery purge failed:', err))
-      migrateHttpHooks()
+      migrateLegacyHooks()
     }
   }
 
