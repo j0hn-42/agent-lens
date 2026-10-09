@@ -101,6 +101,12 @@ export function ConversationPanel({
     [allMessages, agents],
   )
 
+  const messageCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of allMessages) counts.set(m.agentId, (counts.get(m.agentId) ?? 0) + 1)
+    return counts
+  }, [allMessages])
+
   const pairActive = isPairComplete(pair)
   const tabMessages = useMemo(
     () => (pairActive ? filterByPair(allMessages, pair.a, pair.b) : filterByTab(allMessages, activeTab)),
@@ -450,7 +456,8 @@ export function ConversationPanel({
 
         {/* Agent tabs (hidden when only one agent speaks) */}
         {showTabs && (
-          <div className="relative flex-shrink-0 pt-1.5">
+          <div className="relative flex-shrink-0 pt-1.5 flex items-start pr-2" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+            <div className="relative min-w-0 flex-1">
             <div
               ref={tabsRef}
               role="tablist"
@@ -458,7 +465,7 @@ export function ConversationPanel({
               aria-orientation="horizontal"
               onKeyDown={onTabKeyDown}
               onScroll={updateTabOverflow}
-              className="flex gap-0.5 px-2 pb-1.5 overflow-x-auto"
+              className="flex gap-1 px-2 pb-1.5 overflow-x-auto"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {
@@ -481,6 +488,9 @@ export function ConversationPanel({
                     onClick={(e) => onTabClick(key, e.shiftKey)}
                     color={color}
                     hasUnread={key !== 'all' && unread.has(key)}
+                    count={key === 'all' ? allMessages.length : (messageCounts.get(key) ?? 0)}
+                    working={key !== 'all' && !done && (agent?.state === 'thinking' || agent?.state === 'tool_calling')}
+                    isAll={key === 'all'}
                   />
                 )
               })}
@@ -493,22 +503,34 @@ export function ConversationPanel({
               <span aria-hidden="true" className="pointer-events-none absolute right-0 top-1.5 bottom-1.5 w-4 flex items-center justify-end"
                 style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
             )}
-          </div>
-        )}
-
-        {/* Pair filter: the communications exchanged between two agents */}
-        {(agentsWithMessages.length > 1 || isPairSet(pair)) && (
-          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1 flex-shrink-0">
+            </div>
             <button
               type="button"
               aria-expanded={pickerOpen}
               title="Filter on the messages exchanged between two agents (or Shift-click a second agent tab or message row)"
               onClick={() => setPickerOpen(v => !v)}
-              className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
-              style={{ color: pickerOpen ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+              className={`shrink-0 min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
+              style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
               Filter pair
             </button>
+          </div>
+        )}
+
+        {/* Pair filter: the communications exchanged between two agents (toggle lives in the tab row) */}
+        {(pickerOpen || isPairSet(pair)) && (
+          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0">
+            {!showTabs && (
+              <button
+                type="button"
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen(v => !v)}
+                className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
+                style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+              >
+                Filter pair
+              </button>
+            )}
             <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} />
             {pickerOpen && (
               <span className="inline-flex flex-wrap items-center gap-1">
@@ -604,7 +626,7 @@ function roleTermOf(agent: { kind?: string; isMain?: boolean }): string {
 
 // ── Tab Button ──
 
-function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread, done, accent }: {
+function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread, done, accent, count, working, isAll }: {
   id: string
   panelId: string
   buttonRef: (el: HTMLButtonElement | null) => void
@@ -619,6 +641,12 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   done?: boolean
   /** Validated team color */
   accent?: string
+  /** Messages shown for this tab */
+  count?: number
+  /** The agent is running: its dot pulses */
+  working?: boolean
+  /** The 'All' tab has no state dot */
+  isAll?: boolean
 }) {
   const accessibleName = [fullName, stateText ? `(${stateText})` : '', hasUnread ? ', unread messages' : '']
     .filter(Boolean).join(' ')
@@ -634,15 +662,25 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       tabIndex={active ? 0 : -1}
       title={fullName}
       onClick={onClick}
-      className={`px-2 min-h-6 rounded text-[11px] font-mono motion-safe:transition-all shrink-0 relative ${FOCUS_RING}`}
+      className={`px-2 min-h-7 rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING}`}
       style={{
-        background: active ? color + '20' : 'transparent',
+        background: active ? color + '26' : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
         ...tabBorderStyle({ active, color, accent, done }),
       }}
     >
+      {!isAll && (
+        <span
+          aria-hidden="true"
+          className={`inline-block w-2 h-2 rounded-full shrink-0 ${working ? 'motion-safe:animate-pulse' : ''}`}
+          style={{ background: color, opacity: done ? 0.5 : 1 }}
+        />
+      )}
       {label}
-      {done && <span aria-hidden="true" className="ml-1 text-[11px]">done</span>}
+      {count !== undefined && count > 0 && (
+        <span aria-hidden="true" className="text-[10px] tabular-nums px-1 rounded" style={{ background: COLORS.holoBg10, color: COLORS.textMuted }}>{count}</span>
+      )}
+      {done && <span aria-hidden="true" className="text-[11px]">done</span>}
       {hasUnread && (
         <>
           <span className="sr-only"> unread</span>
