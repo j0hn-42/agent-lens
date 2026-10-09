@@ -6,7 +6,6 @@ import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
-import { ThemeSelect } from "./theme-select"
 import { useThemeVersion } from "@/lib/theme"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
@@ -359,7 +358,6 @@ export const TopBar = memo(function TopBar({
           {/* Independent toggles */}
           <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
           <ToggleButton id={PANEL_BUTTON_IDS.stats} active={showStats} pressed={showStats} onClick={onToggleStats} title={openPanelLabel('stats', 'S')} shortcut="s">{PANEL_NAMES.stats}</ToggleButton>
-          <ThemeSelect />
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}
