@@ -199,8 +199,8 @@ Une seule « session » implicite (comme le scénario classique), pas de `MOCK_S
 
 | Acte | Instants | Contenu |
 |---|---|---|
-| A | 0 – 5 | agent principal Claude, message, réflexion, `Glob`, `Read` (découverte *file*), `Grep` (découverte *pattern*) |
-| B | 6 – 10 | `explore-agent` (dispatch, spawn, `Read` découverte *code*, `Grep` découverte *finding*, retour, fin) |
+| A | 0 – 5 | agent principal Claude, message, réflexion, `Glob`, `Read`, `Grep` |
+| B | 6 – 10 | `explore-agent` (dispatch, spawn, `Read`, `Grep`, retour, fin) |
 | C | 12 – 16 | demande de permission, puis `Bash` |
 | D | 18 – 25 | `test-runner` : outil en erreur, retour |
 | E | 27 – 35 | équipe `payments-squad` : `api-dev` et `qa-dev`, messages entre eux |
@@ -247,10 +247,10 @@ test('the played scenario produces what the tour explains', () => {
   const agents = [...s.agents.values()]
   assert.ok(agents.some(a => a.runtime === 'codex'), 'a Codex agent')
   assert.ok(agents.some(a => a.runtime !== 'codex'), 'a Claude agent')
-  assert.ok(agents.some(a => a.kind === 'subagent'), 'a sub-agent')
+  // The engine sets `kind` only for teammates: a sub-agent is a non-main agent that is not a teammate
+  assert.ok(agents.some(a => !a.isMain && a.kind !== 'teammate'), 'a sub-agent')
   assert.ok(agents.some(a => a.kind === 'teammate'), 'a teammate')
   assert.ok([...s.toolCalls.values()].some(t => t.state === 'error'), 'a failed tool call')
-  assert.deepEqual(['code', 'file', 'finding', 'pattern'], [...new Set(s.discoveries.map(d => d.type))].sort())
   assert.ok(s.links.size > 0 && [...s.links.values()].some(l => l.messages.length > 0), 'a link with messages')
   assert.ok(s.teams.size > 0, 'a team')
 })
@@ -291,7 +291,7 @@ function tool(time: number, dur: number, agent: string, name: string, args: stri
   at(time + dur, 'tool_call_end', { agent, tool: name, ...end })
 }
 
-// ── Act A · The main agent: thinking, tools, discoveries ──
+// ── Act A · The main agent: thinking and tools ──
 at(0.0, 'agent_spawn', { name: 'orchestrator', isMain: true, task: 'Waiting for instructions...', model: 'claude-opus-5-5', modelSource: 'configured' })
 at(0.2, 'message', { agent: 'orchestrator', role: 'user', content: 'Refactor the payment system to support Stripe and PayPal, add webhook handling, and write integration tests' })
 at(0.4, 'context_update', { agent: 'orchestrator', tokens: 2200, breakdown: breakdown(1500, 700, 0, 0, 0) })
@@ -301,25 +301,21 @@ at(2.0, 'context_update', { agent: 'orchestrator', tokens: 3000, breakdown: brea
 tool(3.0, 0.3, 'orchestrator', 'Glob', 'src/**/*.ts', { result: '47 files matched', tokenCost: 500, tokenSource: 'reported' }, { pattern: 'src/**/*.ts' })
 tool(3.5, 0.4, 'orchestrator', 'Read', 'src/services/payment.ts', {
   result: 'payment.ts — 234 lines, legacy processor with direct Stripe v2 calls', tokenCost: 3500, tokenSource: 'reported',
-  discovery: { type: 'file', label: 'src/services/payment.ts', content: 'Legacy processor, 234 lines\nDirect Stripe v2 calls' },
 }, { file_path: 'src/services/payment.ts' })
 tool(4.1, 0.4, 'orchestrator', 'Grep', '"stripe|paypal|payment" --type ts', {
   result: '28 matches in 9 files', tokenCost: 700, tokenSource: 'reported',
-  discovery: { type: 'pattern', label: 'Payment references', content: '28 matches across 9 files\nNo webhook handling found' },
 }, { pattern: 'stripe|paypal|payment', type: 'ts' })
 at(4.6, 'context_update', { agent: 'orchestrator', tokens: 11500, breakdown: breakdown(1500, 700, 6500, 2800, 0) })
 
-// ── Act B · A sub-agent: dispatch, own discoveries, result returned ──
+// ── Act B · A sub-agent: dispatch, tools, result returned ──
 at(6.0, 'subagent_dispatch', { parent: 'orchestrator', child: 'explore-agent', toolUseId: 'toolu_guided_explore', task: 'Deep-dive into the payment flow and the database schema' })
 at(6.3, 'agent_spawn', { name: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_guided_explore', task: 'Analyze payment flow and database schema' })
 at(6.6, 'context_update', { agent: 'explore-agent', tokens: 1800, breakdown: breakdown(1400, 400, 0, 0, 0) })
 tool(7.5, 0.4, 'explore-agent', 'Read', 'src/models/payment.model.ts', {
   result: 'Prisma schema: Payment { id, amount, currency, status, provider }', tokenCost: 1200, tokenSource: 'reported',
-  discovery: { type: 'code', label: 'Payment Model', content: 'Payment { id, amount, currency,\n  status, provider }' },
 }, { file_path: 'src/models/payment.model.ts' })
 tool(8.2, 0.4, 'explore-agent', 'Grep', '"catch|error|throw" src/services/', {
   result: '15 matches — minimal error handling, no retry logic', tokenCost: 500, tokenSource: 'reported',
-  discovery: { type: 'finding', label: 'Weak error handling', content: 'No retry logic in the payment flow\nGeneric catch blocks only' },
 }, { pattern: 'catch|error|throw', path: 'src/services/' })
 at(9.2, 'subagent_return', { child: 'explore-agent', parent: 'orchestrator', toolUseId: 'toolu_guided_explore', summary: 'Legacy Stripe v2 calls, Prisma Payment model, weak error handling, no webhooks' })
 at(9.2, 'agent_complete', { name: 'explore-agent' })
@@ -494,7 +490,7 @@ test('agent targets exist at the time of their step', () => {
   }
 })
 
-// What the simulation can prove is proven: a step never claims a state, runtime, discovery or context segment
+// What the simulation can prove is proven: a step never claims a state, runtime or context segment
 // that the scenario has not produced yet at its time (CONTRIBUTING: never show an unproven state).
 const STATE_OF = (id: LegendEntryId) => id.startsWith('state-') ? id.slice('state-'.length) : null
 const CTX_FIELD: Partial<Record<LegendEntryId, string>> = {
@@ -503,7 +499,7 @@ const CTX_FIELD: Partial<Record<LegendEntryId, string>> = {
 const hasContext = (field: string, time: number) => GUIDED_SCENARIO.some((e: SimulationEvent) =>
   e.type === 'context_update' && e.time <= time && Number((e.payload as { breakdown?: Record<string, number> }).breakdown?.[field] ?? 0) > 0)
 
-test('covered states, runtimes, discoveries and context segments are on screen at the step time', () => {
+test('covered states, runtimes and context segments are on screen at the step time', () => {
   for (const s of GUIDED_STEPS) {
     const state = playUntil(s.time)
     const agents = [...state.agents.values()]
@@ -513,7 +509,6 @@ test('covered states, runtimes, discoveries and context segments are on screen a
       if (st) assert.ok(agents.some(a => a.state === st), `${s.id}: an agent is ${st} at t=${s.time}`)
       if (id === 'rt-codex') assert.ok(agents.some(a => a.runtime === 'codex'), `${s.id}: a Codex agent`)
       if (id === 'rt-claude') assert.ok(agents.some(a => a.runtime !== 'codex'), `${s.id}: a Claude agent`)
-      if (id.startsWith('disc-')) assert.ok(state.discoveries.some(d => d.type === id.slice('disc-'.length)), `${s.id}: a ${id} discovery`)
       const field = CTX_FIELD[id]
       if (field) assert.ok(hasContext(field, s.time), `${s.id}: context ${field} > 0`)
       if (id === 'team-row') assert.ok(state.teams.size > 0, `${s.id}: a team`)
@@ -537,7 +532,7 @@ Expected: FAIL (module `guided-steps` introuvable).
 
 - [ ] **Step 3: Écrire `web/lib/guided-steps.ts`**
 
-Les instants viennent de la table de la Task 2. Écrire les 14 étapes ci-dessous ; **si le test « on screen at the step time » échoue pour une étape, déplacer `time` à un instant de la même scène, jamais assouplir le test**.
+Les instants viennent de la table de la Task 2. Écrire les 12 étapes ci-dessous ; **si le test « on screen at the step time » échoue pour une étape, déplacer `time` à un instant de la même scène, jamais assouplir le test**.
 
 ```ts
 import type { LegendEntryId } from './legend-entries'
@@ -563,6 +558,7 @@ export interface GuidedStep {
 /** Entries no event can produce in a demo: explained in words only, and the text must say so. */
 export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
   'state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'team-archived', 'session-halo',
+  'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
 ]
 
 export const GUIDED_STEPS: readonly GuidedStep[] = [
@@ -572,15 +568,9 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
   { id: 'tools', time: 3.2, target: { kind: 'agent', name: 'orchestrator' }, title: 'Tool calls',
     body: 'Every tool the agent runs appears as a rounded card on a thin amber line. The agent is calling a tool right now.',
     covers: ['state-tool_calling', 'shape-tool', 'edge-tool'] },
-  { id: 'discoveries', time: 4.8, target: { kind: 'dom', id: 'legend-discoveries' }, opensLegend: true, title: 'Discoveries',
-    body: 'When a tool brings back something worth remembering, a card with a colour bar appears: a file it read, or a pattern it searched.',
-    covers: ['shape-discovery', 'disc-file', 'disc-pattern'] },
   { id: 'subagent', time: 6.6, target: { kind: 'agent', name: 'explore-agent' }, title: 'Sub-agents',
     body: 'The main agent delegated a task: a small hexagon joined by a thick line. The purple dot is the task travelling to the sub-agent.',
     covers: ['shape-sub', 'edge-parent', 'particle-dispatch'] },
-  { id: 'more-discoveries', time: 8.8, target: { kind: 'agent', name: 'explore-agent' }, title: 'Code and findings',
-    body: 'The sub-agent found a piece of code and a finding. Same cards, other colours: file, pattern, finding and code.',
-    covers: ['disc-finding', 'disc-code'] },
   { id: 'return', time: 9.4, target: { kind: 'agent', name: 'explore-agent' }, title: 'Results come back',
     body: 'A green dot carries the result back to the parent. The sub-agent is done: its outline is now dashed.',
     covers: ['particle-return', 'shape-complete', 'state-complete'] },
@@ -606,8 +596,8 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'The knot logo is Codex; the spark is Claude. Both are drawn the same way, so you can compare them side by side.',
     covers: ['rt-codex'] },
   { id: 'not-in-demo', time: 44.5, target: { kind: 'dom', id: 'legend-edges' }, opensLegend: true, title: 'Seen only in a real session',
-    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, an archived agent and the dotted session halo. Keep the legend open to recognise them later.',
-    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'team-archived', 'session-halo'] },
+    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, an archived agent, the dotted session halo and the discovery cards (file, pattern, finding, code). Keep the legend open to recognise them later.',
+    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'team-archived', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },
 ] as const
 ```
 
@@ -1243,7 +1233,7 @@ Expected: PASS (3 tests). Prérequis : `pnpm --dir web exec playwright install c
 
 - [ ] **Step 11: Vérification manuelle**
 
-Run: `pnpm run dev:demo:guided`, ouvrir http://localhost:3000, fenêtre 1280×800. Parcourir les 14 étapes : l'anneau entoure bien chaque cible, la légende s'ouvre sur les étapes concernées, Précédent revient bien en arrière, `Exit tour` relance la lecture, essayer 2 thèmes sombres. Noter tout décalage d'anneau ; corriger `AGENT_RING_RADIUS` ou l'instant de l'étape.
+Run: `pnpm run dev:demo:guided`, ouvrir http://localhost:3000, fenêtre 1280×800. Parcourir les 12 étapes : l'anneau entoure bien chaque cible, la légende s'ouvre sur les étapes concernées, Précédent revient bien en arrière, `Exit tour` relance la lecture, essayer 2 thèmes sombres. Noter tout décalage d'anneau ; corriger `AGENT_RING_RADIUS` ou l'instant de l'étape.
 
 - [ ] **Step 12: Commit**
 
@@ -1261,7 +1251,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `docs/demo.md`, `docs/reading-the-ui.md`, `README.md`
 
-- [ ] **Step 1: `docs/demo.md`** — ajouter à la fin une section `## Visite guidée` (en français comme le reste du fichier) : lancement (`pnpm run dev:demo:guided` ou `?scenario=guided`), les contrôles (Suivant, Précédent, liste des étapes, `←` `→` et `Échap` quand le focus est dans la carte, `Exit tour`), le tableau des 14 étapes (titre, entrée de légende expliquée) tiré de `web/lib/guided-steps.ts`, et la liste des entrées « vues seulement dans une session réelle » (`DESCRIBED_ONLY`).
+- [ ] **Step 1: `docs/demo.md`** — ajouter à la fin une section `## Visite guidée` (en français comme le reste du fichier) : lancement (`pnpm run dev:demo:guided` ou `?scenario=guided`), les contrôles (Suivant, Précédent, liste des étapes, `←` `→` et `Échap` quand le focus est dans la carte, `Exit tour`), le tableau des 12 étapes (titre, entrée de légende expliquée) tiré de `web/lib/guided-steps.ts`, et la liste des entrées « vues seulement dans une session réelle » (`DESCRIBED_ONLY`).
 
 - [ ] **Step 2: `docs/reading-the-ui.md`** — en tête de chaque section de légende, une phrase « Voir en action : `?scenario=guided` (étape *<titre>*) », avec le titre exact de l'étape correspondante.
 
