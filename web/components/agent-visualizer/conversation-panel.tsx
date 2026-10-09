@@ -306,7 +306,7 @@ export function ConversationPanel({
       aria-live="off"
       aria-label={pairActive ? `Messages between ${agentNameOf(agents, pair.a)} and ${agentNameOf(agents, pair.b)}` : activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
       tabIndex={0}
-      className={`flex-1 min-h-0 overflow-y-auto px-2 pb-2 ${FOCUS_RING}`}
+      className={`flex-1 min-h-32 overflow-y-auto px-2 pb-2 ${FOCUS_RING}`}
       style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
     >
       {messages.length === 0 ? (
@@ -542,7 +542,7 @@ export function ConversationPanel({
 
         {/* Pair filter: the communications exchanged between two agents */}
         {(agentsWithMessages.length > 1 || isPairSet(pair)) && (
-          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1 flex-shrink-0">
+          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 overflow-y-auto">
             <button
               type="button"
               aria-expanded={pickerOpen}
@@ -576,7 +576,7 @@ export function ConversationPanel({
 
         {/* Teammates grouped under their team heading */}
         {teamGroups.length > 0 && (
-          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} className="px-3 py-1.5 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
               <div key={g.key} role="group" aria-label={g.label}>
                 <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
