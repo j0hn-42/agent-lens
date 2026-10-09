@@ -6,6 +6,7 @@ import { LEGEND_ENTRY_IDS, type LegendEntryId } from '../web/lib/legend-entries'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
+import { linkState } from '../web/components/agent-visualizer/canvas/link-geometry'
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},
@@ -81,5 +82,25 @@ test('DESCRIBED_ONLY entries are explained with words that say they are not on s
     const step = GUIDED_STEPS.find(s => s.covers.includes(id))
     assert.ok(step, `${id} is covered`)
     assert.match(step!.body, /not (shown|part of)|never shown|does not appear|only (appears|when)/i, `${step!.id} says ${id} is not in this demo`)
+  }
+})
+
+// Link states come from the age of the last message (LINK_IN_FLIGHT_S / LINK_RECENT_S in link-geometry.ts), so a
+// step about a link state is only true at an instant when a link really is in that state.
+const LINK_STATE_OF: Partial<Record<LegendEntryId, 'in_flight' | 'recent' | 'idle'>> = {
+  'link-flight': 'in_flight', 'link-recent': 'recent', 'link-quiet': 'idle',
+}
+
+test('covered link states are on screen at the step time', () => {
+  for (const s of GUIDED_STEPS) {
+    const links = [...playUntil(s.time).links.values()]
+    for (const id of s.covers) {
+      const want = LINK_STATE_OF[id]
+      if (!want || DESCRIBED_ONLY.includes(id)) continue
+      assert.ok(
+        links.some(l => l.messages.length > 0 && linkState(l, s.time) === want),
+        `${s.id}: a link is ${want} at t=${s.time} (${id})`,
+      )
+    }
   }
 })
