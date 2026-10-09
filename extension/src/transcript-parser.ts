@@ -16,7 +16,7 @@ import { readFileChunk } from './fs-utils'
 import { claudeProjectsDir } from './claude-config-dir'
 import {
   PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX,
-  SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED,
+  SESSION_LABEL_MAX, SESSION_LABEL_TRUNCATED, SESSION_TITLE_MAX,
   CHILD_NAME_MAX,
   HASH_PREFIX_MAX,
   HOOK_MAX_SESSIONS, NORM_ID_MAX,
@@ -361,6 +361,9 @@ export class TranscriptParser {
       this.handleProgressEvent(parsed, sessionId)
       return
     }
+
+    // Session name written by Claude Code (/rename, auto title): preferred over the first prompt
+    if (sessionId && this.applySessionTitle(parsed, sessionId)) return
 
     // Only process actual conversation entries (user/assistant turns)
     if (parsed.type !== 'user' && parsed.type !== 'assistant') {
@@ -774,6 +777,7 @@ export class TranscriptParser {
         try {
           const parsedEntry = norm.parseLine(line)
           if (!parsedEntry) { continue }
+          this.setSessionTitle(session, parsedEntry)
           const entry = parsedEntry as unknown as TranscriptEntry
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
           const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
@@ -900,6 +904,32 @@ export class TranscriptParser {
     }
   }
 
+  /** Apply a Claude Code session-name entry to the session label. Returns true if `parsed` is one. */
+  private applySessionTitle(parsed: Record<string, unknown>, sessionId: string): boolean {
+    if (!SESSION_TITLE_FIELDS[parsed.type as string]) return false
+    const session = this.delegate.getSession(sessionId)
+    if (session && this.setSessionTitle(session, parsed)) {
+      this.delegate.fireSessionLifecycle({ type: 'updated', sessionId, label: session.label })
+    }
+    return true
+  }
+
+  /** Use the session name as label; `custom-title` (/rename) > `agent-name` > `ai-title`, latest wins per rank. */
+  private setSessionTitle(session: WatchedSession, parsed: Record<string, unknown>): boolean {
+    const spec = SESSION_TITLE_FIELDS[parsed.type as string]
+    if (!spec) return false
+    const title = parsed[spec.field]
+    if (typeof title !== 'string' || !title.trim()) return false
+    if (spec.rank < (session.titleRank ?? 0)) return false
+    const firstLine = title.split('\n')[0].trim()
+    const label = firstLine.length <= SESSION_TITLE_MAX ? firstLine : firstLine.slice(0, SESSION_TITLE_MAX - 2) + '..'
+    session.titleRank = spec.rank
+    session.labelSet = true
+    if (label === session.label) return false
+    session.label = label
+    return true
+  }
+
   /** Extract a human-readable label from the first user message in transcript entries */
   extractSessionLabel(entries: TranscriptEntry[], session: WatchedSession): void {
     if (session.labelSet) return
@@ -957,6 +987,13 @@ export class TranscriptParser {
     session.labelSet = true
     this.delegate.fireSessionLifecycle({ type: 'updated', sessionId, label: session.label })
   }
+}
+
+/** Transcript entries carrying the session name, with the field holding it and its priority. */
+const SESSION_TITLE_FIELDS: Record<string, { field: string; rank: number }> = {
+  'ai-title': { field: 'aiTitle', rank: 1 },
+  'agent-name': { field: 'agentName', rank: 2 },
+  'custom-title': { field: 'customTitle', rank: 3 },
 }
 
 /** Default root that hook-supplied transcript paths must resolve inside. */
