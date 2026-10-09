@@ -32,7 +32,7 @@ import {
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
-import { setLogLevel } from '../extension/src/logger'
+import { setLogLevel, createLogger } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
@@ -46,7 +46,7 @@ import { EventReconciler, type EventSource } from '../extension/src/event-source
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
-import { createStatusRoute } from './routes/status'
+import { createStatusRoute, type StatusSnapshot } from './routes/status'
 import { createContextRoute } from './routes/context'
 import { createObservationsRoute } from './routes/observations'
 
@@ -82,6 +82,31 @@ function resolveAgentLensVersion(): string {
 
 function log(...args: unknown[]) {
   if (verbose) console.log(...args)
+}
+
+/** Shown without --verbose: what the user must know (a session Agent Lens stopped following). */
+const relayLog = createLogger('Relay')
+
+/** Transcript size past which a session is no longer followed (injectable for tests). */
+let maxSessionFileBytes = RELAY_MAX_SESSION_FILE_BYTES
+
+/**
+ * Sessions the relay does not follow, by reason, for GET /status (#208): watch limit reached when
+ * the session was found, or transcript grown past the size cap. Distinct ids, bounded.
+ */
+const SKIPPED_SESSIONS_MAX = 1000
+const skippedSessions = { watchLimit: new Set<string>(), sizeLimit: new Set<string>() }
+
+/** Records a skipped session; true the first time it is recorded for that reason. */
+function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): boolean {
+  const set = skippedSessions[reason]
+  if (set.has(sessionId)) return false
+  if (set.size >= SKIPPED_SESSIONS_MAX) {
+    const oldest = set.values().next().value
+    if (oldest !== undefined) set.delete(oldest)
+  }
+  set.add(sessionId)
+  return true
 }
 
 // ─── SSE client management ──────────────────────────────────────────────────
@@ -358,6 +383,8 @@ function ensureWatchCapacity(): boolean {
 }
 
 function watchSession(sessionId: string, filePath: string) {
+  skippedSessions.watchLimit.delete(sessionId)
+  skippedSessions.sizeLimit.delete(sessionId)
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
   const session: WatchedSession = {
     sessionId, filePath,
@@ -429,9 +456,12 @@ function readNewLines(sessionId: string) {
 
   const lines = readTrackedLines(session.filePath, session)
   if (!lines) return
-  // The size cap is also enforced after discovery: a transcript that grows past it is dropped
-  if (session.fileSize > RELAY_MAX_SESSION_FILE_BYTES) {
-    log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${RELAY_MAX_SESSION_FILE_BYTES} bytes — no longer watched`)
+  // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
+  // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
+  if (session.fileSize > maxSessionFileBytes) {
+    relayLog.warn(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${maxSessionFileBytes} bytes — no longer watched`)
+    noteSkipped('sizeLimit', sessionId)
+    broadcastSessionLifecycle('ended', sessionId, session.label)
     unwatchSession(sessionId)
     return
   }
@@ -469,7 +499,7 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
 
   const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
   coldScan.cycle++
-  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: RELAY_MAX_SESSION_FILE_BYTES, cold: coldScan })) {
+  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: maxSessionFileBytes, cold: coldScan })) {
     if (sessions.has(f.sessionId)) continue
     let newestMtime = f.mtimeMs
     if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
@@ -488,10 +518,14 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
 
   // Newest first so the bounded watcher budget goes to the most recent sessions
   candidates.sort((a, b) => b.newestMtime - a.newestMtime)
-  for (const c of candidates) {
+  for (const [i, c] of candidates.entries()) {
     if (sessions.has(c.sessionId)) continue
     if (!ensureWatchCapacity()) {
-      log(`[session] Watch limit (${RELAY_MAX_WATCHED_SESSIONS}) reached — skipping ${c.sessionId.slice(0, SESSION_ID_DISPLAY)}`)
+      // Every remaining candidate is skipped: counted in /status, warned once per session
+      for (const skipped of candidates.slice(i)) {
+        if (sessions.has(skipped.sessionId) || !noteSkipped('watchLimit', skipped.sessionId)) continue
+        relayLog.warn(`Watch limit (${RELAY_MAX_WATCHED_SESSIONS}) reached — session ${skipped.sessionId.slice(0, SESSION_ID_DISPLAY)} is not watched`)
+      }
       break
     }
     try { watchSession(c.sessionId, c.filePath) } catch (e) {
@@ -571,6 +605,9 @@ export interface RelayOptions {
   sessionIndex?: RelaySessionIndexOptions
   /** Period of the SSE keep-alive (ms). Injectable for tests; defaults to RELAY_SSE_HEARTBEAT_MS. */
   sseHeartbeatMs?: number
+  /** Transcript size past which a Claude session is not (or no longer) watched. Injectable for tests;
+   *  defaults to RELAY_MAX_SESSION_FILE_BYTES. */
+  maxSessionFileBytes?: number
 }
 
 export interface RelaySessionIndexOptions {
@@ -606,6 +643,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     throw new Error('createRelay() can only be called once per process')
   }
   relayCreated = true
+  maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
   // Optional session index: read lazily, cached briefly, never fatal (a degraded index only logs and shows in /status)
   const indexConfig: RelaySessionIndexOptions | undefined = options.sessionIndex
@@ -646,7 +684,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   const scanCoalescer = new KeyedCoalescer<void>()
-  const statusCoalescer = new KeyedCoalescer<{ sessionCount: number; hooksConfigured: boolean }>()
+  const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
   let projectDirWatcher: fs.FSWatcher | null = null
 
@@ -824,7 +862,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
-      return { sessionCount, hooksConfigured }
+      return {
+        sessionCount, hooksConfigured,
+        skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size },
+      }
     },
     base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList, allWorkspaces },
     readIndex,

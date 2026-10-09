@@ -192,6 +192,8 @@ export interface RelayStatus {
   runtimes: string[]
   hooksConfigured: boolean
   sessionCount: number
+  /** Claude sessions not followed (#208): watch limit reached when found, transcript past the size cap */
+  skippedSessions: { watchLimit: number; sizeLimit: number }
   allWorkspaces: boolean
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }

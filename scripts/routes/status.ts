@@ -5,7 +5,11 @@ import type { SessionIndexResult } from '../../extension/src/session-index'
 import type { KeyedCoalescer } from '../server-hardening'
 import { guardedRoute, sendJson, sendPlain, type RouteHandler } from './guard'
 
-export interface StatusSnapshot { sessionCount: number; hooksConfigured: boolean }
+export interface StatusSnapshot {
+  sessionCount: number
+  hooksConfigured: boolean
+  skippedSessions: RelayStatus['skippedSessions']
+}
 
 export interface StatusRouteDeps {
   limiter: KeyedRateLimiter
@@ -34,6 +38,7 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       runtimes: deps.base.runtimes,
       hooksConfigured: snapshot.hooksConfigured,
       sessionCount: snapshot.sessionCount,
+      skippedSessions: snapshot.skippedSessions,
       allWorkspaces: deps.base.allWorkspaces,
     }
     const indexed = deps.readIndex()
