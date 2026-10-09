@@ -65,6 +65,8 @@ export function useKeyboardShortcuts(actions: {
   toggleContext: () => void
   toggleCostOverlay: () => void
   zoomToFit: () => void
+  /** Enter / leave immersive full screen (`Z`) */
+  toggleFullscreen: () => void
   /** Close the most recently opened panel; returns true if one was closed. */
   closeTopPanel: () => boolean
   clearSelection: () => void
@@ -100,6 +102,10 @@ export function useKeyboardShortcuts(actions: {
           break
         case 'F':
           a.zoomToFit()
+          break
+        case 'z':
+        case 'Z':
+          a.toggleFullscreen()
           break
         case 't':
         case 'T':

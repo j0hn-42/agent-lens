@@ -16,7 +16,7 @@ test('SHORTCUTS keys are unique and non-empty', () => {
 
 test('SHORTCUTS covers the keys handled by the hook', () => {
   const keys = new Set(SHORTCUTS.map(s => s.key))
-  for (const k of [' ', 'f', 'F', 't', 'c', 'g', 's', '$', 'm', '1', '2', '3', '4', 'Escape', '?']) {
+  for (const k of [' ', 'f', 'F', 'z', 't', 'c', 'g', 's', '$', 'm', '1', '2', '3', '4', 'Escape', '?']) {
     assert.ok(keys.has(k), k)
   }
 })
