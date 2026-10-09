@@ -238,12 +238,14 @@ export function AgentVisualizer() {
   useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
+  // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
+  const isGuidedDemo = IS_GUIDED_DEMO && bridge.useMockData
   // Auto-play on mount (not in the guided demo: the tour holds the scenario at each step's time)
   useEffect(() => {
-    if (IS_GUIDED_DEMO) return
+    if (isGuidedDemo) return
     const timer = setTimeout(() => play(), TIMING.autoPlayDelayMs)
     return () => clearTimeout(timer)
-  }, [play])
+  }, [play, isGuidedDemo])
 
   // Per-session state cache: save/restore simulation state on tab switch
   // so sessions stay up to date and switching is instant.
@@ -650,9 +652,14 @@ export function AgentVisualizer() {
   // Guided tour (demo ?scenario=guided): step times only match the guided scenario, so it is offered nowhere else
   const tour = useGuidedTour({ steps: GUIDED_STEPS, seek: handleSeek, play })
   const canvasToScreenRef = useRef<TourBridge['canvasToScreenRef']['current']>(null)
-  // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical
+  // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical.
+  // A real source taking over ends the tour: its step times do not match the real event log.
   const [guidedDemo, setGuidedDemo] = useState(false)
-  useEffect(() => { if (IS_GUIDED_DEMO) { setGuidedDemo(true); tour.start() } }, [])   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setGuidedDemo(isGuidedDemo)
+    if (isGuidedDemo) tour.start()
+    else if (tour.active) tour.exit()
+  }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
   const startTour = guidedDemo && !tour.active ? tour.start : undefined
   const tourBridge = useMemo(() => ({ legendOpen: Boolean(tour.step?.opensLegend), canvasToScreenRef, startTour }), [tour.step, startTour])
   const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])

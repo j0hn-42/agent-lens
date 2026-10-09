@@ -5,6 +5,7 @@ import React, { type ComponentProps } from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { LEGEND_ENTRY_IDS, LEGEND_ENTRIES } from '@/lib/legend-entries'
+import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-context'
 
 // The open/closed state of the legend is persisted: reset it so each test starts closed.
 afterEach(() => { cleanup(); document.body.replaceChildren(); window.localStorage.clear() })
@@ -26,4 +27,14 @@ test('every section heading is a tour target', () => {
   for (const section of Object.keys(LEGEND_ENTRIES)) {
     assert.ok(document.querySelector(`[data-tour-target="legend-${section}"]`), `heading of ${section}`)
   }
+})
+
+test('while the tour holds the legend open, the Legend button neither collapses it nor saves a preference', () => {
+  const tour = { legendOpen: true, canvasToScreenRef: { current: null } }
+  const view = render(<TourBridgeContext.Provider value={tour}><GraphLegend teams={teams} /></TourBridgeContext.Provider>)
+  const button = view.getByRole('button', { name: /legend/i })
+  assert.equal(button.getAttribute('aria-expanded'), 'true')
+  fireEvent.click(button)
+  assert.equal(window.localStorage.getItem('agent-viz-legend-open'), null, 'no preference saved')
+  assert.equal(button.getAttribute('aria-expanded'), 'true')
 })

@@ -72,6 +72,8 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
   }, [])
 
   const toggle = () => {
+    // Held open by the tour only: a click could not collapse it, so it saves nothing either
+    if (tourWantsOpen && !open) return
     setOpen(prev => {
       const next = !prev
       try { window.localStorage.setItem(LEGEND_OPEN_KEY, next ? '1' : '0') } catch { /* ignore */ }
