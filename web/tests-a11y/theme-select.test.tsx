@@ -76,10 +76,12 @@ test('the top bar repaints with the new theme colours', () => {
     showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
     onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
   }
-  const { getByRole, container } = render(<TopBar {...props} />)
-  const select = getByRole('combobox', { name: 'Theme' }) as HTMLSelectElement
+  const { getByRole, container, rerender, queryByRole } = render(<TopBar {...props} />)
+  assert.equal(queryByRole('combobox', { name: 'Theme' }), null, 'the theme selector lives in the Settings dialog, not the top bar')
   const toolbar = container.querySelector('[role="toolbar"]')!
-  assert.ok(toolbar.contains(select), 'the selector sits in the view controls toolbar')
+  // The selector is rendered next to the bar (as the Settings dialog does) to drive a theme change
+  rerender(<><TopBar {...props} /><ThemeSelect /></>)
+  const select = getByRole('combobox', { name: 'Theme' }) as HTMLSelectElement
   const border = () => (toolbar.querySelector('#topbar-toggle-timeline') as HTMLElement).style.border
   const before = border()
   fireEvent.change(select, { target: { value: 'contrast' } })
