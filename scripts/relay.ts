@@ -5,14 +5,13 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
-import { newestTranscriptMtime } from '../extension/src/discovery-activity'
 import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts, runGuarded } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -36,7 +35,7 @@ import { setLogLevel, createLogger } from '../extension/src/logger'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
-  listProjectDirs, discoverSessionFiles, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
+  listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
@@ -490,6 +489,51 @@ function readNewLines(sessionId: string) {
 
 const coldScan = createColdScan()
 
+// Transcripts froids (#211) : un événement de watch les réveille tout de suite, sinon ils sont réexaminés
+// tous les COLD_RESCAN_CYCLES scans. Un watcher par dossier de projet (borné par RELAY_MAX_PROJECT_DIRS)
+// et, pour les sessions inactives, un sur leur dossier subagents (borné par COLD_SUBAGENT_WATCH_MAX).
+const COLD_SUBAGENT_WATCH_MAX = 64
+const projectDirWakeWatchers = new Map<string, fs.FSWatcher>()
+const subagentWakeWatchers = new Map<string, { w: fs.FSWatcher; mtimeMs: number }>()
+let wakeScan: (() => void) | null = null
+
+function wakeAndRescan(woken: boolean) {
+  if (woken) wakeScan?.()
+}
+
+function watchProjectDirsForWake(dirs: string[]) {
+  for (const dir of dirs) {
+    if (projectDirWakeWatchers.has(dir)) continue
+    const w = safeWatch(dir, (_eventType, filename) => {
+      if (!filename || !filename.endsWith('.jsonl')) return
+      wakeAndRescan(wakeColdFile(coldScan, path.join(dir, filename)))
+    }, undefined, () => projectDirWakeWatchers.delete(dir))
+    if (w) projectDirWakeWatchers.set(dir, w)
+  }
+}
+
+function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath: string; mtimeMs: number }) {
+  if (subagentWakeWatchers.has(f.filePath)) return
+  const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
+  if (!fs.existsSync(subagentsDir)) return
+  // Plein : les sessions les plus récentes gardent leur surveillance (une ancienne n'occupe pas la place à vie)
+  const slot = admitWatchSlot(subagentWakeWatchers, COLD_SUBAGENT_WATCH_MAX, f.mtimeMs)
+  if (!slot.admit) return
+  if (slot.evict) {
+    try { subagentWakeWatchers.get(slot.evict)?.w.close() } catch {}
+    subagentWakeWatchers.delete(slot.evict)
+  }
+  let w: fs.FSWatcher | null = null
+  const release = () => {
+    if (subagentWakeWatchers.get(f.filePath)?.w !== w) return // déjà évincée ou remplacée
+    try { w?.close() } catch {}
+    subagentWakeWatchers.delete(f.filePath)
+  }
+  w = safeWatch(subagentsDir, () => { release(); wakeAndRescan(wakeColdFile(coldScan, f.filePath)) }, { recursive: true }, release)
+  if (w) subagentWakeWatchers.set(f.filePath, { w, mtimeMs: f.mtimeMs })
+}
+
+
 function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
 
@@ -509,24 +553,13 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   // --all-workspaces: every real (non-symlink) project dir directly under ~/.claude/projects
   const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
 
-  const candidates: Array<{ sessionId: string; filePath: string; newestMtime: number }> = []
   coldScan.cycle++
-  for (const f of discoverSessionFiles({ dirs: dirsToScan, maxFileBytes: maxSessionFileBytes, cold: coldScan })) {
-    if (sessions.has(f.sessionId)) continue
-    let newestMtime = f.mtimeMs
-    if ((Date.now() - newestMtime) / 1000 > ACTIVE_SESSION_AGE_S) {
-      // Main file is idle: a running subagent may still be active
-      const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
-      // Includes Workflow-tool agents (subagents/workflows/<id>/agent-*.jsonl): an orchestrator blocked on
-      // the Workflow tool leaves its own file idle while those keep growing (same listing as the extension)
-      newestMtime = newestTranscriptMtime(
-        listSubagentTranscripts(subagentsDir), newestMtime, Date.now() - ACTIVE_SESSION_AGE_S * 1000,
-      )
-    }
-    if ((Date.now() - newestMtime) / 1000 <= ACTIVE_SESSION_AGE_S) {
-      candidates.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
-    }
-  }
+  watchProjectDirsForWake(dirsToScan)
+  const candidates = findActiveSessions({
+    dirs: dirsToScan, maxFileBytes: maxSessionFileBytes, cold: coldScan, activeAgeS: ACTIVE_SESSION_AGE_S,
+    skip: (id) => sessions.has(id),
+    onIdle: watchIdleSubagentsDir,
+  })
 
   // Newest first so the bounded watcher budget goes to the most recent sessions
   candidates.sort((a, b) => b.newestMtime - a.newestMtime)
@@ -731,6 +764,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces))
         .catch(e => log('[scan] Failed:', e))
     }
+    wakeScan = scanNow
     scanTicker = new SharedTicker(scanNow, SCAN_INTERVAL_MS)
 
     // Agent Teams: ~/.claude/teams config (team_info, member sessions, 'done' members) and inboxes
@@ -1024,6 +1058,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         teamWatcher?.dispose()
         teamWatcher = null
         projectDirWatcher?.close()
+        for (const w of [...projectDirWakeWatchers.values(), ...[...subagentWakeWatchers.values()].map(s => s.w)]) { try { w.close() } catch {} }
+        projectDirWakeWatchers.clear(); subagentWakeWatchers.clear(); wakeScan = null
         for (const session of sessions.values()) {
           session.fileWatcher?.close()
           if (session.pollTimer) clearInterval(session.pollTimer)

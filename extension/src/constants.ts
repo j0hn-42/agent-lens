@@ -12,6 +12,8 @@ export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /** Interval between active-session directory scans (ms) */
 export const SCAN_INTERVAL_MS = 1000
+/** Les événements fs.watch du dossier du jour (un par ligne écrite par une session Codex) sont coalescés en un scan par fenêtre de cette durée. */
+export const WATCH_SCAN_DEBOUNCE_MS = 250
 
 /** Plafond de sessions Codex suivies en même temps (watcher + timer chacune), comme RELAY_MAX_WATCHED_SESSIONS côté Claude */
 export const CODEX_MAX_WATCHED_SESSIONS = 25
