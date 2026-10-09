@@ -566,11 +566,10 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.reconciler.withHistory(() => {
       const stat = fs.statSync(filePath)
 
-      // Pre-scan existing content for dedup IDs + collect recent entries for catch-up
+      // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
+      // It also starts the tail from the end of what it read (only NEW events go forward),
+      // keeping an unfinished last line in fileTail.
       const catchUpEntries = this.parser.prescanExistingContent(filePath, stat.size, session)
-
-      // Start from current end — only process NEW events going forward
-      session.fileSize = stat.size
 
       // Extract session label from the first user message in catch-up entries
       this.parser.extractSessionLabel(catchUpEntries, session)

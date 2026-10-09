@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { AgentEvent } from './protocol'
 import { POLL_FALLBACK_MS } from './constants'
-import { safeWatch, readTrackedLines, TailedFile } from './fs-utils'
+import { safeWatch, readTrackedLines, readLinesChunked, TailedFile } from './fs-utils'
 
 /**
  * Watches a JSONL file for agent events.
@@ -30,8 +30,6 @@ export class JsonlEventSource implements vscode.Disposable {
     }
 
     // Read existing content
-    const stat = fs.statSync(this.filePath)
-    this.tracked.fileSize = stat.size
     this.processExistingContent()
 
     // Watch for changes
@@ -47,10 +45,12 @@ export class JsonlEventSource implements vscode.Disposable {
     this._onStatus.fire('connected')
   }
 
+  /** Lines present at the stat only (later ones are read by the tail), streamed; an unfinished
+   *  last line is kept in the tracked tail and emitted once it is complete. */
   private processExistingContent(): void {
-    const content = fs.readFileSync(this.filePath, 'utf-8')
-    const lines = content.split(/\r?\n/).filter(Boolean)
-    for (const line of lines) {
+    const size = fs.statSync(this.filePath).size
+    for (const line of readLinesChunked(this.filePath, size, undefined, this.tracked)) {
+      if (!line) continue
       const event = this.parseLine(line)
       if (event) {
         this._onEvent.fire(event)

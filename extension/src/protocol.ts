@@ -229,7 +229,8 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
-  content: string | Array<{ text?: string; type?: string }>
+  /** Text, content blocks, or a structured object (summarizeResult reads its text fields) */
+  content: string | Array<{ text?: string; type?: string }> | Record<string, unknown>
   /** Structured error flag set by Claude Code when the tool call failed */
   is_error?: boolean
 }

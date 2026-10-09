@@ -388,8 +388,8 @@ function watchSession(sessionId: string, filePath: string) {
   // and replayed, deduplicated against the history, when the load ends (issue #53).
   reconciler.withHistory(() => {
     const stat = fs.statSync(filePath)
+    // Also positions the tail (fileSize, unfinished last line in fileTail) for readNewLines
     const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
-    session.fileSize = stat.size
     parser.extractSessionLabel(catchUpEntries, session)
 
     broadcastSessionLifecycle('started', sessionId, session.label)
