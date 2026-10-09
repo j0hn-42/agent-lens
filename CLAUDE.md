@@ -57,7 +57,7 @@ WCAG 2.1 AA is enforced by CI. Do not widen `web/tests-a11y/lint-baseline.json` 
 ## Automations in `.claude/`
 
 - `settings.json`: hooks. Type-check the package of an edited `.ts`/`.tsx` file (PostToolUse), block generated files (PreToolUse).
-- `skills/`: `run-checks`, `pr-fork`.
+- `skills/`: `run-checks`, `pr-fork` (project), plus third-party `accessibility`, `vercel-react-best-practices`, `playwright-best-practices` (MIT, see `skills/THIRD_PARTY.md`).
 - `agents/`: `a11y-reviewer`, `relay-hardening-reviewer`.
 - `.mcp.json` (root): context7 (current docs for Next 16, React 19, Tailwind 4, Vite 8) and Playwright.
 - `settings.local.json` and `worktrees/` are personal and git-ignored.
