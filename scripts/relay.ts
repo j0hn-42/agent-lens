@@ -92,7 +92,28 @@ const sseClients = new Set<http.ServerResponse>()
 function dropClient(res: http.ServerResponse) {
   sseClients.delete(res)
   clientSessionFilter.delete(res)
+  replayHeld.delete(res)
   try { res.destroy() } catch { /* already closed */ }
+}
+
+/**
+ * Live messages held for a client whose initial replay is still being written (issue #203). The replay
+ * waits for 'drain' between batches, so live events arriving meanwhile are queued and sent after it,
+ * in order, instead of overtaking older replayed events. Bounded: a client that cannot absorb the
+ * replay before the held backlog exceeds the slow-client limit is dropped.
+ */
+const replayHeld = new WeakMap<http.ServerResponse, { payloads: string[]; bytes: number }>()
+
+/** Live write path (broadcasts): held during the client's replay, otherwise written with the slow-client check. */
+function writeLive(res: http.ServerResponse, payload: string) {
+  const held = replayHeld.get(res)
+  if (!held) return writeToClient(res, payload)
+  held.payloads.push(payload)
+  held.bytes += payload.length
+  if (isBackedUp(held.bytes)) {
+    log('[sse] Dropping client: live backlog overflowed during replay')
+    dropClient(res)
+  }
 }
 
 /** Write one SSE message; drops the client when it is gone or too slow (res.writableLength backlog). */
@@ -118,7 +139,7 @@ function broadcast(data: string, sessionId?: string) {
   for (const res of [...sseClients]) {
     const only = clientSessionFilter.get(res)
     if (only && sessionId && only !== sessionId) continue
-    writeToClient(res, data)
+    writeLive(res, data)
   }
 }
 
@@ -621,7 +642,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // Keep-alive (#141): one shared timer, running only while an SSE client is connected. EventSource hides SSE
   // comments from the page, so the beat is a data frame the web client reads as proof of life and discards.
   const heartbeatTicker = new SharedTicker(() => {
-    for (const res of [...sseClients]) writeToClient(res, HEARTBEAT_PAYLOAD)
+    // A client still receiving its replay gets data anyway, and a held beat would only arrive late
+    for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
   const scanCoalescer = new KeyedCoalescer<void>()
   const statusCoalescer = new KeyedCoalescer<{ sessionCount: number; hooksConfigured: boolean }>()
@@ -866,6 +888,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         releaseHeartbeat()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
+        replayHeld.delete(res)
         log(`[sse] Client disconnected (${sseClients.size} total)`)
       }
       req.on('close', onGone)
@@ -897,10 +920,28 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       })
       // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
       const replay = capReplayBatches(buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }))
-      for (const batch of replay) {
-        if (res.destroyed) break
-        sendSSE(res, batch)
-      }
+      // The replay can exceed the slow-client backlog limit in one go (issue #203), so wait for the
+      // socket to drain between batches instead of dropping a healthy client mid-replay. Live messages
+      // arriving meanwhile are held (writeLive) and flushed after the replay, keeping arrival order.
+      const held = { payloads: [] as string[], bytes: 0 }
+      replayHeld.set(res, held)
+      void (async () => {
+        for (const batch of replay) {
+          if (res.destroyed || closed || !replayHeld.has(res)) return
+          sendSSE(res, batch)
+          if (res.writableNeedDrain && !res.destroyed) {
+            await new Promise<void>(resolve => {
+              const done = () => { res.off('drain', done); res.off('close', done); resolve() }
+              res.once('drain', done)
+              res.once('close', done)
+            })
+          }
+        }
+        if (res.destroyed || closed || !replayHeld.has(res)) return
+        replayHeld.delete(res)
+        // Back on the live path: from here the slow-client limit applies to every write
+        for (const payload of held.payloads) writeToClient(res, payload)
+      })()
     },
 
     debugState: () => ({
