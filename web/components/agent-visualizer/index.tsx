@@ -6,6 +6,7 @@ import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
+import { useFullscreen } from "@/hooks/use-fullscreen"
 import { AgentCanvas } from "./canvas"
 import { ControlBar } from "./control-bar"
 import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
@@ -23,7 +24,7 @@ import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
 import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiPrefs } from "@/lib/ui-preferences"
 import { dockStore, SHEET_BREAKPOINT } from "@/lib/panel-layout"
-import { TimelineEvent, TIMING } from "@/lib/agent-types"
+import { TimelineEvent, TIMING, Z } from "@/lib/agent-types"
 import { COLORS, SCENE } from "@/lib/colors"
 import { LearnMoreLink } from "./learn-more-link"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
@@ -37,7 +38,7 @@ import { GuidedTourCard } from "./guided-tour-card"
 import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
-import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
+import { TopBar, PANEL_BUTTON_IDS, FullscreenIcon } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { sessionUsage } from "@/lib/attribution"
 import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
@@ -439,6 +440,8 @@ export function AgentVisualizer() {
   }, [])
 
 
+  const { immersive, toggle: toggleFullscreen } = useFullscreen()
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -451,6 +454,7 @@ export function AgentVisualizer() {
     toggleContext: () => toggleExclusivePanel('context'),
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
+    toggleFullscreen,
     closeTopPanel,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
@@ -459,7 +463,7 @@ export function AgentVisualizer() {
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, toggleFullscreen, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -679,7 +683,9 @@ export function AgentVisualizer() {
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
+      <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
+        onToggleFullscreen={toggleFullscreen}
         sessions={bridge.sessions}
         teams={bridge.teams}
         allSessionCount={allSessionCount}
@@ -721,6 +727,20 @@ export function AgentVisualizer() {
         notifyState={notifyState}
         onToggleNotify={toggleNotify}
       />
+      </div>
+
+      {immersive && (
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          aria-label="Exit full screen"
+          title="Exit full screen (Z)"
+          className={`fixed top-2 right-2 rounded-md p-2 opacity-30 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: 'inherit' }}
+        >
+          <FullscreenIcon exit />
+        </button>
+      )}
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
       <h1 className="sr-only">Agent Lens</h1>
@@ -861,6 +881,7 @@ export function AgentVisualizer() {
       )}
 
       {/* Floating control strip */}
+      <div style={{ display: immersive ? 'none' : 'contents' }}>
       <ControlBar
         isPlaying={isPlaying}
         speed={speed}
@@ -881,6 +902,7 @@ export function AgentVisualizer() {
         onResumeLive={handleResumeLive}
         droppedEvents={droppedEvents}
       />
+      </div>
 
       {/* File attention panel (slide-in from right) */}
       <div ref={filesPanelRef} style={{ display: 'contents' }}>

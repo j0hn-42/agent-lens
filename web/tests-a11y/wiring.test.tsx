@@ -74,7 +74,7 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
   useKeyboardShortcuts({
     togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleConversation: rec('conversation'),
     toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'),
-    toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'),
+    toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
     openShortcuts: rec('shortcuts'), undoLast: () => { props.calls.push('undo'); return false },
