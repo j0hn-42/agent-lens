@@ -6,8 +6,10 @@ import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
 import { COLORS, themed } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
-import { formatModelName, pluralize } from '@/lib/utils'
-import { formatTokenUsage, usageFromAgent } from '@/lib/usage'
+import { pluralize } from '@/lib/utils'
+import { usageFromAgent } from '@/lib/usage'
+import { deriveFreshness } from '@/hooks/simulation/freshness'
+import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -30,8 +32,12 @@ import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
+import { COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
 
 export type SessionListAgent = AgentLike
+
+/** Default width (px) of the panel: room for the Name / Model / Tokens / Time columns (was 380). */
+export const SESSIONS_PANEL_WIDTH = 480
 
 interface SessionListPanelProps {
   visible: boolean
@@ -148,16 +154,24 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
-        className={`flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+        className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
-        <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
-        <StateMarker state={stale ? 'idle' : a.state} />
-        <span className="sr-only">{role}, </span>
-        <span className="truncate min-w-[7ch] basis-[7ch] flex-1">{a.name}</span>
-        <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
-        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokenUsage(usageFromAgent(a))}</span>
-        {branch && <RollupLabel total={branch} label="branch total" />}
+        <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+          <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
+          <StateMarker state={stale ? 'idle' : a.state} />
+          <span className="sr-only">{role}, </span>
+          <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
+          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
+        </span>
+        <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
+        <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
+        {branch && (
+          <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
+            <RollupLabel total={branch} label="branch total" />
+          </span>
+        )}
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
@@ -377,7 +391,7 @@ export function SessionListPanel({
       axis="X"
       offset={-8}
       zIndex={Z.sidePanel}
-      width={380}
+      width={SESSIONS_PANEL_WIDTH}
       labelledBy="session-list-title"
       attrs={{ [INSPECTOR_KEEP_ATTR]: '' }}
     >
@@ -476,9 +490,10 @@ export function SessionListPanel({
         </div>
         <div
           ref={listRef}
-          className="overflow-y-auto"
+          className="@container overflow-y-auto"
           style={{ maxHeight: 'calc(100vh - var(--topbar-h, 60px) - 40px)' }}
         >
+          {rows.length > 0 && <ColumnHeader />}
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
               {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
@@ -487,7 +502,8 @@ export function SessionListPanel({
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
-              const rowBase = `flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowBase = `flex flex-wrap items-center gap-x-1.5 gap-y-0 ${rowLook}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
               if (row.kind === 'project') {
@@ -511,7 +527,7 @@ export function SessionListPanel({
                       <span style={{ color: COLORS.textDim }}>{pluralize(allSessionCount ?? sessions.length, 'session')}</span>
                     </button>
                     {row.roots.length > 0 && (
-                      <ul className="list-none p-0 m-0 pl-6" aria-label="Agents without a listed session">
+                      <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label="Agents without a listed session">
                         {row.roots.map(n => (
                           <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} />
                         ))}
@@ -548,7 +564,6 @@ export function SessionListPanel({
               const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : SESSION_NOT_OBSERVED_HELP
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
-              const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
               return (
@@ -571,30 +586,36 @@ export function SessionListPanel({
                       tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(session.id)}
-                      className={`${rowBase} min-w-0 flex-1`} style={rowStyle}
+                      className={`${rowLook} ${ROW_GRID} min-w-0 flex-1`} style={rowStyle}
                     >
-                      {unobserved
-                        ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
-                        : <SessionMarker kind={kind} />}
-                      <span className="sr-only">
-                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
-                        ,{' '}
+                      <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+                        {unobserved
+                          ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
+                          : <SessionMarker kind={kind} />}
+                        <span className="sr-only">
+                          {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
+                          ,{' '}
+                        </span>
+                        {badge && <span className="sr-only">{badge.label} session, </span>}
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       </span>
-                      {badge && <span className="sr-only">{badge.label} session, </span>}
-                      <span className="truncate min-w-[7ch] basis-[7ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
-                      {unobserved && (
-                        <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={statusHelp}>
-                          {SESSION_STATUS_TEXT[kind]}
-                        </span>
-                      )}
-                      {sessionAttentionText(attention.bySession.get(session.id)) && (
-                        <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
-                          <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
-                        </span>
-                      )}
-                      {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
-                      {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
-                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                      <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
+                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
+                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
+                      <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
+                        {unobserved && (
+                          <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>
+                            {SESSION_STATUS_TEXT[kind]}
+                          </span>
+                        )}
+                        {sessionAttentionText(attention.bySession.get(session.id)) && (
+                          <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
+                            <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
+                          </span>
+                        )}
+                        {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
+                        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -609,7 +630,7 @@ export function SessionListPanel({
                   </div>
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
-                    <ul className="list-none p-0 m-0 pl-6" aria-label={`Agents of ${session.label}`}>
+                    <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={`Agents of ${session.label}`}>
                       <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
                     </ul>
                     </CollapsibleSection>

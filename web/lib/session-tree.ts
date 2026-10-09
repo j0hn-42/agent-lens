@@ -32,6 +32,9 @@ export interface AgentLike {
   /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
   lastEventAt?: number
   freshnessSource?: 'live' | 'history'
+  /** Active time (issue #59): closed spans in ms, and the start of the running span; absent = never observed working */
+  activeMs?: number
+  activeSince?: number
 }
 
 export interface AgentNode<A extends AgentLike = AgentLike> {
