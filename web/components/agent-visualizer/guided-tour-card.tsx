@@ -65,6 +65,8 @@ export function GuidedTourCard({ steps, index, onNext, onPrev, onGoTo, onExit }:
       <section
         ref={dialogRef}
         role="dialog"
+        // The camera fit keeps the agents of the step above the card
+        data-canvas-inset="bottom"
         aria-labelledby="guided-tour-title"
         aria-describedby="guided-tour-body"
         className="pointer-events-auto absolute left-1/2 w-[min(28rem,calc(100vw-24px))] -translate-x-1/2 rounded-md p-4 font-mono text-xs"

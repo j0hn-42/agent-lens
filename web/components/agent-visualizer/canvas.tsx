@@ -18,6 +18,7 @@ import { useCanvasDrawProps } from '@/hooks/use-canvas-draw-props'
 import { useCanvasA11yMirror } from '@/hooks/use-canvas-a11y-mirror'
 import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
+import { useTourBridge } from './guided-tour-context'
 
 export function AgentCanvas(props: CanvasProps) {
   const {
@@ -84,6 +85,8 @@ export function AgentCanvas(props: CanvasProps) {
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
     clustersRef, getInsets, scopeKey,
   })
+  const { canvasToScreenRef: tourCanvasToScreenRef } = useTourBridge()
+  tourCanvasToScreenRef.current = canvasToScreen
 
   // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───
   const selectCluster = useCallback((key: string) => {

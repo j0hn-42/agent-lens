@@ -9,6 +9,7 @@ import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
 import type { LegendEntryId, LegendSectionId } from '@/lib/legend-entries'
+import { useTourBridge } from './guided-tour-context'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -59,6 +60,9 @@ function Swatch({ color, round }: { color: string; round?: boolean }) {
  */
 export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
   const [open, setOpen] = useState(false)
+  // The guided tour can show the legend without touching the saved preference (only toggle writes it)
+  const { legendOpen: tourWantsOpen, startTour } = useTourBridge()
+  const shown = open || tourWantsOpen
 
   // Restore the preference after mount (keeps server and first client render identical)
   useEffect(() => {
@@ -80,7 +84,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
       className="pointer-events-auto max-w-[calc(100vw-24px)] font-mono text-xs"
       style={{ color: COLORS.textPrimary }}
     >
-      {open && (
+      {shown && (
         <div
           id="graph-legend-panel"
           role="region"
@@ -170,17 +174,29 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
           </p>
         </div>
       )}
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={open}
-        aria-controls={open ? "graph-legend-panel" : undefined}
-        className="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]"
-        style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
-      >
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-        Legend
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={shown}
+          aria-controls={shown ? "graph-legend-panel" : undefined}
+          className="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]"
+          style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+        >
+          <span aria-hidden="true">{shown ? '▾' : '▸'}</span>
+          Legend
+        </button>
+        {startTour && (
+          <button
+            type="button"
+            onClick={startTour}
+            className="inline-flex min-h-6 min-w-6 items-center rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]"
+            style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+          >
+            Guided tour
+          </button>
+        )}
+      </div>
     </div>
   )
 }
