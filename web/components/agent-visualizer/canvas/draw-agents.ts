@@ -12,6 +12,7 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
+import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
@@ -578,6 +579,7 @@ export function drawAgents(
   const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
+    if (!pointInView(opts.view, agent.x, agent.y, AGENT_CULL_EXTENT)) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const stale = deriveFreshness(agent, now) === 'stale'
     const color = stale ? FRESHNESS_DRAW.staleColor : stateColor(agent.state)
