@@ -1,10 +1,13 @@
 name: CI
 
+# main = ligne livrée, develop = branche d'intégration (CONTRIBUTING.md) : la CI couvre les deux.
+# workflow_call : release.yml rejoue exactement ces jobs avant de construire le .vsix.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+  workflow_call:
 
 jobs:
   test:
@@ -25,31 +28,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # !cancelled() : un échec n'en masque plus un autre (typecheck, lint a11y, axe...)
       - name: Release consistency (extension/app versions, CHANGELOG)
         run: node scripts/release-check.js
 
       - name: Root tests (scripts, app)
+        if: ${{ !cancelled() }}
         run: pnpm test
 
       - name: Extension tests
+        if: ${{ !cancelled() }}
         run: pnpm --dir extension test
 
       - name: Extension typecheck
+        if: ${{ !cancelled() }}
         run: pnpm --filter agent-lens run lint
 
       - name: Extension tests typecheck
+        if: ${{ !cancelled() }}
         run: pnpm --filter agent-lens run lint:test
 
       - name: Scripts typecheck (scripts/*.ts and *.test.ts)
+        if: ${{ !cancelled() }}
         run: pnpm run lint:scripts
 
       - name: Web typecheck
+        if: ${{ !cancelled() }}
         run: pnpm --dir web exec tsc --noEmit
 
       - name: Web accessibility lint (jsx-a11y)
+        if: ${{ !cancelled() }}
         run: pnpm --dir web run lint:a11y
 
       - name: Web accessibility tests (axe-core, keyboard)
+        if: ${{ !cancelled() }}
         run: pnpm run test:a11y
 
   e2e-a11y:
