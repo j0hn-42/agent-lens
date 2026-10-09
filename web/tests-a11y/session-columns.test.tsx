@@ -166,12 +166,13 @@ test('panel: header and a Name / Model / Tokens / Time value on every session an
 test('panel: Cost, Branch, Runtime and Activity cells on session rows, a cost on agent rows', () => {
   const withMeta = sessions.map(x => (x.id === 's1' ? { ...x, runtime: 'claude' as const, branch: 'feat/columns' } : x))
   const agents = new Map([agent('s1:main', 's1', null, 'orchestrator', { model: 'claude-opus-4-5-20251101' })])
-  const { container } = render(
+  const { container, getByRole } = render(
     <SessionListPanel
       visible onClose={noop} sessions={withMeta} selectedSessionId="s1" sessionsWithActivity={new Set(['s1', 's2'])}
       onSelectSession={noop} onCloseSession={noop} agents={agents as never} selectedAgentId={null} onSelectAgent={noop} now={T0} freshnessClock={clock()}
     />,
   )
+  showAllSessions({ getByRole })
   const rows = [...container.querySelectorAll<HTMLElement>('[data-row-main]')]
   const s1 = cells(rows.find(r => r.dataset.rowKey === 'session:s1')!)
   assert.equal(s1.branch.getAttribute('title'), 'feat/columns')
