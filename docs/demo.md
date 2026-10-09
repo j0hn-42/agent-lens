@@ -92,8 +92,8 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 | --- | --- | --- |
 | 1 | Meet your agent | forme d'agent principal, état *thinking*, logo Claude |
 | 2 | Tool calls | état *tool calling*, carte d'outil, ligne d'outil |
-| 3 | Sub-agents | forme de sous-agent, ligne parent-enfant, particule d'envoi de tâche |
-| 4 | Results come back | particule de retour, forme terminée (contour en tirets), état *complete* |
+| 3 | Sub-agents | forme de sous-agent, ligne parent-enfant ; la particule d'envoi de tâche est décrite seulement |
+| 4 | Results come back | forme terminée (contour en tirets), état *complete*, agent archivé (estompé, contour en tirets, toujours cliquable) ; la particule de retour est décrite seulement |
 | 5 | Context usage | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
 | 6 | Waiting for you | état *waiting for permission* |
 | 7 | When something fails | état *error* |
@@ -108,6 +108,8 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 
 L'étape 13 décrit en mots les entrées qu'aucun événement ne peut produire dans une démo : elles dépendent de conditions réelles ou de vos clics. Elles ne sont pas visibles dans la visite.
 
+Les particules (point violet d'envoi de tâche, point vert de retour) sont dans le même cas pendant la visite : chaque étape met le scénario en pause à un instant précis, et une scène figée n'affiche aucune particule. Les étapes 3 et 4 les décrivent en le disant ; elles se voient dès que la lecture reprend, après la sortie de la visite.
+
 | Entrée | Ce que dit l'étape |
 | --- | --- |
 | état *paused* | un agent en pause |
@@ -115,7 +117,6 @@ L'étape 13 décrit en mots les entrées qu'aucun événement ne peut produire d
 | badge « +N » (masqué) | un badge « +N » sur une branche repliée |
 | badge de branche (actif) | décrit avec le badge « +N » ; l'étape ne donne pas plus de détail |
 | lien de message en erreur | un lien de message rouge |
-| équipe archivée | un agent archivé |
 | halo de session | le halo pointillé de session |
 | cartes de découverte : fichier, motif, résultat, code | les quatre cartes de découverte |
 

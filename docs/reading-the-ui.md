@@ -12,18 +12,18 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
 
-### Voir la légende en action
+### See the legend in action
 
-La visite guidée (`pnpm run dev:demo:guided` ou `?scenario=guided`, voir [demo.md](demo.md)) montre chaque section de la légende. Étapes par section :
+The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
 
-- **States** : étapes *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* et *Agent Teams*. L'état `paused` est décrit seulement, à l'étape *Seen only in a real session*.
-- **Shapes** : étapes *Meet your agent*, *Tool calls*, *Sub-agents* et *Results come back*. La forme des cartes de découverte est décrite seulement (*Seen only in a real session*).
-- **Edges and particles** : étapes *Tool calls*, *Sub-agents* et *Results come back*. Le lien parent non vérifié et les deux badges de branche repliée sont décrits seulement (*Seen only in a real session*).
-- **Teams** : étape *Agent Teams* (et *Delivered messages and finished teammates* pour un coéquipier terminé). L'équipe archivée et le halo de session sont décrits seulement (*Seen only in a real session*).
-- **Message links** : étapes *Messages between agents*, *Delivered messages and finished teammates* et *Quiet links*. Le lien en erreur est décrit seulement (*Seen only in a real session*).
-- **Context usage** : étape *Context usage*.
-- **Discoveries** : aucune de ces entrées n'est visible dans la démo, elles sont toutes décrites seulement (*Seen only in a real session*).
-- **Runtime** : étapes *Meet your agent* (Claude) et *Two runtimes* (Codex).
+- **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
+- **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
+- **Edges and particles**: steps *Tool calls*, *Sub-agents* and *Results come back*. The dispatch and return particles are described only, in *Sub-agents* and *Results come back*: the tour pauses the scene at each step, and a paused scene draws no particle. The unverified parent link and the two folded-branch badges are described only (*Seen only in a real session*).
+- **Teams**: step *Agent Teams* (and *Delivered messages and finished teammates* for a finished teammate, *Results come back* for an archived agent). The session halo is described only (*Seen only in a real session*).
+- **Message links**: steps *Messages between agents*, *Delivered messages and finished teammates* and *Quiet links*. The error link is described only (*Seen only in a real session*).
+- **Context usage**: step *Context usage*.
+- **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
+- **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
 
 ## Themes
 

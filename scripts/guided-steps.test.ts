@@ -7,6 +7,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import { linkState } from '../web/components/agent-visualizer/canvas/link-geometry'
+import { snapVisualState } from '../web/hooks/simulation/snap-visual-state'
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},
@@ -103,4 +104,37 @@ test('covered link states are on screen at the step time', () => {
       )
     }
   }
+})
+
+// Every step change seeks (pause + seekToTime), and a seek ends with snapVisualState, which clears the particles:
+// no dispatch or return dot is ever drawn while the tour holds the scene, so the steps only describe them.
+test('a seek clears the particles, so the tour never shows a dispatch or return dot', () => {
+  const state = playUntil(6.6)
+  const withParticle: SimulationState = {
+    ...state,
+    particles: [{ id: 'p', edgeId: 'e', progress: 0.5, type: 'dispatch', color: '#fff', size: 3, trailLength: 0 }],
+  }
+  assert.deepEqual(snapVisualState(withParticle, 6.6).particles, [])
+  for (const id of ['particle-dispatch', 'particle-return'] as const) assert.ok(DESCRIBED_ONLY.includes(id), `${id} is described only`)
+})
+
+// Cheap proxies for the entries the steps call absent from this demo: they must really be absent at every step time.
+test('described-only entries with a proxy are absent at every step time', () => {
+  for (const s of GUIDED_STEPS) {
+    const state = playUntil(s.time)
+    if (DESCRIBED_ONLY.includes('state-paused')) {
+      assert.ok(![...state.agents.values()].some(a => a.state === 'paused'), `${s.id}: no paused agent at t=${s.time}`)
+    }
+    if (DESCRIBED_ONLY.includes('link-error')) {
+      assert.ok(![...state.links.values()].some(l => linkState(l, s.time) === 'error'), `${s.id}: no error link at t=${s.time}`)
+    }
+  }
+})
+
+test('the step that covers archived agents shows one (completed agents stay on screen, faded)', () => {
+  assert.ok(!DESCRIBED_ONLY.includes('team-archived'), 'team-archived is on screen in this demo')
+  const step = GUIDED_STEPS.find(s => s.covers.includes('team-archived'))
+  assert.ok(step, 'team-archived is covered')
+  const shown = snapVisualState(playUntil(step!.time), step!.time)
+  assert.ok([...shown.agents.values()].some(a => a.archived === true), `${step!.id}: an archived agent at t=${step!.time}`)
 })

@@ -20,7 +20,8 @@ export interface GuidedStep {
 
 /** Entries no event can produce in a demo: explained in words only, and the text must say so. */
 export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
-  'state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'team-archived', 'session-halo',
+  'particle-dispatch', 'particle-return',
+  'state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
   'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
 ]
 
@@ -36,11 +37,11 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'Every tool the agent runs appears as a rounded card on a thin amber line. The agent is calling a tool right now.',
     covers: ['state-tool_calling', 'shape-tool', 'edge-tool'] },
   { id: 'subagent', time: 6.6, target: { kind: 'agent', name: 'explore-agent' }, title: 'Sub-agents',
-    body: 'The main agent delegated a task: a small hexagon joined by a thick line. The purple dot is the task travelling to the sub-agent.',
+    body: 'The main agent delegated a task: a small hexagon joined by a thick line. When playback runs, a purple dot carries the task to the sub-agent; it is not shown while the tour holds the scene.',
     covers: ['shape-sub', 'edge-parent', 'particle-dispatch'] },
   { id: 'return', time: 9.4, target: { kind: 'agent', name: 'explore-agent' }, title: 'Results come back',
-    body: 'A green dot carries the result back to the parent. The sub-agent is done: its outline is now dashed.',
-    covers: ['particle-return', 'shape-complete', 'state-complete'] },
+    body: 'The sub-agent is done: its outline is now dashed. A finished agent stays on screen, faded, as an archived agent you can still click. When playback runs, a green dot carries the result back to the parent; it is not shown while the tour holds the scene.',
+    covers: ['particle-return', 'shape-complete', 'state-complete', 'team-archived'] },
   { id: 'context', time: 9.7, target: { kind: 'dom', id: 'legend-context' }, opensLegend: true, title: 'Context usage',
     body: 'The context window fills up with five kinds of content. Each colour is one of them: the system prompt, your messages, tool results, reasoning and sub-agent results.',
     covers: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'] },
@@ -66,6 +67,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'When no new message has gone through for a while, the link fades to a thin quiet line with a message-count badge. Click it to read the messages.',
     covers: ['link-quiet'] },
   { id: 'not-in-demo', time: 44.5, target: { kind: 'dom', id: 'legend-edges' }, opensLegend: true, title: 'Seen only in a real session',
-    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, an archived agent, the dotted session halo and the discovery cards (file, pattern, finding, code). Keep the legend open to recognise them later.',
-    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'team-archived', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },
+    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, the dotted session halo and the discovery cards (file, pattern, finding, code). Keep the legend open to recognise them later.',
+    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },
 ] as const
