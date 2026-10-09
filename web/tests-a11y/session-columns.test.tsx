@@ -3,6 +3,7 @@ import { test, afterEach, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
+import { showAllSessions } from './sessions-filter-helpers'
 import axe from 'axe-core'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
@@ -114,7 +115,8 @@ test('panel: header and a Name / Model / Tokens / Time value on every session an
     agent('s1:main', 's1', null, 'orchestrator', { model: 'claude-opus-4-5-20251101', activeMs: 192_000 }),
     agent('s1:sub', 's1', 's1:main', LONG, { tokensUsed: 0, tokenStatus: 'unavailable' }),
   ])
-  const { container, getByTestId } = render(panel(agents as never, new Map([['s1', 'claude-sonnet-4-5-20250929']])))
+  const { container, getByTestId, getByRole } = render(panel(agents as never, new Map([['s1', 'claude-sonnet-4-5-20250929']])))
+  showAllSessions({ getByRole })
   const header = getByTestId('session-columns-header')
   assert.deepEqual([...header.children].map(c => c.textContent), ['Name', 'Model', 'Tokens', 'Time'])
   assert.equal(header.getAttribute('aria-hidden'), 'true', 'each cell names itself: the visible header is not read twice')

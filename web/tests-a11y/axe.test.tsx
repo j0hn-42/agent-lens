@@ -14,6 +14,7 @@ import path from 'node:path'
 import React from 'react'
 import { render, cleanup, fireEvent, act, within } from '@testing-library/react'
 import axe from 'axe-core'
+import { showAllSessions } from './sessions-filter-helpers'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
@@ -185,6 +186,7 @@ test('panel: sessions list grouped by project', async () => {
       now={10_000}
     />,
   )
+  showAllSessions({ getByRole })
   const list = within(getByRole('list', { name: 'Sessions and agents' }))
   assert.ok(list.getByText('alpha') && list.getByText('beta'), 'one heading per project')
   await check('session-list-panel-projects', container)

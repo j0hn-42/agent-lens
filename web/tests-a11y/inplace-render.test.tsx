@@ -3,6 +3,7 @@ import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
+import { showAllSessions } from './sessions-filter-helpers'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -176,6 +177,7 @@ test('collapsed: the change is announced politely', () => {
 test('collapsed: the Active only filter announces how many sessions remain', () => {
   const { container, getByRole } = render(panel([]))
   const live = container.querySelector('[role="status"][data-panel-announcer]')!
+  showAllSessions({ getByRole })
   fireEvent.click(getByRole('button', { name: 'Active only' }))
   assert.match(live.textContent ?? '', /^Active sessions only: \d+ shown$/)
 })
