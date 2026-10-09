@@ -2,8 +2,8 @@ import type { SimulationEvent } from './agent-types'
 
 // ─── Guided scenario (?scenario=guided) ──────────────────────────────────────
 // The scenario behind the step-by-step tour (web/lib/guided-steps.ts). Short (< 50 s) so that
-// seekToTime replays it instantly, and written act by act so that every legend entry has a moment where it
-// is on screen. Single implicit session, like the classic demo.
+// seekToTime replays it instantly, and written act by act so that most legend entries have a moment where
+// they are on screen (the others are described in words, see DESCRIBED_ONLY). Single implicit session, like the classic demo.
 
 type Payload = Record<string, unknown>
 const events: SimulationEvent[] = []
