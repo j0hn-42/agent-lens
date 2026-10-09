@@ -2,6 +2,8 @@
 
 <!-- Brief description of the change -->
 
+<!-- Tickets : `Closes #n` (ou Fixes / Resolves) ferme le ticket au merge dans develop ; `Refs #n` le laisse ouvert. -->
+
 ## How to test
 
 <!-- Steps to verify the change works -->
