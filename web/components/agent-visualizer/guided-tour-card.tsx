@@ -4,7 +4,6 @@ import { useEffect, useRef } from 'react'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
-import { useFocusReturn } from '@/hooks/use-focus-return'
 import type { GuidedStep } from '@/lib/guided-steps'
 import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 
@@ -18,7 +17,7 @@ interface GuidedTourCardProps {
 }
 
 const BUTTON_CLASS =
-  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono disabled:opacity-50 '
+  'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono aria-disabled:opacity-50 '
   + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
 const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
 
@@ -28,8 +27,12 @@ const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.c
  * inside the card, so they never take the arrow keys away from the graph keyboard navigation.
  */
 export function GuidedTourCard({ steps, index, onNext, onPrev, onGoTo, onExit }: GuidedTourCardProps) {
-  const rootRef = useRef<HTMLDivElement>(null)
-  useFocusReturn(true, rootRef)
+  // The tour opens on Next: a first Enter goes forward instead of ending the tour (Exit tour comes first in the card)
+  const nextRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => nextRef.current?.focus({ preventScroll: true }))
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
   // The card is unmounted when the tour ends, which useFocusReturn (open -> closed transition) does not see
   useEffect(() => {
@@ -63,49 +66,50 @@ export function GuidedTourCard({ steps, index, onNext, onPrev, onGoTo, onExit }:
 
   const step = steps[index]
   if (!step) return null
+  // aria-disabled, not disabled: a disabled button drops the focus to <body>, where the arrow keys no longer reach the card
+  const isFirst = index === 0
+  const isLast = index === steps.length - 1
 
   return (
-    <div ref={rootRef} style={{ display: 'contents' }}>
-      <section
-        ref={dialogRef}
-        role="dialog"
-        // The camera fit keeps the agents of the step above the card
-        data-canvas-inset="bottom"
-        aria-labelledby="guided-tour-title"
-        aria-describedby="guided-tour-body"
-        className="pointer-events-auto absolute left-1/2 w-[min(28rem,calc(100vw-24px))] -translate-x-1/2 rounded-md p-4 font-mono text-xs"
-        style={{
-          bottom: CONTROL_BAR_BOTTOM + DOCK_GAP + 64,
-          zIndex: Z.detailCard,
-          background: COLORS.panelBg,
-          border: `1px solid ${COLORS.glassBorder}`,
-          color: COLORS.textPrimary,
-        }}
-      >
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <span style={{ color: COLORS.textMuted }}>{`Step ${index + 1} of ${steps.length}`}</span>
-          <button type="button" onClick={onExit} className={BUTTON_CLASS} style={BUTTON_STYLE}>Exit tour</button>
-        </div>
-        <div aria-live="polite">
-          <h2 id="guided-tour-title" className="mb-1 text-sm font-semibold">{step.title}</h2>
-          <p id="guided-tour-body" className="leading-relaxed" style={{ color: COLORS.textPrimary }}>{step.body}</p>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button type="button" onClick={onPrev} disabled={index === 0} className={BUTTON_CLASS} style={BUTTON_STYLE}>Previous</button>
-          <button type="button" onClick={onNext} disabled={index === steps.length - 1} className={BUTTON_CLASS} style={BUTTON_STYLE}>Next</button>
-          <select
-            aria-label="Go to step"
-            value={index}
-            onChange={e => onGoTo(Number(e.target.value))}
-            className="ml-auto max-w-[12rem] bg-transparent font-mono text-xs"
-            style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, borderRadius: 6, minHeight: 24 }}
-          >
-            {steps.map((s, i) => (
-              <option key={s.id} value={i} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{`${i + 1}. ${s.title}`}</option>
-            ))}
-          </select>
-        </div>
-      </section>
-    </div>
+    <section
+      ref={dialogRef}
+      role="dialog"
+      // The camera fit keeps the agents of the step above the card
+      data-canvas-inset="bottom"
+      aria-labelledby="guided-tour-title"
+      aria-describedby="guided-tour-body"
+      className="pointer-events-auto absolute left-1/2 w-[min(28rem,calc(100vw-24px))] -translate-x-1/2 rounded-md p-4 font-mono text-xs"
+      style={{
+        bottom: CONTROL_BAR_BOTTOM + DOCK_GAP + 64,
+        zIndex: Z.detailCard,
+        background: COLORS.panelBg,
+        border: `1px solid ${COLORS.glassBorder}`,
+        color: COLORS.textPrimary,
+      }}
+    >
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span style={{ color: COLORS.textMuted }}>{`Step ${index + 1} of ${steps.length}`}</span>
+        <button type="button" onClick={onExit} className={BUTTON_CLASS} style={BUTTON_STYLE}>Exit tour</button>
+      </div>
+      <div aria-live="polite">
+        <h2 id="guided-tour-title" className="mb-1 text-sm font-semibold">{step.title}</h2>
+        <p id="guided-tour-body" className="leading-relaxed" style={{ color: COLORS.textPrimary }}>{step.body}</p>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Previous</button>
+        <button ref={nextRef} type="button" onClick={() => { if (!isLast) onNext() }} aria-disabled={isLast || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Next</button>
+        <select
+          aria-label="Go to step"
+          value={index}
+          onChange={e => onGoTo(Number(e.target.value))}
+          className="ml-auto max-w-[12rem] bg-transparent font-mono text-xs"
+          style={{ color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, borderRadius: 6, minHeight: 24 }}
+        >
+          {steps.map((s, i) => (
+            <option key={s.id} value={i} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{`${i + 1}. ${s.title}`}</option>
+          ))}
+        </select>
+      </div>
+    </section>
   )
 }

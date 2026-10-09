@@ -27,10 +27,70 @@ test('the card is a labelled dialog that shows the title, the body and the posit
   assert.ok(view.getByText(`Step 2 of ${GUIDED_STEPS.length}`))
 })
 
-test('Previous is disabled on the first step and Next on the last', () => {
-  assert.equal((setup(0).view.getByRole('button', { name: 'Previous' }) as HTMLButtonElement).disabled, true)
+test('Previous is disabled on the first step and Next on the last, and they do nothing there', () => {
+  // aria-disabled, not disabled: a disabled button drops the focus to <body> (see the keyboard tests below)
+  const first = setup(0)
+  const prev = first.view.getByRole('button', { name: 'Previous' })
+  assert.equal(prev.getAttribute('aria-disabled'), 'true')
+  fireEvent.click(prev)
+  assert.deepEqual(first.calls, [])
+  assert.equal(first.view.getByRole('button', { name: 'Next' }).getAttribute('aria-disabled'), null)
   cleanup()
-  assert.equal((setup(GUIDED_STEPS.length - 1).view.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled, true)
+  const last = setup(GUIDED_STEPS.length - 1)
+  const next = last.view.getByRole('button', { name: 'Next' })
+  assert.equal(next.getAttribute('aria-disabled'), 'true')
+  fireEvent.click(next)
+  assert.deepEqual(last.calls, [])
+})
+
+/** The card driven like the app does it: the index is clamped to the steps */
+function Driven({ start }: { start: number }) {
+  const [index, setIndex] = React.useState(start)
+  const last = GUIDED_STEPS.length - 1
+  return (
+    <GuidedTourCard steps={GUIDED_STEPS} index={index} onNext={() => setIndex(i => Math.min(i + 1, last))}
+      onPrev={() => setIndex(i => Math.max(i - 1, 0))} onGoTo={setIndex} onExit={() => {}} />
+  )
+}
+
+const position = (view: ReturnType<typeof render>) => view.getByText(/^Step \d+ of \d+$/).textContent
+
+test('pressing Next up to the last step keeps the focus on Next, and the arrow keys still navigate', async () => {
+  const view = render(<Driven start={0} />)
+  await frames()
+  const next = view.getByRole('button', { name: 'Next' }) as HTMLButtonElement
+  next.focus()
+  for (let i = 0; i < GUIDED_STEPS.length + 2; i++) {
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' })
+    fireEvent.click(document.activeElement!)
+  }
+  assert.equal(position(view), `Step ${GUIDED_STEPS.length} of ${GUIDED_STEPS.length}`)
+  assert.ok(document.activeElement === next, 'the focus stays on Next')
+  // A disabled button cannot hold the focus in a browser: Next must stay focusable
+  assert.equal(next.disabled, false)
+  assert.equal(next.getAttribute('aria-disabled'), 'true')
+  fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft' })
+  assert.equal(position(view), `Step ${GUIDED_STEPS.length - 1} of ${GUIDED_STEPS.length}`)
+})
+
+test('pressing Previous back to the first step keeps the focus on Previous, and the arrow keys still navigate', async () => {
+  const view = render(<Driven start={2} />)
+  await frames()
+  const prev = view.getByRole('button', { name: 'Previous' }) as HTMLButtonElement
+  prev.focus()
+  for (let i = 0; i < 4; i++) fireEvent.click(document.activeElement!)
+  assert.equal(position(view), `Step 1 of ${GUIDED_STEPS.length}`)
+  assert.ok(document.activeElement === prev, 'the focus stays on Previous')
+  assert.equal(prev.disabled, false)
+  assert.equal(prev.getAttribute('aria-disabled'), 'true')
+  fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight' })
+  assert.equal(position(view), `Step 2 of ${GUIDED_STEPS.length}`)
+})
+
+test('the tour starts with the focus on Next, so a first Enter does not end it', async () => {
+  const view = render(<Driven start={0} />)
+  await frames()
+  assert.equal(document.activeElement?.textContent, 'Next')
 })
 
 test('buttons call back; the step list jumps to a step', () => {
