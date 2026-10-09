@@ -10,11 +10,15 @@ import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './act
 import { isPseudoModel } from './model-provenance'
 import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
 import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
-import { formatModelName, formatTokens } from './utils'
+import { formatCost, formatModelName, formatTokens } from './utils'
+import { formatRelativeTime } from './session-tree'
+import type { SessionInfo } from './bridge-types'
 import type { Freshness } from '../hooks/simulation/freshness'
 
 /** Header labels, in column order. */
-export const COLUMN_LABELS = { name: 'Name', model: 'Model', tokens: 'Tokens', time: 'Time' } as const
+export const COLUMN_LABELS = {
+  name: 'Name', model: 'Model', runtime: 'Runtime', branch: 'Branch', tokens: 'Tokens', cost: 'Cost', time: 'Time', activity: 'Activity',
+} as const
 
 /** What a column shows when it has no data. */
 export const NO_VALUE = '—'
@@ -102,4 +106,33 @@ export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
   return { text, label: `${text} ${s.status === 'active' ? 'since start' : 'long'}`, empty: false }
+}
+
+/** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
+export function costCell(total: RollupTotal | null | undefined): ColumnCell {
+  if (!total || total.known === 0) return emptyCell('cost unknown')
+  const money = formatCost(total.cost)
+  const mark = `${total.complete ? '' : '≥'}${total.estimated ? '~' : ''}`
+  const words = [`${money} cost`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
+  return { text: `${mark}${money}`, label: words.filter(Boolean).join(' '), empty: false }
+}
+
+/** Branch recorded at the start of the session; a dash when it was not recorded. */
+export function branchCell(branch: string | undefined): ColumnCell {
+  if (!branch) return emptyCell('branch not recorded')
+  return { text: branch, label: `branch ${branch}`, empty: false }
+}
+
+/** Runtime of the session (Claude Code or Codex); a dash when the source does not report it. */
+export function runtimeCell(runtime: SessionInfo['runtime']): ColumnCell {
+  if (!runtime) return emptyCell('runtime not reported')
+  const text = runtime === 'codex' ? 'Codex' : 'Claude'
+  return { text, label: `runtime ${runtime === 'codex' ? 'Codex' : 'Claude Code'}`, empty: false }
+}
+
+/** Time since the last activity; a dash when the source only knows the start. */
+export function activityCell(s: Pick<SessionInfo, 'lastActivityTime' | 'lastActivityUnknown'>, now: number): ColumnCell {
+  if (s.lastActivityUnknown) return emptyCell('activity unknown')
+  const text = formatRelativeTime(s.lastActivityTime, now)
+  return { text, label: `last activity ${text}`, empty: false }
 }

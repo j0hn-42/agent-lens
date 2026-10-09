@@ -20,9 +20,22 @@ import type { ActiveTimeFields } from '@/lib/active-time'
 /** Container width (px) under which the panel stacks the columns on a second line. */
 export const COLUMNS_REFLOW_PX = 440
 
-/** The row grid: [name | model | tokens | time] wide, [name / model tokens time] narrow. */
+/** Container widths (px) from which the extra columns appear: Cost + Activity, then Runtime + Branch. */
+export const COLUMNS_COST_PX = 520
+export const COLUMNS_BRANCH_PX = 640
+
+/**
+ * The row grid. Wide panel: [name | model | tokens | time]; wider: + cost and activity; widest: + runtime
+ * and branch. Cells that are not shown are `display: none` (so they take no slot and are not read), the
+ * DOM order is the column order. Narrow panel: [name / model tokens time] stacked.
+ */
 export const ROW_GRID =
-  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_8ch] @max-[440px]:flex @max-[440px]:flex-wrap'
+  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_8ch] ' +
+  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_8ch_10ch_11ch] ' +
+  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_8ch_10ch_11ch] ' +
+  '@max-[440px]:flex @max-[440px]:flex-wrap'
+const WHEN_COST = 'hidden @min-[520px]:block'
+const WHEN_BRANCH = 'hidden @min-[640px]:block'
 const NAME_CELL = '@max-[440px]:basis-full'
 const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-[11px]'
 
@@ -30,6 +43,10 @@ type ColumnKey = Exclude<keyof typeof COLUMN_LABELS, 'name'>
 
 const CELL_CLASS: Record<ColumnKey, string> = {
   model: 'min-w-0 truncate text-left @max-[440px]:max-w-full',
+  runtime: `${WHEN_BRANCH} min-w-0 truncate text-left`,
+  branch: `${WHEN_BRANCH} min-w-0 truncate text-left`,
+  cost: `${WHEN_COST} whitespace-nowrap text-right tabular-nums`,
+  activity: `${WHEN_COST} whitespace-nowrap text-right tabular-nums`,
   tokens: 'whitespace-nowrap text-right tabular-nums @max-[440px]:shrink-0',
   time: 'whitespace-nowrap text-right tabular-nums @max-[440px]:ml-auto @max-[440px]:shrink-0',
 }
@@ -55,6 +72,11 @@ export function ColumnValue({ column, cell, title }: ColumnValueProps) {
         : <><StackedLabel column={column} /><span aria-hidden="true">{cell.text}</span><span className="sr-only">{COLUMN_LABELS[column]}, {cell.label}</span></>}
     </span>
   )
+}
+
+/** Keeps a column's slot on rows that have no such value at all (an agent has no branch): nothing to read. */
+export function BlankCell({ column }: { column: ColumnKey }) {
+  return <span aria-hidden="true" className={CELL_CLASS[column]} />
 }
 
 // One timer for every live cell of the panel, only while some cell runs and the page is visible
@@ -128,10 +150,15 @@ export function ColumnHeader() {
     >
       <span>{COLUMN_LABELS.name}</span>
       <span>{COLUMN_LABELS.model}</span>
+      <span className={CELL_CLASS.runtime}>{COLUMN_LABELS.runtime}</span>
+      <span className={CELL_CLASS.branch}>{COLUMN_LABELS.branch}</span>
       <span className="text-right">{COLUMN_LABELS.tokens}</span>
+      <span className={`${CELL_CLASS.cost}`}>{COLUMN_LABELS.cost}</span>
       <span className="text-right">{COLUMN_LABELS.time}</span>
+      <span className={CELL_CLASS.activity}>{COLUMN_LABELS.activity}</span>
     </div>
   )
 }
 
-export const COLUMN_CLASSES = { name: NAME_CELL, secondLine: SECOND_LINE } as const
+/** `coveredByColumns`: second-line text that a column shows on its own once the panel is wide enough. */
+export const COLUMN_CLASSES = { name: NAME_CELL, secondLine: SECOND_LINE, coveredByColumns: '@min-[520px]:hidden' } as const
