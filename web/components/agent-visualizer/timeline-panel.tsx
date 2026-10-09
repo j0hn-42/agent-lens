@@ -3,7 +3,7 @@
 import { emptyState } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { COLORS, uiColor } from '@/lib/colors'
 import { formatDuration } from '@/lib/utils'
 import {
   buildTimelineRows,
@@ -215,19 +215,19 @@ function drawTimeline(
 
       // Block fill
       ctx.globalAlpha = 0.3
-      ctx.fillStyle = block.color
+      ctx.fillStyle = uiColor(block.color)
       ctx.fillRect(x, trackY + 1, blockW, trackH - 2)
 
       // Block border
       ctx.globalAlpha = 0.6
-      ctx.strokeStyle = block.color
+      ctx.strokeStyle = uiColor(block.color)
       ctx.lineWidth = 1
       ctx.strokeRect(x, trackY + 1, blockW, trackH - 2)
 
       // Per-state pattern (second, non-color channel)
       ctx.globalAlpha = 0.45
-      ctx.fillStyle = block.color
-      ctx.strokeStyle = block.color
+      ctx.fillStyle = uiColor(block.color)
+      ctx.strokeStyle = uiColor(block.color)
       drawPattern(ctx, STATE_PATTERN[state], x, trackY + 1, blockW, trackH - 2)
 
       ctx.globalAlpha = 1
@@ -238,7 +238,7 @@ function drawTimeline(
         ctx.beginPath()
         ctx.rect(x, trackY, blockW, trackH)
         ctx.clip()
-        ctx.fillStyle = block.color
+        ctx.fillStyle = uiColor(block.color)
         ctx.textAlign = 'left'
         ctx.fillText(blockW > 40 ? block.label : STATE_GLYPH[state], x + (blockW > 40 ? 4 : 3), trackY + trackH / 2 + 4)
         ctx.restore()

@@ -1,5 +1,5 @@
 import { Agent, NODE, ANIM } from '../../../lib/agent-types'
-import { COLORS, contextSegments } from '../../../lib/colors'
+import { SCENE, contextSegments } from '../../../lib/colors'
 import {
   AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW,
 } from '../../../lib/canvas-constants'
@@ -85,14 +85,14 @@ export function drawContextComposition(
   const barY = agent.y + radius + CONTEXT_BAR.yOffset + yShift
 
   // Background
-  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fillStyle = SCENE.cardBgDark
   ctx.beginPath()
   ctx.roundRect(barX - 2, barY - 2, barWidth + 4, barHeight + (showLabel ? CONTEXT_BAR.labelBoxExtra : 4), CONTEXT_BAR.borderRadius)
   ctx.fill()
 
   // Label (hidden at low zoom by the level-of-detail rule)
   if (showLabel) {
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
@@ -100,7 +100,7 @@ export function drawContextComposition(
   }
 
   // Segments
-  const segments = contextSegments(bd)
+  const segments = contextSegments(bd, SCENE)
 
   let x = barX
   const maxWidth = barWidth * (total / agent.tokensMax)
@@ -115,11 +115,11 @@ export function drawContextComposition(
 
   // Remaining capacity
   if (x < barX + barWidth) {
-    ctx.fillStyle = COLORS.holoBg05
+    ctx.fillStyle = SCENE.holoBg05
     ctx.fillRect(x, barY, barX + barWidth - x, barHeight)
   }
 
-  ctx.strokeStyle = COLORS.glassBorder
+  ctx.strokeStyle = SCENE.glassBorder
   ctx.lineWidth = 0.5
   ctx.strokeRect(barX, barY, barWidth, barHeight)
 }
@@ -144,12 +144,12 @@ export function drawContextRing(
   // Background ring (empty capacity)
   ctx.beginPath()
   ctx.arc(agent.x, agent.y, ringR, 0, Math.PI * 2)
-  ctx.strokeStyle = COLORS.holoBorder06
+  ctx.strokeStyle = SCENE.holoBorder06
   ctx.lineWidth = ringW
   ctx.stroke()
 
   // Filled segments
-  const segments = contextSegments(bd)
+  const segments = contextSegments(bd, SCENE)
 
   let currentAngle = startAngle
   for (const seg of segments) {
@@ -165,7 +165,7 @@ export function drawContextRing(
 
   // Warning glow at high usage
   if (usage > CONTEXT_RING.warningThreshold) {
-    const warningColor = usage > CONTEXT_RING.criticalThreshold ? COLORS.error : COLORS.tool
+    const warningColor = usage > CONTEXT_RING.criticalThreshold ? SCENE.error : SCENE.tool
     const intensity = reducedMotion
       ? (usage > CONTEXT_RING.criticalThreshold ? 0.35 : 0.15)
       : usage > CONTEXT_RING.criticalThreshold
@@ -189,19 +189,19 @@ export function drawContextRing(
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
-    ctx.fillStyle = usage > CONTEXT_RING.criticalThreshold ? COLORS.error : usage > CONTEXT_RING.warningThreshold ? COLORS.tool : COLORS.textDim
+    ctx.fillStyle = usage > CONTEXT_RING.criticalThreshold ? SCENE.error : usage > CONTEXT_RING.warningThreshold ? SCENE.tool : SCENE.textDim
     ctx.fillText(qualify(usageFromAgent(agent), `${Math.floor(usage * 100)}%`), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
   }
 }
 
 function drawDepthShadow(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
   ctx.save()
-  ctx.shadowColor = COLORS.depthShadow
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
   ctx.shadowBlur = AGENT_DRAW.shadowBlur
   ctx.shadowOffsetX = AGENT_DRAW.shadowOffsetX
   ctx.shadowOffsetY = AGENT_DRAW.shadowOffsetY
   drawHexagon(ctx, agent.x, agent.y, r * 0.9)
-  ctx.fillStyle = COLORS.cardBgFaintOverlay
+  ctx.fillStyle = SCENE.cardBgFaintOverlay
   ctx.fill()
   ctx.restore()
 }
@@ -221,7 +221,7 @@ function drawAgentGlow(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
 
   // Inner hex fill
   drawHexagon(ctx, agent.x, agent.y, r)
-  ctx.fillStyle = COLORS.nodeInterior
+  ctx.fillStyle = SCENE.nodeInterior
   ctx.fill()
 }
 
@@ -263,7 +263,7 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
     drawHexagon(ctx, agent.x, agent.y, r + MCP_DRAW.agentRimPadding)
     ctx.setLineDash([...MCP_DRAW.agentRimDash])
     ctx.lineDashOffset = reducedMotion ? 0 : -time * MCP_DRAW.agentRimSpeed
-    ctx.strokeStyle = COLORS.mcp
+    ctx.strokeStyle = SCENE.mcp
     ctx.lineWidth = 1.5
     ctx.stroke()
     ctx.restore()
@@ -351,7 +351,7 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
   ctx.save()
   ctx.lineJoin = 'round'
   ctx.lineWidth = AGENT_DRAW.labelHaloWidth
-  ctx.strokeStyle = COLORS.void
+  ctx.strokeStyle = SCENE.void
   ctx.strokeText(text, x, y)
   ctx.restore()
   ctx.fillStyle = fill
@@ -384,13 +384,13 @@ function drawAgentLabel(
 
   if (place.collapsed) {
     // Crowded: one line "name · status" (the full label is in the tooltip and the outline)
-    ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
+    ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
     fillLabelText(ctx, ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
     ctx.restore()
     return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
   }
 
-  ctx.fillStyle = isHovered ? COLORS.textPrimary : COLORS.textDim
+  ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
   for (const line of layout.nameLines) {
     fillLabelText(ctx, line, agent.x, y)
     y += gap
@@ -414,17 +414,17 @@ function drawAgentLabel(
     // Dark contour like the label text: an edge crossing the pill does not merge with it
     ctx.lineJoin = 'round'
     ctx.lineWidth = AGENT_DRAW.labelHaloWidth
-    ctx.strokeStyle = COLORS.void
+    ctx.strokeStyle = SCENE.void
     ctx.stroke()
     ctx.fillStyle = ORCHESTRATOR_DRAW.accent
     ctx.fill()
     ctx.textAlign = 'left'
     ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
-    ctx.fillStyle = ORCHESTRATOR_DRAW.textColor
+    ctx.fillStyle = '#11161c'
     ctx.fillText(layout.badgeText, x0 + 5, y)
     if (rest) {
       ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
-      ctx.fillStyle = COLORS.textPrimary
+      ctx.fillStyle = SCENE.textPrimary
       ctx.fillText(rest, x0 + bw + 6, y)
     }
     ctx.textAlign = 'center'
@@ -432,7 +432,7 @@ function drawAgentLabel(
   }
 
   if (layout.sessionLine) {
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     fillLabelText(ctx, layout.sessionLine, agent.x, y)
   }
   ctx.restore()
@@ -448,7 +448,7 @@ export function drawCrownBadge(ctx: CanvasRenderingContext2D, x: number, y: numb
   ctx.save()
   ctx.beginPath()
   ctx.arc(x, y, size + 2, 0, Math.PI * 2)
-  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fillStyle = SCENE.cardBgDark
   ctx.fill()
   ctx.lineWidth = 1.5
   ctx.strokeStyle = ORCHESTRATOR_DRAW.accent
@@ -487,7 +487,7 @@ function drawTeammateDecor(ctx: CanvasRenderingContext2D, agent: Agent, r: numbe
   const br = 6
   ctx.beginPath()
   ctx.arc(bx, by, br + 2, 0, Math.PI * 2)
-  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fillStyle = SCENE.cardBgDark
   ctx.fill()
   ctx.lineWidth = 2
   ctx.strokeStyle = accent
@@ -515,14 +515,14 @@ export function hasContextPercent(agent: Agent): boolean {
 
 function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number) {
   const sy = agent.y - r - statsTop
-  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fillStyle = SCENE.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - STATS_OVERLAY.boxWidth / 2, sy, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
   ctx.fill()
-  ctx.strokeStyle = COLORS.glassBorder
+  ctx.strokeStyle = SCENE.glassBorder
   ctx.lineWidth = 0.5
   ctx.stroke()
-  ctx.fillStyle = COLORS.textMuted
+  ctx.fillStyle = SCENE.textMuted
   ctx.font = `${STATS_OVERLAY.fontSize}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'

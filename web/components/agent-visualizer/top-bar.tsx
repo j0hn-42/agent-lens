@@ -217,8 +217,8 @@ export const TopBar = memo(function TopBar({
   return (
     <header
       ref={rootRef}
-      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px]"
-      style={{ zIndex: Z.info }}
+      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px]"
+      style={{ zIndex: Z.info, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
       <ToggleButton

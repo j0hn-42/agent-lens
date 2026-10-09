@@ -51,8 +51,10 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Theme: the inline bootstrap sets data-theme (+ .dark for neon and graphite) before first paint; color-scheme comes from themes.css */
-html, body { background: var(--lens-void); }
+/* Theme: the inline bootstrap sets data-theme (+ .dark for neon and graphite) before first paint; color-scheme comes from themes.css.
+   The theme applies to the interface only: the page background (the scene ground) is the neon void in every theme (SCENE.void in lib/colors.ts). */
+:root { --scene-void: #050510; }
+html, body { background: var(--scene-void); }
 
 /* ANSI palette of Bash output (web/lib/ansi.ts): --ansi-0..15, --ansi-fg, --ansi-bg per theme, generated in themes.css from web/lib/theme-tokens.ts; >= 4.5:1 checked in scripts/ansi.test.ts */
 
@@ -67,6 +69,14 @@ html, body { background: var(--lens-void); }
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Focus on the light theme. Interface controls float over the canvas, which stays dark in every theme (the theme applies to the
+   interface only): a black ring alone would vanish on the dark scene. A white halo around the ring (ring is 2px at offset 2px, halo
+   reaches 6px) keeps the focus indicator >= 3:1 on paper surfaces (black) and on the scene (white). Zero specificity: any
+   `shadow-*` utility, e.g. `focus-visible:shadow-none` on the scene's own buttons, takes precedence. */
+:where(html[data-theme="paper"]) :where(:focus-visible) {
+  box-shadow: 0 0 0 6px #ffffff;
 }
 
 /* Glass card effect. Neon keeps the blur and the cyan highlight; graphite and paper are flat (see the --lens-glass-* values). */

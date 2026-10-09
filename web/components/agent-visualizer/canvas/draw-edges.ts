@@ -1,5 +1,5 @@
 import { Agent, ToolCallNode, Particle, Edge, BEAM, ANIM } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
@@ -111,7 +111,7 @@ export function drawEdges(
     if (!cp) continue
     const { cp1x, cp1y, cp2x, cp2y } = cp
 
-    const beamColor = edge.type === 'tool' ? COLORS.tool : COLORS.holoBase
+    const beamColor = edge.type === 'tool' ? SCENE.tool : SCENE.holoBase
     const bw = edge.type === 'tool' ? BEAM.tool : BEAM.parentChild
 
     ctx.save()

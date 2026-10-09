@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   safeTeamColor, cleanText, isAgentVisible, agentDrawOpacity, agentStatusText, teammateActivity, wrapLabel,
   layoutAgentLabel, computeTeamHalos, hasSeveralSessions, teamCohesionStep, forceTeamCohesion,
-  teamDefaultColor, ARCHIVED_OPACITY, TEAMMATE_MIN_OPACITY,
+  TEAM_DEFAULT_COLOR, ARCHIVED_OPACITY, TEAMMATE_MIN_OPACITY,
 } from '../web/components/agent-visualizer/canvas/team-style'
 import {
   resolveAgentRef, resolveLinks, linkState, findLinkAt, linkCurve, curvePoint, distanceToSegment,
@@ -160,7 +160,7 @@ test('computeTeamHalos falls back to the team summary colour, then the default',
     agent({ id: 's1:a', teamName: 'beta', x: 0, y: 0, kind: 'teammate', teamColor: 'javascript:1' }),
     agent({ id: 's1:b', teamName: 'beta', x: 100, y: 0, kind: 'teammate' }),
   ]
-  assert.equal(computeTeamHalos(agents)[0].color, teamDefaultColor())
+  assert.equal(computeTeamHalos(agents)[0].color, TEAM_DEFAULT_COLOR)
   const teams = new Map([['beta', { name: 'beta', leadSessionId: 's1', members: [{ name: 'a', color: '#00ff00' }] }]])
   assert.equal(computeTeamHalos(agents, teams as any)[0].color, '#00ff00')
 })

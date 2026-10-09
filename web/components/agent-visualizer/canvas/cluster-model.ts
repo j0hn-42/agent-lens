@@ -11,11 +11,10 @@ import { totalCostUsage } from '../../../lib/cost'
 import { formatCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
-import { COLORS } from '../../../lib/colors'
 import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import {
-  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, legibleOnVoid, teamDefaultColor, isOrchestrator,
+  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator,
 } from './team-style'
 import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 
@@ -65,17 +64,14 @@ export interface Cluster {
 const DEFAULT_SESSION = 'default'
 
 /** Distinct, validated halo colours for sessions (team clusters use the team colour). */
-export function sessionPalette(): readonly string[] {
-  return [COLORS.session0, COLORS.session1, COLORS.session2, COLORS.session3, COLORS.session4, COLORS.session5, COLORS.session6, COLORS.session7]
-}
+export const SESSION_PALETTE: readonly string[] = ['#66ccff', '#7ee0a8', '#ffcc66', '#ff9ec7', '#b79cff', '#9ad0ff', '#ffa978', '#8de3de']
 
 /** Stable palette entry of a session id. */
 export function sessionColor(sessionIdIn: string | undefined): string {
   const sessionId = sessionIdIn || DEFAULT_SESSION
   let h = 0
   for (let i = 0; i < sessionId.length; i++) h = (h * 31 + sessionId.charCodeAt(i)) >>> 0
-  const palette = sessionPalette()
-  return palette[h % palette.length]
+  return SESSION_PALETTE[h % SESSION_PALETTE.length]
 }
 
 /**
@@ -238,9 +234,9 @@ export function computeClusters(
 
     let color: string
     if (isTeam) {
-      const given = members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
+      color = members.map(m => safeTeamColor(m.teamColor)).find(Boolean)
         ?? members.map(m => teamOfAgent(teams, m)?.members.map(tm => safeTeamColor(tm.color)).find(Boolean)).find(Boolean)
-      color = given ? legibleOnVoid(given) : teamDefaultColor()
+        ?? TEAM_DEFAULT_COLOR
     } else {
       color = sessionColor(members[0].sessionId)
     }

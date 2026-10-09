@@ -1,5 +1,3 @@
-import { COLORS } from './colors'
-
 // ─── Model families ──────────────────────────────────────────────────────────
 
 /** Single source of truth for Claude model families. Display names
@@ -505,11 +503,11 @@ export const PERF_OVERLAY = {
   fpsWarning: 30,
   fpsCaution: 50,
   updateIntervalMs: 1000,
-  get bgColor() { return COLORS.perfBg },
-  get fpsGoodColor() { return COLORS.fpsGood },
-  get fpsCautionColor() { return COLORS.fpsCaution },
-  get fpsWarningColor() { return COLORS.fpsWarning },
-  get textColor() { return COLORS.perfText },
+  bgColor: 'rgba(0, 0, 0, 0.75)',
+  fpsGoodColor: '#44ff44',
+  fpsCautionColor: '#ffaa00',
+  fpsWarningColor: '#ff4444',
+  textColor: '#cccccc',
 } as const
 
 // ─── Hit detection constants ────────────────────────────────────────────────
@@ -545,8 +543,8 @@ export const LOD = {
 /** Canvas-local state colours that differ from colors.ts so that every state is
  *  visually distinct (WCAG 1.4.1): thinking vs idle, waiting_permission vs tool_calling. */
 export const STATE_COLOR_OVERRIDES: Readonly<Record<string, string>> = {
-  get thinking() { return COLORS.stateThinking },
-  get waiting_permission() { return COLORS.stateWaitingPermission },
+  thinking: '#b79cff',
+  waiting_permission: '#ff7ad9',
 }
 
 /** Short state label drawn under every agent name */
@@ -632,9 +630,7 @@ export const ORCHESTRATOR_DRAW = {
   /** Gap between the node top and the badge */
   badgeGap: 14,
   /** Accent of the crown badge (the crown SHAPE and the text carry the meaning, not the colour) */
-  get accent() { return COLORS.crownFill },
-  /** Text on the crown badge (on-accent in the derived themes) */
-  get textColor() { return COLORS.crownText },
+  accent: '#ffd166',
 } as const
 
 export const EDGE_BUBBLE = {
@@ -699,9 +695,9 @@ export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 
 export const FRESHNESS_DRAW = {
   /** Neutral grey of a stale node (state colours say "live") */
-  get staleColor() { return COLORS.staleNode },
+  staleColor: '#8a94a0',
   /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
-  get staleTextColor() { return COLORS.staleText },
+  staleTextColor: '#c5ced8',
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */

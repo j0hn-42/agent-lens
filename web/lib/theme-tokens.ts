@@ -131,9 +131,18 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
       '--lens-grip-hover': 'rgba(255, 255, 255, 0.6)',
       '--lens-scrim': 'rgba(0, 0, 0, 0.5)',
       '--lens-live-halo': '0 0 8px #ff4444, 0 0 16px rgba(255, 68, 68, 0.3)',
+      // Top bar band: neon keeps the transparent strip over the scene; the other themes give it a surface (see below)
+      '--lens-bar-bg': 'transparent',
+      '--lens-bar-shadow': 'none',
+      '--lens-bar-pad': '0px',
     }
   }
   return {
+    // Top bar band: the scene behind it stays dark in every theme, so the bar carries its own opaque surface
+    // (its controls use translucent tints of the theme that only read on that surface)
+    '--lens-bar-bg': t.surface,
+    '--lens-bar-shadow': `inset 0 0 0 1px ${t.edge}`,
+    '--lens-bar-pad': '6px 8px',
     '--lens-shadow-card': SHADOW_CARD[id],
     '--lens-focus-ring': t.focus,
     '--lens-glass-bg': t.surface,

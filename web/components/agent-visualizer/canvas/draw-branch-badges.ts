@@ -1,5 +1,5 @@
 import type { Agent } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
 import { isAgentVisible, agentDrawOpacity } from './team-style'
 import { badgeRect, badgeSizeText, branchBadge, BADGE, type CollapseView } from './branch-collapse'
@@ -22,13 +22,13 @@ export function drawBranchBadges(
     const badge = branchBadge(info)
     const r = badgeRect(agent, badgeSizeText(badge))
     const active = badge.kind === 'active'
-    const accent = active ? COLORS.complete : COLORS.holoBase
+    const accent = active ? SCENE.complete : SCENE.holoBase
 
     ctx.save()
     ctx.globalAlpha = agentDrawOpacity(agent)
     ctx.beginPath()
     ctx.roundRect(r.x, r.y, r.w, r.h, r.h / 2)
-    ctx.fillStyle = COLORS.panelBg
+    ctx.fillStyle = SCENE.panelBg
     ctx.fill()
     ctx.lineWidth = id === focusedId ? 2 : 1
     ctx.strokeStyle = accent
@@ -39,7 +39,7 @@ export function drawBranchBadges(
       ctx.fillStyle = accent
       ctx.fill()
     }
-    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillStyle = SCENE.textPrimary
     ctx.font = `${BADGE.font}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'

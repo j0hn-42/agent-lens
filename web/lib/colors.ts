@@ -1,11 +1,16 @@
 /**
  * Color palette and role color definitions.
  *
- * COLORS follows the active theme (neon | graphite | paper). Its API is unchanged: callers read
- * `COLORS.<key>` at draw/render time. The canvas 2D context does not understand var(), so the values are
- * concrete colour strings, rebuilt from the `--lens-<role>` custom properties computed on :root
- * (getComputedStyle) by `refreshColors()` whenever the theme changes (see lib/theme.ts). Read COLORS when
- * you draw or render, never cache a value at module load: it would go stale on a theme switch.
+ * Two palettes, one rule: the theme (neon | graphite | paper) applies to the INTERFACE ONLY.
+ *
+ * - COLORS is the interface palette (toolbar, menus, dialogs, side panels, legend, inspector, UI cards). It
+ *   follows the active theme. Callers read `COLORS.<key>` at render time. The values are concrete colour
+ *   strings, rebuilt from the `--lens-<role>` custom properties computed on :root (getComputedStyle) by
+ *   `refreshColors()` whenever the theme changes (see lib/theme.ts). Read COLORS when you render, never cache
+ *   a value at module load: it would go stale on a theme switch.
+ * - SCENE is the scene palette: the page background and everything drawn on the canvas (nodes, links, halos,
+ *   phase zones, particles, bloom, bubbles and tool cards, canvas labels, grid). It is the neon palette,
+ *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme.
  *
  * Extracted from agent-types.ts to keep that file focused on type definitions.
  * All colors are re-exported from agent-types.ts for backward compatibility.
@@ -13,7 +18,7 @@
 
 import type { AgentState, ContextBreakdown } from './agent-types'
 import { currentThemeId, readTokens } from './theme-dom'
-import { paletteFor, type ColorKey } from './theme-palette'
+import { NEON_COLORS, paletteFor, type ColorKey, type Palette } from './theme-palette'
 import { DEFAULT_THEME, type ThemeId } from './theme-tokens'
 
 export type { ColorKey } from './theme-palette'
@@ -24,6 +29,20 @@ export type { ColorKey } from './theme-palette'
  * hooks of lib/theme.ts before any component paints) moves it to the theme the document actually shows.
  */
 export const COLORS: { -readonly [K in ColorKey]: string } = paletteFor(DEFAULT_THEME)
+
+/** Scene palette: the neon colours the canvas and the page background have always used, whatever the theme. */
+export const SCENE: Readonly<Palette> = Object.freeze({ ...NEON_COLORS })
+
+/**
+ * Interface colour of a state colour that the simulation stored as data (timeline blocks carry the scene colour they
+ * were created with). The timeline lives in a side panel, so it paints the theme's equivalent role; a colour that is
+ * not one of these roles is returned as is.
+ */
+const STATE_KEYS = ['idle', 'thinking', 'tool', 'mcp', 'waiting_permission', 'error', 'complete', 'dispatch', 'return'] as const
+export function uiColor(sceneColor: string): string {
+  const key = STATE_KEYS.find(k => SCENE[k] === sceneColor)
+  return key ? COLORS[key] : sceneColor
+}
 
 /** Theme COLORS is currently built for */
 let paletteTheme: ThemeId = DEFAULT_THEME
@@ -70,24 +89,25 @@ export const ROLE_COLORS: Record<string, RoleColor> = {
 
 // ─── Color Helper Functions ──────────────────────────────────────────────────
 
-export function getStateColor(state: AgentState): string {
+/** State colour in a palette: the interface (default, follows the theme) or the scene (canvas callers pass SCENE). */
+export function getStateColor(state: AgentState, palette: Readonly<Palette> = COLORS): string {
   switch (state) {
-    case 'idle': return COLORS.idle
-    case 'thinking': return COLORS.thinking
-    case 'tool_calling': return COLORS.tool_calling
-    case 'complete': return COLORS.complete
-    case 'error': return COLORS.error
-    case 'paused': return COLORS.paused
-    case 'waiting_permission': return COLORS.waiting_permission
+    case 'idle': return palette.idle
+    case 'thinking': return palette.thinking
+    case 'tool_calling': return palette.tool_calling
+    case 'complete': return palette.complete
+    case 'error': return palette.error
+    case 'paused': return palette.paused
+    case 'waiting_permission': return palette.waiting_permission
   }
 }
 
-export function getDiscoveryTypeColor(type: string): string {
+export function getDiscoveryTypeColor(type: string, palette: Readonly<Palette> = COLORS): string {
   switch (type) {
-    case 'file': return COLORS.discoveryFile
-    case 'pattern': return COLORS.discoveryPattern
-    case 'finding': return COLORS.discoveryFinding
-    default: return COLORS.discoveryCode
+    case 'file': return palette.discoveryFile
+    case 'pattern': return palette.discoveryPattern
+    case 'finding': return palette.discoveryFinding
+    default: return palette.discoveryCode
   }
 }
 
@@ -97,12 +117,12 @@ export function withAlpha(rgbaBase: string, alpha: number): string {
 }
 
 /** Build the context-breakdown color segments for a given breakdown. */
-export function contextSegments(bd: ContextBreakdown) {
+export function contextSegments(bd: ContextBreakdown, palette: Readonly<Palette> = COLORS) {
   return [
-    { value: bd.systemPrompt, color: COLORS.contextSystem },
-    { value: bd.userMessages, color: COLORS.contextUser },
-    { value: bd.toolResults, color: COLORS.contextToolResults },
-    { value: bd.reasoning, color: COLORS.contextReasoning },
-    { value: bd.subagentResults, color: COLORS.contextSubagent },
+    { value: bd.systemPrompt, color: palette.contextSystem },
+    { value: bd.userMessages, color: palette.contextUser },
+    { value: bd.toolResults, color: palette.contextToolResults },
+    { value: bd.reasoning, color: palette.contextReasoning },
+    { value: bd.subagentResults, color: palette.contextSubagent },
   ]
 }

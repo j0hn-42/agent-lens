@@ -1,4 +1,4 @@
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { SPAWN_FX, COMPLETE_FX, MCP_DRAW } from '@/lib/canvas-constants'
 import { drawHexagon } from './draw-misc'
 import { alphaHex } from '@/lib/utils'
@@ -31,7 +31,7 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
           const flashAlpha = (1 - progress / SPAWN_FX.flashThreshold) * SPAWN_FX.flashAlpha
           ctx.beginPath()
           ctx.arc(fx.x, fx.y, SPAWN_FX.flashBaseRadius * (1 - progress / SPAWN_FX.flashThreshold) + SPAWN_FX.flashMinRadius, 0, Math.PI * 2)
-          ctx.fillStyle = COLORS.holoHot + alphaHex(flashAlpha)
+          ctx.fillStyle = SCENE.holoHot + alphaHex(flashAlpha)
           ctx.fill()
         }
 
@@ -65,8 +65,8 @@ export function drawEffects(ctx: CanvasRenderingContext2D, effects: VisualEffect
         if (!fx.noFlash && progress < COMPLETE_FX.flashThreshold) {
           const flashAlpha = (1 - progress / COMPLETE_FX.flashThreshold) * COMPLETE_FX.flashAlpha
           const grad = ctx.createRadialGradient(fx.x, fx.y, 0, fx.x, fx.y, COMPLETE_FX.flashRadius)
-          grad.addColorStop(0, COLORS.holoHot + alphaHex(flashAlpha))
-          grad.addColorStop(1, COLORS.holoHot + '00')
+          grad.addColorStop(0, SCENE.holoHot + alphaHex(flashAlpha))
+          grad.addColorStop(1, SCENE.holoHot + '00')
           ctx.fillStyle = grad
           ctx.fillRect(fx.x - COMPLETE_FX.flashRadius, fx.y - COMPLETE_FX.flashRadius, COMPLETE_FX.flashRadius * 2, COMPLETE_FX.flashRadius * 2)
         }

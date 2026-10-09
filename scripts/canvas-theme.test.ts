@@ -1,120 +1,126 @@
+// Le thème ne s'applique qu'à l'interface : la scène (fond de page + canvas) garde les couleurs neon dans les trois thèmes.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { COLORS, refreshColors } from '../web/lib/colors'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { COLORS, SCENE, refreshColors, getStateColor, getDiscoveryTypeColor, contextSegments, uiColor } from '../web/lib/colors'
+import { NEON_COLORS } from '../web/lib/theme-palette'
 import { PERF_OVERLAY, STATE_COLOR_OVERRIDES, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canvas-constants'
-import { THEME_IDS } from '../web/lib/theme-tokens'
-import { sessionPalette, sessionColor } from '../web/components/agent-visualizer/canvas/cluster-model'
-import { teamDefaultColor, legibleOnVoid, teammateAccent, teamColorFor } from '../web/components/agent-visualizer/canvas/team-style'
+import { THEME_IDS, TOKENS } from '../web/lib/theme-tokens'
+import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
+import { TEAM_DEFAULT_COLOR, teammateAccent } from '../web/components/agent-visualizer/canvas/team-style'
 
-type Rgb = [number, number, number]
-
-function parse(value: string): [number, number, number, number] {
-  if (value.startsWith('#')) {
-    const n = (i: number) => parseInt(value.slice(i, i + 2), 16)
-    return [n(1), n(3), n(5), 1]
-  }
-  const m = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/)
-  assert.ok(m, `unparsable colour ${value}`)
-  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])]
-}
-
-function over(fg: string, bg: Rgb): Rgb {
-  const [r, g, b, a] = parse(fg)
-  return [r * a + bg[0] * (1 - a), g * a + bg[1] * (1 - a), b * a + bg[2] * (1 - a)]
-}
-
-function lum([r, g, b]: Rgb): number {
-  const l = [r, g, b].map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
-  return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2]
-}
-
-function ratio(a: Rgb, b: Rgb): number {
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
-
-const rgb = (hex: string): Rgb => { const [r, g, b] = parse(hex); return [r, g, b] }
-
-// The identity colours of teammates (extension/src/teammate.ts) and of the guided tour
-const IDENTITY_COLORS = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#eab308', '#ef4444', '#ec4899', '#06b6d4', '#4cc9f0', '#f9c74f']
-
-test('neon: the canvas colours are exactly the literals the canvas always used', () => {
-  refreshColors('neon')
-  assert.equal(PERF_OVERLAY.bgColor, 'rgba(0, 0, 0, 0.75)')
-  assert.equal(PERF_OVERLAY.fpsGoodColor, '#44ff44')
-  assert.equal(PERF_OVERLAY.fpsCautionColor, '#ffaa00')
-  assert.equal(PERF_OVERLAY.fpsWarningColor, '#ff4444')
-  assert.equal(PERF_OVERLAY.textColor, '#cccccc')
-  assert.equal(STATE_COLOR_OVERRIDES.thinking, '#b79cff')
-  assert.equal(STATE_COLOR_OVERRIDES.waiting_permission, '#ff7ad9')
-  assert.equal(ORCHESTRATOR_DRAW.accent, '#ffd166')
-  assert.equal(ORCHESTRATOR_DRAW.textColor, '#11161c')
-  assert.equal(FRESHNESS_DRAW.staleColor, '#8a94a0')
-  assert.equal(FRESHNESS_DRAW.staleTextColor, '#c5ced8')
-  assert.equal(teamDefaultColor(), '#b794f6')
-  assert.equal(COLORS.depthShadow, 'rgba(0, 0, 0, 0.5)')
-  assert.deepEqual([...sessionPalette()], ['#66ccff', '#7ee0a8', '#ffcc66', '#ff9ec7', '#b79cff', '#9ad0ff', '#ffa978', '#8de3de'])
-})
-
-test('the canvas constants follow the theme when it changes', () => {
-  refreshColors('neon')
-  const neon = FRESHNESS_DRAW.staleTextColor
-  refreshColors('paper')
-  assert.notEqual(FRESHNESS_DRAW.staleTextColor, neon)
-  assert.equal(FRESHNESS_DRAW.staleTextColor, COLORS.inkMuted)
-  refreshColors('neon')
-})
+const root = join(__dirname, '..')
+const legacy = JSON.parse(readFileSync(join(__dirname, 'fixtures/neon-colors.legacy.json'), 'utf8')) as Record<string, string>
 
 for (const id of THEME_IDS) {
-  test(`${id}: canvas colours are #rrggbb where an alpha suffix is appended, and contrast holds`, () => {
+  test(`${id}: la scène est identique à neon (valeurs d'avant les thèmes)`, () => {
     refreshColors(id)
-    const ground = rgb(COLORS.void)
-    const hexOnly = [COLORS.fpsGood, COLORS.fpsCaution, COLORS.fpsWarning, COLORS.perfText, COLORS.crownFill, COLORS.crownText,
-      COLORS.staleNode, COLORS.staleText, COLORS.teamDefault, COLORS.stateThinking, COLORS.stateWaitingPermission, ...sessionPalette()]
-    for (const c of hexOnly) assert.match(c, /^#[0-9a-f]{6}$/, `${id}: ${c}`)
-
-    // Text: >= 4.5:1
-    const perfBg = over(COLORS.perfBg, ground)
-    for (const c of [COLORS.fpsGood, COLORS.fpsCaution, COLORS.fpsWarning, COLORS.perfText]) {
-      if (id === 'neon') continue // pinned literals, covered by the legacy-values test
-      assert.ok(ratio(rgb(c), perfBg) >= 4.5, `${id}: perf overlay text ${c} on the overlay`)
-    }
-    assert.ok(ratio(rgb(COLORS.staleText), ground) >= 4.5, `${id}: stale label on void`)
-    assert.ok(ratio(rgb(COLORS.crownText), rgb(COLORS.crownFill)) >= 4.5, `${id}: crown text on its fill`)
-    if (id !== 'neon') assert.equal(COLORS.crownText, COLORS.onAccent, `${id}: text on accent is on-accent`)
-
-    // Components: >= 3:1 against the void
-    for (const c of [COLORS.staleNode, COLORS.teamDefault, COLORS.stateThinking, COLORS.stateWaitingPermission, COLORS.crownFill, ...sessionPalette()]) {
-      assert.ok(ratio(rgb(c), ground) >= 3, `${id}: ${c} on void`)
-    }
+    assert.deepEqual({ ...SCENE }, { ...NEON_COLORS })
+    for (const [k, v] of Object.entries(legacy)) assert.equal((SCENE as Record<string, string>)[k], v, `SCENE.${k}`)
+    assert.equal(SCENE.void, '#050510')
+    assert.equal(Object.isFrozen(SCENE), true)
   })
 
-  test(`${id}: states stay distinguishable and session halos are distinct`, () => {
+  test(`${id}: les constantes et helpers du canvas gardent leurs valeurs neon`, () => {
     refreshColors(id)
-    assert.notEqual(COLORS.stateThinking, COLORS.idle)
-    assert.notEqual(COLORS.stateWaitingPermission, COLORS.tool_calling)
-    assert.notEqual(COLORS.stateThinking, COLORS.stateWaitingPermission)
-    assert.equal(new Set(sessionPalette()).size, 8)
-    assert.ok(sessionPalette().includes(sessionColor('any-session')))
-  })
-
-  test(`${id}: identity colours are legible (>= 3:1) on the void, unchanged on dark grounds`, () => {
-    refreshColors(id)
-    const ground = rgb(COLORS.void)
-    for (const c of IDENTITY_COLORS) {
-      const out = legibleOnVoid(c)
-      assert.match(out, /^#[0-9a-f]{6}$/)
-      if (id === 'paper') assert.ok(ratio(rgb(out), ground) >= 3, `paper: ${c} -> ${out}`)
-      else assert.equal(out, c, `${id} keeps the colour of the data`)
-      assert.equal(teammateAccent({ teamColor: c }), out)
-      assert.equal(teamColorFor('t', [{ teamColor: c }]), out)
-    }
+    assert.equal(PERF_OVERLAY.bgColor, 'rgba(0, 0, 0, 0.75)')
+    assert.equal(PERF_OVERLAY.fpsGoodColor, '#44ff44')
+    assert.equal(STATE_COLOR_OVERRIDES.thinking, '#b79cff')
+    assert.equal(STATE_COLOR_OVERRIDES.waiting_permission, '#ff7ad9')
+    assert.equal(ORCHESTRATOR_DRAW.accent, '#ffd166')
+    assert.equal(FRESHNESS_DRAW.staleColor, '#8a94a0')
+    assert.equal(FRESHNESS_DRAW.staleTextColor, '#c5ced8')
+    assert.equal(TEAM_DEFAULT_COLOR, '#b794f6')
+    assert.deepEqual([...SESSION_PALETTE], ['#66ccff', '#7ee0a8', '#ffcc66', '#ff9ec7', '#b79cff', '#9ad0ff', '#ffa978', '#8de3de'])
+    assert.ok(SESSION_PALETTE.includes(sessionColor('any-session')))
+    assert.equal(teammateAccent({ teamColor: '#eab308' }), '#eab308', 'une couleur d\'identité n\'est jamais modifiée')
+    const neonStates = ['idle', 'thinking', 'tool_calling', 'complete', 'error', 'paused', 'waiting_permission'] as const
+    for (const s of neonStates) assert.equal(getStateColor(s, SCENE), (NEON_COLORS as Record<string, string>)[s])
+    assert.equal(getDiscoveryTypeColor('file', SCENE), '#66ccff')
+    const bd = { systemPrompt: 1, userMessages: 1, toolResults: 1, reasoning: 1, subagentResults: 1 }
+    assert.equal(contextSegments(bd, SCENE)[2].color, '#ffbb44')
   })
 }
 
-test('paper: a colour that is already legible is left alone', () => {
-  refreshColors('paper')
-  assert.equal(legibleOnVoid('#6b3fb0'), '#6b3fb0')
-  assert.equal(legibleOnVoid('not-a-colour'), 'not-a-colour')
+test('l\'interface, elle, change avec le thème (graphite et paper diffèrent de neon)', () => {
   refreshColors('neon')
+  const neon = { ...COLORS }
+  refreshColors('graphite')
+  assert.notEqual(COLORS.void, neon.void)
+  assert.notEqual(COLORS.panelBg, neon.panelBg)
+  refreshColors('paper')
+  assert.notEqual(COLORS.void, SCENE.void)
+  assert.notEqual(COLORS.textPrimary, SCENE.textPrimary)
+  assert.equal(getStateColor('complete'), COLORS.complete, 'l\'interface suit le thème par défaut')
+  assert.notEqual(getStateColor('complete'), getStateColor('complete', SCENE))
+  refreshColors('neon')
+})
+
+test('uiColor : une couleur d\'état stockée (timeline) devient le rôle du thème, une couleur d\'identité reste', () => {
+  refreshColors('paper')
+  assert.equal(uiColor(SCENE.error), COLORS.error)
+  assert.equal(uiColor(SCENE.tool), COLORS.tool)
+  assert.equal(uiColor('#123456'), '#123456')
+  refreshColors('neon')
+  assert.equal(uiColor(SCENE.error), SCENE.error)
+})
+
+function walk(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])
+}
+
+test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais la palette thématisée', () => {
+  const files = [
+    ...walk(join(root, 'web/components/agent-visualizer/canvas')),
+    ...walk(join(root, 'web/hooks')),
+    join(root, 'web/components/agent-visualizer/background-layer.ts'),
+    join(root, 'web/lib/canvas-constants.ts'),
+  ].filter(f => /\.tsx?$/.test(f))
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8')
+    assert.doesNotMatch(src, /\bCOLORS\b/, `${f}: COLORS (thématisé) dans le code de la scène, utiliser SCENE`)
+    assert.doesNotMatch(src, /theme-dom|currentThemeId|refreshColors|themed\(/, `${f}: la scène ne dépend pas du thème`)
+  }
+})
+
+test('garde : le bloom reste actif sur le canvas quel que soit le thème, le fond de page est celui de la scène', () => {
+  const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
+  assert.match(loop, /bloomRef\.current && !reducedMotion\)/)
+  const css = readFileSync(join(root, 'web/app/globals.css'), 'utf8')
+  assert.match(css, /--scene-void: #050510/)
+  assert.match(css, /html, body \{ background: var\(--scene-void\); \}/)
+})
+
+// ─── Interface au-dessus de la scène sombre ──────────────────────────────────
+
+const lum = (hex: string) => {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+const ratio = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05) }
+
+test('le focus reste >= 3:1 sur les surfaces du thème ET sur la scène sombre, dans les trois thèmes', () => {
+  const css = readFileSync(join(root, 'web/app/globals.css'), 'utf8')
+  const halo = /:where\(html\[data-theme="paper"\]\) :where\(:focus-visible\) \{\s*box-shadow: 0 0 0 6px (#[0-9a-f]{6});/.exec(css)
+  assert.ok(halo, 'paper: halo clair autour de l\'anneau de focus')
+  for (const id of THEME_IDS) {
+    const t = TOKENS[id]
+    assert.ok(ratio(t.focus, t.surface) >= 3, `${id}: focus sur surface`)
+    if (id === 'paper') {
+      assert.ok(ratio(t.focus, halo![1]) >= 3, 'paper: anneau sur halo')
+      assert.ok(ratio(halo![1], SCENE.void) >= 3, 'paper: halo sur la scène')
+    } else {
+      assert.ok(ratio(t.focus, SCENE.void) >= 3, `${id}: focus sur la scène`)
+    }
+  }
+})
+
+test('le texte posé directement sur le fond de la scène (état vide) utilise les couleurs de la scène, >= 4,5:1', () => {
+  const src = readFileSync(join(root, 'web/components/agent-visualizer/index.tsx'), 'utf8')
+  const empty = src.slice(src.indexOf('Empty state when no demo'), src.indexOf('Canvas fills everything'))
+  assert.doesNotMatch(empty, /\bCOLORS\./, 'état vide : SCENE uniquement')
+  for (const k of ['textPrimary', 'textMuted'] as const) assert.ok(ratio('#' + SCENE[k].slice(1, 7), SCENE.void) >= 4.5, k)
+  const top = readFileSync(join(root, 'web/components/agent-visualizer/top-bar.tsx'), 'utf8')
+  assert.match(top, /var\(--lens-bar-bg\)/, 'la barre d\'outils porte sa propre surface')
 })

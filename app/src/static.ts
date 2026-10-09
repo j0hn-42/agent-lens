@@ -18,7 +18,7 @@ export const HTML_SHELL = `<!DOCTYPE html>
   <link rel="stylesheet" href="/index.css">
   <style>html, body { height: 100%; margin: 0; padding: 0; }</style>
 </head>
-<body class="font-sans antialiased" style="background: var(--lens-void, #121212);">
+<body class="font-sans antialiased" style="background: #0a0a1a;">
   <script src="/theme.js"></script>
   <div id="root" style="height: 100%;"></div>
   <script src="/index.js"></script>

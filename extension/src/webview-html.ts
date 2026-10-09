@@ -24,7 +24,7 @@ export function productionHtml({ cspSource, scriptUri, styleUri, nonce }: Produc
   />
   <link rel="stylesheet" href="${styleUri}">
   <style>
-    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: var(--lens-void, ${WEBVIEW_BG_COLOR}); }
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: ${WEBVIEW_BG_COLOR}; }
     #root { height: 100%; }
   </style>
 </head>

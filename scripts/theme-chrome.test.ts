@@ -58,10 +58,8 @@ test('le texte du chrome reste lisible au survol dans graphite et paper', () => 
   }
 })
 
-test('les tables de couleurs du shell de développement sont lisibles sur le fond graphite', () => {
+test('le shell de développement garde le fond de la scène (la page ne suit pas le thème)', () => {
   const c = read('extension/src/constants.ts')
-  const m = /WEBVIEW_LOADING_TEXT = '(#[0-9a-f]{6})'/.exec(c)
-  assert.ok(m, 'texte de chargement en couleur pleine')
-  assert.ok(contrast(m![1], TOKENS.graphite.void) >= 4.5)
+  assert.match(c, /WEBVIEW_BG_COLOR = '#050510'/)
   assert.ok(THEME_IDS.includes('graphite'))
 })

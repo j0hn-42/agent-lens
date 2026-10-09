@@ -38,6 +38,9 @@
   --lens-grip-hover: rgba(255, 255, 255, 0.6);
   --lens-scrim: rgba(0, 0, 0, 0.5);
   --lens-live-halo: 0 0 8px #ff4444, 0 0 16px rgba(255, 68, 68, 0.3);
+  --lens-bar-bg: transparent;
+  --lens-bar-shadow: none;
+  --lens-bar-pad: 0px;
   --lens-hover-05: rgba(255, 255, 255, 0.05);
   --lens-hover-10: rgba(255, 255, 255, 0.1);
   --lens-focus-strong: #ffffff;
@@ -112,6 +115,9 @@
   --lens-delegate: #b9a9d6;
   --lens-info: #9fb7c4;
   --lens-context-system: #8c8c90;
+  --lens-bar-bg: #1b1b1c;
+  --lens-bar-shadow: inset 0 0 0 1px #343436;
+  --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --lens-focus-ring: #ffffff;
   --lens-glass-bg: #1b1b1c;
@@ -205,6 +211,9 @@
   --lens-delegate: #6b3fb0;
   --lens-info: #0b6a86;
   --lens-context-system: #7a7a76;
+  --lens-bar-bg: #ffffff;
+  --lens-bar-shadow: inset 0 0 0 1px #d9d9d6;
+  --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.08);
   --lens-focus-ring: #000000;
   --lens-glass-bg: #ffffff;

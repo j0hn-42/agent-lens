@@ -7,15 +7,12 @@
  */
 import { NODE } from '../../../lib/agent-types'
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
-import { COLORS } from '../../../lib/colors'
 import { MIN_VISIBLE_OPACITY, STATE_LABEL_SHORT, AGENT_DRAW, ORCHESTRATOR_DRAW } from '../../../lib/canvas-constants'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-/** Accent used for teammates (and halos) whose team colour is missing or invalid (follows the theme) */
-export function teamDefaultColor(): string {
-  return COLORS.teamDefault
-}
+/** Accent used for teammates (and halos) whose team colour is missing or invalid */
+export const TEAM_DEFAULT_COLOR = '#b794f6'
 /** Draw opacity of archived (finished, kept) agents */
 export const ARCHIVED_OPACITY = 0.55
 /** Draw scale factor of archived agents (reduced node) */
@@ -47,41 +44,6 @@ export function cleanText(value: unknown, max = MAX_TEAM_TEXT): string {
 /** '#rrggbb' only (never a CSS expression, named colour or alpha form); undefined otherwise. */
 export function safeTeamColor(value: unknown): string | undefined {
   return typeof value === 'string' && HEX_COLOR.test(value) ? value : undefined
-}
-
-// ─── Legibility of identity colours ──────────────────────────────────────────
-
-function channels(hex: string): [number, number, number] {
-  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)]
-}
-
-function luminance(hex: string): number {
-  const lin = channels(hex).map(v => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
-  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
-  return (hi + 0.05) / (lo + 0.05)
-}
-
-/**
- * Identity colours (team colours chosen by the agents) are data and are kept as they are on a dark ground. On a
- * light ground (paper) a pale colour would fall under 3:1 against the void; it is then darkened toward the ink
- * colour, just enough to reach 3:1. The hue stays recognisable and the team is also named in text.
- */
-export function legibleOnVoid(color: string): string {
-  const ground = COLORS.void
-  if (!HEX_COLOR.test(color) || !HEX_COLOR.test(ground) || !HEX_COLOR.test(COLORS.ink) || luminance(ground) < 0.5) return color
-  if (contrast(color, ground) >= 3) return color
-  const from = channels(color)
-  const to = channels(COLORS.ink)
-  for (let step = 1; step <= 20; step++) {
-    const t = step / 20
-    const out = '#' + from.map((v, i) => Math.round(v + (to[i] - v) * t).toString(16).padStart(2, '0')).join('')
-    if (contrast(out, ground) >= 3) return out
-  }
-  return COLORS.ink
 }
 
 // ─── Agent classification ────────────────────────────────────────────────────
@@ -153,8 +115,7 @@ export function teammateActivity(agent: Pick<Agent, 'kind' | 'activity' | 'state
 
 /** Accent colour of a teammate: its validated team colour or the default. */
 export function teammateAccent(agent: Pick<Agent, 'teamColor'>): string {
-  const c = safeTeamColor(agent.teamColor)
-  return c ? legibleOnVoid(c) : teamDefaultColor()
+  return safeTeamColor(agent.teamColor) ?? TEAM_DEFAULT_COLOR
 }
 
 /**
@@ -326,16 +287,16 @@ function memberRadius(a: Agent): number {
 export function teamColorFor(name: string, members: Array<Pick<Agent, 'teamColor'>>, teams?: Map<string, TeamSummary>): string {
   for (const m of members) {
     const c = safeTeamColor(m.teamColor)
-    if (c) return legibleOnVoid(c)
+    if (c) return c
   }
   const summary = teams?.get(name)
   if (summary) {
     for (const m of summary.members) {
       const c = safeTeamColor(m.color)
-      if (c) return legibleOnVoid(c)
+      if (c) return c
     }
   }
-  return teamDefaultColor()
+  return TEAM_DEFAULT_COLOR
 }
 
 /**

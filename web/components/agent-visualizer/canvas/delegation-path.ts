@@ -5,7 +5,7 @@
  * Pure helpers + one stroke function: unit-testable under node:test (relative runtime imports only).
  */
 import type { Agent, Edge, ToolCallNode } from '../../../lib/agent-types'
-import { COLORS } from '../../../lib/colors'
+import { SCENE } from '../../../lib/colors'
 import { MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
 import { bezierPoint, computeControlPoints } from './link-geometry'
 import { isAgentVisible } from './team-style'
@@ -103,8 +103,8 @@ export function drawDelegationPath(
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-  ctx.strokeStyle = COLORS.holoBright
-  ctx.shadowColor = COLORS.holoBase
+  ctx.strokeStyle = SCENE.holoBright
+  ctx.shadowColor = SCENE.holoBase
   ctx.shadowBlur = 8
   ctx.lineWidth = 2.5
   for (let i = 0; i < path.length; i++) {

@@ -15,7 +15,7 @@ import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE
 import type { StateTransition } from './detect-state-changes'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
 import {
-  cleanText, teammateActivity, hasSeveralSessions, teamDefaultColor, orchestratorRole, isOrchestrator,
+  cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
 } from './team-style'
 import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
 import { clusterLinkNotes } from './session-link-model'
@@ -382,7 +382,7 @@ export function buildTeamItems(
       return {
         key: c.key,
         name: c.title,
-        color: c.color || teamDefaultColor(),
+        color: c.color || TEAM_DEFAULT_COLOR,
         memberIds: members.map(m => m.id),
         memberNames: members.map(m => cleanText(m.name, 60)),
         teamKind: c.teamKind ?? 'team',

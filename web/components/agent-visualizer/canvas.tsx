@@ -170,7 +170,7 @@ export function AgentCanvas(props: CanvasProps) {
         onFocus={handleWrapperFocus}
         onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
         {...keyHandlers}
-        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] [[data-theme=neon]_&]:focus-visible:outline-white"
+        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
       >
         <canvas
           ref={mainCanvasRef}
@@ -183,7 +183,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={bubbleLayerRef}
         data-edge-bubble-layer=""
-        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-[color:var(--lens-focus)] [[data-theme=neon]_&]:[&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
       <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 

@@ -42,12 +42,12 @@ test('graphite is the default; the selector switches themes and the choice survi
     assert.equal(await select.inputValue(), 'graphite')
     let s = await rootState(page)
     assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['graphite', true, 'dark', '#121212'])
-    assert.equal(s.bodyBg, 'rgb(18, 18, 18)')
+    assert.equal(s.bodyBg, 'rgb(5, 5, 16)', 'the page background is the scene ground, not themed')
 
     await select.selectOption('paper')
     s = await rootState(page)
     assert.deepEqual([s.theme, s.dark, s.scheme, s.void], ['paper', false, 'light', '#f6f6f4'])
-    assert.equal(s.bodyBg, 'rgb(246, 246, 244)')
+    assert.equal(s.bodyBg, 'rgb(5, 5, 16)', 'paper: the page background stays the scene ground')
 
     await select.selectOption('neon')
     s = await rootState(page)

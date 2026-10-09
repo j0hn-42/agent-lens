@@ -84,14 +84,14 @@ export const NONCE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 
 // ─── Webview Colors ─────────────────────────────────────────────────────────
 
-/** Void background color of the default theme (graphite) — the colour shown before the app's own theme applies */
-export const WEBVIEW_BG_COLOR = '#121212'
+/** Void background color — matches the web COLORS.void value */
+export const WEBVIEW_BG_COLOR = '#050510'
 
-/** Loading screen text color (dev mode only): ink-muted of graphite, >= 4.5:1 on WEBVIEW_BG_COLOR */
-export const WEBVIEW_LOADING_TEXT = '#a3a3a6'
+/** Loading screen text color (dev mode only) */
+export const WEBVIEW_LOADING_TEXT = '#66ccff80'
 
-/** Loading screen secondary text color (dev mode only): same ink-muted, a dimmer alpha would fall under 4.5:1 */
-export const WEBVIEW_LOADING_TEXT_DIM = '#a3a3a6'
+/** Loading screen dim text color (dev mode only) */
+export const WEBVIEW_LOADING_TEXT_DIM = '#66ccff40'
 
 // ─── Text Truncation Limits ──────────────────────────────────────────────────
 

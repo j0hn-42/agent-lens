@@ -1,5 +1,5 @@
 import type { Agent } from '@/lib/agent-types'
-import { COLORS, themed } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import {
@@ -19,12 +19,12 @@ interface LinkStyle {
   alpha: number
 }
 
-const LINK_STYLES: Record<LinkState, LinkStyle> = themed(() => ({
-  in_flight: { color: COLORS.dispatch, width: 3, dash: [9, 5], alpha: 0.95 },
-  recent: { color: COLORS.return, width: 2.5, dash: [], alpha: 0.85 },
-  error: { color: COLORS.error, width: 2.5, dash: [2, 4], alpha: 0.95 },
-  idle: { color: COLORS.holoBase, width: 1.75, dash: [], alpha: 0.5 },
-}))
+const LINK_STYLES: Record<LinkState, LinkStyle> = {
+  in_flight: { color: SCENE.dispatch, width: 3, dash: [9, 5], alpha: 0.95 },
+  recent: { color: SCENE.return, width: 2.5, dash: [], alpha: 0.85 },
+  error: { color: SCENE.error, width: 2.5, dash: [2, 4], alpha: 0.95 },
+  idle: { color: SCENE.holoBase, width: 1.75, dash: [], alpha: 0.5 },
+}
 
 /** Line width grows slowly with the message count (never more than +2 px). */
 export function linkWidth(base: number, count: number): number {
@@ -81,7 +81,7 @@ export function drawLinks(
     // Selection halo: a wide soft stroke under the line (not colour-only: it is also thicker)
     if (selected) {
       path()
-      ctx.strokeStyle = COLORS.textPrimary + alphaHex(0.35)
+      ctx.strokeStyle = SCENE.textPrimary + alphaHex(0.35)
       ctx.lineWidth = width + 6
       ctx.stroke()
     }
@@ -113,12 +113,12 @@ export function drawLinks(
       const h = 16
       ctx.beginPath()
       ctx.roundRect(mid.x - w / 2, mid.y - h / 2, w, h, 8)
-      ctx.fillStyle = COLORS.cardBgDark
+      ctx.fillStyle = SCENE.cardBgDark
       ctx.fill()
       ctx.strokeStyle = style.color
       ctx.lineWidth = selected || hovered ? 2 : 1
       ctx.stroke()
-      ctx.fillStyle = COLORS.textPrimary
+      ctx.fillStyle = SCENE.textPrimary
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(text, mid.x, mid.y + 0.5)
@@ -153,7 +153,7 @@ export function drawEdgeBubbles(
     const rect = collapsed
       ? { x: baseX + off.dx, y: baseY + b.h - PLACEMENT.chipH / scale + off.dy, w: PLACEMENT.chipW / scale, h: PLACEMENT.chipH / scale }
       : { x: baseX + off.dx, y: baseY + off.dy, w: b.w, h: b.h }
-    const color = b.isError ? COLORS.error : b.type === 'return' ? COLORS.return : b.type === 'dispatch' ? COLORS.dispatch : COLORS.holoBase
+    const color = b.isError ? SCENE.error : b.type === 'return' ? SCENE.return : b.type === 'dispatch' ? SCENE.dispatch : SCENE.holoBase
     const emphasised = b.linkId === selectedLinkId || b.linkId === hoveredLinkId
 
     ctx.save()
@@ -175,7 +175,7 @@ export function drawEdgeBubbles(
 
     ctx.beginPath()
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, collapsed ? 8 / scale : 5)
-    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fillStyle = SCENE.cardBgDark
     ctx.fill()
     ctx.strokeStyle = color
     // Error bubbles are dotted: the state is not carried by colour alone
@@ -185,7 +185,7 @@ export function drawEdgeBubbles(
     ctx.setLineDash([])
 
     ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
-    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillStyle = SCENE.textPrimary
     if (collapsed) {
       // Count chip: how many messages the link shows; the text is the number only
       ctx.font = `${EDGE_BUBBLE.fontSize / scale}px monospace`
