@@ -30,7 +30,7 @@ import { summarizeAttention, sessionAttentionText, type AttentionSummary } from 
 import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
-import { clampDockWidth } from '@/lib/panel-layout'
+import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 import { BlankCell, COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
@@ -249,8 +249,10 @@ export function SessionListPanel({
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
   const [wantedWidth, setWantedWidth] = useState(SESSIONS_PANEL_WIDTH)
   useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
-  const viewportW = useDockSnapshot().env.viewport.w
-  const panelWidth = clampDockWidth(wantedWidth, viewportW)
+  const { env, open: openPanels, layout } = useDockSnapshot()
+  // Room beside the panel: the right dock and the agent card keep their place, so it can grow, never overlap
+  const bounds = leftPanelWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const panelWidth = clampLeftPanelWidth(wantedWidth, SESSIONS_PANEL_WIDTH, bounds)
   const resizePanel = (w: number) => {
     setWantedWidth(w)
     try { window.localStorage.setItem(SESSIONS_WIDTH_KEY, String(w)) } catch { /* not persisted */ }
@@ -419,7 +421,7 @@ export function SessionListPanel({
       labelledBy="session-list-title"
       attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '' }}
     >
-      <DockResizer edge="right" width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
+      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}

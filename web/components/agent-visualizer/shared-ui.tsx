@@ -267,6 +267,8 @@ interface DockResizerProps {
   controls?: string
   /** Edge of the panel the handle hugs: 'left' for a panel anchored right (default), 'right' for one anchored left. */
   edge?: 'left' | 'right'
+  /** Range of the width, when it depends on more than the viewport (free room beside the panel). */
+  bounds?: { min: number; max: number }
 }
 
 /**
@@ -279,16 +281,16 @@ interface DockResizerProps {
  * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
  */
-export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left' }: DockResizerProps) {
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds }: DockResizerProps) {
   const onRight = edge === 'right'
   const side = onRight ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
   const { layout, env } = useDockSnapshot()
   const vw = env.viewport.w
   const current = Math.round(width ?? layout.rightWidth)
-  const { min, max } = dockWidthBounds(vw)
+  const { min, max } = bounds ?? dockWidthBounds(vw)
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
   const apply = (w: number) => {
-    const next = clampDockWidth(w, vw)
+    const next = bounds ? Math.round(Math.min(Math.max(w, min), max)) : clampDockWidth(w, vw)
     if (onWidthChange) { onWidthChange(next); return }
     dockStore.setRightWidth(next)
     userResizeListeners.forEach(l => l(next))
