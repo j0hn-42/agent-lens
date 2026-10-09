@@ -44,7 +44,13 @@ describe('CodexSessionWatcher : libération des sessions terminées', () => {
     const st = globalThis.setTimeout, ct = globalThis.clearTimeout
     mock.method(globalThis, 'setInterval', ((...a: Parameters<typeof si>) => { const h = si(...a); live.add(h); return h }) as typeof si)
     mock.method(globalThis, 'clearInterval', ((h: Parameters<typeof ci>[0]) => { live.delete(h); return ci(h) }) as typeof ci)
-    mock.method(globalThis, 'setTimeout', ((...a: Parameters<typeof st>) => { const h = st(...a); live.add(h); return h }) as typeof st)
+    // Un setTimeout qui a déclenché n'est plus armé (ex. le flush différé des stats du normaliseur, posé
+    // selon l'écart réel entre deux écritures) : sinon le compte dépend de la vitesse de la machine.
+    mock.method(globalThis, 'setTimeout', ((cb: (...x: unknown[]) => void, ms?: number, ...rest: unknown[]) => {
+      const h: ReturnType<typeof st> = st((...x: unknown[]) => { live.delete(h); cb(...x) }, ms, ...rest)
+      live.add(h)
+      return h
+    }) as typeof st)
     mock.method(globalThis, 'clearTimeout', ((h: Parameters<typeof ct>[0]) => { live.delete(h); return ct(h) }) as typeof ct)
   })
 
