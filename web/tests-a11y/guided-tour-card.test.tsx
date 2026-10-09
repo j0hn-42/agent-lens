@@ -4,6 +4,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
 import { GUIDED_STEPS } from '@/lib/guided-steps'
+import { GUIDED_TOUR_BUTTON_ID } from '@/components/agent-visualizer/guided-tour-context'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 const frames = () => act(async () => { await new Promise(r => setTimeout(r, 80)) })
@@ -70,4 +71,31 @@ test('exiting the tour (unmount) gives the focus back to the element that opened
   view.unmount()
   await frames()
   assert.equal(document.activeElement, trigger)
+})
+
+test('when the element that opened the tour is gone, exiting focuses the Guided tour button', async () => {
+  const trigger = document.createElement('button')
+  document.body.appendChild(trigger)
+  trigger.focus()
+  const { view } = setup(1)
+  await frames()
+  trigger.remove()
+  // The Guided tour button comes back when the tour ends (it is unmounted while the tour runs)
+  const start = document.createElement('button')
+  start.id = GUIDED_TOUR_BUTTON_ID
+  document.body.appendChild(start)
+  view.unmount()
+  await frames()
+  assert.equal(document.activeElement, start)
+})
+
+test('with no element that opened the tour (auto-started demo), exiting focuses the Guided tour button', async () => {
+  const { view } = setup(1)
+  await frames()
+  const start = document.createElement('button')
+  start.id = GUIDED_TOUR_BUTTON_ID
+  document.body.appendChild(start)
+  view.unmount()
+  await frames()
+  assert.equal(document.activeElement, start)
 })

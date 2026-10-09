@@ -99,6 +99,7 @@ export function AgentVisualizer() {
     try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
   }, [])
   // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
+  // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
   const [tourShowsInactive, setTourShowsInactive] = useState(false)
   const hideInactiveShown = hideInactive && !tourShowsInactive
 

@@ -11,5 +11,8 @@ export interface TourBridge {
   startTour?: () => void
 }
 
+/** Id of the "Guided tour" button: the focus lands on it when the tour ends and what opened the tour is gone */
+export const GUIDED_TOUR_BUTTON_ID = 'guided-tour-start'
+
 export const TourBridgeContext = createContext<TourBridge>({ legendOpen: false, canvasToScreenRef: { current: null } })
 export const useTourBridge = () => useContext(TourBridgeContext)

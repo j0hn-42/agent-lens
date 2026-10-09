@@ -9,7 +9,7 @@ import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
 import type { LegendEntryId, LegendSectionId } from '@/lib/legend-entries'
-import { useTourBridge } from './guided-tour-context'
+import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -188,6 +188,7 @@ export function GraphLegend({ teams = [] }: { teams?: A11yTeamItem[] }) {
         </button>
         {startTour && (
           <button
+            id={GUIDED_TOUR_BUTTON_ID}
             type="button"
             onClick={startTour}
             className="inline-flex min-h-6 min-w-6 items-center rounded-md px-2 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]"
