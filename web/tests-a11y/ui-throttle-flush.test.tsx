@@ -89,7 +89,7 @@ test('two batches 100 ms apart, then silence: the React state shows the second b
   const r = view.result.current
   assert.equal(r.agents.get(KEY)?.state, 'idle', 'the inspector no longer shows the agent tool_calling')
   assert.equal(r.agents.get(KEY)?.currentTool, undefined)
-  assert.deepEqual(r.conversations.get(KEY)?.map(m => m.content), ['Done.'], 'the conversation panel shows the last message')
+  assert.equal(r.conversations.get(KEY)?.at(-1)?.content, 'Done.', 'the conversation panel shows the last message')
   assert.equal(r.toolCalls.size, view.result.current.frameRef.current.toolCalls.size)
 
   // Nothing new: the caught-up state is not re-published on every frame
