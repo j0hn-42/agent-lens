@@ -3,124 +3,84 @@
     "file": "components/agent-visualizer/agent-detail-card.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 9
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/canvas.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 2
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/canvas.tsx",
     "rule": "jsx-a11y/no-noninteractive-tabindex",
     "count": 1,
-    "issue": 2
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/canvas.tsx",
     "rule": "jsx-a11y/no-static-element-interactions",
     "count": 1,
-    "issue": 2
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/control-bar.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 5,
-    "note": "Added after the first baseline; tracked with the nearest open issue"
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/control-bar.tsx",
     "rule": "jsx-a11y/no-static-element-interactions",
     "count": 1,
-    "issue": 5,
-    "note": "Added after the first baseline; tracked with the nearest open issue"
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/conversation-panel.tsx",
     "rule": "jsx-a11y/interactive-supports-focus",
     "count": 1,
-    "issue": 12
-  },
-  {
-    "file": "components/agent-visualizer/conversation-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
-  },
-  {
-    "file": "components/agent-visualizer/discovery-detail-popup.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
-  },
-  {
-    "file": "components/agent-visualizer/file-attention-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/glass-context-menu.tsx",
     "rule": "jsx-a11y/interactive-supports-focus",
     "count": 1,
-    "issue": 9
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/graph-a11y-list.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 1
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/shared-ui.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 9
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/shortcuts-dialog.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 9
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/shortcuts-dialog.tsx",
     "rule": "jsx-a11y/no-static-element-interactions",
     "count": 1,
-    "issue": 9
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/timeline-panel.tsx",
     "rule": "jsx-a11y/no-interactive-element-to-noninteractive-role",
     "count": 1,
-    "issue": 3
-  },
-  {
-    "file": "components/agent-visualizer/timeline-panel.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
+    "issue": 258
   },
   {
     "file": "components/agent-visualizer/toast-region.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
-    "issue": 9,
-    "note": "Added after the first baseline; tracked with the nearest open issue"
-  },
-  {
-    "file": "components/agent-visualizer/toast-region.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13,
-    "note": "Added after the first baseline; tracked with the nearest open issue"
-  },
-  {
-    "file": "components/agent-visualizer/tool-detail-popup.tsx",
-    "rule": "jsx-a11y/no-noninteractive-tabindex",
-    "count": 1,
-    "issue": 13
+    "issue": 258
   }
 ]
