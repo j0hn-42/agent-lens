@@ -12,7 +12,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -41,7 +41,7 @@ import {
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured } from '../extension/src/claude-settings'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, type IssueLink } from '../extension/src/issue-links'
+import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -366,6 +366,16 @@ function unwatchSession(sessionId: string) {
   teamWatcher?.forgetSession(sessionId)
 }
 
+/** A watcher or poll callback of the session threw: log it, stop watching, tell the clients (#206). */
+function detachSessionOnError(sessionId: string, err: unknown) {
+  const session = sessions.get(sessionId)
+  console.error(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} read failed, no longer watched:`, err)
+  if (!session) return
+  const announced = session.sessionDetected
+  unwatchSession(sessionId)
+  if (announced) broadcastSessionLifecycle('ended', sessionId, session.label)
+}
+
 /**
  * Make room for one more watched session. Only completed sessions idle for longer than
  * the discovery window are evicted (they cannot be rediscovered); returns false when full.
@@ -431,17 +441,19 @@ function watchSession(sessionId: string, filePath: string) {
     parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
   })
 
+  // An exception here would reach uncaughtException and stop the relay for every client (#206)
+  const detachOnError = (err: unknown) => detachSessionOnError(sessionId, err)
   session.fileWatcher = safeWatch(filePath, (eventType) => {
-    if (eventType === 'change') readNewLines(sessionId)
+    if (eventType === 'change') runGuarded(() => readNewLines(sessionId), detachOnError)
   })
 
-  session.pollTimer = setInterval(() => {
+  session.pollTimer = setInterval(() => runGuarded(() => {
     readNewLines(sessionId)
     for (const [subPath] of session.subagentWatchers) {
       readSubagentNewLines(watcherDelegate, parser, subPath, sessionId)
     }
     scanSubagentsDir(watcherDelegate, parser, sessionId)
-  }, POLL_FALLBACK_MS)
+  }, detachOnError), POLL_FALLBACK_MS)
 
   session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
   scanSubagentsDir(watcherDelegate, parser, sessionId)
@@ -598,7 +610,7 @@ export interface RelayOptions {
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
   hooksProbe?: (workspace: string) => Promise<boolean> | boolean
   /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
-   *  workspace's GitHub `origin`. Must resolve to [] (not reject) when nothing can be proven, but a rejection is tolerated. */
+   *  workspace's GitHub `origin`. Resolves [] only when there is truly no link; rejects when gh or git fails (the route answers 502, #205). */
   issueLinksProbe?: (role: string, cwd?: string) => Promise<IssueLink[]>
   /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
    *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
@@ -832,16 +844,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
-  const repoUrlByDir = new Map<string, Promise<string | undefined>>()
+  // A git failure is not kept: only a resolved repository is (#205)
+  const repoUrlOf = createRepoUrlCache(dir => resolveRepoUrl(dir), RELAY_ISSUE_LINKS_CACHE_MAX_ROLES)
   const issueLinksProbe = options.issueLinksProbe ?? (async (role: string, cwd?: string): Promise<IssueLink[]> => {
-    const dir = cwd ?? workspace
-    let pending = repoUrlByDir.get(dir)
-    if (!pending) {
-      if (repoUrlByDir.size >= RELAY_ISSUE_LINKS_CACHE_MAX_ROLES) repoUrlByDir.delete(repoUrlByDir.keys().next().value as string)
-      pending = resolveRepoUrl(dir)
-      repoUrlByDir.set(dir, pending)
-    }
-    const repoUrl = await pending
+    const repoUrl = await repoUrlOf(cwd ?? workspace)
     return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
   })
 

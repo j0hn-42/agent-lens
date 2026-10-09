@@ -12,6 +12,9 @@ import type { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { KeyedCoalescer } from '../server-hardening'
 import { guardedRoute, sendJson, sendPlain, type RouteHandler } from './guard'
 
+/** Wait asked of the client after a gh/git failure (gh is not rerun sooner for this key by a polite client) */
+const FAILURE_RETRY_AFTER_S = 10
+
 export interface IssueLinksRouteDeps {
   limiter: KeyedRateLimiter
   allWorkspaces: boolean
@@ -64,7 +67,10 @@ export function createIssueLinksRoute(deps: IssueLinksRouteDeps): RouteHandler {
       try {
         links = await coalescer.run(cacheKey, () => deps.probe(role, cwd))
       } catch {
-        links = [] // gh absent, unauthenticated or failing: no link, no error
+        // gh or git absent, unauthenticated, rate-limited or timed out: that proves nothing, so neither
+        // an empty list nor a cache entry; the card says "unavailable" and retries (#205)
+        if (res.destroyed || res.headersSent) return
+        return sendPlain(res, 502, 'Issue links unavailable', { 'Retry-After': String(FAILURE_RETRY_AFTER_S) })
       } finally {
         running.delete(cacheKey)
       }

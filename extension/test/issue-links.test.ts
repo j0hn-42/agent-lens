@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  sanitizeRole, sanitizeSessionParam, issueLinksScope, normalizeRepoUrl, parseGhList, fetchIssueLinks, resolveRepoUrl, ISSUE_LINKS_MAX, type GhExec,
+  sanitizeRole, sanitizeSessionParam, issueLinksScope, normalizeRepoUrl, parseGhList, fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, ISSUE_LINKS_MAX, type GhExec,
 } from '../src/issue-links'
 
 const REPO = 'https://github.com/jobailla/agent-lens'
@@ -75,9 +75,10 @@ describe('parseGhList', () => {
     assert.equal(out.length, ISSUE_LINKS_MAX)
     assert.ok(out[0].title.length <= 200)
   })
-  it('returns [] for invalid JSON or a non-array', () => {
-    assert.deepEqual(parseGhList('not json', 'issue', REPO), [])
-    assert.deepEqual(parseGhList('{"a":1}', 'issue', REPO), [])
+  it('throws on invalid JSON or a non-array: gh did not answer a list (#205)', () => {
+    assert.throws(() => parseGhList('not json', 'issue', REPO))
+    assert.throws(() => parseGhList('{"a":1}', 'issue', REPO))
+    assert.deepEqual(parseGhList('[]', 'issue', REPO), [])
   })
 })
 
@@ -101,17 +102,23 @@ describe('fetchIssueLinks', () => {
     }
   })
 
-  it('degrades silently: gh missing, failing or slow gives []', async () => {
+  // #205: a failure must not read as "no issue agent:<role>"
+  it('rejects when gh is missing, fails or prints something that is not a list', async () => {
     const enoent: GhExec = async () => { throw Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' }) }
-    assert.deepEqual(await fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec: enoent }), [])
+    await assert.rejects(fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec: enoent }), /ENOENT/)
+    await assert.rejects(fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec: async () => 'gh: rate limited' }))
   })
 
-  it('keeps the half that worked when only one gh call fails', async () => {
+  it('rejects when only one of the two gh calls fails: half a list would hide the other half', async () => {
     const exec: GhExec = async (_f, args) => {
       if (args[0] === 'pr') throw new Error('boom')
       return JSON.stringify([{ number: 1, title: 'a', url: `${REPO}/issues/1`, state: 'OPEN' }])
     }
-    assert.equal((await fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec })).length, 1)
+    await assert.rejects(fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec }), /boom/)
+  })
+
+  it('resolves [] when gh answers two empty lists', async () => {
+    assert.deepEqual(await fetchIssueLinks('frontend-engineer', { repoUrl: REPO, exec: async () => '[]\n' }), [])
   })
 
   it('never runs gh for an invalid role or repo URL', async () => {
@@ -132,8 +139,51 @@ describe('resolveRepoUrl', () => {
     }
     assert.equal(await resolveRepoUrl('/tmp/ws', exec), REPO)
   })
-  it('is undefined when git fails or the remote is not GitHub', async () => {
-    assert.equal(await resolveRepoUrl('/tmp/ws', async () => { throw new Error('not a repo') }), undefined)
+  it('is undefined when there is no repository, no origin, or a remote that is not GitHub', async () => {
+    const gitError = (code: number, stderr: string): GhExec => async () => {
+      throw Object.assign(new Error(`Command failed: git remote get-url origin\n${stderr}`), { code })
+    }
+    assert.equal(await resolveRepoUrl('/tmp/ws', gitError(128, 'fatal: not a git repository (or any of the parent directories): .git')), undefined)
+    assert.equal(await resolveRepoUrl('/tmp/ws', gitError(2, "error: No such remote 'origin'")), undefined)
     assert.equal(await resolveRepoUrl('/tmp/ws', async () => 'https://gitlab.com/a/b'), undefined)
+  })
+  it('rejects when git itself fails (missing, killed by the timeout, another error): nothing is proven (#205)', async () => {
+    await assert.rejects(resolveRepoUrl('/tmp/ws', async () => { throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }) }))
+    await assert.rejects(resolveRepoUrl('/tmp/ws', async () => { throw Object.assign(new Error('Command failed'), { killed: true, signal: 'SIGTERM' }) }))
+    await assert.rejects(resolveRepoUrl('/tmp/ws', async () => {
+      throw Object.assign(new Error("Command failed\nfatal: detected dubious ownership in repository at '/tmp/ws'"), { code: 128 })
+    }))
+  })
+})
+
+describe('createRepoUrlCache (#205)', () => {
+  it('keeps a resolved repository: one lookup per directory', async () => {
+    let runs = 0
+    const cache = createRepoUrlCache(async () => { runs++; return REPO }, 8)
+    assert.equal(await cache('/a'), REPO)
+    assert.equal(await cache('/a'), REPO)
+    assert.equal(runs, 1)
+  })
+  it('does not keep a failure nor an undefined: the next request looks again', async () => {
+    let runs = 0
+    const results: Array<() => Promise<string | undefined>> = [
+      async () => { throw new Error('transient') },
+      async () => undefined,
+      async () => REPO,
+    ]
+    const cache = createRepoUrlCache(() => { runs++; return results[runs - 1]() }, 8)
+    await assert.rejects(cache('/a'), /transient/)
+    assert.equal(await cache('/a'), undefined)
+    assert.equal(await cache('/a'), REPO)
+    assert.equal(runs, 3)
+  })
+  it('shares one pending lookup between concurrent callers, and is bounded', async () => {
+    let runs = 0
+    const cache = createRepoUrlCache(async dir => { runs++; return `${REPO}${dir}` }, 2)
+    await Promise.all([cache('/a'), cache('/a')])
+    assert.equal(runs, 1)
+    await cache('/b'); await cache('/c')
+    await cache('/a')
+    assert.equal(runs, 4, 'the oldest directory was evicted')
   })
 })
