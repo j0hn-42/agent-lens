@@ -3,7 +3,7 @@ import type { Particle, Edge, DepthParticle, TeamSummary } from '@/lib/agent-typ
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import {
-  ANIM_SPEED, PERF_OVERLAY_ENABLED, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
+  ANIM_SPEED, PERF_OVERLAY_ENABLED, PERF_BASELINE, EDGE_BUBBLE, expiryHold, getDiscoveryCardDimensions,
 } from '@/lib/canvas-constants'
 import { BloomRenderer } from '@/components/agent-visualizer/bloom-renderer'
 import { createDepthParticles, updateDepthParticles, drawBackground } from '@/components/agent-visualizer/background-layer'
@@ -31,7 +31,10 @@ import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-vis
 import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
 import { planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
-import { createPerfStats, drawPerfOverlay } from '@/components/agent-visualizer/canvas/perf-overlay'
+import { createPerfStats, drawPerfOverlay, countPaintCalls } from '@/components/agent-visualizer/canvas/perf-overlay'
+import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
+import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas/scene-stamp'
+import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
 interface DrawLoopDeps {
@@ -66,6 +69,8 @@ interface DrawLoopDeps {
   neverHideRef: MutableRefObject<boolean>
   // Camera, drag, insets, effects
   updateCamera: (isDragging: boolean, pauseAutoFit?: boolean) => void
+  /** The camera is moving or about to: keep drawing every frame */
+  isCameraBusy: () => boolean
   updateDragLerp: CanvasDragLerp
   refreshInsetsIfStale: (w: number, h: number, timestamp: number) => void
   getSafeArea: (w: number, h: number) => ReturnType<typeof import('@/components/agent-visualizer/canvas/camera-fit').safeRect>
@@ -129,6 +134,9 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   // Rate-limited error logging for the draw loop (avoid flooding console)
   const lastDrawErrorRef = useRef(0)
   const perfRef = useRef(createPerfStats())
+  // Idle drawing (#216): a still scene is redrawn on change or at a low rate, not 60 times a second
+  const gateRef = useRef(createDrawGate())
+  const propsEpochRef = useRef({ props: null as object | null, epoch: 0 })
   // Caches for per-frame lookups — avoid rebuilding Set/Map every ~16ms
   const edgeLookupCacheRef = useRef<{
     particles: Particle[]
@@ -149,6 +157,50 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- particles created once, resized by draw loop
   }, [])
 
+  // Any interaction (pointer, wheel, key, focus) brings the loop back to full rate for a moment
+  useEffect(() => {
+    const wake = () => gateRef.current.wake()
+    // On the window, in the capture phase: the bubble buttons and the panels over the canvas count too
+    const opts: AddEventListenerOptions = { passive: true, capture: true }
+    const events = ['pointermove', 'pointerdown', 'pointerup', 'pointerleave', 'wheel', 'keydown', 'keyup', 'focusin', 'resize']
+    for (const e of events) window.addEventListener(e, wake, opts)
+    const onVisible = () => { if (!document.hidden) gateRef.current.invalidate() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      for (const e of events) window.removeEventListener(e, wake, opts)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
+  /** Skip the frame when nothing moved (see draw-gate). Reads the raw simulation, so a skipped frame costs a few microseconds. */
+  const frameIsRedundant = (timestamp: number): boolean => {
+    if (PERF_BASELINE) return false
+    const s = deps.simulationRef.current
+    const p = deps.drawPropsRef.current
+    const tracker = propsEpochRef.current
+    if (tracker.props !== p) { tracker.props = p; tracker.epoch++ }
+    const hover = deps.hoverTargetRef.current
+    const focused = deps.hasFocusRef.current ? deps.focusedNodeRef.current : null
+    const effects = deps.effectsRef.current.length
+    const reducedMotion = deps.reducedMotionRef.current
+    const stamp = sceneStamp({
+      agents: s.agents.values(), toolCalls: s.toolCalls.values(),
+      particles: s.particles.length, edges: s.edges.length, discoveries: s.discoveries.length, effects,
+      transform: deps.transformRef.current, width: p.dimensions.width, height: p.dimensions.height, dpr: deps.dprRef.current,
+      epoch: tracker.epoch,
+      keys: [
+        p.selectedAgentId, p.hoveredAgentId, p.selectedToolCallId, p.selectedDiscoveryId, p.selectedLinkId,
+        p.showStats, p.showHexGrid, !!p.showCostOverlay, !!p.isDragging, !!p.pauseAutoFit,
+        hover?.type, hover?.id, focused?.type, focused?.id, deps.selectedClusterKeyRef.current,
+        deps.hideInactiveRef.current, deps.neverHideRef.current, reducedMotion, s.isPlaying,
+      ],
+    })
+    const animating = sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
+    const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
+    if (!draw) perfRef.current.skippedFrames++
+    return !draw
+  }
+
   const draw = (timestamp: number) => {
     animationRef.current = requestAnimationFrame((ts) => drawRef.current(ts))
 
@@ -156,6 +208,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    if (frameIsRedundant(timestamp)) return
+    const frameStart = performance.now()
+    if (PERF_OVERLAY_ENABLED) { countPaintCalls(ctx, perfRef.current); perfRef.current.drawCalls = 0; perfRef.current.drawnFrames++ }
 
     try {
       syncSceneIntoDrawProps(deps)
@@ -201,6 +257,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.teams = deps.teamsRef.current
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
+      // Elements outside the viewport (with a margin) are not drawn; ?perf=full turns this off for baseline measurements
+      opts.view = PERF_BASELINE ? undefined : viewRectFor(transform, w, h)
 
       deps.refreshInsetsIfStale(w, h, timestamp)
       // Camera physics (inertia + auto-fit)
@@ -370,9 +428,9 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
 
       // Performance overlay (enabled via ?perf or ?stress)
       if (PERF_OVERLAY_ENABLED) {
-        drawPerfOverlay(ctx, perfRef.current, timestamp, {
+        drawPerfOverlay(ctx, perfRef.current, frameStart, {
           agents: agents.size, toolCalls: toolCalls.size, particles: particles.length, edges: edges.length, discoveries: discoveries.length,
-        })
+        }, PERF_BASELINE)
       }
     } catch (err) {
       // Log at most once every 5s to avoid flooding the console

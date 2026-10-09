@@ -1,6 +1,7 @@
 import { LOD, MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
 import type { TeamSummary } from '../../../lib/agent-types'
 import type { OverlayPlan } from './label-placement'
+import type { ViewRect } from './view-cull'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
@@ -22,6 +23,8 @@ export interface DrawOpts {
   edgeBubbles?: boolean
   /** Keyboard-focused agent (keeps its secondary text when crowded) */
   focusedAgentId?: string | null
+  /** Visible part of the world (margin included): agents, tool cards, edges and particles outside it are not drawn. Absent = draw everything */
+  view?: ViewRect
   /** Teams, to tell the lead of a team ('LEAD') from the main agent of a session ('MAIN') */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
 }

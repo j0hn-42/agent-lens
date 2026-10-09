@@ -59,6 +59,8 @@ export function useCanvasCamera({
   const scopeKeyRef = useRef<string | undefined>(scopeKey)
   scopeKeyRef.current = scopeKey
   const fitFrameRef = useRef(0)
+  // Frames the auto-fit still has to refresh its target after the last change (see isCameraBusy)
+  const fitSettleRef = useRef(0)
   const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
 
   // Initialize transform centered on first agents
@@ -251,6 +253,8 @@ export function useCanvasCamera({
       const keyChanged = k.w !== dimensions.width || k.h !== dimensions.height
         || k.t !== (ins?.top ?? 0) || k.r !== (ins?.right ?? 0) || k.b !== (ins?.bottom ?? 0) || k.l !== (ins?.left ?? 0)
       fitFrameRef.current++
+      if (contentChanged || keyChanged) fitSettleRef.current = FIT_EVERY_N_FRAMES + 1
+      else if (fitSettleRef.current > 0) fitSettleRef.current--
       if (contentChanged || keyChanged || fitFrameRef.current % FIT_EVERY_N_FRAMES === 0) {
         k.w = dimensions.width; k.h = dimensions.height
         k.t = ins?.top ?? 0; k.r = ins?.right ?? 0; k.b = ins?.bottom ?? 0; k.l = ins?.left ?? 0
@@ -276,8 +280,15 @@ export function useCanvasCamera({
     }
   }, [computeFitTransform, drawPropsRef, clustersRef, getInsets])
 
+  /** Is the camera still going somewhere (lerp to a target, pan inertia, auto-fit refreshing its target)? The draw loop then keeps its frame rate. */
+  const isCameraBusy = useCallback(() => {
+    return targetTransformRef.current !== null || panVelocityRef.current.active
+      || (!userHasNavigatedRef.current && fitSettleRef.current > 0)
+  }, [])
+
   return {
     transformRef,
+    isCameraBusy,
     userHasNavigatedRef,
     panVelocityRef,
     screenToCanvas,

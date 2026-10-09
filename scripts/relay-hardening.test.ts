@@ -25,6 +25,15 @@ delete process.env.AGENT_LENS_ALL_WORKSPACES
 const SESSION = '33333333-3333-4333-8333-333333333333'
 const line = (o: unknown) => JSON.stringify(o) + '\n'
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Polls `cond` until it holds (true) or `ms` elapse (false). Waits for what the relay does, never for a fixed time. */
+async function waitFor(cond: () => boolean, ms = 8000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await sleep(10)
+  }
+  return cond()
+}
 
 type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
 let relay: Relay
@@ -33,6 +42,8 @@ let port = 0
 let hookPort = 0
 let probeCalls = 0
 let transcript = ''
+let live: { req: http.ClientRequest; text: () => string }
+let sentinelCount = 0
 const open: http.ClientRequest[] = []
 
 function getRaw(urlPath: string, headers: http.OutgoingHttpHeaders = {}): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
@@ -109,6 +120,8 @@ describe('relay: hardening and source reconciliation', () => {
       res.writeHead(404); res.end()
     })
     port = await listenLoopback(server, 0)
+    // One long-lived client of the session: the live broadcasts, in the order the relay emits them
+    live = await connectSSE(`/events?session=${SESSION}`)
   })
 
   after(() => {
@@ -122,36 +135,49 @@ describe('relay: hardening and source reconciliation', () => {
   const hook = (id: string) => ({
     session_id: SESSION, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: id, tool_input: { command: 'ls' },
   })
-  async function startsOf(): Promise<Array<Record<string, unknown>>> {
+  const countOf = (text: string, id: string) =>
+    eventsOf(text).filter(e => e.type === 'tool_call_start' && e.payload.toolUseId === id).length
+  /** Copies of a call that a client connecting NOW is replayed. Waits until the call is replayed (it is known to be buffered). */
+  async function replayedCount(id: string): Promise<number> {
     const c = await connectSSE(`/events?session=${SESSION}`)
-    await sleep(300)
-    c.req.destroy()
-    return eventsOf(c.text()).filter(e => e.type === 'tool_call_start').map(e => e.payload)
+    try {
+      assert.ok(await waitFor(() => countOf(c.text(), id) >= 1), `${id} is replayed to a new client`)
+      return countOf(c.text(), id)
+    } finally { c.req.destroy() }
+  }
+  /** Events reach the live client in emission order: once a later sentinel call arrived, any duplicate of an earlier call would have too. */
+  async function settleAfterHook(): Promise<void> {
+    const id = `tu-sentinel-${++sentinelCount}`
+    assert.equal(await postHook(hook(id)), 200)
+    assert.ok(await waitFor(() => countOf(live.text(), id) >= 1), 'the sentinel hook reached the live client')
   }
 
   it('a tool call reported by the transcript THEN a hook appears once', async () => {
     fs.appendFileSync(transcript, toolUse('tu-jsonl-first'))
     // Precondition (keeps the test from passing vacuously): the transcript alone reports the call
-    await sleep(500)
-    assert.equal((await startsOf()).filter(p => p.toolUseId === 'tu-jsonl-first').length, 1, 'transcript copy present')
+    assert.ok(await waitFor(() => countOf(live.text(), 'tu-jsonl-first') >= 1), 'transcript copy present')
     assert.equal(await postHook(hook('tu-jsonl-first')), 200)
-    await sleep(100)
-    assert.equal((await startsOf()).filter(p => p.toolUseId === 'tu-jsonl-first').length, 1, 'late hook copy dropped')
+    await settleAfterHook()
+    assert.equal(countOf(live.text(), 'tu-jsonl-first'), 1, 'late hook copy dropped (live)')
+    assert.equal(await replayedCount('tu-jsonl-first'), 1, 'late hook copy dropped (replay)')
   })
 
   it('a tool call reported by a hook THEN the transcript appears once (late JSONL)', async () => {
     assert.equal(await postHook(hook('tu-hook-first')), 200)
-    await sleep(100)
-    assert.equal((await startsOf()).filter(p => p.toolUseId === 'tu-hook-first').length, 1, 'hook copy present')
+    assert.ok(await waitFor(() => countOf(live.text(), 'tu-hook-first') >= 1), 'hook copy present')
+    assert.equal(await replayedCount('tu-hook-first'), 1, 'hook copy present (replay)')
+    // The transcript is read in order: once the sentinel line was seen, the late copy was processed (and dropped)
     fs.appendFileSync(transcript, toolUse('tu-hook-first'))
-    await sleep(500)
-    assert.equal((await startsOf()).filter(p => p.toolUseId === 'tu-hook-first').length, 1, 'late JSONL copy dropped')
+    const sentinel = `tu-sentinel-${++sentinelCount}`
+    fs.appendFileSync(transcript, toolUse(sentinel))
+    assert.ok(await waitFor(() => countOf(live.text(), sentinel) >= 1), 'the transcript sentinel was read')
+    assert.equal(countOf(live.text(), 'tu-hook-first'), 1, 'late JSONL copy dropped (live)')
+    assert.equal(await replayedCount('tu-hook-first'), 1, 'late JSONL copy dropped (replay)')
   })
 
   it('a call only reported by a hook is kept', async () => {
     assert.equal(await postHook(hook('tu-hook-only')), 200)
-    await sleep(100)
-    assert.equal((await startsOf()).filter(p => p.toolUseId === 'tu-hook-only').length, 1)
+    assert.equal(await replayedCount('tu-hook-only'), 1)
   })
 
   it('serves strict headers on the SSE stream', async () => {
@@ -175,23 +201,23 @@ describe('relay: hardening and source reconciliation', () => {
   })
 
   it('runs the shared scan interval only while an SSE client is connected', async () => {
-    await sleep(200) // clients of the previous tests are gone
-    assert.equal(relay.debugState().sseClients, 0)
+    live.req.destroy() // the long-lived client of the previous tests
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 0), 'clients of the previous tests are gone')
     assert.equal(relay.debugState().scanTimerActive, false, 'no client, no timer')
 
     const a = await connectSSE()
     const b = await connectSSE()
-    await sleep(100)
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 2))
     assert.equal(relay.debugState().sseClients, 2)
     assert.equal(relay.debugState().scanTimerActive, true)
 
     a.req.destroy()
-    await sleep(150)
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 1))
     assert.equal(relay.debugState().sseClients, 1)
     assert.equal(relay.debugState().scanTimerActive, true, 'still one client')
 
     b.req.destroy()
-    await sleep(150)
+    assert.ok(await waitFor(() => relay.debugState().sseClients === 0))
     assert.equal(relay.debugState().sseClients, 0)
     assert.equal(relay.debugState().scanTimerActive, false, 'last client left: timer stopped')
   })
@@ -199,8 +225,7 @@ describe('relay: hardening and source reconciliation', () => {
   it('refreshes (scans) when a client connects', async () => {
     const before = relay.debugState().scanRuns
     const c = await connectSSE()
-    await sleep(100)
+    assert.ok(await waitFor(() => relay.debugState().scanRuns > before), 'a scan ran for the new client')
     c.req.destroy()
-    assert.ok(relay.debugState().scanRuns > before)
   })
 })

@@ -5,6 +5,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AgentEvent } from './protocol'
+import { listSubagentTranscripts } from './fs-utils'
+import { newestTranscriptMtime } from './discovery-activity'
 import {
   RELAY_SESSION_PARAM_MAX_LENGTH, RELAY_MAX_REPLAY_PER_SESSION, RELAY_MAX_REPLAY_TOTAL, RELAY_REPLAY_BATCH_SIZE,
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
@@ -246,6 +248,73 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
     for (const f of found.slice(0, maxFiles)) { out.push(f) }
     // Au-delà du plafond : écartés et mis au froid, pas de lstat à chaque cycle
     if (cold) { for (const f of found.slice(maxFiles)) { cold.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES) } }
+  }
+  return out
+}
+
+/** Sort un transcript du froid (événement de watch). Vrai s'il était froid. */
+export function wakeColdFile(cold: ColdScan, filePath: string): boolean {
+  return cold.until.delete(filePath)
+}
+
+/** Sort `<dirPath>/<sessionId>.jsonl` du froid. */
+export function wakeColdSession(cold: ColdScan, dirPath: string, sessionId: string): boolean {
+  return wakeColdFile(cold, path.join(dirPath, `${sessionId}.jsonl`))
+}
+
+/**
+ * Admission dans un ensemble borné de surveillances (dossiers subagents des sessions froides). Plein, il
+ * garde les sessions les plus récentes : sinon les premières sessions inactives vues (souvent très
+ * anciennes) occuperaient les places pour toute la vie du relais et une session devenue inactive plus tard
+ * n'aurait jamais de réveil par son dossier subagents.
+ */
+export function admitWatchSlot(
+  slots: ReadonlyMap<string, { mtimeMs: number }>, max: number, mtimeMs: number,
+): { admit: boolean; evict?: string } {
+  if (slots.size < max) return { admit: true }
+  let oldest: string | undefined
+  let oldestMtime = Infinity
+  for (const [key, s] of slots) { if (s.mtimeMs < oldestMtime) { oldestMtime = s.mtimeMs; oldest = key } }
+  return oldest !== undefined && mtimeMs > oldestMtime ? { admit: true, evict: oldest } : { admit: false }
+}
+
+export interface ActiveSessionsOptions extends DiscoveryOptions {
+  /** Au-delà de cet âge (s), le transcript principal est jugé inactif : on regarde ses sous-agents */
+  activeAgeS: number
+  now?: () => number
+  /** Sessions déjà suivies : ignorées sans examen des sous-agents */
+  skip?: (sessionId: string) => boolean
+  /** Appelé quand une session est jugée inactive (et mise au froid) */
+  onIdle?: (s: DiscoveredSession) => void
+}
+
+export interface ActiveSessionCandidate { sessionId: string; filePath: string; newestMtime: number }
+
+/**
+ * Sessions récemment actives parmi les transcripts découverts (fichier principal ou sous-agents,
+ * dont ceux du Workflow tool). Une session jugée inactive est mise au froid COLD_RESCAN_CYCLES
+ * cycles : ni lstat ni readdir de ses sous-agents tant qu'un événement de watch (wakeColdFile)
+ * ne la réveille pas (#211).
+ */
+export function findActiveSessions(opts: ActiveSessionsOptions): ActiveSessionCandidate[] {
+  const now = opts.now ?? Date.now
+  const out: ActiveSessionCandidate[] = []
+  for (const f of discoverSessionFiles(opts)) {
+    if (opts.skip?.(f.sessionId)) { continue }
+    let newestMtime = f.mtimeMs
+    if ((now() - newestMtime) / 1000 > opts.activeAgeS) {
+      // Fichier principal inactif : un sous-agent peut encore tourner (agents du Workflow tool compris)
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(path.join(f.dirPath, f.sessionId, 'subagents')), newestMtime, now() - opts.activeAgeS * 1000,
+      )
+    }
+    if ((now() - newestMtime) / 1000 <= opts.activeAgeS) {
+      opts.cold?.until.delete(f.filePath)
+      out.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
+    } else if (opts.cold) {
+      opts.cold.until.set(f.filePath, opts.cold.cycle + COLD_RESCAN_CYCLES)
+      opts.onIdle?.(f)
+    }
   }
   return out
 }

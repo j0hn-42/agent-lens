@@ -27,6 +27,14 @@ const info = (id: string, label: string, workspace: string) => ({
   id, label, status: 'active', startTime: Date.now() - 1000, lastActivityTime: Date.now(), workspace, runtime: 'claude',
 })
 const wait = (ms = 400) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
+/** Poll an observable condition (inside act) instead of sleeping a fixed time: a loaded CI runner is slower, not wrong. */
+async function waitUntil(cond: () => boolean, what: string, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!cond()) {
+    if (Date.now() > deadline) assert.fail(`timeout waiting for: ${what}`)
+    await wait(50)
+  }
+}
 
 /** The Sessions panel replaced the session tabs: open it (once) and work on its rows. */
 async function openSessions(r: ReturnType<typeof render>) {
@@ -58,7 +66,9 @@ async function mountTwoSessions() {
     post(spawn('sb', 'main-b', { isMain: true }))
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
-  await wait(1500)
+  const agentItems = () => Array.from(r.container.querySelectorAll('li')).map(li => li.textContent ?? '')
+  await waitUntil(() => ['main-a', 'worker-a', 'main-b'].every(n => agentItems().some(t => t.startsWith(n))), 'the three agents are drawn')
+  await wait(300)
   return r
 }
 
@@ -68,12 +78,17 @@ function shiftClickAt(el: Element, x: number, y: number) {
   fireEvent.pointerUp(el, init)
 }
 
-/** Shift-click scan over the area where the layout puts the agents, until `done` holds (jsdom has no layout) */
+/** Shift-click scan over the area where the layout puts the agents, until `done` holds (jsdom has no layout).
+ *  A Shift-click on the agent already picked toggles it off, so a hit on the same agent must be undone, not counted. */
 function shiftClickScan(el: Element, done: () => boolean): boolean {
   for (let x = 280; x <= 520; x += 4) {
     for (let y = 130; y <= 270; y += 4) {
+      const before = getPair()
       shiftClickAt(el, x, y)
       if (done()) return true
+      // Picking the agent that is already the first one clears the pair (a toggle): a pixel next to the previous
+      // hit lands on the same agent, so put the first pick back and carry on looking for a different agent.
+      if (before.a !== '' && before.b === '' && getPair().a === '') shiftClickAt(el, x, y)
     }
   }
   return false
@@ -115,12 +130,13 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Hide inactive agents' })) })
-  await wait(1500)
+  await waitUntil(() => r.container.textContent?.includes('Session payments-api, 2 agents') ?? false, 'the payments-api halo is drawn')
+  await wait(300)
   await openSessions(r)
   const tab = () => sessionRow(r, /payments-api/)
   assert.equal(sessionRows(r)[0].getAttribute('aria-current'), 'true', 'All is selected before the click')
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Zoom to session payments-api' })) })
-  await wait(300)
+  await waitUntil(() => tab().getAttribute('aria-current') === 'true', 'the halo click selects the session row')
   assert.equal(tab().getAttribute('aria-current'), 'true', 'the session row is selected by the halo click')
   assert.equal(sessionRows(r)[0].getAttribute('aria-current'), null)
 })
@@ -129,7 +145,17 @@ test('Shift-click on the canvas picks the pair, and the pair is pruned when its 
   const r = await mountTwoSessions()
   const canvas = r.container.querySelector('canvas')!
   assert.equal(getPair().a, '')
-  const picked = shiftClickScan(canvas, () => getPair().a !== '' && getPair().b !== '')
+  const done = () => getPair().a !== '' && getPair().b !== ''
+  // The layout settles asynchronously: rescan from a clean pair (letting the simulation advance in between) until the pair is complete
+  let picked = false
+  const deadline = Date.now() + 25_000
+  while (!picked && Date.now() < deadline) {
+    picked = shiftClickScan(canvas, done)
+    if (!picked) {
+      clearPair()
+      await wait(200)
+    }
+  }
   assert.ok(picked, 'two Shift-clicks on two agents complete the pair')
   const pair = getPair()
   assert.notEqual(pair.a, pair.b)
@@ -138,6 +164,6 @@ test('Shift-click on the canvas picks the pair, and the pair is pruned when its 
   // Switching to the other session removes both agents from the simulation: the pair must not outlive them
   await openSessions(r)
   await act(async () => { fireEvent.click(sessionRow(r, /web-app/)) })
-  await wait(800)
+  await waitUntil(() => getPair().a === '' && getPair().b === '', 'the pair is pruned')
   assert.deepEqual(getPair(), { a: '', b: '' })
 })

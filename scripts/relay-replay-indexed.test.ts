@@ -21,7 +21,15 @@ delete process.env.AGENT_LENS_ALL_WORKSPACES
 const OLD = '55555555-5555-4555-8555-555555555555'
 const NEWER = '66666666-6666-4666-8666-666666666666'
 const line = (o: unknown) => JSON.stringify(o) + '\n'
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Polls `cond` until it holds (true) or `ms` elapse (false). Waits for what the relay does, never for a fixed time. */
+async function waitFor(cond: () => boolean, ms = 8000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await new Promise(r => setTimeout(r, 10))
+  }
+  return cond()
+}
 
 type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
 let relay: Relay
@@ -90,7 +98,8 @@ describe('relay: replay order with indexed sessions', () => {
 
   it('the most recent LIVE session is replayed last, whatever the indexed sessions look like', async () => {
     const c = await connectSSE()
-    await sleep(400)
+    // The list is written first, then one replay batch per live session
+    assert.ok(await waitFor(() => messages(c.text()).filter(m => m.type === 'agent-event-batch').length >= 2), 'both live buffers are replayed')
     const msgs = messages(c.text())
     const list = msgs.find(m => m.type === 'session-list') as { sessions: Array<{ id: string; indexedOnly?: boolean; lastActivityTime: number }> }
     const idx = list.sessions.find(s => s.id === 'idx-future')

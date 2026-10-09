@@ -12,6 +12,7 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
+import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
@@ -292,6 +293,24 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
   }
 }
 
+/** With a known model the centre icon moves up a little to leave room for the model name underneath. */
+function modelLogoDy(agent: Agent, r: number): number {
+  return agent.model && formatModelName(agent.model) ? -r * 0.14 : 0
+}
+
+/** Model name (tier-coloured) under the centre icon of main agents, subagents and teammates. */
+function drawModelCaption(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
+  const modelName = agent.model ? formatModelName(agent.model) : ''
+  if (!modelName) return
+  ctx.save()
+  ctx.fillStyle = modelTierColor(agent.model)
+  ctx.font = `bold ${Math.max(6, r * 0.22)}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(modelName, agent.x, agent.y + r * 0.4, r * 1.3)
+  ctx.restore()
+}
+
 function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isWaiting: boolean) {
   if (isWaiting) {
     // Geometric lock icon — fits the holographic style
@@ -314,27 +333,19 @@ function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, 
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('\u25C6', agent.x, agent.y)
+    ctx.fillText('\u25C6', agent.x, agent.y + modelLogoDy(agent, r))
+    drawModelCaption(ctx, agent, r)
   } else if (agent.isMain) {
-    const modelName = agent.model ? formatModelName(agent.model) : ''
-    // With a known model the logo moves up a little to leave room for its name underneath
-    const logoDy = modelName ? -r * 0.14 : 0
-    drawAgentBrand(ctx, agent.x, agent.y + logoDy, r, color + '90', agent.runtime)
-    if (modelName) {
-      ctx.save()
-      ctx.fillStyle = modelTierColor(agent.model)
-      ctx.font = `bold ${Math.max(6, r * 0.22)}px monospace`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(modelName, agent.x, agent.y + r * 0.4, r * 1.3)
-      ctx.restore()
-    }
+    const dy = modelLogoDy(agent, r)
+    drawAgentBrand(ctx, agent.x, agent.y + dy, r, color + '90', agent.runtime)
+    drawModelCaption(ctx, agent, r)
   } else {
     ctx.fillStyle = color + '90'
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y)
+    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y + modelLogoDy(agent, r))
+    drawModelCaption(ctx, agent, r)
   }
 }
 
@@ -578,6 +589,7 @@ export function drawAgents(
   const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
+    if (!pointInView(opts.view, agent.x, agent.y, AGENT_CULL_EXTENT)) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const stale = deriveFreshness(agent, now) === 'stale'
     const color = stale ? FRESHNESS_DRAW.staleColor : stateColor(agent.state)

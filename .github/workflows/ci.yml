@@ -1,12 +1,12 @@
 name: CI
 
-# main = ligne livrée, develop = branche d'intégration (CONTRIBUTING.md) : la CI couvre les deux.
+# La CI ne tourne que sur main (push et PR vers main) : évite de consommer les minutes GitHub Actions.
 # workflow_call : release.yml rejoue exactement ces jobs avant de construire le .vsix.
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   workflow_call:
 
 jobs:
