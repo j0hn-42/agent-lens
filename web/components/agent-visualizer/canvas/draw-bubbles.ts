@@ -1,5 +1,5 @@
 import { Agent } from '@/lib/agent-types'
-import { COLORS, withAlpha } from '@/lib/colors'
+import { SCENE, withAlpha } from '@/lib/colors'
 import { BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_MAX_LINES, AGENT_DRAW, BUBBLE_DRAW, isExpiryHeld } from '@/lib/canvas-constants'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
 import { planKey, resolvePlacement } from './overlay-plan'
@@ -42,8 +42,8 @@ export function drawMessageBubblesWorld(
       const { role, text } = bubble
 
       const isThinking = role === 'thinking'
-      const bgColor = isThinking ? COLORS.bubbleThinkingBase : role === 'user' ? COLORS.bubbleUserBase : COLORS.bubbleAssistantBase
-      const textColor = isThinking ? COLORS.roleThinkingText : role === 'user' ? COLORS.roleUserText : COLORS.roleAssistantText
+      const bgColor = isThinking ? SCENE.bubbleThinkingBase : role === 'user' ? SCENE.bubbleUserBase : SCENE.bubbleAssistantBase
+      const textColor = isThinking ? SCENE.roleThinkingText : role === 'user' ? SCENE.roleUserText : SCENE.roleAssistantText
       const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : 'CLAUDE'
       const label = isThinking ? 'THINKING' : role === 'user' ? 'USER' : assistantLabel
 
@@ -131,15 +131,15 @@ function drawBubbleChip(ctx: CanvasRenderingContext2D, agent: Agent, time: numbe
   ctx.save()
   ctx.beginPath()
   ctx.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2)
-  ctx.fillStyle = COLORS.cardBgDark
+  ctx.fillStyle = SCENE.cardBgDark
   ctx.fill()
-  ctx.strokeStyle = COLORS.bubbleAssistantBase
+  ctx.strokeStyle = SCENE.bubbleAssistantBase
   ctx.lineWidth = 1 / scale
   ctx.stroke()
   ctx.font = `${11 / scale}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = COLORS.textPrimary
+  ctx.fillStyle = SCENE.textPrimary
   ctx.fillText(`\u2026${n}`, rect.x + rect.w / 2, rect.y + rect.h / 2 + 0.5 / scale)
   ctx.restore()
 }

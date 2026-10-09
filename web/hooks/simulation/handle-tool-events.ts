@@ -1,4 +1,4 @@
-import { COLORS } from '../../lib/colors'
+import { SCENE } from '../../lib/colors'
 import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
@@ -107,7 +107,7 @@ export function handleToolCallStart(
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
-      type: 'tool_call', color: mcp ? COLORS.mcp : COLORS.tool,
+      type: 'tool_call', color: mcp ? SCENE.mcp : SCENE.tool,
       size: 4, trailLength: 0.15,
       ...(mcp ? { mcp: true } : {}),
       label: `${formatToolName(toolName)} ${args}`.slice(0, LABEL_LEN_PARTICLE),
@@ -116,7 +116,7 @@ export function handleToolCallStart(
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? COLORS.mcp : COLORS.tool }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx)
     }
 
     // Track file attention
@@ -198,7 +198,7 @@ export function handleToolCallEnd(
         state.particles.push({
           id: `p-tr-${currentTime}-${id}`,
           edgeId, progress: 1,
-          type: 'tool_return', color: COLORS.return,
+          type: 'tool_return', color: SCENE.return,
           size: 4, trailLength: 0.15,
           label: result.slice(0, LABEL_LEN_PARTICLE),
         })
@@ -213,11 +213,11 @@ export function handleToolCallEnd(
         const lastBlock = entry.blocks[entry.blocks.length - 1]
         if (lastBlock && !lastBlock.endTime) {
           // A cancelled call is not a failure: neutral color, never the error red
-          lastBlock.color = isError ? COLORS.error : COLORS.idle
+          lastBlock.color = isError ? SCENE.error : SCENE.idle
           lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
         }
       }
-      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx)
     }
 
     // File attention token cost

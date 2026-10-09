@@ -15,6 +15,7 @@
     "build:app": "node app/build.js",
     "test": "node --import tsx --test \"scripts/**/*.test.ts\" \"app/src/**/*.test.ts\"",
     "lint:scripts": "pnpm --dir extension exec tsc -p ../scripts/tsconfig.json",
+    "gen:themes": "node --import tsx scripts/gen-theme-css.ts",
     "test:a11y": "pnpm --dir web run test:a11y"
   },
   "devDependencies": {

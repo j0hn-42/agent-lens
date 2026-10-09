@@ -4,7 +4,7 @@
  */
 
 import type { TimelineEntry, TimelineBlock } from './agent-types'
-import { COLORS } from './colors'
+import { SCENE } from './colors'
 import { formatDuration } from './utils'
 
 export type TimelineStateKey =
@@ -39,8 +39,8 @@ export interface TimelineRow {
 
 /** Derive the semantic state of a block (type alone cannot express permission/error). */
 export function timelineBlockState(block: Pick<TimelineBlock, 'type' | 'color'>): TimelineStateKey {
-  if (block.color === COLORS.waiting_permission) return 'waiting_permission'
-  if (block.color === COLORS.error) return 'error'
+  if (block.color === SCENE.waiting_permission) return 'waiting_permission'
+  if (block.color === SCENE.error) return 'error'
   return block.type
 }
 

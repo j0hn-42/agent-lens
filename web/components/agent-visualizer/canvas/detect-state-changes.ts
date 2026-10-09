@@ -1,6 +1,6 @@
 import type { Agent, ToolCallNode } from '../../../lib/agent-types'
 import { FX } from '../../../lib/agent-types'
-import { COLORS } from '../../../lib/colors'
+import { SCENE } from '../../../lib/colors'
 import { MCP_DRAW } from '../../../lib/canvas-constants'
 import type { VisualEffect } from './draw-effects'
 
@@ -61,7 +61,7 @@ export function detectStateChanges(
       if (agent.opacity < 0.5) {
         effects.push({
           type: 'spawn', x: agent.x, y: agent.y,
-          color: COLORS.holoBase, age: 0, duration: FX.spawnDuration,
+          color: SCENE.holoBase, age: 0, duration: FX.spawnDuration,
         })
       }
     }
@@ -71,7 +71,7 @@ export function detectStateChanges(
       transitions.push({ kind: 'agent_complete', id, name: agent.name })
       effects.push({
         type: 'complete', x: agent.x, y: agent.y,
-        color: COLORS.complete, age: 0, duration: FX.completeDuration,
+        color: SCENE.complete, age: 0, duration: FX.completeDuration,
       })
     }
 
@@ -105,14 +105,14 @@ export function detectStateChanges(
       }
       effects.push({
         type: 'shatter', x: tool.x, y: tool.y,
-        color: tool.mcp ? COLORS.mcp : COLORS.return, age: 0, duration: FX.shatterDuration,
+        color: tool.mcp ? SCENE.mcp : SCENE.return, age: 0, duration: FX.shatterDuration,
         particles: particleData,
       })
       if (tool.mcp) {
         // Soft cyan sonar rings: the answer came back from an external MCP server
         effects.push({
           type: 'mcp', x: tool.x, y: tool.y,
-          color: COLORS.mcp, age: 0, duration: MCP_DRAW.pulseDuration,
+          color: SCENE.mcp, age: 0, duration: MCP_DRAW.pulseDuration,
         })
       }
     }

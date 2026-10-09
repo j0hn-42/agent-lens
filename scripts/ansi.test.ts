@@ -89,11 +89,11 @@ test('ansiStyle: inverse swaps colors, defaults come from the theme', () => {
   })
 })
 
-// ─── Palette contrast (WCAG 1.4.3) in both themes ───────────────────────────
+// ─── Palette contrast (WCAG 1.4.3) in the three themes ───────────────────────────
 
-const css = readFileSync(new URL('../web/app/globals.css', import.meta.url), 'utf8')
+const css = readFileSync(new URL('../web/app/themes.css', import.meta.url), 'utf8')
 function palette(selector: string): Record<string, string> {
-  const block = css.slice(css.indexOf('/* ANSI palette')).split(selector + ' {')[1].split('}')[0]
+  const block = css.split(selector + ' {')[1].split('}')[0]
   return Object.fromEntries([...block.matchAll(/--ansi-([\w-]+):\s*(#[0-9a-f]{6})/g)].map(m => [m[1], m[2]]))
 }
 const lum = (hex: string) => {
@@ -105,7 +105,7 @@ const ratio = (a: string, b: string) => {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
 }
-for (const [name, selector] of [['dark', ':root'], ['light', 'html[data-theme="light"]']] as const) {
+for (const [name, selector] of [['neon', '[data-theme="neon"]'], ['graphite', '[data-theme="graphite"]'], ['paper', '[data-theme="paper"]']] as const) {
   test(`ANSI palette keeps >= 4.5:1 in the ${name} theme, even dimmed`, () => {
     const p = palette(selector)
     for (let i = 0; i < 16; i++) assert.ok(p[String(i)], `--ansi-${i} defined`)

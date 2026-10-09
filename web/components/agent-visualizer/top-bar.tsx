@@ -2,10 +2,12 @@
 
 import { memo, useLayoutEffect, useRef } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
-import { COLORS } from "@/lib/colors"
+import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
+import { ThemeSelect } from "./theme-select"
+import { useThemeVersion } from "@/lib/theme"
 import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -98,12 +100,12 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
 
 // ─── Connection Status Indicator ────────────────────────────────────────────
 
-const TONE_COLOR: Record<ConnectionTone, string> = {
+const TONE_COLOR: Record<ConnectionTone, string> = themed(() => ({
   ok: COLORS.complete,
   pending: COLORS.idle,
   error: COLORS.error,
   demo: COLORS.holoBright,
-}
+}))
 
 /** Shown in every mode. The text label (never colour alone) carries the state. */
 function ConnectionIndicator({ status, isDemo }: { status: ConnectionStatus; isDemo: boolean }) {
@@ -198,6 +200,7 @@ export const TopBar = memo(function TopBar({
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
 }: TopBarProps) {
+  useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
@@ -214,8 +217,8 @@ export const TopBar = memo(function TopBar({
   return (
     <header
       ref={rootRef}
-      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[11px]"
-      style={{ zIndex: Z.info }}
+      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px]"
+      style={{ zIndex: Z.info, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
       <ToggleButton
@@ -345,6 +348,7 @@ export const TopBar = memo(function TopBar({
           {/* Independent toggles */}
           <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={onToggleTimeline} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
           <ToggleButton id={PANEL_BUTTON_IDS.stats} active={showStats} pressed={showStats} onClick={onToggleStats} title={openPanelLabel('stats', 'S')} shortcut="s">{PANEL_NAMES.stats}</ToggleButton>
+          <ThemeSelect />
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}

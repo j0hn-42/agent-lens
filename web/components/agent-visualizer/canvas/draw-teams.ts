@@ -1,4 +1,4 @@
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
 import { type Cluster, type PhaseLabel, clusterLabelLines, haloAlphas } from './cluster-model'
@@ -38,12 +38,12 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
       const hgt = 20
       ctx.beginPath()
       ctx.roundRect(anchor.x - w / 2, anchor.y - hgt, w, hgt, 6)
-      ctx.fillStyle = COLORS.cardBgDark
+      ctx.fillStyle = SCENE.cardBgDark
       ctx.fill()
       ctx.strokeStyle = h.color + 'cc'
       ctx.lineWidth = 1
       ctx.stroke()
-      ctx.fillStyle = COLORS.textPrimary
+      ctx.fillStyle = SCENE.textPrimary
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(text, anchor.x, anchor.y - hgt / 2 + 1)
@@ -94,14 +94,14 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
     const w = ctx.measureText(l.text).width + 14
     ctx.beginPath()
     ctx.roundRect(l.x - w / 2, l.y - hgt, w, hgt, 6)
-    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fillStyle = SCENE.cardBgDark
     ctx.fill()
     ctx.setLineDash([3, 3])
-    ctx.strokeStyle = COLORS.textMuted
+    ctx.strokeStyle = SCENE.textMuted
     ctx.lineWidth = 1
     ctx.stroke()
     ctx.setLineDash([])
-    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillStyle = SCENE.textPrimary
     ctx.fillText(l.text, l.x, l.y - hgt / 2 + 1)
   }
   ctx.restore()
@@ -126,7 +126,7 @@ export function drawClusterLabels(
     ctx.save()
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, 6)
-    ctx.fillStyle = COLORS.cardBgDark
+    ctx.fillStyle = SCENE.cardBgDark
     ctx.fill()
     ctx.strokeStyle = c.color + 'dd'
     ctx.lineWidth = emphasised ? 2.5 : 1.25
@@ -140,14 +140,14 @@ export function drawClusterLabels(
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     ctx.font = `600 ${CLUSTER_DRAW.labelFontSize}px monospace`
-    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillStyle = SCENE.textPrimary
     ctx.save()
     ctx.beginPath()
     ctx.rect(x + 4, y, w - 8, h)
     ctx.clip()
     ctx.fillText(lines.title, x + 18, y + 4)
     ctx.font = `${CLUSTER_DRAW.detailFontSize}px monospace`
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.fillText(lines.detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
     ctx.restore()
     ctx.restore()
@@ -164,8 +164,8 @@ export function drawSessionLinks(ctx: CanvasRenderingContext2D, segments: Readon
   const k = Math.max(1, 1 / Math.max(opts.zoom || 1, 1e-3))
   for (const s of segments) {
     ctx.save()
-    ctx.strokeStyle = COLORS.textMuted
-    ctx.fillStyle = COLORS.textMuted
+    ctx.strokeStyle = SCENE.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.lineWidth = 1.5 * k
     ctx.setLineDash(s.kind === 'worktree' ? [8 * k, 5 * k] : [2 * k, 5 * k])
     ctx.beginPath()

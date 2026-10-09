@@ -1,21 +1,21 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { buildTimelineRows, timelineAriaLabel, timelineBlockState, computeTimelineRange } from '../web/lib/timeline-rows'
-import { COLORS } from '../web/lib/colors'
+import { SCENE } from '../web/lib/colors'
 import type { TimelineEntry } from '../web/lib/agent-types'
 
 const entries: TimelineEntry[] = [
   {
     id: 'a', agentId: 'a', agentName: 'orchestrator-with-a-long-name', startTime: 0, endTime: 30,
     blocks: [
-      { id: '1', type: 'idle', startTime: 0, endTime: 5, label: 'Starting', color: COLORS.idle },
-      { id: '2', type: 'idle', startTime: 5, endTime: 9, label: 'Permission', color: COLORS.waiting_permission },
-      { id: '3', type: 'tool_call', startTime: 9, label: 'Read: x', color: COLORS.tool },
+      { id: '1', type: 'idle', startTime: 0, endTime: 5, label: 'Starting', color: SCENE.idle },
+      { id: '2', type: 'idle', startTime: 5, endTime: 9, label: 'Permission', color: SCENE.waiting_permission },
+      { id: '3', type: 'tool_call', startTime: 9, label: 'Read: x', color: SCENE.tool },
     ],
   },
   {
     id: 'b', agentId: 'b', agentName: 'sub', startTime: 4, endTime: 70,
-    blocks: [{ id: '4', type: 'thinking', startTime: 4, endTime: 8, label: 'Thinking...', color: COLORS.error }],
+    blocks: [{ id: '4', type: 'thinking', startTime: 4, endTime: 8, label: 'Thinking...', color: SCENE.error }],
   },
 ]
 

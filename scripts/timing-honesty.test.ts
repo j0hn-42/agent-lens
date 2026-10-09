@@ -8,7 +8,7 @@ import { isPseudoModel } from '../web/lib/model-provenance'
 import { SessionModelTracker } from '../web/lib/session-model'
 import { modelCostRate } from '../web/lib/cost'
 import { MODEL_FAMILY_CONTEXT } from '../web/lib/canvas-constants'
-import { COLORS } from '../web/lib/colors'
+import { SCENE } from '../web/lib/colors'
 import { agentTreeSignature } from '../web/lib/row-sync'
 import { drawDelegationPath } from '../web/components/agent-visualizer/canvas/delegation-path'
 import { UNVERIFIED_DASH } from '../web/components/agent-visualizer/canvas/edge-style'
@@ -98,10 +98,10 @@ test('#109 a cancelled tool call is not a tool error, an errored one is', () => 
   assert.equal(cancelled.agents.get(key)!.state, 'thinking')
   assert.equal(Array.from(cancelled.toolCalls.values())[0].errorMessage, undefined)
   const block = cancelled.timelineEntries.get(key)!.blocks.find(b => b.label.endsWith('CANCELLED'))!
-  assert.notEqual(block.color, COLORS.error, 'cancelled is not drawn as an error')
+  assert.notEqual(block.color, SCENE.error, 'cancelled is not drawn as an error')
   const failed = round({ outcome: 'failed', errorMessage: 'boom' })
   assert.equal(failed.agents.get(key)!.toolErrors, 1)
-  assert.equal(failed.timelineEntries.get(key)!.blocks.find(b => b.label.endsWith('FAILED'))!.color, COLORS.error)
+  assert.equal(failed.timelineEntries.get(key)!.blocks.find(b => b.label.endsWith('FAILED'))!.color, SCENE.error)
 })
 
 test('#109 a bare model alias (opus, haiku, sonnet) is priced and sized as its family', () => {

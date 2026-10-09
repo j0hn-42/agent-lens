@@ -4,7 +4,8 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffec
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
+import { useThemeVersion } from '@/lib/theme'
 import { formatModelName, pluralize } from '@/lib/utils'
 import { formatTokenUsage, usageFromAgent } from '@/lib/usage'
 import { getStateLabel } from '@/lib/state-labels'
@@ -67,13 +68,13 @@ interface SessionListPanelProps {
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
 }
 
-const STATE_COLOR: Record<string, string> = {
+const STATE_COLOR: Record<string, string> = themed(() => ({
   thinking: COLORS.thinking,
   tool_calling: COLORS.tool_calling,
   waiting_permission: COLORS.waiting_permission,
   error: COLORS.error,
   complete: COLORS.complete,
-}
+}))
 
 /** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
 function StateMarker({ state }: { state: string }) {
@@ -131,6 +132,7 @@ interface AgentItemProps {
 
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
+  useThemeVersion() // memoized row: repaint on a theme switch
   const a = node.agent
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
@@ -146,7 +148,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
-        className={`flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+        className={`flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
         <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
@@ -485,7 +487,7 @@ export function SessionListPanel({
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
-              const rowBase = `flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowBase = `flex w-full min-h-6 flex-wrap items-center gap-x-1.5 gap-y-0 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
               if (row.kind === 'project') {

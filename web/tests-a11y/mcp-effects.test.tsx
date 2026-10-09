@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../hooks/simulation/types'
 import { detectStateChanges } from '../components/agent-visualizer/canvas/detect-state-changes'
-import { COLORS } from '../lib/colors'
+import { SCENE } from '../lib/colors'
 import type { SimulationEvent } from '../lib/agent-types'
 
 const ctx: ProcessEventContext = {
@@ -32,8 +32,8 @@ test('completing an MCP tool spawns a cyan shatter and a sonar pulse; native too
     { time: 2, type: 'tool_call_end', payload: { agent: 'main', tool: 'mcp__stripe__refund', result: 'ok' } }])
   // ids embed the start time, so the id is stable between the two runs
   const out = detectStateChanges(done.agents, done.toolCalls, new Map(), prevTools)
-  assert.ok(out.effects.some(e => e.type === 'mcp' && e.color === COLORS.mcp))
-  assert.ok(out.effects.some(e => e.type === 'shatter' && e.color === COLORS.mcp))
+  assert.ok(out.effects.some(e => e.type === 'mcp' && e.color === SCENE.mcp))
+  assert.ok(out.effects.some(e => e.type === 'shatter' && e.color === SCENE.mcp))
 
   const nativeStart = run([spawn, { time: 1, type: 'tool_call_start', payload: { agent: 'main', tool: 'Read' } }])
   const nativePrev = new Map([...nativeStart.toolCalls].map(([id, t]) => [id, t.state as string]))

@@ -1,5 +1,6 @@
 "use client"
 
+import { useThemeVersion } from '@/lib/theme'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -23,7 +24,7 @@ import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferen
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiPrefs } from "@/lib/ui-preferences"
 import { dockStore, SHEET_BREAKPOINT } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
-import { COLORS } from "@/lib/colors"
+import { COLORS, SCENE } from "@/lib/colors"
 import { LearnMoreLink } from "./learn-more-link"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
@@ -70,6 +71,8 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
+  // A theme switch re-renders the whole tree so every COLORS-based inline style repaints
+  useThemeVersion()
 
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
@@ -624,7 +627,7 @@ export function AgentVisualizer() {
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
-    <div className="h-screen w-full relative overflow-hidden" style={{ background: COLORS.void }}>
+    <div className="h-screen w-full relative overflow-hidden" style={{ background: SCENE.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
@@ -679,19 +682,19 @@ export function AgentVisualizer() {
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
       <h1 className="sr-only">Agent Lens</h1>
 
-      {/* Empty state when no demo and no live data */}
+      {/* Empty state when no demo and no live data. Its text sits directly on the scene ground: scene colours, whatever the theme. */}
       {isEmpty && (
         <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none">
           <div
             className="text-center max-w-[calc(100vw-24px)] pointer-events-auto"
             style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
           >
-            <div className="text-sm font-semibold" style={{ color: COLORS.textPrimary }}>Waiting for an agent session</div>
-            <div className="mt-1 text-xs" style={{ color: COLORS.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
-            <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: COLORS.textMuted }}>
+            <div className="text-sm font-semibold" style={{ color: SCENE.textPrimary }}>Waiting for an agent session</div>
+            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
+            <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
               {checklist.map(item => (
                 <li key={item.id}>
-                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? COLORS.complete : COLORS.error }}>{item.ok ? '✓' : '✗'}</span>
+                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? SCENE.complete : SCENE.error }}>{item.ok ? '✓' : '✗'}</span>
                   <span className="sr-only">{item.ok ? 'Done: ' : 'Not done: '}</span>
                   {item.label}
                   {item.detail && <span> ({item.detail})</span>}
@@ -703,13 +706,13 @@ export function AgentVisualizer() {
                 type="button"
                 onClick={bridge.loadDemo}
                 className={`min-h-6 min-w-6 px-3 py-1 rounded text-xs font-semibold ${FOCUS_RING}`}
-                style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+                style={{ background: SCENE.holoBg10, border: `1px solid ${SCENE.controlBorder}`, color: SCENE.textPrimary }}
               >
                 Load demo
               </button>
             </div>
-            <div className="mt-2 text-xs" style={{ color: COLORS.textMuted }}>
-              <LearnMoreLink />
+            <div className="mt-2 text-xs" style={{ color: SCENE.textMuted }}>
+              <LearnMoreLink palette={SCENE} />
             </div>
           </div>
         </div>

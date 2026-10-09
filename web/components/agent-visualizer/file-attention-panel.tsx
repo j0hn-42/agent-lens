@@ -79,7 +79,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 key={file.path}
                 className="rounded px-2 py-1.5 motion-safe:transition-colors"
                 style={{
-                  background: `rgba(10, 15, 30, 0.5)`,
+                  background: COLORS.fileCardBg,
                   border: `1px solid ${canOpen ? heatColor + '30' : heatColor + '15'}`,
                 }}
               >

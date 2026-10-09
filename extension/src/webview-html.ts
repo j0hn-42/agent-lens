@@ -11,7 +11,7 @@ export interface ProductionHtmlParams {
 /** HTML shell of the production webview. The theme script runs first (same nonce) so the first paint has the final theme. */
 export function productionHtml({ cspSource, scriptUri, styleUri, nonce }: ProductionHtmlParams): string {
   return `<!DOCTYPE html>
-<html lang="en" class="dark" style="height:100%; margin:0; padding:0;">
+<html lang="en" class="dark" data-theme="graphite" style="height:100%; margin:0; padding:0;">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

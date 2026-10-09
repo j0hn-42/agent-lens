@@ -481,7 +481,7 @@ export function ConversationPanel({
                 e.stopPropagation()
               }}
               placeholder="Search messages..."
-              className="w-full px-2 py-1 min-h-6 rounded text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#aaeeff] placeholder:text-[color:var(--ph)]"
+              className="w-full px-2 py-1 min-h-6 rounded text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--lens-focus-ring)] placeholder:text-[color:var(--ph)]"
               style={{
                 background: COLORS.holoBg05,
                 border: `1px solid ${COLORS.controlBorder}`,

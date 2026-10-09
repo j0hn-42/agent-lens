@@ -197,6 +197,10 @@ test('css: collapsible sections animate rows 0fr/1fr and stop animating under re
   assert.match(reduced, /transition-duration/)
 })
 
-test('css: light theme tokens exist and follow the data-theme attribute', () => {
-  assert.match(css, /html\[data-theme="light"\]|:root\[data-theme="light"\]/)
+test('css: the three themes exist as data-theme blocks (graphite is the fallback) and globals.css imports them', () => {
+  const themes = readFileSync(join(process.cwd(), 'app/themes.css'), 'utf8')
+  assert.match(css, /@import '\.\/themes\.css'/)
+  for (const id of ['neon', 'graphite', 'paper']) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{`))
+  assert.match(themes, /:root:not\(\[data-theme\]\),\n\[data-theme="graphite"\]/)
+  assert.match(themes, /\[data-theme="paper"\] \{\n  color-scheme: light;/)
 })

@@ -183,7 +183,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={bubbleLayerRef}
         data-edge-bubble-layer=""
-        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:outline-offset-2"
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
       <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 
