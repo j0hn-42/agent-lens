@@ -12,6 +12,19 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
 
+### Voir la légende en action
+
+La visite guidée (`pnpm run dev:demo:guided` ou `?scenario=guided`, voir [demo.md](demo.md)) montre chaque section de la légende. Étapes par section :
+
+- **States** : étapes *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* et *Agent Teams*. L'état `paused` est décrit seulement, à l'étape *Seen only in a real session*.
+- **Shapes** : étapes *Meet your agent*, *Tool calls*, *Sub-agents* et *Results come back*. La forme des cartes de découverte est décrite seulement (*Seen only in a real session*).
+- **Edges and particles** : étapes *Tool calls*, *Sub-agents* et *Results come back*. Le lien parent non vérifié et les deux badges de branche repliée sont décrits seulement (*Seen only in a real session*).
+- **Teams** : étape *Agent Teams* (et *Delivered messages and finished teammates* pour un coéquipier terminé). L'équipe archivée et le halo de session sont décrits seulement (*Seen only in a real session*).
+- **Message links** : étapes *Messages between agents*, *Delivered messages and finished teammates* et *Quiet links*. Le lien en erreur est décrit seulement (*Seen only in a real session*).
+- **Context usage** : étape *Context usage*.
+- **Discoveries** : aucune de ces entrées n'est visible dans la démo, elles sont toutes décrites seulement (*Seen only in a real session*).
+- **Runtime** : étapes *Meet your agent* (Claude) et *Two runtimes* (Codex).
+
 ## Themes
 
 The **Theme** selector in the top bar (View controls) offers nine themes, all dark:

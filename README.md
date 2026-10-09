@@ -136,6 +136,7 @@ Other scripts:
 |--------|-------------|
 | `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
 | `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
+| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)) |
 | `pnpm run dev:relay` | Run the event relay server standalone |
 | `pnpm run dev:extension` | Watch-build the extension |
 | `pnpm run build:all` | Production build (webview + extension) |
