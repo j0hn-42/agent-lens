@@ -69,6 +69,8 @@ interface DrawLoopDeps {
   neverHideRef: MutableRefObject<boolean>
   // Camera, drag, insets, effects
   updateCamera: (isDragging: boolean, pauseAutoFit?: boolean) => void
+  /** The camera is moving or about to: keep drawing every frame */
+  isCameraBusy: () => boolean
   updateDragLerp: CanvasDragLerp
   refreshInsetsIfStale: (w: number, h: number, timestamp: number) => void
   getSafeArea: (w: number, h: number) => ReturnType<typeof import('@/components/agent-visualizer/canvas/camera-fit').safeRect>
@@ -157,21 +159,18 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
 
   // Any interaction (pointer, wheel, key, focus) brings the loop back to full rate for a moment
   useEffect(() => {
-    const wake = () => gateRef.current.wake(performance.now())
-    const canvas = mainCanvasRef.current
+    const wake = () => gateRef.current.wake()
+    // On the window, in the capture phase: the bubble buttons and the panels over the canvas count too
     const opts: AddEventListenerOptions = { passive: true, capture: true }
-    const canvasEvents = ['pointermove', 'pointerdown', 'pointerup', 'pointerleave', 'wheel']
-    const windowEvents = ['keydown', 'keyup', 'focusin', 'resize']
-    for (const e of canvasEvents) canvas?.addEventListener(e, wake, opts)
-    for (const e of windowEvents) window.addEventListener(e, wake, opts)
+    const events = ['pointermove', 'pointerdown', 'pointerup', 'pointerleave', 'wheel', 'keydown', 'keyup', 'focusin', 'resize']
+    for (const e of events) window.addEventListener(e, wake, opts)
     const onVisible = () => { if (!document.hidden) gateRef.current.invalidate() }
     document.addEventListener('visibilitychange', onVisible)
     return () => {
-      for (const e of canvasEvents) canvas?.removeEventListener(e, wake, opts)
-      for (const e of windowEvents) window.removeEventListener(e, wake, opts)
+      for (const e of events) window.removeEventListener(e, wake, opts)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [mainCanvasRef])
+  }, [])
 
   /** Skip the frame when nothing moved (see draw-gate). Reads the raw simulation, so a skipped frame costs a few microseconds. */
   const frameIsRedundant = (timestamp: number): boolean => {
@@ -197,7 +196,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ],
     })
     const animating = sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
-    const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating })
+    const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
     if (!draw) perfRef.current.skippedFrames++
     return !draw
   }

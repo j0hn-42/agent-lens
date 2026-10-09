@@ -35,6 +35,12 @@ test('gate: an animated scene keeps the full frame rate', () => {
   for (let t = 0; t < 200; t += 16) assert.equal(g.shouldDraw({ now: t, ...calm, animating: true }), true)
 })
 
+test('gate: a moving camera keeps the full frame rate, even under reduced motion', () => {
+  const g = createDrawGate()
+  for (let t = 0; t < 200; t += 16) assert.equal(g.shouldDraw({ now: t, stamp: 1, reducedMotion: true, animating: false, moving: true }), true)
+  assert.equal(g.shouldDraw({ now: 216, stamp: 1, reducedMotion: true, animating: false, moving: false }), false)
+})
+
 test('gate: under reduced motion the scene is redrawn on change, with a slow heartbeat', () => {
   const g = createDrawGate()
   const frozen = { stamp: 7, reducedMotion: true, animating: true }
@@ -47,10 +53,11 @@ test('gate: under reduced motion the scene is redrawn on change, with a slow hea
 test('gate: an interaction wakes the loop for a second, invalidate forces one frame', () => {
   const g = createDrawGate()
   g.shouldDraw({ now: 0, ...calm })
-  g.wake(10)
+  g.wake()
   assert.equal(g.shouldDraw({ now: 20, ...calm }), true)
-  assert.equal(g.shouldDraw({ now: 20 + INTERACTION_HOLD_MS, ...calm }), true) // heartbeat interval elapsed anyway
-  assert.equal(g.shouldDraw({ now: 21 + INTERACTION_HOLD_MS, ...calm }), false)
+  assert.equal(g.shouldDraw({ now: 40, ...calm }), true)
+  assert.equal(g.shouldDraw({ now: 20 + INTERACTION_HOLD_MS - 1, ...calm }), true)
+  assert.equal(g.shouldDraw({ now: 20 + INTERACTION_HOLD_MS, ...calm }), false, 'the hold is over')
   g.invalidate()
   assert.equal(g.shouldDraw({ now: 22 + INTERACTION_HOLD_MS, ...calm }), true)
 })

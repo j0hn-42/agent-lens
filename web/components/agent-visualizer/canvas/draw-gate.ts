@@ -20,15 +20,17 @@ export interface GateInput {
   stamp: number
   /** Reduced motion (OS preference or paused animations): nothing ambient moves */
   reducedMotion: boolean
-  /** Something is animated right now: active agent, particle in flight, effect, camera in motion, drag */
+  /** Something is animated right now: active agent, particle in flight, effect (decorative: stops under reduced motion) */
   animating: boolean
+  /** The camera moves or a drag is under way (functional: kept under reduced motion too). Optional, false by default */
+  moving?: boolean
 }
 
 export interface DrawGate {
   /** True when this frame has to be drawn. Call once per frame. */
   shouldDraw(input: GateInput): boolean
-  /** An interaction happened: draw at full rate for INTERACTION_HOLD_MS */
-  wake(now: number): void
+  /** An interaction happened: draw at full rate for INTERACTION_HOLD_MS from the next frame (the frame clock is the one of shouldDraw) */
+  wake(): void
   /** Force the next frame to draw (resize, visibility change) */
   invalidate(): void
   readonly drawn: number
@@ -40,12 +42,14 @@ export function createDrawGate(): DrawGate {
   let lastDraw = -Infinity
   let awakeUntil = -Infinity
   let forced = true
+  let wakePending = false
   let drawn = 0
   let skipped = 0
   return {
-    shouldDraw({ now, stamp, reducedMotion, animating }) {
+    shouldDraw({ now, stamp, reducedMotion, animating, moving }) {
+      if (wakePending) { wakePending = false; awakeUntil = now + INTERACTION_HOLD_MS }
       const interval = reducedMotion ? FROZEN_FRAME_MS : CALM_FRAME_MS
-      const draw = forced || stamp !== lastStamp || now < awakeUntil || (animating && !reducedMotion) || now - lastDraw >= interval
+      const draw = forced || stamp !== lastStamp || moving || now < awakeUntil || (animating && !reducedMotion) || now - lastDraw >= interval
       if (!draw) { skipped++; return false }
       forced = false
       lastStamp = stamp
@@ -53,7 +57,7 @@ export function createDrawGate(): DrawGate {
       drawn++
       return true
     },
-    wake(now) { awakeUntil = now + INTERACTION_HOLD_MS },
+    wake() { wakePending = true },
     invalidate() { forced = true },
     get drawn() { return drawn },
     get skipped() { return skipped },
