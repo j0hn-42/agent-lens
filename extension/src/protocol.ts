@@ -192,6 +192,8 @@ export interface RelayStatus {
   runtimes: string[]
   hooksConfigured: boolean
   sessionCount: number
+  /** Claude sessions not followed (#208): watch limit reached when found, transcript past the size cap */
+  skippedSessions: { watchLimit: number; sizeLimit: number }
   allWorkspaces: boolean
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
@@ -229,7 +231,8 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
-  content: string | Array<{ text?: string; type?: string }>
+  /** Text, content blocks, or a structured object (summarizeResult reads its text fields) */
+  content: string | Array<{ text?: string; type?: string }> | Record<string, unknown>
   /** Structured error flag set by Claude Code when the tool call failed */
   is_error?: boolean
 }

@@ -124,6 +124,48 @@ export function readTrackedLines(filePath: string, state: TailedFile): string[] 
   return result.lines
 }
 
+/** Taille des lectures de l'amorçage : un transcript de plusieurs centaines de Mo n'est jamais lu d'un bloc. */
+export const PRESCAN_CHUNK_BYTES = 4 * 1024 * 1024
+
+/**
+ * Lignes complètes des `size` premiers octets d'un fichier, lus par blocs de `chunkBytes`.
+ * Le fragment après le dernier saut de ligne n'est jamais rendu : une ligne en cours d'écriture
+ * n'est pas encore un JSON valide. Avec `tracked`, une fois le parcours terminé, l'état est placé
+ * à la fin de ce qui a été lu (fileSize) et le fragment est gardé (fileTail) pour readTrackedLines,
+ * qui le réassemble à la lecture suivante.
+ */
+export function* readLinesChunked(
+  filePath: string,
+  size: number,
+  chunkBytes = PRESCAN_CHUNK_BYTES,
+  tracked?: TailedFile,
+): Generator<string> {
+  const fd = fs.openSync(filePath, 'r')
+  let offset = 0
+  let carry: Buffer = Buffer.alloc(0)
+  try {
+    while (offset < size) {
+      const len = Math.min(chunkBytes, size - offset)
+      const buf = Buffer.alloc(len)
+      const n = fs.readSync(fd, buf, 0, len, offset)
+      if (n <= 0) break
+      offset += n
+      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
+      const cut = data.lastIndexOf(0x0a)
+      if (cut < 0) { carry = Buffer.from(data); continue }
+      carry = Buffer.from(data.subarray(cut + 1))
+      data = data.subarray(0, cut)
+      for (const line of data.toString('utf-8').split(/\r?\n/)) yield line
+    }
+  } finally {
+    fs.closeSync(fd)
+  }
+  if (tracked) {
+    tracked.fileSize = offset
+    tracked.fileTail = carry.toString('latin1')
+  }
+}
+
 /** Case-fold a path string for comparison on Windows, where the filesystem is
  *  case-insensitive and tools disagree on drive-letter case (VS Code reports
  *  `c:\...`, Claude Code and most shells report `C:\...`). Identity elsewhere. */
