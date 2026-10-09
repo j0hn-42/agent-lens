@@ -151,7 +151,7 @@ test('stampTouchedAgents only visits the agents the event touched', () => {
   const b: Agent = { id: 'b', state: 'idle' } as Agent
   const prev = new Map([['a', a], ['b', b]])
   // Both objects differ from prev, only 'a' is declared touched
-  const next = new Map([['a', { ...a, state: 'thinking' }], ['b', { ...b }]])
+  const next = new Map<string, Agent>([['a', { ...a, state: 'thinking' }], ['b', { ...b }]])
   const out = stampTouchedAgents(prev, next, 5, ['a'])
   assert.equal(out.get('a')!.lastEventAt, 5)
   assert.equal(out.get('b')!.lastEventAt, undefined, 'b is not visited')
