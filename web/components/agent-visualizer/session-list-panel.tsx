@@ -29,7 +29,8 @@ import {
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
-import { INSPECTOR_KEEP_ATTR, PanelHeader, SlidingPanel } from './shared-ui'
+import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
+import { clampDockWidth } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 import { COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
@@ -38,6 +39,14 @@ export type SessionListAgent = AgentLike
 
 /** Default width (px) of the panel: room for the Name / Model / Tokens / Time columns (was 380). */
 export const SESSIONS_PANEL_WIDTH = 480
+const SESSIONS_WIDTH_KEY = 'agent-lens.sessionsPanelWidth'
+
+function readStoredWidth(): number {
+  try {
+    const n = Number(window.localStorage.getItem(SESSIONS_WIDTH_KEY))
+    return Number.isFinite(n) && n > 0 ? n : SESSIONS_PANEL_WIDTH
+  } catch { return SESSIONS_PANEL_WIDTH }
+}
 
 interface SessionListPanelProps {
   visible: boolean
@@ -231,6 +240,15 @@ export function SessionListPanel({
   filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
+  const [wantedWidth, setWantedWidth] = useState(SESSIONS_PANEL_WIDTH)
+  useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
+  const viewportW = useDockSnapshot().env.viewport.w
+  const panelWidth = clampDockWidth(wantedWidth, viewportW)
+  const resizePanel = (w: number) => {
+    setWantedWidth(w)
+    try { window.localStorage.setItem(SESSIONS_WIDTH_KEY, String(w)) } catch { /* not persisted */ }
+  }
   // A new callback identity on every parent render would defeat the row signatures
   const onSelectAgentRef = useRef(onSelectAgent)
   onSelectAgentRef.current = onSelectAgent
@@ -391,10 +409,11 @@ export function SessionListPanel({
       axis="X"
       offset={-8}
       zIndex={Z.sidePanel}
-      width={SESSIONS_PANEL_WIDTH}
+      width={panelWidth}
       labelledBy="session-list-title"
-      attrs={{ [INSPECTOR_KEEP_ATTR]: '' }}
+      attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '' }}
     >
+      <DockResizer edge="right" width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
@@ -575,10 +594,13 @@ export function SessionListPanel({
                       aria-expanded={hasAgents ? !isCollapsed : undefined}
                       disabled={!hasAgents}
                       onClick={() => toggleCollapsed(session.id, !isCollapsed)}
-                      className={`inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-[11px] ${FOCUS_RING}`}
-                      style={{ color: hasAgents ? COLORS.textMuted : 'transparent' }}
+                      className={`inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-xs ${hasAgents ? 'hover:bg-[var(--lens-hover-05)]' : ''} ${FOCUS_RING}`}
+                      style={{
+                        color: hasAgents ? COLORS.textPrimary : COLORS.textDim,
+                        border: hasAgents ? `1px solid ${COLORS.controlBorder}` : '1px solid transparent',
+                      }}
                     >
-                      <span aria-hidden="true">{isCollapsed ? '▸' : '▾'}</span>
+                      <span aria-hidden="true">{hasAgents ? (isCollapsed ? '▸' : '▾') : '·'}</span>
                     </button>
                     <button
                       type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
@@ -630,7 +652,7 @@ export function SessionListPanel({
                   </div>
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
-                    <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={`Agents of ${session.label}`}>
+                    <ul className="list-none m-0 ml-3 pl-2 pr-6 py-0.5" style={{ borderLeft: `2px solid ${COLORS.controlBorder}` }} aria-label={`Agents of ${session.label}`}>
                       <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
                     </ul>
                     </CollapsibleSection>

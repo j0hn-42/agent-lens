@@ -265,6 +265,8 @@ interface DockResizerProps {
   label?: string
   /** id of the panel it resizes (aria-controls). */
   controls?: string
+  /** Edge of the panel the handle hugs: 'left' for a panel anchored right (default), 'right' for one anchored left. */
+  edge?: 'left' | 'right'
 }
 
 /**
@@ -277,7 +279,9 @@ interface DockResizerProps {
  * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
  */
-export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls }: DockResizerProps) {
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left' }: DockResizerProps) {
+  const onRight = edge === 'right'
+  const side = onRight ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
   const { layout, env } = useDockSnapshot()
   const vw = env.viewport.w
   const current = Math.round(width ?? layout.rightWidth)
@@ -295,7 +299,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
   const step = dockResizerStep(min, max)
 
   return (
-    <div data-dock-resizer className="absolute inset-y-0 left-0 z-10 w-0">
+    <div data-dock-resizer className={`absolute inset-y-0 z-10 w-0 ${onRight ? 'right-0' : 'left-0'}`}>
       <input
         type="range"
         aria-label={label}
@@ -308,7 +312,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         value={Math.min(max, Math.max(min, current))}
         onChange={(e) => apply(Number(e.currentTarget.value))}
         onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}
-        className="peer absolute left-0 top-1/2 m-0 h-12 w-6 -translate-x-1/2 -translate-y-1/2 opacity-0 pointer-events-none"
+        className={`peer absolute top-1/2 m-0 h-12 w-6 -translate-y-1/2 opacity-0 pointer-events-none ${side}`}
       />
       <div
         aria-hidden="true"
@@ -321,14 +325,14 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         }}
         onPointerMove={(e) => {
           const d = dragRef.current
-          if (d) apply(dockWidthForDrag(d.startW, d.startX, e.clientX, vw))
+          if (d) apply(onRight ? d.startW + (e.clientX - d.startX) : dockWidthForDrag(d.startW, d.startX, e.clientX, vw))
         }}
         onPointerUp={(e) => {
           dragRef.current = null
           try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
         }}
         onPointerCancel={() => { dragRef.current = null }}
-        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)]"
+        className={`group absolute inset-y-0 flex w-6 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)] ${side}`}
       >
         <span
           className="my-auto h-12 w-1 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]"
