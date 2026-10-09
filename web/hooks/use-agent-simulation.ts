@@ -56,10 +56,15 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   // Canvas reads from frameRef directly for 60fps rendering.
   const [state, setState] = useState<SimulationState>(createEmptyState)
   const frameRef = useRef<SimulationState>(createEmptyState())
+  /** Throttle React UI updates to ~4/sec — canvas stays smooth via frameRef */
+  const lastUIUpdateRef = useRef(0)
+  /** frameRef holds events the React state does not show yet: published as soon as the throttle allows (#213) */
+  const uiDirtyRef = useRef(false)
 
   /** Update both frameRef and React state (triggers UI re-render) */
   const commitState = useCallback((next: SimulationState) => {
     frameRef.current = next
+    uiDirtyRef.current = false
     setState(next)
   }, [])
 
@@ -70,8 +75,6 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const blockIdCounter = useRef(0)
   const skipForceSyncRef = useRef(false)
   const animateRef = useRef<(timestamp: number) => void>(() => {})
-  /** Throttle React UI updates to ~4/sec — canvas stays smooth via frameRef */
-  const lastUIUpdateRef = useRef(0)
 
   // ─── d3-force simulation ─────────────────────────────────────────────────
   useEffect(() => {
@@ -270,13 +273,15 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     if (layoutRef.current) frameRef.current = layoutRef.current.stepState(frameRef.current)
 
     // Throttle React re-renders — UI updates at ~4/sec, canvas stays smooth via frameRef
+    // A commit the throttle skips is not lost: the flag is checked on every frame, so the React state catches up
+    // with frameRef at most UI_THROTTLE_MS later even when no further event arrives
+    if (newEvents.length > 0) uiDirtyRef.current = true
     let uiRefresh = false
-    if (newEvents.length > 0) {
-      if (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS) {
-        setState(frameRef.current)
-        lastUIUpdateRef.current = timestamp
-        uiRefresh = true
-      }
+    if (uiDirtyRef.current && (!lastUIUpdateRef.current || timestamp - lastUIUpdateRef.current >= UI_THROTTLE_MS)) {
+      setState(frameRef.current)
+      lastUIUpdateRef.current = timestamp
+      uiDirtyRef.current = false
+      uiRefresh = true
     }
     publishCatchUp(uiRefresh)
 
