@@ -11,10 +11,12 @@
 // Notes on how the page is driven:
 // - The #115 test uses real pointer clicks, like a user: it opens Sessions AFTER the selection and picks another
 //   session. Moving focus to the Sessions button or panel must not close the card (and drop the selection).
-// - The simulation publishes its state to React at most every ~250 ms, so the events are posted 400 ms apart.
+// - The simulation publishes its state to React at most every ~250 ms: the page is driven by waiting for what it
+//   renders (agent count, card text, stable layout), never for a fixed delay.
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
+import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 
 let browser: Browser
@@ -46,10 +48,10 @@ async function openWithFakeRelay(width: number, height: number) {
   await post({ type: '__vscode-bridge-init' })
   await post({ type: 'config', showMockData: false })
   await post({ type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] })
-  await page.waitForTimeout(500)
+  // The session list is applied (the Sessions button names the shown session) before agents are posted into it
+  await page.getByRole('button', { name: /^Sessions: payments-api/ }).waitFor()
   for (const e of [spawn('sa', { name: 'main-a', isMain: true }), spawn('sa', { name: 'worker-a', parent: 'main-a' }), spawn('sb', { name: 'main-b', isMain: true })]) {
     await post(e)
-    await page.waitForTimeout(400)
   }
   // The top bar counts what React knows: wait until both agents of the shown session are in it
   await page.getByText(/2 agents/).first().waitFor()
@@ -91,7 +93,7 @@ describe('agent inspector in a real browser', () => {
         await selectWorker(page)
         const detail = page.locator('[data-dock-panel="detail"]')
         await detail.filter({ hasText: 'worker-a' }).waitFor()
-        await page.waitForTimeout(500)
+        await waitForStableLayout(page)
         const box = await detail.boundingBox()
         assert.ok(box && box.width > 0 && box.height > 0, `the card has a size (${JSON.stringify(box)})`)
         assert.ok(box.x >= -0.5 && box.x + box.width <= width + 0.5, `the card is inside the viewport (${JSON.stringify(box)})`)

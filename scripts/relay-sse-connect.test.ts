@@ -21,7 +21,15 @@ delete process.env.AGENT_LENS_ALL_WORKSPACES
 
 const SESSION = '44444444-4444-4444-8444-444444444444'
 const line = (o: unknown) => JSON.stringify(o) + '\n'
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Polls `cond` until it holds (true) or `ms` elapse (false). Waits for what the relay does, never for a fixed time. */
+async function waitFor(cond: () => boolean, ms = 8000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await new Promise(r => setTimeout(r, 10))
+  }
+  return cond()
+}
 
 type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
 let relay: Relay
@@ -87,7 +95,10 @@ describe('relay: session discovered by the scan on SSE connect', () => {
     assert.equal(relay.debugState().scanRuns, 0, 'precondition: nothing scanned yet, so the scan runs on connect')
 
     const c = await connectSSE()
-    await sleep(300)
+    const have = () => messagesOf(c.text())
+    assert.ok(await waitFor(() => have().includes('session-list') && have().some(m => m.endsWith(':agent_spawn')) && have().some(m => m.endsWith(':message'))), `the session and its events arrive: ${have().join(',')}`)
+    // The connect-time scan ran before the client joined the broadcast: let it finish, so a duplicate would show
+    assert.ok(await waitFor(() => relay.debugState().scanRuns >= 1))
     c.req.destroy()
     const msgs = messagesOf(c.text())
 

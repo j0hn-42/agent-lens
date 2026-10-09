@@ -8,6 +8,7 @@
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
+import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 
 let browser: Browser
@@ -62,16 +63,18 @@ async function open(page: Page, w: number, h: number, withConversation: boolean)
   await page.setViewportSize({ width: w, height: h })
   await page.goto(server.url, { waitUntil: 'networkidle' })
   await page.getByRole('button', { name: 'Timeline', exact: true }).waitFor()
-  await page.waitForTimeout(2500)
+  await waitForStableLayout(page)
   await page.getByRole('button', { name: 'Timeline', exact: true }).click({ timeout: 5000 })
   // Select the agent LAST, and without moving focus: the card closes when focus moves to another control. The
   // graph outline button is visually hidden, so activate it through the DOM. Selecting opens Conversation on a wide viewport.
   await page.getByRole('button', { name: /^Refactor the payment/ }).first().evaluate((el: HTMLElement) => el.click())
-  await page.waitForTimeout(900)
+  await page.locator('[data-dock-panel="detail"]').waitFor()
+  await waitForStableLayout(page)
   if (!withConversation && w >= 900) {
     // Close Conversation the same way: the message pill takes its place and the card stays
     await page.getByRole('button', { name: /^Conversation/ }).first().evaluate((el: HTMLElement) => el.click())
-    await page.waitForTimeout(600)
+    await page.locator('[data-companion-panel]').first().waitFor()
+    await waitForStableLayout(page)
   }
 }
 
