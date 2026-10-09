@@ -13,6 +13,7 @@ import * as path from 'node:path'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-all-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 // Exercise the env var path (no explicit option passed to createRelay)
 process.env.AGENT_LENS_ALL_WORKSPACES = '1'

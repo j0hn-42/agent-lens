@@ -2,12 +2,14 @@
 
 import { useId } from 'react'
 import { POPUP, type ToolCallState, type ToolCallNode } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
 import { USAGE_LABELS } from '@/lib/usage'
 import { ToolContentRenderer } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
+import { AnsiText } from './transcript-message'
+import { parseAnsi } from '@/lib/ansi'
 
 interface ToolDetailPopupProps {
   tool: {
@@ -25,13 +27,13 @@ interface ToolDetailPopupProps {
   onClose: () => void
 }
 
-const STATE_DISPLAY: Record<ToolCallState, { color: string; icon: string; label: string }> = {
+const STATE_DISPLAY: Record<ToolCallState, { color: string; icon: string; label: string }> = themed(() => ({
   running: { color: COLORS.tool_calling, icon: '⚙', label: TOOL_STATE_LABELS.running },
   complete: { color: COLORS.complete, icon: '✓', label: TOOL_STATE_LABELS.complete },
   error: { color: COLORS.error, icon: '✕', label: TOOL_STATE_LABELS.error },
   cancelled: { color: COLORS.textMuted, icon: '⊘', label: TOOL_STATE_LABELS.cancelled },
   expired: { color: COLORS.tool_calling, icon: '⧖', label: TOOL_STATE_LABELS.expired },
-}
+}))
 
 export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProps) {
   const titleId = useId()
@@ -88,7 +90,7 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
           }}
         >
           <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
-          {tool.result}
+          {tool.toolName === 'Bash' ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}
 

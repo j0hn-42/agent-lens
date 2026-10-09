@@ -1,5 +1,5 @@
 import { Agent, ToolCallNode, Particle, Edge, BEAM, FX } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { PARTICLE_DRAW, MCP_DRAW } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
 import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edges'
@@ -89,7 +89,7 @@ export function drawParticles(
     ctx.arc(px, py, particle.size * (dotted ? MCP_DRAW.particleScale : 1), 0, Math.PI * 2)
     ctx.fill()
     ctx.beginPath()
-    ctx.fillStyle = COLORS.holoHot + '80'
+    ctx.fillStyle = SCENE.holoHot + '80'
     ctx.arc(px, py, particle.size * PARTICLE_DRAW.coreHighlightScale, 0, Math.PI * 2)
     ctx.fill()
 

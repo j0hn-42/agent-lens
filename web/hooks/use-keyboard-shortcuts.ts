@@ -62,6 +62,7 @@ export function useKeyboardShortcuts(actions: {
   toggleTimeline: () => void
   toggleHexGrid: () => void
   toggleStats: () => void
+  toggleContext: () => void
   toggleCostOverlay: () => void
   zoomToFit: () => void
   /** Close the most recently opened panel; returns true if one was closed. */
@@ -114,6 +115,10 @@ export function useKeyboardShortcuts(actions: {
         case 'g':
         case 'G':
           a.toggleHexGrid()
+          break
+        case 'p':
+        case 'P':
+          a.toggleContext()
           break
         case 's':
         case 'S':

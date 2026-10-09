@@ -3,7 +3,7 @@
 import { emptyState } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { COLORS, uiColor } from '@/lib/colors'
 import { formatDuration } from '@/lib/utils'
 import {
   buildTimelineRows,
@@ -38,10 +38,13 @@ interface TimelinePanelProps {
 }
 
 /** Arrow colors; the dash pattern is a second, non-color channel (dispatch solid, return dashed, peer dotted). */
-const ARROW_COLOR = { dispatch: '#7fb2ff', return: '#7fe3a3', error: '#ff8f8f', message: '#e0b0ff' } as const
-
 function arrowColor(a: SwimlaneArrow): string {
-  return a.isError ? ARROW_COLOR.error : ARROW_COLOR[a.kind]
+  if (a.isError) return COLORS.swimlaneError
+  switch (a.kind) {
+    case 'dispatch': return COLORS.swimlaneDispatch
+    case 'return': return COLORS.swimlaneReturn
+    default: return COLORS.swimlaneMessage
+  }
 }
 
 // ─── Layout constants ────────────────────────────────────────────────────────
@@ -52,8 +55,6 @@ const LABEL_WIDTH = 104
 const FONT = '11px monospace'
 const MAX_NAME_CHARS = 13
 const SWIMLANE_LAYOUT = { labelWidth: LABEL_WIDTH, headerHeight: HEADER_HEIGHT, rowHeight: ROW_HEIGHT }
-/** Opaque, >= 4.5:1 on the glass panel background (COLORS.textMuted is translucent). */
-const TEXT_MUTED_OPAQUE = '#8fcfef'
 
 /** Short glyphs so narrow blocks never rely on color alone. */
 const STATE_GLYPH: Record<TimelineStateKey, string> = {
@@ -79,7 +80,7 @@ const STATE_PATTERN: Record<TimelineStateKey, PatternKind> = {
 
 // ─── Legend (static DOM — no perf cost) ─────────────────────────────────────
 
-const LEGEND_ITEMS: { state: TimelineStateKey; color: string }[] = [
+const legendItems = (): { state: TimelineStateKey; color: string }[] => [
   { state: 'idle', color: COLORS.idle },
   { state: 'thinking', color: COLORS.thinking },
   { state: 'tool_call', color: COLORS.tool },
@@ -150,7 +151,7 @@ function drawTimeline(
 
   if (entries.length === 0) {
     ctx.font = FONT
-    ctx.fillStyle = TEXT_MUTED_OPAQUE
+    ctx.fillStyle = COLORS.textMutedOpaque
     ctx.textAlign = 'center'
     ctx.fillText(emptyState('timeline data'), width / 2, height / 2)
     ctx.restore()
@@ -172,7 +173,7 @@ function drawTimeline(
 
   // ── Header row: time labels ──
   ctx.textAlign = 'center'
-  ctx.fillStyle = TEXT_MUTED_OPAQUE
+  ctx.fillStyle = COLORS.textMutedOpaque
   for (const t of markers) {
     const x = LABEL_WIDTH + ((t - minTime) / timeSpan) * barWidth
     ctx.fillText(formatDuration(t), x, HEADER_HEIGHT - 4)
@@ -214,19 +215,19 @@ function drawTimeline(
 
       // Block fill
       ctx.globalAlpha = 0.3
-      ctx.fillStyle = block.color
+      ctx.fillStyle = uiColor(block.color)
       ctx.fillRect(x, trackY + 1, blockW, trackH - 2)
 
       // Block border
       ctx.globalAlpha = 0.6
-      ctx.strokeStyle = block.color
+      ctx.strokeStyle = uiColor(block.color)
       ctx.lineWidth = 1
       ctx.strokeRect(x, trackY + 1, blockW, trackH - 2)
 
       // Per-state pattern (second, non-color channel)
       ctx.globalAlpha = 0.45
-      ctx.fillStyle = block.color
-      ctx.strokeStyle = block.color
+      ctx.fillStyle = uiColor(block.color)
+      ctx.strokeStyle = uiColor(block.color)
       drawPattern(ctx, STATE_PATTERN[state], x, trackY + 1, blockW, trackH - 2)
 
       ctx.globalAlpha = 1
@@ -237,7 +238,7 @@ function drawTimeline(
         ctx.beginPath()
         ctx.rect(x, trackY, blockW, trackH)
         ctx.clip()
-        ctx.fillStyle = block.color
+        ctx.fillStyle = uiColor(block.color)
         ctx.textAlign = 'left'
         ctx.fillText(blockW > 40 ? block.label : STATE_GLYPH[state], x + (blockW > 40 ? 4 : 3), trackY + trackH / 2 + 4)
         ctx.restore()
@@ -280,7 +281,7 @@ function drawTimeline(
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#aaeeff]'
+const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
 
 export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -437,7 +438,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           >
             <caption className="sr-only">{ariaLabel}</caption>
             <thead>
-              <tr style={{ color: TEXT_MUTED_OPAQUE }}>
+              <tr style={{ color: COLORS.textMutedOpaque }}>
                 <th scope="col" className="text-left px-2 py-1 font-normal">Agent</th>
                 <th scope="col" className="text-left px-2 py-1 font-normal">State</th>
                 <th scope="col" className="text-left px-2 py-1 font-normal">Start</th>
@@ -461,9 +462,9 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
           {messageRows.length > 0 && tableView && (
             <table id={messagesTableId} className="w-full text-xs font-mono border-collapse mt-2" style={{ color: COLORS.textPrimary }}>
-              <caption className="text-left px-2 py-1" style={{ color: TEXT_MUTED_OPAQUE }}>Messages between agents</caption>
+              <caption className="text-left px-2 py-1" style={{ color: COLORS.textMutedOpaque }}>Messages between agents</caption>
               <thead>
-                <tr style={{ color: TEXT_MUTED_OPAQUE }}>
+                <tr style={{ color: COLORS.textMutedOpaque }}>
                   <th scope="col" className="text-left px-2 py-1 font-normal">Time</th>
                   <th scope="col" className="text-left px-2 py-1 font-normal">Kind</th>
                   <th scope="col" className="text-left px-2 py-1 font-normal">From</th>
@@ -510,13 +511,13 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
                   onFocus={() => setActiveArrowId(r.id)}
                   onBlur={() => setActiveArrowId(undefined)}
                   className={`min-h-6 px-1.5 rounded-sm text-[11px] font-mono ${FOCUS_RING}`}
-                  style={{ color: TEXT_MUTED_OPAQUE, border: `1px solid ${COLORS.holoBorder06}` }}
+                  style={{ color: COLORS.textMutedOpaque, border: `1px solid ${COLORS.holoBorder06}` }}
                 >
                   {r.start} {r.label}
                 </button>
               ))}
               {cappedButtons.hidden > 0 && (
-                <span className="text-[11px] font-mono self-center" style={{ color: TEXT_MUTED_OPAQUE }}>
+                <span className="text-[11px] font-mono self-center" style={{ color: COLORS.textMutedOpaque }}>
                   +{cappedButtons.hidden} earlier messages, see Table view
                 </span>
               )}
@@ -529,14 +530,14 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
 
         {/* Legend (static DOM) */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
-          {LEGEND_ITEMS.map(item => (
+          {legendItems().map(item => (
             <div key={item.state} className="flex items-center gap-1">
               <div
                 className="w-3 h-3 rounded-sm"
                 aria-hidden="true"
                 style={{ background: legendSwatchBackground(item.state, item.color), border: `1px solid ${item.color}` }}
               />
-              <span className="text-[11px] font-mono" style={{ color: TEXT_MUTED_OPAQUE }}>
+              <span className="text-[11px] font-mono" style={{ color: COLORS.textMutedOpaque }}>
                 {TIMELINE_STATE_LABELS[item.state]}
               </span>
             </div>

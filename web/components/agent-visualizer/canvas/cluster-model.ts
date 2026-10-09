@@ -11,10 +11,12 @@ import { totalCostUsage } from '../../../lib/cost'
 import { formatCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
+import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import {
-  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, HALO_PADDING, isOrchestrator,
+  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator,
 } from './team-style'
+import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 
 /** Optional per-session facts that are not on the agents (supplied by the app from its session list). */
 export interface SessionMeta {
@@ -158,6 +160,11 @@ export interface ClusterOptions {
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Halos of a single-session view need at least this many members (default 2); several clusters always show */
   minMembers?: number
+  /**
+   * Every agent of the simulation, including those the display hides (collapsed branches). Halo costs are
+   * summed over them so the figure does not move with the display state (#106); geometry stays on the drawn agents.
+   */
+  costAgents?: Iterable<Agent>
 }
 
 function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: SessionMeta): string {
@@ -199,6 +206,15 @@ export function computeClusters(
     if (!list) { list = []; groups.set(key, list) }
     list.push(a)
   }
+  const costGroups = new Map<string, Agent[]>()
+  if (options.costAgents) {
+    for (const a of options.costAgents) {
+      const key = clusterKeyOf(a, teams, hosted)
+      const list = costGroups.get(key)
+      if (list) list.push(a)
+      else costGroups.set(key, [a])
+    }
+  }
   const minMembers = options.minMembers ?? 2
   const showAll = groups.size >= 2
   const out: Cluster[] = []
@@ -213,12 +229,8 @@ export function computeClusters(
     const sessionIds = Array.from(new Set(members.map(m => m.sessionId || DEFAULT_SESSION)))
     const meta = options.sessions?.get((main ?? members[0]).sessionId || DEFAULT_SESSION)
 
-    let cx = 0, cy = 0
-    for (const m of members) { cx += m.x; cy += m.y }
-    cx /= members.length
-    cy /= members.length
-    let r = 0
-    for (const m of members) r = Math.max(r, Math.hypot(m.x - cx, m.y - cy) + agentDrawRadius(m))
+    // The smallest circle that wraps the drawn agents with their labels (#146): it follows their number and size
+    const { cx, cy, r } = fitHalo(members.map(m => ({ x: m.x, y: m.y, r: agentDrawRadius(m) + HALO_LABEL_ROOM })))!
 
     let color: string
     if (isTeam) {
@@ -232,14 +244,14 @@ export function computeClusters(
     const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
     const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
-    const costUsage = totalCostUsage(members)
+    const costUsage = totalCostUsage(costGroups.get(key) ?? members)
 
     out.push({
       key,
       kind: isTeam ? 'team' : 'session',
       title: isTeam ? cleanText(teamName, 40) : sessionTitle(members[0].sessionId, members, meta),
       color,
-      cx, cy, r: r + HALO_PADDING,
+      cx, cy, r,
       memberIds: members.map(m => m.id),
       orchestratorId: main?.id,
       sessionIds,
@@ -304,4 +316,67 @@ export function clusterLabelAnchor(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { x: nu
 /** Camera target (world centre and radius) that frames the cluster. */
 export function clusterBounds(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { cx: number; cy: number; r: number } {
   return { cx: c.cx, cy: c.cy, r: c.r }
+}
+
+/** Label of one phase of a workflow on the canvas (#146) */
+export interface PhaseLabel {
+  /** Cluster the phase belongs to */
+  clusterKey: string
+  phase: string
+  text: string
+  /** World position of the label: above the highest member of the phase, centred on its members */
+  x: number
+  y: number
+  memberIds: string[]
+}
+
+/** Gap between the highest member of a phase and the bottom of its label (world units) */
+const PHASE_LABEL_GAP = 14
+/** Height and per-character width of a phase label as drawn (world units), to keep it clear of the other agents */
+const PHASE_LABEL_HEIGHT = 20
+const PHASE_LABEL_CHAR_WIDTH = 7.5
+const PHASE_LABEL_PAD = 14
+
+/**
+ * One label per announced phase of every workflow with at least one phase; agents without phase get
+ * no label (nothing is invented). Positions follow the members, so the label stays with its sub-group. A label
+ * never sits on an agent of the same workflow that is not in its phase (typically the orchestrator, centred in the
+ * zone): it rises above it.
+ */
+export function phaseLabels(agentsIn: Iterable<Agent>): PhaseLabel[] {
+  const all = Array.from(agentsIn).filter(isAgentVisible)
+  const keyOf = (a: Agent): string => a.clusterKey ?? `${a.sessionId}\u0000${cleanText(a.teamName)}`
+  const byWorkflow = new Map<string, Agent[]>()
+  for (const a of all) {
+    if (a.teamKind !== 'workflow' || !a.phase) continue
+    const key = keyOf(a)
+    const list = byWorkflow.get(key)
+    if (list) list.push(a); else byWorkflow.set(key, [a])
+  }
+  const out: PhaseLabel[] = []
+  for (const [clusterKey, members] of byWorkflow) {
+    const others = all.filter(a => keyOf(a) === clusterKey)
+    for (const seg of groupByPhase(members)) {
+      if (seg.kind !== 'phase') continue
+      let x = 0, top = Infinity
+      for (const m of seg.items) { x += m.x; top = Math.min(top, m.y - agentDrawRadius(m)) }
+      x /= seg.items.length
+      const phase = cleanText(seg.phase, 40)
+      const text = `Phase ${phase} (${seg.items.length})`
+      const halfW = (text.length * PHASE_LABEL_CHAR_WIDTH + PHASE_LABEL_PAD) / 2
+      const inPhase = new Set(seg.items.map(m => m.id))
+      const blockers = others.filter(a => !inPhase.has(a.id))
+      let y = top - PHASE_LABEL_GAP
+      for (let guard = 0; guard < blockers.length + 1; guard++) {
+        const hit = blockers.find(b => {
+          const r = agentDrawRadius(b)
+          return Math.abs(b.x - x) < halfW + r && b.y - r < y && b.y + r > y - PHASE_LABEL_HEIGHT
+        })
+        if (!hit) break
+        y = hit.y - agentDrawRadius(hit) - PHASE_LABEL_GAP
+      }
+      out.push({ clusterKey, phase, text, x, y, memberIds: seg.items.map(m => m.id) })
+    }
+  }
+  return out
 }

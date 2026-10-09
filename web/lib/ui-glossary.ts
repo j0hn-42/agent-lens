@@ -7,6 +7,8 @@ export const PANEL_NAMES = {
   files: 'Files',
   timeline: 'Timeline',
   cost: 'Cost',
+  context: 'Context',
+  stats: 'Stats',
 } as const
 
 export type PanelKey = keyof typeof PANEL_NAMES
@@ -90,3 +92,22 @@ export function memberNoun(kind: GroupKind | undefined, count = 1): string {
 export function groupHeading(kind: GroupKind | undefined, title: string): string {
   return `${groupNoun(kind)} ${title}`
 }
+
+/** Qualifiers of a usage figure (tokens, cost, percentage): said the same way on every surface (issue #123). */
+export const USAGE_LABELS = {
+  unavailable: 'not reported',
+  atLeast: 'at least',
+  estimated: 'estimated',
+} as const
+
+/** Shown wherever a result or outcome rests on an end that was never observed. */
+export const END_NOT_OBSERVED = 'end not observed'
+
+/** Warning attached to an expired call: the goal is not known to have been reached. */
+export const EXPIRED_WARNING = 'Expired, end not observed: the result is unknown, not a success.'
+
+/** Warning for a result that was reported although the end of the call was not observed. */
+export const RESULT_WITHOUT_END_WARNING = `Result reported, ${END_NOT_OBSERVED}.`
+
+/** Suffix of a timeline label whose call expired. */
+export const EXPIRED_LABEL_SUFFIX = `(expired, ${END_NOT_OBSERVED})`

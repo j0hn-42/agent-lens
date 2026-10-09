@@ -36,6 +36,8 @@ export interface PlacementRequest {
   compact?: Rect
   /** Node obstacles do not block it (the selected / hovered agent's bubbles may cover a neighbour node, but never another text) */
   ignoreObstacles?: boolean
+  /** Fallback offsets (never the preferred position) must keep the rectangle inside this area, e.g. the safe area clear of the control bar */
+  shiftBounds?: Rect
   /** Only shown when there is room at the preferred position (no fallback offsets tried) */
   fixed?: boolean
 }
@@ -115,6 +117,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
     for (const c of candidates) {
       const r = { x: base.x + c.dx, y: base.y + c.dy, w: base.w, h: base.h }
       if (!inside(r, options.bounds)) continue
+      if ((c.dx !== 0 || c.dy !== 0) && !inside(r, req.shiftBounds)) continue
       if (!collides(r, req.owner, req.ignoreObstacles)) { chosen = c; break }
     }
 
@@ -131,7 +134,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
       let found: { dx: number; dy: number } | null = null
       for (const c of smallCandidates) {
         const r = { x: small.x + c.dx, y: small.y + c.dy, w: small.w, h: small.h }
-        if (inside(r, options.bounds) && !collides(r, req.owner, req.ignoreObstacles)) { found = c; break }
+        if (inside(r, options.bounds) && ((c.dx === 0 && c.dy === 0) || inside(r, req.shiftBounds)) && !collides(r, req.owner, req.ignoreObstacles)) { found = c; break }
       }
       if (found) {
         const rect = { x: small.x + found.dx, y: small.y + found.dy, w: small.w, h: small.h }

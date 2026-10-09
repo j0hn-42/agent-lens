@@ -18,7 +18,7 @@ export const CLAUDE_FAMILY_ALTERNATION = CLAUDE_FAMILIES.map(f => f.name).join('
 /** Context window size by model family. Patterns are checked in order;
  *  first match wins. Matched against lower-cased model IDs. */
 export const MODEL_FAMILY_CONTEXT: ReadonlyArray<{ pattern: RegExp; size: number }> = [
-  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), size: f.context })),
+  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}(?:-\\d|$)`), size: f.context })),
   // Codex/GPT models. Fallback only — Codex normally reports its own
   // authoritative window via event_msg.token_count.info.model_context_window.
   { pattern: /gpt-\d/, size: 400_000 },
@@ -165,8 +165,8 @@ export const CAMERA = {
 
 export const FORCE = {
   chargeStrength: -1200,
-  collideRadius: 140,
-  linkDistance: 350,
+  collideRadius: 105,
+  linkDistance: 220,
   linkStrength: 0.4,
   alphaDecay: 0.02,
   velocityDecay: 0.4,
@@ -176,7 +176,7 @@ export const FORCE = {
 
 export const CLUSTER_LAYOUT = {
   /** Disc radius of a cluster = baseRadius + members * memberSpacing */
-  baseRadius: 300,
+  baseRadius: 220,
   memberSpacing: 30,
   maxMembers: 100,
   /** Free space kept between two cluster discs */
@@ -187,6 +187,14 @@ export const CLUSTER_LAYOUT = {
   holdStrength: 0.15,
   /** Weak pull of members to the anchor (times alpha) */
   pullStrength: 0.02,
+  /** Share of the gap between a parent and the middle of its children's extent closed per tick (#151): the easing of the centring */
+  centreStrength: 0.1,
+  /** A parent is only centred on at least this many children: with one child the "middle" would be the child itself */
+  minCentredChildren: 2,
+  /** Share of the distance a workflow member covers towards the centre of its phase, per tick */
+  phasePullStrength: 0.06,
+  /** Centres of the phases of a workflow sit on a ring of this fraction of the cluster radius */
+  phaseRingFactor: 0.5,
   /** Archived agents drift to this fraction of the cluster radius */
   archivedRingFactor: 0.85,
   ringStrength: 0.06,
@@ -236,7 +244,7 @@ export const TOOL_MAX_CARD_W = 200
  *  Claude rates derive from CLAUDE_FAMILIES. Patterns are checked in order;
  *  first match wins. Matched against lower-cased model IDs. */
 export const MODEL_FAMILY_COST: ReadonlyArray<{ pattern: RegExp; rate: number }> = [
-  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}-\\d`), rate: f.rate })),
+  ...CLAUDE_FAMILIES.map(f => ({ pattern: new RegExp(`${f.name}(?:-\\d|$)`), rate: f.rate })),
   { pattern: /gpt-\d/, rate: 5 }, // gpt-5.3-codex: $1.75 in / $14 out
 ]
 
@@ -264,6 +272,8 @@ export const AGENT_DRAW = {
   labelFontSize: 11,
   /** Vertical distance between the name line and the state-label line */
   stateLabelGap: 13,
+  /** Width of the dark outline drawn behind label text */
+  labelHaloWidth: 3,
   /** Agent name label width multiplier of radius */
   labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */
@@ -672,6 +682,7 @@ export const PLACEMENT = {
 // ─── Freshness (issues #48, #52) ────────────────────────────────────────────
 
 /** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
+/** Mirrors SNAPSHOT_STALE_AFTER_MS of extension/src/constants.ts (a test compares them) */
 export const STALE_AFTER_MS = 30_000
 /** A status that comes from history (not seen live) expires after this long (ms) */
 export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
@@ -685,6 +696,8 @@ export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 export const FRESHNESS_DRAW = {
   /** Neutral grey of a stale node (state colours say "live") */
   staleColor: '#8a94a0',
+  /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
+  staleTextColor: '#c5ced8',
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */

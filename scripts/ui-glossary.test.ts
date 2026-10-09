@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   PANEL_NAMES, HIERARCHY_TERMS, HIERARCHY_TEXT, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
 } from '../web/lib/ui-glossary'
@@ -14,7 +16,7 @@ const msg = (id: string, type: ConversationMessage['type'], timestamp: number, c
   ({ id, type, timestamp, content, ...extra })
 
 test('the glossary fixes the panel names and the agent hierarchy', () => {
-  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost' })
+  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
   assert.equal(HIERARCHY_TEXT, 'Session > Agent (Main / Lead) > Subagent / Teammate')
@@ -85,4 +87,35 @@ test('tabForSelection presets the tab to the selected agent', () => {
   assert.equal(tabForSelection('s:worker'), 's:worker')
   assert.equal(tabForSelection(null), 'all')
   assert.equal(tabForSelection(undefined), 'all')
+})
+
+test('Tempo labels are centralised in the glossary, in English (#123)', async () => {
+  const glossary = await import('../web/lib/ui-glossary')
+  const lifecycle = await import('../web/lib/tool-lifecycle')
+  const usage = await import('../web/lib/usage')
+  assert.deepEqual(glossary.USAGE_LABELS, { unavailable: 'not reported', atLeast: 'at least', estimated: 'estimated' })
+  assert.equal(lifecycle.END_NOT_OBSERVED, glossary.END_NOT_OBSERVED)
+  assert.equal(lifecycle.EXPIRED_WARNING, glossary.EXPIRED_WARNING)
+  assert.equal(usage.USAGE_LABELS, glossary.USAGE_LABELS)
+})
+
+test('no accented character in UI code outside comments (the UI is English only, #123)', () => {
+  const allowed = new Set<string>([]) // files that may carry accented text
+  const hits: string[] = []
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.next') walk(p); continue }
+      if (!/\.(ts|tsx)$/.test(e.name) || allowed.has(p)) continue
+      readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+        const t = line.trim()
+        if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
+        const code = line.replace(/\s\/\/.*$/, '').replace(/\/\*.*?\*\//g, '')
+        if (/[\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF]/.test(code)) hits.push(`${p}:${i + 1}: ${t}`)
+      })
+    }
+  }
+  for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
+  assert.deepEqual(hits, [], 'accented (non-English) text in UI code')
 })

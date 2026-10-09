@@ -45,7 +45,8 @@ export interface SessionIndexOptions {
 export interface IndexedSession {
   id: string
   startTime: number
-  lastActivityTime: number
+  /** Absent when the index does not say: the start is never presented as a last activity */
+  lastActivityTime?: number
   label?: string
   cwd?: string
   workspace?: string
@@ -187,7 +188,7 @@ export function readSessionIndex(
       const workspace = cleanText(r.workspace, SESSION_TAG_MAX)
       const parent = cleanText(r.parent_id, ID_MAX)
       sessions.push({
-        id, startTime, lastActivityTime: toMillis(r.last_activity_at) ?? startTime,
+        id, startTime, ...(toMillis(r.last_activity_at) !== undefined ? { lastActivityTime: toMillis(r.last_activity_at) } : {}),
         ...(label ? { label } : {}),
         ...(cwd ? { cwd } : {}),
         ...(workspace ? { workspace } : {}),
@@ -216,10 +217,22 @@ export function indexedToSessionInfo(s: IndexedSession): SessionInfo {
     status: 'completed',
     indexedOnly: true,
     startTime: s.startTime,
-    lastActivityTime: s.lastActivityTime,
+    // The start only orders the list; lastActivityUnknown keeps it from being shown as an activity
+    lastActivityTime: s.lastActivityTime ?? s.startTime,
+    ...(s.lastActivityTime === undefined ? { lastActivityUnknown: true } : {}),
     ...(s.workspace ? { workspace: s.workspace } : {}),
     ...(s.cwd ? { cwd: s.cwd } : {}),
     ...(s.parentSessionId ? { parentSessionId: s.parentSessionId } : {}),
+  }
+}
+
+/** A live session entry with the facts only the index knows (declared parent, cwd when it has none). */
+export function withIndexedFacts(live: SessionInfo, indexed: IndexedSession | undefined): SessionInfo {
+  if (!indexed) return live
+  return {
+    ...live,
+    ...(!live.parentSessionId && indexed.parentSessionId ? { parentSessionId: indexed.parentSessionId } : {}),
+    ...(!live.cwd && indexed.cwd ? { cwd: indexed.cwd } : {}),
   }
 }
 
@@ -230,15 +243,7 @@ export function indexedToSessionInfo(s: IndexedSession): SessionInfo {
  */
 export function mergeIndexedSessions(live: ReadonlyArray<SessionInfo>, indexed: ReadonlyArray<IndexedSession>): SessionInfo[] {
   const byId = new Map(indexed.map(s => [s.id, s]))
-  const out = live.map(l => {
-    const i = byId.get(l.id)
-    if (!i) return l
-    return {
-      ...l,
-      ...(!l.parentSessionId && i.parentSessionId ? { parentSessionId: i.parentSessionId } : {}),
-      ...(!l.cwd && i.cwd ? { cwd: i.cwd } : {}),
-    }
-  })
+  const out = live.map(l => withIndexedFacts(l, byId.get(l.id)))
   const known = new Set(live.map(l => l.id))
   for (const i of indexed) if (!known.has(i.id)) out.push(indexedToSessionInfo(i))
   return out

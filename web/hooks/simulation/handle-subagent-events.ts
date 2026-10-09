@@ -1,6 +1,6 @@
-import { COLORS } from '../../lib/colors'
+import { SCENE } from '../../lib/colors'
 import type { MutableEventState } from './process-event'
-import { edgeId, asBoolean, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
+import { edgeId, asBoolean, agentKeyOf, cappedString, cutCharsOf, cutField, DEFAULT_SESSION_ID, LABEL_LEN_SHORT } from './types'
 import { idString, resolveChildLocalId, findAgentByToolUseId } from './agent-keys'
 import { demoteEdge, namesAgent, type UnverifiedReason } from './edge-validation'
 import { addLinkMessage } from './handle-link-events'
@@ -53,23 +53,24 @@ export function handleSubagentDispatch(
   const eid = edgeId(parentKey, childKey)
   const task = cappedString(payload.task)
   const prompt = optString(payload.prompt)
+  const cut = cutField(prompt ? cutCharsOf(payload.prompt) : cutCharsOf(payload.task))
 
   // Full prompt goes into both conversations so it is readable in the transcript/chat
   for (const owner of new Set([parentKey, childKey])) {
     appendBoundedConversation(state, owner, {
       type: 'dispatch', content: prompt || task, timestamp: currentTime,
-      from: parentKey, to: childKey, linkId: eid, toolUseId,
+      from: parentKey, to: childKey, linkId: eid, toolUseId, ...cut,
     })
   }
   addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
     type: 'dispatch', content: prompt || task, timestamp: currentTime,
-    from: parentKey, to: childKey, linkId: eid, toolUseId,
+    from: parentKey, to: childKey, linkId: eid, toolUseId, ...cut,
   })
 
   state.particles.push({
     id: `p-disp-${currentTime}-${eid}`,
     edgeId: eid, progress: 0,
-    type: 'dispatch', color: COLORS.dispatch,
+    type: 'dispatch', color: SCENE.dispatch,
     size: 6, trailLength: 0.2,
     label: task.slice(0, LABEL_LEN_SHORT),
     detail: {
@@ -92,25 +93,26 @@ export function handleSubagentReturn(
   const eid = edgeId(parentKey, childKey)
   const summary = cappedString(payload.summary)
   const isError = asBoolean(payload.isError)
+  const cut = cutField(cutCharsOf(payload.summary))
 
   // Full report goes into both conversations (parent receives it, child produced it)
   for (const owner of new Set([parentKey, childKey])) {
     appendBoundedConversation(state, owner, {
       type: 'return', content: summary, timestamp: currentTime,
-      from: childKey, to: parentKey, linkId: eid, toolUseId,
+      from: childKey, to: parentKey, linkId: eid, toolUseId, ...cut,
       ...(isError ? { isError } : {}),
     })
   }
   addLinkMessage(state, { id: eid, from: parentKey, to: childKey, kind: 'spawn', sessionId }, {
     type: 'return', content: summary, timestamp: currentTime,
-    from: childKey, to: parentKey, linkId: eid, toolUseId,
+    from: childKey, to: parentKey, linkId: eid, toolUseId, ...cut,
     ...(isError ? { isError } : {}),
   })
 
   state.particles.push({
     id: `p-ret-${currentTime}-${eid}`,
     edgeId: eid, progress: 1,
-    type: 'return', color: COLORS.return,
+    type: 'return', color: SCENE.return,
     size: 5, trailLength: 0.2,
     label: summary.slice(0, LABEL_LEN_SHORT),
     detail: {

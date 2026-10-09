@@ -10,6 +10,7 @@ import {
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
+import { MOCK_SESSIONS } from '@/lib/mock-scenario'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -117,6 +118,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const sessionsRef = useRef<SessionInfo[]>([])
+  /** The tour demo declares its sessions (a relay would list them); true while only the demo lists them */
+  const demoSessionsRef = useRef(false)
   /** Every change of the session list goes through here so the ref is current before React re-renders
    *  (the relay sends the list and the replayed events in the same tick). */
   const updateSessions = useCallback((update: (prev: SessionInfo[]) => SessionInfo[]) => {
@@ -139,6 +142,22 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     for (const name of tracker.teams.keys()) { working.set(name, tracker.working(name)); members.set(name, tracker.memberCount(name)); summaries.set(name, tracker.summary(name)) }
     setTeamView({ teams: new Map(tracker.teams), working, members, summaries })
   }, [])
+  /** A real source took over: drop the sessions (and the All selection) that only the demo declared */
+  const leaveDemo = useCallback(() => {
+    setUseMockData(false)
+    if (!demoSessionsRef.current) return
+    demoSessionsRef.current = false
+    updateSessions(prev => prev.filter(s => !MOCK_SESSIONS.some(m => m.id === s.id)))
+    if (selectedSessionIdRef.current === ALL_SESSIONS_ID) { selectedSessionIdRef.current = null; setSelectedSessionId(null) }
+  }, [updateSessions])
+  // Seeded after mount: the scenario is read from the URL, which the server render cannot know
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_DEMO === '0' || MOCK_SESSIONS.length === 0 || sessionsRef.current.length > 0) return
+    demoSessionsRef.current = true
+    updateSessions(() => MOCK_SESSIONS)
+    selectedSessionIdRef.current = ALL_SESSIONS_ID
+    setSelectedSessionId(ALL_SESSIONS_ID)
+  }, [updateSessions])
   // 'All' shows only the active sessions unless the user asked for the finished ones too
   const [showFinished, setShowFinishedState] = useState(false)
   const showFinishedRef = useRef(false)
@@ -239,7 +258,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     setConnectionStatus(source.status)
     if (source.status === 'connected') {
       setRelayUnreachable(false)
-      setUseMockData(false)
+      leaveDemo()
       if (wasDownRef.current) {
         wasDownRef.current = false
         pushNotice('relay-up', 'Relay reconnected')
@@ -251,7 +270,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         pushNotice('relay-down', relayPort ? `Relay unreachable on :${relayPort}` : 'Relay unreachable')
       }
     }
-  }, [relayEnabled, source, pushNotice, relayPort])
+  }, [relayEnabled, source, pushNotice, relayPort, leaveDemo])
 
   // Without a relay to wait for: unless the VS Code init message arrives, we are offline.
   useEffect(() => {
@@ -270,7 +289,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     // Listen for bridge initialization (event-driven, no polling)
     const unsubInit = bridge.onInit(() => {
       setIsVSCode(true)
-      setUseMockData(false)
+      leaveDemo()
     })
 
     // Listen for events — buffer by session, deliver to pending if session matches.
@@ -449,7 +468,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       unsubConfig()
       unsubSession()
     }
-  }, [updateSessions, pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
+  }, [updateSessions, leaveDemo, pushNotice, refreshTeamView, matchesSelection, recomputeVisible])
 
   // The rule depends on the session list, the teams, the selection and the clock
   useEffect(() => { recomputeVisible() }, [sessions, teamView, selectedSessionId, recomputeVisible])

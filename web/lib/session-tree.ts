@@ -6,6 +6,7 @@ import { ALL_SESSIONS_ID, type SessionInfo } from './bridge-types'
 import { buildTabModel } from './chrome-utils'
 import { groupHeading } from './ui-glossary'
 import type { TeamSummary } from './agent-types'
+import type { UsageStatus } from './usage'
 import { isGroupActive, type GroupSummary } from '../hooks/simulation/team-info'
 import { isSessionObserved } from './session-model'
 
@@ -18,18 +19,22 @@ export interface AgentLike {
   name: string
   state: string
   kind?: 'main' | 'subagent' | 'teammate'
+  /** Workflow agents: the group is a Workflow run, and the phase the workflow announced for the agent (#146) */
+  teamKind?: 'team' | 'workflow'
+  phase?: string
   currentTool?: string
   tokensUsed: number
-  tokenStatus?: 'available' | 'partial' | 'unavailable'
+  tokenStatus?: UsageStatus
   tokensEstimated?: boolean
-  /** True once an event reported a token count; anything else = unknown (issue #58) */
-  tokensReported?: boolean
   /** Model ID, to price the tokens with the right family rate (issue #58) */
   model?: string
   spawnTime: number
   /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
   lastEventAt?: number
   freshnessSource?: 'live' | 'history'
+  /** Active time (issue #59): closed spans in ms, and the start of the running span; absent = never observed working */
+  activeMs?: number
+  activeSince?: number
 }
 
 export interface AgentNode<A extends AgentLike = AgentLike> {

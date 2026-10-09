@@ -6,6 +6,7 @@ import type { A11yModel, A11yAgentItem, CommEntry, AnnouncementItem } from './ca
 import type { NavNode } from './canvas/keyboard-nav'
 import type { LinkMessageItem } from './canvas/edge-bubble-set'
 import { clusterNoun, clusterNounLower } from './canvas/cluster-model'
+import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 
 interface GraphA11yListProps {
   model: A11yModel
@@ -102,6 +103,7 @@ export function GraphA11yList({
       <p>
         {agent.orchestrator === 'lead' ? 'Orchestrator, lead of the team. ' : agent.orchestrator === 'main' ? 'Orchestrator, main agent of the session. ' : ''}
         {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
+        {agent.phase ? `Phase ${agent.phase}. ` : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
         {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
       </p>
@@ -119,7 +121,7 @@ export function GraphA11yList({
               aria-expanded={!agent.branch.collapsed}
               onClick={() => onToggleBranch(agent.id)}
             >
-              {agent.branch.collapsed ? `Expand branch of ${agent.name}` : `Collapse branch of ${agent.name}`}
+              {`Branch of ${agent.name}`}
             </button>
           )}
         </p>
@@ -182,7 +184,19 @@ export function GraphA11yList({
                   </button>
                 )}
                 <ul aria-label={`Agents of ${clusterNounLower(group.cluster)} ${group.cluster.title}`}>
-                  {group.agents.map(agent => renderAgent(agent))}
+                  {groupByPhase(group.agents).map(seg => {
+                    if (seg.kind === 'plain') return seg.items.map(agent => renderAgent(agent))
+                    // A phase of the workflow: a named group, in order of first appearance (#146)
+                    const label = phaseSegmentLabel(seg)
+                    return (
+                      <li key={`${seg.kind}:${label}`}>
+                        <div role="group" aria-label={label}>
+                          <p>{label}, {seg.items.length} {seg.items.length === 1 ? 'agent' : 'agents'}.</p>
+                          <ul>{seg.items.map(agent => renderAgent(agent))}</ul>
+                        </div>
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             ))}

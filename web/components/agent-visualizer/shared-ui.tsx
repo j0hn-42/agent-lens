@@ -31,7 +31,7 @@ export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
       onClick={onClick}
       aria-label="Close"
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#99e0ff] ${className}`}
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -68,19 +68,27 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
 // Focus the container on open, restore focus on close, close on Escape and when
 // focus moves outside (non-modal popups).
 
+/**
+ * Controls the inspector card must survive focus moving to: the Sessions button and panel (#115). Choosing
+ * another session there is how an agent leaves the view; closing the card first would clear the selection and
+ * the "no longer listed" card could never appear.
+ */
+export const INSPECTOR_KEEP_ATTR = 'data-keeps-inspector'
+export const INSPECTOR_IGNORE_SELECTOR = `[data-companion-panel], [${INSPECTOR_KEEP_ATTR}]`
+
 export function useDialogBehavior(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
-  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string } = {},
+  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string; focusOnOpen?: boolean } = {},
 ): void {
-  const { closeOnFocusOutside = true, ignoreSelector } = options
+  const { closeOnFocusOutside = true, ignoreSelector, focusOnOpen = true } = options
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const node = ref.current
-    node?.focus({ preventScroll: true })
+    if (focusOnOpen) node?.focus({ preventScroll: true })
     return () => {
       // Restore only when focus was dropped (Escape/Close unmount) or is still inside the
       // dialog; never pull it back from a control the user moved to.
@@ -320,10 +328,10 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
           try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
         }}
         onPointerCancel={() => { dragRef.current = null }}
-        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[#99e0ff] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[#99e0ff]"
+        className="group absolute inset-y-0 left-0 flex w-6 -translate-x-1/2 cursor-col-resize touch-none items-stretch justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)]"
       >
         <span
-          className="my-auto h-12 w-1 rounded-full bg-white/30 transition-colors group-hover:bg-white/60"
+          className="my-auto h-12 w-1 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]"
         />
       </div>
     </div>

@@ -1,11 +1,12 @@
 'use client'
 
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/feed-utils'
 import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
-import { PanelHeader, SlidingPanel } from './shared-ui'
+import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
 const LIMIT_KB = 64
@@ -29,6 +30,16 @@ function Note({ children, role }: { children: React.ReactNode; role?: 'alert' | 
 }
 
 function FileBlock({ file }: { file: ProjectContextFile }) {
+  // The text block is a scroll container: it joins the tab order only while it actually scrolls, so a keyboard
+  // user can scroll it (WCAG 2.1.1) without a static tabIndex on a non-interactive element (set imperatively,
+  // as in the link panel).
+  const preRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const el = preRef.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) el.setAttribute('tabindex', '0')
+    else el.removeAttribute('tabindex')
+  }, [file.text, file.found])
   return (
     <section aria-label={file.name} className="mb-2">
       <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{file.name}</h3>
@@ -42,7 +53,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
             </p>
           )}
           <pre
-            tabIndex={0}
+            ref={preRef}
             aria-label={`${file.name} content`}
             className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING}`}
             style={{ background: COLORS.holoBg05, color: COLORS.assistantText, scrollbarWidth: 'thin' }}
@@ -50,6 +61,28 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
         </>
       )}
     </section>
+  )
+}
+
+/**
+ * Context and Files are mutually exclusive: Context takes the 'files' slot of the right dock, so the shared
+ * layout places it (below the top bar and the message feed, above the control bar). Mounted only while open:
+ * a mounted-but-closed registration would close the Files panel's slot.
+ */
+function ContextDock({ children }: { children: (maxHeight: number | string) => ReactNode }) {
+  const dock = useDockPanel('files', true)
+  const { rect } = dock
+  return (
+    <SlidingPanel
+      visible
+      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
+      zIndex={Z.sidePanel}
+      width={rect?.w ?? 360}
+      attrs={dockAttrs('files', 'right', dock)}
+      style={dock.hidden ? { display: 'none' } : undefined}
+    >
+      {children(rect?.h ?? '70vh')}
+    </SlidingPanel>
   )
 }
 
@@ -65,8 +98,9 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
     : current?.status === 'error' || current?.status === 'loading' ? current.stale : undefined
 
   return (
-    <SlidingPanel visible={visible} position={{ top: 48, right: 12 }} zIndex={Z.sidePanel} width={360}>
-      <div className="glass-card relative">
+    <ContextDock>
+      {maxHeight => (
+      <div className="glass-card relative flex flex-col" style={{ maxHeight, background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (
@@ -85,7 +119,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
           <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>PROJECT CONTEXT</span>
         </PanelHeader>
 
-        <div className="max-h-[70vh] overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
           {unavailableReason ? <Note>{unavailableReason}</Note>
             : sessionId === null ? <Note>Select a single session to see its project context.</Note>
             : current?.status === 'unavailable' ? <Note>No project context is available for this session (its working directory is unknown).</Note>
@@ -116,6 +150,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
           )}
         </div>
       </div>
-    </SlidingPanel>
+      )}
+    </ContextDock>
   )
 }

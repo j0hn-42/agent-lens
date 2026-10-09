@@ -17,6 +17,7 @@ import { CSP_API } from '../extension/src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-err-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

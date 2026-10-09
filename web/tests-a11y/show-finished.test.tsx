@@ -19,7 +19,7 @@ const base: TopBarProps = {
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 test('toggle is a native button named with the finished count and reports aria-pressed', () => {

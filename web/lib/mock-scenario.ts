@@ -1,5 +1,8 @@
 import type { SimulationEvent } from './agent-types'
+import type { SessionInfo } from './bridge-types'
 import { STRESS_SCENARIOS, type StressLevel } from './stress-test-scenario'
+import { TOUR_SCENARIO, TOUR_SESSIONS } from './tour-scenario'
+import { GUIDED_SCENARIO } from './guided-scenario'
 
 // ─── Stress Test Support ─────────────────────────────────────────────────────
 // Add ?stress=light|medium|heavy|extreme to the URL to load a stress scenario.
@@ -48,8 +51,8 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 6.0, type: 'context_update', payload: { agent: 'orchestrator', tokens: 11500, breakdown: { systemPrompt: 1500, userMessages: 700, toolResults: 6500, reasoning: 2800, subagentResults: 0 } } },
 
   // MCP tool call (rendered with the cyan MCP style: server badge, orbiting dots, dotted beam)
-  { time: 6.2, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', args: 'limit: 10' } },
-  { time: 7.4, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', result: '10 payment intents (7 succeeded, 2 pending, 1 failed)', tokenCost: 900 } },
+  { time: 25.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', args: 'limit: 10' } },
+  { time: 26.2, type: 'tool_call_end', payload: { agent: 'orchestrator', tool: 'mcp__stripe__list_payment_intents', result: '10 payment intents (7 succeeded, 2 pending, 1 failed)', tokenCost: 900 } },
 
   // ── Phase 2: Planning (thinking — deciding on approach) ───────────────────
   { time: 8.0, type: 'tool_call_start', payload: { agent: 'orchestrator', tool: 'TodoWrite', args: 'planning implementation', inputData: {
@@ -216,9 +219,52 @@ const NORMAL_MOCK_SCENARIO: SimulationEvent[] = [
   { time: 65.0, type: 'agent_complete', payload: { name: 'orchestrator' } },
 ]
 
+// ─── Workflow demo (?scenario=workflow) ──────────────────────────────────────
+// A workflow with two phases whose first one is finished: exercises the phase groups (#146) and
+// 'Hide inactive agents' on finished members (#147) in the demo app and its browser tests.
+
+/** ?scenario=<name> wins, then NEXT_PUBLIC_DEMO_SCENARIO (what `pnpm run dev:demo` sets), else the classic scenario. */
+function getScenarioName(): string | null {
+  if (typeof window === 'undefined') return null
+  return new URLSearchParams(window.location.search).get('scenario') || process.env.NEXT_PUBLIC_DEMO_SCENARIO || null
+}
+
+const WORKFLOW_MEMBERS: Array<{ name: string; phase: string }> = [
+  { name: 'plan-a', phase: 'Plan' },
+  { name: 'plan-b', phase: 'Plan' },
+  { name: 'build-a', phase: 'Build' },
+  { name: 'build-b', phase: 'Build' },
+  { name: 'build-c', phase: 'Build' },
+]
+
+export const WORKFLOW_MOCK_SCENARIO: SimulationEvent[] = [
+  { time: 0.0, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Run the release workflow' } },
+  ...WORKFLOW_MEMBERS.map((m, i): SimulationEvent => ({
+    time: 0.2 + i * 0.1,
+    type: 'agent_spawn',
+    payload: { name: m.name, kind: 'teammate', teamName: 'release', teamKind: 'workflow', parent: 'orchestrator', task: `${m.phase} step` },
+  })),
+  // The phases are announced after the members appeared (the late order the layout must follow)
+  { time: 1.0, type: 'team_info', payload: { teamName: 'release', teamKind: 'workflow', leadSessionId: 'default', members: WORKFLOW_MEMBERS } },
+  { time: 1.5, type: 'agent_activity', payload: { name: 'plan-a', activity: 'done' } },
+  { time: 1.6, type: 'agent_activity', payload: { name: 'plan-b', activity: 'done' } },
+  { time: 1.7, type: 'agent_activity', payload: { name: 'build-a', activity: 'working' } },
+  { time: 1.8, type: 'agent_activity', payload: { name: 'build-b', activity: 'working' } },
+]
+
+const SCENARIO_NAME = getScenarioName()
+
 export const MOCK_SCENARIO: SimulationEvent[] = stressLevel
   ? STRESS_SCENARIOS[stressLevel]()
-  : NORMAL_MOCK_SCENARIO
+  : SCENARIO_NAME === 'tour' ? TOUR_SCENARIO
+  : SCENARIO_NAME === 'guided' ? GUIDED_SCENARIO
+  : SCENARIO_NAME === 'workflow' ? WORKFLOW_MOCK_SCENARIO : NORMAL_MOCK_SCENARIO
+
+/** True when the step-by-step guided demo (?scenario=guided) is the active scenario. */
+export const IS_GUIDED_DEMO = !stressLevel && SCENARIO_NAME === 'guided'
+
+/** Sessions the demo declares (the tour spans three: the relay would normally list them). Empty for the others. */
+export const MOCK_SESSIONS: SessionInfo[] = !stressLevel && SCENARIO_NAME === 'tour' ? TOUR_SESSIONS : []
 
 export const MOCK_DURATION = MOCK_SCENARIO.length > 0
   ? MOCK_SCENARIO[MOCK_SCENARIO.length - 1].time + 10

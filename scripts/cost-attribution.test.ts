@@ -5,7 +5,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import {
-  resolveUsageTarget, summarizeCosts, addUnattributed, MAX_UNATTRIBUTED_KEYS, OVERFLOW_KEY,
+  resolveUsageTarget, summarizeCosts, sessionUsage, addUnattributed, MAX_UNATTRIBUTED_KEYS, OVERFLOW_KEY,
 } from '../web/lib/attribution'
 import { agentCost } from '../web/lib/cost'
 
@@ -131,4 +131,37 @@ test('overflow: absolute readings of overflowed names are never accumulated', ()
   // Increments (tool cost) still fold into the overflow entry
   addUnattributed(m, 's', 'late', 'orphan', 70, 'add')
   assert.equal(m.get(OVERFLOW_KEY)!.tokens, 70)
+})
+
+test('summarizeCosts skips agents whose tokens are unknown instead of adding them as 0', () => {
+  const sum = summarizeCosts([
+    { tokensUsed: 1_000_000, tokenStatus: 'available' as const },
+    { tokensUsed: 500_000, tokenStatus: 'partial' as const },
+    { tokensUsed: 999, tokenStatus: 'unavailable' as const },
+  ], [])
+  assert.equal(sum.attributedTokens, 1_500_000, 'a partial lower bound counts, an unavailable placeholder does not')
+  assert.equal(sum.attributedCost, agentCost(1_500_000))
+})
+
+test('an estimated orphan usage stays estimated: in the remainder, at the late spawn, and in the session total', () => {
+  const est = (agent: string, tokenCost: number): Ev => ({
+    type: 'tool_call_end', payload: { agent, tool: 'Read', result: 'ok', tokenCost, tokenSource: 'estimated' },
+  })
+  const s = run([main, est('ghost', 900)])
+  assert.equal(s.unattributed.get('default:ghost')!.estimated, true)
+  assert.equal(sessionUsage(s.agents.values(), s.unattributed.values()).tokens.estimated, true)
+  const late = run([main, est('ghost', 900), spawn('ghost')])
+  const ghost = late.agents.get('default:ghost')!
+  assert.equal(ghost.tokensUsed, 900)
+  assert.equal(ghost.tokensEstimated, true)
+})
+
+test('a reported orphan usage is not flagged estimated, and one estimated part flags the entry', () => {
+  const rep: Ev = { type: 'tool_call_end', payload: { agent: 'ghost', tool: 'Read', result: 'ok', tokenCost: 100, tokenSource: 'reported' } }
+  const s = run([main, rep])
+  assert.equal(s.unattributed.get('default:ghost')!.estimated, false)
+  const m = new Map()
+  addUnattributed(m, 's', 'k', 'orphan', 10, 'add', false)
+  addUnattributed(m, 's', 'k', 'orphan', 10, 'add', true)
+  assert.equal(m.get('k').estimated, true)
 })

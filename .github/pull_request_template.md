@@ -8,5 +8,7 @@
 
 ## Checklist
 
-- [ ] `pnpm test`, `pnpm --dir extension test`, `pnpm --dir web exec tsc --noEmit` and `pnpm test:a11y` pass
+- [ ] The checks listed in [CONTRIBUTING.md](../CONTRIBUTING.md) pass: `pnpm test`, `pnpm --dir extension test`, `pnpm --filter agent-lens run lint`, `pnpm --filter agent-lens run lint:test`, `pnpm run lint:scripts`, `pnpm --dir web exec tsc --noEmit`, `pnpm --dir web run lint:a11y`, `pnpm run test:a11y`
+- [ ] If the change touches rendering, canvas, CSS or a11y: the e2e suite (`pnpm --dir web run test:e2e`) passes
+- [ ] No a11y baseline widened (`lint-baseline.json`, `known-violations.json`)
 - [ ] New UI is keyboard-operable and has accessible names

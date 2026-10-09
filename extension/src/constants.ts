@@ -13,6 +13,13 @@ export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 /** Interval between active-session directory scans (ms) */
 export const SCAN_INTERVAL_MS = 1000
 
+/** Plafond de sessions Codex suivies en même temps (watcher + timer chacune), comme RELAY_MAX_WATCHED_SESSIONS côté Claude */
+export const CODEX_MAX_WATCHED_SESSIONS = 25
+
+/** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
+ *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
+export const COLD_RESCAN_CYCLES = 30
+
 /** Fallback poll interval when fs.watch might miss events (ms) */
 export const POLL_FALLBACK_MS = 3000
 
@@ -263,6 +270,8 @@ export const SUBAGENT_TRANSCRIPT_MAX_QUEUE = 16
 
 /** Max simultaneous SSE clients on the relay (extra clients get 503) */
 export const RELAY_MAX_SSE_CLIENTS = 32
+/** The relay writes a keep-alive to every SSE client this often (ms); the web client mirrors it (a test compares them) */
+export const RELAY_SSE_HEARTBEAT_MS = 15_000
 /** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */
 export const RELAY_MAX_CLIENT_BACKLOG_BYTES = 1024 * 1024
 /** Max events replayed to a client per session, and in total, on connect */
@@ -385,6 +394,13 @@ export const RELAY_ISSUE_LINKS_RATE_BURST = 30
 export const RELAY_ISSUE_LINKS_RATE_PER_S = 2
 export const RELAY_ISSUE_LINKS_CACHE_TTL_MS = 60_000
 export const RELAY_ISSUE_LINKS_CACHE_MAX_ROLES = 64
+/** Max `gh` processes running at once for /issue-links (a cache miss beyond it is refused with 503) */
+export const RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT = 2
+/** Max new `gh` runs (cache misses) started per window, whatever the rate-limiter key */
+export const RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW = 20
+export const RELAY_ISSUE_LINKS_PROBE_WINDOW_MS = 60_000
+/** Default freshness of the session index cache (ms) */
+export const RELAY_SESSION_INDEX_CACHE_MS = 30_000
 export const RELAY_STATUS_RATE_PER_S = 5
 /** Max distinct clients tracked by the /status rate limiter */
 export const RELAY_STATUS_RATE_MAX_KEYS = 64
@@ -482,7 +498,7 @@ export const SNAPSHOT_MAX_BYTES = 256 * 1024
 export const SNAPSHOT_MAX_DEPTH = 8
 export const SNAPSHOT_MAX_ARRAY_LENGTH = 1000
 export const SNAPSHOT_MAX_KEYS = 200
-/** A snapshot older than this is stale (same threshold as a silent agent on the canvas) */
+/** A snapshot older than this is stale (same threshold as a silent agent on the canvas: STALE_AFTER_MS of web/lib/canvas-constants.ts, a test compares them) */
 export const SNAPSHOT_STALE_AFTER_MS = 30_000
 /** A snapshot dated further than this in the future is rejected (clock skew we cannot prove) */
 export const SNAPSHOT_FUTURE_TOLERANCE_MS = 5_000

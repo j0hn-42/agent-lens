@@ -3,6 +3,7 @@ dist
 .vite
 *.local
 .next
+.next-e2e
 *.vsix
 
 # Auto-generated
@@ -27,3 +28,6 @@ extension/.vscode/
 extension/package-lock.json
 
 .DS_Store
+
+# Playwright e2e output (demo server log)
+test-results/

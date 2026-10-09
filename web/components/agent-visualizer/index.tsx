@@ -1,5 +1,6 @@
 "use client"
 
+import { useThemeVersion } from '@/lib/theme'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -21,17 +22,23 @@ import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
 import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState, type UiPrefs } from "@/lib/ui-preferences"
-import { dockStore } from "@/lib/panel-layout"
+import { dockStore, SHEET_BREAKPOINT } from "@/lib/panel-layout"
 import { TimelineEvent, TIMING } from "@/lib/agent-types"
-import { COLORS } from "@/lib/colors"
+import { COLORS, SCENE } from "@/lib/colors"
+import { LearnMoreLink } from "./learn-more-link"
 import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bridge-types"
 import { selectionLabel } from "@/lib/session-tree"
 
-import { MOCK_DURATION } from "@/lib/mock-scenario"
+import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
+import { GUIDED_STEPS } from "@/lib/guided-steps"
+import { useGuidedTour } from "@/hooks/use-guided-tour"
+import { GuidedTourCard } from "./guided-tour-card"
+import { TourHighlight } from "./tour-highlight"
+import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS } from "./top-bar"
-import { ChromeAnnouncer } from "./chrome-announcer"
+import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { sessionUsage } from "@/lib/attribution"
 import { nextInspectorMemory, type InspectorMemory } from "@/lib/inspector-model"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
@@ -39,13 +46,17 @@ import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
+import { SettingsDialog } from "./settings-dialog"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from "@/lib/inactive-agents"
+import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents } from "@/lib/chrome-utils"
+import { useFreshnessValue } from "@/hooks/use-freshness-clock"
+import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { summarizeAttention, withForeignAttention } from "@/lib/attention"
+import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -66,6 +77,8 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
 
 export function AgentVisualizer() {
   const bridge = useVSCodeBridge()
+  // A theme switch re-renders the whole tree so every COLORS-based inline style repaints
+  useThemeVersion()
 
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
@@ -76,6 +89,20 @@ export function AgentVisualizer() {
   sessionOffsetsRef.current = useMemo(() => computeSessionOffsets(bridge.sessions), [bridge.sessions])
 
   const sessionProjects = useMemo(() => buildSessionProjects(bridge.sessions), [bridge.sessions])
+
+  // 'Hide inactive agents': on by default, persisted in localStorage
+  const [hideInactive, setHideInactive] = useState(true)
+  useEffect(() => {
+    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
+  }, [])
+  const updateHideInactive = useCallback((hide: boolean) => {
+    setHideInactive(hide)
+    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
+  }, [])
+  // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
+  // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
+  const [tourShowsInactive, setTourShowsInactive] = useState(false)
+  const hideInactiveShown = hideInactive && !tourShowsInactive
 
   const {
     frameRef,
@@ -94,6 +121,7 @@ export function AgentVisualizer() {
     droppedEvents,
     droppedMessages,
     unattributed,
+    foreignAttention,
     links,
     teams,
     play,
@@ -116,6 +144,7 @@ export function AgentVisualizer() {
     isReviewing,
     sessionOffsetsRef,
     sessionProjects,
+    hideInactive: hideInactiveShown,
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -133,6 +162,9 @@ export function AgentVisualizer() {
   const [showShortcuts, setShowShortcuts] = useState(false)
   const openShortcuts = useCallback(() => setShowShortcuts(true), [])
   const closeShortcuts = useCallback(() => setShowShortcuts(false), [])
+  const [showSettings, setShowSettings] = useState(false)
+  const openSettings = useCallback(() => setShowSettings(true), [])
+  const closeSettings = useCallback(() => setShowSettings(false), [])
 
   // Surface bridge notices (relay down/up, malformed data, session reset) as non-blocking toasts
   const lastNoticeIdRef = useRef(0)
@@ -206,11 +238,14 @@ export function AgentVisualizer() {
   useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
-  // Auto-play on mount
+  // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
+  const isGuidedDemo = IS_GUIDED_DEMO && bridge.useMockData
+  // Auto-play on mount (not in the guided demo: the tour holds the scenario at each step's time)
   useEffect(() => {
+    if (isGuidedDemo) return
     const timer = setTimeout(() => play(), TIMING.autoPlayDelayMs)
     return () => clearTimeout(timer)
-  }, [play])
+  }, [play, isGuidedDemo])
 
   // Per-session state cache: save/restore simulation state on tab switch
   // so sessions stay up to date and switching is instant.
@@ -403,15 +438,6 @@ export function AgentVisualizer() {
     try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
   }, [])
 
-  // 'Hide inactive agents': on by default, persisted in localStorage
-  const [hideInactive, setHideInactive] = useState(true)
-  useEffect(() => {
-    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
-  }, [])
-  const updateHideInactive = useCallback((hide: boolean) => {
-    setHideInactive(hide)
-    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
-  }, [])
 
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
@@ -422,6 +448,7 @@ export function AgentVisualizer() {
     toggleTimeline: () => { setShowTimeline(prev => !prev) },
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
+    toggleContext: () => toggleExclusivePanel('context'),
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     closeTopPanel,
@@ -444,6 +471,27 @@ export function AgentVisualizer() {
   const totalTokens = usage.summary.sessionTokens
   const totalCost = usage.summary.sessionCost
 
+  // Agents waiting for a permission or in error (#126): counter, tab title and opt-in notification.
+  // The clock only re-evaluates freshness: a waiting status nothing proves any more drops out.
+  const [attentionNow, setAttentionNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setAttentionNow(Date.now()), 10_000)
+    return () => clearInterval(t)
+  }, [])
+  const attention = useMemo(() => summarizeAttention(withForeignAttention(agents.values(), foreignAttention), Math.max(attentionNow, Date.now())), [agents, foreignAttention, attentionNow])
+  const { notifyState, toggleNotify } = useAttentionAlerts(attention)
+  const { handleAgentClick: selectBlockedAgent } = selection
+  const attentionTarget = attention.firstAgentId
+  const attentionSession = attention.firstSessionId
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  // An agent of another session is not in this view: go to its session instead
+  const jumpToAttention = useCallback(() => {
+    if (!attentionTarget) return
+    if (agentsRef.current.has(attentionTarget)) selectBlockedAgent(attentionTarget)
+    else if (attentionSession) bridge.selectSession(attentionSession)
+  }, [attentionTarget, attentionSession, selectBlockedAgent, bridge])
+
   const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
   // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
@@ -452,8 +500,10 @@ export function AgentVisualizer() {
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
+  // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
+  // Conversation right after the card would hide the inspector (and closing it would drop the selection).
   useEffect(() => {
-    if (selection.selectedAgentId) openConversation()
+    if (selection.selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
   }, [selection.selectedAgentId, openConversation])
 
   // Context menu items
@@ -555,11 +605,15 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
-  const { activeAgentCount, doneAgentCount } = useMemo(() => {
-    let done = 0
-    for (const a of agents.values()) if (a.state === 'complete') done++
-    return { activeAgentCount: agents.size - done, doneAgentCount: done }
-  }, [agents])
+  // Agents whose status is older than the freshness limit are counted apart: they are not "active" any more (#145)
+  const countsKey = useFreshnessValue(now => {
+    const c = agentActivityCounts(agentsRef.current.values(), now)
+    return `${c.active}|${c.done}|${c.stale}`
+  })
+  const { activeAgentCount, doneAgentCount, staleAgentCount } = useMemo(() => {
+    const [active, done, stale] = countsKey.split('|').map(Number)
+    return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale }
+  }, [countsKey, agents])
 
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
   const allSessionCount = useMemo(() => {
@@ -576,6 +630,9 @@ export function AgentVisualizer() {
       : bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.label ?? null
 
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
+  const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
+  // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
+  const listAgents = useMemo(() => listedAgents(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -583,15 +640,43 @@ export function AgentVisualizer() {
     sessionCount: detectedSessions(bridge.sessions).length,
   })
 
+  const handleSeek = (time: number) => {
+    seekingRef.current = true
+    pause()
+    seekToTime(time)
+    setZoomToFitTrigger(n => n + 1)
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
+  }
+
+  // Guided tour (demo ?scenario=guided): step times only match the guided scenario, so it is offered nowhere else
+  const tour = useGuidedTour({ steps: GUIDED_STEPS, seek: handleSeek, play })
+  const canvasToScreenRef = useRef<TourBridge['canvasToScreenRef']['current']>(null)
+  // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical.
+  // A real source taking over ends the tour: its step times do not match the real event log.
+  const [guidedDemo, setGuidedDemo] = useState(false)
+  useEffect(() => {
+    setGuidedDemo(isGuidedDemo)
+    if (isGuidedDemo) tour.start()
+    else if (tour.active) tour.exit()
+  }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
+  const startTour = guidedDemo && !tour.active ? tour.start : undefined
+  const tourBridge = useMemo(() => ({ legendOpen: Boolean(tour.step?.opensLegend), canvasToScreenRef, startTour }), [tour.step, startTour])
+  const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])
+  useEffect(() => { setTourShowsInactive(tour.active) }, [tour.active])
+
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
+    <TourBridgeContext.Provider value={tourBridge}>
     <OpenFileProvider value={bridge.isVSCode ? openFile : null}>
-    <div className="h-screen w-full relative overflow-hidden" style={{ background: COLORS.void }}>
+    <div className="h-screen w-full relative overflow-hidden" style={{ background: SCENE.void }}>
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity}
       />
+
+      <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <TopBar
@@ -611,6 +696,7 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         isDemo={bridge.useMockData}
         activeAgentCount={activeAgentCount}
+        staleAgentCount={staleAgentCount}
         doneAgentCount={doneAgentCount}
         totalTokens={totalTokens}
         totalCost={totalCost}
@@ -623,28 +709,35 @@ export function AgentVisualizer() {
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
+        showStats={showStats}
+        onToggleStats={() => setShowStats(prev => !prev)}
         onTogglePanel={toggleExclusivePanel}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
+        onOpenSettings={openSettings}
+        attention={attention}
+        onJumpToAttention={jumpToAttention}
+        notifyState={notifyState}
+        onToggleNotify={toggleNotify}
       />
 
       <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
       <h1 className="sr-only">Agent Lens</h1>
 
-      {/* Empty state when no demo and no live data */}
+      {/* Empty state when no demo and no live data. Its text sits directly on the scene ground: scene colours, whatever the theme. */}
       {isEmpty && (
         <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none">
           <div
             className="text-center max-w-[calc(100vw-24px)] pointer-events-auto"
             style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
           >
-            <div className="text-sm font-semibold" style={{ color: COLORS.textPrimary }}>Waiting for an agent session</div>
-            <div className="mt-1 text-xs" style={{ color: COLORS.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
-            <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: COLORS.textMuted }}>
+            <div className="text-sm font-semibold" style={{ color: SCENE.textPrimary }}>Waiting for an agent session</div>
+            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
+            <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
               {checklist.map(item => (
                 <li key={item.id}>
-                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? COLORS.complete : COLORS.error }}>{item.ok ? '✓' : '✗'}</span>
+                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? SCENE.complete : SCENE.error }}>{item.ok ? '✓' : '✗'}</span>
                   <span className="sr-only">{item.ok ? 'Done: ' : 'Not done: '}</span>
                   {item.label}
                   {item.detail && <span> ({item.detail})</span>}
@@ -656,10 +749,13 @@ export function AgentVisualizer() {
                 type="button"
                 onClick={bridge.loadDemo}
                 className={`min-h-6 min-w-6 px-3 py-1 rounded text-xs font-semibold ${FOCUS_RING}`}
-                style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+                style={{ background: SCENE.holoBg10, border: `1px solid ${SCENE.controlBorder}`, color: SCENE.textPrimary }}
               >
                 Load demo
               </button>
+            </div>
+            <div className="mt-2 text-xs" style={{ color: SCENE.textMuted }}>
+              <LearnMoreLink palette={SCENE} />
             </div>
           </div>
         </div>
@@ -684,7 +780,7 @@ export function AgentVisualizer() {
         onDiscoveryClick={selection.handleDiscoveryClick}
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
-        hideInactive={hideInactive}
+        hideInactive={hideInactiveShown}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -777,14 +873,7 @@ export function AgentVisualizer() {
         onRestart={handleClearHistory}
         onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData}
-        onSeek={(time) => {
-          seekingRef.current = true
-          pause()
-          seekToTime(time)
-          setZoomToFitTrigger(n => n + 1)
-          if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
-          resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
-        }}
+        onSeek={handleSeek}
         timelineEvents={timelineEvents}
         isReviewing={isReviewing}
         eventCount={timelineEvents.length}
@@ -807,6 +896,7 @@ export function AgentVisualizer() {
       <div ref={sessionsPanelRef} style={{ display: 'contents' }}>
         <SessionListPanel
           visible={showSessions}
+          attention={attention}
           onClose={() => setShowSessions(false)}
           sessions={bridge.sessions}
           allSessionCount={allSessionCount}
@@ -815,13 +905,21 @@ export function AgentVisualizer() {
           sessionModels={bridge.sessionModels}
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
-          agents={agents}
+          agents={listAgents}
           selectedAgentId={selection.selectedAgentId}
           onSelectAgent={selection.handleAgentClick}
           teams={bridge.teams}
           teamWorking={bridge.teamWorking}
           teamSummaries={bridge.teamSummaries}
           teamMemberCounts={bridge.teamMemberCounts}
+          filterProject={prefs.sessionFilterProject}
+          filterRuntime={prefs.sessionFilterRuntime}
+          filterBranch={prefs.sessionFilterBranch}
+          onFilterChange={change => {
+            if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
+            if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
+            if (change.branch !== undefined) setPref('sessionFilterBranch', change.branch)
+          }}
         />
       </div>
 
@@ -847,6 +945,13 @@ export function AgentVisualizer() {
         />
       </div>
 
+      {tour.active && tour.step && (
+        <>
+          <TourHighlight key={tour.step.id} target={tour.step.target} getAgents={getTourAgents} />
+          <GuidedTourCard steps={GUIDED_STEPS} index={tour.index} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={tour.exit} />
+        </>
+      )}
+
       <ToastRegion
         toasts={toasts}
         onAction={runToastAction}
@@ -856,6 +961,22 @@ export function AgentVisualizer() {
       />
       </main>
 
+      <SettingsDialog
+        open={showSettings}
+        onClose={closeSettings}
+        hexGrid={showHexGrid}
+        onHexGridChange={setShowHexGrid}
+        muted={isMuted}
+        onToggleMute={handleToggleMute}
+        showFinished={bridge.showFinished}
+        onShowFinishedChange={bridge.setShowFinished}
+        hideInactive={hideInactive}
+        onHideInactiveChange={updateHideInactive}
+        singleKeyEnabled={singleKeyShortcuts}
+        onSingleKeyEnabledChange={updateSingleKeyShortcuts}
+        onOpenShortcuts={openShortcuts}
+      />
+
       <ShortcutsDialog
         open={showShortcuts}
         onClose={closeShortcuts}
@@ -864,6 +985,7 @@ export function AgentVisualizer() {
       />
     </div>
     </OpenFileProvider>
+    </TourBridgeContext.Provider>
     </PanelRegistryContext.Provider>
   )
 }

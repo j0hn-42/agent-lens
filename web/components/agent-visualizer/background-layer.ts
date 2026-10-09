@@ -1,5 +1,5 @@
 import { DepthParticle } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 
 const NUM_PARTICLES = 80
@@ -48,7 +48,7 @@ export function drawBackground(
   reducedMotion = false,
 ): void {
   // Deep void
-  ctx.fillStyle = COLORS.void
+  ctx.fillStyle = SCENE.void
   ctx.fillRect(0, 0, width, height)
 
   // Ambient spotlight following active agent
@@ -71,7 +71,7 @@ export function drawBackground(
     const alpha = p.brightness * (0.5 + p.depth * 0.5)
 
     ctx.beginPath()
-    ctx.fillStyle = COLORS.holoBase + alphaHex(alpha)
+    ctx.fillStyle = SCENE.holoBase + alphaHex(alpha)
     ctx.arc(px, py, size, 0, Math.PI * 2)
     ctx.fill()
   }
@@ -108,7 +108,7 @@ function drawHexGrid(
   const endY = startY + height / transform.scale + hexHeight * 4
 
   const r = size * 0.4
-  ctx.strokeStyle = COLORS.hexGrid
+  ctx.strokeStyle = SCENE.hexGrid
   ctx.lineWidth = 0.5
 
   // Quantize alpha into buckets to batch hexagons into fewer draw calls

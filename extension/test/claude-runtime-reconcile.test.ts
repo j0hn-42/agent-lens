@@ -13,6 +13,7 @@ import * as path from 'node:path'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-runtime-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const SESSION = '55555555-5555-4555-8555-555555555555'
@@ -88,7 +89,11 @@ describe('startClaudeRuntime: hooks and transcript reconciled', () => {
     await waitFor(() => starts('tu-jsonl-first').length > 0)
     assert.equal(starts('tu-jsonl-first').length, 1, 'precondition: the transcript copy arrived')
     assert.equal(await postHook(hook('tu-jsonl-first')), 200)
-    await sleep(250)
+    // Proving a non-occurrence: a later, distinct hook is processed after the duplicate, so once it has arrived
+    // the duplicate has had its chance to reach the panel.
+    assert.equal(await postHook(hook('tu-jsonl-first-sentinel')), 200)
+    await waitFor(() => starts('tu-jsonl-first-sentinel').length > 0)
+    assert.equal(starts('tu-jsonl-first-sentinel').length, 1, 'precondition: the hook pipeline went past the duplicate')
     assert.equal(starts('tu-jsonl-first').length, 1, 'the hook copy was dropped')
   })
 
@@ -96,8 +101,11 @@ describe('startClaudeRuntime: hooks and transcript reconciled', () => {
     assert.equal(await postHook(hook('tu-hook-first')), 200)
     await waitFor(() => starts('tu-hook-first').length > 0)
     assert.equal(starts('tu-hook-first').length, 1, 'precondition: the hook copy arrived')
-    fs.appendFileSync(transcript, toolUse('tu-hook-first'))
-    await sleep(1500) // fs.watch / poll fallback
+    // The duplicate and a sentinel are appended together: lines are read in order, so the sentinel's arrival
+    // means the duplicate was read (no fixed wait on fs.watch / the poll fallback).
+    fs.appendFileSync(transcript, toolUse('tu-hook-first') + toolUse('tu-hook-first-sentinel'))
+    await waitFor(() => starts('tu-hook-first-sentinel').length > 0)
+    assert.equal(starts('tu-hook-first-sentinel').length, 1, 'precondition: the transcript was read past the duplicate')
     assert.equal(starts('tu-hook-first').length, 1, 'the transcript copy was dropped')
   })
 

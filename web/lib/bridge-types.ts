@@ -23,6 +23,8 @@ export interface SessionInfo {
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
+  /** True when lastActivityTime only stands for the start: usable to sort, never to display */
+  lastActivityUnknown?: boolean
   /** Agent runtime of the session, when the extension reports it */
   runtime?: 'claude' | 'codex'
   /** Workspace name/path of the session, when known */
@@ -33,6 +35,8 @@ export interface SessionInfo {
   projectId?: string
   /** Folder name of the repository's main checkout, shown as the group title */
   projectName?: string
+  /** Git branch recorded at the head of the session transcript (untrusted, capped); absent when unrecorded or detached */
+  branch?: string
   /** Agent Team this session belongs to (tmux teammate sessions), when known */
   teamName?: string
   /** Teammate name inside the team, when the session is a team member */
@@ -98,11 +102,13 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.status === 'active' || v.status === 'completed')
     && typeof v.startTime === 'number'
     && typeof v.lastActivityTime === 'number'
+    && (v.lastActivityUnknown === undefined || typeof v.lastActivityUnknown === 'boolean')
     && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
     && (v.projectId === undefined || typeof v.projectId === 'string')
     && (v.projectName === undefined || typeof v.projectName === 'string')
+    && (v.branch === undefined || typeof v.branch === 'string')
     && (v.teamName === undefined || typeof v.teamName === 'string')
     && (v.memberName === undefined || typeof v.memberName === 'string')
     && (v.parentSessionId === undefined || typeof v.parentSessionId === 'string')
@@ -129,19 +135,21 @@ export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
  * cluster keys and tracker names agree); an empty result drops the field.
  */
 export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
-  const { teamName, memberName, parentSessionId, projectId, projectName, ...rest } = s
+  const { teamName, memberName, parentSessionId, projectId, projectName, branch, ...rest } = s
   const team = cleanLine(teamName)
   const member = cleanLine(memberName)
   const parent = cleanLine(parentSessionId, MAX_SESSION_ID_LEN)
   // A project group needs both its identity and a title; half of it is dropped
   const pid = cleanLine(projectId, 64)
   const pname = cleanLine(projectName)
+  const branchName = cleanLine(branch, 200)
   return {
     ...rest,
     ...(team ? { teamName: team } : {}),
     ...(member ? { memberName: member } : {}),
     ...(parent ? { parentSessionId: parent } : {}),
     ...(pid && pname ? { projectId: pid, projectName: pname } : {}),
+    ...(branchName ? { branch: branchName } : {}),
   }
 }
 

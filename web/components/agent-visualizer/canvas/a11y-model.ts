@@ -20,7 +20,7 @@ import {
 import { computeClusters, clusterAnnouncement, clusterNoun, type SessionMeta } from './cluster-model'
 import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
-import { isUnverifiedEdge } from './edge-style'
+import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
@@ -36,7 +36,7 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
-/** "1.5k / 200k tokens", "au moins 1.5k estimé / 200k tokens" or "tokens non renseigné". */
+/** "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". */
 function tokenSummary(a: Agent): string {
   const usage = usageFromAgent(a)
   return usage.status === 'unavailable'
@@ -161,6 +161,8 @@ export interface A11yAgentItem {
   teamName?: string
   /** 'workflow' when the group is a Workflow run */
   teamKind?: 'team' | 'workflow'
+  /** Phase the workflow announced for this agent (workflow agents only, never inferred) */
+  phase?: string
   /** 'working' | 'idle' | 'done' for teammates */
   activityText?: string
   archived: boolean
@@ -257,6 +259,8 @@ export interface A11yExtras {
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Proven parent -> child session links, worded in the heading of the clusters they connect */
   sessionLinks?: ReadonlyArray<SessionLink>
+  /** Every agent of the simulation (even those a collapsed branch hides): cluster costs count them all */
+  costAgents?: Iterable<Agent>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -298,12 +302,12 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
-  const unverifiedChildren = new Set<string>()
-  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.add(e.to)
+  const unverifiedChildren = new Map<string, string>()
+  for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.set(e.to, unverifiedReasonText(e.unverifiedReason))
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
     const parent = a.parentId ? agents.get(a.parentId) : undefined
@@ -320,12 +324,13 @@ export function buildA11yModel(
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
-      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ' (unverified link)' : ''}` : a.isMain ? 'main agent' : 'no parent',
+      relation: parent ? `child of ${parent.name}${unverifiedChildren.has(a.id) ? ` (unverified link${unverifiedChildren.get(a.id) ? `: ${unverifiedChildren.get(a.id)}` : ''})` : ''}` : a.isMain ? 'main agent' : 'no parent',
       childNames: childNames.get(a.id) ?? [],
       tools: tools.length > A11Y_TOOLS_PER_AGENT ? tools.slice(tools.length - A11Y_TOOLS_PER_AGENT) : tools,
       kind: a.kind ?? (a.isMain ? 'main' : 'subagent'),
       teamName: cleanText(a.teamName) || undefined,
       teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
+      phase: a.teamKind === 'workflow' ? cleanText(a.phase, 40) || undefined : undefined,
       activityText: teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,

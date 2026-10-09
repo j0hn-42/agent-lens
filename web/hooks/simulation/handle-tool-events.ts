@@ -1,11 +1,12 @@
-import { COLORS } from '../../lib/colors'
+import { SCENE } from '../../lib/colors'
 import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
 import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
-import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
+import { USAGE_LABELS } from '../../lib/ui-glossary'
 import type { Agent, ToolCallNode } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 
@@ -35,7 +36,7 @@ export function addToken(
   cost: number | null,
   source: 'reported' | 'estimated',
 ): Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokenGaps' | 'tokensEstimated'> {
-  const hasValue = (agent.tokenStatus ?? (agent.tokensUsed > 0 ? 'available' : 'unavailable')) !== 'unavailable'
+  const hasValue = effectiveTokenStatus(agent) !== 'unavailable'
   const gaps = (agent.tokenGaps ?? 0) + (cost === null ? 1 : 0)
   const known = hasValue || cost !== null
   return {
@@ -106,7 +107,7 @@ export function handleToolCallStart(
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
-      type: 'tool_call', color: mcp ? COLORS.mcp : COLORS.tool,
+      type: 'tool_call', color: mcp ? SCENE.mcp : SCENE.tool,
       size: 4, trailLength: 0.15,
       ...(mcp ? { mcp: true } : {}),
       label: `${formatToolName(toolName)} ${args}`.slice(0, LABEL_LEN_PARTICLE),
@@ -115,7 +116,7 @@ export function handleToolCallStart(
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? COLORS.mcp : COLORS.tool }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx)
     }
 
     // Track file attention
@@ -155,7 +156,8 @@ export function handleToolCallEnd(
   const tokenCost = readTokenCost(payload.tokenCost)
   const tokenSource = readTokenSource(payload.tokenSource)
   const outcome = readToolOutcome(payload)
-  const isError = outcome !== 'complete'
+  const isError = outcome === 'error'
+  const isCancelled = outcome === 'cancelled'
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
@@ -163,7 +165,7 @@ export function handleToolCallEnd(
   // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
   const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
   if (target.kind !== 'attributed' && tokenCost) {
-    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add')
+    addUnattributed(state.unattributed, sessionId, target.key, target.kind, tokenCost, 'add', tokenSource !== 'reported')
   }
 
   if (agent) {
@@ -174,7 +176,7 @@ export function handleToolCallEnd(
       currentTool: undefined,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
-        ? { ...addToken(agent, tokenCost, tokenSource), tokensReported: typeof tokenCost === 'number' ? true : agent.tokensReported }
+        ? addToken(agent, tokenCost, tokenSource)
         : {}),
       ...(isError ? { toolErrors: (agent.toolErrors ?? 0) + 1 } : {}),
     })
@@ -196,7 +198,7 @@ export function handleToolCallEnd(
         state.particles.push({
           id: `p-tr-${currentTime}-${id}`,
           edgeId, progress: 1,
-          type: 'tool_return', color: COLORS.return,
+          type: 'tool_return', color: SCENE.return,
           size: 4, trailLength: 0.15,
           label: result.slice(0, LABEL_LEN_PARTICLE),
         })
@@ -207,14 +209,15 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      if (isError) {
+      if (isError || isCancelled) {
         const lastBlock = entry.blocks[entry.blocks.length - 1]
         if (lastBlock && !lastBlock.endTime) {
-          lastBlock.color = COLORS.error
-          lastBlock.label = `${toolName}: ${outcome === 'cancelled' ? 'CANCELLED' : 'FAILED'}`
+          // A cancelled call is not a failure: neutral color, never the error red
+          lastBlock.color = isError ? SCENE.error : SCENE.idle
+          lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
         }
       }
-      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: COLORS.thinking }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx)
     }
 
     // File attention token cost
@@ -231,7 +234,7 @@ export function handleToolCallEnd(
 
     appendConversation(state.conversations, agentName, {
       type: 'tool_result',
-      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? ', estimé' : ''})` : ''}`,
+      content: `< ${result}${tokenCost ? ` (${tokenCost} tokens${tokenSource === 'estimated' ? `, ${USAGE_LABELS.estimated}` : ''})` : ''}`,
       timestamp: currentTime,
       toolName,
       toolUseId,

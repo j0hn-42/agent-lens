@@ -24,6 +24,13 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
 - **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap, and the conversation (one panel for messages, tool calls and per-agent views)
+- **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
+- **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
+- **Comms**: message links between agents, with the latest message on the link and a panel to read the exchange
+- **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand
+- **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in the top bar (the theme applies to the interface only; the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui.md#themes)
+- **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
 ## Getting Started
@@ -42,9 +49,21 @@ Open http://localhost:3000 and start a Claude Code session in another terminal �
 
 ### VS Code Extension
 
-1. Install the extension
-2. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
-3. Start a Claude Code or Codex session in your workspace — Agent Lens will auto-detect it
+Build the `.vsix` from source and install it:
+
+```bash
+pnpm i
+npm install -g @vscode/vsce                   # once: the `package` script calls the `vsce` command
+pnpm --filter agent-lens run package          # builds the webview and the extension, writes extension/agent-lens-<version>.vsix
+code --install-extension extension/agent-lens-<version>.vsix
+```
+
+Use `cursor` or `windsurf` instead of `code` for those editors (or **Extensions: Install from VSIX...** in the Command Palette). It works with any VS Code-compatible IDE 1.85 or newer, including [Cursor](https://cursor.sh/) and [Windsurf](https://windsurf.com/).
+
+Then:
+
+1. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
+2. Start a Claude Code or Codex session in your workspace. Agent Lens will auto-detect it
 
 Agent Lens automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Lens: Configure Claude Code Hooks** from the Command Palette.
 
@@ -115,13 +134,33 @@ Other scripts:
 
 | Script | Description |
 |--------|-------------|
-| `pnpm run dev:demo` | Start with demo/mock data |
+| `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
+| `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
+| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)) |
 | `pnpm run dev:relay` | Run the event relay server standalone |
 | `pnpm run dev:extension` | Watch-build the extension |
 | `pnpm run build:all` | Production build (webview + extension) |
 | `pnpm run build:web` | Build the Next.js web app |
 | `pnpm run build:extension` | Build the extension |
 | `pnpm run build:webview` | Build the webview assets |
+| `pnpm run gen:themes` | Regenerate `web/app/themes.css` after editing the theme tokens (`web/lib/theme-tokens.json`) |
+| `pnpm --filter agent-lens run package` | Build the extension and package it as a `.vsix` (runs `vsce package`; needs `@vscode/vsce` installed globally) |
+
+Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Documentation
+
+- [Reading the UI](docs/reading-the-ui.md): views, and what "Not observed", "at least", "estimated" and "unattributed" mean
+- [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
+- [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
+- [Sharing state](docs/state-share.md): snapshots and the `observations` action
+- [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
+
+## Releasing
+
+1. Bump `version` in `extension/package.json` and `app/package.json` (they must match) and add a `## <version>` entry at the top of `extension/CHANGELOG.md`. Every user-visible change (feature, fix, behaviour change) gets a line there, with its issue number, in the same PR that introduces it or at the latest when bumping.
+2. `node scripts/release-check.js` verifies the two versions and the CHANGELOG entry (it also runs in CI).
+3. Push a tag `vX.Y.Z` matching the version. The `Release` workflow builds the webview and extension, packages `agent-lens.vsix` as a workflow artifact and attaches it to a GitHub Release. It can also be run by hand (`workflow_dispatch`, never on `develop`) to get the `.vsix` artifact only. Nothing is published to the Marketplace or Open VSX and no secret is used.
 
 ## Accessibility testing
 
@@ -129,7 +168,7 @@ Three layers run in CI (see `.github/workflows/ci.yml`):
 
 - **Lint** — `pnpm --dir web run lint:a11y` runs `eslint-plugin-jsx-a11y` (strict preset, no per-file overrides, inline disables ignored) and compares the result with `web/tests-a11y/lint-baseline.json`, one entry per file and rule with a violation count and the issue that fixes it. It fails on any new violation and on any listed violation that was fixed. After fixing code, run `pnpm --dir web run lint:a11y -- --write` and review the diff; the baseline should only shrink.
 - **jsdom + axe-core** — `pnpm run test:a11y` renders the key components (top bar, control bar in live and review mode, sessions panel, Conversation, file attention, popups, context menu, shortcuts dialog, timeline canvas and table view) and runs axe-core on them. Keyboard wiring tests render the real components and dispatch real key events (scrubber arrows, Space on a button, Escape, context-menu arrows). Known axe violations live in `web/tests-a11y/known-violations.json` with an issue number; the test fails on a new violation and when a listed one disappears, with a message saying which entry to remove.
-- **Browser (Playwright + `@axe-core/playwright`)** — `pnpm --dir web run test:e2e` drives the demo app (`pnpm run dev:demo`, or set `E2E_BASE_URL`) for what jsdom cannot see: serious/critical axe violations including color contrast on the initial page, each panel, review mode, the shortcuts dialog, the context menu (right click) and the tool detail popup (opened from the graph outline button that mirrors a canvas click); the context menu keys (Shift+F10, ContextMenu, ArrowDown/Up, Home, End, Escape, Tab) with focus return, and Escape on the tool popup; no clipped containers, horizontal scroll or off-screen controls at 320 px and 640 px (400 % and 200 % zoom; only the elements tracked in issue #23 are tolerated, any other clipped control fails), measured only after the layout is stable (bounding boxes unchanged over two animation frames and a quiet period) and with the Files and Conversation panels open; the canvas redraws markedly less (pixel diff between two frames, against a no-preference baseline) and no infinite CSS animation runs under `prefers-reduced-motion: reduce`; no invisible control in the Tab order; Space, Escape and scrubber keys on the real page. Install the browser once with `pnpm --dir web exec playwright install chromium`. Without a running server the tests are skipped locally and fail in CI. Browser-level findings use the `e2e:*` scenarios of `known-violations.json`.
+- **Browser (Playwright + `@axe-core/playwright`)** — `pnpm --dir web run test:e2e` starts the demo app itself on a free port (and stops it at the end; set `E2E_BASE_URL` to use a server that is already running instead) for what jsdom cannot see: serious/critical axe violations including color contrast on the initial page, each panel, review mode, the shortcuts dialog, the context menu (right click) and the tool detail popup (opened from the graph outline button that mirrors a canvas click); the context menu keys (Shift+F10, ContextMenu, ArrowDown/Up, Home, End, Escape, Tab) with focus return, and Escape on the tool popup; no clipped containers, horizontal scroll or off-screen controls at 320 px and 640 px (400 % and 200 % zoom; only the elements tracked in issue #23 are tolerated, any other clipped control fails), measured only after the layout is stable (bounding boxes unchanged over two animation frames and a quiet period) and with the Files and Conversation panels open; the canvas redraws markedly less (pixel diff between two frames, against a no-preference baseline) and no infinite CSS animation runs under `prefers-reduced-motion: reduce`; no invisible control in the Tab order; Space, Escape and scrubber keys on the real page. Install the browser once with `pnpm --dir web exec playwright install chromium`. The server log is written to `web/test-results/demo-server.log`. Browser-level findings use the `e2e:*` scenarios of `known-violations.json`.
 
 Color contrast of the design tokens is also checked without a browser by `scripts/contrast.test.ts` (part of `pnpm test`).
 

@@ -47,6 +47,19 @@ export function teamOfAgent(
   return undefined
 }
 
+/**
+ * Phase of a workflow agent: the label the workflow announced for its member in team_info, matched by member name.
+ * Undefined for anything else (no team_info yet, member without phase, Agent Team): a phase is never inferred.
+ */
+export function phaseOfAgent(
+  agent: Pick<Agent, 'sessionId' | 'teamName' | 'teamKind' | 'name' | 'localId'>,
+  teams: ReadonlyMap<string, TeamSummary> | undefined,
+): string | undefined {
+  if (agent.teamKind !== 'workflow' || !agent.teamName) return undefined
+  const member = findTeam(teams, agent.teamName, agent.sessionId)?.members.find(m => m.name === agent.name || m.name === agent.localId)
+  return member?.phase || undefined
+}
+
 /** Key of the team in the map (the map key, not the display name), when the team is in the map. */
 export function keyOfTeam(teams: ReadonlyMap<string, TeamSummary>, team: TeamSummary): string | undefined {
   for (const [key, t] of teams) if (t === team) return key

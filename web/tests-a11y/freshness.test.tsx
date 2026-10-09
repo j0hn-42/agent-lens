@@ -74,6 +74,8 @@ const sessions: SessionInfo[] = [
   { id: 'done', label: 'Done session', status: 'completed', startTime: 0, lastActivityTime: 3 },
 ]
 
+import { showAllSessions } from './sessions-filter-helpers'
+
 function panel(extra: Partial<React.ComponentProps<typeof SessionListPanel>> = {}) {
   return (
     <SessionListPanel
@@ -91,7 +93,9 @@ function rowOf(container: HTMLElement, label: string): HTMLElement {
 }
 
 test('unobserved session: "listed - activity not observed", explanatory text, no activity marker', () => {
-  const { container } = render(panel())
+  const view = render(panel())
+  const { container } = view
+  showAllSessions(view)
   const ghost = rowOf(container, 'Ghost session')
   assert.ok(ghost.textContent!.includes(SESSION_NOT_OBSERVED_TEXT), 'visible status text')
   assert.ok(ghost.textContent!.includes(SESSION_NOT_OBSERVED_HELP), 'accessible explanation in the accessible name')
@@ -176,7 +180,9 @@ test('panel: an error older than the terminal window reads "closed, last known s
 })
 
 test('unobserved session: the visible status carries the explanation as a tooltip', () => {
-  const { container } = render(panel())
+  const view = render(panel())
+  const { container } = view
+  showAllSessions(view)
   const ghost = rowOf(container, 'Ghost session')
   const tip = Array.from(ghost.querySelectorAll<HTMLElement>('[title]')).find(e => e.textContent === SESSION_NOT_OBSERVED_TEXT)
   assert.ok(tip, 'status text element')
@@ -267,7 +273,7 @@ test('canvas: a fresh node (and a never-observed one) is neither dimmed nor labe
 // Concrete drawn values (no comparison against the constants under test)
 const THINKING_COLOR = '#b79cff'
 const STALE_GREY = '#8a94a0'
-const MUTED_TEXT = '#66ccffb0'
+const STALE_TEXT = '#c5ced8' // neutral light grey, opaque: legible over the dark violet halo of a session (#145)
 
 test('canvas constants: the stale look is a grey, clearly dimmed (alpha well below 1)', () => {
   assert.equal(FRESHNESS_DRAW.staleColor, STALE_GREY)
@@ -287,11 +293,11 @@ test('canvas: a stale node draws grey strokes at alpha 0.45, a fresh one the sta
   assert.equal(freshStrokes.some(c => String(c.strokeStyle).startsWith(STALE_GREY)), false)
 })
 
-test('canvas: the stale label reads "last known state: Thinking" in the muted text colour, fully opaque', () => {
+test('canvas: the stale label reads "last known state: Thinking" in an opaque light grey (not the translucent muted blue), fully opaque', () => {
   const label = drawOne({ lastEventAt: T0 }, T0 + STALE_AFTER_MS + 1).find(c => c.fn === 'fillText' && c.text === 'last known state: Thinking')
   assert.ok(label)
   assert.equal(label.alpha, 1)
-  assert.equal(label.fillStyle, MUTED_TEXT, 'the stale label is muted text, not the state colour')
+  assert.equal(label.fillStyle, STALE_TEXT, 'the stale label is a legible grey, not the state colour')
   const freshCalls = drawOne({ lastEventAt: T0 }, T0 + STALE_AFTER_MS)
   const fresh = freshCalls.find(c => c.fn === 'fillText' && c.text === 'thinking')
   assert.ok(fresh, 'a fresh node still says its state in words')

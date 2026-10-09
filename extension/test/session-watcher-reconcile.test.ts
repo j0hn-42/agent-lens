@@ -12,6 +12,7 @@ import type { AgentEvent } from '../src/protocol'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-watcher-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 
 const SESSION = '66666666-6666-4666-8666-666666666666'

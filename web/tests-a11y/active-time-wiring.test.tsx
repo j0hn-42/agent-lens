@@ -6,6 +6,7 @@ import { renderHook, act, cleanup } from '@testing-library/react'
 
 import { useAgentSimulation } from '@/hooks/use-agent-simulation'
 import { observedSessions } from '@/lib/session-model'
+import { isActiveState } from '@/lib/active-time'
 import type { SimulationEvent, Agent } from '@/lib/agent-types'
 
 const T0 = 1_700_000_000_000
@@ -109,6 +110,31 @@ test('seeking to a moment where the agent was idle drops the running span (no co
   assert.equal(byName(view, 'alpha').activeSince, undefined)
 })
 
+test('seeking between two idle moments keeps the closed active time (carryActiveTime)', () => {
+  const view = mount()
+  send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
+  advance(4_000)
+  send(view, [complete('alpha', 3)])
+  const closed = byName(view, 'alpha').activeMs!
+  assert.ok(closed >= 4_000, `precondition: a closed span, got ${closed}`)
+  act(() => { view.result.current.seekToTime(3.5) })
+  assert.equal(byName(view, 'alpha').activeMs, closed, 'not reset to unknown by the rebuild')
+})
+
+test('seeking between two moments where the agent is working keeps the running span (carryActiveTime)', () => {
+  const view = mount()
+  send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
+  advance(3_000)
+  send(view, [{ sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }, toolStart('alpha', 5)])
+  const before = byName(view, 'alpha')
+  assert.ok(isActiveState(before.state) && before.activeSince !== undefined, 'precondition: working with an open span')
+  act(() => { view.result.current.seekToTime(4.5) })
+  const after = byName(view, 'alpha')
+  assert.ok(isActiveState(after.state), `still working at the target moment, got ${after.state}`)
+  assert.equal(after.activeSince, before.activeSince, 'the open span is kept, not dropped')
+  assert.equal(after.activeMs, before.activeMs)
+})
+
 test('replayed (history) events leave the active time unknown, even in one batch', () => {
   const view = mount()
   const replay = (e: SimulationEvent): SimulationEvent => ({ ...e, replayed: true })
@@ -129,7 +155,47 @@ test('an agent left working by a replay does not get an invented span from the n
 test('a spawned agent has no reported tokens until an event reports them (unknown, not 0)', () => {
   const view = mount()
   send(view, [spawn('alpha')])
-  assert.equal(byName(view, 'alpha').tokensReported, false)
+  assert.equal(byName(view, 'alpha').tokenStatus ?? 'unavailable', 'unavailable')
   send(view, [{ sessionId: 's1', time: 2, type: 'context_update', payload: { agent: 'alpha', tokens: 0 } }])
-  assert.equal(byName(view, 'alpha').tokensReported, true, 'a reported 0 is a real 0')
+  assert.equal(byName(view, 'alpha').tokenStatus, 'available', 'a reported 0 is a real 0')
+})
+
+const turnEnd = (name: string, time: number): SimulationEvent =>
+  ({ sessionId: 's1', time, type: 'agent_idle', payload: { name, turnEnd: true } })
+
+test('end of turn (#107): the orchestrator is paused, the reading time after it is not counted', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  advance(4_000)
+  send(view, [turnEnd('alpha', 2)])
+  const paused = byName(view, 'alpha')
+  assert.equal(paused.state, 'idle', 'a finished turn is a pause')
+  assert.equal(paused.activeSince, undefined, 'span closed')
+  const closed = paused.activeMs!
+  assert.ok(closed >= 4_000 && closed < 6_000, `about 4 s of work, got ${closed}`)
+  advance(40 * 60_000)
+  assert.equal(byName(view, 'alpha').activeMs, closed, 'the reading pause adds nothing')
+})
+
+test('an agent_idle without turnEnd keeps the agent working (permission answered: back to thinking)', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  send(view, [{ sessionId: 's1', time: 2, type: 'agent_idle', payload: { name: 'alpha' } }])
+  assert.equal(byName(view, 'alpha').state, 'thinking')
+  assert.ok(byName(view, 'alpha').activeSince !== undefined)
+})
+
+test('the inactivity completion closes the span at the last event, not at its own reception (#107)', () => {
+  const view = mount()
+  send(view, [spawn('alpha')])
+  send(view, [toolStart('alpha', 1)])
+  advance(2_000)
+  send(view, [{ sessionId: 's1', time: 2, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }])
+  advance(5 * 60_000)
+  send(view, [{ ...complete('alpha', 3), payload: { name: 'alpha', inactivity: true } }])
+  const a = byName(view, 'alpha')
+  assert.equal(a.state, 'complete')
+  assert.ok(a.activeMs! >= 2_000 && a.activeMs! < 4_000, `about 2 s of work, not 5 minutes, got ${a.activeMs}`)
 })

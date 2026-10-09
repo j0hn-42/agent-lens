@@ -17,13 +17,6 @@ export function agentCost(tokensUsed: number, model?: string): number {
   return (tokensUsed / 1_000_000) * modelCostRate(model)
 }
 
-/** Total cost across agents, each priced with its own model. */
-export function totalAgentCost(agents: Iterable<{ tokensUsed: number; model?: string }>): number {
-  let sum = 0
-  for (const a of agents) sum += agentCost(a.tokensUsed, a.model)
-  return sum
-}
-
 /** Cost of one agent as a qualified total: unavailable (not $0) when its tokens are unknown, a lower bound when partial. */
 export function agentCostUsage(a: { tokensUsed: number; model?: string; tokenStatus?: UsageStatus; tokensEstimated?: boolean }): UsageTotal {
   const tokens = usageFromAgent(a)

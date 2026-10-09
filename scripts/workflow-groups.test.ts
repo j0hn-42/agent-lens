@@ -301,7 +301,7 @@ test('filterActiveTeams: an idle workflow row stays in the active view, a finish
 // ─── Hide inactive agents keeps live workflow agents ─────────────────────────
 
 function workflowSession(sid: string, name: string): SimulationState {
-  const events: Array<{ type: string; payload: Record<string, unknown>; sessionId: string }> = [
+  const events: Array<{ type: SimulationEvent['type']; payload: Record<string, unknown>; sessionId: string }> = [
     { sessionId: sid, type: 'agent_spawn', payload: { name: 'orch', isMain: true } },
   ]
   for (const n of ['a', 'b', 'c', 'd', 'e']) {
@@ -314,11 +314,13 @@ function workflowSession(sid: string, name: string): SimulationState {
   return run(events)
 }
 
-test('Hide inactive agents ON: a workflow with 3 working, 1 idle, 1 done agents is not drawn empty', () => {
+test('Hide inactive agents ON: a workflow with 3 working, 1 idle, 1 done agents keeps those that work or wait and hides the done one (#147)', () => {
   const s = workflowSession('S', 'tempo-wave-a')
   const shown = visibleAgents(s.agents, true)
-  for (const n of ['a', 'b', 'c', 'd', 'e']) assert.ok(shown.has(`S:impl:${n}`), `impl:${n} stays visible while its workflow is active`)
+  for (const n of ['a', 'b', 'c', 'd']) assert.ok(shown.has(`S:impl:${n}`), `impl:${n} stays visible while its workflow is active`)
+  assert.equal(shown.has('S:impl:e'), false, 'impl:e is done: hidden although its workflow is active')
   assert.ok(shown.has('S:orch'))
+  assert.equal(visibleAgents(s.agents, false), s.agents, 'button off: everything is drawn as before')
 })
 
 test('Hide inactive agents ON: an idle-between-calls workflow stays visible, a finished one is hidden', () => {
@@ -354,7 +356,7 @@ test('Hide inactive agents ON: only the active workflow of two sessions keeps it
 // ─── Two same-named workflows in two sessions, end to end ────────────────────
 
 test('same-named workflows in two sessions stay two groups through the tracker, the team map, the counters and the chips', () => {
-  const events: Array<{ type: string; payload: Record<string, unknown>; sessionId: string }> = []
+  const events: Array<{ type: SimulationEvent['type']; payload: Record<string, unknown>; sessionId: string }> = []
   const addWf = (sid: string, working: number, idle: number) => {
     events.push({ sessionId: sid, type: 'agent_spawn', payload: { name: 'orch', isMain: true } })
     const names = Array.from({ length: working + idle }, (_, i) => `impl:${i}`)

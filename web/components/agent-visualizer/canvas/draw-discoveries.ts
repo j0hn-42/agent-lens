@@ -1,5 +1,5 @@
 import { Agent, Discovery } from '@/lib/agent-types'
-import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
+import { SCENE, getDiscoveryTypeColor } from '@/lib/colors'
 import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
@@ -11,7 +11,7 @@ export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discover
 
     ctx.save()
     ctx.globalAlpha = disc.opacity * 0.3
-    ctx.strokeStyle = COLORS.holoBase + '30'
+    ctx.strokeStyle = SCENE.holoBase + '30'
     ctx.lineWidth = 0.5
     ctx.setLineDash([3, 5])
     ctx.beginPath()
@@ -40,10 +40,10 @@ export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Disc
 
     ctx.beginPath()
     ctx.roundRect(cardX, cardY, cardW, cardH, 3)
-    ctx.fillStyle = isSelected ? COLORS.cardBgSelected : COLORS.cardBg
+    ctx.fillStyle = isSelected ? SCENE.cardBgSelected : SCENE.cardBg
     ctx.fill()
 
-    const typeColor = getDiscoveryTypeColor(disc.type)
+    const typeColor = getDiscoveryTypeColor(disc.type, SCENE)
 
     // Selection glow
     if (isSelected) {
@@ -72,7 +72,7 @@ export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Disc
     ctx.textBaseline = 'top'
     ctx.fillText(truncateText(ctx, disc.label, cardW - 10), cardX + 6, cardY + 3)
 
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.font = '11px monospace'
     for (let i = 0; i < lines.length; i++) {
       ctx.fillText(truncateText(ctx, lines[i], cardW - 10), cardX + 6, cardY + 17 + i * 14)

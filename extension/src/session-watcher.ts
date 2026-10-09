@@ -1,16 +1,16 @@
 import * as vscode from 'vscode'
 import * as fs from 'fs'
 import * as path from 'path'
-import * as os from 'os'
 import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
-import { projectTags } from './project-identity'
+import { projectTags, branchTag } from './project-identity'
+import { claudeProjectsDir, claudeTeamsDir } from './claude-config-dir'
 import {
-  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
+  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
-import { readNewFileLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -40,12 +40,15 @@ const log = createLogger('SessionWatcher')
 // WatchedSession and SubagentState are defined in protocol.ts and re-exported here for convenience
 export type { WatchedSession, SubagentState } from './protocol'
 
-const CLAUDE_DIR = path.join(os.homedir(), '.claude', 'projects')
-const TEAMS_DIR = path.join(os.homedir(), '.claude', 'teams')
+const CLAUDE_DIR = claudeProjectsDir()
+const TEAMS_DIR = claudeTeamsDir()
 
 export class SessionWatcher implements AgentSessionWatcher {
   private dirWatcher: fs.FSWatcher | null = null
   private dirWatchers = new Map<string, fs.FSWatcher>()
+  /** Transcripts anciens sans sous-agent actif : filePath -> cycle de scan avant réexamen */
+  private coldUntil = new Map<string, number>()
+  private scanCycle = 0
   private sessions = new Map<string, WatchedSession>()
   private workspacePath: string | null = null
   /** Resolved absolute workspace path for subdirectory verification */
@@ -57,6 +60,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   private teamWatcher: TeamWatcher | null = null
   /** Working directory per watched session (read once from the transcript head) */
   private sessionCwd = new Map<string, string>()
+  /** Git branch per watched session, as recorded at the head of its transcript (absent when unrecorded or detached) */
+  private sessionBranch = new Map<string, string>()
 
   private readonly _onEvent = new vscode.EventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
@@ -115,6 +120,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
       ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
       ...projectTags(cwd),
+      ...branchTag(this.sessionBranch.get(sessionId)),
     })
   }
 
@@ -134,6 +140,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     session.subagentsDirWatcher?.close()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
     this.sessionCwd.delete(sessionId)
+    this.sessionBranch.delete(sessionId)
     this.reconciler.forgetSession(sessionId)
     this.sessions.delete(sessionId)
     this.teamWatcher?.forgetSession(sessionId)
@@ -168,6 +175,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         ...(this.resolvedWorkspace ? { workspace: this.resolvedWorkspace.slice(0, 256) } : {}),
         ...(cwd ? { cwd: cwd.slice(0, 256) } : {}),
         ...projectTags(cwd),
+        ...branchTag(this.sessionBranch.get(s.sessionId)),
       }
     })
   }
@@ -185,7 +193,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
 
@@ -207,7 +215,7 @@ export class SessionWatcher implements AgentSessionWatcher {
             ...(tm.agentType ? { agentType: tm.agentType } : {}),
           } : {}
           this.emit({ time: 0, type: 'subagent_dispatch', payload: { parent, child: sub.agentName, task, ...ids } }, sessionId)
-          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...teammateExtras, ...(model ?? tm?.model ? { model: model ?? tm?.model } : {}) } }, sessionId)
+          this.emit({ time: 0, type: 'agent_spawn', payload: { name: sub.agentName, parent, task, ...ids, ...teammateExtras, ...(model ? { model, modelSource: 'runtime' as const } : tm?.model ? { model: tm.model, modelSource: 'configured' as const } : {}) } }, sessionId)
         }
         sub.spawnEmitted = false
       }
@@ -302,7 +310,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     // (e.g. when a CLI session starts in a subfolder and creates a new project dir)
     if (this.workspacePath && fs.existsSync(CLAUDE_DIR)) {
       try {
-        this.dirWatcher = fs.watch(CLAUDE_DIR, (_eventType, filename) => {
+        this.dirWatcher = safeWatch(CLAUDE_DIR, (_eventType, filename) => {
           if (!filename) return
           // A new project dir appeared — check if it's a subdirectory of our workspace
           const dirPath = path.join(CLAUDE_DIR, filename)
@@ -322,15 +330,16 @@ export class SessionWatcher implements AgentSessionWatcher {
     if (this.dirWatchers.has(projectDir)) return // already watching
     if (!fs.existsSync(projectDir)) return
     try {
-      const watcher = fs.watch(projectDir, (_eventType, filename) => {
+      const watcher = safeWatch(projectDir, (_eventType, filename) => {
         if (filename && filename.endsWith('.jsonl')) {
           const sessionId = path.basename(filename, '.jsonl')
+          this.coldUntil.delete(path.join(projectDir, filename))
           if (!this.sessions.has(sessionId)) {
             this.scanForActiveSessions()
           }
         }
       })
-      this.dirWatchers.set(projectDir, watcher)
+      if (watcher) this.dirWatchers.set(projectDir, watcher)
     } catch (err) { log.debug('Dir watch failed (may not exist yet):', err) }
   }
 
@@ -408,6 +417,10 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private scanForActiveSessions(): void {
+    this.scanCycle++
+    if (this.scanCycle % COLD_RESCAN_CYCLES === 0) {
+      for (const [f, until] of this.coldUntil) if (until <= this.scanCycle) this.coldUntil.delete(f)
+    }
     if (!fs.existsSync(CLAUDE_DIR)) {
       return
     }
@@ -449,30 +462,48 @@ export class SessionWatcher implements AgentSessionWatcher {
       for (const projectPath of dirsToScan) {
         try {
           const files = fs.readdirSync(projectPath)
+          const fresh: { filePath: string; sessionId: string; mtimeMs: number }[] = []
           for (const file of files) {
             if (!file.endsWith('.jsonl')) { continue }
             const filePath = path.join(projectPath, file)
-            const stat = fs.statSync(filePath)
-            let newestMtime = stat.mtimeMs
+            const sessionId = path.basename(file, '.jsonl')
+            // Session déjà suivie : plus de stat (son poll relit déjà les sous-agents)
+            if (this.sessions.has(sessionId)) continue
+            // Transcript ancien déjà examiné : réexaminé seulement tous les COLD_RESCAN_CYCLES scans
+            if ((this.coldUntil.get(filePath) ?? 0) > this.scanCycle) { continue }
+            try { fresh.push({ filePath, sessionId, mtimeMs: fs.statSync(filePath).mtimeMs }) } catch { /* vanished */ }
+          }
+          // Le plafond garde les plus récents (l'ordre de readdir n'est pas chronologique)
+          fresh.sort((a, b) => b.mtimeMs - a.mtimeMs)
+          const cutoff = Date.now() - ACTIVE_SESSION_AGE_S * 1000
+          // Au-delà du plafond : écartés et mis au froid, pas re-stat à chaque cycle
+          for (const { filePath } of fresh.slice(RELAY_MAX_FILES_PER_DIR)) {
+            this.coldUntil.set(filePath, this.scanCycle + COLD_RESCAN_CYCLES)
+          }
+          for (const { filePath, sessionId, mtimeMs } of fresh.slice(0, RELAY_MAX_FILES_PER_DIR)) {
+            let newestMtime = mtimeMs
 
             // Also check subagent files — a session's main JSONL may be stale
-            // while subagents are still actively writing.
-            const sessionId = path.basename(file, '.jsonl')
-            const subagentsDir = path.join(projectPath, sessionId, 'subagents')
-            try {
-              for (const subPath of listSubagentTranscripts(subagentsDir)) {
-                const subStat = fs.statSync(subPath)
-                if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
-              }
-            } catch { /* expected if subagents dir doesn't exist yet */ }
+            // while subagents are still actively writing. Inutile si le principal est récent.
+            if (newestMtime < cutoff) {
+              const subagentsDir = path.join(projectPath, sessionId, 'subagents')
+              try {
+                for (const subPath of listSubagentTranscripts(subagentsDir)) {
+                  const subStat = fs.statSync(subPath)
+                  if (subStat.mtimeMs > newestMtime) newestMtime = subStat.mtimeMs
+                }
+              } catch { /* expected if subagents dir doesn't exist yet */ }
+            }
 
-            const ageSeconds = (Date.now() - newestMtime) / 1000
-            if (ageSeconds <= ACTIVE_SESSION_AGE_S) {
+            if (newestMtime >= cutoff) {
+              this.coldUntil.delete(filePath)
               activeFiles.push({
                 sessionId,
                 filePath,
                 mtime: newestMtime,
               })
+            } else {
+              this.coldUntil.set(filePath, this.scanCycle + COLD_RESCAN_CYCLES)
             }
           }
         } catch (err) {
@@ -503,6 +534,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       fileWatcher: null,
       pollTimer: null,
       fileSize: 0,
+      fileTail: '',
       sessionStartTime: Date.now(),
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
@@ -527,6 +559,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
     const header = readSessionHeader(filePath)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
+    if (header.branch) this.sessionBranch.set(sessionId, header.branch)
 
     // The live flow (hooks) is already subscribed: events arriving while the history is read are held
     // and replayed, deduplicated against the history, when the load ends (issue #53).
@@ -553,7 +586,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
       session.sessionDetected = true
@@ -568,7 +601,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     })
 
     // Watch for new content
-    session.fileWatcher = fs.watch(filePath, (eventType) => {
+    session.fileWatcher = safeWatch(filePath, (eventType) => {
       if (eventType === 'change') {
         this.readNewLines(sessionId)
       }
@@ -597,10 +630,9 @@ export class SessionWatcher implements AgentSessionWatcher {
     const session = this.sessions.get(sessionId)
     if (!session) { return }
 
-    const result = readNewFileLines(session.filePath, session.fileSize)
-    if (!result) return
-    session.fileSize = result.newSize
-    for (const line of result.lines) {
+    const lines = readTrackedLines(session.filePath, session)
+    if (!lines) return
+    for (const line of lines) {
       this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
     }
 
@@ -634,7 +666,7 @@ export class SessionWatcher implements AgentSessionWatcher {
           name: ORCHESTRATOR_NAME,
           isMain: true,
           task: session.label,
-          ...(session.model ? { model: session.model } : {}),
+          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
         },
       }, sessionId)
       this.fireLifecycle('started', sessionId, session.label)
@@ -653,7 +685,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         this.emit({
           time: this.elapsed(sessionId),
           type: 'agent_complete',
-          payload: { name: ORCHESTRATOR_NAME },
+          payload: { name: ORCHESTRATOR_NAME, inactivity: true },
         }, sessionId)
         this.fireLifecycle('ended', sessionId, session.label)
       }
@@ -718,6 +750,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.teamWatcher?.dispose()
     this.teamWatcher = null
     this.sessionCwd.clear()
+    this.sessionBranch.clear()
     this.dirWatcher?.close()
     this.dirWatcher = null
     for (const w of this.dirWatchers.values()) w.close()

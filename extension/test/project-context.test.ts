@@ -29,7 +29,7 @@ describe('project context', () => {
   })
 
   it('reports absent files as absent, not as empty', () => {
-    const r = readProjectContext(cwd, home)
+    const r = readProjectContext(cwd, path.join(home, '.claude'))
     assert.deepEqual(r.files.map(f => [f.kind, f.found]), [['claude-md', false], ['memory', false]])
     assert.deepEqual(r.issues, [])
   })
@@ -38,7 +38,7 @@ describe('project context', () => {
     const dir = fs.mkdtempSync(path.join(home, 'link-'))
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'rules')
     fs.symlinkSync('AGENTS.md', path.join(dir, 'CLAUDE.md'))
-    const [claude] = readProjectContext(dir, home).files
+    const [claude] = readProjectContext(dir, path.join(home, '.claude')).files
     assert.equal(claude.found, false)
     assert.equal(claude.unreadable, 'symlink')
   })
@@ -46,16 +46,16 @@ describe('project context', () => {
   it('reports a directory named CLAUDE.md as unreadable (not-a-file), a truly missing one without reason', () => {
     const dir = fs.mkdtempSync(path.join(home, 'dir-'))
     fs.mkdirSync(path.join(dir, 'CLAUDE.md'))
-    assert.equal(readProjectContext(dir, home).files[0].unreadable, 'not-a-file')
+    assert.equal(readProjectContext(dir, path.join(home, '.claude')).files[0].unreadable, 'not-a-file')
     const empty = fs.mkdtempSync(path.join(home, 'none-'))
-    assert.equal(readProjectContext(empty, home).files[0].unreadable, undefined)
+    assert.equal(readProjectContext(empty, path.join(home, '.claude')).files[0].unreadable, undefined)
   })
 
   it('reads CLAUDE.md and the memory index and extracts issue refs', () => {
     fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), 'Voir #64 et #12.\nEncore #64')
     fs.mkdirSync(memoryDir, { recursive: true })
     fs.writeFileSync(path.join(memoryDir, 'MEMORY.md'), '- note PR #45')
-    const r = readProjectContext(cwd, home)
+    const r = readProjectContext(cwd, path.join(home, '.claude'))
     const [claude, memory] = r.files
     assert.equal(claude.found, true)
     assert.equal(claude.text, 'Voir #64 et #12.\nEncore #64')
@@ -66,7 +66,7 @@ describe('project context', () => {
 
   it('keeps the first 64 KB of a larger file and says it was truncated', () => {
     fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), 'a'.repeat(PROJECT_CONTEXT_MAX_FILE_BYTES + 5000))
-    const claude = readProjectContext(cwd, home).files[0]
+    const claude = readProjectContext(cwd, path.join(home, '.claude')).files[0]
     assert.equal(claude.truncated, true)
     assert.equal(claude.text.length, PROJECT_CONTEXT_MAX_FILE_BYTES)
     assert.equal(claude.bytes, PROJECT_CONTEXT_MAX_FILE_BYTES + 5000)
@@ -75,7 +75,7 @@ describe('project context', () => {
   it('does not leave a broken multibyte char at the cut', () => {
     // 3-byte chars: 65536 is not a multiple of 3, so the cut splits one
     fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), '€'.repeat(PROJECT_CONTEXT_MAX_FILE_BYTES))
-    const claude = readProjectContext(cwd, home).files[0]
+    const claude = readProjectContext(cwd, path.join(home, '.claude')).files[0]
     assert.equal(claude.truncated, true)
     assert.ok(!claude.text.includes('�'))
   })
@@ -85,14 +85,14 @@ describe('project context', () => {
     fs.writeFileSync(secret, 'TOP SECRET')
     fs.rmSync(path.join(cwd, 'CLAUDE.md'))
     fs.symlinkSync(secret, path.join(cwd, 'CLAUDE.md'))
-    const claude = readProjectContext(cwd, home).files[0]
+    const claude = readProjectContext(cwd, path.join(home, '.claude')).files[0]
     assert.equal(claude.found, false)
     assert.equal(claude.text, '')
   })
 
   it('returns no file for a relative or empty cwd', () => {
     for (const bad of ['', 'relative/dir']) {
-      assert.deepEqual(readProjectContext(bad, home).files.filter(f => f.found), [])
+      assert.deepEqual(readProjectContext(bad, path.join(home, '.claude')).files.filter(f => f.found), [])
     }
   })
 })

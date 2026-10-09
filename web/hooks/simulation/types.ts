@@ -86,6 +86,8 @@ export interface ConversationMessage {
   /** tool_use_id correlating a dispatch with its return and with the tool call */
   toolUseId?: string
   isError?: boolean
+  /** Characters dropped from `content` by the ingestion cap (MAX_TEXT_LEN); absent when nothing was cut */
+  cutChars?: number
 }
 
 export type LinkKind = 'spawn' | 'teammate'
@@ -163,6 +165,14 @@ export function asString(v: unknown, fallback = ''): string { return typeof v ==
 export function cappedString(v: unknown, max = MAX_TEXT_LEN, fallback = ''): string {
   return typeof v === 'string' ? (v.length > max ? v.slice(0, max) : v) : fallback
 }
+/** Characters `cappedString` drops from `v` (0 when it fits or is not a string). */
+export function cutCharsOf(v: unknown, max = MAX_TEXT_LEN): number {
+  return typeof v === 'string' && v.length > max ? v.length - max : 0
+}
+/** Spread into a message so the cut is recorded only when something was cut. */
+export function cutField(cut: number): { cutChars?: number } {
+  return cut > 0 ? { cutChars: cut } : {}
+}
 export function asNumber(v: unknown, fallback = 0): number { return typeof v === 'number' ? v : fallback }
 export function asBoolean(v: unknown, fallback = false): boolean { return typeof v === 'boolean' ? v : fallback }
 
@@ -200,6 +210,8 @@ export interface UseAgentSimulationOptions {
   sessionOffsetsRef?: React.RefObject<ReadonlyMap<string, number> | undefined>
   /** Repository of each session (only those whose project is known): clusters of a same project are laid out side by side */
   sessionProjects?: SessionProjects
+  /** 'Hide inactive agents' is on: hidden children do not count when a parent is centred on its children (#151) */
+  hideInactive?: boolean
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
 }

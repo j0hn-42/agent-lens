@@ -2,7 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { COLORS } from '../web/lib/colors'
+import { COLORS, refreshColors } from '../web/lib/colors'
+import { FRESHNESS_DRAW } from '../web/lib/canvas-constants'
+import { extraVars } from '../web/lib/theme-tokens'
+
+// This file pins the neon pixels (BACKGROUNDS below are neon's void and glass); scripts/theme-contrast.test.ts covers every theme
+refreshColors('neon')
 
 type Rgb = [number, number, number]
 
@@ -158,7 +163,16 @@ function cssValue(selector: string, prop: string): string {
   assert.ok(block, `selector ${selector} not found in globals.css`)
   const m = block[1].match(new RegExp(`${prop}:\\s*(?:1px solid |2px solid )?([^;!]+?)\\s*(?:!important)?;`))
   assert.ok(m, `${prop} not found in ${selector}`)
-  return m[1]
+  return resolveVar(m[1])
+}
+
+/** globals.css reads the theme through var(--lens-*): resolve it with the neon values (this file pins neon) */
+function resolveVar(value: string): string {
+  return value.replace(/var\((--[a-z-]+)\)/g, (_m, name: string) => {
+    const resolved = extraVars('neon')[name]
+    assert.ok(resolved, `${name} is not defined for neon`)
+    return resolved
+  })
 }
 
 for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {
@@ -293,4 +307,13 @@ test('COLORS.glassBorder is not used on buttons or inputs in web/components', ()
     }
   }
   assert.deepEqual(offenders, [], 'use controlBorder for control boundaries')
+})
+
+// #145: the "last known state" label of a stale node is read over the dark violet halo of its session,
+// not only over the void. Dark violet worst case: the halo tint at its strongest.
+test('stale node label >= 4.5:1 on the void and on the dark violet session halo', () => {
+  for (const [name, bg] of Object.entries({ ...BACKGROUNDS, violetHalo: [0x2a, 0x18, 0x3a] as Rgb })) {
+    const r = ratio(composite(FRESHNESS_DRAW.staleTextColor, bg), bg)
+    assert.ok(r >= 4.5, `staleTextColor=${FRESHNESS_DRAW.staleTextColor} is ${r.toFixed(2)}:1 on ${name}`)
+  }
 })

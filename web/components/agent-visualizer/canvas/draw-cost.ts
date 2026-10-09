@@ -1,10 +1,10 @@
-import { Agent, ToolCallNode } from '@/lib/agent-types'
-import { COLORS } from '@/lib/colors'
-import { COST_DRAW, COST_PANEL } from '@/lib/canvas-constants'
-import { formatTokens, formatCost } from '@/lib/utils'
-import { agentCost, modelCostRate, agentCostUsage } from '@/lib/cost'
-import { formatCostUsage, formatTokenUsage, type UsageTotal } from '@/lib/usage'
-import { summarizeCosts, sessionUsage, type UnattributedUsage } from '@/lib/attribution'
+import { Agent, ToolCallNode } from '../../../lib/agent-types'
+import { SCENE } from '../../../lib/colors'
+import { COST_DRAW, COST_PANEL } from '../../../lib/canvas-constants'
+import { formatTokens, formatCost } from '../../../lib/utils'
+import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
+import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -20,10 +20,10 @@ export const UNATTRIBUTED_LABEL = 'Unattributed'
 /** Tool name -> color for mini cost bar */
 export function toolTypeColor(toolName: string): string {
   const n = toolName.toLowerCase()
-  if (n.includes('read') || n.includes('glob') || n.includes('grep')) return COLORS.contextUser
-  if (n.includes('edit') || n.includes('write')) return COLORS.contextReasoning
-  if (n.includes('bash')) return COLORS.tool
-  return COLORS.contextSubagent
+  if (n.includes('read') || n.includes('glob') || n.includes('grep')) return SCENE.contextUser
+  if (n.includes('edit') || n.includes('write')) return SCENE.contextReasoning
+  if (n.includes('bash')) return SCENE.tool
+  return SCENE.contextSubagent
 }
 
 /** Pre-group tool calls by agentId to avoid O(agents * toolCalls) per frame */
@@ -78,8 +78,8 @@ export function drawCostLabels(
     ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background
-    ctx.fillStyle = COLORS.costPillBg
-    ctx.strokeStyle = COLORS.costPillStroke
+    ctx.fillStyle = SCENE.costPillBg
+    ctx.strokeStyle = SCENE.costPillStroke
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.roundRect(pillX, pillY, pillW, pillH, COST_DRAW.pillRadius)
@@ -87,7 +87,7 @@ export function drawCostLabels(
     ctx.stroke()
 
     // Cost text
-    ctx.fillStyle = COLORS.costText
+    ctx.fillStyle = SCENE.costText
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(label, agent.x, pillY + pillH / 2)
@@ -111,7 +111,7 @@ export function drawCostLabels(
         const barY = pillY + pillH + COST_DRAW.miniBarGap
 
         // Bar background
-        ctx.fillStyle = COLORS.holoBorder06
+        ctx.fillStyle = SCENE.holoBorder06
         ctx.beginPath()
         ctx.roundRect(barX, barY, barW, barH, COST_DRAW.miniBarRadius)
         ctx.fill()
@@ -135,26 +135,49 @@ export function drawCostLabels(
   }
 }
 
+/** Top of the panel: under the top bar, whose published height (--topbar-h) grows when its controls wrap. */
+export function costPanelTop(topbarH: string | null | undefined): number {
+  const px = parseFloat(topbarH ?? '')
+  return Number.isFinite(px) && px > COST_PANEL.yStart ? Math.round(px) : COST_PANEL.yStart
+}
+
+/** Écart entre le total de coût et le nombre de tokens sur la ligne d'en-tête du panneau */
+const HEADER_GAP = 14
+/** Hauteur de la seconde ligne d'en-tête quand les tokens passent sous le coût */
+const HEADER_WRAP_H = 14
+
+/** Vrai quand coût et tokens ne tiennent pas côte à côte dans le panneau : les tokens passent alors sur une seconde ligne (#116) */
+export function costHeaderWraps(costW: number, tokensW: number): boolean {
+  return COST_PANEL.contentPadding * 2 + costW + HEADER_GAP + tokensW > COST_PANEL.width
+}
+
+function readTopbarH(): string {
+  try { return typeof document === 'undefined' ? '' : document.documentElement.style.getPropertyValue('--topbar-h') } catch { return '' }
+}
+
 export function drawCostSummaryPanel(
   ctx: CanvasRenderingContext2D,
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
   unattributed: Iterable<UnattributedUsage> = [],
 ) {
-  const agentList = Array.from(agents.values()).filter(a => a.tokensUsed > 0)
+  // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
+  const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
   // Usage that belongs to no single agent is shown apart, never folded into one (#61)
-  const summary = summarizeCosts(agentList, unattributed)
+  // An iterator is single-use and read twice below (summary, header): materialize it once
+  const rest = Array.from(unattributed)
+  const summary = summarizeCosts(agentList, rest)
   const hasRest = summary.unattributedTokens > 0
   if (agentList.length === 0 && !hasRest) return
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => ({ name: a.name, tokens: a.tokensUsed, cost: agentCost(a.tokensUsed, a.model), usage: agentCostUsage(a) }))
+    .map(a => { const usage = agentCostUsage(a); return { name: a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
   // the unattributed remainder counts in the session total
-  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), unattributed)
+  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), rest)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
@@ -181,20 +204,27 @@ export function drawCostSummaryPanel(
   const canvasW = ctx.canvas.width / dpr
   const panelW = COST_PANEL.width
   const panelX = canvasW - panelW - COST_PANEL.xMargin
-  const panelY = COST_PANEL.yStart
+  const panelY = costPanelTop(readTopbarH())
   const lineH = COST_PANEL.lineHeight
-  const headerH = COST_PANEL.headerHeight
   const sectionGap = COST_PANEL.sectionGap
   const agentRows = Math.min(agentBreakdown.length, COST_PANEL.maxRows)
   const toolRows = Math.min(toolList.length, COST_PANEL.maxRows)
   const restRows = hasRest ? 1 : 0
+  // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
+  const headerCostText = formatCostUsage(costUsage)
+  const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
+  ctx.font = 'bold 12px monospace'
+  const headerCostW = ctx.measureText(headerCostText).width
+  ctx.font = '11px monospace'
+  const wrapHeader = costHeaderWraps(headerCostW, ctx.measureText(headerTokensText).width)
+  const headerH = COST_PANEL.headerHeight + (wrapHeader ? HEADER_WRAP_H : 0)
   const panelH = headerH + ((agentRows + restRows) * lineH) + sectionGap + (toolRows > 0 ? 14 + toolRows * lineH : 0) + 12
 
   ctx.save()
 
   // Panel background
-  ctx.fillStyle = COLORS.panelBg
-  ctx.strokeStyle = COLORS.glassBorder
+  ctx.fillStyle = SCENE.panelBg
+  ctx.strokeStyle = SCENE.glassBorder
   ctx.lineWidth = 1
   ctx.beginPath()
   ctx.roundRect(panelX, panelY, panelW, panelH, COST_PANEL.borderRadius)
@@ -207,13 +237,13 @@ export function drawCostSummaryPanel(
   ctx.font = 'bold 12px monospace'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'top'
-  ctx.fillStyle = COLORS.costText
-  const headerCost = formatCostUsage(costUsage)
-  ctx.fillText(headerCost, panelX + COST_PANEL.contentPadding, y)
+  ctx.fillStyle = SCENE.costText
+  ctx.fillText(headerCostText, panelX + COST_PANEL.contentPadding, y)
 
   ctx.font = '11px monospace'
-  ctx.fillStyle = COLORS.textMuted
-  ctx.fillText(`${formatTokenUsage(tokenUsage)} tokens`, panelX + COST_PANEL.contentPadding + ctx.measureText(headerCost).width + 14, y + 2)
+  ctx.fillStyle = SCENE.textMuted
+  if (wrapHeader) ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
+  else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
 
   y += headerH
 
@@ -224,30 +254,30 @@ export function drawCostSummaryPanel(
 
     // Mini bar background
     const ratio = totalCost > 0 ? a.cost / totalCost : 0
-    ctx.fillStyle = COLORS.holoBorder06
+    ctx.fillStyle = SCENE.holoBorder06
     ctx.beginPath()
     ctx.roundRect(panelX + COST_PANEL.contentPadding, y + 1, barW, lineH - 3, COST_PANEL.barRadius)
     ctx.fill()
 
     // Bar fill
     ctx.fillStyle = a.name.includes('main') || agentBreakdown.length === 1
-      ? COLORS.barFillMain
-      : COLORS.barFillSub
+      ? SCENE.barFillMain
+      : SCENE.barFillSub
     ctx.beginPath()
     ctx.roundRect(panelX + COST_PANEL.contentPadding, y + 1, barW * ratio, lineH - 3, COST_PANEL.barRadius)
     ctx.fill()
 
     // Agent name
     ctx.font = '11px monospace'
-    ctx.fillStyle = COLORS.textPrimary
+    ctx.fillStyle = SCENE.textPrimary
     ctx.textAlign = 'left'
     const costLabel = formatCostUsage(a.usage)
     const costW = ctx.measureText(costLabel).width
     ctx.fillText(truncateText(ctx, a.name, barW - costW - 16), panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
 
-    // Cost, qualified like the header ("au moins", "estimé")
+    // Cost, qualified like the header ("at least", "estimated")
     ctx.textAlign = 'right'
-    ctx.fillStyle = COLORS.costText
+    ctx.fillStyle = SCENE.costText
     ctx.fillText(costLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
     y += lineH
@@ -255,7 +285,7 @@ export function drawCostSummaryPanel(
 
   // Unattributed remainder: orphan or ambiguous usage, priced at the default rate (the model is unknown)
   if (hasRest) {
-    ctx.strokeStyle = COLORS.textMuted
+    ctx.strokeStyle = SCENE.textMuted
     ctx.lineWidth = 1
     ctx.setLineDash([3, 3])
     ctx.beginPath()
@@ -263,11 +293,12 @@ export function drawCostSummaryPanel(
     ctx.stroke()
     ctx.setLineDash([])
     ctx.font = '11px monospace'
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.textAlign = 'left'
     ctx.fillText(UNATTRIBUTED_LABEL, panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
     ctx.textAlign = 'right'
-    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    const restEstimated = rest.some(u => u.estimated)
+    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
     y += lineH
   }
 
@@ -276,7 +307,7 @@ export function drawCostSummaryPanel(
     y += sectionGap
 
     ctx.font = '11px monospace'
-    ctx.fillStyle = COLORS.textMuted
+    ctx.fillStyle = SCENE.textMuted
     ctx.textAlign = 'left'
     ctx.fillText('BY TOOL', panelX + COST_PANEL.contentPadding, y)
     y += 14
@@ -286,7 +317,7 @@ export function drawCostSummaryPanel(
       const ratio = totalCost > 0 ? t.cost / totalCost : 0
 
       // Background
-      ctx.fillStyle = COLORS.panelSeparator
+      ctx.fillStyle = SCENE.panelSeparator
       ctx.beginPath()
       ctx.roundRect(panelX + COST_PANEL.contentPadding, y + 1, barW, lineH - 3, COST_PANEL.barRadius)
       ctx.fill()
@@ -309,7 +340,7 @@ export function drawCostSummaryPanel(
 
       // Cost (a Claude tool cost is always an estimate: say so)
       ctx.textAlign = 'right'
-      ctx.fillStyle = COLORS.costTextDim
+      ctx.fillStyle = SCENE.costTextDim
       ctx.fillText(toolCostLabel, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
 
       y += lineH

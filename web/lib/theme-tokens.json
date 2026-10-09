@@ -1,0 +1,305 @@
+{
+  "name": "Agent Lens",
+  "version": 1,
+  "color": {
+    "themes": [
+      {
+        "id": "catppuccin-macchiato",
+        "name": "Catppuccin Macchiato (default)"
+      },
+      {
+        "id": "catppuccin-mocha",
+        "name": "Catppuccin Mocha"
+      },
+      {
+        "id": "catppuccin-frappe",
+        "name": "Catppuccin Frappe"
+      },
+      {
+        "id": "midnight",
+        "name": "Midnight"
+      },
+      {
+        "id": "graphite",
+        "name": "Graphite"
+      },
+      {
+        "id": "neon",
+        "name": "Neon"
+      },
+      {
+        "id": "ember",
+        "name": "Ember"
+      },
+      {
+        "id": "anthropic",
+        "name": "Anthropic"
+      },
+      {
+        "id": "contrast",
+        "name": "High contrast"
+      }
+    ],
+    "tokens": [
+      {
+        "name": "void",
+        "value": {
+          "catppuccin-macchiato": "#181926",
+          "catppuccin-mocha": "#11111b",
+          "catppuccin-frappe": "#232634",
+          "midnight": "#0b0e1c",
+          "graphite": "#121212",
+          "neon": "#050510",
+          "ember": "#15110e",
+          "anthropic": "#0e0e0d",
+          "contrast": "#000000"
+        },
+        "usage": "Page background behind everything, including the canvas. Text on it: `ink`, `ink-muted`."
+      },
+      {
+        "name": "surface",
+        "value": {
+          "catppuccin-macchiato": "#1e2030",
+          "catppuccin-mocha": "#181825",
+          "catppuccin-frappe": "#292c3c",
+          "midnight": "#121730",
+          "graphite": "#1b1b1c",
+          "neon": "#0a0f1e",
+          "ember": "#1e1814",
+          "anthropic": "#141413",
+          "contrast": "#0a0a0a"
+        },
+        "usage": "Glass cards, panels, popovers. Text on it: `ink`, `ink-muted`, status colours."
+      },
+      {
+        "name": "surface-raised",
+        "value": {
+          "catppuccin-macchiato": "#24273a",
+          "catppuccin-mocha": "#1e1e2e",
+          "catppuccin-frappe": "#303446",
+          "midnight": "#1b2142",
+          "graphite": "#262627",
+          "neon": "#121a30",
+          "ember": "#2c231c",
+          "anthropic": "#201f1d",
+          "contrast": "#181818"
+        },
+        "usage": "Hovered rows, selected rows, inputs inside a card. Text on it: `ink`, `ink-muted`."
+      },
+      {
+        "name": "edge",
+        "value": {
+          "catppuccin-macchiato": "#494d64",
+          "catppuccin-mocha": "#45475a",
+          "catppuccin-frappe": "#51576d",
+          "midnight": "#2c3562",
+          "graphite": "#343436",
+          "neon": "#1c3750",
+          "ember": "#43362b",
+          "anthropic": "#34322e",
+          "contrast": "#8a8a8a"
+        },
+        "usage": "Decorative card and divider edge only. Never the sole boundary of a control: use `control-border`."
+      },
+      {
+        "name": "control-border",
+        "value": {
+          "catppuccin-macchiato": "#8087a2",
+          "catppuccin-mocha": "#7f849c",
+          "catppuccin-frappe": "#838ba7",
+          "midnight": "#6b77b8",
+          "graphite": "#7a7a7e",
+          "neon": "#386e8e",
+          "ember": "#92806d",
+          "anthropic": "#8a877e",
+          "contrast": "#ffffff"
+        },
+        "usage": "Border of buttons, inputs and selects. At least 3:1 on `surface` and `void` in every theme."
+      },
+      {
+        "name": "ink",
+        "value": {
+          "catppuccin-macchiato": "#cad3f5",
+          "catppuccin-mocha": "#cdd6f4",
+          "catppuccin-frappe": "#c6d0f5",
+          "midnight": "#e3e7ff",
+          "graphite": "#ececec",
+          "neon": "#aaeeff",
+          "ember": "#f1e7db",
+          "anthropic": "#faf9f5",
+          "contrast": "#ffffff"
+        },
+        "usage": "Primary text and icons on `void`, `surface`, `surface-raised`."
+      },
+      {
+        "name": "ink-muted",
+        "value": {
+          "catppuccin-macchiato": "#a5adcb",
+          "catppuccin-mocha": "#a6adc8",
+          "catppuccin-frappe": "#a5adce",
+          "midnight": "#a6aedb",
+          "graphite": "#a3a3a6",
+          "neon": "#7fc3e0",
+          "ember": "#bbab9a",
+          "anthropic": "#b0aea5",
+          "contrast": "#d6d6d6"
+        },
+        "usage": "Secondary labels, hints, empty-state copy on `void`, `surface`, `surface-raised`. 4.5:1 or more."
+      },
+      {
+        "name": "accent",
+        "value": {
+          "catppuccin-macchiato": "#c6a0f6",
+          "catppuccin-mocha": "#cba6f7",
+          "catppuccin-frappe": "#ca9ee6",
+          "midnight": "#9fa8ff",
+          "graphite": "#d4d4d6",
+          "neon": "#66ccff",
+          "ember": "#e6a957",
+          "anthropic": "#d97757",
+          "contrast": "#ffe14d"
+        },
+        "usage": "Idle and thinking agents, primary buttons, scrubber fill, selected marker."
+      },
+      {
+        "name": "on-accent",
+        "value": {
+          "catppuccin-macchiato": "#181926",
+          "catppuccin-mocha": "#11111b",
+          "catppuccin-frappe": "#232634",
+          "midnight": "#0b0e1c",
+          "graphite": "#121212",
+          "neon": "#050510",
+          "ember": "#1a1008",
+          "anthropic": "#141413",
+          "contrast": "#000000"
+        },
+        "usage": "Text and icons placed on a filled `accent`."
+      },
+      {
+        "name": "focus",
+        "value": {
+          "catppuccin-macchiato": "#8aadf4",
+          "catppuccin-mocha": "#89b4fa",
+          "catppuccin-frappe": "#8caaee",
+          "midnight": "#d0d5ff",
+          "graphite": "#ffffff",
+          "neon": "#99e0ff",
+          "ember": "#ffd08a",
+          "anthropic": "#faf9f5",
+          "contrast": "#ffe14d"
+        },
+        "usage": "Focus ring, 2px solid with 2px offset. 3:1 or more on every surface."
+      },
+      {
+        "name": "ok",
+        "value": {
+          "catppuccin-macchiato": "#a6da95",
+          "catppuccin-mocha": "#a6e3a1",
+          "catppuccin-frappe": "#a6d189",
+          "midnight": "#6ed799",
+          "graphite": "#8fd3a8",
+          "neon": "#66ffaa",
+          "ember": "#a3ca88",
+          "anthropic": "#8fa774",
+          "contrast": "#86ffb7"
+        },
+        "usage": "Complete state, returns, cost, added lines. Always paired with a word or icon."
+      },
+      {
+        "name": "warn",
+        "value": {
+          "catppuccin-macchiato": "#eed49f",
+          "catppuccin-mocha": "#f9e2af",
+          "catppuccin-frappe": "#e5c890",
+          "midnight": "#f4d797",
+          "graphite": "#e0b25c",
+          "neon": "#ffbb44",
+          "ember": "#f4d481",
+          "anthropic": "#e3b341",
+          "contrast": "#ffc476"
+        },
+        "usage": "Tool calls, waiting for permission, expensive tool results. Always paired with a word or icon."
+      },
+      {
+        "name": "danger",
+        "value": {
+          "catppuccin-macchiato": "#ed8796",
+          "catppuccin-mocha": "#f38ba8",
+          "catppuccin-frappe": "#e78284",
+          "midnight": "#f26683",
+          "graphite": "#ee8a8a",
+          "neon": "#ff6666",
+          "ember": "#e17260",
+          "anthropic": "#e5707a",
+          "contrast": "#ff8686"
+        },
+        "usage": "Errors, removed lines, unread dot. Always paired with a word or icon."
+      },
+      {
+        "name": "delegate",
+        "value": {
+          "catppuccin-macchiato": "#b7bdf8",
+          "catppuccin-mocha": "#b4befe",
+          "catppuccin-frappe": "#babbf1",
+          "midnight": "#be96ff",
+          "graphite": "#b9a9d6",
+          "neon": "#cc88ff",
+          "ember": "#cc9bbe",
+          "anthropic": "#6a9bcc",
+          "contrast": "#cdadff"
+        },
+        "usage": "Dispatch edges, reasoning share of context, teammate default."
+      },
+      {
+        "name": "info",
+        "value": {
+          "catppuccin-macchiato": "#8bd5ca",
+          "catppuccin-mocha": "#94e2d5",
+          "catppuccin-frappe": "#81c8be",
+          "midnight": "#7cc6f2",
+          "graphite": "#9fb7c4",
+          "neon": "#22d3ee",
+          "ember": "#8fc2b4",
+          "anthropic": "#7fb5a8",
+          "contrast": "#7adbff"
+        },
+        "usage": "MCP tool calls and neutral informational marks."
+      },
+      {
+        "name": "context-system",
+        "value": {
+          "catppuccin-macchiato": "#8087a2",
+          "catppuccin-mocha": "#7f849c",
+          "catppuccin-frappe": "#838ba7",
+          "midnight": "#7d86bd",
+          "graphite": "#8c8c90",
+          "neon": "#7777a0",
+          "ember": "#968573",
+          "anthropic": "#7c7970",
+          "contrast": "#a8a8a8"
+        },
+        "usage": "Fixed system overhead slice in the context bar. Non-text, 3:1 or more."
+      }
+    ]
+  },
+  "shadow": {
+    "tokens": [
+      {
+        "name": "shadow-card",
+        "value": {
+          "catppuccin-macchiato": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "catppuccin-mocha": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "catppuccin-frappe": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "midnight": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "graphite": "0 1px 2px rgba(0, 0, 0, 0.4)",
+          "neon": "0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08)",
+          "ember": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "anthropic": "0 1px 2px rgba(0, 0, 0, 0.45)",
+          "contrast": "none"
+        },
+        "usage": "Glass card elevation. Neon adds the cyan top highlight; the other themes stay flat (High contrast has no shadow: its edge does the work)."
+      }
+    ]
+  }
+}

@@ -10,7 +10,7 @@ import {
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
-  RELAY_REPLAY_LIFECYCLE_RESERVE,
+  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEV_WEB_ORIGIN_PATTERN,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -185,7 +185,13 @@ export interface DiscoveryOptions {
   dirs: string[]
   maxFilesPerDir?: number
   maxFileBytes?: number
+  /** Fichiers écartés (au-delà du plafond, trop gros, non réguliers) : pas de lstat avant COLD_RESCAN_CYCLES cycles */
+  cold?: ColdScan
 }
+
+/** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
+export interface ColdScan { cycle: number; until: Map<string, number> }
+export function createColdScan(): ColdScan { return { cycle: 0, until: new Map() } }
 
 /**
  * Safe lookup of Claude Code project directories under `root`.
@@ -217,22 +223,29 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
   const maxFiles = opts.maxFilesPerDir ?? RELAY_MAX_FILES_PER_DIR
   const maxBytes = opts.maxFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
   const out: DiscoveredSession[] = []
+  if (opts.cold) { for (const [f, until] of opts.cold.until) { if (until <= opts.cold.cycle) { opts.cold.until.delete(f) } } }
   for (const dirPath of opts.dirs) {
     let names: string[]
     try { names = fs.readdirSync(dirPath) } catch { continue }
-    let seen = 0
+    // Le plafond s'applique après le tri par date : l'ordre de readdir n'est pas chronologique
+    const found: DiscoveredSession[] = []
+    const cold = opts.cold
     for (const file of names) {
       if (!file.endsWith('.jsonl')) { continue }
-      if (++seen > maxFiles) { break }
       const sessionId = path.basename(file, '.jsonl')
       if (!isValidSessionId(sessionId)) { continue }
       const filePath = path.join(dirPath, file)
+      if (cold && (cold.until.get(filePath) ?? 0) > cold.cycle) { continue }
       try {
         const st = fs.lstatSync(filePath)
-        if (!st.isFile() || st.size > maxBytes) { continue }
-        out.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
+        if (!st.isFile() || st.size > maxBytes) { cold?.until.set(filePath, cold.cycle + COLD_RESCAN_CYCLES); continue }
+        found.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
       } catch { /* vanished */ }
     }
+    found.sort((a, b) => b.mtimeMs - a.mtimeMs)
+    for (const f of found.slice(0, maxFiles)) { out.push(f) }
+    // Au-delà du plafond : écartés et mis au froid, pas de lstat à chaque cycle
+    if (cold) { for (const f of found.slice(maxFiles)) { cold.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES) } }
   }
   return out
 }
@@ -255,4 +268,18 @@ export function statusRateKey(remoteAddress: string | undefined, headers: Record
 export function isContextPath(url: string | undefined): boolean {
   if (!url) { return false }
   try { return new URL(url, 'http://localhost').pathname === '/context' } catch { return false }
+}
+
+/**
+ * True when a browser-issued request comes from another site (#102): Sec-Fetch-Site cross-site, or an Origin
+ * that is neither the relay's own (standalone app) nor a dev web origin. Requests carrying neither header
+ * (curl, MCP clients) are not browser-driven and pass.
+ */
+export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[]; host?: string }, host: string | undefined): boolean {
+  if (headers['sec-fetch-site'] === 'cross-site') return true
+  const origin = headers.origin
+  if (origin === undefined) return false
+  if (typeof origin !== 'string') return true
+  if (host !== undefined && origin === `http://${host}`) return false
+  return !DEV_WEB_ORIGIN_PATTERN.test(origin)
 }

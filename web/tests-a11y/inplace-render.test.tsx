@@ -3,11 +3,13 @@ import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
+import { showAllSessions } from './sessions-filter-helpers'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { rowRenderProbe } from '@/lib/row-sync'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
+import { THEME_IDS as THEME_IDS_ALL } from '@/lib/theme-tokens'
 
 afterEach(() => {
   rowRenderProbe.onRender = null
@@ -175,6 +177,7 @@ test('collapsed: the change is announced politely', () => {
 test('collapsed: the Active only filter announces how many sessions remain', () => {
   const { container, getByRole } = render(panel([]))
   const live = container.querySelector('[role="status"][data-panel-announcer]')!
+  showAllSessions({ getByRole })
   fireEvent.click(getByRole('button', { name: 'Active only' }))
   assert.match(live.textContent ?? '', /^Active sessions only: \d+ shown$/)
 })
@@ -197,6 +200,11 @@ test('css: collapsible sections animate rows 0fr/1fr and stop animating under re
   assert.match(reduced, /transition-duration/)
 })
 
-test('css: light theme tokens exist and follow the data-theme attribute', () => {
-  assert.match(css, /html\[data-theme="light"\]|:root\[data-theme="light"\]/)
+test('css: the nine themes exist as data-theme blocks (catppuccin-macchiato is the fallback) and globals.css imports them', () => {
+  const themes = readFileSync(join(process.cwd(), 'app/themes.css'), 'utf8')
+  assert.match(css, /@import '\.\/themes\.css'/)
+  for (const id of THEME_IDS_ALL) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{`))
+  assert.match(themes, /:root:not\(\[data-theme\]\),\n\[data-theme="catppuccin-macchiato"\]/)
+  assert.doesNotMatch(themes, /paper|color-scheme: light/, 'no light theme left')
+  for (const id of THEME_IDS_ALL) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{\\n  color-scheme: dark;`))
 })

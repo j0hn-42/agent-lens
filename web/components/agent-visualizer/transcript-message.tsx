@@ -1,21 +1,22 @@
 'use client'
 
 import { useState } from 'react'
-import { COLORS } from '@/lib/colors'
+import { COLORS, themed } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
 import { CheckIcon, GearIcon } from './feed-icons'
+import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 
 // ─── Message rendering utilities of the Conversation panel ───────────────────
 
 /** Colors of the dispatch / return / teammate rows (text colors keep >= 4.5:1 on the dark panel). */
-export const COMM_STYLE: Record<CommKind, { bg: string; bgSelected: string; text: string }> = {
-  dispatch: { bg: 'rgba(80,140,255,0.14)', bgSelected: 'rgba(80,140,255,0.26)', text: '#9cc4ff' },
-  return: { bg: 'rgba(60,200,120,0.12)', bgSelected: 'rgba(60,200,120,0.24)', text: '#7fe3a3' },
-  return_error: { bg: 'rgba(255,90,90,0.14)', bgSelected: 'rgba(255,90,90,0.26)', text: '#ff9b9b' },
-  message: { bg: 'rgba(200,150,255,0.12)', bgSelected: 'rgba(200,150,255,0.24)', text: '#e0b0ff' },
-}
+export const COMM_STYLE: Record<CommKind, { bg: string; bgSelected: string; text: string }> = themed(() => ({
+  dispatch: { bg: COLORS.commDispatchBg, bgSelected: COLORS.commDispatchBgSelected, text: COLORS.commDispatchText },
+  return: { bg: COLORS.commReturnBg, bgSelected: COLORS.commReturnBgSelected, text: COLORS.commReturnText },
+  return_error: { bg: COLORS.commErrorBg, bgSelected: COLORS.commErrorBgSelected, text: COLORS.commErrorText },
+  message: { bg: COLORS.commMessageBg, bgSelected: COLORS.commMessageBgSelected, text: COLORS.commMessageText },
+}))
 
 export function HighlightText({ text, query }: { text: string; query?: string }) {
   if (!query || !query.trim()) return <>{text}</>
@@ -31,13 +32,32 @@ export function HighlightText({ text, query }: { text: string; query?: string })
   )
 }
 
-/** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. */
-function TruncatedText({ text, limit, query, color }: { text: string; limit: number; query?: string; color?: string }) {
-  const [showAll, setShowAll] = useState(false)
-  const t = truncateWithMarker(text, limit)
+/** Text of ANSI segments rendered as styled spans (built elements, never raw HTML; the DOM text holds no code). */
+export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?: string }) {
   return (
     <>
-      <HighlightText text={showAll ? text : t.text} query={query} />
+      {segments.map((seg, i) => {
+        const style = ansiStyle(seg)
+        return style
+          ? <span key={i} style={style}><HighlightText text={seg.text} query={query} /></span>
+          : <HighlightText key={i} text={seg.text} query={query} />
+      })}
+    </>
+  )
+}
+
+/** Truncated text with a '… (+N chars)' marker and a 'Show all' toggle. `ansi` renders SGR colors (Bash output). */
+function TruncatedText({ text, limit, query, color, ansi }: { text: string; limit: number; query?: string; color?: string; ansi?: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  // Truncation counts visible characters: escape sequences are parsed out before cutting
+  const segments = ansi ? parseAnsi(text) : null
+  const plain = segments ? segments.map(s => s.text).join('') : text
+  const t = truncateWithMarker(plain, limit)
+  return (
+    <>
+      {segments
+        ? <AnsiText segments={showAll ? segments : sliceAnsiSegments(segments, limit)} query={query} />
+        : <HighlightText text={showAll ? text : t.text} query={query} />}
       {t.hidden > 0 && !showAll && <span style={{ color }}>{t.marker}</span>}
       {t.hidden > 0 && (
         <button
@@ -115,7 +135,7 @@ export function TranscriptMessage({ message, searchQuery }: {
             )}
           </div>
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
-            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} />
+            <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} />
           </div>
         </div>
       )

@@ -4,7 +4,7 @@ import { parseMcpTool, formatToolName } from '../web/lib/mcp-tool'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import { updateToolHistory } from '../web/components/agent-visualizer/canvas/a11y-model'
-import { COLORS } from '../web/lib/colors'
+import { SCENE } from '../web/lib/colors'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
 test('parseMcpTool splits server and tool', () => {
@@ -49,7 +49,7 @@ test('an MCP tool_call_start tags the node, the particle and uses the MCP color'
   assert.deepEqual(tc.mcp, { server: 'stripe', tool: 'refund' })
   const p = s.particles.find(x => x.type === 'tool_call')!
   assert.equal(p.mcp, true)
-  assert.equal(p.color, COLORS.mcp)
+  assert.equal(p.color, SCENE.mcp)
 })
 
 test('a native tool stays amber and untagged', () => {
@@ -58,7 +58,7 @@ test('a native tool stays amber and untagged', () => {
   assert.equal(tc.mcp, undefined)
   const p = s.particles.find(x => x.type === 'tool_call')!
   assert.equal(p.mcp, undefined)
-  assert.equal(p.color, COLORS.tool)
+  assert.equal(p.color, SCENE.tool)
 })
 
 test('the a11y tool history names MCP tools explicitly', () => {

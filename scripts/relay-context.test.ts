@@ -15,6 +15,7 @@ import { RELAY_CONTEXT_RATE_BURST, PROJECT_CONTEXT_MAX_FILE_BYTES } from '../ext
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'al-relay-ctx-'))
 process.env.HOME = fakeHome
+delete process.env.CLAUDE_CONFIG_DIR
 process.env.USERPROFILE = fakeHome
 delete process.env.AGENT_LENS_ALL_WORKSPACES
 

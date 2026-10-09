@@ -4,7 +4,6 @@
  *
  *   ActiveTimeTracker  accumulates start/stop events (or periodic samples) into a total
  *   createChrono       a live counter driven by a monotonic clock, immune to wall-clock jumps
- *   activeSinceText    the visible "active for X", or an explicit unknown
  */
 import type { Freshness } from '../hooks/simulation/freshness'
 
@@ -137,17 +136,6 @@ export function formatActiveSince(ms: number, capped = false): string {
   const ss = (total % 60).toString().padStart(2, '0')
   const text = h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`
   return capped ? `${text}+` : text
-}
-
-/**
- * "active for 1:05" - only valid while the source is fresh (a stale, closed or never-observed agent
- * proves nothing) and the start is known; otherwise the explicit unknown text.
- */
-export function activeSinceText(agent: Pick<ActiveTimeFields, 'activeSince'>, freshness: Freshness, now: number): string {
-  const since = agent.activeSince
-  if (freshness !== 'fresh' || typeof since !== 'number' || !Number.isFinite(since)) return ACTIVE_UNKNOWN_TEXT
-  const ms = Math.max(0, now - since)
-  return `active for ${formatActiveSince(Math.min(ms, CHRONO_CAP_MS), ms >= CHRONO_CAP_MS)}`
 }
 
 /**

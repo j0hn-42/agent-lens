@@ -1,128 +1,117 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { themeBootstrapScript, THEME_STORAGE_KEY, LIGHT_PALETTE_AVAILABLE } from '../extension/src/theme-bootstrap'
+import { themeBootstrapScript, THEME_STORAGE_KEY, DEFAULT_THEME, THEME_IDS, LEGACY_THEME_IDS } from '../extension/src/theme-bootstrap'
 
 interface Env {
   stored?: string | null
   search?: string
-  bodyClass?: string
-  vscodeKind?: string
-  systemDark?: boolean
   storageThrows?: boolean
   noBody?: boolean
-  lightPalette?: boolean
+  /** Start without the `dark` class on <html> */
+  noDarkClass?: boolean
+  /** Host and system hints: they must NOT influence the result any more */
+  bodyClass?: string
+  systemDark?: boolean
 }
 
-/** Minimal DOM: just what the bootstrap touches. Returns hooks to fire host / system changes. */
+/** Minimal DOM: just what the bootstrap touches. */
 function run(env: Env = {}) {
-  // precedence tests run with the light palette on; the default (clamp to dark) has its own test below
-  const lightPalette = env.lightPalette ?? true
-  const classes = new Set<string>(['dark'])
+  const classes = new Set<string>(env.noDarkClass ? [] : ['dark'])
   const root = {
     dataset: {} as Record<string, string>,
     style: {} as Record<string, string>,
-    classList: { toggle: (c: string, on: boolean) => { if (on) classes.add(c); else classes.delete(c) } },
+    classList: {
+      add: (c: string) => { classes.add(c) },
+      toggle: (c: string, on: boolean) => { if (on) classes.add(c); else classes.delete(c) },
+    },
   }
-  let observerCb: (() => void) | null = null
-  const body = {
-    className: env.bodyClass ?? '',
-    getAttribute: (n: string) => (n === 'data-vscode-theme-kind' ? env.vscodeKind ?? null : null),
-  }
-  let mqlCb: (() => void) | null = null
   const sandbox = {
-    document: { documentElement: root, body: env.noBody ? null : body },
+    document: { documentElement: root, body: env.noBody ? null : { className: env.bodyClass ?? '', getAttribute: () => null } },
     location: { search: env.search ?? '' },
     URLSearchParams,
     localStorage: {
       getItem: (k: string) => { if (env.storageThrows) throw new Error('denied'); return k === THEME_STORAGE_KEY ? env.stored ?? null : null },
     },
-    matchMedia: () => ({ matches: env.systemDark ?? true, addEventListener: (_: string, cb: () => void) => { mqlCb = cb } }),
-    MutationObserver: class { constructor(cb: () => void) { observerCb = cb } observe() {} },
+    matchMedia: () => ({ matches: env.systemDark ?? true, addEventListener: () => {} }),
   }
-  vm.runInNewContext(themeBootstrapScript(lightPalette), sandbox)
-  return {
-    root, classes,
-    hostChanged(patch: { bodyClass?: string; vscodeKind?: string }) {
-      if (patch.bodyClass !== undefined) body.className = patch.bodyClass
-      if (patch.vscodeKind !== undefined) env.vscodeKind = patch.vscodeKind
-      observerCb?.()
-    },
-    systemChanged(dark: boolean) { env.systemDark = dark; mqlCb?.() },
-  }
+  vm.runInNewContext(themeBootstrapScript(), sandbox)
+  return { root, classes }
 }
 
-test('theme: default with nothing set follows the system preference', () => {
-  assert.equal(run({ systemDark: true }).root.dataset.theme, 'dark')
-  assert.equal(run({ systemDark: false }).root.dataset.theme, 'light')
-})
-
-test('theme: stored choice wins over parameter, host and system', () => {
-  const r = run({ stored: 'light', search: '?theme=dark', bodyClass: 'vscode-dark', systemDark: true })
-  assert.equal(r.root.dataset.theme, 'light')
-  assert.equal(r.root.style.colorScheme, 'light')
-  assert.equal(r.classes.has('dark'), false)
-})
-
-test('theme: the URL parameter wins over host and system', () => {
-  assert.equal(run({ search: '?theme=light', bodyClass: 'vscode-dark', systemDark: true }).root.dataset.theme, 'light')
-})
-
-test('theme: invalid stored or parameter values are ignored, not trusted', () => {
-  assert.equal(run({ stored: 'purple', search: '?theme=<script>', systemDark: false }).root.dataset.theme, 'light')
-})
-
-test('theme: host mode (VS Code body class or data attribute) wins over the system', () => {
-  assert.equal(run({ bodyClass: 'vscode-light', systemDark: true }).root.dataset.theme, 'light')
-  assert.equal(run({ bodyClass: 'vscode-dark', systemDark: false }).root.dataset.theme, 'dark')
-  assert.equal(run({ vscodeKind: 'vscode-light', systemDark: true }).root.dataset.theme, 'light')
-  assert.equal(run({ bodyClass: 'vscode-high-contrast-light', systemDark: true }).root.dataset.theme, 'light')
-  assert.equal(run({ bodyClass: 'vscode-high-contrast', systemDark: false }).root.dataset.theme, 'dark')
-})
-
-test('theme: unreadable storage (privacy mode) falls through instead of throwing', () => {
-  assert.equal(run({ storageThrows: true, systemDark: false }).root.dataset.theme, 'light')
-})
-
-test('theme: tracks the host after load when nothing overrides it', () => {
-  const r = run({ bodyClass: 'vscode-dark' })
-  assert.equal(r.root.dataset.theme, 'dark')
-  r.hostChanged({ bodyClass: 'vscode-light' })
-  assert.equal(r.root.dataset.theme, 'light')
-  assert.equal(r.classes.has('dark'), false)
-  r.hostChanged({ bodyClass: 'vscode-high-contrast' })
+test('theme: macchiato is the default when nothing is stored or given', () => {
+  assert.equal(DEFAULT_THEME, 'catppuccin-macchiato')
+  const r = run()
+  assert.equal(r.root.dataset.theme, 'catppuccin-macchiato')
+  assert.equal(r.root.style.colorScheme, 'dark')
   assert.equal(r.classes.has('dark'), true)
 })
 
-test('theme: tracks the system preference when the host gives no hint', () => {
-  const r = run({ systemDark: true })
-  r.systemChanged(false)
-  assert.equal(r.root.dataset.theme, 'light')
+test('theme: the system preference and the VS Code host mode no longer pick the theme', () => {
+  assert.equal(run({ systemDark: false }).root.dataset.theme, 'catppuccin-macchiato')
+  assert.equal(run({ bodyClass: 'vscode-light', systemDark: false }).root.dataset.theme, 'catppuccin-macchiato')
 })
 
-test('theme: an explicit stored choice is not overridden by later host changes', () => {
-  const r = run({ stored: 'dark', bodyClass: 'vscode-dark' })
-  r.hostChanged({ bodyClass: 'vscode-light' })
-  assert.equal(r.root.dataset.theme, 'dark')
+test('theme: the nine ids are accepted from storage and from the URL parameter', () => {
+  assert.deepEqual([...THEME_IDS], ['catppuccin-macchiato', 'catppuccin-mocha', 'catppuccin-frappe', 'midnight', 'graphite', 'neon', 'ember', 'anthropic', 'contrast'])
+  for (const id of THEME_IDS) {
+    assert.equal(run({ stored: id }).root.dataset.theme, id)
+    assert.equal(run({ search: `?theme=${id}` }).root.dataset.theme, id)
+  }
+})
+
+test('theme: every theme is dark (dark class and color-scheme), even if the class was missing', () => {
+  for (const id of THEME_IDS) {
+    const r = run({ stored: id })
+    assert.equal(r.classes.has('dark'), true, id)
+    assert.equal(r.root.style.colorScheme, 'dark', id)
+  }
+  const bare = run({ stored: 'catppuccin-macchiato', noDarkClass: true })
+  assert.equal(bare.classes.has('dark'), true)
+})
+
+test('theme: stored choice wins over the URL parameter', () => {
+  assert.equal(run({ stored: 'ember', search: '?theme=neon' }).root.dataset.theme, 'ember')
+  assert.equal(run({ stored: 'paper', search: '?theme=neon' }).root.dataset.theme, 'catppuccin-macchiato', 'a migrated stored value still wins')
+})
+
+test('theme: the URL parameter is used when nothing is stored', () => {
+  assert.equal(run({ search: '?theme=neon' }).root.dataset.theme, 'neon')
+})
+
+test('theme: values stored by earlier versions migrate to catppuccin-macchiato (dark, light and the removed paper); a stored graphite stays graphite', () => {
+  for (const old of ['dark', 'light', 'paper']) {
+    const r = run({ stored: old, systemDark: false, bodyClass: 'vscode-light' })
+    assert.equal(r.root.dataset.theme, 'catppuccin-macchiato', `stored ${old}`)
+    assert.equal(r.root.style.colorScheme, 'dark', `stored ${old}`)
+    assert.equal(r.classes.has('dark'), true, `stored ${old}`)
+    assert.equal(run({ search: `?theme=${old}` }).root.dataset.theme, 'catppuccin-macchiato', `?theme=${old}`)
+  }
+  assert.deepEqual([...LEGACY_THEME_IDS], ['dark', 'light', 'paper'])
+  assert.equal(run({ stored: 'graphite' }).root.dataset.theme, 'graphite', 'graphite is a real theme: it is kept')
+  assert.equal(run({ search: '?theme=graphite' }).root.dataset.theme, 'graphite')
+})
+
+test('theme: an unknown stored value (matching is case-sensitive) falls through to the URL parameter', () => {
+  assert.equal(run({ stored: 'Paper', search: '?theme=catppuccin-macchiato' }).root.dataset.theme, 'catppuccin-macchiato', 'case-sensitive: an unknown value falls through')
+})
+
+test('theme: invalid stored or parameter values are ignored, not trusted', () => {
+  assert.equal(run({ stored: 'purple', search: '?theme=<script>' }).root.dataset.theme, 'catppuccin-macchiato')
+  assert.equal(run({ stored: 'purple', search: '?theme=neon' }).root.dataset.theme, 'neon', 'an invalid stored value falls through to the parameter')
+})
+
+test('theme: unreadable storage (privacy mode) falls through instead of throwing', () => {
+  assert.equal(run({ storageThrows: true }).root.dataset.theme, 'catppuccin-macchiato')
+  assert.equal(run({ storageThrows: true, search: '?theme=contrast' }).root.dataset.theme, 'contrast')
 })
 
 test('theme: works before <body> exists (script in head) without throwing', () => {
-  assert.equal(run({ noBody: true, systemDark: false }).root.dataset.theme, 'light')
+  assert.equal(run({ noBody: true, stored: 'neon' }).root.dataset.theme, 'neon')
 })
 
 test('theme: the script is self-contained text, safe to inline in an HTML shell', () => {
   const s = themeBootstrapScript()
   assert.ok(!s.includes('${'))
   assert.ok(!s.toLowerCase().includes('</script'))
-})
-
-test('theme: no light palette ships, so any light request (stored, parameter, host, system) resolves to dark', () => {
-  assert.equal(LIGHT_PALETTE_AVAILABLE, false)
-  assert.match(themeBootstrapScript(), /!false\)/, 'the shipped script clamps')
-  for (const env of [{ stored: 'light' }, { search: '?theme=light' }, { bodyClass: 'vscode-light' }, { systemDark: false }]) {
-    const r = run({ ...env, lightPalette: LIGHT_PALETTE_AVAILABLE })
-    assert.equal(r.root.dataset.theme, 'dark')
-    assert.equal(r.root.style.colorScheme, 'dark')
-    assert.equal(r.classes.has('dark'), true, 'the dark class is never removed')
-  }
 })

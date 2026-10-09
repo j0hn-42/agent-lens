@@ -3,6 +3,7 @@
 
 import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
+import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -41,6 +42,8 @@ export interface Agent {
   teamName?: string
   /** What the group is: an Agent Team (default) or a Workflow run */
   teamKind?: 'team' | 'workflow'
+  /** Workflow groups only: phase label received for this agent in team_info (never inferred), capped at 40 characters */
+  phase?: string
   /** Layout cluster: team name when the agent belongs to a team, else its session id */
   clusterKey?: string
   /** Team color, validated '#rrggbb' only */
@@ -62,8 +65,6 @@ export interface Agent {
   tokenGaps?: number
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
-  /** True once an event actually reported a token count; false = never reported (tokensUsed 0 is a placeholder, not a measure) */
-  tokensReported?: boolean
   tokensMax: number
   contextBreakdown: ContextBreakdown
   toolCalls: number
@@ -215,7 +216,7 @@ export interface Edge {
   /** parent-child only: true when the events agree on the link (call, start, same name and id); false = drawn dashed */
   verified?: boolean
   /** parent-child only: why the link is not proven (see UnverifiedReason) */
-  unverifiedReason?: string
+  unverifiedReason?: UnverifiedReason
 }
 
 export interface Particle {

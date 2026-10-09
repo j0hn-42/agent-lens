@@ -5,6 +5,7 @@ import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
+import { showAllSessions } from './sessions-filter-helpers'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ChromeAnnouncer } from '@/components/agent-visualizer/chrome-announcer'
@@ -34,7 +35,7 @@ const topBar: TopBarProps = {
   showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
   activeAgentCount: 1, doneAgentCount: 0, totalTokens: 10, totalCost: 0,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleMute: noop, onOpenShortcuts: noop,
+  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, showStats: false, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
@@ -42,17 +43,17 @@ const topBar: TopBarProps = {
 test('top bar: the Sessions button says how many listed sessions are not observed, and follows the tracker', () => {
   const { getByRole } = render(<TopBar {...topBar} />)
   const button = getByRole('button', { name: /Sessions/ })
-  assert.ok(button.textContent!.includes('2 activity not observed'), 'two active sessions, none heard from')
+  assert.ok(button.textContent!.includes('2 sessions not observed'), 'two active sessions, none heard from')
   act(() => { observedSessions.mark('seen') })
-  assert.ok(button.textContent!.includes('1 activity not observed'), 'an event arrived for one of them')
-  assert.equal(button.textContent!.includes('2 activity not observed'), false)
+  assert.ok(button.textContent!.includes('1 session not observed'), 'an event arrived for one of them')
+  assert.equal(button.textContent!.includes('2 sessions not observed'), false)
   act(() => { observedSessions.mark('ghost') })
   assert.equal(button.textContent!.includes('not observed'), false, 'nothing unknown left: no text')
 })
 
 test('top bar: a live hook flag counts as observed', () => {
   const { getByRole } = render(<TopBar {...topBar} sessionsWithActivity={new Set(['seen'])} />)
-  assert.ok(getByRole('button', { name: /Sessions/ }).textContent!.includes('1 activity not observed'))
+  assert.ok(getByRole('button', { name: /Sessions/ }).textContent!.includes('1 session not observed'))
 })
 
 // ─── Announcements ───────────────────────────────────────────────────────────
@@ -96,7 +97,9 @@ function rowText(container: HTMLElement, label: string): string {
 }
 
 test('sessions list: with the app-wide tracker (no override) an active session without events reads "not observed", not active', () => {
-  const { container } = render(panel())
+  const view = render(panel())
+  const { container } = view
+  showAllSessions(view)
   assert.ok(rowText(container, 'Ghost').includes(SESSION_NOT_OBSERVED_TEXT))
   assert.ok(rowText(container, 'Seen').includes(SESSION_NOT_OBSERVED_TEXT), 'the tracker is empty: nobody was heard from')
   assert.ok(container.textContent!.includes('0 active / 3'))
@@ -109,7 +112,7 @@ test('sessions list: with the app-wide tracker (no override) an active session w
 test('sessions list: "Active only" uses the same observation as the status (default filter, through the panel)', () => {
   const { container, getByRole } = render(panel({ selectedSessionId: ALL_SESSIONS_ID }))
   act(() => { observedSessions.mark('seen') })
-  act(() => { getByRole('button', { name: 'Active only' }).click() })
+  assert.equal(getByRole('button', { name: 'Active only' }).getAttribute('aria-pressed'), 'true', 'the filter is on by default')
   assert.ok(container.textContent!.includes('Seen'))
   assert.equal(container.textContent!.includes('Ghost'), false, 'not counted as active, so filtered out')
   assert.equal(container.textContent!.includes('Done'), false)

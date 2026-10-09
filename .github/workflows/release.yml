@@ -1,0 +1,77 @@
+name: Release
+
+# Construit le .vsix de l'extension. Aucune publication Marketplace / Open VSX :
+# aucun secret n'est utilisé. Déclenché par un tag vX.Y.Z ou à la main, jamais sur develop.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    # Jamais sur develop, même lancé à la main.
+    if: github.ref != 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check versions, tag and CHANGELOG
+        run: node scripts/release-check.js
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+      - name: Root tests (scripts, app)
+        run: pnpm test
+
+      - name: Extension tests
+        run: pnpm --dir extension test
+
+      - name: Build webview and extension
+        run: pnpm run build:all
+
+      - name: Package the extension
+        working-directory: extension
+        run: |
+          cp ../README.md ./README.md
+          pnpm dlx @vscode/vsce@3.2.1 package --no-dependencies --out agent-lens.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-lens-vsix
+          path: extension/agent-lens.vsix
+          if-no-files-found: error
+
+  github-release:
+    # Uniquement sur tag : joint le .vsix à une GitHub Release.
+    if: github.ref_type == 'tag'
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-lens-vsix
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp agent-lens.vsix "agent-lens-${GITHUB_REF_NAME#v}.vsix"
+          gh release create "$GITHUB_REF_NAME" "agent-lens-${GITHUB_REF_NAME#v}.vsix" \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

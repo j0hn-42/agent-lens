@@ -10,7 +10,7 @@ import { themeBootstrapScript } from '../../extension/src/theme-bootstrap'
 const WEBVIEW_DIR = path.join(__dirname, 'webview')
 
 export const HTML_SHELL = `<!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-theme="catppuccin-macchiato">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

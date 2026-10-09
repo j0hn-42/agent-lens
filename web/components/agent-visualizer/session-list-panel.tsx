@@ -4,9 +4,12 @@ import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffec
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
-import { COLORS } from '@/lib/colors'
-import { formatModelName, pluralize } from '@/lib/utils'
-import { formatTokenUsage, usageFromAgent } from '@/lib/usage'
+import { COLORS, themed } from '@/lib/colors'
+import { useThemeVersion } from '@/lib/theme'
+import { pluralize } from '@/lib/utils'
+import { usageFromAgent } from '@/lib/usage'
+import { deriveFreshness } from '@/hooks/simulation/freshness'
+import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -19,11 +22,22 @@ import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
+import {
+  agentNamesBySession, branchOptions, effectiveFilter, filterSessionList, isFilterActive, projectOptions, runtimeOptions,
+  type RuntimeFilter, type SessionFilter,
+} from '@/lib/session-filter'
+import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
+import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
-import { PanelHeader, SlidingPanel } from './shared-ui'
+import { INSPECTOR_KEEP_ATTR, PanelHeader, SlidingPanel } from './shared-ui'
 import { CollapsibleSection } from './collapsible-section'
+import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
+import { COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
 
 export type SessionListAgent = AgentLike
+
+/** Default width (px) of the panel: room for the Name / Model / Tokens / Time columns (was 380). */
+export const SESSIONS_PANEL_WIDTH = 480
 
 interface SessionListPanelProps {
   visible: boolean
@@ -49,17 +63,24 @@ interface SessionListPanelProps {
   now?: number
   /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
   observedSessionIds?: ReadonlySet<string>
+  /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
+  attention?: AttentionSummary
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
+  /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
+  filterProject?: string | null
+  filterRuntime?: RuntimeFilter | null
+  filterBranch?: string | null
+  onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
 }
 
-const STATE_COLOR: Record<string, string> = {
+const STATE_COLOR: Record<string, string> = themed(() => ({
   thinking: COLORS.thinking,
   tool_calling: COLORS.tool_calling,
   waiting_permission: COLORS.waiting_permission,
   error: COLORS.error,
   complete: COLORS.complete,
-}
+}))
 
 /** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
 function StateMarker({ state }: { state: string }) {
@@ -117,6 +138,7 @@ interface AgentItemProps {
 
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
+  useThemeVersion() // memoized row: repaint on a theme switch
   const a = node.agent
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
@@ -132,35 +154,81 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
-        className={`flex w-full min-h-6 items-center gap-1.5 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+        className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
-        <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
-        <StateMarker state={stale ? 'idle' : a.state} />
-        <span className="sr-only">{role}, </span>
-        <span className="truncate min-w-0 flex-1">{a.name}</span>
-        <span className="shrink-0" style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
-        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatTokenUsage(usageFromAgent(a))}</span>
-        {branch && <RollupLabel total={branch} label="branch total" />}
+        <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+          <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
+          <StateMarker state={stale ? 'idle' : a.state} />
+          <span className="sr-only">{role}, </span>
+          <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
+          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
+        </span>
+        <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
+        <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
+        {branch && (
+          <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
+            <RollupLabel total={branch} label="branch total" />
+          </span>
+        )}
       </button>
       {node.children.length > 0 && (
         <ul className="list-none p-0 m-0" aria-label={`Sub-agents of ${a.name}`}>
-          {node.children.map(c => (
-            <AgentItem
-              key={c.agent.id} node={c} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
-              freshnessNow={freshnessNow} sig={agentTreeSignature(c, freshnessNow, selectedAgentId)}
-            />
-          ))}
+          <AgentNodes
+            nodes={node.children} depth={depth + 1} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+            freshnessNow={freshnessNow}
+          />
         </ul>
       )}
     </li>
   )
 }, (prev, next) => prev.sig === next.sig && prev.depth === next.depth && prev.onSelectAgent === next.onSelectAgent)
 
+interface AgentNodesProps {
+  nodes: ReadonlyArray<AgentNode<SessionListAgent>>
+  depth: number
+  selectedAgentId: string | null
+  onSelectAgent: (id: string) => void
+  freshnessNow: number
+}
+
+/**
+ * Sibling rows. The agents of a workflow that announced phases are grouped under one named group per
+ * phase, in order of first appearance (#146); everything else is listed exactly as before.
+ */
+function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentNodesProps) {
+  const row = (n: AgentNode<SessionListAgent>, d: number) => (
+    <AgentItem
+      key={n.agent.id} node={n} depth={d} selectedAgentId={selectedAgentId} onSelectAgent={onSelectAgent}
+      freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
+    />
+  )
+  return (
+    <>
+      {groupByPhase(nodes.map(n => ({ node: n, teamKind: n.agent.teamKind, phase: n.agent.phase }))).map(seg => {
+        if (seg.kind === 'plain') return seg.items.map(i => row(i.node, depth))
+        const label = phaseSegmentLabel(seg)
+        return (
+          <li key={`${seg.kind}:${label}`}>
+            <div role="group" aria-label={label}>
+              <p className="m-0 text-[11px] font-semibold" style={{ paddingLeft: 8 + depth * 14, color: COLORS.textMuted }}>
+                {label} <span className="font-normal" style={{ color: COLORS.textDim }}>({seg.items.length})</span>
+              </p>
+              <ul className="list-none p-0 m-0">{seg.items.map(i => row(i.node, depth))}</ul>
+            </div>
+          </li>
+        )
+      })}
+    </>
+  )
+}
+
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
+  filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // A new callback identity on every parent render would defeat the row signatures
@@ -197,23 +265,57 @@ export function SessionListPanel({
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const [activeOnly, setActiveOnly] = useState(false)
+  const [activeOnly, setActiveOnly] = useState(true)
+
+  // Search and project / runtime filter (#125)
+  const [query, setQuery] = useState('')
+  const [ownProject, setOwnProject] = useState<string | null>(null)
+  const [ownRuntime, setOwnRuntime] = useState<RuntimeFilter | null>(null)
+  const [ownBranch, setOwnBranch] = useState<string | null>(null)
+  const filter: SessionFilter = useMemo(
+    () => effectiveFilter({ query, projectId: filterProject !== undefined ? filterProject : ownProject, runtime: filterRuntime !== undefined ? filterRuntime : ownRuntime, branch: filterBranch !== undefined ? filterBranch : ownBranch }, sessions),
+    [query, filterProject, ownProject, filterRuntime, ownRuntime, filterBranch, ownBranch, sessions],
+  )
+  const filtering = isFilterActive(filter)
+  const projects = useMemo(() => projectOptions(sessions), [sessions])
+  const runtimes = useMemo(() => runtimeOptions(sessions), [sessions])
+  const branches = useMemo(() => branchOptions(sessions), [sessions])
+  const namesBySession = useMemo(() => (filter.query.trim() ? agentNamesBySession(agents.values()) : new Map<string, string[]>()), [agents, filter.query])
+  const matching = useMemo(() => new Set(filterSessionList(sessions, filter, id => namesBySession.get(id) ?? [])), [sessions, filter, namesBySession])
+  const changeFilter = (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => {
+    if (change.projectId !== undefined) { setOwnProject(change.projectId); onFilterChange?.({ projectId: change.projectId }) }
+    if (change.runtime !== undefined) { setOwnRuntime(change.runtime); onFilterChange?.({ runtime: change.runtime }) }
+    if (change.branch !== undefined) { setOwnBranch(change.branch); onFilterChange?.({ branch: change.branch }) }
+  }
+  const announceMatches = (next: SessionFilter) => {
+    const names = agentNamesBySession(agents.values())
+    const n = filterSessionList(sessions, next, id => names.get(id) ?? []).length
+    setAnnouncement(n === 0 ? emptyMatch('sessions') : `${pluralize(n, 'session')} shown`)
+  }
+
+  // Agents waiting for a permission or in error, per session (#126)
+  const ownAttention = useMemo(() => summarizeAttention(agents.values(), freshnessNow), [agents, freshnessNow])
+  const attention = sharedAttention ?? ownAttention
+
   const rows = useMemo(() => {
     // 'Active only' keeps the sessions proven active (and the selected one): a listed-but-unobserved
     // session is not counted as active, so it is hidden too
-    const shown = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
+    const active = activeOnly ? filterActiveSessions(sessions, selectedSessionId, isObserved) : sessions
+    const shown = filtering ? active.filter(s => matching.has(s)) : active
     // A team row only makes sense with teammates: every Claude Code session owns a team holding just its lead,
     // and listing it would add a "Team session-xxxx: 0 members" row per session
     const listed = teams
       ? new Map([...teams].filter(([key, team]) => Math.max(teamMemberCounts?.get(key) ?? 0, team.members.length) > 0))
       : undefined
     const teamNames = listed ? [...listed.keys()] : []
+    // A team is listed with a filter only through a session that matches
+    const teamsKept = filtering ? teamNames.filter(n => shown.some(s => s.teamName === n)) : teamNames
     return buildSessionRows(
-      shown, activeOnly ? filterActiveTeams(teamNames, shown, teamWorking, teamSummaries) : teamNames, forests, listed,
+      shown, activeOnly ? filterActiveTeams(teamsKept, shown, teamWorking, teamSummaries) : teamsKept, forests, listed,
       { hideUnlistedTeams: true }, isObserved,
     )
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isObserved reads the tracker version / props listed here
-  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
+  }, [sessions, teams, teamWorking, teamSummaries, teamMemberCounts, forests, activeOnly, filtering, matching, selectedSessionId, observedSessionIds, sessionsWithActivity, observedVersion])
   const hasProjectHeadings = rows.some(r => r.kind === 'project')
   const shownSessionCount = rows.filter(r => r.kind === 'session').length
   // Session and team (family) totals; the team total counts an agent shared by two sessions once
@@ -285,12 +387,13 @@ export function SessionListPanel({
     <FreshnessAnnouncer agents={agents} clock={freshnessClock} />
     <SlidingPanel
       visible={visible}
-      position={{ top: 48, left: 12 }}
+      position={{ top: 'calc(var(--topbar-h, 60px) + 8px)', left: 12 }}
       axis="X"
       offset={-8}
       zIndex={Z.sidePanel}
-      width={380}
+      width={SESSIONS_PANEL_WIDTH}
       labelledBy="session-list-title"
+      attrs={{ [INSPECTOR_KEEP_ATTR]: '' }}
     >
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
@@ -322,20 +425,85 @@ export function SessionListPanel({
         </PanelHeader>
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
+        <div role="search" aria-label="Search and filter sessions" className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
+          <input
+            type="search"
+            aria-label="Search sessions"
+            placeholder="Search name, project, branch, agent"
+            value={query}
+            onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
+            className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
+            style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+          />
+          {(projects.length > 1 || filter.projectId !== null) && (
+            <select
+              aria-label="Filter by project"
+              value={filter.projectId ?? ''}
+              onChange={e => { const projectId = e.target.value || null; changeFilter({ projectId }); announceMatches({ ...filter, projectId }) }}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All projects</option>
+              {projects.map(p => <option key={p.projectId} value={p.projectId}>{p.projectName}</option>)}
+            </select>
+          )}
+          {(runtimes.length > 1 || filter.runtime !== null) && (
+            <select
+              aria-label="Filter by runtime"
+              value={filter.runtime ?? ''}
+              onChange={e => { const runtime = (e.target.value || null) as RuntimeFilter | null; changeFilter({ runtime }); announceMatches({ ...filter, runtime }) }}
+              className={`min-h-6 rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All runtimes</option>
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex</option>
+            </select>
+          )}
+          {(branches.length > 0 || filter.branch !== null) && (
+            <select
+              aria-label="Filter by branch (recorded at session start)"
+              value={filter.branch ?? ''}
+              onChange={e => { const branch = e.target.value || null; changeFilter({ branch }); announceMatches({ ...filter, branch }) }}
+              className={`min-h-6 max-w-[40%] rounded px-1 text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              <option value="">All branches</option>
+              {branches.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
+          {filtering && (
+            <button
+              type="button"
+              onClick={() => { setQuery(''); changeFilter({ projectId: null, runtime: null, branch: null }); setAnnouncement(`Filter cleared: ${pluralize(sessions.length, 'session')} shown`) }}
+              className={`min-h-6 px-2 rounded text-[11px] ${FOCUS_RING}`}
+              style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textMuted }}
+            >
+              Clear filter
+            </button>
+          )}
+          {filtering && (
+            <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
+              Filter applies to this list only; the canvas still shows every session of the view.
+            </p>
+          )}
+        </div>
         <div
           ref={listRef}
-          className="overflow-y-auto"
+          className="@container overflow-y-auto"
           style={{ maxHeight: 'calc(100vh - var(--topbar-h, 60px) - 40px)' }}
         >
+          {rows.length > 0 && <ColumnHeader />}
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
             </div>
           )}
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
-              const rowBase = `flex w-full min-h-6 items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-white/5 ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
+              const rowBase = `flex flex-wrap items-center gap-x-1.5 gap-y-0 ${rowLook}`
               const rowStyle = { color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }
 
               if (row.kind === 'project') {
@@ -359,7 +527,7 @@ export function SessionListPanel({
                       <span style={{ color: COLORS.textDim }}>{pluralize(allSessionCount ?? sessions.length, 'session')}</span>
                     </button>
                     {row.roots.length > 0 && (
-                      <ul className="list-none p-0 m-0 pl-6" aria-label="Agents without a listed session">
+                      <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label="Agents without a listed session">
                         {row.roots.map(n => (
                           <AgentItem key={n.agent.id} node={n} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} sig={agentTreeSignature(n, freshnessNow, selectedAgentId)} />
                         ))}
@@ -396,7 +564,6 @@ export function SessionListPanel({
               const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : SESSION_NOT_OBSERVED_HELP
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
-              const model = modelId ? formatModelName(modelId) : null
               const isCollapsed = collapsed.has(session.id)
               const hasAgents = row.roots.length > 0
               return (
@@ -419,25 +586,36 @@ export function SessionListPanel({
                       tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(session.id)}
-                      className={`${rowBase} min-w-0 flex-1`} style={rowStyle}
+                      className={`${rowLook} ${ROW_GRID} min-w-0 flex-1`} style={rowStyle}
                     >
-                      {unobserved
-                        ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
-                        : <SessionMarker kind={kind} />}
-                      <span className="sr-only">
-                        {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
-                        ,{' '}
-                      </span>
-                      {badge && <span className="sr-only">{badge.label} session, </span>}
-                      <span className="truncate min-w-0 flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
-                      {unobserved && (
-                        <span aria-hidden="true" className="shrink-0 text-[11px]" style={{ color: COLORS.textMuted }} title={statusHelp}>
-                          {SESSION_STATUS_TEXT[kind]}
+                      <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+                        {unobserved
+                          ? <span aria-hidden="true" className="inline-block w-3 shrink-0" />
+                          : <SessionMarker kind={kind} />}
+                        <span className="sr-only">
+                          {unobserved ? `${SESSION_STATUS_TEXT[kind]}. ${statusHelp}` : SESSION_STATUS_TEXT[kind]}
+                          ,{' '}
                         </span>
-                      )}
-                      {model && <span className="shrink-0 rounded px-1.5 text-[11px] leading-4" style={{ border: `1px solid ${COLORS.tabInactiveBorder}`, color: COLORS.textMuted }}>{model}</span>}
-                      {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
-                      <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                        {badge && <span className="sr-only">{badge.label} session, </span>}
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                      </span>
+                      <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
+                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
+                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
+                      <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
+                        {unobserved && (
+                          <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>
+                            {SESSION_STATUS_TEXT[kind]}
+                          </span>
+                        )}
+                        {sessionAttentionText(attention.bySession.get(session.id)) && (
+                          <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
+                            <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
+                          </span>
+                        )}
+                        {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
+                        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                      </span>
                     </button>
                     <button
                       type="button"
@@ -452,14 +630,8 @@ export function SessionListPanel({
                   </div>
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
-                    <ul className="list-none p-0 m-0 pl-6" aria-label={`Agents of ${session.label}`}>
-                      {row.roots.map(n => (
-                        <AgentItem
-                          key={n.agent.id} node={n} depth={0}
-                          selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow}
-                          sig={agentTreeSignature(n, freshnessNow, selectedAgentId)}
-                        />
-                      ))}
+                    <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={`Agents of ${session.label}`}>
+                      <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
                     </ul>
                     </CollapsibleSection>
                   )}

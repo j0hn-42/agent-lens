@@ -1,9 +1,10 @@
 import { ToolCallNode } from '@/lib/agent-types'
-import { COLORS, withAlpha } from '@/lib/colors'
+import { SCENE, withAlpha } from '@/lib/colors'
 import { TOOL_MAX_CARD_W, TOOL_DRAW, MCP_DRAW, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { measureTextCached, setToolCardSize } from './render-cache'
 import { toolCardExpanded } from '@/lib/tool-lifecycle'
+import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
@@ -32,7 +33,7 @@ export function drawToolCalls(
     ctx.font = `${TOOL_DRAW.fontSize}px monospace`
     const mcp = tool.mcp
     const displayName = mcp ? mcp.tool : tool.toolName
-    const accent = mcp ? COLORS.mcp : COLORS.tool
+    const accent = mcp ? SCENE.mcp : SCENE.tool
     const toolLabel = `${displayName}: ${tool.args}`
     const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12)
     const textWidth = Math.min(measureTextCached(ctx, label) + 12, TOOL_MAX_CARD_W)
@@ -47,19 +48,19 @@ export function drawToolCalls(
 
     // Error glow
     if (isError) {
-      ctx.shadowColor = COLORS.error
+      ctx.shadowColor = SCENE.error
       ctx.shadowBlur = TOOL_DRAW.errorGlowBase + (reducedMotion ? 0 : Math.sin(time * 6) * TOOL_DRAW.errorGlowPulse)
     }
 
     ctx.beginPath()
     ctx.roundRect(cardX, cardY, cardW, cardH, TOOL_DRAW.borderRadius)
     ctx.fillStyle = isError
-      ? withAlpha(COLORS.toolCardErrorBase, 0.8 * pulse)
-      : isSelected ? withAlpha(COLORS.toolCardSelectedBase, 0.15 * pulse) : withAlpha(COLORS.toolCardBase, 0.7 * pulse)
+      ? withAlpha(SCENE.toolCardErrorBase, 0.8 * pulse)
+      : isSelected ? withAlpha(SCENE.toolCardSelectedBase, 0.15 * pulse) : withAlpha(SCENE.toolCardBase, 0.7 * pulse)
     ctx.fill()
     ctx.strokeStyle = isError
-      ? COLORS.error + '90'
-      : isSelected ? COLORS.holoBase + 'aa' : isRunning ? accent + '90' : mcp ? COLORS.mcp + '60' : COLORS.return + '40'
+      ? SCENE.error + '90'
+      : isSelected ? SCENE.holoBase + 'aa' : isRunning ? accent + '90' : mcp ? SCENE.mcp + '60' : SCENE.return + '40'
     ctx.lineWidth = isError ? 2 : isSelected ? 1.5 : mcp ? 1.5 : 1
     if (isUnresolved) ctx.setLineDash([4, 3])
     ctx.stroke()
@@ -75,14 +76,14 @@ export function drawToolCalls(
           const a = time * MCP_DRAW.orbitSpeed + (i / MCP_DRAW.orbitDots) * Math.PI * 2
           ctx.beginPath()
           ctx.arc(tool.x + Math.cos(a) * ringR, tool.y + Math.sin(a) * ringR * 0.6, MCP_DRAW.orbitDotSize, 0, Math.PI * 2)
-          ctx.fillStyle = COLORS.mcp
+          ctx.fillStyle = SCENE.mcp
           ctx.fill()
         }
       } else {
         // Spinning ring
         ctx.beginPath()
         ctx.arc(tool.x, tool.y, ringR, time * TOOL_DRAW.spinSpeed, time * TOOL_DRAW.spinSpeed + TOOL_DRAW.spinArc)
-        ctx.strokeStyle = COLORS.tool + '50'
+        ctx.strokeStyle = SCENE.tool + '50'
         ctx.lineWidth = 1.5
         ctx.stroke()
       }
@@ -97,13 +98,13 @@ export function drawToolCalls(
       const badgeY = cardY - MCP_DRAW.badgeHeight - MCP_DRAW.badgeGap
       ctx.beginPath()
       ctx.roundRect(badgeX, badgeY, badgeW, MCP_DRAW.badgeHeight, MCP_DRAW.badgeHeight / 2)
-      ctx.fillStyle = withAlpha(COLORS.toolCardBase, 0.9)
+      ctx.fillStyle = withAlpha(SCENE.toolCardBase, 0.9)
       ctx.fill()
-      ctx.strokeStyle = COLORS.mcp + 'cc'
+      ctx.strokeStyle = SCENE.mcp + 'cc'
       ctx.lineWidth = 1
       ctx.stroke()
       if (showText) {
-        ctx.fillStyle = COLORS.mcp
+        ctx.fillStyle = SCENE.mcp
         ctx.textAlign = 'center'
         ctx.textBaseline = 'middle'
         ctx.fillText(badgeText, tool.x, badgeY + MCP_DRAW.badgeHeight / 2 + 0.5)
@@ -113,7 +114,7 @@ export function drawToolCalls(
     // Crack lines for errors
     if (isError) {
       ctx.save()
-      ctx.strokeStyle = COLORS.error + '40'
+      ctx.strokeStyle = SCENE.error + '40'
       ctx.lineWidth = 0.8
       for (let i = 0; i < 3; i++) {
         const a = (i / 3) * Math.PI * 2 + 0.5
@@ -127,9 +128,10 @@ export function drawToolCalls(
 
     if (!showText) { ctx.restore(); continue }
 
+    // The MCP badge left a smaller font on the context: measure with the font the card text is drawn in
+    ctx.font = `${TOOL_DRAW.fontSize}px monospace`
     const truncatedLabel = truncateText(ctx, toolLabel, cardW - 8)
 
-    ctx.font = `${TOOL_DRAW.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
@@ -137,24 +139,24 @@ export function drawToolCalls(
       ctx.fillStyle = accent
       ctx.fillText(truncatedLabel, tool.x, tool.y)
     } else if (isError) {
-      ctx.fillStyle = COLORS.error
+      ctx.fillStyle = SCENE.error
       ctx.fillText(truncateText(ctx, `${displayName}: FAILED`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillStyle = COLORS.error + 'aa'
+      ctx.fillStyle = SCENE.error + 'aa'
       ctx.fillText(truncateText(ctx, tool.errorMessage || tool.result || '', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else if (isUnresolved) {
-      ctx.fillStyle = COLORS.textMuted
+      ctx.fillStyle = SCENE.textMuted
       const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'
       ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? 'fin non observée' : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? END_NOT_OBSERVED : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else {
       // Completed card: show action + file path (most useful info at a glance)
-      ctx.fillStyle = mcp ? COLORS.mcp : COLORS.return
+      ctx.fillStyle = mcp ? SCENE.mcp : SCENE.return
       ctx.fillText(truncatedLabel, tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       if (tool.tokenCost) {
         // Token cost as dim text below; an estimate is tagged, never shown as an exact figure
-        ctx.fillStyle = COLORS.tool + '90'
+        ctx.fillStyle = SCENE.tool + '90'
         ctx.font = `${TOOL_DRAW.tokenFontSize}px monospace`
         const tag = tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''
         ctx.fillText(`${tool.tokenCost} tok${tag}`, tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)

@@ -6,7 +6,7 @@ import { drawToolCalls } from '@/components/agent-visualizer/canvas/draw-tool-ca
 import { drawParticles, buildEdgeMap } from '@/components/agent-visualizer/canvas/draw-particles'
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
 import { drawEffects } from '@/components/agent-visualizer/canvas/draw-effects'
-import { COLORS } from '@/lib/colors'
+import { SCENE } from '@/lib/colors'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function makeCtx() {
@@ -49,14 +49,14 @@ for (const reducedMotion of [false, true]) {
     const agents = new Map<string, any>([['s1:m', baseAgent]])
     const toolCalls = new Map<string, any>([['t1', mcpTool]])
     const edges = [{ id: 'edge-t1', from: 's1:m', to: 't1', type: 'tool', opacity: 1 }] as any[]
-    const particles = [{ id: 'p-tc-1-t1', edgeId: 'edge-t1', progress: 0.5, type: 'tool_call', color: COLORS.mcp, size: 4, trailLength: 0.15, mcp: true, label: 'x' }] as any[]
+    const particles = [{ id: 'p-tc-1-t1', edgeId: 'edge-t1', progress: 0.5, type: 'tool_call', color: SCENE.mcp, size: 4, trailLength: 0.15, mcp: true, label: 'x' }] as any[]
 
     drawAgents(ctx, agents, null, null, false, 1.5, opts)
     drawToolCalls(ctx, toolCalls, 1.5, null, opts)
     drawParticles(ctx, particles, buildEdgeMap(edges), agents, toolCalls, 1.5, opts)
-    drawEffects(ctx, [{ type: 'mcp', x: 200, y: 160, color: COLORS.mcp, age: 0.3, duration: 0.9 }])
+    drawEffects(ctx, [{ type: 'mcp', x: 200, y: 160, color: SCENE.mcp, age: 0.3, duration: 0.9 }])
 
-    assert.ok(strokes.includes(COLORS.mcp), 'agent rim or sonar ring is stroked in MCP cyan')
+    assert.ok(strokes.includes(SCENE.mcp), 'agent rim or sonar ring is stroked in MCP cyan')
     assert.ok(texts.some(t => t.includes('MCP') && t.includes('stripe')), 'server badge text is drawn')
   })
 }

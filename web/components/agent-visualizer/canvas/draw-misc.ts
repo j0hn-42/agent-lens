@@ -1,11 +1,11 @@
-import { Agent, NODE, CARD, TETHER } from '@/lib/agent-types'
-import { COLORS, getStateColor } from '@/lib/colors'
-import { STATE_COLOR_OVERRIDES } from '@/lib/canvas-constants'
+import { Agent, NODE, CARD, TETHER } from '../../../lib/agent-types'
+import { SCENE, getStateColor } from '../../../lib/colors'
+import { STATE_COLOR_OVERRIDES } from '../../../lib/canvas-constants'
 import { measureTextCached } from './render-cache'
 
 /** Canvas state colour: colors.ts value, except where the canvas needs a distinct hue (thinking, waiting_permission). */
 export function stateColor(state: Agent['state']): string {
-  return STATE_COLOR_OVERRIDES[state] ?? getStateColor(state)
+  return STATE_COLOR_OVERRIDES[state] ?? getStateColor(state, SCENE)
 }
 
 /** Truncate text with ellipsis to fit within maxWidth pixels */
@@ -47,7 +47,7 @@ export function drawTetherLine(
 
   ctx.save()
   ctx.globalAlpha = TETHER.alpha
-  ctx.strokeStyle = COLORS.holoBase + TETHER.strokeAlpha
+  ctx.strokeStyle = SCENE.holoBase + TETHER.strokeAlpha
   ctx.lineWidth = TETHER.lineWidth
   ctx.setLineDash(TETHER.dash)
   ctx.beginPath()
@@ -60,7 +60,7 @@ export function drawTetherLine(
 
   // Dot at the end
   ctx.beginPath()
-  ctx.fillStyle = COLORS.holoBase + '90'
+  ctx.fillStyle = SCENE.holoBase + '90'
   ctx.arc(endX, endY, TETHER.dotRadius, 0, Math.PI * 2)
   ctx.fill()
   ctx.restore()
@@ -116,11 +116,11 @@ export function drawFocusRing(ctx: CanvasRenderingContext2D, shape: FocusShape, 
   ctx.globalAlpha = 1
   ctx.shadowBlur = 0
   trace()
-  ctx.strokeStyle = COLORS.void
+  ctx.strokeStyle = SCENE.void
   ctx.lineWidth = 5 / z
   ctx.stroke()
   trace()
-  ctx.strokeStyle = COLORS.holoHot
+  ctx.strokeStyle = SCENE.holoHot
   ctx.lineWidth = 2 / z
   ctx.stroke()
   ctx.restore()

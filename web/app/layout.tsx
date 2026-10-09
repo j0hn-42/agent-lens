@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { themeBootstrapScript } from '../../extension/src/theme-bootstrap'
 
 export const metadata: Metadata = {
   title: 'LLM Agent Visualizer',
@@ -29,8 +30,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className="font-sans antialiased bg-[#050510]">
+    <html lang="en" className="dark" data-theme="catppuccin-macchiato" suppressHydrationWarning>
+      <head>
+        {/* Static, first-party script: sets data-theme, the dark class and color-scheme before first paint */}
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript() }} />
+      </head>
+      <body className="font-sans antialiased">
         {children}
       </body>
     </html>

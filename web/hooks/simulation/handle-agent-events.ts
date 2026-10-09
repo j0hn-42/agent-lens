@@ -3,7 +3,7 @@ import {
   type TimelineEntry,
   emptyContextBreakdown,
 } from '../../lib/agent-types'
-import { COLORS } from '../../lib/colors'
+import { SCENE } from '../../lib/colors'
 import type { ModelSource } from '../../lib/model-provenance'
 import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { edgeId, asBoolean, agentKeyOf, cappedString, LABEL_LEN_NAME, MAX_ID_LEN, DEFAULT_SESSION_ID } from './types'
@@ -11,9 +11,11 @@ import { idString, resolveChildLocalId } from './agent-keys'
 import { parseTeammateExtras } from './team-info'
 import { evictArchived, admitSpawn } from './archive'
 import { spawnPosition, clusterKeyOf } from './fleet-layout'
+import { phaseOfAgent } from './team-key'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
-import { mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
+import { advanceActiveTime } from '../../lib/active-time'
+import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -62,6 +64,12 @@ export function handleAgentSpawn(
     ...(team.backend ? { backend: team.backend } : {}),
   } : {}
 
+  // Phase announced by team_info for this workflow member (stays absent until a phase was really received)
+  const workflowPhase = (agentName: string, agentLocalId: string): { phase?: string } => {
+    const phase = phaseOfAgent({ sessionId, teamName: team?.teamName, teamKind: team?.teamKind, name: agentName, localId: agentLocalId }, state.teams)
+    return phase ? { phase } : {}
+  }
+
   // If the agent already exists (e.g. session resuming after inactivity),
   // reactivate it instead of replacing — preserves accumulated stats.
   const existing = state.agents.get(name)
@@ -76,6 +84,7 @@ export function handleAgentSpawn(
       ...teamFields,
       // A returning teammate may carry a team name it did not have: keep the cached cluster key right
       ...(team ? { clusterKey: clusterKeyOf({ sessionId, teamName: team.teamName }, state.teams) } : {}),
+      ...(team ? workflowPhase(existing.name, existing.localId) : {}),
       ...(task ? { task } : {}),
       ...spawnModelFields(existing, { model, modelSource, requestedModel }, ctx),
       ...(effort ? { effort } : {}),
@@ -104,7 +113,7 @@ export function handleAgentSpawn(
     parentId: parentId || null,
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
-    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensReported: lateUsage > 0, tokensEstimated: false,
+    tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
     tokensMax: ctx.getContextWindowSize(initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, toolErrors: 0, timeAlive: 0,
@@ -116,6 +125,7 @@ export function handleAgentSpawn(
     ...(effort ? { effort } : {}),
     ...(subagentType ? { subagentType } : {}),
     ...teamFields,
+    ...workflowPhase(displayName, localId),
     clusterKey,
     task,
     spawnTime: currentTime,
@@ -141,7 +151,7 @@ export function handleAgentSpawn(
     startTime: currentTime,
     blocks: [],
   }
-  pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: COLORS.idle }, ctx)
+  pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: SCENE.idle }, ctx)
   state.timelineEntries.set(name, timelineEntry)
 
   // A subagent_dispatch is emitted just before agent_spawn and may already have
@@ -163,11 +173,19 @@ export function handleAgentComplete(
   const name = agentKeyOf(sessionId, idString(payload.name))
   const agent = state.agents.get(name)
   if (agent && agent.state !== 'complete') {
-    state.agents.set(name, { ...agent, state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
+    // An inactivity timeout is not a witnessed end: the work stopped at the last event heard from the agent
+    const lastHeard = asBoolean(payload.inactivity) && agent.activeSince !== undefined && agent.lastEventAt !== undefined
+      ? advanceActiveTime({ activeMs: agent.activeMs, activeSince: agent.activeSince }, false, Math.max(agent.lastEventAt, agent.activeSince))
+      : {}
+    const { activeSince: _since, ...settled } = agent
+    state.agents.set(name, {
+      ...(Object.keys(lastHeard).length ? settled : agent), ...lastHeard,
+      state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
+    })
 
     const entry = state.timelineEntries.get(name)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: COLORS.complete, endTime: currentTime }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
       entry.endTime = currentTime
     }
 
@@ -178,7 +196,7 @@ export function handleAgentComplete(
         agentsToComplete.push(childId)
         const childEntry = state.timelineEntries.get(childId)
         if (childEntry) {
-          pushTimelineBlock(childEntry, currentTime, { type: 'complete', label: 'Done', color: COLORS.complete, endTime: currentTime }, ctx)
+          pushTimelineBlock(childEntry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
           childEntry.endTime = currentTime
         }
       }
@@ -213,7 +231,7 @@ export function handlePermissionRequested(
 
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: COLORS.waiting_permission }, ctx)
+      pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: SCENE.waiting_permission }, ctx)
     }
   }
 }
@@ -225,7 +243,11 @@ export function handleAgentIdle(
 ): void {
   const idleName = agentKeyOf(sessionId, idString(payload.name))
   const idleAgent = state.agents.get(idleName)
-  if (idleAgent && (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+  if (!idleAgent) return
+  // End of a turn: the agent is waiting for the next prompt, not working (its active span closes)
+  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
+    state.agents.set(idleName, { ...idleAgent, state: 'idle', currentTool: undefined })
+  } else if (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission') {
     state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
   }
 }
@@ -240,11 +262,17 @@ export function handleModelDetected(
   const model = cappedString(payload.model, MAX_ID_LEN)
   const effort = parseEffort(payload.effort)
   const agent = state.agents.get(agentName)
-  if (agent && model) {
+  if (agent && model && !isPseudoModel(model)) {
     // Reported by the transcript itself: the strongest source
     const merged = mergeModel(agent, { model, source: 'runtime' })
+    // A Codex report is authoritative for the effort (re-emitted when it changes, absent = none), and a
+    // switch to another model no longer carries the effort configured for the previous one. Claude's own
+    // reports never carry an effort: there the one configured at spawn stays.
+    const effortStale = !effort && (agent.runtime === 'codex' || (!!agent.model && agent.model !== model))
+    const { effort: _previous, ...withoutEffort } = agent
+    const rest = effortStale ? withoutEffort : agent
     state.agents.set(agentName, {
-      ...agent,
+      ...rest,
       ...merged,
       modelsUsed: recordModelUsed(agent.modelsUsed, model),
       tokensMax: ctx.getContextWindowSize(model),

@@ -1,3 +1,4 @@
+import { END_NOT_OBSERVED, EXPIRED_WARNING, RESULT_WITHOUT_END_WARNING } from './ui-glossary'
 import type { Agent, ToolCallNode, ToolCallState } from './agent-types'
 
 /** User-facing label of each lifecycle state (never show the raw identifier). */
@@ -9,11 +10,7 @@ export const TOOL_STATE_LABELS: Record<ToolCallState, string> = {
   expired: 'Expired',
 }
 
-/** Shown wherever a result or outcome rests on an end that was never observed. */
-export const END_NOT_OBSERVED = 'fin non observée'
-
-/** Warning attached to an expired call: the goal is not known to have been reached. */
-export const EXPIRED_WARNING = 'Expiré, fin non observée : le résultat est inconnu, pas un succès.'
+export { END_NOT_OBSERVED, EXPIRED_WARNING }
 
 /** Terminal outcomes a producer can report on tool_call_end. */
 export type ReportedOutcome = 'complete' | 'error' | 'cancelled'
@@ -60,7 +57,7 @@ export function settleToolCall(tc: ToolCallNode, now: number, expiryS: number, a
 /** Caveat to show next to the outcome / result of a call, or null when its end was observed. */
 export function toolEndWarning(tc: Pick<ToolCallNode, 'state' | 'endObserved'>): string | null {
   if (tc.state === 'expired') return EXPIRED_WARNING
-  if (tc.endObserved === false) return `Résultat rapporté, ${END_NOT_OBSERVED}.`
+  if (tc.endObserved === false) return RESULT_WITHOUT_END_WARNING
   return null
 }
 

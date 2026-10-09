@@ -110,11 +110,11 @@ test('the timeline block of an expired call is closed at the deadline and says i
   s = advance(s, 1 + TOOL_EXPIRY_S + 1)
   const closed = s.timelineEntries.get(key)!.blocks.find(b => b.type === 'tool_call')!
   assert.equal(closed.endTime, 1 + TOOL_EXPIRY_S)
-  assert.match(closed.label, /expiré, fin non observée/)
+  assert.match(closed.label, /expired, end not observed/)
   const snapped = snapVisualState(run([orch, start()]), 1 + TOOL_EXPIRY_S + 1)
   const snappedBlock = snapped.timelineEntries.get(key)!.blocks.find(b => b.type === 'tool_call')!
   assert.equal(snappedBlock.endTime, 1 + TOOL_EXPIRY_S)
-  assert.match(snappedBlock.label, /fin non observée/)
+  assert.match(snappedBlock.label, /end not observed/)
 })
 
 test('an Agent call is not expired while the sub-agent it launched is alive; a Bash call still is', () => {
@@ -193,7 +193,7 @@ test('seeking past the delay snaps an orphan to expired', () => {
 
 test('warnings: expired and unobserved-end results carry a caveat, observed ones do not', () => {
   assert.equal(toolEndWarning({ state: 'expired', endObserved: false }), EXPIRED_WARNING)
-  assert.match(toolEndWarning({ state: 'complete', endObserved: false }) ?? '', /fin non observée/)
+  assert.match(toolEndWarning({ state: 'complete', endObserved: false }) ?? '', /end not observed/)
   assert.equal(toolEndWarning({ state: 'complete', endObserved: true }), null)
   assert.equal(toolEndWarning({ state: 'running' }), null)
   assert.equal(TOOL_STATE_LABELS.expired, 'Expired')
