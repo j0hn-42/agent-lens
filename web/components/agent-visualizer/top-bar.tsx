@@ -51,6 +51,15 @@ function UnmutedIcon() {
   )
 }
 
+function GearIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
 function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector }: {
@@ -180,6 +189,8 @@ export interface TopBarProps {
   onToggleMute: () => void
   /** Open the keyboard shortcuts dialog (also bound to `?`) */
   onOpenShortcuts: () => void
+  /** Opens the Settings dialog; the gear button is hidden when omitted */
+  onOpenSettings?: () => void
   /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
   attention?: { waiting: number; errors: number }
   /** Select the first blocked agent */
@@ -197,7 +208,7 @@ export const TopBar = memo(function TopBar({
   connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts,
+  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
@@ -358,6 +369,17 @@ export const TopBar = memo(function TopBar({
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}
           </ToggleButton>
+          {onOpenSettings && (
+            <ToggleButton
+              active={false}
+              onClick={onOpenSettings}
+              ariaLabel="Settings"
+              title="Settings"
+              hasDialog
+            >
+              <GearIcon />
+            </ToggleButton>
+          )}
           <ToggleButton
             active={false}
             onClick={onOpenShortcuts}
