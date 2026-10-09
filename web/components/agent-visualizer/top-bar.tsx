@@ -50,6 +50,16 @@ function UnmutedIcon() {
   )
 }
 
+export function FullscreenIcon({ exit = false }: { exit?: boolean }) {
+  return (
+    <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {exit
+        ? <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3" />
+        : <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />}
+    </svg>
+  )
+}
+
 function GearIcon() {
   return (
     <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -190,6 +200,8 @@ export interface TopBarProps {
   onOpenShortcuts: () => void
   /** Opens the Settings dialog; the gear button is hidden when omitted */
   onOpenSettings?: () => void
+  /** Enter immersive full screen (Z) */
+  onToggleFullscreen?: () => void
   /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
   attention?: { waiting: number; errors: number }
   /** Select the first blocked agent */
@@ -207,7 +219,7 @@ export const TopBar = memo(function TopBar({
   connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
-  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings,
+  onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
@@ -367,6 +379,17 @@ export const TopBar = memo(function TopBar({
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}
           </ToggleButton>
+          {onToggleFullscreen && (
+            <ToggleButton
+              active={false}
+              onClick={onToggleFullscreen}
+              ariaLabel="Enter full screen"
+              title="Full screen (Z)"
+              shortcut="z"
+            >
+              <FullscreenIcon />
+            </ToggleButton>
+          )}
           {onOpenSettings && (
             <ToggleButton
               active={false}
