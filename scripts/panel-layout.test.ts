@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  computeDockLayout, clampDockWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
+  computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
@@ -201,4 +201,30 @@ test('store: panels register, the snapshot is stable until something changes, an
   assert.equal(store.getSnapshot().layout.rects.detail, undefined)
   assert.ok(notified >= 4)
   unsub()
+})
+
+test('left panel (Sessions): grows to the free room, never into the right dock nor the agent card', () => {
+  for (const [w, h] of VIEWPORTS.filter(([vw]) => vw >= SHEET_BREAKPOINT)) {
+    for (const open of subsets(PANELS)) {
+      const layout = computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, rightWidth: RIGHT_DOCK.default })
+      const { min, max } = leftPanelWidthBounds(w, open, layout.rightWidth)
+      assert.ok(min <= max && max <= w - 24, `${w}: bounds ${min}..${max}`)
+      const sessions: Rect = { x: 12, y: TOPBAR_H, w: max, h: 400 }
+      for (const id of ['link', 'files', 'conversation'] as const) {
+        const r = layout.rects[id]
+        if (r && layout.mode === 'dock') assert.ok(!intersects(sessions, r), `${w}x${h} [${open}]: sessions ${max}px overlaps ${id}`)
+      }
+      if (open.includes('detail') && max > 0) assert.ok(w - 12 - max >= 240, `${w}: the agent card keeps its room`)
+    }
+  }
+})
+
+test('left panel (Sessions): the whole width when nothing is open, minus the right dock and the card otherwise', () => {
+  assert.equal(leftPanelWidthBounds(1600, [], 380).max, 1600 - 24)
+  assert.equal(leftPanelWidthBounds(1600, ['conversation'], 380).max, 1600 - 24 - 380 - 8)
+  assert.equal(leftPanelWidthBounds(1600, ['conversation', 'detail'], 380).max, 1600 - 24 - 380 - 8 - 240 - 8)
+  assert.deepEqual(leftPanelWidthBounds(700, ['files'], 380), dockWidthBounds(700))
+  assert.equal(leftPanelWidthBounds(900, ['files'], 540).min, 280 > 900 - 24 - 548 ? 900 - 24 - 548 : 280)
+  assert.equal(clampLeftPanelWidth(NaN, 480, { min: 280, max: 900 }), 480)
+  assert.equal(clampLeftPanelWidth(5000, 480, { min: 280, max: 900 }), 900)
 })

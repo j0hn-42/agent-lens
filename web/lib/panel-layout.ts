@@ -87,6 +87,34 @@ export function dockWidthForDrag(startWidth: number, startX: number, x: number, 
   return clampDockWidth(startWidth + (startX - x), viewportW)
 }
 
+// ─── Left panel (Sessions) width ────────────────────────────────────────────
+
+const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
+
+/**
+ * Bounds of a panel anchored on the left edge (the Sessions list) that must not run into its
+ * neighbours: it may grow up to the free space left of the right dock (when one of its panels is
+ * open), and keeps the room the agent card needs beside it while that card is open. Below the sheet
+ * breakpoint the generic dock bounds apply (the panel is clamped by the viewport).
+ */
+export function leftPanelWidthBounds(
+  viewportW: number,
+  open: readonly PanelId[],
+  rightWidth: number,
+): { min: number; max: number } {
+  if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
+  const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
+  // Never wider than the room, even when the room is smaller than the usual minimum
+  return { min: Math.min(RIGHT_DOCK.min, max), max }
+}
+
+/** Clamp a left-panel width to its bounds (NaN falls back to the default width). */
+export function clampLeftPanelWidth(width: number, fallback: number, bounds: { min: number; max: number }): number {
+  return Math.round(clamp(finite(width, fallback), bounds.min, bounds.max))
+}
+
 // ─── Free-space search ──────────────────────────────────────────────────────
 
 /** Free vertical intervals of [top, bottom] in the column [x0, x1] once the blockers (+gap) are removed. */

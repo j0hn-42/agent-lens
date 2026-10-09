@@ -9,7 +9,7 @@ import { useThemeVersion } from '@/lib/theme'
 import { pluralize } from '@/lib/utils'
 import { usageFromAgent } from '@/lib/usage'
 import { deriveFreshness } from '@/hooks/simulation/freshness'
-import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell } from '@/lib/session-columns'
+import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
@@ -29,15 +29,24 @@ import {
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { FreshnessAnnouncer } from './freshness-announcer'
-import { INSPECTOR_KEEP_ATTR, PanelHeader, SlidingPanel } from './shared-ui'
+import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
+import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
 import { CollapsibleSection } from './collapsible-section'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
-import { COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
+import { BlankCell, COLUMN_CLASSES, ColumnHeader, ColumnValue, LiveTimeValue, ROW_GRID } from './session-columns'
 
 export type SessionListAgent = AgentLike
 
 /** Default width (px) of the panel: room for the Name / Model / Tokens / Time columns (was 380). */
 export const SESSIONS_PANEL_WIDTH = 480
+const SESSIONS_WIDTH_KEY = 'agent-lens.sessionsPanelWidth'
+
+function readStoredWidth(): number {
+  try {
+    const n = Number(window.localStorage.getItem(SESSIONS_WIDTH_KEY))
+    return Number.isFinite(n) && n > 0 ? n : SESSIONS_PANEL_WIDTH
+  } catch { return SESSIONS_PANEL_WIDTH }
+}
 
 interface SessionListPanelProps {
   visible: boolean
@@ -145,6 +154,8 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
   const { detail, stale, role } = agentRowView(a, freshnessNow)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
   const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
+  // This agent alone (its sub-agents are in the branch total)
+  const own = useMemo(() => rollupBranch({ agent: node.agent, children: [] }), [node.agent])
   return (
     <li>
       <button
@@ -165,8 +176,12 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
           <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
         </span>
         <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <BlankCell column="runtime" />
+        <BlankCell column="branch" />
         <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
+        <ColumnValue column="cost" cell={costCell(own)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
+        <BlankCell column="activity" />
         {branch && (
           <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
             <RollupLabel total={branch} label="branch total" />
@@ -231,6 +246,17 @@ export function SessionListPanel({
   filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
+  const [wantedWidth, setWantedWidth] = useState(SESSIONS_PANEL_WIDTH)
+  useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
+  const { env, open: openPanels, layout } = useDockSnapshot()
+  // Room beside the panel: the right dock and the agent card keep their place, so it can grow, never overlap
+  const bounds = leftPanelWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const panelWidth = clampLeftPanelWidth(wantedWidth, SESSIONS_PANEL_WIDTH, bounds)
+  const resizePanel = (w: number) => {
+    setWantedWidth(w)
+    try { window.localStorage.setItem(SESSIONS_WIDTH_KEY, String(w)) } catch { /* not persisted */ }
+  }
   // A new callback identity on every parent render would defeat the row signatures
   const onSelectAgentRef = useRef(onSelectAgent)
   onSelectAgentRef.current = onSelectAgent
@@ -391,10 +417,11 @@ export function SessionListPanel({
       axis="X"
       offset={-8}
       zIndex={Z.sidePanel}
-      width={SESSIONS_PANEL_WIDTH}
+      width={panelWidth}
       labelledBy="session-list-title"
-      attrs={{ [INSPECTOR_KEEP_ATTR]: '' }}
+      attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '' }}
     >
+      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
@@ -575,10 +602,13 @@ export function SessionListPanel({
                       aria-expanded={hasAgents ? !isCollapsed : undefined}
                       disabled={!hasAgents}
                       onClick={() => toggleCollapsed(session.id, !isCollapsed)}
-                      className={`inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-[11px] ${FOCUS_RING}`}
-                      style={{ color: hasAgents ? COLORS.textMuted : 'transparent' }}
+                      className={`inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded text-xs ${hasAgents ? 'hover:bg-[var(--lens-hover-05)]' : ''} ${FOCUS_RING}`}
+                      style={{
+                        color: hasAgents ? COLORS.textPrimary : COLORS.textDim,
+                        border: hasAgents ? `1px solid ${COLORS.controlBorder}` : '1px solid transparent',
+                      }}
                     >
-                      <span aria-hidden="true">{isCollapsed ? '▸' : '▾'}</span>
+                      <span aria-hidden="true">{hasAgents ? (isCollapsed ? '▸' : '▾') : '·'}</span>
                     </button>
                     <button
                       type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
@@ -600,8 +630,12 @@ export function SessionListPanel({
                         <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
                       </span>
                       <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
+                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
+                      <ColumnValue column="branch" cell={branchCell(session.branch)} title={session.branch} />
                       <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
+                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null)} />
                       <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
+                      <ColumnValue column="activity" cell={activityCell(session, currentTime)} />
                       <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
                         {unobserved && (
                           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>
@@ -613,8 +647,9 @@ export function SessionListPanel({
                             <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
                           </span>
                         )}
-                        {hasAgents && rollups.get(row.id) && <RollupLabel total={rollups.get(row.id)!} label="session total" />}
-                        <span className="shrink-0 tabular-nums" style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
+                        {/* Cost and activity have their own columns from this width on */}
+                        {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="session total" /></span>}
+                        <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>
                     <button
@@ -630,7 +665,7 @@ export function SessionListPanel({
                   </div>
                   {hasAgents && (
                     <CollapsibleSection open={!isCollapsed}>
-                    <ul className="list-none p-0 m-0 pl-6 pr-6" aria-label={`Agents of ${session.label}`}>
+                    <ul className="list-none m-0 ml-3 pl-2 pr-6 py-0.5" style={{ borderLeft: `2px solid ${COLORS.controlBorder}` }} aria-label={`Agents of ${session.label}`}>
                       <AgentNodes nodes={row.roots} depth={0} selectedAgentId={selectedAgentId} onSelectAgent={stableSelectAgent} freshnessNow={freshnessNow} />
                     </ul>
                     </CollapsibleSection>
