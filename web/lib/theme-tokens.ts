@@ -1,5 +1,5 @@
 /**
- * Theme tokens: the single source of truth of the three themes (neon, graphite, paper).
+ * Theme tokens: the single source of truth of the nine themes (three Catppuccin flavors, midnight, graphite, neon, ember, anthropic, contrast), all dark.
  *
  * - The role values come from `theme-tokens.json`, a verbatim copy of the design system data
  *   (color + shadow). To update a colour, edit that file, then run `pnpm run gen:themes`.
@@ -13,21 +13,36 @@
 
 import data from './theme-tokens.json'
 
-export const THEME_IDS = ['neon', 'graphite', 'paper'] as const
+export const THEME_IDS = ['catppuccin-macchiato', 'catppuccin-mocha', 'catppuccin-frappe', 'midnight', 'graphite', 'neon', 'ember', 'anthropic', 'contrast'] as const
 export type ThemeId = (typeof THEME_IDS)[number]
 
 /** Theme applied when nothing is stored and no `?theme=` is given. Mirrors extension/src/theme-bootstrap.ts (a test compares them). */
-export const DEFAULT_THEME: ThemeId = 'graphite'
+export const DEFAULT_THEME: ThemeId = 'catppuccin-macchiato'
 
-/** Human labels of the selector. Neon, graphite and paper are proper names, kept as is. */
+/**
+ * Human labels of the selector. Midnight, Graphite, Neon and Ember are proper names, kept as is; the Catppuccin flavors carry the name of the palette;
+ * `contrast` is shown as "High contrast" (its purpose, which is what a low-vision user looks for).
+ */
 export const THEME_LABELS: Record<ThemeId, string> = {
-  neon: 'Neon',
+  'catppuccin-macchiato': 'Catppuccin Macchiato',
+  'catppuccin-mocha': 'Catppuccin Mocha',
+  'catppuccin-frappe': 'Catppuccin Frappe',
+  midnight: 'Midnight',
   graphite: 'Graphite',
-  paper: 'Paper',
+  neon: 'Neon',
+  ember: 'Ember',
+  anthropic: 'Anthropic',
+  contrast: 'High contrast',
 }
 
-/** Themes drawn on a dark ground (they keep the `dark` class); paper is the only light one. */
-export const DARK_THEMES: readonly ThemeId[] = ['neon', 'graphite']
+/** Themes that stored values of earlier versions (and the removed `paper`) resolve to. Mirrored by the bootstrap script. */
+export const LEGACY_THEME_IDS: readonly string[] = ['dark', 'light', 'paper']
+
+/** Theme a stored or URL value resolves to: a known id as is, a legacy value (dark, light, paper) -> the default, else null. */
+export function resolveThemeValue(value: unknown): ThemeId | null {
+  if (isThemeId(value)) return value
+  return typeof value === 'string' && LEGACY_THEME_IDS.includes(value) ? DEFAULT_THEME : null
+}
 
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value)
@@ -74,7 +89,7 @@ export function cssVar(role: string): string {
 
 /**
  * Extra custom properties that are not design roles. Neon pins the exact values the app has always used
- * (its glass, its cyan focus ring, its blur); graphite and paper follow the README: flat surface, 1px edge,
+ * (its glass, its cyan focus ring, its blur); the other themes follow the README: flat surface, 1px edge,
  * no backdrop blur, no glow.
  */
 export function extraVars(id: ThemeId): Record<string, string> {
@@ -82,27 +97,59 @@ export function extraVars(id: ThemeId): Record<string, string> {
 }
 
 /**
- * ANSI palette of Bash output (web/lib/ansi.ts, #152): 16 colours + default fg + the background they are checked against.
- * Neon keeps the values of develop (dark palette); graphite is the same palette with a brighter red (dimmed text stays >= 4.5:1
- * on its surface); paper uses the dark-ink palette, a touch deeper on green/amber/purple/teal/red for the same reason.
+ * ANSI palette of Bash output (web/lib/ansi.ts, #152): 16 colours + default fg + the background they are checked against (the theme's void).
+ * Neon keeps the values of develop; graphite and midnight are the same palette with a brighter red (dimmed text stays >= 4.5:1 on its surface);
+ * contrast reuses it as is (a black background: every colour only gains contrast); ember warms the blue, purple
+ * and cyan slots (less blue light) and keeps their luminance.
  * Checked in scripts/ansi.test.ts: >= 4.5:1, even dimmed (opacity .8).
  */
 const ANSI_DARK = [
   '#9aa0b4', '#ff6b7a', '#5fdc8f', '#f0c24b', '#6fa8ff', '#d68cff', '#4fd8e0', '#d8dbe6',
   '#b0b6c8', '#ff8e9a', '#86efac', '#ffd866', '#93bfff', '#e3a9ff', '#7ae8ee', '#ffffff',
 ]
-const ANSI_PAPER = [
-  '#2d3340', '#9f1128', '#085226', '#664200', '#1a3fb0', '#721fa5', '#07505f', '#374151',
-  '#374151', '#a80f2d', '#14532d', '#5f3d00', '#1b3a99', '#6b21a8', '#0a4f5f', '#1f2937',
+/** Anthropic: warm neutral greys and the brand orange, blue and green, lightened where needed (see docs/reading-the-ui.md). */
+const ANSI_ANTHROPIC = [
+  '#a8a59b', '#e8777f', '#9bb67f', '#e3b341', '#7fa9d3', '#c79bd0', '#7fb5a8', '#e8e6dc',
+  '#bfbcb2', '#f08f96', '#b2cb98', '#efc968', '#9bc0e4', '#d9b3e0', '#9bcabd', '#faf9f5',
 ]
+const ANSI_EMBER = [
+  '#aa9d8f', '#f48a78', '#a8d68c', '#f0c860', '#93b0dc', '#d79bc5', '#8fd0c0', '#e3d7c7',
+  '#bfb2a2', '#f8a898', '#bfe6a8', '#ffd97a', '#adc4ea', '#e7b5d6', '#a9e2d4', '#ffffff',
+]
+/**
+ * Catppuccin: the official ANSI colours of the palette (normal 0-7, bright 8-15; palette.json 1.8.0), checked against the flavor's mantle
+ * (our `surface`). The ones that fall under 4.5:1 once dimmed are lightened toward white, just enough: black and bright black (0 and 8:
+ * surface1 / surface2 sit next to the background) on every flavor, bright red (9) on Macchiato, and on Frappe red (1), blue (4), bright
+ * red (9) and bright blue (12). Listed in docs/reading-the-ui.md.
+ */
+const ANSI_CATPPUCCIN: Record<'catppuccin-mocha' | 'catppuccin-macchiato' | 'catppuccin-frappe', string[]> = {
+  'catppuccin-mocha': [
+    '#9b9ca6', '#f38ba8', '#a6e3a1', '#f9e2af', '#89b4fa', '#f5c2e7', '#94e2d5', '#a6adc8',
+    '#999ba8', '#f37799', '#89d88b', '#ebd391', '#74a8fc', '#f2aede', '#6bd7ca', '#bac2de',
+  ],
+  'catppuccin-macchiato': [
+    '#9fa1ad', '#ed8796', '#a6da95', '#eed49f', '#8aadf4', '#f5bde6', '#8bd5ca', '#a5adcb',
+    '#9ea1af', '#ee8191', '#8ccf7f', '#e1c682', '#78a1f6', '#f2a9dd', '#63cbc0', '#b8c0e0',
+  ],
+  'catppuccin-frappe': [
+    '#aaadb7', '#eb9799', '#a6d189', '#e5c890', '#8fadef', '#f4b8e4', '#81c8be', '#a5adce',
+    '#aaadba', '#ed9697', '#8ec772', '#d9ba73', '#8fadf2', '#f2a4db', '#5abfb5', '#b5bfe2',
+  ],
+}
+/** Default foreground of Bash output. The background it is checked against is the theme's surface (neon keeps its legacy value). */
+function ansiFg(id: ThemeId): string {
+  if (id === 'ember') return '#f1e7db'
+  if (id === 'contrast') return '#ffffff'
+  if (id === 'anthropic') return '#faf9f5'
+  return id in ANSI_CATPPUCCIN ? TOKENS[id].ink : '#e6e9f2'
+}
 function ansiVars(id: ThemeId): Record<string, string> {
-  const palette = id === 'paper' ? ANSI_PAPER : id === 'graphite' ? ANSI_DARK.map((c, i) => (i === 1 ? '#ff7886' : c)) : ANSI_DARK
-  const fg = id === 'paper' ? '#111827' : '#e6e9f2'
-  const bg = id === 'neon' ? '#07080f' : id === 'graphite' ? '#1b1b1c' : '#f2f2f0'
+  const palette = id in ANSI_CATPPUCCIN ? ANSI_CATPPUCCIN[id as keyof typeof ANSI_CATPPUCCIN]
+    : id === 'anthropic' ? ANSI_ANTHROPIC : id === 'ember' ? ANSI_EMBER : id === 'graphite' || id === 'midnight' ? ANSI_DARK.map((c, i) => (i === 1 ? '#ff7886' : c)) : ANSI_DARK
   const out: Record<string, string> = {}
   palette.forEach((c, i) => { out[`--ansi-${i}`] = c })
-  out['--ansi-fg'] = fg
-  out['--ansi-bg'] = bg
+  out['--ansi-fg'] = ansiFg(id)
+  out['--ansi-bg'] = id === 'neon' ? '#07080f' : TOKENS[id].surface
   return out
 }
 
@@ -112,6 +159,7 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
     return {
       '--lens-shadow-card': SHADOW_CARD.neon,
       '--lens-focus-ring': '#aaeeff',
+      '--lens-focus-width': '2px',
       '--lens-glass-bg': 'rgba(10, 15, 30, 0.7)',
       '--lens-glass-border': 'rgba(102, 204, 255, 0.22)',
       '--lens-glass-blur': 'blur(20px)',
@@ -137,16 +185,19 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
       '--lens-bar-pad': '0px',
     }
   }
+  // Card and bar boundary: the decorative edge, except in High contrast where it is the marked control border
+  const boundary = id === 'contrast' ? t['control-border'] : t.edge
   return {
     // Top bar band: the scene behind it stays dark in every theme, so the bar carries its own opaque surface
     // (its controls use translucent tints of the theme that only read on that surface)
     '--lens-bar-bg': t.surface,
-    '--lens-bar-shadow': `inset 0 0 0 1px ${t.edge}`,
+    '--lens-bar-shadow': `inset 0 0 0 1px ${boundary}`,
     '--lens-bar-pad': '6px 8px',
     '--lens-shadow-card': SHADOW_CARD[id],
     '--lens-focus-ring': t.focus,
+    '--lens-focus-width': id === 'contrast' ? '3px' : '2px',
     '--lens-glass-bg': t.surface,
-    '--lens-glass-border': t.edge,
+    '--lens-glass-border': boundary,
     '--lens-glass-blur': 'none',
     '--lens-glass-sheen': 'none',
     '--lens-input-bg': t['surface-raised'],
@@ -162,14 +213,14 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
     '--lens-hover-subtle': t['surface-raised'],
     '--lens-grip': t['control-border'],
     '--lens-grip-hover': t['ink-muted'],
-    '--lens-scrim': id === 'paper' ? 'rgba(26, 26, 26, 0.45)' : 'rgba(0, 0, 0, 0.5)',
+    '--lens-scrim': id === 'contrast' ? 'rgba(0, 0, 0, 0.75)' : 'rgba(0, 0, 0, 0.5)',
     '--lens-live-halo': 'none',
   }
 }
 
 /**
  * Extras of the side panels and the feed: hover tints of rows and a high-contrast focus ring for links.
- * Neon keeps the white tints and the white ring it always had; graphite and paper derive from the tokens.
+ * Neon keeps the white tints and the white ring it always had; the other themes derive from the tokens.
  */
 function panelExtraVars(id: ThemeId): Record<string, string> {
   if (id === 'neon') {
@@ -187,7 +238,7 @@ function panelExtraVars(id: ThemeId): Record<string, string> {
 }
 
 /**
- * shadcn variables. Graphite and paper map onto the tokens so shadcn components follow the theme.
+ * shadcn variables. The other themes map onto the tokens so shadcn components follow the theme.
  * Neon keeps the neutral values the app shipped with (its look must not move).
  */
 export function shadcnVars(id: ThemeId): Record<string, string> {
@@ -264,7 +315,7 @@ export function shadcnVars(id: ThemeId): Record<string, string> {
   }
 }
 
-/** Selector of a theme block. Graphite is also the fallback when no data-theme is set. */
+/** Selector of a theme block. The default theme is also the fallback when no data-theme is set. */
 function selector(id: ThemeId): string {
   return id === DEFAULT_THEME ? `:root:not([data-theme]),\n[data-theme="${id}"]` : `[data-theme="${id}"]`
 }
@@ -277,7 +328,7 @@ export function themesCss(): string {
   ]
   for (const id of THEME_IDS) {
     lines.push(`${selector(id)} {`)
-    lines.push(`  color-scheme: ${DARK_THEMES.includes(id) ? 'dark' : 'light'};`)
+    lines.push('  color-scheme: dark;')
     for (const role of ROLES) lines.push(`  ${cssVar(role)}: ${TOKENS[id][role]};`)
     for (const [k, val] of Object.entries(extraVars(id))) lines.push(`  ${k}: ${val};`)
     for (const [k, val] of Object.entries(shadcnVars(id))) lines.push(`  ${k}: ${val};`)

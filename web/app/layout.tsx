@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className="dark" data-theme="graphite" suppressHydrationWarning>
+    <html lang="en" className="dark" data-theme="catppuccin-macchiato" suppressHydrationWarning>
       <head>
         {/* Static, first-party script: sets data-theme, the dark class and color-scheme before first paint */}
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript() }} />

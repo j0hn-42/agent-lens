@@ -8,6 +8,7 @@ import { join } from 'node:path'
 
 import { rowRenderProbe } from '@/lib/row-sync'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
+import { THEME_IDS as THEME_IDS_ALL } from '@/lib/theme-tokens'
 
 afterEach(() => {
   rowRenderProbe.onRender = null
@@ -197,10 +198,11 @@ test('css: collapsible sections animate rows 0fr/1fr and stop animating under re
   assert.match(reduced, /transition-duration/)
 })
 
-test('css: the three themes exist as data-theme blocks (graphite is the fallback) and globals.css imports them', () => {
+test('css: the nine themes exist as data-theme blocks (catppuccin-macchiato is the fallback) and globals.css imports them', () => {
   const themes = readFileSync(join(process.cwd(), 'app/themes.css'), 'utf8')
   assert.match(css, /@import '\.\/themes\.css'/)
-  for (const id of ['neon', 'graphite', 'paper']) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{`))
-  assert.match(themes, /:root:not\(\[data-theme\]\),\n\[data-theme="graphite"\]/)
-  assert.match(themes, /\[data-theme="paper"\] \{\n  color-scheme: light;/)
+  for (const id of THEME_IDS_ALL) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{`))
+  assert.match(themes, /:root:not\(\[data-theme\]\),\n\[data-theme="catppuccin-macchiato"\]/)
+  assert.doesNotMatch(themes, /paper|color-scheme: light/, 'no light theme left')
+  for (const id of THEME_IDS_ALL) assert.match(themes, new RegExp(`\\[data-theme="${id}"\\] \\{\\n  color-scheme: dark;`))
 })

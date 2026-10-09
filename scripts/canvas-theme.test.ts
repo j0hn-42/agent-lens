@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { COLORS, SCENE, refreshColors, getStateColor, getDiscoveryTypeColor, contextSegments, uiColor } from '../web/lib/colors'
 import { NEON_COLORS } from '../web/lib/theme-palette'
 import { PERF_OVERLAY, STATE_COLOR_OVERRIDES, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canvas-constants'
-import { THEME_IDS, TOKENS } from '../web/lib/theme-tokens'
+import { THEME_IDS, TOKENS, extraVars } from '../web/lib/theme-tokens'
 import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { TEAM_DEFAULT_COLOR, teammateAccent } from '../web/components/agent-visualizer/canvas/team-style'
 
@@ -43,13 +43,18 @@ for (const id of THEME_IDS) {
   })
 }
 
-test('l\'interface, elle, change avec le thème (graphite et paper diffèrent de neon)', () => {
+test('l\'interface, elle, change avec le thème (graphite et les autres thèmes diffèrent de neon)', () => {
   refreshColors('neon')
   const neon = { ...COLORS }
   refreshColors('graphite')
   assert.notEqual(COLORS.void, neon.void)
   assert.notEqual(COLORS.panelBg, neon.panelBg)
-  refreshColors('paper')
+  for (const id of THEME_IDS.filter(t => t !== 'neon' && t !== 'graphite')) {
+    refreshColors(id)
+    assert.notEqual(COLORS.void, SCENE.void, id)
+    assert.notEqual(COLORS.panelBg, neon.panelBg, id)
+  }
+  refreshColors('contrast')
   assert.notEqual(COLORS.void, SCENE.void)
   assert.notEqual(COLORS.textPrimary, SCENE.textPrimary)
   assert.equal(getStateColor('complete'), COLORS.complete, 'l\'interface suit le thème par défaut')
@@ -58,7 +63,7 @@ test('l\'interface, elle, change avec le thème (graphite et paper diffèrent de
 })
 
 test('uiColor : une couleur d\'état stockée (timeline) devient le rôle du thème, une couleur d\'identité reste', () => {
-  refreshColors('paper')
+  refreshColors('midnight')
   assert.equal(uiColor(SCENE.error), COLORS.error)
   assert.equal(uiColor(SCENE.tool), COLORS.tool)
   assert.equal(uiColor('#123456'), '#123456')
@@ -100,19 +105,26 @@ const lum = (hex: string) => {
 }
 const ratio = (a: string, b: string) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05) }
 
-test('le focus reste >= 3:1 sur les surfaces du thème ET sur la scène sombre, dans les trois thèmes', () => {
+test('le focus reste >= 3:1 sur les surfaces du thème ET sur la scène sombre, dans tous les thèmes', () => {
   const css = readFileSync(join(root, 'web/app/globals.css'), 'utf8')
-  const halo = /:where\(html\[data-theme="paper"\]\) :where\(:focus-visible\) \{\s*box-shadow: 0 0 0 6px (#[0-9a-f]{6});/.exec(css)
-  assert.ok(halo, 'paper: halo clair autour de l\'anneau de focus')
+  assert.doesNotMatch(css, /data-theme="paper"/, 'plus de réglage propre au thème clair')
   for (const id of THEME_IDS) {
     const t = TOKENS[id]
-    assert.ok(ratio(t.focus, t.surface) >= 3, `${id}: focus sur surface`)
-    if (id === 'paper') {
-      assert.ok(ratio(t.focus, halo![1]) >= 3, 'paper: anneau sur halo')
-      assert.ok(ratio(halo![1], SCENE.void) >= 3, 'paper: halo sur la scène')
-    } else {
-      assert.ok(ratio(t.focus, SCENE.void) >= 3, `${id}: focus sur la scène`)
-    }
+    for (const bg of [t.void, t.surface, t['surface-raised']]) assert.ok(ratio(t.focus, bg) >= 3, `${id}: focus sur ${bg}`)
+    assert.ok(ratio(t.focus, SCENE.void) >= 3, `${id}: focus sur la scène`)
+    assert.ok(ratio(extraVars(id)['--lens-focus-ring'].startsWith('#') ? extraVars(id)['--lens-focus-ring'] : t.focus, SCENE.void) >= 3, `${id}: anneau sur la scène`)
+  }
+})
+
+test('les éléments d\'interface posés sur la scène restent lisibles dans tous les thèmes (barre : texte >= 4,5:1 sur sa surface, bordure >= 3:1)', () => {
+  for (const id of THEME_IDS) {
+    if (id === 'neon') continue // la barre y est transparente sur la scène (couleurs de la scène, vérifiées plus haut)
+    const t = TOKENS[id]
+    const bar = extraVars(id)['--lens-bar-bg']
+    assert.equal(bar, t.surface, `${id}: la barre porte la surface du thème`)
+    assert.ok(ratio(t.ink, bar) >= 4.5 && ratio(t['ink-muted'], bar) >= 4.5, `${id}: texte de la barre`)
+    assert.ok(ratio(t['control-border'], bar) >= 3, `${id}: bordure des contrôles de la barre`)
+    assert.ok(ratio(t.focus, bar) >= 3, `${id}: focus dans la barre`)
   }
 })
 

@@ -36,7 +36,7 @@ test('les fichiers de chrome n\'ont plus de couleur en dur (hex, rgba, white, bl
   }
 })
 
-test('neon garde les lavis d\'avant, graphite et paper sont plats', () => {
+test('neon garde les lavis d\'avant, les autres thèmes sont plats', () => {
   const neon = extraVars('neon')
   assert.equal(neon['--lens-hover'], 'rgba(255, 255, 255, 0.1)')
   assert.equal(neon['--lens-hover-subtle'], 'rgba(255, 255, 255, 0.05)')
@@ -44,14 +44,14 @@ test('neon garde les lavis d\'avant, graphite et paper sont plats', () => {
   assert.equal(neon['--lens-grip-hover'], 'rgba(255, 255, 255, 0.6)')
   assert.equal(neon['--lens-scrim'], 'rgba(0, 0, 0, 0.5)')
   assert.match(neon['--lens-live-halo'], /255, 68, 68, 0\.3/)
-  for (const id of ['graphite', 'paper'] as const) {
+  for (const id of THEME_IDS.filter(t => t !== 'neon')) {
     assert.equal(extraVars(id)['--lens-live-halo'], 'none')
     assert.equal(extraVars(id)['--lens-hover'], TOKENS[id]['surface-raised'])
   }
 })
 
-test('le texte du chrome reste lisible au survol dans graphite et paper', () => {
-  for (const id of ['graphite', 'paper'] as const) {
+test('le texte du chrome reste lisible au survol dans les thèmes autres que neon', () => {
+  for (const id of THEME_IDS.filter(t => t !== 'neon')) {
     const t = TOKENS[id]
     assert.ok(contrast(t.ink, t['surface-raised']) >= 4.5, `${id}: ink sur survol`)
     assert.ok(contrast(t['control-border'], t.surface) >= 3, `${id}: poignée de redimensionnement`)

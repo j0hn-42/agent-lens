@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { THEME_IDS } from '../web/lib/theme-tokens'
 import { readFileSync } from 'node:fs'
 import { parseAnsi, stripAnsi, sliceAnsiSegments, ansiStyle, ansi256 } from '../web/lib/ansi'
 
@@ -89,7 +90,7 @@ test('ansiStyle: inverse swaps colors, defaults come from the theme', () => {
   })
 })
 
-// ─── Palette contrast (WCAG 1.4.3) in the three themes ───────────────────────────
+// ─── Palette contrast (WCAG 1.4.3) in every theme ───────────────────────────
 
 const css = readFileSync(new URL('../web/app/themes.css', import.meta.url), 'utf8')
 function palette(selector: string): Record<string, string> {
@@ -105,7 +106,8 @@ const ratio = (a: string, b: string) => {
   const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
 }
-for (const [name, selector] of [['neon', '[data-theme="neon"]'], ['graphite', '[data-theme="graphite"]'], ['paper', '[data-theme="paper"]']] as const) {
+for (const name of THEME_IDS) {
+  const selector = `[data-theme="${name}"]`
   test(`ANSI palette keeps >= 4.5:1 in the ${name} theme, even dimmed`, () => {
     const p = palette(selector)
     for (let i = 0; i < 16; i++) assert.ok(p[String(i)], `--ansi-${i} defined`)

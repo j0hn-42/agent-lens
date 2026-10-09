@@ -1,4 +1,4 @@
-// The theme applies to the interface only: what the canvas paints is identical in neon, graphite and paper.
+// The theme applies to the interface only: what the canvas paints is identical in every theme.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
@@ -41,7 +41,7 @@ function sceneLog(theme: ThemeId): string[] {
   return log
 }
 
-test('the canvas draws exactly the same colours in neon, graphite and paper', () => {
+test('the canvas draws exactly the same colours in every theme', () => {
   sceneLog('neon') // warm-up: sprite caches (glows) are filled by the first draw
   const neon = sceneLog('neon')
   assert.ok(neon.some(l => l.startsWith('fillStyle=') || l.startsWith('strokeStyle=')), 'something is painted')
