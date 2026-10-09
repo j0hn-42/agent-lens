@@ -16,6 +16,9 @@ export const SCAN_INTERVAL_MS = 1000
 /** Plafond de sessions Codex suivies en même temps (watcher + timer chacune), comme RELAY_MAX_WATCHED_SESSIONS côté Claude */
 export const CODEX_MAX_WATCHED_SESSIONS = 25
 
+/** Plafond de sessions Copilot suivies en même temps (même logique que Codex) */
+export const COPILOT_MAX_WATCHED_SESSIONS = 25
+
 /** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
  *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
 export const COLD_RESCAN_CYCLES = 30

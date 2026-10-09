@@ -637,6 +637,7 @@ export function ConversationPanel({
 /** Role label of a conversation message: the assistant is named after the runtime of the agent that spoke. */
 function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
   if (type === 'assistant' && runtime === 'codex') return 'CODEX'
+  if (type === 'assistant' && runtime === 'copilot') return 'COPILOT'
   return (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label
 }
 

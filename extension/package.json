@@ -1,7 +1,7 @@
 {
   "name": "agent-lens",
   "displayName": "Agent Lens",
-  "description": "Real-time visualization of Claude Code and Codex agent orchestration",
+  "description": "Real-time visualization of Claude Code, Codex and GitHub Copilot agent orchestration",
   "version": "0.10.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Visualization", "Other"],
-  "keywords": ["llm", "agent", "claude", "codex", "ai", "visualization", "orchestration"],
+  "keywords": ["llm", "agent", "claude", "codex", "copilot", "ai", "visualization", "orchestration"],
   "activationEvents": [
     "onWebviewPanel:agentVisualizer"
   ],
@@ -54,11 +54,12 @@
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",
-          "enum": ["auto", "claude", "codex"],
+          "enum": ["auto", "claude", "codex", "copilot"],
           "enumDescriptions": [
-            "Watch both Claude Code and Codex sessions concurrently (default)",
+            "Watch Claude Code, Codex and GitHub Copilot sessions concurrently (default)",
             "Watch only Claude Code sessions",
-            "Watch only Codex sessions"
+            "Watch only Codex sessions",
+            "Watch only local GitHub Copilot sessions"
           ],
           "default": "auto",
           "description": "Which agent runtime(s) to watch. In auto mode, runtimes you don't use are harmless no-ops (no session directory = nothing to scan)."

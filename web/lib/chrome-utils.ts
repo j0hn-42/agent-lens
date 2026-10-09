@@ -108,6 +108,7 @@ export function formatTeamSummary(teamName: string, members: number, working: nu
 /** Short visible tag + full name for the runtime of a session tab; null when the runtime is unknown. */
 export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; label: string } | null {
   if (runtime === 'codex') return { short: 'CX', label: 'Codex' }
+  if (runtime === 'copilot') return { short: 'GC', label: 'GitHub Copilot' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
 }
@@ -216,7 +217,7 @@ export function formatDroppedMessages(dropped: number): string | null {
 }
 
 /** Minimal agent shape needed to label it with its session. */
-interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' }
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' }
 
 /**
  * Attach the human-readable session label (and the session runtime when the agent has none) to each
@@ -353,7 +354,7 @@ export function emptyStateChecklist(opts: {
       detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable',
     },
     { id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching', detail: opts.status === 'watching' ? undefined : 'only the current workspace is watched' },
-    { id: 'runtime', label: 'Claude Code or Codex session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    { id: 'runtime', label: 'Claude Code, Codex or Copilot session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
 }
 
@@ -437,7 +438,7 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
 
 export interface CanvasSessionMeta {
   label: string
-  runtime?: 'claude' | 'codex'
+  runtime?: 'claude' | 'codex' | 'copilot'
   workspace?: string
   projectId?: string
   projectName?: string

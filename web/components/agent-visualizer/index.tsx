@@ -753,7 +753,7 @@ export function AgentVisualizer() {
             style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
           >
             <div className="text-sm font-semibold" style={{ color: SCENE.textPrimary }}>Waiting for an agent session</div>
-            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code or Codex session in the watched workspace to see activity</div>
+            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code, Codex or Copilot session in the watched workspace to see activity</div>
             <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
               {checklist.map(item => (
                 <li key={item.id}>

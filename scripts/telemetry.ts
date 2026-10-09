@@ -48,7 +48,7 @@ export interface TelemetryEvent {
   /** Comma-separated distinct model IDs observed during the session
    *  (e.g., `"claude-opus-4-7,gpt-5"`). session_end only. */
   models?: string
-  /** Which runtimes were being watched: `"claude"`, `"codex"`, or `"claude,codex"`.
+  /** Which runtimes were being watched: `"claude"`, `"codex"`, `"copilot"`, or a comma-separated combination.
    *  session_end only. */
   runtimes?: string
 }

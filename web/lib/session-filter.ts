@@ -5,7 +5,7 @@
  */
 import type { SessionInfo } from './bridge-types'
 
-export type RuntimeFilter = 'claude' | 'codex'
+export type RuntimeFilter = 'claude' | 'codex' | 'copilot'
 
 export interface SessionFilter {
   query: string
@@ -44,7 +44,7 @@ export function projectOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'projec
 /** Runtimes present in the list. */
 export function runtimeOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'runtime'>>): RuntimeFilter[] {
   const out: RuntimeFilter[] = []
-  for (const r of ['claude', 'codex'] as const) if (sessions.some(s => s.runtime === r)) out.push(r)
+  for (const r of ['claude', 'codex', 'copilot'] as const) if (sessions.some(s => s.runtime === r)) out.push(r)
   return out
 }
 

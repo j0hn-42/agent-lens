@@ -28,6 +28,7 @@ Tempo wave: Agent Lens changes since the fork (see also [NOTICE](../NOTICE)).
 - Observations: typed `agent_activity` observations exposed by the relay (#72)
 - Accessibility: inline theme bootstrap without flash following host and system, focus ring no longer clipped, forced-colors support (#70)
 - Release: `Release` workflow producing the `.vsix`, version and CHANGELOG consistency check (#133)
+- GitHub Copilot runtime (#169): local Copilot CLI and app sessions (`~/.copilot/session-state/<id>/events.jsonl`, respects `COPILOT_HOME`) join Claude Code and Codex in the same session list and graph. Sessions are matched to the workspace through the `cwd` / `git_root` of `workspace.yaml`; messages, reasoning, tool calls and results, and sub-agent start/stop are shown. A sub-agent is spawned only from `subagent.started`, and a tool call is attributed to it only when its `parentToolCallId` says so (no invented nesting). `agentVisualizer.runtime` and `AGENT_LENS_RUNTIME` accept `copilot`; the session filter, badge, legend and observations know the new runtime. Cloud-hosted Copilot agent sessions are out of scope.
 - Demo: `pnpm run dev:demo` now plays a guided tour of every feature (three sessions, an Agent Team, a Workflow, a Codex session, Comms, models, honest values), with a presenter script in `docs/demo.md`; the previous demo stays available as `pnpm run dev:demo:classic`
 
 ## 0.9.1

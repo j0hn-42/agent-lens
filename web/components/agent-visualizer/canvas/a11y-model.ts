@@ -318,7 +318,7 @@ export function buildA11yModel(
       state: a.state,
       stateText: stateText(a.state),
       model: describeModel(a, formatModelName),
-      runtime: a.runtime === 'codex' ? 'Codex' : 'Claude',
+      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : 'Claude',
       tokens: tokenSummary(a),
       cost: formatCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
