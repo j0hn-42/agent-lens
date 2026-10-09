@@ -4,7 +4,7 @@ import { PARTICLE_DRAW, MCP_DRAW } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
 import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edges'
 import { getGlowSprite } from './render-cache'
-import { pointInView, PARTICLE_CULL_EXTENT } from './view-cull'
+import { boxInView, PARTICLE_CULL_EXTENT } from './view-cull'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
@@ -56,12 +56,20 @@ export function drawParticles(
     const baseY = bezierPoint(t, fromY, cp1y, cp2y, toY)
     const px = baseX + normalX * wobbleAmt
     const py = baseY + normalY * wobbleAmt
-    if (!pointInView(opts.view, px, py, PARTICLE_CULL_EXTENT)) continue
+    // Comet trail — flip direction for return particles (progress goes 1→0)
+    const isReturn = particle.type === 'return' || particle.type === 'tool_return'
+    // The trail covers a fixed share of the curve, so on a long edge it reaches far past the head: cull on both ends
+    const tailT = isReturn ? Math.min(1, t + BEAM.wobble.trailOffset) : Math.max(0, t - BEAM.wobble.trailOffset)
+    const tailX = bezierPoint(tailT, fromX, cp1x, cp2x, toX)
+    const tailY = bezierPoint(tailT, fromY, cp1y, cp2y, toY)
+    if (!boxInView(
+      opts.view,
+      Math.min(px, tailX) - PARTICLE_CULL_EXTENT, Math.min(py, tailY) - PARTICLE_CULL_EXTENT,
+      Math.max(px, tailX) + PARTICLE_CULL_EXTENT, Math.max(py, tailY) + PARTICLE_CULL_EXTENT,
+    )) continue
 
     ctx.save()
 
-    // Comet trail — flip direction for return particles (progress goes 1→0)
-    const isReturn = particle.type === 'return' || particle.type === 'tool_return'
     const dotted = particle.mcp === true
     for (let i = reducedMotion ? 0 : FX.trailSegments; i >= 0; i--) {
       // MCP: dotted trail (skip alternate segments), reads as a call to an external server

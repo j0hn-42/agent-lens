@@ -6,11 +6,15 @@ import { measureTextCached, setToolCardSize } from './render-cache'
 import { toolCardExpanded } from '@/lib/tool-lifecycle'
 import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
-import { boxInView } from './view-cull'
+import { pointInView } from './view-cull'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
-/** Glow and error halo around a card (world units) */
-const TOOL_CULL_SLACK = 24
+/**
+ * Half-extent (world units) of what a card paints around its centre: the spinner ring and the MCP orbit have a
+ * radius of half the card width plus their padding, in both directions, so the box is a square, not the card.
+ * The slack covers the paddings, the error glow and the MCP badge.
+ */
+const TOOL_CULL_EXTENT = TOOL_MAX_CARD_W / 2 + 24
 
 export function drawToolCalls(
   ctx: CanvasRenderingContext2D,
@@ -23,7 +27,7 @@ export function drawToolCalls(
   const showText = lodForZoom(opts.zoom).details
   for (const [id, tool] of toolCalls) {
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
-    if (!boxInView(opts.view, tool.x - TOOL_MAX_CARD_W / 2 - TOOL_CULL_SLACK, tool.y - TOOL_DRAW.expandedHeight / 2 - TOOL_CULL_SLACK, tool.x + TOOL_MAX_CARD_W / 2 + TOOL_CULL_SLACK, tool.y + TOOL_DRAW.expandedHeight / 2 + TOOL_CULL_SLACK)) continue
+    if (!pointInView(opts.view, tool.x, tool.y, TOOL_CULL_EXTENT)) continue
     const isRunning = tool.state === 'running'
     const isError = tool.state === 'error'
     // Cancelled / expired: neither success nor failure, drawn dashed and muted so they never pass for either

@@ -85,3 +85,22 @@ test('cull: drawParticles skips particles outside the viewport', () => {
   assert.ok(run([mk('e1')], withView) > 0)
   assert.equal(run([mk('e1')], withView), run([mk('e1')], DEFAULT_DRAW_OPTS))
 })
+
+test('cull: a running tool card just above the view keeps its spinner ring, which reaches past the card box', () => {
+  // Zoomed in (scale 3): the margin is 32 world units; the ring of a wide card has a radius of TOOL_MAX_CARD_W / 2 + 4
+  const zoomedView = { ...DEFAULT_DRAW_OPTS, zoom: 3, view: viewRectFor({ x: 0, y: 0, scale: 3 }, 800, 600) }
+  const wide = { ...toolAt('t', 'a', 100, -90), args: 'a/very/long/path/to/some/file/that/fills/the/whole/card.ts' }
+  const run = (opts: any) => { const r = recorder(); drawToolCalls(r.ctx, new Map([['t', wide]]), 0, null, opts); return r.counter.n }
+  assert.ok(run(zoomedView) > 0, 'the ring crosses the top edge of the view: the card must not be culled')
+  assert.equal(run(zoomedView), run({ ...DEFAULT_DRAW_OPTS, zoom: 3 }))
+})
+
+test('cull: a particle whose head left the view keeps the comet trail that is still on screen', () => {
+  // A long edge: the head is past the right side of the view, part of the trail (15% of the edge) is still inside
+  const agents = new Map<string, any>([['a', agentAt('a', 0, 300)], ['b', agentAt('b', 4000, 300)]])
+  const edges: any[] = [edge('e1', 'a', 'b')]
+  const p: any = { id: 'particle-e1', edgeId: 'e1', progress: 0.27, type: 'dispatch', color: '#66ccff', size: 4, label: 'x' }
+  const run = (opts: any) => { const r = recorder(); drawParticles(r.ctx, [p], buildEdgeMap(edges), agents, new Map(), 0, opts); return r.counter.n }
+  assert.ok(run(withView) > 0, 'the trail is visible: the particle must not be culled')
+  assert.equal(run(withView), run(DEFAULT_DRAW_OPTS))
+})
