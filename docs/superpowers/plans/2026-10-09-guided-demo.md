@@ -532,7 +532,7 @@ Expected: FAIL (module `guided-steps` introuvable).
 
 - [ ] **Step 3: Écrire `web/lib/guided-steps.ts`**
 
-Les instants viennent de la table de la Task 2. Écrire les 12 étapes ci-dessous ; **si le test « on screen at the step time » échoue pour une étape, déplacer `time` à un instant de la même scène, jamais assouplir le test**.
+Les instants viennent de la table de la Task 2. Écrire les 13 étapes ci-dessous ; **si le test « on screen at the step time » échoue pour une étape, déplacer `time` à un instant de la même scène, jamais assouplir le test**.
 
 ```ts
 import type { LegendEntryId } from './legend-entries'
@@ -1233,7 +1233,7 @@ Expected: PASS (3 tests). Prérequis : `pnpm --dir web exec playwright install c
 
 - [ ] **Step 11: Vérification manuelle**
 
-Run: `pnpm run dev:demo:guided`, ouvrir http://localhost:3000, fenêtre 1280×800. Parcourir les 12 étapes : l'anneau entoure bien chaque cible, la légende s'ouvre sur les étapes concernées, Précédent revient bien en arrière, `Exit tour` relance la lecture, essayer 2 thèmes sombres. Noter tout décalage d'anneau ; corriger `AGENT_RING_RADIUS` ou l'instant de l'étape.
+Run: `pnpm run dev:demo:guided`, ouvrir http://localhost:3000, fenêtre 1280×800. Parcourir les 13 étapes : l'anneau entoure bien chaque cible, la légende s'ouvre sur les étapes concernées, Précédent revient bien en arrière, `Exit tour` relance la lecture, essayer 2 thèmes sombres. Noter tout décalage d'anneau ; corriger `AGENT_RING_RADIUS` ou l'instant de l'étape.
 
 - [ ] **Step 12: Commit**
 
@@ -1251,7 +1251,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `docs/demo.md`, `docs/reading-the-ui.md`, `README.md`
 
-- [ ] **Step 1: `docs/demo.md`** — ajouter à la fin une section `## Visite guidée` (en français comme le reste du fichier) : lancement (`pnpm run dev:demo:guided` ou `?scenario=guided`), les contrôles (Suivant, Précédent, liste des étapes, `←` `→` et `Échap` quand le focus est dans la carte, `Exit tour`), le tableau des 12 étapes (titre, entrée de légende expliquée) tiré de `web/lib/guided-steps.ts`, et la liste des entrées « vues seulement dans une session réelle » (`DESCRIBED_ONLY`).
+- [ ] **Step 1: `docs/demo.md`** — ajouter à la fin une section `## Visite guidée` (en français comme le reste du fichier) : lancement (`pnpm run dev:demo:guided` ou `?scenario=guided`), les contrôles (Suivant, Précédent, liste des étapes, `←` `→` et `Échap` quand le focus est dans la carte, `Exit tour`), le tableau des 13 étapes (titre, entrée de légende expliquée) tiré de `web/lib/guided-steps.ts`, et la liste des entrées « vues seulement dans une session réelle » (`DESCRIBED_ONLY`).
 
 - [ ] **Step 2: `docs/reading-the-ui.md`** — en tête de chaque section de légende, une phrase « Voir en action : `?scenario=guided` (étape *<titre>*) », avec le titre exact de l'étape correspondante.
 
