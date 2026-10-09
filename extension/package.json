@@ -67,7 +67,7 @@
         "agentVisualizer.devServerPort": {
           "type": "number",
           "default": 0,
-          "description": "Port for the development server. Set to 0 (default) for production mode, or 3002 for development."
+          "description": "Port for the development server. Set to 0 (default) for production mode, or to the port of the Next.js dev server (3000 with `pnpm run dev:web`) for development."
         },
         "agentVisualizer.eventLogPath": {
           "type": "string",
