@@ -413,12 +413,15 @@ export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, Ag
 // ─── Live-region announcements ───────────────────────────────────────────────
 
 /** Human sentence for a semantic transition, or null when it is not worth announcing. */
-export function describeTransition(t: StateTransition): string | null {
+export function describeTransition(t: StateTransition, opts: { multiSession?: boolean } = {}): string | null {
+  // In the All view several sessions share agent names: say which session the agent belongs to.
+  const who = (name: string, session?: string) =>
+    opts.multiSession && session ? `Agent ${name} in session ${cleanText(session, 60)}` : `Agent ${name}`
   switch (t.kind) {
-    case 'agent_spawn': return `Agent ${t.name} started`
-    case 'agent_complete': return `Agent ${t.name} completed`
-    case 'agent_error': return `Agent ${t.name} failed`
-    case 'agent_waiting_permission': return `Agent ${t.name} is waiting for permission`
+    case 'agent_spawn': return `${who(t.name, t.session)} started`
+    case 'agent_complete': return `${who(t.name, t.session)} completed`
+    case 'agent_error': return `${who(t.name, t.session)} failed`
+    case 'agent_waiting_permission': return `${who(t.name, t.session)} is waiting for permission`
     case 'tool_error': return `Tool ${t.name} failed`
     case 'agent_activity': return `${t.name} is ${t.activity}`
     case 'message_sent': return `${t.from} sent a message to ${t.to}`
@@ -465,11 +468,19 @@ export function createAnnouncementQueue(): AnnouncementQueue {
  * duplicates inside one batch are dropped, and bulk batches collapse into one summary.
  * Returns the same queue object when nothing was added.
  */
-export function enqueueAnnouncements(queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX): AnnouncementQueue {
+export function enqueueAnnouncements(
+  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
+): AnnouncementQueue {
   const texts: string[] = []
+  const seen = new Set<string>()
   for (const t of transitions) {
-    const text = describeTransition(t)
-    if (text && !texts.includes(text)) texts.push(text)
+    const text = describeTransition(t, opts)
+    if (!text) continue
+    // Agent transitions dedupe on (agent id, kind): same-named agents of other sessions stay distinct.
+    const key = t.kind.startsWith('agent_') && t.kind !== 'agent_activity' ? `${t.kind}|${t.id}` : `text|${text}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    texts.push(text)
   }
   if (texts.length === 0) return queue
   const added = texts.length > ANNOUNCE_BULK_THRESHOLD ? [`${texts.length} agent graph updates`] : texts
