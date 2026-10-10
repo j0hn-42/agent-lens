@@ -118,23 +118,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (choice.value === 'hooks') {
         await configureClaudeHooks()
-      } else if (choice.value === 'jsonl') {
-        const fileUri = await vscode.window.showOpenDialog({
-          canSelectFiles: true,
-          canSelectFolders: false,
-          canSelectMany: false,
-          filters: { 'JSONL Files': ['jsonl', 'json', 'ndjson'] },
-          title: 'Select agent event log file',
-        })
-
-        if (fileUri?.[0]) {
-          connectToJsonl(fileUri[0].fsPath, context)
-        }
-      } else if (choice.value === 'mock') {
-        const panel = VisualizerPanel.getCurrent()
-        if (panel) {
-          panel.postMessage({ type: 'config', config: { mode: 'replay', autoPlay: true, showMockData: true } })
-        }
+      } else {
+        await connectToAgent(choice.value as 'jsonl' | 'mock', context)
       }
     }),
   )
@@ -265,25 +250,74 @@ function wirePanel(panel: VisualizerPanel): void {
 
 // ─── JSONL Connection ──────────────────────────────────────────────────────
 
+async function pickJsonlFile(): Promise<string | undefined> {
+  const fileUri = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: false,
+    filters: { 'JSONL Files': ['jsonl', 'json', 'ndjson'] },
+    title: 'Select agent event log file',
+  })
+  return fileUri?.[0]?.fsPath
+}
+
+/** « Connect to Running Agent » (JSONL ou démo) : ouvre le panneau s'il n'existe pas,
+ *  puis branche la source. Un échec est signalé à l'utilisateur (#177). */
+export async function connectToAgent(
+  kind: 'jsonl' | 'mock',
+  context: vscode.ExtensionContext,
+  pickFile: () => Promise<string | undefined> = pickJsonlFile,
+): Promise<void> {
+  let filePath: string | undefined
+  if (kind === 'jsonl') {
+    filePath = await pickFile()
+    if (!filePath) { return }
+  }
+
+  let panel = VisualizerPanel.getCurrent()
+  if (!panel) {
+    panel = VisualizerPanel.create(context.extensionUri, vscode.ViewColumn.Beside)
+    wirePanel(panel)
+  }
+
+  if (filePath) {
+    try {
+      connectToJsonl(filePath, context)
+    } catch (err) {
+      log.error('JSONL connection failed:', err)
+      const reason = err instanceof Error ? err.message : String(err)
+      vscode.window.showErrorMessage(`Agent Lens: cannot read the JSONL file ${filePath} (${reason}).`)
+    }
+  } else {
+    panel.postMessage({ type: 'config', config: { mode: 'replay', autoPlay: true, showMockData: true } })
+  }
+}
+
 function connectToJsonl(filePath: string, context: vscode.ExtensionContext): void {
   disconnectEventSource()
 
-  eventSource = new JsonlEventSource(filePath)
-  context.subscriptions.push(eventSource)
+  const source = new JsonlEventSource(filePath)
+  eventSource = source
+  context.subscriptions.push(source)
 
   // Resolve the panel at event time: the log may be configured before any panel is open
-  eventSource.onEvent((event) => {
+  source.onEvent((event) => {
     VisualizerPanel.getCurrent()?.sendEvent(event)
   })
 
-  eventSource.onStatus((status) => {
+  source.onStatus((status) => {
     VisualizerPanel.getCurrent()?.setConnectionStatus(
       status === 'connected' ? 'watching' : 'disconnected',
       filePath,
     )
   })
 
-  eventSource.start()
+  try {
+    source.start()
+  } catch (err) {
+    disconnectEventSource()
+    throw err
+  }
 }
 
 function disconnectEventSource(): void {
