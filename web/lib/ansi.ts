@@ -153,7 +153,7 @@ function contrast(a: Rgb, b: Rgb): number {
 }
 /** Color as seen by the reader: a dimmed text (opacity .8) is blended toward its background. */
 function seen(fg: Rgb, bg: Rgb, dim: boolean): Rgb {
-  return dim ? fg.map((v, i) => v * 0.8 + bg[i] * 0.2) as Rgb : fg
+  return dim ? fg.map((v, i) => Math.round(v * 0.8 + bg[i] * 0.2)) as Rgb : fg
 }
 
 /** Resolves `var(--ansi-N)` (and hex colors) against the theme variables; undefined when unknown. */
