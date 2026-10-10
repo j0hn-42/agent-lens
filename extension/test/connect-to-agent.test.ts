@@ -21,7 +21,7 @@ let disposeCb: (() => void) | undefined
 function fakePanel() {
   created++
   return {
-    webview: { html: '', postMessage: (m: unknown) => { posted.push(m); return Promise.resolve(true) }, onDidReceiveMessage: () => ({ dispose() {} }) },
+    webview: { html: '', cspSource: 'x', asWebviewUri: (u: unknown) => u, postMessage: (m: unknown) => { posted.push(m); return Promise.resolve(true) }, onDidReceiveMessage: () => ({ dispose() {} }) },
     onDidDispose: (cb: () => void) => { disposeCb = cb; return { dispose() {} } },
     reveal() {}, dispose() {}, iconPath: undefined,
   }
