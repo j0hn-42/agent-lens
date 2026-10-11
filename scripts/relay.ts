@@ -43,6 +43,7 @@ import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-s
 import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
 import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
+import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
@@ -640,6 +641,9 @@ export interface RelayOptions {
   /** Looks up the issues/PRs of an agent role (GET /issue-links). Injectable for tests; defaults to gh on the
    *  workspace's GitHub `origin`. Resolves [] only when there is truly no link; rejects when gh or git fails (the route answers 502, #205). */
   issueLinksProbe?: (role: string, cwd?: string) => Promise<IssueLink[]>
+  /** Looks up the open PRs (branch, checks) and the issues without agent of a project (GET /issue-links?scope=session, #228).
+   *  Injectable for tests; defaults to gh. `repo: null` only when the project has no GitHub origin; rejects when gh or git fails. */
+  sessionWorkProbe?: (cwd?: string) => Promise<SessionWork>
   /** Optional read-only session index (a local SQLite database), see session-index.ts. Defaults to the
    *  AGENT_LENS_SESSION_INDEX env var (file path). Its sessions are listed as completed, never as live. */
   sessionIndex?: RelaySessionIndexOptions
@@ -881,6 +885,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const repoUrl = await repoUrlOf(cwd ?? workspace)
     return repoUrl ? fetchIssueLinks(role, { repoUrl }) : []
   })
+  const sessionWorkProbe = options.sessionWorkProbe ?? (async (cwd?: string): Promise<SessionWork> => {
+    const repoUrl = await repoUrlOf(cwd ?? workspace)
+    return repoUrl ? { repo: repoUrl, ...await fetchSessionWork({ repoUrl }) } : { repo: null, prs: [], issues: [], prsTruncated: false, issuesTruncated: false }
+  })
 
   // Routes HTTP : chacune dans scripts/routes/, derrière les mêmes gardes (guardedRoute)
   const handleIssueLinks = createIssueLinksRoute({
@@ -888,6 +896,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     allWorkspaces,
     cwdOf: sessionId => sessionCwd.get(sessionId) ?? readIndex()?.sessions.find(s => s.id === sessionId)?.cwd,
     probe: issueLinksProbe,
+    workProbe: sessionWorkProbe,
   })
   const handleStatus = createStatusRoute({
     limiter: statusLimiter,
