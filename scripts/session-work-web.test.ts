@@ -4,10 +4,11 @@ import { strict as assert } from 'node:assert'
 import {
   sessionWorkUrl, parseSessionWork, loadSessionWork, checksLabel, sortPrsByBranch, isSessionBranch,
 } from '../web/lib/session-work'
+import type { ChecksState } from '../web/lib/session-work'
 import type { FetchLike } from '../web/lib/issue-links'
 
 const U = 'https://github.com/o/r'
-const checks = (state: string, total = 2, failing = 0, pending = 0) => ({ state, total, failing, pending })
+const checks = (state: ChecksState, total = 2, failing = 0, pending = 0) => ({ state, total, failing, pending })
 const pr = (n: number, branch: string, extra: Record<string, unknown> = {}) => ({
   number: n, title: `PR ${n}`, url: `${U}/pull/${n}`, branch, checks: checks('passing'), ...extra,
 })
@@ -34,7 +35,7 @@ test('parseSessionWork keeps well-formed entries whose URL is exactly the PR / i
 })
 
 test('parseSessionWork: an unknown checks state is "unknown", never passing; counts are bounded integers', () => {
-  const w = parseSessionWork(body({ prs: [pr(1, 'a', { checks: checks('green') }), pr(2, 'b', { checks: { state: 'failing', total: -1, failing: 'x', pending: 0 } }), pr(3, 'c', { checks: undefined })] }))
+  const w = parseSessionWork(body({ prs: [pr(1, 'a', { checks: { state: 'green', total: 1, failing: 0, pending: 0 } }), pr(2, 'b', { checks: { state: 'failing', total: -1, failing: 'x', pending: 0 } }), pr(3, 'c', { checks: undefined })] }))
   assert.ok(w)
   assert.deepEqual(w.prs.map(p => p.checks.state), ['unknown', 'unknown', 'unknown'])
 })
