@@ -1029,6 +1029,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     limiter: contextLimiter,
     // The cwd of an imported session is a path on another machine: never read locally
     cwdOf: sessionId => sessions.has(sessionId) && !importedSessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined,
+    transcriptOf: sessionId => importedSessions.has(sessionId) ? undefined : sessions.get(sessionId)?.filePath,
   })
   const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
 
