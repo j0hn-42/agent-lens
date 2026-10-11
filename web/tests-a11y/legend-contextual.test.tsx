@@ -32,7 +32,7 @@ test('a section without a symbol on screen has no heading either', () => {
 })
 
 test('the legend says how many symbols it lists and offers the complete list as a toggle button', () => {
-  const view = render(<GraphLegend teams={[]} present={['shape-main', 'state-thinking']} />)
+  const view = render(<GraphLegend teams={teams} present={['shape-main', 'state-thinking']} />)
   openLegend(view)
   assert.ok(view.getByText(/2 symbols on screen/))
   const toggle = view.getByRole('button', { name: 'Show all symbols' })
@@ -40,7 +40,7 @@ test('the legend says how many symbols it lists and offers the complete list as 
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-pressed'), 'true')
   assert.deepEqual([...new Set(rows())].sort(), [...LEGEND_ENTRY_IDS].sort(), 'the complete reference')
-  assert.ok(view.getByText(/all symbols/i))
+  assert.ok(view.getByText(/Complete reference/))
   fireEvent.click(toggle)
   assert.equal(rows().length, 2)
 })

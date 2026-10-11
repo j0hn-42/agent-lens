@@ -84,3 +84,8 @@ test('an untrusted agent label is cut and cleaned before it enters a sentence', 
 test('a tour of a live session has no scenario time: it never seeks nor pauses the scene', () => {
   for (const s of buildLiveTourSteps(presence([...LEGEND_ENTRY_IDS]))) assert.ok(!('time' in s), `${s.id} has no scenario time`)
 })
+
+test('with every entry on screen, each one is explained exactly once', () => {
+  const covered = buildLiveTourSteps(presence([...LEGEND_ENTRY_IDS])).flatMap(s => s.covers)
+  assert.deepEqual([...covered].sort(), [...LEGEND_ENTRY_IDS].sort())
+})
