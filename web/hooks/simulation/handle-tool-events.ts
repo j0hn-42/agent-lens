@@ -7,13 +7,26 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, FileAttention, FileEditor } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
-  return asString(inputData?.file_path) || args?.split(' ')[0] || ''
+  return asString(inputData?.file_path) || asString(inputData?.notebook_path) || args?.split(' ')[0] || ''
+}
+
+/** Tools that write a file: their observed success is what proves a file conflict (#227) */
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** Copy of the file entry with one editor changed (created when absent). */
+function withEditor(file: FileAttention, agent: string, change: (e: FileEditor) => FileEditor): FileAttention {
+  const editors = file.editors ?? []
+  const i = editors.findIndex(e => e.agent === agent)
+  const next = editors.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(editors[i])
+  return { ...file, editors: next }
 }
 
 /**
@@ -123,15 +136,18 @@ export function handleToolCallStart(
     }
 
     // Track file attention
-    if (toolName === 'Read' || toolName === 'Edit' || toolName === 'Write') {
+    if (toolName === 'Read' || EDIT_TOOLS.has(toolName)) {
       const filePath = extractFilePath(inputData, args)
       if (filePath) {
         const prev = state.fileAttention.get(filePath)
-        const updated = prev
+        let updated: FileAttention = prev
           ? { ...prev, agents: [...prev.agents] }
           : { path: filePath, reads: 0, edits: 0, totalTokens: 0, lastAccessed: currentTime, agents: [] as string[] }
         if (toolName === 'Read') updated.reads++
-        else updated.edits++
+        else {
+          updated.edits++
+          updated = withEditor(updated, agentName, e => ({ ...e, started: e.started + 1 }))
+        }
         updated.lastAccessed = currentTime
         if (!updated.agents.includes(agentName)) updated.agents.push(agentName)
         state.fileAttention.set(filePath, updated)
@@ -193,6 +209,12 @@ export function handleToolCallEnd(
           errorMessage: isError ? (errorMessage || result) : undefined,
         })
 
+        // A file conflict needs a write that is known to have happened: only an observed success counts
+        if (toolState === 'complete' && EDIT_TOOLS.has(tc.toolName)) {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withEditor(file, agentName, e => ({ ...e, succeeded: e.succeeded + 1, lastEditTime: currentTime })))
+        }
         state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
 
         const edgeId = `edge-${id}`

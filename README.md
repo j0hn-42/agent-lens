@@ -24,7 +24,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
-- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap, and the conversation (one panel for messages, tool calls and per-agent views)
+- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [docs/reading-the-ui.md](docs/reading-the-ui.md)), and the conversation (one panel for messages, tool calls and per-agent views)
 - **Repeated reads and calls**: the Files panel lists files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui.md))
 - **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
 - **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
@@ -94,6 +94,8 @@ See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guar
 ### Event sources and the local server
 
 Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).
+
+Sessions of a cloud agent leave nothing on this machine. Fetch their JSONL transcript and import it with `npx agent-lens-app --import <file-or-folder>` (or `AGENT_LENS_IMPORT`): it is read once, listed as *imported - not live*, and never shown as running. See [Imported transcripts](docs/relay-sources.md#imported-transcripts-294).
 
 ### JSONL Event Log
 

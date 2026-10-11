@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
@@ -418,13 +418,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     // selectedSessionIdRef is updated synchronously (not via React state) so it's
     // always current even before React re-renders.
     const unsubEvent = bridge.onEvent((event: AgentEvent) => {
-      const simEvent: SimulationEvent = {
-        time: event.time,
-        type: event.type as SimulationEvent['type'],
-        payload: event.payload,
-        sessionId: event.sessionId,
-        ...(event.replayed === true ? { replayed: true } : {}),
-      }
+      const simEvent: SimulationEvent = toSimulationEvent(event)
 
       if (teamTrackerRef.current.ingest(simEvent)) refreshTeamView()
       if (modelTrackerRef.current.ingest(simEvent)) setSessionModels(modelTrackerRef.current.snapshot())
@@ -486,7 +480,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (saved) {
           updateSessions(prev => {
             if (prev.find(s => s.id === saved.id)) return prev
-            return [...prev, { ...saved, status: 'active' as const, lastActivityTime: Date.now() }]
+            return [...prev, saved.imported ? saved : { ...saved, status: 'active' as const, lastActivityTime: Date.now() }]
           })
         }
       }
@@ -548,9 +542,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         updateSessions(prev => {
           const existing = prev.find(s => s.id === session.id)
           if (existing) {
-            // Session resumed after inactivity — mark active again
+            // Session resumed after inactivity — mark active again (an imported one never is: keep what the relay says)
             return prev.map(s => {
               if (s.id !== session.id) return s
+              if (session.imported) return session
               const { indexedOnly: _indexedOnly, ...live } = s // now watched live
               return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
             })

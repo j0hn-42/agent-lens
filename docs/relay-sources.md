@@ -39,6 +39,45 @@ boundary are not merged.
 | Content and ordering: messages, tool calls and results, tokens, model, subagent names | **JSONL** | Durable record, real names and ids |
 | `permission_requested`, `agent_idle`, `agent_complete` (permission prompts, liveness) | **Hooks** | Only Claude Code knows a prompt is on screen or that the session stopped |
 
+## Imported transcripts (#294)
+
+A session that runs on a cloud agent writes nothing on this machine, so the relay cannot watch it. When you
+fetch its JSONL transcript (downloaded, synced or copied into a folder), the relay can **import** it:
+
+```bash
+npx agent-lens-app --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
+npx agent-lens-app --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
+AGENT_LENS_IMPORT="/path/a.jsonl:/path/folder" pnpm run dev      # same list from the environment (';' on Windows)
+pnpm run dev:relay -- --import /path/folder                     # dev relay only
+```
+
+- Only a local flag or environment variable designates the files. There is no HTTP endpoint to import: the
+  server stays loopback-only and read-only (`GET`/`HEAD`/`OPTIONS`).
+- A file is named `<session id>.jsonl`; a folder contributes the regular `*.jsonl` files directly inside it
+  (no recursion, symbolic links skipped). Subagent transcripts next to it (`<session id>/subagents/`) are read
+  as for a local session. At most 20 imported sessions, each under the transcript size cap; what is refused
+  is logged as `Import: ...` at startup, never silently dropped.
+- The file is read **once**, at startup, through the same `TranscriptParser` and `EventReconciler` as a live
+  session. Unlike a live attach (current turn only), every line is replayed, so the recorded tool calls and
+  results are visible; the relay's replay caps keep the newest events. Lines of a type the parser does not know
+  are ignored: the JSONL format is internal to Claude Code and may change between versions, so an import is
+  only as complete as the parser's understanding of that version.
+- Nothing watches the file afterwards (no file watcher, no poll, no inactivity timer). Re-run the relay to
+  read a newer copy.
+- Provenance: the session is listed with `imported: true` and `importedAt` (when it was read). Its start and
+  last activity are the first and last `timestamp` recorded in the file (`lastActivityUnknown` if none). It is
+  never listed as `active`, and no end (`agent_complete`) is invented for it. Every event it produces carries
+  `imported: true`; hook events with the same session id are ignored, so live and imported states never mix.
+- Its `cwd` is a path on the cloud machine (for example `/home/user/...`). It is shown as a tag but never used
+  to read local files (project context, issue links) and never matched to a local project: the web app groups
+  imported sessions under **Imported transcripts**.
+- The `observations` action reports `provenance: "imported"`, a freshness of `stale` (never `fresh` nor
+  `closed`) and no agent list for such a session.
+
+Limits: the VS Code extension does not import (relay and standalone app only); where a cloud provider stores
+its transcripts, and in which format, is up to that provider (only Claude Code JSONL is parsed). Live
+streaming from a remote agent and provider connectors are tracks 2 and 3 of #294.
+
 ## Hardened local server (#68)
 
 - Listens on `127.0.0.1` only. The default port is unchanged; `AGENT_LENS_PORT=0` (or `--port 0` for

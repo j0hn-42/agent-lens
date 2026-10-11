@@ -165,6 +165,11 @@ export function AgentVisualizer() {
   })
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
+  // Files panel: an agent key read as "name (session label)", the key itself when the agent is unknown
+  const agentLabel = useCallback((key: string) => {
+    const a = agents.get(key)
+    return a ? `${a.name}${a.sessionLabel ? ` (session ${a.sessionLabel})` : ''}` : key
+  }, [agents])
   const { toasts, push: pushToast, dismiss: dismissToast, runAction, runLatestAction, hasAction: hasUndoToast, setPaused: setToastsPaused } = useToasts()
   // Confirm that an undo happened (also announced to screen readers through the toast live region)
   const runToastAction = useCallback((id: number) => {
@@ -1011,6 +1016,7 @@ export function AgentVisualizer() {
           agents={agents}
           onClose={() => setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
+          agentLabel={agentLabel}
         />
       </div>
 

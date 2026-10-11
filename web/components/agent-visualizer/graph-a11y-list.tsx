@@ -268,6 +268,16 @@ export function GraphA11yList({
           </>
         )}
 
+        {model.fileConflicts && model.fileConflicts.length > 0 && (
+          <>
+            <h3>File conflicts</h3>
+            <p>Files that two or more agents edited, each edit observed to succeed. The Files panel lists them too.</p>
+            <ul aria-label="File conflicts">
+              {model.fileConflicts.map(c => <li key={c.path}>{c.text}</li>)}
+            </ul>
+          </>
+        )}
+
         {model.discoveries.length > 0 && (
           <>
             <h3>Discoveries</h3>

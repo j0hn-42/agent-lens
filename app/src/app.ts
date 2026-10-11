@@ -27,4 +27,5 @@ startServer({
   workspace: process.cwd(),
   verbose: args.verbose,
   allWorkspaces: args.allWorkspaces,
+  imports: args.imports,
 })

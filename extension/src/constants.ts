@@ -286,6 +286,8 @@ export const RELAY_MAX_BUFFERED_SESSIONS = 50
 export const RELAY_MAX_BUFFERED_EVENTS_TOTAL = 50000
 /** Max sessions with live file watchers / timers */
 export const RELAY_MAX_WATCHED_SESSIONS = 25
+/** Max transcripts imported with --import / AGENT_LENS_IMPORT (#294); read once, they hold no watcher */
+export const RELAY_MAX_IMPORTED_SESSIONS = 20
 /** Max length of the ?session= query parameter */
 export const RELAY_SESSION_PARAM_MAX_LENGTH = 128
 /** Discovery caps (--all-workspaces): project dirs scanned, files per dir, max transcript size */

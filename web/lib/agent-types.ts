@@ -99,8 +99,9 @@ export interface Agent {
   completeTime?: number
   /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
   lastEventAt?: number
-  /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
-  freshnessSource?: 'live' | 'history'
+  /** Where the last known status comes from: 'live' (default when lastEventAt is set), replayed 'history', or an
+   *  'imported' transcript (#294, never fresh) */
+  freshnessSource?: 'live' | 'history' | 'imported'
   /** Active time of closed working spans, ms (issue #59); absent = never observed working */
   activeMs?: number
   /** Wall-clock ms when the running working span started; absent = not working */
@@ -177,6 +178,19 @@ export interface FileAttention {
   totalTokens: number   // how much context this file consumed
   lastAccessed: number
   agents: string[]      // which agents touched this file
+  /** Edit / Write calls per agent, with how many were observed to succeed (#227) */
+  editors?: FileEditor[]
+}
+
+export interface FileEditor {
+  /** Agent key (`<session>:<agent>`) */
+  agent: string
+  /** Edit calls started */
+  started: number
+  /** Edit calls whose end was observed as a success */
+  succeeded: number
+  /** Simulation time of the last successful edit */
+  lastEditTime?: number
 }
 
 // Timeline entry for Gantt view
@@ -283,6 +297,8 @@ export interface SimulationEvent {
   sessionId?: string
   /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
   replayed?: boolean
+  /** Event of an imported transcript (#294): the state it leaves is never shown as current */
+  imported?: boolean
 }
 
 export interface DepthParticle {

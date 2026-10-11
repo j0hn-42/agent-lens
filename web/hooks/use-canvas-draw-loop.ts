@@ -16,7 +16,7 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
-  drawLinks, drawEdgeBubbles, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
@@ -37,6 +37,8 @@ import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas
 import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
 import { MOTION_LAYERS, layerIsCalm, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
+import { deriveFileConflicts, type FileConflict } from '@/lib/file-conflicts'
+import type { FileAttention } from '@/lib/agent-types'
 
 interface DrawLoopDeps {
   simulationRef: RefObject<SimulationState>
@@ -143,6 +145,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   const gateRef = useRef(createDrawGate())
   const propsEpochRef = useRef({ props: null as object | null, epoch: 0 })
   // Caches for per-frame lookups — avoid rebuilding Set/Map every ~16ms
+  const conflictCacheRef = useRef<{ files: Map<string, FileAttention> | undefined; conflicts: FileConflict[] }>({ files: undefined, conflicts: [] })
   const edgeLookupCacheRef = useRef<{
     particles: Particle[]
     edges: Edge[]
@@ -371,6 +374,13 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         const pathTarget = selectedAgentId ?? selectedToolCallId ?? null
         const elapsed = pathAnimRef.current.elapsed(pathTarget, timestamp)
         if (elapsed !== null) drawDelegationPath(ctx, delegationPathEdges(pathTarget, edges), agents, toolCalls, elapsed, opts.reducedMotion)
+      }
+      {
+        // Re-derived only when the simulation hands over a new file map (it keeps the same one otherwise)
+        const files = deps.simulationRef.current?.fileAttention
+        const cache = conflictCacheRef.current
+        if (cache.files !== files) conflictCacheRef.current = { files, conflicts: files ? deriveFileConflicts(files) : [] }
+        drawFileConflicts(ctx, fileConflictSegments(conflictCacheRef.current.conflicts, agents), opts)
       }
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,

@@ -22,6 +22,8 @@ interface ServerOptions {
   verbose?: boolean
   /** Discover sessions from every workspace under ~/.claude/projects */
   allWorkspaces?: boolean
+  /** --import paths (#294); empty falls back to AGENT_LENS_IMPORT */
+  imports?: string[]
 }
 
 export async function startServer(options: ServerOptions): Promise<{ port: number; close: () => void }> {
@@ -34,7 +36,7 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
   })
   await telemetry.init()
 
-  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces })
+  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}) })
 
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (req, res) => {
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),

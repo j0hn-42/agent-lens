@@ -17,7 +17,7 @@ import { handleMessage, handleContextUpdate } from './handle-message-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
 import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
-import { heardFrom } from './freshness'
+import { heardFrom, importedFrom } from './freshness'
 import { advanceAgentActiveTime } from './track-active-time'
 
 export interface ProcessEventContext {
@@ -224,7 +224,7 @@ export function processEventBatch(
         for (const [id, before] of writes.before) {
           const agent = Map.prototype.get.call(state.agents, id) as Agent | undefined
           if (!agent || agent === before) continue
-          const heard = heardFrom(agent, receivedAt)
+          const heard = event.imported ? importedFrom(agent, receivedAt) : heardFrom(agent, receivedAt)
           Map.prototype.set.call(state.agents, id, event.replayed ? heard : advanceAgentActiveTime(before, heard, receivedAt))
         }
       }
