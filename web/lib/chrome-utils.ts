@@ -358,9 +358,12 @@ export function emptyStateChecklist(opts: {
   status: ConnectionStatus
   relayPort?: string
   sessionCount: number
+  /** Claude Code hooks state: undefined when unknown (old relay, Codex/Copilot only): no line, never a default tick */
+  hooksConfigured?: boolean
+  isVSCode?: boolean
 }): ChecklistItem[] {
   const relayOk = opts.status === 'connected' || opts.status === 'watching'
-  return [
+  const items: ChecklistItem[] = [
     {
       id: 'relay',
       label: 'Relay connected',
@@ -370,6 +373,15 @@ export function emptyStateChecklist(opts: {
     { id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching', detail: opts.status === 'watching' ? undefined : 'only the current workspace is watched' },
     { id: 'runtime', label: 'Claude Code, Codex or Copilot session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
+  if (opts.hooksConfigured !== undefined) {
+    items.push({
+      id: 'hooks',
+      label: 'Claude Code hooks configured',
+      ok: opts.hooksConfigured,
+      detail: opts.hooksConfigured ? undefined : opts.isVSCode ? 'run "Agent Lens: Configure Claude Code Hooks"' : 'run "pnpm run setup"',
+    })
+  }
+  return items
 }
 
 // ─── Focus return ────────────────────────────────────────────────────────────
