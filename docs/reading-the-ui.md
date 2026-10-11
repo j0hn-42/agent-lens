@@ -70,6 +70,22 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 
 A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
+## Notifications
+
+The **Notifications** button in the top bar turns notifications on or off; **Settings > Notifications** chooses what triggers them. Nothing is asked of the browser until you turn them on, and the choice stays in this browser (local storage).
+
+| Trigger | Fires when | Default |
+|---|---|---|
+| **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
+| **Agent in error** | an agent reports an error | on |
+| **Session finished** | a session you were watching goes from active to completed | off |
+| **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
+
+- **Where it shows.** In a browser, a system notification appears only while the tab is hidden (the tab title also carries the number of blocked agents). In VS Code, the webview asks the extension, which shows a native message unless the Agent Lens panel is the focused view. The extension checks and caps every message and shows at most one per trigger every 2 seconds.
+- **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.
+- **Only what is proven.** A permission or error is counted only while the app can prove it (see the states above). A cost that is unknown never triggers; a lower bound triggers once it has proven the threshold is reached and the message says *at least*; an estimate says *estimated*. The wording is the one of the top bar.
+- **Keyboard.** Every switch and the amount field are reachable with Tab; Space toggles a switch. An invalid amount is refused with a message and the previous threshold stays in force.
+
 ## Motion by layer
 
 Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.

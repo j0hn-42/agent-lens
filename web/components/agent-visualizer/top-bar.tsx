@@ -301,9 +301,9 @@ export const TopBar = memo(function TopBar({
             onClick={onToggleNotify}
             title={notifyState === 'denied'
               ? 'Notifications are blocked in the browser settings'
-              : 'Notify when an agent waits for a permission or fails while this tab is hidden'}
+              : 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)'}
           >
-            {notifyState === 'denied' ? 'Notifications blocked' : 'Notify when blocked'}
+            {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
           </ToggleButton>
         )}
         {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
