@@ -4,6 +4,7 @@ import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair, getPair } from '@/lib/pair-filter-store'
@@ -18,7 +19,7 @@ const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k =
 beforeEach(() => { clearPair(); })
 afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair(); resetDefaultUiPreferencesStore() })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const spawn = (sessionId: string, name: string, extra: Record<string, unknown> = {}) => ({
   type: 'agent-event',
   event: { time: 1, type: 'agent_spawn', sessionId, payload: { name, ...extra } },

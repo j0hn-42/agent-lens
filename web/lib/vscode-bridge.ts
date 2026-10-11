@@ -35,7 +35,19 @@ class VSCodeBridge {
   }
 
   private handleMessage = (e: MessageEvent) => {
-    const data = e.data
+    // Only the embedding frame may drive the bridge. A top-level page (standalone app)
+    // or any other window (window.open opener, sibling frame) must not be able to
+    // switch it to VS Code mode or inject events.
+    if (window.parent === window || e.source !== window.parent) { return }
+    this.dispatch(e.data)
+  }
+
+  /**
+   * Feeds one bridge message to the listeners. The window 'message' handler calls it after
+   * checking the sender; the relay client (standalone app, dev:web) calls it directly, since
+   * its payloads come from an EventSource and not from a window.
+   */
+  dispatch(data: any): void {
     if (!data || typeof data.type !== 'string') { return }
 
     switch (data.type) {

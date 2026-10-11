@@ -25,6 +25,10 @@ pnpm run setup          # one-time Claude Code hooks (only to see live sessions)
 pnpm run dev:demo       # web app with mock data on http://localhost:3000
 ```
 
+### Extension against the dev server (F5)
+
+`agentVisualizer.devServerPort` is a machine-scoped setting (a workspace cannot set it: a hostile repository could point the panel at its own server). The repository therefore no longer carries it in `.vscode/settings.json`. To run the "Run Extension" launch config (F5) against `pnpm run dev:web`, set it once in your **User Settings** (`"agentVisualizer.devServerPort": 3000`). Without it the panel silently uses the production bundle.
+
 ## Checks to run before a pull request
 
 These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` only (not `develop`, to save GitHub Actions minutes) — run these commands locally before merging into `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.

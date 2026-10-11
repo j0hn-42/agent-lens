@@ -4,13 +4,14 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, act, cleanup } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const ev = (sessionId: string, time: number) => ({
   type: 'agent-event',
   event: { time, type: 'agent_spawn', payload: { name: `main-${sessionId}`, isMain: true }, sessionId },

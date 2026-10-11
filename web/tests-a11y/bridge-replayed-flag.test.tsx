@@ -5,7 +5,7 @@ import { strict as assert } from 'node:assert'
 import { vscodeBridge, type AgentEvent } from '@/lib/vscode-bridge'
 
 const post = (data: unknown) =>
-  window.dispatchEvent(new (window as unknown as { MessageEvent: typeof MessageEvent }).MessageEvent('message', { data }))
+  vscodeBridge!.dispatch(data)
 
 test('batch events are flagged replayed, a single event is not', () => {
   assert.ok(vscodeBridge)

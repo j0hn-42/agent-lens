@@ -4,6 +4,7 @@ import { test, before, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 // Web Audio is not in jsdom: a deep no-op stub
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
@@ -32,7 +33,7 @@ test('on the demo data, ?scenario=guided starts the tour', async () => {
 test('once a real source takes over, ?scenario=guided neither keeps the tour nor offers it', async () => {
   const r = render(<AgentVisualizer />)
   await wait()
-  await act(async () => { window.dispatchEvent(new window.MessageEvent('message', { data: { type: '__vscode-bridge-init' } })) })
+  await act(async () => { vscodeBridge!.dispatch({ type: '__vscode-bridge-init' }) })
   await wait()
   assert.equal(tourCard(r) !== null, false, 'no tour on the real event log')
   assert.equal(r.queryByRole('button', { name: 'Guided tour' }) !== null, false, 'no Guided tour button')

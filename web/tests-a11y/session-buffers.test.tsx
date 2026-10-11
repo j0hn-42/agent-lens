@@ -3,6 +3,7 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, act, cleanup } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import {
@@ -65,7 +66,7 @@ test('a released buffer keeps its absolute positions: a cursor taken before rele
   assert.deepEqual(sessionEventsFrom(s, 'a', cursor2).map(e => e.time), [200])
 })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const info = (id: string) => ({ id, label: id, status: 'active', startTime: Date.now() - 1000, lastActivityTime: Date.now() })
 const bev = (sessionId: string, time: number, type: string) => ({
   type: 'agent-event', event: { time, type, payload: { name: 'main', isMain: true }, sessionId },
