@@ -122,6 +122,12 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const [disable1MContext, setDisable1MContext] = useState(false)
   const [hooksConfigured, setHooksConfigured] = useState<boolean | undefined>(undefined)
   const pendingEventsRef = useRef<SimulationEvent[]>([])
+  // Absolute position (in the buffer of the selection) of the first event waiting in pendingEventsRef: what
+  // is behind it was handed to the simulation, what is at or after it was not (#248)
+  const pendingCursorRef = useRef(0)
+  // The consumed cursor of the session being left, taken when the selection changes and kept until the state
+  // swap is done: events received in between sit in the buffer but reach no queue
+  const outgoingCursorRef = useRef<{ id: string; cursor: number } | null>(null)
   const [, setEventVersion] = useState(0) // trigger re-render on new events
 
   // Session state
@@ -303,6 +309,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .then(j => {
         const watchesClaude = Array.isArray(j?.runtimes) && j.runtimes.includes('claude')
         setHooksConfigured(watchesClaude && typeof j.hooksConfigured === 'boolean' ? j.hooksConfigured : undefined)
+        setDisable1MContext(watchesClaude && j.disable1MContext === true)
       })
       .catch(() => {})
     return () => ctl.abort()
@@ -357,6 +364,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (visibleRef.current && !visibleRef.current.has(event.sessionId)) recomputeVisible()
       }
 
+      // Positions the event will take in the buffers, read before it is appended
+      const sessionPosition = event.sessionId ? sessionEventCount(sessionBuffersRef.current, event.sessionId) : 0
+      const allPosition = allBaseRef.current + allEventsRef.current.length
       // Always buffer by session (for replay on session switch)
       if (event.sessionId) {
         appendSessionEvent(sessionBuffersRef.current, event.sessionId, simEvent, selectedSessionIdRef.current)
@@ -375,6 +385,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       const selected = selectedSessionIdRef.current
       const matches = matchesSelection(selected, event.sessionId)
       if (selected && matches && !sessionSwitchPendingRef.current) {
+        if (pendingEventsRef.current.length === 0) {
+          pendingCursorRef.current = selected === ALL_SESSIONS_ID || parseTeamSelection(selected) !== null ? allPosition : sessionPosition
+        }
         pendingEventsRef.current.push(simEvent)
         setEventVersion(v => v + 1)
       } else if (event.sessionId && !matches) {
@@ -518,9 +531,20 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     pendingEventsRef.current.length = 0
   }, [])
 
+  const currentEventCount = useCallback((sessionId: string): number => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return allBaseRef.current + allEventsRef.current.length
+    return sessionEventCount(sessionBuffersRef.current, sessionId)
+  }, [])
+
   /** Switch session selection. Does NOT flush events — call flushSessionEvents
    *  from useLayoutEffect after the simulation state has been saved/swapped. */
   const selectSession = useCallback((sessionId: string | null) => {
+    // What the outgoing view consumed: events still queued (paused view) were never handed to the simulation
+    const leaving = selectedSessionIdRef.current
+    if (leaving && outgoingCursorRef.current === null) {
+      const delivered = pendingEventsRef.current.length > 0 ? pendingCursorRef.current : currentEventCount(leaving)
+      outgoingCursorRef.current = { id: leaving, cursor: delivered }
+    }
     // Block event delivery to pending until the simulation state is swapped
     sessionSwitchPendingRef.current = true
     pendingEventsRef.current.length = 0
@@ -546,13 +570,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         return next
       })
     }
-  }, [])
+  }, [currentEventCount])
 
   /** Flush buffered events for the selected session into pending.
    *  Must be called from useLayoutEffect AFTER simulation state is saved/swapped. */
   const flushSessionEvents = useCallback((sessionId: string, fromIndex = 0) => {
     sessionSwitchPendingRef.current = false
+    outgoingCursorRef.current = null
     pendingEventsRef.current.length = 0
+    pendingCursorRef.current = fromIndex
     if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) {
       // fromIndex is an absolute position: subtract what the cap already trimmed.
       // A team selection takes the events of the team's sessions out of the same arrival-order buffer.
@@ -568,10 +594,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     setEventVersion(v => v + 1)
   }, [matchesSelection])
 
+  /** Events of the session the view has consumed (buffered ones still queued or received during a switch excluded) */
   const getSessionEventCount = useCallback((sessionId: string): number => {
-    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return allBaseRef.current + allEventsRef.current.length
-    return sessionEventCount(sessionBuffersRef.current, sessionId)
-  }, [])
+    const outgoing = outgoingCursorRef.current
+    return outgoing && outgoing.id === sessionId ? outgoing.cursor : currentEventCount(sessionId)
+  }, [currentEventCount])
 
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 

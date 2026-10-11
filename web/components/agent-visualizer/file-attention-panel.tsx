@@ -7,6 +7,9 @@ import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dock
 import { emptyState } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/feed-utils'
 import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
+import type { Agent } from '@/lib/agent-types'
+import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
+import { WasteSection } from './waste-section'
 
 interface FileAttentionPanelProps {
   visible: boolean
@@ -15,9 +18,15 @@ interface FileAttentionPanelProps {
   onOpenFile?: (filePath: string) => void
   /** Readable name of an agent key ("alpha (session Main)"); the key itself when absent */
   agentLabel?: (agentKey: string) => string
+  /** Repeated reads and identical calls (see lib/waste); absent: nothing observed */
+  waste?: WasteLedger
+  /** Names of the agents the waste rows refer to */
+  agents?: ReadonlyMap<string, Agent>
 }
 
-export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel }: FileAttentionPanelProps) {
+const EMPTY_WASTE = emptyWasteLedger()
+
+export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
   const { rect } = dock
@@ -55,6 +64,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           tabIndex={0}
           className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
         >
+          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
               {emptyState('files')}

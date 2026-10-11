@@ -7,6 +7,7 @@ import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
+import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
@@ -191,6 +192,7 @@ function combinedConnectionStatus(): string {
 function wirePanel(panel: VisualizerPanel): void {
   if (panel.isWired) { return }
   panel.markWired()
+  const notifyThrottle = new NotifyThrottle(2000)
   let readyHandled = false
   panel.onCommand((message: WebviewToExtensionMessage) => {
     switch (message.type) {
@@ -231,6 +233,13 @@ function wirePanel(panel: VisualizerPanel): void {
         disconnectEventSource()
         panel.setConnectionStatus('disconnected', '')
         break
+
+      case 'notify': {
+        const note = parseNotifyMessage(message)
+        if (!note || !notifyThrottle.allow(note.trigger, Date.now())) break
+        showNativeNotification(note, { focused: panel.isFocused && vscode.window.state.focused }, vscode.window)
+        break
+      }
 
       case 'open-file':
         handleOpenFile(message.filePath, message.line)

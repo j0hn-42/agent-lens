@@ -15,8 +15,9 @@ import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-link
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
-import { deriveFreshness, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
+import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
 
 interface AgentDetailCardProps {
   agent: {
@@ -52,6 +53,10 @@ interface AgentDetailCardProps {
   }
   /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
+  /** Loop verdict of this node only (#230); absent = not assessed, nothing shown */
+  health?: HealthVerdict
+  /** Loop verdict of the node's whole session; absent = not shown */
+  sessionHealth?: HealthVerdict
   /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
   relayOrigin?: string | null
   onClose: () => void
@@ -79,6 +84,8 @@ function formatClockTime(ms: number): string {
 export function AgentDetailCard({
   agent,
   toolErrors,
+  health,
+  sessionHealth,
   relayOrigin = null,
   onClose,
   onEscape,
@@ -95,6 +102,11 @@ export function AgentDetailCard({
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
+  // A string that changes once a minute while the agent stays silent (never on a plain tick)
+  const silenceLine = useFreshnessValue(t => {
+    const s = deriveSilence(agent, t)
+    return s ? silenceText(s, agent.state) : ''
+  }, freshnessClock)
   const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
@@ -185,6 +197,7 @@ export function AgentDetailCard({
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
           <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
+          {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
               ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
@@ -200,6 +213,9 @@ export function AgentDetailCard({
         <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
           <ActiveTimeStat agent={agent} />
         </div>
+
+        {/* Loop verdict (#230): words and evidence, never a bare "healthy" */}
+        {health && <HealthSection health={health} sessionHealth={sessionHealth} />}
 
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
@@ -272,6 +288,35 @@ export function AgentDetailCard({
           </div>
         )}
       </GlassCard>
+    </div>
+  )
+}
+
+const FINDINGS_SHOWN = 5
+
+function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessionHealth?: HealthVerdict }) {
+  const loop = health.status === 'loop'
+  return (
+    <div className="mb-3 text-[11px] font-mono" data-testid="inspector-health">
+      <div className="mb-1" style={{ color: COLORS.textMuted }}>Health</div>
+      <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.waiting_permission : COLORS.textDim }}>
+        {loop && <span aria-hidden="true">⟳ </span>}{healthText(health)}
+      </p>
+      {health.findings.length > 0 && (
+        <ul className="flex flex-col gap-0.5 mt-0.5" aria-label="Loop evidence" style={{ color: COLORS.textDim }}>
+          {health.findings.slice(0, FINDINGS_SHOWN).map((f, i) => (
+            <li key={i} className="truncate" title={f.kind === 'edit-cycle' ? f.path : undefined}>{findingText(f)}</li>
+          ))}
+        </ul>
+      )}
+      {health.findings.length > FINDINGS_SHOWN && (
+        <div style={{ color: COLORS.textDim }}>+{health.findings.length - FINDINGS_SHOWN} more</div>
+      )}
+      {sessionHealth && (
+        <p className="m-0 mt-0.5" data-testid="inspector-session-health" style={{ color: COLORS.textDim }}>
+          Session: {healthText(sessionHealth)}
+        </p>
+      )}
     </div>
   )
 }

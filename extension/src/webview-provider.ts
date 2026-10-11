@@ -42,6 +42,8 @@ export class VisualizerPanel implements vscode.Disposable {
   /** Whether the webview has signaled 'ready' and replay is complete.
    *  Live events should be gated on this to prevent duplication with replay. */
   get isReady(): boolean { return this._ready }
+  /** The panel is the visible, focused editor tab */
+  get isFocused(): boolean { return this.panel.visible && this.panel.active }
   markReady(): void { this._ready = true }
 
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {

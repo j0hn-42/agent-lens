@@ -8,6 +8,7 @@ import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
 import { USAGE_LABELS } from '@/lib/usage'
 import { ToolContentRenderer } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
+import { ToolWhySection, type ToolWhy } from './tool-why'
 import { AnsiText } from './transcript-message'
 import { parseAnsi } from '@/lib/ansi'
 
@@ -23,6 +24,8 @@ interface ToolDetailPopupProps {
     endObserved?: boolean
     inputData?: Record<string, unknown>
   }
+  /** Reasoning observed before the call and, for a failure, its causal chain (absent = nothing to show) */
+  why?: ToolWhy
   position: { x: number; y: number }
   onClose: () => void
 }
@@ -35,7 +38,7 @@ const STATE_DISPLAY: Record<ToolCallState, { color: string; icon: string; label:
   expired: { color: COLORS.tool_calling, icon: '⧖', label: TOOL_STATE_LABELS.expired },
 }))
 
-export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProps) {
+export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopupProps) {
   const titleId = useId()
   const { color: stateColor, icon: stateIcon, label: stateLabel } = STATE_DISPLAY[tool.state] ?? STATE_DISPLAY.complete
   const warning = toolEndWarning(tool)
@@ -93,6 +96,8 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
           {tool.toolName === 'Bash' ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}
+
+      {why && <ToolWhySection why={why} />}
 
       {/* Token cost */}
       {tool.state !== 'running' && (

@@ -11,6 +11,7 @@ import type {
 } from '../../lib/agent-types'
 import type { SessionProjects } from './fleet-layout'
 import type { UnattributedUsage } from '../../lib/attribution'
+import { emptyWasteLedger, type WasteLedger } from '../../lib/waste'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
 export interface SimulationState {
@@ -30,6 +31,8 @@ export interface SimulationState {
   unattributed: Map<string, UnattributedUsage>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
+  /** Repeated reads and identical calls seen so far (see lib/waste) */
+  waste: WasteLedger
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
   droppedEvents: number
   currentTime: number
@@ -56,6 +59,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     teams: new Map(),
     unattributed: new Map(),
     droppedMessages: new Map(),
+    waste: emptyWasteLedger(),
     droppedEvents: 0,
     currentTime: 0,
     isPlaying: false,

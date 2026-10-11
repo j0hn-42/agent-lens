@@ -5,7 +5,7 @@
  */
 import type { AgentLike, AgentNode } from './session-tree'
 import { getStateLabel } from './state-labels'
-import { deriveFreshness, lastKnownStateText } from '../hooks/simulation/freshness'
+import { deriveFreshness, deriveSilence, lastKnownStateText, silenceText } from '../hooks/simulation/freshness'
 
 /** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
@@ -21,7 +21,10 @@ export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
   const freshness = deriveFreshness(a, freshnessNow)
   const stale = freshness === 'stale'
   // A stale status is only the last known one: said in words, and the marker is greyed
-  const detail = stale
+  const silence = stale ? deriveSilence(a, freshnessNow) : null
+  const detail = silence
+    ? silenceText(silence, a.state)
+    : stale
     ? lastKnownStateText(a.state)
     : freshness === 'closed' && a.state !== 'complete'
       ? `closed, ${lastKnownStateText(a.state)}`

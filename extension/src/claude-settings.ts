@@ -43,6 +43,15 @@ export function isHooksConfigured(workspace?: string, configDir = claudeConfigDi
   return claudeSettingsPaths(workspace, configDir).some(p => settingsHaveAgentLensHooks(readSettingsFile(p)))
 }
 
+/** Whether CLAUDE_CODE_DISABLE_1M_CONTEXT=1 is set, in the environment or in the `env` of the global settings (#249). */
+export function isDisable1MContext(configDir = claudeConfigDir()): boolean {
+  if (process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1') { return true }
+  const settings = readSettingsFile(claudeSettingsPath(configDir))
+  if (!settings || typeof settings !== 'object') { return false }
+  const env = (settings as { env?: unknown }).env
+  return !!env && typeof env === 'object' && (env as Record<string, unknown>).CLAUDE_CODE_DISABLE_1M_CONTEXT === '1'
+}
+
 /**
  * Rewrite legacy agent-flow/hook.js hooks to `entry` in each settings file (#175). Missing files are
  * skipped and unreadable ones left untouched (reported through `onError`); user hooks, including

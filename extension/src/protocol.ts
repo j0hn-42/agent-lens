@@ -191,6 +191,8 @@ export interface RelayStatus {
   /** Runtimes the relay is watching, e.g. ['claude', 'codex'] */
   runtimes: string[]
   hooksConfigured: boolean
+  /** CLAUDE_CODE_DISABLE_1M_CONTEXT=1 in the relay's environment or Claude Code settings (#249); false when Claude Code is not watched */
+  disable1MContext: boolean
   sessionCount: number
   /** Claude sessions not followed (#208): watch limit reached when found, transcript past the size cap */
   skippedSessions: { watchLimit: number; sizeLimit: number }
@@ -207,6 +209,8 @@ export type WebviewToExtensionMessage =
   | { type: 'request-disconnect' }
   | { type: 'open-file'; filePath: string; line?: number }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
+  /** Native notification asked for by a rule of the webview (#225); validated by parseNotifyMessage */
+  | { type: 'notify'; trigger: string; title: string; body: string }
 
 // ─── Transcript Types (from Claude Code JSONL files) ─────────────────────────
 
