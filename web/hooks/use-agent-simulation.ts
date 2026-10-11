@@ -430,6 +430,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     particles: state.particles, edges: state.edges,
     discoveries: state.discoveries,
     fileAttention: state.fileAttention,
+    /** Repeated reads and identical calls (see lib/waste) */
+    waste: state.waste,
     timelineEntries: state.timelineEntries,
     currentTime: state.currentTime, isPlaying: state.isPlaying, speed: state.speed,
     maxTimeReached: state.maxTimeReached,

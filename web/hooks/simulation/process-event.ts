@@ -8,6 +8,7 @@ import {
   type TimelineBlock,
 } from '../../lib/agent-types'
 import type { UnattributedUsage } from '../../lib/attribution'
+import type { WasteLedger } from '../../lib/waste'
 import type { SimulationState, ConversationMessage, AgentLink } from './types'
 import { DEFAULT_SESSION_ID } from './types'
 import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handlePermissionRequested, handleModelDetected } from './handle-agent-events'
@@ -41,6 +42,8 @@ export interface MutableEventState {
   teams: Map<string, TeamSummary>
   unattributed: Map<string, UnattributedUsage>
   droppedMessages: Map<string, number>
+  /** Replaced (never mutated) by the tool handlers, see lib/waste */
+  waste: WasteLedger
 }
 
 /** Session an event belongs to; events without a session id share the 'default' session. */
@@ -96,6 +99,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
     teams: new Map(prev.teams),
     unattributed: new Map(prev.unattributed),
     droppedMessages: new Map(prev.droppedMessages),
+    waste: prev.waste,
   }
 }
 
@@ -140,6 +144,7 @@ function publish(prev: SimulationState, state: MutableEventState, currentTime: n
     teams: mapsEqual(prev.teams, state.teams) ? prev.teams : state.teams,
     unattributed: mapsEqual(prev.unattributed, state.unattributed) ? prev.unattributed : state.unattributed,
     droppedMessages: mapsEqual(prev.droppedMessages, state.droppedMessages) ? prev.droppedMessages : state.droppedMessages,
+    waste: state.waste,
   }
 }
 

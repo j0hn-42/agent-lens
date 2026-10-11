@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
-import { listWaste, wasteSummary, wasteUsage, MAX_WASTE_TRACKED, type WasteItem } from '../web/lib/waste'
+import { emptyWasteLedger, recordToolStart, listWaste, wasteSummary, wasteUsage, MAX_WASTE_TRACKED, type WasteItem } from '../web/lib/waste'
 import { formatTokenUsage } from '../web/lib/usage'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
@@ -192,11 +192,16 @@ test('findings are sorted by known tokens, then repeats', () => {
 })
 
 test('the ledger is bounded: past the limit new calls are not tracked and the summary says it is a lower bound', () => {
-  const reads: Ev[] = []
-  for (let i = 0; i < MAX_WASTE_TRACKED + 5; i++) reads.push(...read('main', `/f${i}.ts`))
-  const s = run([main, ...reads])
-  assert.equal(wasteSummary(s.waste).limitReached, true)
-  assert.ok(s.waste.seen.size <= MAX_WASTE_TRACKED)
+  let ledger = emptyWasteLedger()
+  const start = (i: number, path: string) =>
+    recordToolStart(ledger, { sessionId: 'default', agentId: 'default:main', toolName: 'Read', inputData: { file_path: path }, toolUseId: `b${i}`, toolCallId: `tc${i}`, time: i })
+  for (let i = 0; i < MAX_WASTE_TRACKED + 5; i++) ledger = start(i, `/f${i}.ts`)
+  assert.equal(wasteSummary(ledger).limitReached, true)
+  assert.ok(ledger.seen.size <= MAX_WASTE_TRACKED)
+  assert.ok(ledger.ids.size <= MAX_WASTE_TRACKED)
+  // a file already tracked is still compared
+  ledger = recordToolStart(ledger, { sessionId: 'default', agentId: 'default:main', toolName: 'Read', inputData: { file_path: '/f0.ts' }, toolUseId: 'again', toolCallId: 'tc-again', time: 1e6 })
+  assert.equal(wasteSummary(ledger).items.length, 1)
 })
 
 test('processing an event that is not a tool call keeps the same ledger reference (no re-render)', () => {

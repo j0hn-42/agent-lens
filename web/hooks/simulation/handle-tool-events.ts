@@ -9,6 +9,7 @@ import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/
 import { USAGE_LABELS } from '../../lib/ui-glossary'
 import type { Agent, ToolCallNode } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
+import { recordToolStart, recordToolEnd } from '../../lib/waste'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -104,6 +105,8 @@ export function handleToolCallStart(
 
     state.edges.push({ id: `edge-${toolId}`, from: agentName, to: toolId, type: 'tool', opacity: 0 })
 
+    state.waste = recordToolStart(state.waste, { sessionId, agentId: agentName, toolName, inputData, toolUseId, toolCallId: toolId, time: currentTime })
+
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
@@ -189,6 +192,8 @@ export function handleToolCallEnd(
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost, tokenSource, endObserved: true,
           errorMessage: isError ? (errorMessage || result) : undefined,
         })
+
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource)
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
