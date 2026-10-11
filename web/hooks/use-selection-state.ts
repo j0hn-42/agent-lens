@@ -12,6 +12,10 @@ export interface ToolDataSnapshot {
   tokenSource?: ToolCallNode['tokenSource']
   endObserved?: boolean
   inputData?: Record<string, unknown>
+  /** Owner and tool_use_id of the call: what "Why this tool?" is traced from */
+  agentId?: string
+  toolUseId?: string
+  errorMessage?: string
 }
 
 export interface DiscoveryDataSnapshot {
@@ -104,6 +108,7 @@ export function useSelectionState(deps: {
         setSelectedToolData({
           id: tool.id, toolName: tool.toolName, state: tool.state, args: tool.args,
           result: tool.result, tokenCost: tool.tokenCost, tokenSource: tool.tokenSource, endObserved: tool.endObserved, inputData: tool.inputData,
+          agentId: tool.agentId, toolUseId: tool.toolUseId, errorMessage: tool.errorMessage,
         })
       }
     } else {
