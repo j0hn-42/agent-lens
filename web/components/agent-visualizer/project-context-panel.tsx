@@ -6,6 +6,7 @@ import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/feed-utils'
 import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
+import { SessionWorkSection } from './session-work-section'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
@@ -18,6 +19,10 @@ interface ProjectContextPanelProps {
   /** Set when the relay cannot be asked from here (VS Code, demo): states why instead of loading */
   unavailableReason?: string
   fetchContext: (sessionId: string) => Promise<ProjectContextData | 'unavailable'>
+  /** Relay origin for the PRs and issues of the session's project ('' = same origin); null or absent: none is requested (#228) */
+  relayOrigin?: string | null
+  /** Branch the selected session recorded; absent when it recorded none */
+  sessionBranch?: string
   onClose: () => void
 }
 
@@ -86,7 +91,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
   )
 }
 
-export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, onClose }: ProjectContextPanelProps) {
+export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, onClose }: ProjectContextPanelProps) {
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
@@ -147,6 +152,10 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
                 </section>
               )}
             </>
+          )}
+
+          {canLoad && relayOrigin != null && (
+            <SessionWorkSection relayOrigin={relayOrigin} sessionId={sessionId} sessionBranch={sessionBranch} active={visible} />
           )}
         </div>
       </div>

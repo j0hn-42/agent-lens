@@ -48,5 +48,42 @@ shell and with a timeout, `gh pr list` and `gh issue list` on the workspace's `o
 - if `gh` or `git` is missing, unauthenticated, rate-limited, slow or fails (or prints something other than a list), the relay answers `502` with `Retry-After` and caches nothing (#205); a workspace without repository, without `origin` or with a non-GitHub remote is a true empty list. A failed repository lookup is not kept: the next request looks again;
 - the web client tells "no link" (a successful answer, even empty, cached 60 s) from "unavailable" (a 502 or 503, a network error, a timeout or an unreadable answer, #149): the latter is never cached, the inspector says "Issue and PR links unavailable for now." and the request is retried with a short backoff (1 s doubling up to 30 s, longer if `Retry-After` asks for it, at most 4 retries).
 
+## Pull requests and issues of a session (#228)
+
+The **Context** panel of a single selected session ends with two sections, read from the relay's
+`GET /issue-links?scope=session&session=<id>` (same guards, 60 s cache and `gh` process budget as the role query; the
+panel asks only while it is open):
+
+- **Pull requests by branch**: a table of the open PRs of the session's repository (`gh pr list --state open --limit 50`,
+  fields `number,title,url,isDraft,headRefName,statusCheckRollup`), sorted by branch. A row reads "(this session)" only
+  when the session recorded its branch (transcript header) and it is exactly the PR's head branch; a session without a
+  recorded branch matches nothing and the panel says so.
+- **Issues without an agent**: open issues (`gh issue list --state open --limit 100`, fields `number,title,url,labels`)
+  that carry no `agent:<role>` label. An issue whose labels cannot be read is left out, not claimed to be unassigned.
+
+The repository is the `origin` of the session's own working directory. A session of an unknown project (relay in
+`--all-workspaces` mode, no known cwd) answers `404` and the panel says the project is unknown rather than showing the
+relay's own repository.
+
+Checks come from `statusCheckRollup`, in words and never by colour alone:
+
+| Checks column | It means |
+| --- | --- |
+| `N of N passing` | every check run / status succeeded, was neutral or skipped |
+| `X failing[, Y pending] of N` | at least one failed, timed out, was cancelled or errored |
+| `Y pending of N` | none failed, some are queued, running or expected |
+| `no checks reported` | gh listed no check for the PR (it does not mean they passed) |
+| `checks unknown` | the rollup was missing, or an entry has a state Agent Lens does not know; never shown as passing |
+
+A full page from gh (50 PRs, 100 issues scanned, 50 issues kept) is shown as "At least N ... shown; more may exist".
+As for the role links: a failure of `gh` or `git` is `502` and "Pull requests and issues unavailable for now." (not cached,
+retried with a backoff), a project without a github.com `origin` says so, and a true empty list says "No open pull
+request." Every URL must be exactly `<repo>/pull/<n>` or `<repo>/issues/<n>`, checked again by the web client. Relay
+mode only; the VS Code webview and the demo show no section.
+
 Only relay mode (dev relay, standalone app) serves links; the VS Code webview has no relay and shows none. In
 `--all-workspaces` mode the repository is that of the relay's own workspace.
+
+## Health: loop verdict (#230)
+
+The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui.md#loops-and-health-verdict).

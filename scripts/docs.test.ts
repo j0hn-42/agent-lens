@@ -103,3 +103,12 @@ test('legacy markers and credits are untouched (#136)', () => {
   assert.match(read('NOTICE'), /Simon Patole/)
   assert.equal(JSON.parse(read('extension/package.json')).publisher, 'jobailla')
 })
+
+test('the reading guide explains repeated reads and calls, with their limits (#234)', () => {
+  const guide = read('docs/reading-the-ui.md')
+  assert.match(guide, /## Repeated reads and calls/)
+  for (const term of ['no edit seen', 'not compared', 'Grep', 'lower bound', 'Bash', 'not reported']) {
+    assert.ok(guide.includes(term), `guide should mention "${term}"`)
+  }
+  assert.ok(read('README.md').toLowerCase().includes('repeated reads'), 'README mentions the feature')
+})
