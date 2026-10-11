@@ -103,7 +103,7 @@ test('cost: fires once when the total crosses the threshold, not while it stays 
 test('cost: the wording keeps the qualification of the figure (lower bound, estimate)', () => {
   const prev = snap({ cost: cost(1) })
   assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'partial') }), all)[0].body, 'Cost reached at least $6.00 (threshold $5.00)')
-  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'available', true) }), all)[0].body, 'Cost reached $6.00 (estimated) (threshold $5.00)')
+  assert.equal(evaluateTriggers(prev, snap({ cost: cost(6, 'available', true) }), all)[0].body, 'Cost reached $6.00 estimated (threshold $5.00)')
 })
 
 test('cost: an unknown cost never triggers, and the rule off or a changed threshold is honoured', () => {

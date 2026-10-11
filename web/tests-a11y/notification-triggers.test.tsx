@@ -11,6 +11,8 @@ import { DEFAULT_RULES, NOTIFY_RULES_STORAGE_KEY, type NotificationRules } from 
 import { summarizeAttention, type AttentionAgent } from '@/lib/attention'
 
 const noop = () => {}
+// The jsdom preload does not expose localStorage as a global; the hooks read the bare identifier like a browser page
+Object.defineProperty(globalThis, 'localStorage', { value: window.localStorage, configurable: true, writable: true })
 const NOW = 1_000_000
 const g = globalThis as unknown as { Notification?: unknown }
 const realNotification = g.Notification
@@ -151,4 +153,15 @@ test('settings: notifications blocked or unsupported are said, never silently of
   blockedView.unmount()
   const unsupported = render(<SettingsDialog {...settingsProps({ notifications: { state: 'unsupported', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop } })} />)
   unsupported.getByText(/not available in this environment/)
+})
+
+test('bridge: notify posts a typed message to the extension, and nothing outside VS Code', async () => {
+  const { vscodeBridge } = await import('@/lib/vscode-bridge')
+  assert.ok(vscodeBridge)
+  const posted: Array<Record<string, unknown>> = []
+  vscodeBridge.notify({ trigger: 'cost', title: 'Agent Lens', body: 'x' })
+  assert.deepEqual(posted, [], 'standalone: no-op')
+  vscodeBridge.configureWebviewApi(msg => posted.push(msg))
+  vscodeBridge.notify({ trigger: 'cost', title: 'Agent Lens', body: 'Cost reached $6.00 (threshold $5.00)' })
+  assert.deepEqual(posted.at(-1), { type: 'notify', trigger: 'cost', title: 'Agent Lens', body: 'Cost reached $6.00 (threshold $5.00)' })
 })

@@ -174,6 +174,11 @@ class VSCodeBridge {
     this.postToExtension({ type: 'open-file', filePath, line })
   }
 
+  /** Asks the extension for a native VS Code notification (#225); the extension validates and throttles it. */
+  notify(item: { trigger: string; title: string; body: string }): void {
+    this.postToExtension({ type: 'notify', trigger: item.trigger, title: item.title, body: item.body })
+  }
+
   private postToExtension(message: Record<string, unknown>): void {
     if (this._isVSCode && typeof window !== 'undefined') {
       // When inside VS Code iframe, post to parent (the webview frame)

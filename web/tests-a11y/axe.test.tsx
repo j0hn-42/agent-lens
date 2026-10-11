@@ -231,7 +231,7 @@ test('shell: top bar with the attention counter and the notification option (#12
     />,
   )
   getByRole('button', { name: /2 waiting \/ 1 error/ })
-  getByRole('button', { name: 'Notify when blocked' })
+  getByRole('button', { name: 'Notifications' })
   await check('top-bar-attention', container)
 })
 

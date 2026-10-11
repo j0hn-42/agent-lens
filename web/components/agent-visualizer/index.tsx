@@ -4,6 +4,7 @@ import { useThemeVersion } from '@/lib/theme'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
+import { vscodeBridge } from "@/lib/vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { useFullscreen } from "@/hooks/use-fullscreen"
@@ -59,6 +60,7 @@ import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, 
 import { deriveSessionLinks } from "@/lib/session-links"
 import { summarizeAttention, withForeignAttention } from "@/lib/attention"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
+import { useNotificationRules } from "@/hooks/use-notification-rules"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -502,7 +504,13 @@ export function AgentVisualizer() {
     return () => clearInterval(t)
   }, [])
   const attention = useMemo(() => summarizeAttention(withForeignAttention(agents.values(), foreignAttention), Math.max(attentionNow, Date.now())), [agents, foreignAttention, attentionNow])
-  const { notifyState, toggleNotify } = useAttentionAlerts(attention)
+  // Configurable triggers (#225): rules chosen in Settings; inside VS Code the item goes to the extension
+  const { rules: notifyRules, setRules: setNotifyRules } = useNotificationRules()
+  const sendNative = useCallback((item: { trigger: string; title: string; body: string }) => vscodeBridge?.notify(item), [])
+  const { notifyState, toggleNotify } = useAttentionAlerts(attention, {
+    rules: notifyRules, sessions: bridge.sessions, cost: costUsage, replaying: catchUp !== null,
+    native: bridge.isVSCode ? sendNative : undefined,
+  })
   const { handleAgentClick: selectBlockedAgent } = selection
   const attentionTarget = attention.firstAgentId
   const attentionSession = attention.firstSessionId
@@ -1025,6 +1033,7 @@ export function AgentVisualizer() {
         singleKeyEnabled={singleKeyShortcuts}
         onSingleKeyEnabledChange={updateSingleKeyShortcuts}
         onOpenShortcuts={openShortcuts}
+        notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
       />
 
       <ShortcutsDialog
