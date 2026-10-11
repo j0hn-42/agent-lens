@@ -169,6 +169,19 @@ Besides the global **Pause animations** button (and your system's reduced-motion
 
 With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Pause animations is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
 
+## Language
+
+Settings > Appearance > **Language** (a native select, so it works with the keyboard and screen readers) offers *Automatic (browser language)*, *Français* and *English*. The choice applies at once, is kept in this browser only (local storage, never sent to the relay) and "Automatic" forgets it. Each language is written in its own language, and `lang` is set on the translated blocks so a screen reader pronounces them correctly.
+
+The interface is translated step by step, so for now the language covers only:
+
+- the canvas controls (zoom, fit, Pause animations, the per-layer toggles, Keep cards visible, call expiry);
+- the Settings dialog (appearance, sound, sessions, notifications, keyboard).
+
+Everything else (top bar, panels, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
+
+To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. To add a language, extend `LOCALES` and fill the table.
+
 ## The `observations` action
 
 Claude can read what Agent Lens observes through the typed action `observations` (`GET /observations` on the loopback relay). The output is whitelisted field by field and reports its own limits (`truncated`, `agentsTruncated`, `omittedSessions`). See [state-share.md](state-share.md).
