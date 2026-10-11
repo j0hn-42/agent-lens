@@ -110,7 +110,7 @@ You can also point Agent Lens at a JSONL event log file:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, or `"copilot"` |
-| `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode) |
+| `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
 | `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
 | `agentVisualizer.autoOpen` | `false` | Auto-open when an agent session starts |
 
