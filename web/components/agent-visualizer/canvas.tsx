@@ -7,7 +7,7 @@ import { graphKeyboardHelp } from '@/lib/shortcuts'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { describeTooltip } from './canvas/tooltip'
 import type { CanvasProps } from './canvas/canvas-props'
-import { GraphA11yList } from './graph-a11y-list'
+import { GraphA11yList, type AuxFocusItem } from './graph-a11y-list'
 import { CanvasControls } from './canvas-controls'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
@@ -40,6 +40,12 @@ export function AgentCanvas(props: CanvasProps) {
   const [hasFocus, setHasFocus] = useState(false)
   const hasFocusRef = useRef(false)
   hasFocusRef.current = hasFocus
+  // Outline button without a canvas node holding the focus (cluster, link, branch): no agent ring, a visible label instead (#195)
+  const [auxFocus, setAuxFocus] = useState<AuxFocusItem | null>(null)
+  const handleFocusAux = useCallback((item: AuxFocusItem | null) => {
+    setAuxFocus(item)
+    if (item) setFocusedNode(null)
+  }, [])
   const hoverTargetRef = useRef<HitTarget | null>(null)
   const tooltipTargetRef = useRef<NavNode | null>(null)
 
@@ -188,6 +194,16 @@ export function AgentCanvas(props: CanvasProps) {
         data-edge-bubble-layer=""
         className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
+      {auxFocus && (
+        <div
+          aria-hidden="true"
+          data-aux-focus={auxFocus.kind}
+          className="pointer-events-none absolute left-1/2 top-3 z-10 max-w-[min(32rem,calc(100vw-24px))] -translate-x-1/2 truncate rounded-md px-3 py-1 font-mono text-xs"
+          style={{ background: COLORS.panelBg, color: COLORS.textPrimary, border: `2px solid ${COLORS.textPrimary}` }}
+        >
+          {auxFocus.label}
+        </div>
+      )}
       <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 
       <GraphA11yList
@@ -204,6 +220,7 @@ export function AgentCanvas(props: CanvasProps) {
         onToolCallClick={onToolCallClick}
         onDiscoveryClick={onDiscoveryClick}
         onFocusNode={focusNode}
+        onFocusAux={handleFocusAux}
         onToggleBranch={handleToggleBranch}
       />
 
