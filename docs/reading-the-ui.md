@@ -9,6 +9,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
 - **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure.
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
+- **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
 
