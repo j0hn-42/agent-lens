@@ -64,6 +64,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **non renseigné** | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
+| **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
 ## Notifications
@@ -81,6 +82,24 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 - **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.
 - **Only what is proven.** A permission or error is counted only while the app can prove it (see the states above). A cost that is unknown never triggers; a lower bound triggers once it has proven the threshold is reached and the message says *at least*; an estimate says *estimated*. The wording is the one of the top bar.
 - **Keyboard.** Every switch and the amount field are reachable with Tab; Space toggles a switch. An invalid amount is refused with a message and the previous threshold stays in force.
+
+## Loops and health verdict
+
+Agent Lens looks for two loop patterns in the tool calls it received (#230), per agent:
+
+- **Repeated identical calls**: the same tool called 3 times or more in a row with the same input (same arguments, whatever their order).
+- **Read → edit → failure cycles**: a file is read, edited (`Edit`, `MultiEdit`, `Write`, `NotebookEdit`), then the edit itself or the next call fails; 3 such cycles in a row on the same file. A call that succeeds after the edit, or whose end was never seen, breaks the streak.
+
+The **Health** section of the inspector gives the verdict of the selected agent, the evidence of each loop (one line each; hover a cycle line for the full path) and the verdict of its session. The Sessions panel marks a session row with "⟳ loop observed" only when a loop is proven; it says nothing otherwise.
+
+| Verdict | It means |
+| --- | --- |
+| **Loop observed** | At least one pattern above was seen in the events. It may be over: the verdict covers the kept history, not only the last minutes. |
+| **No loop observed (N tool calls)** | Every call of the kept history was compared and nothing repeated. |
+| **No loop in the observed part** | No loop seen, but the history is partial: calls without input data cannot be compared ("n of N comparable"), or older messages were dropped (the last 200 conversation messages per agent are kept). A count that may have started before the dropped part reads "at least". |
+| **Not enough activity to judge** | No comparable tool call was received. |
+
+Limits, on purpose: only what the events prove is counted, so a loop can be missed (calls without input data, another tool between two identical calls, an edit followed by a read of another file) but is not invented. A tool that polls on purpose (the same `Bash` status command three times) is reported as a repeat: read the evidence before acting. Only sessions whose events are in the current view have a verdict.
 
 ## Motion by layer
 
