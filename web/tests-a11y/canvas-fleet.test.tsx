@@ -135,6 +135,23 @@ test('GraphA11yList click path: agent, link and cluster buttons call their callb
   assert.deepEqual(calls.clusters, ['session:s2', 'team:s1:alpha'])
 })
 
+test('GraphA11yList: focusing a cluster, link, link message or branch button reports it through onFocusAux, blur clears it (#195)', () => {
+  const seen: Array<{ kind: string; key: string; label: string } | null> = []
+  const { getByRole } = renderList({
+    onFocusAux: (item: { kind: string; key: string; label: string } | null) => { seen.push(item) },
+    focusedNode: { type: 'agent', id: 's1:lead' },
+  })
+  const zoom = getByRole('button', { name: 'Zoom to session repo-two' })
+  fireEvent.focus(zoom)
+  assert.deepEqual(seen.at(-1), { kind: 'cluster', key: 'session:s2', label: 'Zoom to session repo-two' })
+  fireEvent.blur(zoom)
+  assert.equal(seen.at(-1), null)
+  const link = getByRole('button', { name: /^Lead to Alice/ })
+  fireEvent.focus(link)
+  assert.equal(seen.at(-1)?.kind, 'link')
+  assert.equal(seen.at(-1)?.key, 'L1')
+})
+
 test('GraphLegend: documents the orchestrator, the halos and the edge bubbles, and reuses the default team colour', () => {
   const { getByRole, getByText } = render(<GraphLegend teams={[]} />)
   fireEvent.click(getByRole('button', { name: /Legend/ }))
