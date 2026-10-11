@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { GlassCard } from './glass-card'
 import { CloseButton, stopPropagationHandlers } from './shared-ui'
 import { ThemeSelect } from './theme-select'
+import { parseCostThreshold, type NotificationRules } from '@/lib/notification-rules'
+import type { NotifyState } from '@/hooks/use-attention-alerts'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -25,6 +27,13 @@ export interface SettingsDialogProps {
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
   onOpenShortcuts: () => void
+  /** Notification channel and rules (#225); the section is left out when absent */
+  notifications?: {
+    state: NotifyState
+    onToggle: () => void
+    rules: NotificationRules
+    onRulesChange: (rules: NotificationRules) => void
+  }
 }
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -65,6 +74,63 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+function NotificationsSection({ notifications }: { notifications: NonNullable<SettingsDialogProps['notifications']> }) {
+  const { state, onToggle, rules, onRulesChange } = notifications
+  const amountId = useId()
+  const errorId = useId()
+  const [draft, setDraft] = useState(String(rules.costThresholdUsd))
+  const [invalid, setInvalid] = useState(false)
+  const usable = state === 'on'
+  const set = (patch: Partial<NotificationRules>) => onRulesChange({ ...rules, ...patch })
+  const note = state === 'unsupported' ? 'Notifications are not available in this environment.'
+    : state === 'denied' ? 'Notifications are blocked in the browser settings.'
+    : 'Browser: shown while this tab is hidden. VS Code: shown unless this panel has the focus.'
+  return (
+    <Section title="Notifications">
+      <SwitchRow
+        label="Enable notifications"
+        help={note}
+        checked={state === 'on'}
+        onChange={() => { if (state !== 'unsupported' && state !== 'denied') onToggle() }}
+      />
+      <SwitchRow label="Agent waiting for a permission" help="An agent starts waiting for you to allow a tool." checked={rules.permission} onChange={v => set({ permission: v })} />
+      <SwitchRow label="Agent in error" help="An agent reports an error." checked={rules.error} onChange={v => set({ error: v })} />
+      <SwitchRow label="Session finished" help="A session you were watching ends. Sessions already finished when loaded are not announced." checked={rules.complete} onChange={v => set({ complete: v })} />
+      <SwitchRow label="Cost threshold reached" help="The session cost crosses the amount below, once. The message keeps the qualification of the figure (at least, estimated)." checked={rules.cost} onChange={v => set({ cost: v })} />
+      <div className="flex items-center gap-2 py-1 pl-8 text-xs font-mono" style={{ color: COLORS.textPrimary }}>
+        <label htmlFor={amountId}>Cost threshold (USD)</label>
+        <input
+          id={amountId}
+          type="number"
+          min={0.01}
+          step="any"
+          inputMode="decimal"
+          value={draft}
+          disabled={!rules.cost}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? errorId : undefined}
+          onChange={e => {
+            setDraft(e.target.value)
+            const amount = parseCostThreshold(e.target.value)
+            setInvalid(amount === null)
+            if (amount !== null) set({ costThresholdUsd: amount })
+          }}
+          className="min-h-6 w-24 rounded px-1 py-0.5"
+          style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+        />
+      </div>
+      {invalid && (
+        <p id={errorId} role="alert" className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.error }}>
+          Invalid amount: enter a number above 0.
+        </p>
+      )}
+      {!usable && state !== 'unsupported' && state !== 'denied' && (
+        <p className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>The rules apply once notifications are enabled.</p>
+      )}
+    </Section>
+  )
+}
+
 /**
  * Modal "Settings" dialog: one place for the preferences that already persist under their own
  * keys (theme, sound, hex grid, finished sessions, inactive agents, single-key shortcuts).
@@ -73,7 +139,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts,
+  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications,
 }: SettingsDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
@@ -184,6 +250,8 @@ export function SettingsDialog({
               onChange={onHideInactiveChange}
             />
           </Section>
+
+          {notifications && <NotificationsSection notifications={notifications} />}
 
           <Section title="Keyboard">
             <SwitchRow
