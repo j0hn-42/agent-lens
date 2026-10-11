@@ -1,6 +1,8 @@
 "use client"
 
 import { useThemeVersion } from '@/lib/theme'
+import { reasoningBefore, causalChain } from '@/lib/tool-reasoning'
+import type { ToolWhy } from './tool-why'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -521,6 +523,21 @@ export function AgentVisualizer() {
   inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
   const selectedGone = !!selection.selectedAgentId && !selectedAgent
 
+  // "Why this tool?": derived only from the owner's own history (see lib/tool-reasoning)
+  const toolData = selection.selectedToolData
+  const toolWhy = useMemo((): ToolWhy | undefined => {
+    if (!toolData?.agentId) return undefined
+    const nameOf = (id: string) => agents.get(id)?.name ?? id
+    const reasoning = reasoningBefore(conversations.get(toolData.agentId), toolData.toolUseId, droppedMessages.get(toolData.agentId) ?? 0)
+    const chain = toolData.state === 'error'
+      ? causalChain({
+        agentId: toolData.agentId, toolUseId: toolData.toolUseId, errorText: toolData.errorMessage ?? toolData.result ?? '',
+        agents, conversations, droppedMessages, edges,
+      })
+      : null
+    return { reasoning, chain, nameOf }
+  }, [toolData, agents, conversations, droppedMessages, edges])
+
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
   // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
@@ -870,6 +887,7 @@ export function AgentVisualizer() {
         <div {...stopPropagationHandlers}>
           <ToolDetailPopup
             tool={selection.selectedToolData}
+            why={toolWhy}
             position={selection.selectedToolScreenPos}
             onClose={selection.clearTool}
           />

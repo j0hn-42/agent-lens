@@ -26,6 +26,17 @@ The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md]
 - **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
 - **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
 
+## Why this tool? and the causal chain of a failure
+
+Click a tool call (or press Enter on its button in the graph list, or on the focused tool card): its popup has a **Why this tool?** disclosure (a native `<details>`: Tab to it, Enter or Space opens it). Every line is backed by an observed event; what cannot be proven is said so.
+
+- **Reasoning observed just before this call**: the thinking that sits right before the call, in the same agent's own conversation, matched by the call's `tool_use_id`. Parallel calls of one batch share the reasoning that precedes the batch. Anything separated from the call by a result, an answer or a prompt is not attributed to it.
+- **No reasoning observed just before this call**: the call is in the history and nothing precedes it. This is a finding, not an error.
+- **Reasoning not disclosed by the runtime**: the runtime redacted the thinking; no text is invented.
+- **Not provable: ...**: the call has no `tool_use_id`, is no longer in the kept history (conversations are bounded), or older messages were dropped. "Unknown" is never shown as "none".
+
+A failed call also gets a **Causal chain of this failure**, an ordered list from the failure back to the prompt: the error text, the reasoning before the call, then for a sub-agent the dispatch that started it (who dispatched whom, with the full prompt and the parent's reasoning before the dispatch), and finally the **latest prompt observed before it** in the root agent's conversation. A hop needs the dispatch message with the same `tool_use_id` and a *verified* parent-child link; otherwise the chain stops with `Chain stops: ...` and says why. The prompt is an ordering fact (the latest one seen before), not a claim that it caused the failure. The derivation lives in `web/lib/tool-reasoning.ts`.
+
 ## Themes
 
 The **Theme** selector in the top bar (View controls) offers nine themes, all dark:
@@ -64,6 +75,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **non renseigné** | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
+| **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
 ## Motion by layer
