@@ -66,6 +66,19 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
+## Motion by layer
+
+Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
+
+| Layer | Calms |
+| --- | --- |
+| Animated background | depth particles, grid pulse |
+| Links | edge pulses, dashed flow, team halos |
+| Agents | breathing, scanline, rings, tool-call pulses |
+| Effects | message particles and trails, spawn / completion flashes, bloom |
+
+With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Pause animations is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
+
 ## The `observations` action
 
 Claude can read what Agent Lens observes through the typed action `observations` (`GET /observations` on the loopback relay). The output is whitelisted field by field and reports its own limits (`truncated`, `agentsTruncated`, `omittedSessions`). See [state-share.md](state-share.md).

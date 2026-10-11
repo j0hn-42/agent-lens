@@ -4,7 +4,10 @@ import type { ChangeEvent, ComponentProps } from 'react'
 import { COLORS } from '@/lib/colors'
 import { CAMERA, TOOL_EXPIRY_CHOICES_S } from '@/lib/canvas-constants'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
+import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
+import type { Locale } from '@/lib/messages'
 import { GraphLegend } from './graph-legend'
+import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
 
 const CONTROL_BUTTON_CLASS =
@@ -19,6 +22,9 @@ interface CanvasControlsProps {
   animationsPaused: boolean
   /** The OS asks for reduced motion: the pause toggle is locked on */
   pausedBySystem: boolean
+  locale: Locale
+  calmLayers: CalmLayers
+  onToggleCalmLayer: (layer: MotionLayer) => void
   neverHide: boolean
   toolExpiryS: number
   onToggleAnimationsPaused: () => void
@@ -28,7 +34,7 @@ interface CanvasControlsProps {
 
 /** Legend + camera / comfort controls: one block above the (wrapping) control bar, stacked when narrow so they never overlap */
 export function CanvasControls({
-  teams, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, neverHide, toolExpiryS,
+  teams, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
   onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
 }: CanvasControlsProps) {
   const { controlBarH } = useDockSnapshot().env
@@ -83,6 +89,7 @@ export function CanvasControls({
         >
           Pause animations
         </button>
+        <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
         <button
           type="button"
           aria-pressed={neverHide}

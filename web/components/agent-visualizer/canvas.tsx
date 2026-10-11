@@ -131,7 +131,7 @@ export function AgentCanvas(props: CanvasProps) {
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
-    reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, neverHideRef: prefs.neverHideRef,
+    reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
     updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
   })
 
@@ -252,6 +252,9 @@ export function AgentCanvas(props: CanvasProps) {
         doZoomToFit={doZoomToFit}
         animationsPaused={prefs.animationsPaused}
         pausedBySystem={prefs.pausedBySystem}
+        locale={prefs.locale}
+        calmLayers={prefs.calmLayers}
+        onToggleCalmLayer={prefs.toggleCalmLayer}
         neverHide={prefs.neverHide}
         toolExpiryS={prefs.toolExpiryS}
         onToggleAnimationsPaused={prefs.toggleAnimationsPaused}
