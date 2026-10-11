@@ -11,12 +11,20 @@ import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 
 async function main() {
-  const workspace = process.argv[2] || process.cwd()
+  // dev-relay [workspace] [--import <path>]... (imported transcripts, #294; env: AGENT_LENS_IMPORT)
+  const args = process.argv.slice(2)
+  const imports: string[] = []
+  let workspaceArg: string | undefined
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--import') { if (args[i + 1]) imports.push(args[i + 1]); i++ }
+    else if (!workspaceArg) workspaceArg = args[i]
+  }
+  const workspace = workspaceArg || process.cwd()
 
   console.log('Starting Agent Lens dev relay...\n')
   console.log(`Workspace: ${workspace}`)
 
-  const relay = await createRelay({ workspace, verbose: true })
+  const relay = await createRelay({ workspace, verbose: true, ...(imports.length > 0 ? { imports } : {}) })
 
   const server = http.createServer((req, res) => {
     // Echo back the request Origin only for the dev web server's port (3000, or AGENT_LENS_WEB_PORT

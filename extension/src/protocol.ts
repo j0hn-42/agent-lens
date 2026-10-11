@@ -125,6 +125,8 @@ export interface AgentEvent {
   type: AgentEventType
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of an imported transcript (#294): read from a file, never seen live */
+  imported?: boolean
 }
 
 export interface SessionInfo {
@@ -149,6 +151,10 @@ export interface SessionInfo {
   parentSessionId?: string
   /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
   indexedOnly?: boolean
+  /** Read once from an imported transcript (#294, --import / AGENT_LENS_IMPORT): not observed live, never 'active' */
+  imported?: boolean
+  /** When the relay read the imported transcript (ms since epoch) */
+  importedAt?: number
   /** Hash of the repository's git common dir: shared by all worktrees of a repo; absent outside git */
   projectId?: string
   /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */

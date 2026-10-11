@@ -84,6 +84,8 @@ For non-default Codex installs, set the `CODEX_HOME` environment variable; for C
 
 Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).
 
+Sessions of a cloud agent leave nothing on this machine. Fetch their JSONL transcript and import it with `npx agent-lens-app --import <file-or-folder>` (or `AGENT_LENS_IMPORT`): it is read once, listed as *imported - not live*, and never shown as running. See [Imported transcripts](docs/relay-sources.md#imported-transcripts-294).
+
 ### JSONL Event Log
 
 You can also point Agent Lens at a JSONL event log file:
