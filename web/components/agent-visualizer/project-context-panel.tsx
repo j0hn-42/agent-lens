@@ -7,6 +7,7 @@ import { FOCUS_RING } from '@/lib/feed-utils'
 import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
 import { SessionWorkSection } from './session-work-section'
+import { CapabilitiesSection } from './capabilities-section'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
@@ -151,6 +152,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
                   </ul>
                 </section>
               )}
+              <CapabilitiesSection capabilities={data.capabilities} />
             </>
           )}
 
