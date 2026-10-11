@@ -72,6 +72,22 @@ test('empty-state checklist reflects connection and sessions', () => {
   assert.deepEqual(up.map(i => i.ok), [true, true, true])
 })
 
+test('empty-state checklist reports the Claude Code hooks state (#176)', () => {
+  const base = { status: 'watching' as const, sessionCount: 0 }
+  const find = (items: ReturnType<typeof emptyStateChecklist>) => items.find(i => i.id === 'hooks')
+  const ok = find(emptyStateChecklist({ ...base, hooksConfigured: true }))
+  assert.equal(ok?.label, 'Claude Code hooks configured')
+  assert.equal(ok?.ok, true)
+  assert.equal(ok?.detail, undefined)
+  const missingCli = find(emptyStateChecklist({ ...base, hooksConfigured: false }))
+  assert.equal(missingCli?.ok, false)
+  assert.match(missingCli?.detail ?? '', /pnpm run setup/)
+  const missingVsc = find(emptyStateChecklist({ ...base, hooksConfigured: false, isVSCode: true }))
+  assert.match(missingVsc?.detail ?? '', /Agent Lens: Configure Claude Code Hooks/)
+  // Unknown (old relay, Codex only): never a default tick
+  assert.equal(find(emptyStateChecklist(base)), undefined)
+})
+
 test('focus is restored only from inside the panel or from body', () => {
   const body = {}
   const inside = {}
