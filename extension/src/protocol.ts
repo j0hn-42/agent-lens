@@ -207,6 +207,8 @@ export type WebviewToExtensionMessage =
   | { type: 'request-disconnect' }
   | { type: 'open-file'; filePath: string; line?: number }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
+  /** Native notification asked for by a rule of the webview (#225); validated by parseNotifyMessage */
+  | { type: 'notify'; trigger: string; title: string; body: string }
 
 // ─── Transcript Types (from Claude Code JSONL files) ─────────────────────────
 
