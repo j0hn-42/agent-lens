@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
-  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest, isDevWebOrigin, isDevWebOrigin,
+  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest, isDevWebOrigin,
 } from '../src/relay-guards'
 
 const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
