@@ -151,9 +151,16 @@ function contrast(a: Rgb, b: Rgb): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
 }
-/** Color as seen by the reader: a dimmed text (opacity .8) is blended toward its background. */
-function seen(fg: Rgb, bg: Rgb, dim: boolean): Rgb {
-  return dim ? fg.map((v, i) => Math.round(v * 0.8 + bg[i] * 0.2)) as Rgb : fg
+/** Blends `c` toward `page` by 20% (what `opacity: .8` does to a color painted over the page background). */
+function fade(c: Rgb, page: Rgb): Rgb {
+  return c.map((v, i) => Math.round(v * 0.8 + page[i] * 0.2)) as Rgb
+}
+/**
+ * Contrast as seen by the reader. A dimmed segment (opacity .8) fades the whole span, background included,
+ * toward the page background, so both colors are blended with `page`.
+ */
+function seenContrast(fg: Rgb, bg: Rgb, dim: boolean, page: Rgb): number {
+  return dim ? contrast(fade(fg, page), fade(bg, page)) : contrast(fg, bg)
 }
 
 /** Resolves `var(--ansi-N)` (and hex colors) against the theme variables; undefined when unknown. */
@@ -169,10 +176,10 @@ function resolveColor(c: string | undefined, vars: Record<string, string>): Rgb 
  * otherwise it is moved toward white or black (whichever contrasts more) just far enough, keeping its hue.
  * Only the CSS color changes: the text itself is never touched.
  */
-function readable(want: Rgb, bg: Rgb, dim: boolean): Rgb {
-  const ok = (c: Rgb) => contrast(seen(c, bg, dim), bg) >= MIN_CONTRAST
+function readable(want: Rgb, bg: Rgb, dim: boolean, page: Rgb): Rgb {
+  const ok = (c: Rgb) => seenContrast(c, bg, dim, page) >= MIN_CONTRAST
   if (ok(want)) return want
-  const target: Rgb = contrast([255, 255, 255], bg) >= contrast([0, 0, 0], bg) ? [255, 255, 255] : [0, 0, 0]
+  const target: Rgb = seenContrast([255, 255, 255], bg, dim, page) >= seenContrast([0, 0, 0], bg, dim, page) ? [255, 255, 255] : [0, 0, 0]
   for (let t = 0.05; t < 1; t += 0.05) {
     const c = want.map((v, i) => Math.round(v + (target[i] - v) * t)) as Rgb
     if (ok(c)) return c
@@ -190,17 +197,18 @@ export function ansiStyle(seg: AnsiStyle, vars?: Record<string, string>): CSSPro
   const bg = seg.inverse ? (seg.fg ?? 'var(--ansi-fg)') : seg.bg
   if (vars) {
     const bgRgb = resolveColor(bg ?? 'var(--ansi-bg)', vars)
-    if (bgRgb) {
+    const pageRgb = resolveColor('var(--ansi-bg)', vars)
+    if (bgRgb && pageRgb) {
       const dim = !!seg.dim
       const wantRgb = resolveColor(fg, vars)
       if (wantRgb) {
-        if (contrast(seen(wantRgb, bgRgb, dim), bgRgb) < MIN_CONTRAST) fg = toHex(readable(wantRgb, bgRgb, dim))
+        if (seenContrast(wantRgb, bgRgb, dim, pageRgb) < MIN_CONTRAST) fg = toHex(readable(wantRgb, bgRgb, dim, pageRgb))
       } else if (bg) {
         // background set, no foreground: theme foreground, else theme background, else black/white
         const cands = [resolveColor('var(--ansi-fg)', vars), resolveColor('var(--ansi-bg)', vars)]
         const names = ['var(--ansi-fg)', 'var(--ansi-bg)']
-        const i = cands.findIndex(c => c && contrast(seen(c, bgRgb, dim), bgRgb) >= MIN_CONTRAST)
-        fg = i >= 0 ? names[i] : toHex(readable([255, 255, 255], bgRgb, dim))
+        const i = cands.findIndex(c => c && seenContrast(c, bgRgb, dim, pageRgb) >= MIN_CONTRAST)
+        fg = i >= 0 ? names[i] : toHex(readable([255, 255, 255], bgRgb, dim, pageRgb))
       }
     }
   }
