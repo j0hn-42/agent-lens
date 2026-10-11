@@ -24,7 +24,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
-- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap, and the conversation (one panel for messages, tool calls and per-agent views)
+- **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [docs/reading-the-ui.md](docs/reading-the-ui.md)), and the conversation (one panel for messages, tool calls and per-agent views)
 - **Repeated reads and calls**: the Files panel lists files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui.md))
 - **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
 - **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo

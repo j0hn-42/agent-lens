@@ -178,6 +178,19 @@ export interface FileAttention {
   totalTokens: number   // how much context this file consumed
   lastAccessed: number
   agents: string[]      // which agents touched this file
+  /** Edit / Write calls per agent, with how many were observed to succeed (#227) */
+  editors?: FileEditor[]
+}
+
+export interface FileEditor {
+  /** Agent key (`<session>:<agent>`) */
+  agent: string
+  /** Edit calls started */
+  started: number
+  /** Edit calls whose end was observed as a success */
+  succeeded: number
+  /** Simulation time of the last successful edit */
+  lastEditTime?: number
 }
 
 // Timeline entry for Gantt view

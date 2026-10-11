@@ -22,6 +22,8 @@ import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
 import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
+import type { FileAttention } from '../../../lib/agent-types'
+import { deriveFileConflicts, describeConflictEditors } from '../../../lib/file-conflicts'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -233,6 +235,13 @@ export interface A11yDiscoveryItem {
   agentName: string
 }
 
+export interface A11yFileConflictItem {
+  path: string
+  agentIds: string[]
+  /** "/repo/a.ts edited by alpha (session Main): 2 successful edits; beta (session Fix): 1 successful edit" */
+  text: string
+}
+
 export interface A11yModel {
   /** aria-label for the canvas wrapper */
   summary: string
@@ -244,6 +253,8 @@ export interface A11yModel {
   links: A11yLinkItem[]
   /** Session / team clusters, in outline order; agents without a cluster are listed first */
   clusters: A11yClusterItem[]
+  /** Files that two or more agents were observed to edit successfully (#227) */
+  fileConflicts?: A11yFileConflictItem[]
 }
 
 /** Optional inputs of the team-aware DOM model */
@@ -261,6 +272,8 @@ export interface A11yExtras {
   sessionLinks?: ReadonlyArray<SessionLink>
   /** Every agent of the simulation (even those a collapsed branch hides): cluster costs count them all */
   costAgents?: Iterable<Agent>
+  /** Files touched by the agents: the source of the file conflicts */
+  fileAttention?: ReadonlyMap<string, FileAttention>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -342,11 +355,13 @@ export function buildA11yModel(
 
   const teams = buildTeamItems(agents, extras.teams, extras.sessions)
   const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
+  const fileConflicts = buildFileConflictItems(agents, extras.fileAttention, extras.sessions, extras.costAgents)
 
   return {
     summary: buildGraphLabel(agents.values(), teams.length),
     teams,
     links,
+    fileConflicts,
     clusters: clusterList.map(c => ({
       key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: [clusterAnnouncement(c), ...(linkNotes.get(c.key) ?? [])].join(', '), memberIds: c.memberIds, color: c.color,
     })),
@@ -408,6 +423,32 @@ export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, Ag
       text: `${fromName} to ${toName}, ${r.link.kind}, ${r.count} ${noun}, ${stateText}`,
     }
   })
+}
+
+/** One entry per proven file conflict; an agent hidden from the canvas is still named, and said to be off screen. */
+export function buildFileConflictItems(
+  agents: ReadonlyMap<string, Agent>,
+  fileAttention: ReadonlyMap<string, FileAttention> | undefined,
+  sessions?: ReadonlyMap<string, SessionMeta>,
+  allAgents?: Iterable<Agent>,
+): A11yFileConflictItem[] {
+  if (!fileAttention || fileAttention.size === 0) return []
+  const conflicts = deriveFileConflicts(fileAttention)
+  if (conflicts.length === 0) return []
+  const known = new Map<string, Agent>()
+  for (const a of allAgents ?? []) known.set(a.id, a)
+  const label = (key: string) => {
+    const a = agents.get(key) ?? known.get(key)
+    if (!a) return `${cleanText(key, 80)} (not on screen)`
+    const session = cleanText(sessions?.get(a.sessionId)?.label || a.sessionLabel || a.sessionId, 40)
+    const where = [session ? `session ${session}` : '', agents.has(key) ? '' : 'not on screen'].filter(Boolean).join(', ')
+    return `${cleanText(a.name, 60) || 'agent'}${where ? ` (${where})` : ''}`
+  }
+  return conflicts.map(c => ({
+    path: c.path,
+    agentIds: c.editors.map(e => e.agent),
+    text: `${clip(c.path, 160)} ${describeConflictEditors(c, label)}`,
+  }))
 }
 
 // ─── Live-region announcements ───────────────────────────────────────────────
