@@ -66,6 +66,22 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
+## Repeated reads and calls
+
+The **Files** panel opens with a "Repeated reads and calls" section, computed from the tool events already received (nothing is read from disk). It reports facts, not verdicts: a repeat may be intended.
+
+| Row | It means |
+| --- | --- |
+| **read again N times, no edit seen in between** | The same agent read the same file, with the same offset and limit, N more times, and no Edit, Write or patch on that file (or a patch of unknown path in that session) was seen between the reads. A read of another range, or by another agent, is not a repeat: each agent has its own context. |
+| **same Glob run again N times, no edit seen in between** | The same pattern and path, with no write seen in the session between the calls. |
+| **same Bash command run again N times, right after itself** | The same command (Codex: `exec_command`) with nothing else called by that agent in between. A command can legitimately change its answer, for example when polling a log. |
+| **at least X tokens** / **estimated** | Cost of the repeats only (the first call is not waste). "at least" because some repeat had no reported cost; **tokens not reported** when none had (never shown as 0). |
+| **N calls had no input details and were not compared** | A Read, Glob or Bash call arrived without the input needed to compare it. It is counted apart, not guessed. |
+| **Tracking limit reached: this list is a lower bound** | More distinct calls than the ledger holds (4000) were seen; later ones are not tracked, so the list may be missing repeats. |
+| **N more not shown** | Only the 20 costliest rows are drawn. |
+
+Only Read, Glob and Bash/`exec_command` are compared, because their input summary keeps every argument. Grep and the other tools are never compared: their summary drops options, so two equal summaries would not prove two equal calls. Edits made through Bash (for example `sed -i`) or outside the agent are not seen, so a re-read after one can be listed. Each row is a button that opens the file only when the path is absolute and the host can open files (VS Code); otherwise it is plain text.
+
 ## Motion by layer
 
 Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.

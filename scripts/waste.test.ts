@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
-import { emptyWasteLedger, recordToolStart, listWaste, wasteSummary, wasteUsage, MAX_WASTE_TRACKED, type WasteItem } from '../web/lib/waste'
+import { emptyWasteLedger, recordToolStart, describeWaste, listWaste, wasteSummary, wasteUsage, MAX_WASTE_TRACKED, type WasteItem } from '../web/lib/waste'
 import { formatTokenUsage } from '../web/lib/usage'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
@@ -208,4 +208,15 @@ test('processing an event that is not a tool call keeps the same ledger referenc
   const s = run([main, ...read('main', '/a.ts')])
   const again = processEvent({ time: 500, type: 'message', payload: { agent: 'main', role: 'assistant', content: 'hi' } }, { ...s, currentTime: 500 }, ctx)
   assert.equal(again.waste, s.waste)
+})
+
+test('describeWaste says what was observed, without a verdict', () => {
+  const reread = only(run([main, ...read('main', '/a.ts'), ...read('main', '/a.ts'), ...read('main', '/a.ts')]))
+  assert.equal(describeWaste(reread), 'read again 2 times, no edit seen in between')
+  const once = only(run([main, ...read('main', '/a.ts'), ...read('main', '/a.ts')]))
+  assert.equal(describeWaste(once), 'read again 1 time, no edit seen in between')
+  const glob = only(run([main, ...call('main', 'Glob', { pattern: '*.ts' }), ...call('main', 'Glob', { pattern: '*.ts' })]))
+  assert.equal(describeWaste(glob), 'same Glob run again 1 time, no edit seen in between')
+  const cmd = only(run([main, ...call('main', 'Bash', { command: 'ls' }), ...call('main', 'Bash', { command: 'ls' })]))
+  assert.equal(describeWaste(cmd), 'same Bash command run again 1 time, right after itself')
 })

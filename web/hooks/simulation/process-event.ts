@@ -42,8 +42,10 @@ export interface MutableEventState {
   teams: Map<string, TeamSummary>
   unattributed: Map<string, UnattributedUsage>
   droppedMessages: Map<string, number>
-  /** Replaced (never mutated) by the tool handlers, see lib/waste */
+  /** Written by the tool handlers through `wasteToken`, see lib/waste */
   waste: WasteLedger
+  /** Owns `waste` for this call or batch: the ledger is copied once, then written in place */
+  wasteToken: object
 }
 
 /** Session an event belongs to; events without a session id share the 'default' session. */
@@ -100,6 +102,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
     unattributed: new Map(prev.unattributed),
     droppedMessages: new Map(prev.droppedMessages),
     waste: prev.waste,
+    wasteToken: {},
   }
 }
 

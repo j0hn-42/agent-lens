@@ -105,7 +105,7 @@ export function handleToolCallStart(
 
     state.edges.push({ id: `edge-${toolId}`, from: agentName, to: toolId, type: 'tool', opacity: 0 })
 
-    state.waste = recordToolStart(state.waste, { sessionId, agentId: agentName, toolName, inputData, toolUseId, toolCallId: toolId, time: currentTime })
+    state.waste = recordToolStart(state.waste, { sessionId, agentId: agentName, toolName, inputData, toolUseId, toolCallId: toolId, time: currentTime }, state.wasteToken)
 
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
@@ -193,7 +193,7 @@ export function handleToolCallEnd(
           errorMessage: isError ? (errorMessage || result) : undefined,
         })
 
-        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource)
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
