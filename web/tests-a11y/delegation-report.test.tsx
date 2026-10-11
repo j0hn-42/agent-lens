@@ -21,7 +21,7 @@ const parent = { id: 's1:main', name: 'Orchestrator', state: 'thinking' as const
 
 const returned: DelegationRow = {
   agentId: 's1:scout', name: 'scout', subagentType: 'Explore', linkVerified: true,
-  tokens: { value: 12_300, status: 'available', estimated: false },
+  tokens: { value: 1_200, status: 'available', estimated: false },
   filesRead: ['/repo/src/a.ts', '/repo/src/b.ts'], filesReadCount: 2, readsNotConfirmed: 1,
   duration: { kind: 'reported', seconds: 42 },
   result: { kind: 'returned', excerpt: 'Found the payment module', truncated: false },
@@ -56,7 +56,7 @@ test('each entry states tokens, files read, duration and result in words', () =>
   const v = renderCard([returned, running])
   const [first, second] = within(v.getByRole('list', { name: /^Delegation report/ })).getAllByTestId('delegation-row')
   const a = first.textContent ?? ''
-  assert.match(a, /Tokens\s*12\.3k/)
+  assert.match(a, /Tokens\s*1\.2k/)
   assert.match(a, /Files read\s*2 files, 1 not confirmed/)
   assert.match(a, /Duration\s*0:42 \(reported\)/)
   assert.match(a, /Result\s*Found the payment module/)

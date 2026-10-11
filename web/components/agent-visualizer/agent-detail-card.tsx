@@ -18,6 +18,8 @@ import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-cl
 import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
 import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
+import { FOCUS_RING } from '@/lib/chrome-utils'
+import { tokensText, filesReadText, durationText, resultText, type DelegationRow } from '@/lib/delegation-report'
 
 interface AgentDetailCardProps {
   agent: {
@@ -57,6 +59,10 @@ interface AgentDetailCardProps {
   health?: HealthVerdict
   /** Loop verdict of the node's whole session; absent = not shown */
   sessionHealth?: HealthVerdict
+  /** Delegation report of this node (#233): one row per direct sub-agent; absent or empty = no section */
+  delegation?: DelegationRow[]
+  /** Opens the inspector of another agent (a sub-agent of the report) */
+  onSelectAgent?: (agentId: string) => void
   /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
   relayOrigin?: string | null
   onClose: () => void
@@ -86,6 +92,8 @@ export function AgentDetailCard({
   toolErrors,
   health,
   sessionHealth,
+  delegation,
+  onSelectAgent,
   relayOrigin = null,
   onClose,
   onEscape,
@@ -217,6 +225,9 @@ export function AgentDetailCard({
         {/* Loop verdict (#230): words and evidence, never a bare "healthy" */}
         {health && <HealthSection health={health} sessionHealth={sessionHealth} />}
 
+        {/* Delegation report (#233): per sub-agent, each value proven or said unknown */}
+        {delegation && delegation.length > 0 && <DelegationSection rows={delegation} onSelectAgent={onSelectAgent} />}
+
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
@@ -318,6 +329,63 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
         </p>
       )}
     </div>
+  )
+}
+
+function DelegationSection({ rows, onSelectAgent }: { rows: DelegationRow[]; onSelectAgent?: (agentId: string) => void }) {
+  const headingId = useId()
+  return (
+    <section className="mb-3 text-[11px] font-mono" aria-labelledby={headingId} data-testid="delegation-report">
+      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>Delegation report</h3>
+      <ul className="flex flex-col gap-2" aria-label={`Delegation report: ${pluralize(rows.length, 'sub-agent')}`}>
+        {rows.map(row => (
+          <li key={row.agentId} className="min-w-0" data-testid="delegation-row">
+            <div className="flex min-w-0 items-center gap-x-2">
+              {onSelectAgent ? (
+                <button
+                  type="button"
+                  aria-label={`Inspect sub-agent ${row.name}`}
+                  onClick={() => onSelectAgent(row.agentId)}
+                  className={`truncate underline ${FOCUS_RING}`}
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  {row.name}
+                </button>
+              ) : (
+                <span className="truncate" style={{ color: COLORS.textPrimary }}>{row.name}</span>
+              )}
+              {row.subagentType && <span className="truncate" style={{ color: COLORS.textDim }}>{row.subagentType}</span>}
+            </div>
+            {!row.linkVerified && <div style={{ color: COLORS.textDim }}>parent link not verified</div>}
+            <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2" style={{ color: COLORS.textDim }}>
+              <dt style={{ color: COLORS.textMuted }}>Tokens</dt>
+              <dd className="m-0">{tokensText(row)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>Files read</dt>
+              <dd className="m-0 min-w-0">
+                {row.filesReadCount > 0 ? (
+                  <details>
+                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{filesReadText(row)}</summary>
+                    <ul className="flex flex-col">
+                      {row.filesRead.map(f => <li key={f} className="truncate" title={f}>{f}</li>)}
+                    </ul>
+                    {row.filesReadCount > row.filesRead.length && <div>+{row.filesReadCount - row.filesRead.length} more</div>}
+                  </details>
+                ) : filesReadText(row)}
+              </dd>
+              <dt style={{ color: COLORS.textMuted }}>Duration</dt>
+              <dd className="m-0">{durationText(row.duration)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>Result</dt>
+              <dd className="m-0 min-w-0 break-words" style={row.result.kind === 'error' ? { color: COLORS.error } : undefined}>
+                {resultText(row.result)}
+                {row.result.kind !== 'not-returned' && row.result.truncated && (
+                  <span style={{ color: COLORS.textDim }}> (full report in Conversation)</span>
+                )}
+              </dd>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

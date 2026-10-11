@@ -107,7 +107,7 @@ test('one row per direct sub-agent of the parent, in spawn order; the parent, gr
     main,
     spawn('scout', 't1'), spawn('fixer', 't2'),
     { type: 'agent_spawn', payload: { name: 'deep', parent: 'scout', toolUseId: 't3' } },
-    { type: 'agent_spawn', payload: { name: 'mate', parent: 'main', teamName: 'crew', agentType: 'general-purpose' } },
+    { type: 'agent_spawn', payload: { name: 'mate', parent: 'main', kind: 'teammate', teamName: 'crew', agentType: 'general-purpose' } },
   ])
   assert.deepEqual(report(s).map(r => r.agentId), ['s1:scout', 's1:fixer'])
   assert.deepEqual(report(s, 's1:scout').map(r => r.agentId), ['s1:deep'])
