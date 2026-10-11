@@ -35,6 +35,10 @@ class VSCodeBridge {
   }
 
   private handleMessage = (e: MessageEvent) => {
+    // Only the embedding frame may drive the bridge. A top-level page (standalone app)
+    // or any other window (window.open opener, sibling frame) must not be able to
+    // switch it to VS Code mode or inject events.
+    if (window.parent === window || e.source !== window.parent) { return }
     const data = e.data
     if (!data || typeof data.type !== 'string') { return }
 
