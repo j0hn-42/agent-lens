@@ -1,6 +1,8 @@
 "use client"
 
 import { useThemeVersion } from '@/lib/theme'
+import { reasoningBefore, causalChain } from '@/lib/tool-reasoning'
+import type { ToolWhy } from './tool-why'
 import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -88,6 +90,8 @@ export function AgentVisualizer() {
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
+  const isReviewingRef = useRef(false)
+  isReviewingRef.current = isReviewing
 
   // Union views ('All' / team) put every session on one wall-clock axis (offsets in seconds per session)
   const sessionOffsetsRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
@@ -286,9 +290,16 @@ export function AgentVisualizer() {
         bridge.flushSessionEvents(bridge.selectedSessionId)
       }
 
+      // Both paths above leave the simulation playing: the pause belonged to the view that was left (#248).
+      // The events it had queued are re-fed from the cursor, so none is lost; the bar must not claim review.
+      if (isReviewingRef.current) {
+        setIsReviewing(false)
+        pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
+      }
+
       prevSelectedRef.current = bridge.selectedSessionId
     }
-  }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount])
+  }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount, pushToast])
 
   // 'All' membership changed (an old session woke up, a session went quiet, the toggle flipped):
   // rebuild the union from the buffered events of the sessions it now shows.
@@ -535,6 +546,21 @@ export function AgentVisualizer() {
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
   inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
   const selectedGone = !!selection.selectedAgentId && !selectedAgent
+
+  // "Why this tool?": derived only from the owner's own history (see lib/tool-reasoning)
+  const toolData = selection.selectedToolData
+  const toolWhy = useMemo((): ToolWhy | undefined => {
+    if (!toolData?.agentId) return undefined
+    const nameOf = (id: string) => agents.get(id)?.name ?? id
+    const reasoning = reasoningBefore(conversations.get(toolData.agentId), toolData.toolUseId, droppedMessages.get(toolData.agentId) ?? 0)
+    const chain = toolData.state === 'error'
+      ? causalChain({
+        agentId: toolData.agentId, toolUseId: toolData.toolUseId, errorText: toolData.errorMessage ?? toolData.result ?? '',
+        agents, conversations, droppedMessages, edges,
+      })
+      : null
+    return { reasoning, chain, nameOf }
+  }, [toolData, agents, conversations, droppedMessages, edges])
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
@@ -887,6 +913,7 @@ export function AgentVisualizer() {
         <div {...stopPropagationHandlers}>
           <ToolDetailPopup
             tool={selection.selectedToolData}
+            why={toolWhy}
             position={selection.selectedToolScreenPos}
             onClose={selection.clearTool}
           />
@@ -999,6 +1026,8 @@ export function AgentVisualizer() {
           unavailableReason={bridge.isVSCode ? 'Project context is read through the standalone relay; it is not available inside VS Code.'
             : bridge.useMockData ? 'Project context is not available in demo mode.' : undefined}
           fetchContext={fetchContext}
+          relayOrigin={contextOrigin}
+          sessionBranch={bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.branch}
           onClose={() => setShowContext(false)}
         />
       </div>
