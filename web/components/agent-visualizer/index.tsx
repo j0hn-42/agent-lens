@@ -918,6 +918,7 @@ export function AgentVisualizer() {
         onRestart={handleClearHistory}
         onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData}
+        connectionStatus={bridge.connectionStatus}
         onSeek={handleSeek}
         timelineEvents={timelineEvents}
         isReviewing={isReviewing}

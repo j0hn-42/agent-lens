@@ -313,6 +313,17 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): Co
   }
 }
 
+/**
+ * Badge of the playback bar. Follows the real connection: LIVE (pulsing) only while the relay is
+ * connected or watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ */
+export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
+  if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
+  if (status === 'connected' || status === 'watching') return { label: 'LIVE', live: true, tone: 'ok' }
+  const d = connectionDisplay(status, false)
+  return { label: d.label, live: false, tone: d.tone }
+}
+
 /** Text for the sr-only polite live region. Only state changes alter it. */
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
