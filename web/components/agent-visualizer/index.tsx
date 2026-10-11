@@ -121,6 +121,7 @@ export function AgentVisualizer() {
     edges,
     discoveries,
     fileAttention,
+    waste,
     timelineEntries,
     currentTime,
     isPlaying,
@@ -980,6 +981,8 @@ export function AgentVisualizer() {
         <FileAttentionPanel
           visible={showFileAttention}
           fileAttention={fileAttention}
+          waste={waste}
+          agents={agents}
           onClose={() => setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
         />
