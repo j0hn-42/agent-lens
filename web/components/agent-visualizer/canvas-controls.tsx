@@ -89,7 +89,7 @@ export function CanvasControls({
         >
           Pause animations
         </button>
-        <MotionLayerControls locale={locale} calm={calmLayers} lockedBySystem={pausedBySystem} onToggle={onToggleCalmLayer} />
+        <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
         <button
           type="button"
           aria-pressed={neverHide}

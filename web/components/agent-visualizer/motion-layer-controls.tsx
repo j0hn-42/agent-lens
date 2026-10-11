@@ -11,24 +11,24 @@ const BUTTON_CLASS =
 interface MotionLayerControlsProps {
   locale: Locale
   calm: CalmLayers
-  /** The OS asks for reduced motion: every layer is calm and cannot be changed */
-  lockedBySystem: boolean
+  /** Why every layer is already calm and cannot be changed: the OS asks for reduced motion, or Pause animations is on */
+  lock: 'system' | 'pause' | null
   onToggle: (layer: MotionLayer) => void
 }
 
 /** One toggle per canvas layer: pressed = this layer's ambient motion is off. */
-export function MotionLayerControls({ locale, calm, lockedBySystem, onToggle }: MotionLayerControlsProps) {
+export function MotionLayerControls({ locale, calm, lock, onToggle }: MotionLayerControlsProps) {
   return (
     <div role="group" lang={locale} aria-label={translate(locale, 'motion.group')} className="flex flex-wrap justify-end gap-1">
       {MOTION_LAYERS.map(layer => {
-        const pressed = lockedBySystem || calm[layer]
+        const pressed = lock !== null || calm[layer]
         return (
           <button
             key={layer}
             type="button"
             aria-pressed={pressed}
-            disabled={lockedBySystem}
-            title={lockedBySystem ? translate(locale, 'motion.lockedBySystem') : undefined}
+            disabled={lock !== null}
+            title={lock ? translate(locale, lock === 'system' ? 'motion.lockedBySystem' : 'motion.lockedByPause') : undefined}
             onClick={() => onToggle(layer)}
             className={BUTTON_CLASS}
             style={{

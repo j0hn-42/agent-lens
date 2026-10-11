@@ -11,25 +11,27 @@ export const DEFAULT_LOCALE: Locale = 'en'
 export const LOCALE_STORAGE_KEY = 'agent-lens:locale'
 
 const fr = {
-  'motion.group': 'Mouvement par couche',
-  'motion.layer.background': 'Fond animé',
-  'motion.layer.links': 'Liens',
-  'motion.layer.agents': 'Agents',
-  'motion.layer.effects': 'Effets',
+  'motion.group': 'Calmer par couche',
+  'motion.layer.background': 'Calmer le fond',
+  'motion.layer.links': 'Calmer les liens',
+  'motion.layer.agents': 'Calmer les agents',
+  'motion.layer.effects': 'Calmer les effets',
   'motion.calmCount': '{n} couche(s) au calme',
   'motion.lockedBySystem': 'Les animations sont réduites par les réglages de votre système',
+  'motion.lockedByPause': 'Les animations sont en pause (bouton Pause animations)',
 } as const
 
 export type MessageKey = keyof typeof fr
 
 const en: Record<MessageKey, string> = {
-  'motion.group': 'Motion by layer',
-  'motion.layer.background': 'Animated background',
-  'motion.layer.links': 'Links',
-  'motion.layer.agents': 'Agents',
-  'motion.layer.effects': 'Effects',
+  'motion.group': 'Calm by layer',
+  'motion.layer.background': 'Calm background',
+  'motion.layer.links': 'Calm links',
+  'motion.layer.agents': 'Calm agents',
+  'motion.layer.effects': 'Calm effects',
   'motion.calmCount': '{n} layer(s) calm',
   'motion.lockedBySystem': 'Animations are reduced by your system settings',
+  'motion.lockedByPause': 'Animations are paused (Pause animations button)',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

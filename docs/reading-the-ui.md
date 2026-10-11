@@ -67,7 +67,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 
 ## Motion by layer
 
-Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
+Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
 
 | Layer | Calms |
 | --- | --- |
@@ -76,7 +76,7 @@ Besides the global **Pause animations** button (and your system's reduced-motion
 | Agents | breathing, scanline, rings, tool-call pulses |
 | Effects | message particles and trails, spawn / completion flashes, bloom |
 
-With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
+With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Pause animations is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
 
 ## The `observations` action
 
