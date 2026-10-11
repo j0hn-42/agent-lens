@@ -36,3 +36,28 @@ test('translate fills placeholders and falls back to the default locale for an u
   assert.match(translate('fr', 'motion.calmCount', { n: 2 }), /2/)
   assert.equal(translate('xx' as never, 'motion.layer.agents'), MESSAGES[DEFAULT_LOCALE]['motion.layer.agents'])
 })
+
+// Step 2: the catalog covers the canvas controls and the settings dialog
+const SAME_IN_BOTH = new Set<string>([])
+
+test('a French message is not a copy of the English one', () => {
+  for (const k of Object.keys(MESSAGES.fr) as MessageKey[]) {
+    if (SAME_IN_BOTH.has(k)) continue
+    assert.notEqual(MESSAGES.fr[k], MESSAGES.en[k], `fr.${k} is still English`)
+  }
+})
+
+test('the controls and settings keys exist in every locale', () => {
+  const wanted = [
+    'controls.zoomIn', 'controls.zoomOut', 'controls.fit', 'controls.fitLabel', 'controls.pause', 'controls.keepCards',
+    'controls.expireAfter', 'controls.seconds', 'controls.minutes',
+    'common.close', 'settings.title', 'settings.language', 'settings.language.auto', 'settings.theme',
+    'settings.notify.cost.help', 'settings.notify.invalid',
+  ]
+  for (const k of wanted) for (const l of LOCALES) assert.ok(k in MESSAGES[l], `${l}.${k}`)
+})
+
+test('a figure keeps its qualification in French (at least, estimated)', () => {
+  assert.match(MESSAGES.fr['settings.notify.cost.help'], /au moins/)
+  assert.match(MESSAGES.fr['settings.notify.cost.help'], /estim/)
+})
