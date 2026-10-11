@@ -644,6 +644,8 @@ export function AgentVisualizer() {
     status: bridge.connectionStatus,
     relayPort: bridge.relayPort || undefined,
     sessionCount: detectedSessions(bridge.sessions).length,
+    hooksConfigured: bridge.hooksConfigured,
+    isVSCode: bridge.isVSCode,
   })
 
   const handleSeek = (time: number) => {

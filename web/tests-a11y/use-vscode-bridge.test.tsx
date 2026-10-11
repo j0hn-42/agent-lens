@@ -46,7 +46,9 @@ beforeEach(() => {
   for (const k of ENV_KEYS) if (k !== 'NODE_ENV') setEnv(k, undefined)
   FakeES.all = []; posted = []; statusFetches = 0; statusUrls = []; statusOk = false
   g.EventSource = FakeES
-  g.fetch = async (url: string) => { statusFetches++; statusUrls.push(url); return { ok: statusOk } }
+  g.fetch = async (url: string, init?: { headers?: unknown }) => {
+    if (init?.headers) return { ok: false } // hooks-state read (#176), not a reachability probe
+    statusFetches++; statusUrls.push(url); return { ok: statusOk } }
   ;(window as unknown as { postMessage: unknown }).postMessage = (d: unknown) => { posted.push(d) }
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
   mock.method(Math, 'random', () => 0) // no jitter: exact delays
@@ -191,6 +193,24 @@ test('relaySessionId asks the relay for one session and rejects the others', asy
   assert.equal(posted.length, 0)
   await act(async () => FakeES.last.send(agentEvent('s 1', 2)))
   assert.equal(posted.length, 1)
+})
+
+test('hooksConfigured comes from GET /status only when the relay watches Claude Code (#176)', async () => {
+  relayEnv('4321')
+  const g = globalThis as unknown as { fetch: unknown }
+  let body: unknown = { runtimes: ['claude'], hooksConfigured: false }
+  g.fetch = async () => ({ ok: true, json: async () => body })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.hooksConfigured, undefined)
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(result.current.hooksConfigured, false)
+  body = { runtimes: ['codex'], hooksConfigured: false }
+  const second = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  const result2 = second.result
+  assert.equal(result2.current.hooksConfigured, undefined, 'Codex only: the flag says nothing')
 })
 
 test('unmount closes the stream and cancels reconnect timers', async () => {
