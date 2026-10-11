@@ -16,11 +16,31 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Review (pause) and switching session**: Review pauses the scene; events that arrive meanwhile wait in a queue, and Resume live reports how many. If you switch session while reviewing, the queue of the session you leave is not dropped: the position it had reached is kept with that session, so the events received while paused (and those received during the switch itself) are replayed when you come back. The view you switch to is live, so the review ends with a short notice ("Review ended: session changed") and the bar shows the live controls again; it never shows Review over a scene that is playing.
 - **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
 
-The graph legend (bottom left of the canvas) explains every colour, shape and line.
+The graph legend (bottom left of the canvas) explains the colours, shapes and lines that are on screen.
+
+### The legend lists what is on screen
+
+The legend does not list symbols the canvas does not draw (#244). A row appears only when the scene proves it, and a section with no row has no heading:
+
+- an agent state, shape or runtime logo: at least one drawn agent has it (a hidden, folded or filtered-out agent proves nothing). A teammate ring, its working / idle / done mark and the orchestrator crown follow the same rule; a team row needs a team with two members on screen;
+- a tool card line, a discovery card by type, a context part (non-zero for a drawn agent): the card or the part exists;
+- a parent line: solid when the events confirm the link, dashed when they do not; a dispatch or return dot, a file conflict line, a "+N" or green badge on a folded branch, a session halo: drawn right now;
+- a message link style: a link with at least one message in that state (in flight, recent, error, quiet); a bubble: a message bubble exists.
+
+The sentence under the title says how many symbols are listed ("N symbols on screen") or that nothing is on screen yet. **Show all symbols** (a toggle button, Tab then Enter or Space) lists the complete reference, on screen or not; the choice is not saved. A row whose symbol just left the scene (a message in flight, a particle, a tool card) stays listed for 10 seconds so the list does not jump under you. The guided demo keeps the complete legend, because its steps describe symbols the demo never draws.
+
+### Tour this session
+
+With at least one symbol on screen, a **Tour this session** button sits beside **Legend**. It starts a guided tour of the real scene (it is not shown in the guided demo, which has its own **Guided tour**):
+
+- the steps are built when you start it from the symbols the canvas proves are on screen: your agents (main, sub-agent, runtime), each agent state present, tool calls, finished agents, who started whom, folded branches, file conflicts, teams, sessions, links, context parts and discoveries. A step for something that is not on screen does not exist, and no step talks about a symbol that is absent;
+- a step points at a real agent (a ring follows it) or, for a symbol that no single agent shows (a link, a context part), at the matching legend section, which opens without changing your saved preference. The card names the agent it points at;
+- the tour never pauses or seeks the scene: it stays live, and events keep arriving. A step is a snapshot: when what it explains has left the scene, the card says "This is no longer on screen" instead of going on as if;
+- the card is the one of the guided demo: Previous, Next, **Go to step**, **Exit tour**, the arrow keys and Escape (inside the card only), and the focus returns to the button that opened it.
 
 ### See the legend in action
 
-The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
+The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
 
 - **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
 - **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
