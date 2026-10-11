@@ -202,9 +202,9 @@ test('the shortcut of an option is shown to sighted users and announced', () => 
 
 test('detail text comes from the session list only: no live state is claimed', () => {
   const r = render(<Host />)
-  const finished = r.getByRole('option', { name: /web-app/ })
+  const finished = r.getByRole('option', { name: /^web-app/ })
   assert.match(finished.textContent ?? '', /finished/)
-  const current = r.getByRole('option', { name: /payments-api/ })
+  const current = r.getByRole('option', { name: /^payments-api/ })
   assert.match(current.textContent ?? '', /feat\/refund/)
   assert.doesNotMatch(current.textContent ?? '', /running|working|active|live/i)
 })
