@@ -163,7 +163,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
           {model.droppedText ? `. ${model.droppedText}.` : ''}
         </p>
 
-        <p role="status" className="m-0 min-h-0 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
+        <p role="status" className="m-0 min-h-0 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {model.entries.length === 0 ? (
           <p className="text-xs font-mono" style={{ color: COLORS.textMuted }}>{emptyState('messages on this link')}</p>
