@@ -560,7 +560,7 @@ export function SessionListPanel({
               {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
             </div>
           )}
-          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
+          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents" data-sensitive="">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
               const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`

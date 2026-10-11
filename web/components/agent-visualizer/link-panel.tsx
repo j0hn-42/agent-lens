@@ -108,6 +108,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
       aria-describedby={descId}
       tabIndex={-1}
       {...dockAttrs('link', 'right', dock)}
+      data-sensitive=""
       className="link-panel outline-none"
       style={{
         position: 'absolute',

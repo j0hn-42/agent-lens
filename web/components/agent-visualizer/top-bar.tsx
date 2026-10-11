@@ -256,7 +256,7 @@ export const TopBar = memo(function TopBar({
         keepsInspector
         style={{ maxWidth: 'min(320px, 100%)' }}
       >
-        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
+        <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {unobservedCount > 0 && (
           <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>

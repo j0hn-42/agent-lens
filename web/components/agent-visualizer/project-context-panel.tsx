@@ -83,7 +83,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
       zIndex={Z.sidePanel}
       width={rect?.w ?? 360}
-      attrs={dockAttrs('files', 'right', dock)}
+      attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       {children(rect?.h ?? '70vh')}
@@ -105,7 +105,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
   return (
     <ContextDock>
       {maxHeight => (
-      <div className="glass-card relative flex flex-col" style={{ maxHeight, background: COLORS.void }}>
+      <div className="glass-card relative flex flex-col" data-sensitive="" style={{ maxHeight, background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (

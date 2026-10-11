@@ -141,7 +141,7 @@ export function AgentDetailCard({
             style={{ background: stateColor, boxShadow: `0 0 8px ${stateColor}` }}
           />
           <span className="flex flex-col">
-            <span className="text-xs font-mono" style={{ color: COLORS.textPrimary }}>
+            <span className="text-xs font-mono" data-sensitive="" style={{ color: COLORS.textPrimary }}>
               {agent.name}
             </span>
             {agent.model && (
