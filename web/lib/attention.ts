@@ -30,10 +30,13 @@ export interface AttentionSummary {
   firstSessionId: string | null
   /** Ids of every counted agent */
   blockedIds: Set<string>
+  /** Ids of the counted agents by kind (notification rules, #225) */
+  waitingIds: Set<string>
+  errorIds: Set<string>
 }
 
 export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number): AttentionSummary {
-  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set() }
+  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set(), waitingIds: new Set(), errorIds: new Set() }
   let firstError: string | null = null
   let firstErrorSession: string | null = null
   for (const a of agents) {
@@ -45,10 +48,10 @@ export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number
     if (freshness !== 'fresh' && freshness !== 'error' && !pending) continue
     const entry = out.bySession.get(a.sessionId) ?? { waiting: 0, errors: 0 }
     if (a.state === 'waiting_permission') {
-      entry.waiting++; out.waiting++
+      entry.waiting++; out.waiting++; out.waitingIds.add(a.id)
       if (out.firstAgentId === null) { out.firstAgentId = a.id; out.firstSessionId = a.sessionId }
     } else {
-      entry.errors++; out.errors++
+      entry.errors++; out.errors++; out.errorIds.add(a.id)
       if (firstError === null) { firstError = a.id; firstErrorSession = a.sessionId }
     }
     out.bySession.set(a.sessionId, entry)

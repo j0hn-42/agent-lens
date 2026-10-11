@@ -7,8 +7,9 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Fleet / All**: the All view draws every watched session on one canvas. Each session is a dotted halo (its label gives runtime, workspace, status and cost; click it to zoom to the cluster). Sessions of the same project are grouped together.
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
-- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure.
+- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
+- **Review (pause) and switching session**: Review pauses the scene; events that arrive meanwhile wait in a queue, and Resume live reports how many. If you switch session while reviewing, the queue of the session you leave is not dropped: the position it had reached is kept with that session, so the events received while paused (and those received during the switch itself) are replayed when you come back. The view you switch to is live, so the review ends with a short notice ("Review ended: session changed") and the bar shows the live controls again; it never shows Review over a scene that is playing.
 - **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
@@ -25,6 +26,17 @@ The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md]
 - **Context usage**: step *Context usage*.
 - **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
 - **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
+
+## Why this tool? and the causal chain of a failure
+
+Click a tool call (or press Enter on its button in the graph list, or on the focused tool card): its popup has a **Why this tool?** disclosure (a native `<details>`: Tab to it, Enter or Space opens it). Every line is backed by an observed event; what cannot be proven is said so.
+
+- **Reasoning observed just before this call**: the thinking that sits right before the call, in the same agent's own conversation, matched by the call's `tool_use_id`. Parallel calls of one batch share the reasoning that precedes the batch. Anything separated from the call by a result, an answer or a prompt is not attributed to it.
+- **No reasoning observed just before this call**: the call is in the history and nothing precedes it. This is a finding, not an error.
+- **Reasoning not disclosed by the runtime**: the runtime redacted the thinking; no text is invented.
+- **Not provable: ...**: the call has no `tool_use_id`, is no longer in the kept history (conversations are bounded), or older messages were dropped. "Unknown" is never shown as "none".
+
+A failed call also gets a **Causal chain of this failure**, an ordered list from the failure back to the prompt: the error text, the reasoning before the call, then for a sub-agent the dispatch that started it (who dispatched whom, with the full prompt and the parent's reasoning before the dispatch), and finally the **latest prompt observed before it** in the root agent's conversation. A hop needs the dispatch message with the same `tool_use_id` and a *verified* parent-child link; otherwise the chain stops with `Chain stops: ...` and says why. The prompt is an ordering fact (the latest one seen before), not a claim that it caused the failure. The derivation lives in `web/lib/tool-reasoning.ts`.
 
 ## Themes
 
@@ -61,11 +73,29 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | "fin non observée" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
 | **at least X** ("au moins") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
 | **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
+| "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
 | **non renseigné** | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
+| **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
+
+## Notifications
+
+The **Notifications** button in the top bar turns notifications on or off; **Settings > Notifications** chooses what triggers them. Nothing is asked of the browser until you turn them on, and the choice stays in this browser (local storage).
+
+| Trigger | Fires when | Default |
+|---|---|---|
+| **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
+| **Agent in error** | an agent reports an error | on |
+| **Session finished** | a session you were watching goes from active to completed | off |
+| **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
+
+- **Where it shows.** In a browser, a system notification appears only while the tab is hidden (the tab title also carries the number of blocked agents). In VS Code, the webview asks the extension, which shows a native message unless the Agent Lens panel is the focused view. The extension checks and caps every message and shows at most one per trigger every 2 seconds.
+- **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.
+- **Only what is proven.** A permission or error is counted only while the app can prove it (see the states above). A cost that is unknown never triggers; a lower bound triggers once it has proven the threshold is reached and the message says *at least*; an estimate says *estimated*. The wording is the one of the top bar.
+- **Keyboard.** Every switch and the amount field are reachable with Tab; Space toggles a switch. An invalid amount is refused with a message and the previous threshold stays in force.
 
 ## Motion by layer
 
