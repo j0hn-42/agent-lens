@@ -85,6 +85,8 @@ export function AgentVisualizer() {
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
+  const isReviewingRef = useRef(false)
+  isReviewingRef.current = isReviewing
 
   // Union views ('All' / team) put every session on one wall-clock axis (offsets in seconds per session)
   const sessionOffsetsRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
@@ -283,9 +285,16 @@ export function AgentVisualizer() {
         bridge.flushSessionEvents(bridge.selectedSessionId)
       }
 
+      // Both paths above leave the simulation playing: the pause belonged to the view that was left (#248).
+      // The events it had queued are re-fed from the cursor, so none is lost; the bar must not claim review.
+      if (isReviewingRef.current) {
+        setIsReviewing(false)
+        pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
+      }
+
       prevSelectedRef.current = bridge.selectedSessionId
     }
-  }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount])
+  }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount, pushToast])
 
   // 'All' membership changed (an old session woke up, a session went quiet, the toggle flipped):
   // rebuild the union from the buffered events of the sessions it now shows.
