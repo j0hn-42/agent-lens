@@ -18,7 +18,7 @@ const fr = {
   'motion.layer.effects': 'Calmer les effets',
   'motion.calmCount': '{n} couche(s) au calme',
   'motion.lockedBySystem': 'Les animations sont réduites par les réglages de votre système',
-  'motion.lockedByPause': 'Les animations sont en pause (bouton Pause animations)',
+  'motion.lockedByPause': 'Les animations sont en pause (bouton Freeze motion)',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -31,7 +31,7 @@ const en: Record<MessageKey, string> = {
   'motion.layer.effects': 'Calm effects',
   'motion.calmCount': '{n} layer(s) calm',
   'motion.lockedBySystem': 'Animations are reduced by your system settings',
-  'motion.lockedByPause': 'Animations are paused (Pause animations button)',
+  'motion.lockedByPause': 'Animations are paused (Freeze motion button)',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

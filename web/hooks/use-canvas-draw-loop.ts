@@ -69,7 +69,7 @@ interface DrawLoopDeps {
   // Motion preferences
   reducedMotionRef: MutableRefObject<boolean>
   animationsPausedRef: MutableRefObject<boolean>
-  /** Reduced motion from the OS or "Pause animations" only (calms every layer) */
+  /** Reduced motion from the OS or "Freeze motion" only (calms every layer) */
   globalReducedRef: MutableRefObject<boolean>
   /** Layers calmed one by one (#247) */
   calmLayersRef: MutableRefObject<CalmLayers>

@@ -14,7 +14,7 @@ On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en 
 
 - Fenêtre d'au moins 1280 × 800, thème au choix.
 - Désactivez **Hide inactive agents** (bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les sessions finies : c'est une fonctionnalité à montrer, voir l'acte 7.
-- Pour l'acte 4, réglez **Expire unanswered calls after** (bas à droite) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
+- Pour l'acte 4, ouvrez **View** (bas à droite) et réglez **Hide unanswered calls after** sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
 - Le tour ne se rejoue pas tout seul : rechargez la page pour recommencer. Le mode **Review** (barre du bas) permet de remonter la timeline et de survoler un instant précis.
 
 ## Les trois sessions

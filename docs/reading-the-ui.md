@@ -156,9 +156,19 @@ The **Health** section of the inspector gives the verdict of the selected agent,
 
 Limits, on purpose: only what the events prove is counted, so a loop can be missed (calls without input data, another tool between two identical calls, an edit followed by a read of another file) but is not invented. A tool that polls on purpose (the same `Bash` status command three times) is reported as a repeat: read the evidence before acting. Only sessions whose events are in the current view have a verdict.
 
+## Canvas controls (bottom right)
+
+- **Zoom**: three icon buttons, **Zoom in**, **Zoom out** and **Fit to view**. Their tooltips give the graph keys (`+`, `-`, `0`, see the shortcuts dialog).
+- **View**: one button that opens a small panel (Enter or Space opens it, Tab moves into it, Escape or a click outside closes it and Escape returns the focus to the button). The panel holds:
+  - **Freeze motion**: stops the ambient animation. Locked on, with a tooltip saying why, when your system asks for reduced motion.
+  - the per-layer motion toggles (see below);
+  - **Pin cards**: never auto-hides bubbles, tool cards and discoveries;
+  - **Hide unanswered calls after**: how long a running tool call with no observed end is waited for before it is treated as expired (1 to 30 min, default 5 min). Expired is neither a success nor a failure.
+- These settings were called *Fit*, *Pause animations*, *Keep cards visible* and *Expire unanswered calls after* before. Their behaviour is unchanged.
+
 ## Motion by layer
 
-Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
+Besides the global **Freeze motion** setting (and your system's reduced-motion setting), the **View** panel of the canvas controls holds one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
 
 | Layer | Calms |
 | --- | --- |
@@ -167,7 +177,7 @@ Besides the global **Pause animations** button (and your system's reduced-motion
 | Agents | breathing, scanline, rings, tool-call pulses |
 | Effects | message particles and trails, spawn / completion flashes, bloom |
 
-With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Pause animations is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
+With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Freeze motion is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
 
 ## The `observations` action
 

@@ -5,7 +5,7 @@ import type { ViewRect } from './view-cull'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
-  /** Reduced motion (OS preference or the "Pause animations" toggle): no ambient/decorative motion. */
+  /** Reduced motion (OS preference or the "Freeze motion" toggle): no ambient/decorative motion. */
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number

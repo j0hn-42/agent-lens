@@ -17,7 +17,7 @@ function writeStoredFlag(key: string, value: boolean): void {
 
 /**
  * Motion and comfort preferences of the canvas: OS reduced motion (read once + change listener) OR the
- * visible "Pause animations" toggle, "Keep cards visible" and the tool-call expiry. The refs mirror the
+ * visible "Freeze motion" toggle, "Pin cards" and the tool-call expiry. The refs mirror the
  * state for the draw loop.
  */
 export function useCanvasPreferences() {
