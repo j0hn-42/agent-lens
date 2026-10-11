@@ -9,6 +9,10 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
 - **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure.
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
+- **File conflicts**: two or more agents (of one session or of several) that modified the same file. A red dash-dot line with a diamond in its middle joins two such agents on the canvas, in every view where both are drawn (one line per pair, whatever the number of files). The Files panel lists the conflicts first (file and every agent with its number of edits) and tags the file row with the word "conflict"; with the editor available (VS Code), Enter on a conflict opens the file. The graph outline (screen readers) has a "File conflicts" list with the same sentences, an agent hidden from the canvas being named "not on screen". Only proof counts:
+  - an edit is an `Edit`, `Write`, `MultiEdit` or `NotebookEdit` call whose success was observed. A failed or cancelled edit, or one whose end was never seen, proves no write and makes no conflict; a read never does;
+  - the path must be absolute (normalised: separators, `.` and `..`, Windows drive letter). A relative path names a file only in a working directory that is not known, so two relative paths are never compared;
+  - the edits are not required to overlap in time: a conflict says that two agents wrote the same file, not that they did so at the same moment. Edits made by other runtimes (for example Codex patches) are not recognised yet.
 - **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
 
 The graph legend (bottom left of the canvas) explains every colour, shape and line.
@@ -19,7 +23,7 @@ The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md]
 
 - **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
 - **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
-- **Edges and particles**: steps *Tool calls*, *Sub-agents* and *Results come back*. The dispatch and return particles are described only, in *Sub-agents* and *Results come back*: the tour pauses the scene at each step, and a paused scene draws no particle. The unverified parent link and the two folded-branch badges are described only (*Seen only in a real session*).
+- **Edges and particles**: steps *Tool calls*, *Sub-agents* and *Results come back*. The dispatch and return particles are described only, in *Sub-agents* and *Results come back*: the tour pauses the scene at each step, and a paused scene draws no particle. The unverified parent link, the file conflict line and the two folded-branch badges are described only (*Seen only in a real session*).
 - **Teams**: step *Agent Teams* (and *Delivered messages and finished teammates* for a finished teammate, *Results come back* for an archived agent). The session halo is described only (*Seen only in a real session*).
 - **Message links**: steps *Messages between agents*, *Delivered messages and finished teammates* and *Quiet links*. The error link is described only (*Seen only in a real session*).
 - **Context usage**: step *Context usage*.
@@ -63,6 +67,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
 | **non renseigné** | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
+| **conflict** (Files panel, canvas line) | Two or more agents each made at least one edit of the same absolute file that was observed to succeed. An edit not seen to succeed is never counted. |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
