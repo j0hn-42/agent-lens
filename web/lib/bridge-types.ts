@@ -8,6 +8,8 @@
  * before the relay answers); the extension never sends it.
  */
 
+import { CONTROL_ALL } from './control-chars'
+
 export interface AgentEvent {
   time: number
   type: string
@@ -115,9 +117,6 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.indexedOnly === undefined || typeof v.indexedOnly === 'boolean')
 }
 
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
-
 /** Max length of a session id taken from an untrusted source (parent links) */
 export const MAX_SESSION_ID_LEN = 128
 
@@ -127,7 +126,7 @@ export const MAX_NAME_LEN = 80
 /** Untrusted single-line text: control characters removed, trimmed, capped. */
 export function cleanLine(v: unknown, max = MAX_NAME_LEN): string {
   if (typeof v !== 'string') return ''
-  return v.replace(CONTROL_CHARS, '').trim().slice(0, max)
+  return v.replace(CONTROL_ALL, '').trim().slice(0, max)
 }
 
 /**

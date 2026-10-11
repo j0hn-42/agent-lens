@@ -14,6 +14,7 @@
  */
 import * as fs from 'fs'
 import type { SessionInfo } from './protocol'
+import { CONTROL_ALL } from './control-chars'
 import {
   SESSION_INDEX_DEFAULT_MAX_ROWS, SESSION_INDEX_HARD_MAX_ROWS, SESSION_INDEX_TIMEOUT_MS, SESSION_TAG_MAX,
 } from './constants'
@@ -68,11 +69,10 @@ export interface SessionIndexResult {
 }
 
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g
 
 function cleanText(v: unknown, max: number): string | undefined {
   if (typeof v !== 'string') return undefined
-  const s = v.replace(CONTROL, '').trim().slice(0, max)
+  const s = v.replace(CONTROL_ALL, '').trim().slice(0, max)
   return s || undefined
 }
 
