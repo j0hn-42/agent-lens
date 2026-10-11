@@ -200,7 +200,7 @@ function load(page: string) {
   const dom = new JSDOM(page, { runScripts: 'dangerously', pretendToBeVisual: true })
   const doc = dom.window.document
   const byId = (id: string) => doc.getElementById(id) as HTMLElement
-  return { dom, doc, byId, win: dom.window as unknown as Window & { __pwned?: number } }
+  return { dom, doc, byId, win: dom.window as unknown as { __pwned?: number; Event: typeof Event; MouseEvent: typeof MouseEvent } }
 }
 
 test('transcript content is shown as text, never parsed as HTML or run as script', () => {
@@ -209,7 +209,10 @@ test('transcript content is shown as text, never parsed as HTML or run as script
   assert.equal(doc.querySelectorAll('img, b, script:not([type])').length, 1, 'only the replay script itself')
   const log = byId('event-log')
   assert.ok(log.textContent!.includes('<img src=x onerror="window.__pwned=2"> & <b>bold</b>'), 'the markup is visible as text')
-  assert.ok(log.textContent!.includes('</script><script>window.__pwned=1</script>'))
+  const scrub = byId('scrubber') as HTMLInputElement
+  scrub.value = '3'
+  scrub.dispatchEvent(new (doc.defaultView as unknown as { Event: typeof Event }).Event('input', { bubbles: true }))
+  assert.ok(byId('current-payload').textContent!.includes('</script><script>window.__pwned=1</script>'))
   assert.equal(byId('session-label').textContent, 'demo <b>label</b>')
 })
 
@@ -301,7 +304,8 @@ test('the replay page has no axe violation', async () => {
   const w = dom.window as unknown as { eval: (s: string) => void; axe: typeof axe }
   w.eval(axe.source)
   const results = await w.axe.run(dom.window.document, { rules: { 'color-contrast': { enabled: false } } })
-  assert.deepEqual(results.violations.map(v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), [])
+  // Array.from: the results come from the jsdom realm
+  assert.deepEqual(Array.from(results.violations, v => `${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(', ')}`), [])
 })
 
 // ── Buffer slice ──

@@ -64,6 +64,8 @@ import { summarizeAttention, withForeignAttention } from "@/lib/attention"
 import { assessHealth, detectLoops } from "@/lib/loop-detection"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 import { useNotificationRules } from "@/hooks/use-notification-rules"
+import { buildSessionExport, renderReplayHtml, sessionExportFileName } from "@/lib/session-export"
+import { downloadText } from "@/lib/comms-export"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -630,6 +632,27 @@ export function AgentVisualizer() {
     bridge.bridgeOpenFile(filePath, line)
   }, [bridge])
 
+  // Session export (#237): only real sessions with events in memory; the demo has no export
+  const canExportSession = useCallback((id: string) => !bridge.useMockData && bridge.getBufferedEventCount(id) > 0,
+    [bridge.useMockData, bridge.getBufferedEventCount])
+  const handleExportSession = useCallback((id: string) => {
+    const session = bridge.sessions.find(s => s.id === id)
+    const { events, droppedBefore } = bridge.getSessionEvents(id)
+    if (!session || events.length === 0) {
+      pushToast({ message: 'Nothing to export: no event of this session is in memory', durationMs: 5000 })
+      return
+    }
+    const exp = buildSessionExport({ sessionId: id, label: session.label, events, droppedBefore })
+    const saved = downloadText(sessionExportFileName(exp), renderReplayHtml(exp), 'text/html')
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+    const lost = droppedBefore > 0 ? `, ${plural(droppedBefore, 'earlier event')} already dropped` : ''
+    pushToast({
+      message: saved
+        ? `Exported ${plural(exp.eventCount, 'event')} as an HTML replay${lost}; ${plural(exp.redactions.total, 'secret')} redacted (best effort)`
+        : 'Export failed: this view cannot save files',
+      durationMs: 6000,
+    })
+  }, [bridge.sessions, bridge.getSessionEvents, pushToast])
   // Halo titles (session label, runtime, workspace, status) come from the session list
   const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
   const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
@@ -1009,6 +1032,8 @@ export function AgentVisualizer() {
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
           onRenameSession={bridge.renameSession}
+          onExportSession={bridge.useMockData ? undefined : handleExportSession}
+          canExportSession={canExportSession}
           agents={listAgents}
           selectedAgentId={selection.selectedAgentId}
           onSelectAgent={selection.handleAgentClick}

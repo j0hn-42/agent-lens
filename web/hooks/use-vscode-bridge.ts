@@ -14,6 +14,7 @@ import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
+  bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
 
 export interface UseVSCodeBridgeOptions {
@@ -48,6 +49,10 @@ interface BridgeHookResult {
   flushSessionEvents: (sessionId: string, fromIndex?: number) => void
   /** Get the current event count for a session (for save/restore) */
   getSessionEventCount: (sessionId: string) => number
+  /** Buffered events of a real session for an export (#237), with how many were dropped before them */
+  getSessionEvents: (sessionId: string) => { events: SimulationEvent[]; droppedBefore: number }
+  /** Events of a real session still in memory (0 for 'All', a team or an unknown session) */
+  getBufferedEventCount: (sessionId: string) => number
   /** Ref to the currently selected session ID — updated synchronously, not via React state */
   selectedSessionIdRef: React.RefObject<string | null>
   /** True while the 'All' tab (union of every session) is selected */
@@ -595,6 +600,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return outgoing && outgoing.id === sessionId ? outgoing.cursor : currentEventCount(sessionId)
   }, [currentEventCount])
 
+  const getSessionEvents = useCallback((sessionId: string) => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return { events: [], droppedBefore: 0 }
+    return sessionExportSlice(sessionBuffersRef.current, sessionId)
+  }, [])
+  const getBufferedEventCount = useCallback((sessionId: string): number => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return 0
+    return bufferedEventCount(sessionBuffersRef.current, sessionId)
+  }, [])
+
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
   const removeSession = useCallback((sessionId: string) => {
@@ -643,6 +657,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     selectSession,
     flushSessionEvents,
     getSessionEventCount,
+    getSessionEvents,
+    getBufferedEventCount,
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,

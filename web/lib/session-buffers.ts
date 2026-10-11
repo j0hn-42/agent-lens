@@ -84,3 +84,15 @@ export function sessionEventsFrom(s: SessionBuffers, sessionId: string, fromInde
   const buf = s.events.get(sessionId) ?? []
   return buf.slice(Math.max(0, fromIndex - (s.base.get(sessionId) ?? 0)))
 }
+
+/** Events of the session still in memory (not counting the dropped ones). */
+export function bufferedEventCount(s: SessionBuffers, sessionId: string): number {
+  return s.events.get(sessionId)?.length ?? 0
+}
+
+/** What an export can hold (#237): a copy of the buffered events and how many were dropped before them. */
+export function sessionExportSlice(s: SessionBuffers, sessionId: string): { events: SimulationEvent[]; droppedBefore: number } {
+  const buf = s.events.get(sessionId)
+  if (!buf) return { events: [], droppedBefore: 0 }
+  return { events: buf.slice(), droppedBefore: s.base.get(sessionId) ?? 0 }
+}
