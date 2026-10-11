@@ -192,8 +192,8 @@ test('the outline lists each conflict with the agents, their sessions and their 
   const model = buildA11yModel(agents, new Map(), [], new Map(), {
     sessions: new Map([['s1', { label: 'Main' }], ['s2', { label: 'Fix' }]]), fileAttention,
   })
-  assert.equal(model.fileConflicts.length, 1)
-  assert.equal(model.fileConflicts[0].text, '/repo/a.ts edited by alpha (session Main): 2 successful edits; beta (session Fix): 1 successful edit')
+  assert.equal(model.fileConflicts?.length, 1)
+  assert.equal(model.fileConflicts?.[0]?.text ?? '', '/repo/a.ts edited by alpha (session Main): 2 successful edits; beta (session Fix): 1 successful edit')
   // Without the file data, nothing is claimed
   assert.deepEqual(buildA11yModel(agents, new Map(), [], new Map()).fileConflicts, [])
 })
@@ -202,7 +202,7 @@ test('the outline names an agent that is not on screen by its key, never drops i
   const agents = new Map([['s1:main', agent('s1:main', 's1', 0, 'alpha')]])
   const fileAttention = new Map([fa('/repo/a.ts', [['s1:main', 1, 1], ['s2:main', 1, 1]])])
   const model = buildA11yModel(agents, new Map(), [], new Map(), { fileAttention })
-  assert.match(model.fileConflicts[0].text, /alpha \(session s1\): 1 successful edit; s2:main \(not on screen\): 1 successful edit$/)
+  assert.match(model.fileConflicts?.[0]?.text ?? '', /alpha \(session s1\): 1 successful edit; s2:main \(not on screen\): 1 successful edit$/)
 })
 
 test('the conflict edge has a legend entry, described in the guided tour', () => {

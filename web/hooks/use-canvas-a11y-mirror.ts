@@ -13,7 +13,7 @@ import { buildLinkMessageItems, type LinkMessageItem } from '@/components/agent-
 import { attachBubbleLayer } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
-const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
+const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [], fileConflicts: [] }
 
 interface A11yMirrorDeps {
   simulationRef: RefObject<SimulationState>
@@ -77,6 +77,7 @@ export function useCanvasA11yMirror({
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
+        fileAttention: s.fileAttention,
       })
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
