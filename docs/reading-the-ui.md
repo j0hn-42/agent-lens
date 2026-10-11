@@ -71,6 +71,8 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Not observed** / "listed - activity not observed" | The session or agent is known (for example listed on disk) but no event was ever received. No state or activity is invented for it. |
 | "Not observed yet" (agent card) | The agent was announced but nothing has been seen from it. |
 | "fin non observée" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
+| "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
+| "waiting for permission for N min" | The last event of the agent was a permission request, and nothing answered it for more than 5 minutes. This is told apart from a plain silence because the agent itself said it was waiting for you. |
 | **at least X** ("au moins") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
 | **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
@@ -80,6 +82,8 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
+
+A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
 ## Repeated reads and calls
 

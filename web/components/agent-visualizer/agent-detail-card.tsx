@@ -15,7 +15,7 @@ import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-link
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
-import { deriveFreshness, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
 import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
 
@@ -102,6 +102,11 @@ export function AgentDetailCard({
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
+  // A string that changes once a minute while the agent stays silent (never on a plain tick)
+  const silenceLine = useFreshnessValue(t => {
+    const s = deriveSilence(agent, t)
+    return s ? silenceText(s, agent.state) : ''
+  }, freshnessClock)
   const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
@@ -192,6 +197,7 @@ export function AgentDetailCard({
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
           <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
+          {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
               ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
