@@ -8,6 +8,7 @@ import { CloseButton, stopPropagationHandlers } from './shared-ui'
 import { ThemeSelect } from './theme-select'
 import { parseCostThreshold, type NotificationRules } from '@/lib/notification-rules'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
+import type { PresentationOptions } from '@/lib/presentation'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -27,6 +28,13 @@ export interface SettingsDialogProps {
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
   onOpenShortcuts: () => void
+  /** Presentation mode (#245) and its three options; the section is left out when absent */
+  presentation?: {
+    active: boolean
+    onActiveChange: (active: boolean) => void
+    options: PresentationOptions
+    onOptionChange: (key: keyof PresentationOptions, value: boolean) => void
+  }
   /** Notification channel and rules (#225); the section is left out when absent */
   notifications?: {
     state: NotifyState
@@ -139,7 +147,7 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications,
+  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation,
 }: SettingsDialogProps) {
   const ref = useRef<HTMLDivElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
@@ -250,6 +258,35 @@ export function SettingsDialog({
               onChange={onHideInactiveChange}
             />
           </Section>
+
+          {presentation && (
+            <Section title="Presentation">
+              <SwitchRow
+                label="Presentation mode"
+                help="For demos and streaming (V). Stops with V, Esc or the button at the top of the canvas."
+                checked={presentation.active}
+                onChange={presentation.onActiveChange}
+              />
+              <SwitchRow
+                label="Subtitles of transitions"
+                help="A caption for each state change seen live. Nothing is said about what was already there."
+                checked={presentation.options.subtitles}
+                onChange={v => presentation.onOptionChange('subtitles', v)}
+              />
+              <SwitchRow
+                label="Mask sensitive data"
+                help="Hides prompts, paths, tool arguments, messages, session and team names. Counts, states and tool names stay."
+                checked={presentation.options.mask}
+                onChange={v => presentation.onOptionChange('mask', v)}
+              />
+              <SwitchRow
+                label="Follow the active agent"
+                help="The camera centres on the agent that worked last. Panning or zooming pauses it until another agent takes over."
+                checked={presentation.options.follow}
+                onChange={v => presentation.onOptionChange('follow', v)}
+              />
+            </Section>
+          )}
 
           {notifications && <NotificationsSection notifications={notifications} />}
 
