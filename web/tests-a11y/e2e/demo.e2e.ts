@@ -108,7 +108,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
       await page.keyboard.press('Control+k')
       const dialog = page.getByRole('dialog', { name: 'Command palette' })
       await dialog.waitFor()
-      assert.ok(await page.getByRole('combobox').evaluate(el => el === document.activeElement), 'the search field has focus')
+      assert.ok(await dialog.getByRole('combobox').evaluate(el => el === document.activeElement), 'the search field has focus')
       expectClean('e2e:command-palette', await axeFailures(page, 'e2e:command-palette'))
       await page.keyboard.type('timeline panel')
       await page.keyboard.press('ArrowDown')
