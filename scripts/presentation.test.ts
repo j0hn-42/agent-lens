@@ -52,7 +52,7 @@ test('maskedClusterLabelSource masks the title, workspace and project but not th
   assert.equal(m.workspace, maskText('/home/jo/client'))
   assert.equal(m.projectName, maskText('client'))
   assert.deepEqual(m.memberIds, ['a'])
-  assert.equal(maskedClusterLabelSource({ title: 't', memberIds: [] }).workspace, undefined)
+  assert.equal(maskedClusterLabelSource<{ title: string; workspace?: string; memberIds: string[] }>({ title: 't', memberIds: [] }).workspace, undefined)
 })
 
 test('agentRoleLabel names the role, never the prompt', () => {
