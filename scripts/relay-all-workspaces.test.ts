@@ -69,4 +69,18 @@ describe('relay --all-workspaces', () => {
     })
     assert.deepEqual(ids, ['other-session'])
   })
+  it('the env var is only the INITIAL scope: it can be narrowed to this workspace at run time (#291)', async () => {
+    relay.setScope('workspace')
+    const ids = await new Promise<string[]>((resolve, reject) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
+        res.setEncoding('utf8')
+        let buf = ''
+        res.on('data', (c: string) => { buf += c; const m = /data: (\{"type":"session-list".*?\})\n\n/.exec(buf); if (m) { req.destroy(); resolve((JSON.parse(m[1]).sessions as Array<{ id: string }>).map(s => s.id)) } })
+        res.on('close', () => resolve([]))
+      })
+      req.on('error', reject)
+      setTimeout(() => { req.destroy(); resolve([]) }, 1500)
+    })
+    assert.deepEqual(ids, [], 'nothing left: the only session lives in another workspace')
+  })
 })
