@@ -6,6 +6,7 @@ import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair } from '@/lib/pair-filter-store'
@@ -38,7 +39,7 @@ afterEach(() => {
   window.HTMLCanvasElement.prototype.getContext = realGetContext
 })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const ev = (sessionId: string, type: string, payload: Record<string, unknown>, time = 1) =>
   ({ type: 'agent-event', event: { time, type, sessionId, payload } })
 const info = (id: string, label: string, extra: Record<string, unknown> = {}) => ({

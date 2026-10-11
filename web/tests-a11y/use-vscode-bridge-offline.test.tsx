@@ -4,11 +4,12 @@
 import { test, afterEach, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup, act } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 
 const post = (data: unknown) =>
-  window.dispatchEvent(new (window as unknown as { MessageEvent: typeof MessageEvent }).MessageEvent('message', { data }))
+  vscodeBridge!.dispatch(data)
 
 beforeEach(() => {
   delete process.env.AGENT_LENS_STANDALONE
