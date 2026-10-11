@@ -22,6 +22,8 @@ export interface AgentEvent {
 export interface SessionInfo {
   id: string
   label: string
+  /** Label reported by the source, set only when `label` is a name chosen by the user (#246) */
+  originalLabel?: string
   status: 'active' | 'completed'
   startTime: number
   lastActivityTime: number
