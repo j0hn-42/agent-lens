@@ -44,3 +44,8 @@ test('applyAliases replaces the label, keeps the original one, and leaves other 
   assert.equal(out[1], sessions[1])
   assert.equal(applyAliases(sessions, new Map()), sessions)
 })
+
+test('applyAliases ignores an alias identical to the reported label: nothing is shown as renamed', () => {
+  const sessions = [session('s1', 'Front')]
+  assert.equal(applyAliases(sessions, new Map([['s1', 'Front']])), sessions)
+})

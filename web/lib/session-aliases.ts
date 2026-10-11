@@ -60,9 +60,10 @@ export function setAlias(aliases: SessionAliases, sessionId: string, value: stri
 
 /** Sessions with their chosen name as label; returns the same array when nothing applies. */
 export function applyAliases(sessions: SessionInfo[], aliases: SessionAliases): SessionInfo[] {
-  if (aliases.size === 0 || !sessions.some(s => aliases.has(s.id))) return sessions
+  const renamed = (s: SessionInfo) => aliases.has(s.id) && aliases.get(s.id) !== s.label
+  if (aliases.size === 0 || !sessions.some(renamed)) return sessions
   return sessions.map(s => {
     const alias = aliases.get(s.id)
-    return alias === undefined ? s : { ...s, label: alias, originalLabel: s.label }
+    return alias === undefined || !renamed(s) ? s : { ...s, label: alias, originalLabel: s.label }
   })
 }

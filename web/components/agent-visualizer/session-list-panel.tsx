@@ -359,7 +359,7 @@ export function SessionListPanel({
     setDraft(sessions.find(s => s.id === id)?.label ?? '')
     setRenaming(id)
   }
-  const endRename = (save: boolean) => {
+  const endRename = (save: boolean, refocusRow = true) => {
     const id = renaming
     if (id === null) return
     setRenaming(null)
@@ -368,7 +368,7 @@ export function SessionListPanel({
       setAnnouncement(sanitizeAlias(draft) === null ? 'Original name restored' : `Session renamed to ${sanitizeAlias(draft)}`)
     }
     // Back on the row, whatever way the field was left
-    requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-row-key="session:${id}"]`)?.focus())
+    if (refocusRow) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-row-key="session:${id}"]`)?.focus())
   }
 
   const toggleCollapsed = (id: string, collapse: boolean) => {
@@ -655,7 +655,7 @@ export function SessionListPanel({
                           aria-describedby="session-rename-help"
                           onChange={e => setDraft(e.target.value)}
                           onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(false) } }}
-                          onBlur={() => endRename(false)}
+                          onBlur={() => endRename(false, false)}
                           className={`min-h-6 min-w-0 flex-1 rounded border bg-transparent px-1 text-xs ${FOCUS_RING}`}
                           style={{ color: COLORS.textPrimary, borderColor: COLORS.controlBorder }}
                         />
@@ -665,6 +665,7 @@ export function SessionListPanel({
                     <button
                       type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
                       data-closable-id={session.id}
+                      aria-keyshortcuts={onRenameSession ? 'F2 Delete' : 'Delete'}
                       tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(session.id)}
