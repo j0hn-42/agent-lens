@@ -119,7 +119,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
             value={query}
             onChange={e => { setQuery(e.target.value); setActiveId(null) }}
             className={`mb-2 w-full min-h-8 rounded px-2 py-1 text-xs font-mono ${FOCUS_RING}`}
-            style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
+            style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           />
 
           <div id={listId} role="listbox" aria-label="Results" className="max-h-[50vh] overflow-y-auto">
