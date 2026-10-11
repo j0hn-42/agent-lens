@@ -31,6 +31,8 @@ interface BridgeHookResult {
   useMockData: boolean
   /** Whether CLAUDE_CODE_DISABLE_1M_CONTEXT=1 is set — caps context window to 200k */
   disable1MContext: boolean
+  /** Claude Code hooks installed; undefined when the source does not say */
+  hooksConfigured: boolean | undefined
   /** Open a file in the VS Code editor */
   bridgeOpenFile: (filePath: string, line?: number) => void
   /** Known sessions from the extension */
@@ -115,6 +117,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     process.env.NEXT_PUBLIC_DEMO !== '0'
   )
   const [disable1MContext, setDisable1MContext] = useState(false)
+  const [hooksConfigured, setHooksConfigured] = useState<boolean | undefined>(undefined)
   const pendingEventsRef = useRef<SimulationEvent[]>([])
   const [, setEventVersion] = useState(0) // trigger re-render on new events
 
@@ -276,6 +279,20 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     }
   }, [relayEnabled, source, pushNotice, relayPort, leaveDemo])
 
+  // Hooks state from GET /status, only when the relay watches Claude Code (otherwise the flag says nothing)
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected' || !relayPort) return
+    const ctl = new AbortController()
+    fetch(`http://127.0.0.1:${relayPort}/status`, { signal: ctl.signal, cache: 'no-store', headers: { Accept: 'application/json' } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        const watchesClaude = Array.isArray(j?.runtimes) && j.runtimes.includes('claude')
+        setHooksConfigured(watchesClaude && typeof j.hooksConfigured === 'boolean' ? j.hooksConfigured : undefined)
+      })
+      .catch(() => {})
+    return () => ctl.abort()
+  }, [relayEnabled, source.status, relayPort])
+
   // Without a relay to wait for: unless the VS Code init message arrives, we are offline.
   useEffect(() => {
     const bridge = vscodeBridge
@@ -375,6 +392,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     const unsubConfig = bridge.onConfig((config) => {
       if (config.showMockData !== undefined) { setUseMockData(config.showMockData) }
       if (config.disable1MContext !== undefined) { setDisable1MContext(config.disable1MContext) }
+      if (typeof config.hooksConfigured === 'boolean') { setHooksConfigured(config.hooksConfigured) }
     })
 
     // Session lifecycle tracking
@@ -579,6 +597,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     consumeEvents,
     useMockData,
     disable1MContext,
+    hooksConfigured,
     bridgeOpenFile,
     sessions,
     selectedSessionId,
