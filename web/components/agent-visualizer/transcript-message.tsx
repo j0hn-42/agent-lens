@@ -6,6 +6,8 @@ import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
 import { CheckIcon, GearIcon } from './feed-icons'
+import { extraVars } from '@/lib/theme-tokens'
+import { currentThemeId } from '@/lib/theme-dom'
 import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 
 // ─── Message rendering utilities of the Conversation panel ───────────────────
@@ -34,10 +36,12 @@ export function HighlightText({ text, query }: { text: string; query?: string })
 
 /** Text of ANSI segments rendered as styled spans (built elements, never raw HTML; the DOM text holds no code). */
 export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?: string }) {
+  // Theme variables of the current theme: colors are corrected to >= 4.5:1 on their background (#193)
+  const vars = extraVars(currentThemeId())
   return (
     <>
       {segments.map((seg, i) => {
-        const style = ansiStyle(seg)
+        const style = ansiStyle(seg, vars)
         return style
           ? <span key={i} style={style}><HighlightText text={seg.text} query={query} /></span>
           : <HighlightText key={i} text={seg.text} query={query} />
