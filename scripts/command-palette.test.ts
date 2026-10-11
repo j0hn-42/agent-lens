@@ -163,8 +163,8 @@ test('sessions are found by the fields the session list carries (branch, workspa
 
 test('the status line reports the real count, and says when nothing matches', () => {
   const items = buildPaletteItems(source())
-  assert.equal(paletteStatus(searchPalette(items, 'zzz'), 'zzz'), 'No matching commands')
-  assert.equal(paletteStatus(searchPalette(items, 'files panel'), 'files panel'), '1 result')
+  assert.equal(paletteStatus(searchPalette(items, 'zzz')), 'No matching commands')
+  assert.equal(paletteStatus(searchPalette(items, 'files panel')), '1 result')
   const all = searchPalette(items, '', 3)
-  assert.match(paletteStatus(all, ''), /^\d+ results? shown, \d+ more: keep typing to narrow$/)
+  assert.match(paletteStatus(all), /^\d+ results? shown, \d+ more: keep typing to narrow$/)
 })
