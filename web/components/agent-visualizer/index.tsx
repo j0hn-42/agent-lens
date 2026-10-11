@@ -38,7 +38,7 @@ import { GuidedTourCard } from "./guided-tour-card"
 import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
-import { TopBar, PANEL_BUTTON_IDS, FullscreenIcon } from "./top-bar"
+import { TopBar, PANEL_BUTTON_IDS, FULLSCREEN_BUTTON_ID, FullscreenIcon } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { sessionUsage } from "@/lib/attribution"
@@ -443,6 +443,23 @@ export function AgentVisualizer() {
 
 
   const { immersive, toggle: toggleFullscreen } = useFullscreen()
+  // Escape closes panels first; with none open it leaves a chrome-only immersive mode (no Fullscreen API: nothing else would)
+  const closeTopPanelOrImmersive = useCallback((): boolean => {
+    if (closeTopPanel()) return true
+    if (immersive && !document.fullscreenElement) { toggleFullscreen(); return true }
+    return false
+  }, [closeTopPanel, immersive, toggleFullscreen])
+  // Focus follows the chrome that disappears (#196) and the change is announced
+  const exitFullscreenRef = useRef<HTMLButtonElement>(null)
+  const wasImmersiveRef = useRef(false)
+  const [fullscreenNote, setFullscreenNote] = useState<string | null>(null)
+  useEffect(() => {
+    if (immersive === wasImmersiveRef.current) return
+    wasImmersiveRef.current = immersive
+    setFullscreenNote(immersive ? 'Full screen on' : 'Full screen off')
+    if (immersive) exitFullscreenRef.current?.focus()
+    else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
+  }, [immersive])
 
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
@@ -457,7 +474,7 @@ export function AgentVisualizer() {
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     toggleFullscreen,
-    closeTopPanel,
+    closeTopPanel: closeTopPanelOrImmersive,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
@@ -465,7 +482,7 @@ export function AgentVisualizer() {
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanel, toggleFullscreen, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersive, toggleFullscreen, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -679,7 +696,7 @@ export function AgentVisualizer() {
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
-        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity}
+        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote}
       />
 
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
@@ -736,12 +753,14 @@ export function AgentVisualizer() {
 
       {immersive && (
         <button
+          ref={exitFullscreenRef}
           type="button"
           onClick={toggleFullscreen}
           aria-label="Exit full screen"
           title="Exit full screen (Z)"
-          className={`fixed top-2 right-2 rounded-md p-2 opacity-30 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
-          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: 'inherit' }}
+          className={`fixed top-2 right-2 rounded-md p-2 ${FOCUS_RING}`}
+          // Drawn on the scene ground, so scene colours (>= 3:1 for the icon and the outline) whatever the theme
+          style={{ zIndex: Z.controlBar + 1, background: 'var(--lens-scrim)', color: SCENE.textPrimary, border: `1px solid ${SCENE.textPrimary}` }}
         >
           <FullscreenIcon exit />
         </button>
@@ -899,6 +918,7 @@ export function AgentVisualizer() {
         onRestart={handleClearHistory}
         onSpeedChange={setSpeedInReview}
         isDemo={bridge.useMockData}
+        connectionStatus={bridge.connectionStatus}
         onSeek={handleSeek}
         timelineEvents={timelineEvents}
         isReviewing={isReviewing}

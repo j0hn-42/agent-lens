@@ -4,6 +4,11 @@ import { SCENE } from '../../../lib/colors'
 import { MCP_DRAW } from '../../../lib/canvas-constants'
 import type { VisualEffect } from './draw-effects'
 
+/** Session label of an agent for announcements: its label, else its session id. */
+function sessionOf(agent: Agent): string {
+  return agent.sessionLabel || agent.sessionId
+}
+
 /** A semantic state transition detected between frames. */
 export type StateTransition =
   | { kind: 'agent_spawn'; id: string; name: string; session?: string }
@@ -50,8 +55,6 @@ export function detectStateChanges(
   const newToolStates = new Map<string, string>()
 
   const shown = (id: string) => !shownAgents || shownAgents.has(id)
-  // Session label for announcements: the multi-session view needs it to tell homonymous agents apart
-  const sessionOf = (a: Agent) => a.sessionLabel || a.sessionId
   for (const [id, agent] of agents) {
     newAgentStates.set(id, agent.state)
     const oldState = prevAgentStates.get(id)

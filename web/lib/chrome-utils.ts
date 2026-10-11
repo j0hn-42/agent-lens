@@ -313,6 +313,17 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): Co
   }
 }
 
+/**
+ * Badge of the playback bar. Follows the real connection: LIVE (pulsing) only while the relay is
+ * connected or watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ */
+export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
+  if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
+  if (status === 'connected' || status === 'watching') return { label: 'LIVE', live: true, tone: 'ok' }
+  const d = connectionDisplay(status, false)
+  return { label: d.label, live: false, tone: d.tone }
+}
+
 /** Text for the sr-only polite live region. Only state changes alter it. */
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
@@ -321,6 +332,8 @@ export function buildAnnouncement(opts: {
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
   unobservedSessions?: number
+  /** 'Full screen on' / 'Full screen off' after a change (#196) */
+  fullscreenNote?: string | null
 }): string {
   const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
   if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
@@ -329,6 +342,7 @@ export function buildAnnouncement(opts: {
   if (opts.unobservedSessions && opts.unobservedSessions > 0) {
     parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
   }
+  if (opts.fullscreenNote) parts.push(opts.fullscreenNote)
   return parts.join('. ')
 }
 

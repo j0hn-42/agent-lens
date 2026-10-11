@@ -17,6 +17,9 @@ import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/
 import { formatAttention } from "@/lib/attention"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
 
+/** DOM id of the Enter full screen button: focus returns here on exit (#196) */
+export const FULLSCREEN_BUTTON_ID = 'topbar-enter-fullscreen'
+
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
   sessions: 'topbar-toggle-sessions',
@@ -381,6 +384,7 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
           {onToggleFullscreen && (
             <ToggleButton
+              id={FULLSCREEN_BUTTON_ID}
               active={false}
               onClick={onToggleFullscreen}
               ariaLabel="Enter full screen"

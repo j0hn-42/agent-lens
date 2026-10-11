@@ -14,15 +14,17 @@ interface ChromeAnnouncerProps {
   isEmpty: boolean
   sessions: ReadonlyArray<SessionInfo>
   sessionsWithActivity: ReadonlySet<string>
+  /** Full screen on/off, once the mode has changed (#196) */
+  fullscreenNote?: string | null
 }
 
 /**
  * Polite live region: connection, session, review mode and empty state changes, plus the number of
  * listed sessions whose activity is not observed (issue #52), which follows the observation tracker.
  */
-export function ChromeAnnouncer({ connection, sessionLabel, isReviewing, isEmpty, sessions, sessionsWithActivity }: ChromeAnnouncerProps) {
+export function ChromeAnnouncer({ connection, sessionLabel, isReviewing, isEmpty, sessions, sessionsWithActivity, fullscreenNote }: ChromeAnnouncerProps) {
   const unobservedSessions = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  const announcement = buildAnnouncement({ connection, sessionLabel, isReviewing, isEmpty, unobservedSessions })
+  const announcement = buildAnnouncement({ connection, sessionLabel, isReviewing, isEmpty, unobservedSessions, fullscreenNote })
   return <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">{announcement}</div>
 }
 

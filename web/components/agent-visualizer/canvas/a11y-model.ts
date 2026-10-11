@@ -413,15 +413,15 @@ export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, Ag
 // ─── Live-region announcements ───────────────────────────────────────────────
 
 /** Human sentence for a semantic transition, or null when it is not worth announcing. */
-export function describeTransition(t: StateTransition, opts?: { multiSession?: boolean }): string | null {
-  // Several sessions on screen (All view): name the session so homonymous agents can be told apart.
-  const who = (t: { name: string; session?: string }) =>
-    opts?.multiSession && t.session ? `Agent ${t.name} in session ${t.session}` : `Agent ${t.name}`
+export function describeTransition(t: StateTransition, opts: { multiSession?: boolean } = {}): string | null {
+  // In the All view several sessions share agent names: say which session the agent belongs to.
+  const who = (name: string, session?: string) =>
+    opts.multiSession && session ? `Agent ${name} in session ${cleanText(session, 60)}` : `Agent ${name}`
   switch (t.kind) {
-    case 'agent_spawn': return `${who(t)} started`
-    case 'agent_complete': return `${who(t)} completed`
-    case 'agent_error': return `${who(t)} failed`
-    case 'agent_waiting_permission': return `${who(t)} is waiting for permission`
+    case 'agent_spawn': return `${who(t.name, t.session)} started`
+    case 'agent_complete': return `${who(t.name, t.session)} completed`
+    case 'agent_error': return `${who(t.name, t.session)} failed`
+    case 'agent_waiting_permission': return `${who(t.name, t.session)} is waiting for permission`
     case 'tool_error': return `Tool ${t.name} failed`
     case 'agent_activity': return `${t.name} is ${t.activity}`
     case 'message_sent': return `${t.from} sent a message to ${t.to}`
@@ -469,19 +469,15 @@ export function createAnnouncementQueue(): AnnouncementQueue {
  * Returns the same queue object when nothing was added.
  */
 export function enqueueAnnouncements(
-  queue: AnnouncementQueue,
-  transitions: StateTransition[],
-  max = A11Y_ANNOUNCE_MAX,
-  opts?: { multiSession?: boolean },
+  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
 ): AnnouncementQueue {
   const texts: string[] = []
-  // Dedupe on (transition kind, id[, text]) and not on the text alone: homonymous agents of
-  // different sessions must each be announced.
   const seen = new Set<string>()
   for (const t of transitions) {
     const text = describeTransition(t, opts)
     if (!text) continue
-    const key = `${t.kind}\u0000${t.id}\u0000${text}`
+    // Agent transitions dedupe on (agent id, kind): same-named agents of other sessions stay distinct.
+    const key = t.kind.startsWith('agent_') && t.kind !== 'agent_activity' ? `${t.kind}|${t.id}` : `text|${text}`
     if (seen.has(key)) continue
     seen.add(key)
     texts.push(text)
