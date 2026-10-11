@@ -215,9 +215,9 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             controlBar: rect(q('[data-control-bar]')),
             legend: rect(byName('Legend')),
             zoomIn: rect(byName('Zoom in')),
-            fit: rect(byName('Fit graph to view')),
-            keepCards: rect(byName('Keep cards visible')),
-            expire: rect(Array.from(document.querySelectorAll('label')).find(l => (l.textContent || '').includes('Expire unanswered'))),
+            fit: rect(byName('Fit to view')),
+            view: rect(Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === 'View')),
+            viewPanel: rect(q('[role="dialog"][aria-label="View settings"]')),
             panel: rect(q('[data-dock-panel="files"]')),
           }
         })()`) as Promise<Record<string, { x: number; y: number; w: number; h: number } | null>>
@@ -230,7 +230,24 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             assert.ok(!hit(r[names[i]]!, r[names[j]]!), `${where} @${width}px: ${names[i]} ${JSON.stringify(r[names[i]])} overlaps ${names[j]} ${JSON.stringify(r[names[j]])}`)
           }
         }
-        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'keepCards', 'expire', 'controlBar'], 'canvas overlays')
+        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
+        // The View panel opens from the keyboard, stays clear of the legend and the control bar, and Escape gives the focus back.
+        const viewButton = page.getByRole('button', { name: 'View', exact: true })
+        await viewButton.focus()
+        await page.keyboard.press('Enter')
+        await page.getByRole('dialog', { name: 'View settings' }).waitFor()
+        await waitForStableLayout(page)
+        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'viewPanel', 'controlBar'], 'canvas overlays with the View panel open')
+        await page.keyboard.press('Tab')
+        assert.ok(await page.evaluate(`!!document.activeElement && !!document.activeElement.closest('[role="dialog"][aria-label="View settings"]')`), 'Tab from View goes into its panel')
+        await page.keyboard.press('Escape')
+        assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'Escape closes the panel')
+        assert.ok(await viewButton.evaluate(el => el === document.activeElement), 'Escape returns the focus to View')
+        await viewButton.click()
+        await page.getByRole('dialog', { name: 'View settings' }).waitFor()
+        await page.mouse.click(2, 2)
+        assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'a click outside closes the panel')
+        await waitForStableLayout(page)
         await page.getByRole('button', { name: /^Context/ }).first().click()
         await waitForStableLayout(page)
         check(await rectsOf(), ['panel', 'topbar', 'controlBar'], 'context panel')
