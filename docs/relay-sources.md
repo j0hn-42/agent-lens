@@ -47,6 +47,9 @@ boundary are not merged.
 - Every response carries `Content-Security-Policy`, `Cache-Control: no-store`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. API/SSE/error responses use
   `default-src 'none'`; the static app uses a strict same-origin policy.
+- Dev relay CORS (#201): only the dev web server origin (`http://localhost:3000` or `127.0.0.1:3000`) gets
+  `Access-Control-Allow-Origin`. If Next.js falls back to another port, set `AGENT_LENS_WEB_PORT` (comma
+  list, at most 5 ports). Other local ports are refused, and so are their cross-origin requests.
 - `?session=` / `?sessionId=` are validated (`400`).
 - One in-flight refresh per key (`KeyedCoalescer`): 50 concurrent `GET /status` share one computation.
 - One shared scan interval for all SSE clients (`SharedTicker`), stopped when the last client leaves.

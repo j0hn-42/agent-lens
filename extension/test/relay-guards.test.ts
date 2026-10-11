@@ -6,7 +6,7 @@ import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import {
   isValidSessionId, parseSessionParam, isBackedUp, capReplayBatches, appendBounded,
-  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest,
+  isTruthyFlag, listProjectDirs, discoverSessionFiles, trimKeepingLifecycle, createColdScan, isCrossOriginRequest, isDevWebOrigin, isDevWebOrigin,
 } from '../src/relay-guards'
 
 const ev = (n: number, sessionId = 's', type = 'message'): AgentEvent => ({ time: n, type, payload: { n }, sessionId }) as unknown as AgentEvent
@@ -224,5 +224,31 @@ describe('isCrossOriginRequest (#102)', () => {
   })
   it('treats a repeated Origin header (array) as foreign', () => {
     assert.equal(isCrossOriginRequest({ origin: ['http://localhost:3000', 'https://evil.example'] }, host), true)
+  })
+})
+
+describe('isDevWebOrigin (#201)', () => {
+  it('accepts only the default dev port 3000 on loopback hosts', () => {
+    assert.equal(isDevWebOrigin('http://localhost:3000', {}), true)
+    assert.equal(isDevWebOrigin('http://127.0.0.1:3000', {}), true)
+    for (const o of ['http://localhost:3002', 'http://127.0.0.1:8888', 'http://localhost', 'https://localhost:3000', 'http://localhost:3000.evil.io']) {
+      assert.equal(isDevWebOrigin(o, {}), false, o)
+    }
+  })
+  it('takes the ports from AGENT_LENS_WEB_PORT (short explicit list)', () => {
+    const env = { AGENT_LENS_WEB_PORT: '3100, 3101' }
+    assert.equal(isDevWebOrigin('http://localhost:3100', env), true)
+    assert.equal(isDevWebOrigin('http://localhost:3101', env), true)
+    assert.equal(isDevWebOrigin('http://localhost:3000', env), false)
+  })
+  it('ignores invalid entries and falls back to 3000 when none is valid', () => {
+    const env = { AGENT_LENS_WEB_PORT: 'abc, 0, 70000' }
+    assert.equal(isDevWebOrigin('http://localhost:3000', env), true)
+    assert.equal(isDevWebOrigin('http://localhost:70000', env), false)
+  })
+  it('isCrossOriginRequest applies the same rule', () => {
+    const h = '127.0.0.1:3001'
+    assert.equal(isCrossOriginRequest({ origin: 'http://localhost:3000' }, h), false)
+    assert.equal(isCrossOriginRequest({ origin: 'http://localhost:4000' }, h), true)
   })
 })
