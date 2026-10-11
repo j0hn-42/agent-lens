@@ -7,7 +7,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Fleet / All**: the All view draws every watched session on one canvas. Each session is a dotted halo (its label gives runtime, workspace, status and cost; click it to zoom to the cluster). Sessions of the same project are grouped together.
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
-- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md).
+- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
 - **File conflicts**: two or more agents (of one session or of several) that modified the same file. A red dash-dot line with a diamond in its middle joins two such agents on the canvas, in every view where both are drawn (one line per pair, whatever the number of files). The Files panel lists the conflicts first (file and every agent with its number of edits) and tags the file row with the word "conflict"; with the editor available (VS Code), Enter on a conflict opens the file. The graph outline (screen readers) has a "File conflicts" list with the same sentences, an agent hidden from the canvas being named "not on screen". Only proof counts:
   - an edit is an `Edit`, `Write`, `MultiEdit` or `NotebookEdit` call whose success was observed. A failed or cancelled edit, or one whose end was never seen, proves no write and makes no conflict; a read never does;
@@ -121,6 +121,26 @@ A window cannot be smaller than what was used. When a reading is above the assum
 ## Project folders
 
 Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
+
+## Skills, plugins and memory
+
+The Context panel ends with a **CAPABILITIES** block (#242): what the selected session received or used, read from its main transcript (the file the relay already follows) when the panel opens or is refreshed. It is not what is installed on the machine: a skill or server that is installed but never reached the session is not listed.
+
+| Group | Proof in the transcript |
+| --- | --- |
+| **Instructions loaded** | an `instructions` attachment (`files[].type` and the file's base name) or a `nested_memory` attachment (shown with the type `nested`). Only the base name is sent, never a path or the content. |
+| **Skills**, grouped by plugin | a `Skill` tool call (`input.skill`, counted: "invoked N times") and the `skill_listing` attachments (`names`, union: "listed, no invocation seen"). The plugin is the namespace of the name (`plugin:skill`); a name without one is under **No plugin**. Skill arguments and descriptions are not sent. |
+| **MCP servers** | `mcp__<server>__<tool>` tool calls, counted per server and per tool, and the servers named in an `mcp_instructions_delta` attachment ("announced"). Names are matched exactly: an announced name that differs from the prefix of its tools is shown twice rather than guessed. Tool inputs are not sent. |
+
+| You see | It means |
+| --- | --- |
+| **Partial: only the first 32 MB ...** | The transcript is larger than the bound: only its head was read, so every count reads "at least". |
+| "Lists capped ..." | A list reached 200 entries; later ones are not shown. |
+| "No ... in the transcript" | Nothing of that kind was recorded. It does not say that the session had no skill or no server. |
+| "The session transcript could not be read" | Missing, a symbolic link, outside the Claude projects folder, or a read error: the capabilities are unknown, never shown as empty lists. |
+| "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
+
+Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex and Copilot sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
 
 ## Notifications
 
