@@ -11,6 +11,7 @@ import {
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TranscriptParser } from './transcript-parser'
 import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { encodeProjectDirName, PROJECT_DIR_NAME_MAX } from './project-dir'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -242,7 +243,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       // Resolve symlinks first, then replace /, \, : (drive letter), and _ with -
       let resolved = workspaceFolder
       try { resolved = fs.realpathSync(resolved) } catch { /* use original if realpathSync fails */ }
-      const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
+      const encoded = encodeProjectDirName(resolved)
 
       this.resolvedWorkspace = resolved
 
@@ -250,7 +251,7 @@ export class SessionWatcher implements AgentSessionWatcher {
       // (handles edge cases where Claude Code didn't resolve symlinks the same way).
       // findProjectDirName returns the on-disk casing, so downstream string
       // comparisons against readdir results stay exact.
-      const unresolvedEncoded = workspaceFolder.replace(/[^a-zA-Z0-9]/g, '-')
+      const unresolvedEncoded = encodeProjectDirName(workspaceFolder)
       this.workspacePath = this.findProjectDirName(encoded)
         ?? this.findProjectDirName(unresolvedEncoded)
         ?? encoded
@@ -348,13 +349,18 @@ export class SessionWatcher implements AgentSessionWatcher {
    *  `c:\...` while Claude Code encodes `C--...`) and returns the real casing.
    *  Returns null when no matching directory exists. */
   private findProjectDirName(encoded: string): string | null {
-    if (process.platform !== 'win32') {
+    const long = encoded.length > PROJECT_DIR_NAME_MAX
+    if (process.platform !== 'win32' && !long) {
       return fs.existsSync(path.join(CLAUDE_DIR, encoded)) ? encoded : null
     }
     try {
-      const folded = encoded.toLowerCase()
+      // A name past the limit is stored cut, followed by a hash (#249): match its prefix
+      const folded = (long ? encoded.slice(0, PROJECT_DIR_NAME_MAX) : encoded)
+      const key = foldPathCase(folded)
       for (const entry of fs.readdirSync(CLAUDE_DIR, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name.toLowerCase() === folded) return entry.name
+        if (!entry.isDirectory()) continue
+        const name = foldPathCase(entry.name)
+        if (long ? name.startsWith(key) : name === key) return entry.name
       }
     } catch { /* CLAUDE_DIR may not exist yet */ }
     return null

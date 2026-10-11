@@ -80,6 +80,21 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
+## Context window (the "/ 1M" next to the gauge)
+
+The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
+
+1. **Reported by the runtime** (Codex sends `model_context_window`): shown as is, even when the usage is above it.
+2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `npx agent-lens-app` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
+3. **A `[1m]` suffix** in the model id: 1M.
+4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
+
+A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
+
+## Project folders
+
+Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
+
 ## Notifications
 
 The **Notifications** button in the top bar turns notifications on or off; **Settings > Notifications** chooses what triggers them. Nothing is asked of the browser until you turn them on, and the choice stays in this browser (local storage).
