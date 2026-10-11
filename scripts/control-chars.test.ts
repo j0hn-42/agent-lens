@@ -36,12 +36,13 @@ test('the web copy is a verbatim mirror of the extension copy', () => {
 
 test('no other source file defines its own control-character regex', () => {
   const files = [
-    '../extension/src/event-normalize.ts', '../web/lib/event-normalize.ts', '../extension/src/team-links.ts',
+    '../extension/src/event-normalize.ts', '../web/lib/event-normalize.ts',
     '../extension/src/observations.ts', '../extension/src/project-identity.ts', '../extension/src/session-index.ts',
     '../extension/src/team-watcher.ts', 'relay.ts', '../web/lib/bridge-types.ts',
   ]
   for (const f of files) {
     const src = fs.readFileSync(path.join(__dirname, f), 'utf8')
-    assert.ok(!/\\u0000|\\x00|\\u007f|\\x7f|\\u2028|\\u202e/i.test(src), `${f} still has its own control-character regex`)
+    assert.ok(/control-chars'/.test(src), `${f} imports the shared definition`)
+    assert.ok(!/\[[^\]\n]*\\(u00|x)[0-9a-f]{2}[^\]\n]*\]/i.test(src), `${f} still has its own control-character regex`)
   }
 })

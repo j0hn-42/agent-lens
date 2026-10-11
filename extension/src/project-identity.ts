@@ -6,6 +6,7 @@
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
+import { CONTROL_ALL } from './control-chars'
 
 export const PROJECT_ID_LENGTH = 12
 const PROJECT_NAME_MAX = 80
@@ -73,8 +74,7 @@ function compute(cwd: string, run: GitCommonDirRunner): ProjectIdentity | null {
   try { commonDir = fs.realpathSync(commonDir) } catch { /* keep the resolved path */ }
   const isDotGit = path.basename(commonDir) === '.git'
   const base = path.basename(isDotGit ? path.dirname(commonDir) : commonDir).replace(/\.git$/, '')
-  // eslint-disable-next-line no-control-regex
-  const projectName = base.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trim().slice(0, PROJECT_NAME_MAX)
+  const projectName = base.replace(CONTROL_ALL, ' ').trim().slice(0, PROJECT_NAME_MAX)
   if (!projectName) return null
   const key = process.platform === 'win32' ? commonDir.toLowerCase() : commonDir
   const projectId = crypto.createHash('sha256').update(key).digest('hex').slice(0, PROJECT_ID_LENGTH)

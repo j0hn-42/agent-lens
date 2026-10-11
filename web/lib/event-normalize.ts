@@ -13,6 +13,7 @@
  * A spawn whose parent was never seen becomes a detached "orphan" node (`orphan: true`, no
  * `parent`): the parent is never guessed.
  */
+import { CONTROL_TEXT, CONTROL_ALL } from './control-chars'
 import type { AgentEvent } from './bridge-types'
 
 /** Counters of what the normalizer discarded or altered for one session (mirror of extension/src/protocol.ts). */
@@ -89,12 +90,6 @@ function bump(stats: NormalizationStats | undefined, key: keyof NormalizationSta
 }
 
 // ─── Leaf helpers ────────────────────────────────────────────────────────────
-
-// C0 controls except TAB / LF / CR, DEL, and the bidi/line-separator hazards.
-// eslint-disable-next-line no-control-regex
-const CONTROL_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u2028\u2029]/g
-// eslint-disable-next-line no-control-regex
-const CONTROL_ALL = /[\u0000-\u001F\u007F\u2028\u2029]/g
 
 /**
  * Bounded string: control characters stripped, length capped at `max`. Non-strings give

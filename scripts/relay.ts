@@ -32,6 +32,7 @@ import {
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
 import { setLogLevel, createLogger } from '../extension/src/logger'
+import { CONTROL_ALL } from '../extension/src/control-chars'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
@@ -205,8 +206,7 @@ function deliverEvent(event: AgentEvent) {
 /** Untrusted text shown as a session tag: single line, no controls, capped. */
 function tagText(value: string | undefined): string | undefined {
   if (!value) return undefined
-  // eslint-disable-next-line no-control-regex
-  const clean = value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trim().slice(0, SESSION_TAG_MAX)
+  const clean = value.replace(CONTROL_ALL, ' ').trim().slice(0, SESSION_TAG_MAX)
   return clean || undefined
 }
 

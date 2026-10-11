@@ -26,6 +26,7 @@ import { isValidSessionId } from './relay-guards'
 import { sanitizeAgentName, sanitizeMessageContent } from './team-links'
 import { sanitizeTeamColor, sanitizeTeamField } from './teammate'
 import { createLogger } from './logger'
+import { hasControlChars } from './control-chars'
 
 const log = createLogger('TeamWatcher')
 
@@ -51,16 +52,14 @@ export interface TeamConfig {
 
 function cleanCwd(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > 1024) return undefined
-  // eslint-disable-next-line no-control-regex
-  return /[\x00-\x1f\x7f]/.test(value) ? undefined : value
+  return hasControlChars(value) ? undefined : value
 }
 
 /** Branch name as Claude Code records it in `gitBranch`; a detached HEAD or an odd value is no branch. */
 export function cleanBranch(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const v = value.trim()
-  // eslint-disable-next-line no-control-regex
-  if (v.length === 0 || v.length > 200 || v === 'HEAD' || /[\x00-\x1f\x7f]/.test(v)) return undefined
+  if (v.length === 0 || v.length > 200 || v === 'HEAD' || hasControlChars(v)) return undefined
   return v
 }
 

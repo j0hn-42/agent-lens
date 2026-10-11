@@ -9,6 +9,7 @@
  * Counts are honest: whatever is capped or skipped is reported in `truncated` / `omittedSessions`.
  */
 import type { AgentEvent, SessionInfo } from './protocol'
+import { CONTROL_ALL } from './control-chars'
 import {
   OBSERVATIONS_MAX_SESSIONS, OBSERVATIONS_MAX_AGENTS_PER_SESSION, OBSERVATIONS_NAME_MAX, SNAPSHOT_STALE_AFTER_MS,
 } from './constants'
@@ -140,8 +141,7 @@ export function parseObservationsInput(raw: unknown): { ok: true; input: Observa
  */
 export function safeAgentName(raw: unknown): string {
   if (typeof raw !== 'string') return 'agent'
-  // eslint-disable-next-line no-control-regex
-  const clean = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim()
+  const clean = raw.replace(CONTROL_ALL, ' ').replace(/\s+/g, ' ').trim()
   if (!clean) return 'agent'
   if (/[\\/]/.test(clean) || /^[A-Za-z]:/.test(clean) || clean.startsWith('~')) return 'agent'
   return clean.slice(0, OBSERVATIONS_NAME_MAX)
