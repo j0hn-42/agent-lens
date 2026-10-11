@@ -23,7 +23,7 @@ export interface StatusRouteDeps {
 }
 
 export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
-  return guardedRoute({ limiter: deps.limiter }, async (req, res) => {
+  return guardedRoute({ limiter: deps.limiter, rejectCrossOrigin: true }, async (req, res) => {
     let snapshot: StatusSnapshot
     try {
       snapshot = await deps.coalescer.run('status', deps.computeSnapshot)

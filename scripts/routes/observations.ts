@@ -11,7 +11,7 @@ export interface ObservationsRouteDeps {
 }
 
 export function createObservationsRoute({ limiter, observations }: ObservationsRouteDeps): RouteHandler {
-  return guardedRoute({ limiter }, (req, res) => {
+  return guardedRoute({ limiter, rejectCrossOrigin: true }, (req, res) => {
     if (observations.disposed) return sendJson(req, res, 503, { error: 'observations action is shut down' })
     if (observationsRoute(req.url) === 'schema') return sendJson(req, res, 200, observations.definition)
     let query: URL
