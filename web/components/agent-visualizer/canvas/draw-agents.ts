@@ -8,6 +8,7 @@ import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/f
 import { alphaHex, formatTokens, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX } from './draw-misc'
+import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
@@ -409,6 +410,10 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
  * tooltip carries the full name. `place` comes from the overlay plan: hidden, shifted to a free spot,
  * or collapsed to one line. Returns the number of extra lines so the context bar can move down.
  */
+function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | undefined): OrchestratorInfo | null {
+  return info && masked ? { ...info, groupName: maskText(info.groupName) } : info
+}
+
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
@@ -633,8 +638,8 @@ export function drawAgents(
     ctx.globalAlpha = baseAlpha
     const labelDrawn = lod.labels
       ? drawAgentLabel(
-        ctx, agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
-        orchestratorInfo(agent, opts.teams), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
+        ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
+        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
         stale ? lastKnownStateText(agent.state) : undefined,
       )
       : { extraLines: 0, dx: 0, dy: 0 }

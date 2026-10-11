@@ -5,6 +5,7 @@ import { formatTokens, formatCost } from '../../../lib/utils'
 import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
 import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
+import { maskText } from '../../../lib/presentation'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -160,6 +161,8 @@ export function drawCostSummaryPanel(
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
   unattributed: Iterable<UnattributedUsage> = [],
+  /** Presentation mode (#245): agent names are drawn as bullets */
+  maskNames = false,
 ) {
   // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
   const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
@@ -172,7 +175,7 @@ export function drawCostSummaryPanel(
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => { const usage = agentCostUsage(a); return { name: a.name, usage, cost: usage.value ?? 0 } })
+    .map(a => { const usage = agentCostUsage(a); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
