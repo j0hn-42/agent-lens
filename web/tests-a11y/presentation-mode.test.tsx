@@ -14,6 +14,9 @@ import { PRESENTATION_STORAGE_KEY } from '@/lib/presentation'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import type { Agent } from '@/lib/agent-types'
 
+// jsdom's storage is on window only; the app reads the bare global
+Object.defineProperty(globalThis, 'localStorage', { value: window.localStorage, configurable: true })
+
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
 ;(globalThis as Record<string, unknown>).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} }
@@ -79,6 +82,17 @@ test('the stylesheet blurs [data-sensitive] only under the mask attribute, and n
   const css = fs.readFileSync(path.join(process.cwd(), 'app', 'globals.css'), 'utf8')
   assert.match(css, /\[data-presentation-mask\]\s+\[data-sensitive\]/)
   assert.match(css, /user-select:\s*none/)
+})
+
+test('panels that show the content of a session carry data-sensitive (blurred under the mask)', async () => {
+  const r = await mount()
+  await press('f')
+  const files = r.container.ownerDocument.querySelector('[data-dock-panel="files"]')
+  assert.ok(files, 'Files panel is open')
+  assert.equal(files!.hasAttribute('data-sensitive'), true)
+  await press('c')
+  const conversation = r.container.ownerDocument.querySelector('[data-dock-panel="conversation"]')
+  assert.ok(conversation?.hasAttribute('data-sensitive'))
 })
 
 test('Settings has a Presentation section with named switches that persist', async () => {
