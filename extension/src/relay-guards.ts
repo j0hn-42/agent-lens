@@ -12,7 +12,7 @@ import {
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
-  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEV_WEB_ORIGIN_PATTERN,
+  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEFAULT_DEV_PORT,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -350,5 +350,24 @@ export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec
   if (origin === undefined) return false
   if (typeof origin !== 'string') return true
   if (host !== undefined && origin === `http://${host}`) return false
-  return !DEV_WEB_ORIGIN_PATTERN.test(origin)
+  return !isDevWebOrigin(origin)
+}
+
+/** Ports of the dev web server allowed to call the relay: AGENT_LENS_WEB_PORT (comma list), default 3000. */
+function devWebPorts(env: Record<string, string | undefined>): number[] {
+  const ports = (env.AGENT_LENS_WEB_PORT ?? '').split(',')
+    .map(p => p.trim())
+    .filter(p => /^\d{1,5}$/.test(p))
+    .map(Number)
+    .filter(p => p >= 1 && p <= 65535)
+  return ports.length > 0 ? ports.slice(0, 5) : [DEFAULT_DEV_PORT]
+}
+
+/**
+ * True when `origin` is the dev web server (#201): http on localhost or 127.0.0.1 and one of the configured
+ * ports only. Any other local port (another app, Jupyter, a compromised dev server) is refused.
+ */
+export function isDevWebOrigin(origin: string, env: Record<string, string | undefined> = process.env): boolean {
+  const m = /^http:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})$/.exec(origin)
+  return m !== null && devWebPorts(env).includes(Number(m[1]))
 }

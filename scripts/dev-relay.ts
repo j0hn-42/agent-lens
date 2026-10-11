@@ -5,8 +5,8 @@
  */
 import * as http from 'http'
 import { createRelay } from './relay'
-import { DEFAULT_RELAY_PORT, DEV_WEB_ORIGIN_PATTERN, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, observationsRoute } from '../extension/src/relay-guards'
+import { DEFAULT_RELAY_PORT, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
+import { isDevWebOrigin, parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 
@@ -19,10 +19,10 @@ async function main() {
   const relay = await createRelay({ workspace, verbose: true })
 
   const server = http.createServer((req, res) => {
-    // Echo back the request Origin if it matches a localhost pattern, so
-    // CORS survives Next.js picking a fallback port when 3000 is busy.
+    // Echo back the request Origin only for the dev web server's port (3000, or AGENT_LENS_WEB_PORT
+    // when Next.js falls back to another one). Other local ports get no CORS header (#201).
     const origin = req.headers.origin
-    if (typeof origin === 'string' && DEV_WEB_ORIGIN_PATTERN.test(origin)) {
+    if (typeof origin === 'string' && isDevWebOrigin(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin)
       res.setHeader('Vary', 'Origin')
     }
