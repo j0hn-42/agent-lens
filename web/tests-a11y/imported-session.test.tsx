@@ -18,10 +18,11 @@ const noop = () => {}
 beforeEach(() => { mock.timers.enable({ apis: ['setInterval'] }) })
 afterEach(() => { cleanup(); mock.timers.reset() })
 
-const sessions: SessionInfo[] = [
+const raw: SessionInfo[] = [
   { id: 'local', label: 'payments-api', status: 'active', startTime: T0 - 60_000, lastActivityTime: T0 - 1000, projectId: 'p1', projectName: 'payments' },
   { id: 'cloud', label: 'Fix the cloud bug', status: 'completed', startTime: T0 - 900_000, lastActivityTime: T0 - 600_000, imported: true, importedAt: T0 - 5000, cwd: '/home/user/cloud-repo' },
-].map(sanitizeSessionInfo)
+]
+const sessions = raw.map(sanitizeSessionInfo)
 
 function clock(): FreshnessClock {
   return { getNow: () => T0, subscribe: () => () => {} }
