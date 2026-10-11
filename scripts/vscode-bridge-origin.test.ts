@@ -48,3 +48,14 @@ test('messages from window.parent in an iframe are accepted', () => {
   assert.equal(bridge.isVSCode, true)
   assert.equal(received, 1)
 })
+
+test('dispatch() delivers a relay payload in a top-level page, where window messages are ignored', () => {
+  fakeWindow.parent = fakeWindow
+  let received = 0
+  bridge.onEvent(() => { received++ })
+  send(event, fakeWindow)
+  assert.equal(received, 0)
+  bridge.dispatch(event)
+  assert.equal(received, 1)
+  fakeWindow.parent = parent
+})

@@ -249,7 +249,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
     sessionId: options?.relaySessionId ?? null,
-    onMessage: data => window.postMessage(data, '*'),
+    onMessage: data => vscodeBridge?.dispatch(data),
     onParseError: () => {
       // Surface malformed relay payloads without spamming: at most one notice per interval
       const now = Date.now()

@@ -5,6 +5,7 @@
 import { test, afterEach, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup, act } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-bridge'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
@@ -31,7 +32,7 @@ const setEnv = (k: (typeof ENV_KEYS)[number], v: string | undefined) => {
   if (v === undefined) delete env[k]; else env[k] = v
 }
 let posted: unknown[] = []
-const realPostMessage = window.postMessage
+const realDispatch = vscodeBridge!.dispatch.bind(vscodeBridge)
 let statusFetches = 0
 let statusUrls: string[] = []
 let statusOk = false
@@ -49,7 +50,7 @@ beforeEach(() => {
   g.fetch = async (url: string, init?: { headers?: unknown }) => {
     if (init?.headers) return { ok: false } // hooks-state read (#176), not a reachability probe
     statusFetches++; statusUrls.push(url); return { ok: statusOk } }
-  ;(window as unknown as { postMessage: unknown }).postMessage = (d: unknown) => { posted.push(d) }
+  mock.method(vscodeBridge!, 'dispatch', (d: unknown) => { posted.push(d) }) // what the relay forwards to the bridge
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
   mock.method(Math, 'random', () => 0) // no jitter: exact delays
 })
@@ -58,7 +59,6 @@ afterEach(() => {
   mock.timers.reset()
   mock.restoreAll()
   for (const k of ENV_KEYS) setEnv(k, savedEnv[k])
-  window.postMessage = realPostMessage
 })
 
 const tick = async (ms: number) => { await act(async () => { mock.timers.tick(ms); await Promise.resolve() }) }
@@ -278,7 +278,7 @@ test('inside VS Code the relay is not used, even in relay mode', async () => {
   assert.equal(result.current.reconnectAttempt, 1)
   assert.equal(result.current.connectionDetail, 'reconnecting (attempt 1, retry in 5s)')
   await act(async () => {
-    window.dispatchEvent(new (window as unknown as { MessageEvent: typeof MessageEvent }).MessageEvent('message', { data: { type: '__vscode-bridge-init' } }))
+    realDispatch({ type: '__vscode-bridge-init' })
   })
   assert.equal(result.current.isVSCode, true)
   assert.equal(stream.closed, true, 'the relay stream is released')
