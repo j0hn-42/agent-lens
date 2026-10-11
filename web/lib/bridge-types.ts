@@ -9,6 +9,7 @@
  */
 
 import { CONTROL_ALL } from './control-chars'
+import type { SimulationEvent } from './agent-types'
 
 export interface AgentEvent {
   time: number
@@ -17,6 +18,8 @@ export interface AgentEvent {
   sessionId?: string
   /** Set by the bridge on events of a history batch (connect/reconnect replay): not live, wall-clock timing unknown */
   replayed?: boolean
+  /** Set by the relay on events of an imported transcript (#294): read from a file, never seen live */
+  imported?: boolean
 }
 
 export interface SessionInfo {
@@ -49,6 +52,31 @@ export interface SessionInfo {
   parentSessionId?: string
   /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
   indexedOnly?: boolean
+  /** Read once from an imported transcript (#294): not observed live, its state is never current */
+  imported?: boolean
+  /** When the relay read the imported transcript (ms since epoch) */
+  importedAt?: number
+}
+
+/** Pseudo project grouping imported sessions: their cwd is a path on another machine, never a local project.
+ *  The ':' keeps it apart from real project ids (hex hashes). */
+export const IMPORTED_PROJECT_ID = 'imported:transcripts'
+export const IMPORTED_PROJECT_NAME = 'Imported transcripts'
+
+/**
+ * Simulation event of a bridge event. An imported one (#294) is also a replayed one: it carries no wall-clock
+ * proof of work, and its agents are stamped with the imported freshness source.
+ */
+export function toSimulationEvent(event: AgentEvent): SimulationEvent {
+  const imported = event.imported === true
+  return {
+    time: event.time,
+    type: event.type as SimulationEvent['type'],
+    payload: event.payload,
+    sessionId: event.sessionId,
+    ...(event.replayed === true || imported ? { replayed: true } : {}),
+    ...(imported ? { imported: true } : {}),
+  }
 }
 
 /** Pseudo session id of the 'All' tab: union of every session (never sent to or by the extension). */
@@ -117,6 +145,8 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.memberName === undefined || typeof v.memberName === 'string')
     && (v.parentSessionId === undefined || typeof v.parentSessionId === 'string')
     && (v.indexedOnly === undefined || typeof v.indexedOnly === 'boolean')
+    && (v.imported === undefined || typeof v.imported === 'boolean')
+    && (v.importedAt === undefined || (typeof v.importedAt === 'number' && Number.isFinite(v.importedAt)))
 }
 
 /** Max length of a session id taken from an untrusted source (parent links) */
@@ -144,12 +174,16 @@ export function sanitizeSessionInfo(s: SessionInfo): SessionInfo {
   const pid = cleanLine(projectId, 64)
   const pname = cleanLine(projectName)
   const branchName = cleanLine(branch, 200)
+  // Imported sessions get their own group; no other session may claim that pseudo project
+  const project = rest.imported === true
+    ? { projectId: IMPORTED_PROJECT_ID, projectName: IMPORTED_PROJECT_NAME }
+    : pid && pname && pid !== IMPORTED_PROJECT_ID ? { projectId: pid, projectName: pname } : {}
   return {
     ...rest,
     ...(team ? { teamName: team } : {}),
     ...(member ? { memberName: member } : {}),
     ...(parent ? { parentSessionId: parent } : {}),
-    ...(pid && pname ? { projectId: pid, projectName: pname } : {}),
+    ...project,
     ...(branchName ? { branch: branchName } : {}),
   }
 }

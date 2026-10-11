@@ -8,6 +8,8 @@
  *   error          the agent failed (terminal status, shown TERMINAL_STATUS_VISIBLE_MS)
  *   closed         the agent completed, or a terminal status is older than TERMINAL_STATUS_VISIBLE_MS
  *   never-observed no event was ever received for the agent in this app run
+ *
+ * An agent whose status comes from an imported transcript (#294) is never fresh: at best stale.
  */
 import type { Agent } from '../../lib/agent-types'
 import {
@@ -50,6 +52,8 @@ export function deriveFreshness(
     if (age > thresholds.terminalVisibleMs) return 'closed'
     return agent.state === 'error' ? 'error' : 'interrupted'
   }
+  // An imported transcript proves nothing about now: its last state is only ever the last known one (#294)
+  if (agent.freshnessSource === 'imported') return 'stale'
   const limit = agent.freshnessSource === 'history' ? thresholds.historyExpiryMs : thresholds.staleAfterMs
   return age > limit ? 'stale' : 'fresh'
 }
@@ -57,6 +61,11 @@ export function deriveFreshness(
 /** Text of a stale node: the state is explicitly the last known one (never colour alone). */
 export function lastKnownStateText(state: string): string {
   return `last known state: ${getStateLabel(state)}`
+}
+
+/** `agent` read at `nowMs` from an imported transcript (#294): stamped, but never fresh. */
+export function importedFrom(agent: Agent, nowMs: number): Agent {
+  return { ...agent, lastEventAt: nowMs, freshnessSource: 'imported' }
 }
 
 /** `agent` heard from at `nowMs` by a live event. */

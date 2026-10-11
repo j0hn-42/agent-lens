@@ -31,7 +31,7 @@ export interface AgentLike {
   spawnTime: number
   /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
   lastEventAt?: number
-  freshnessSource?: 'live' | 'history'
+  freshnessSource?: 'live' | 'history' | 'imported'
   /** Active time (issue #59): closed spans in ms, and the start of the running span; absent = never observed working */
   activeMs?: number
   activeSince?: number

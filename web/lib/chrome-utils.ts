@@ -6,7 +6,7 @@ import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { formatCostUsage, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
-import { SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /** Shared visible keyboard-focus style for every interactive control in the chrome. */
@@ -15,7 +15,7 @@ export const FOCUS_RING =
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
@@ -24,13 +24,15 @@ export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobs
  * `isObservedId` defaults to the app-wide observation tracker.
  */
 export function sessionStatusKind(
-  session: Pick<SessionInfo, 'status' | 'indexedOnly'> & { id?: string },
+  session: Pick<SessionInfo, 'status' | 'indexedOnly' | 'imported'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
 ): SessionStatusKind {
   // The index proves neither detection nor an end: never shown as completed
   if (session.indexedOnly) return 'indexed'
+  // Read from a file: neither live activity nor a witnessed end (#294)
+  if (session.imported) return 'imported'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
@@ -42,6 +44,7 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   completed: 'completed',
   unobserved: SESSION_NOT_OBSERVED_TEXT,
   indexed: SESSION_INDEXED_TEXT,
+  imported: SESSION_IMPORTED_TEXT,
 }
 
 /** Ids of the tabs in order: the 'All' tab first, then one per session. */

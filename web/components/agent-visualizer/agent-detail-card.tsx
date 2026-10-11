@@ -43,7 +43,7 @@ interface AgentDetailCardProps {
     activity?: 'working' | 'idle' | 'done'
     /** The node's OWN last event (wall clock) and where it comes from: never the anchor session's */
     lastEventAt?: number
-    freshnessSource?: 'live' | 'history'
+    freshnessSource?: 'live' | 'history' | 'imported'
     sessionLabel?: string
     activeMs?: number
     activeSince?: number
@@ -187,7 +187,7 @@ export function AgentDetailCard({
           <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
-              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
+              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : agent.freshnessSource === 'imported' ? ' (imported transcript)' : ''}`
               : 'no event observed'}
           </span>
           {typeof toolErrors === 'number' && (
