@@ -35,6 +35,7 @@ import { createPerfStats, drawPerfOverlay, countPaintCalls } from '@/components/
 import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
 import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas/scene-stamp'
 import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
+import { MOTION_LAYERS, layerIsCalm, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
 interface DrawLoopDeps {
@@ -66,6 +67,10 @@ interface DrawLoopDeps {
   // Motion preferences
   reducedMotionRef: MutableRefObject<boolean>
   animationsPausedRef: MutableRefObject<boolean>
+  /** Reduced motion from the OS or "Pause animations" only (calms every layer) */
+  globalReducedRef: MutableRefObject<boolean>
+  /** Layers calmed one by one (#247) */
+  calmLayersRef: MutableRefObject<CalmLayers>
   neverHideRef: MutableRefObject<boolean>
   // Camera, drag, insets, effects
   updateCamera: (isDragging: boolean, pauseAutoFit?: boolean) => void
@@ -193,6 +198,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         p.showStats, p.showHexGrid, !!p.showCostOverlay, !!p.isDragging, !!p.pauseAutoFit,
         hover?.type, hover?.id, focused?.type, focused?.id, deps.selectedClusterKeyRef.current,
         deps.hideInactiveRef.current, deps.neverHideRef.current, reducedMotion, s.isPlaying,
+        MOTION_LAYERS.map(l => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, l) ? '1' : '0').join(''),
       ],
     })
     const animating = sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
@@ -225,6 +231,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       } = deps.drawPropsRef.current
       const transform = deps.transformRef.current
       const reducedMotion = deps.reducedMotionRef.current
+      const calmOf = (layer: MotionLayer) => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, layer)
 
       syncExpiryHold(deps, deps.drawPropsRef.current)
 
@@ -322,7 +329,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       }
 
       ctx.clearRect(0, 0, w, h)
-      if (!reducedMotion) updateDepthParticles(depthParticlesRef.current, deltaTime, w, h)
+      if (!calmOf('background')) updateDepthParticles(depthParticlesRef.current, deltaTime, w, h)
 
       let activeAgentPos: { x: number; y: number; color: string } | undefined
       for (const [, agent] of agents) {
@@ -332,7 +339,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         }
       }
 
-      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, reducedMotion)
+      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, calmOf('background'))
 
       ctx.save()
       ctx.translate(transform.x, transform.y)
@@ -355,6 +362,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       // bubbles sit under tool/discovery cards so interactive cards are never covered.
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
+      opts.reducedMotion = calmOf('links')
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawSessionLinks(ctx, sessionLinkSegments(clusters, deps.sessionLinksRef.current ?? []), opts)
       drawPhaseLabels(ctx, phaseLabels(agents.values()), opts)
@@ -362,13 +370,14 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       {
         const pathTarget = selectedAgentId ?? selectedToolCallId ?? null
         const elapsed = pathAnimRef.current.elapsed(pathTarget, timestamp)
-        if (elapsed !== null) drawDelegationPath(ctx, delegationPathEdges(pathTarget, edges), agents, toolCalls, elapsed, reducedMotion)
+        if (elapsed !== null) drawDelegationPath(ctx, delegationPathEdges(pathTarget, edges), agents, toolCalls, elapsed, opts.reducedMotion)
       }
       drawLinks(
         ctx, resolvedLinks, agents, selectedLinkId,
         deps.hoverTargetRef.current?.type === 'link' ? deps.hoverTargetRef.current.id : null,
         timeRef.current, opts,
       )
+      opts.reducedMotion = calmOf('agents')
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
       drawBranchBadges(ctx, agents, deps.drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)
       drawEdgeBubbles(ctx, cappedEdgeBubbles, selectedLinkId, hoveredLinkId, opts)
@@ -376,8 +385,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       drawToolCalls(ctx, toolCalls, timeRef.current, selectedToolCallId, opts)
       drawDiscoveries(ctx, discoveries, agents, selectedDiscoveryId, opts)
       if (showCostOverlay) drawCostLabels(ctx, agents, toolCalls, opts)
+      opts.reducedMotion = calmOf('effects')
       drawParticles(ctx, particles, edgeMap, agents, toolCalls, timeRef.current, opts)
-      drawEffects(ctx, deps.effectsRef.current)
+      if (!opts.reducedMotion) drawEffects(ctx, deps.effectsRef.current)
+      opts.reducedMotion = reducedMotion
 
       // Tether from the selected node to its detail card
       if (selectedAgentId) {
@@ -421,7 +432,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       }
 
       if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed) }
-      if (bloomRef.current && !reducedMotion) bloomRef.current.apply(canvas, ctx)
+      if (bloomRef.current && !calmOf('effects')) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
       positionTooltip(deps.tooltipRef.current, transform, w, h, deps.drawPropsRef.current, deps.tooltipTargetRef.current)
