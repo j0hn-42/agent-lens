@@ -9,9 +9,9 @@ import * as path from 'path'
 import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
-import { AgentEvent, RelayStatus, SessionInfo, WatchedSession } from '../extension/src/protocol'
+import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEntry } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, runGuarded } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, readLinesChunked, foldPathCase, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -23,7 +23,7 @@ import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
-  RELAY_MAX_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES,
+  RELAY_MAX_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS, RELAY_SSE_RATE_BURST, RELAY_SSE_RATE_PER_S,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
@@ -43,6 +43,7 @@ import { isHooksConfigured } from '../extension/src/claude-settings'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
 import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
+import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
@@ -185,7 +186,9 @@ function broadcastEvent(event: AgentEvent, source: EventSource = 'jsonl') {
 
 const reconciler = new EventReconciler({ deliver: (event) => deliverEvent(event) })
 
-function deliverEvent(event: AgentEvent) {
+function deliverEvent(delivered: AgentEvent) {
+  // Every event of an imported transcript carries its provenance to the clients (#294)
+  const event = delivered.sessionId && importedSessions.has(delivered.sessionId) ? { ...delivered, imported: true } : delivered
   sessionEventCount++
   if (event.type === 'model_detected') {
     const m = (event.payload as { model?: unknown } | undefined)?.model
@@ -210,6 +213,12 @@ function tagText(value: string | undefined): string | undefined {
   return clean || undefined
 }
 
+/**
+ * Sessions read once from an imported transcript (#294): when they were read and the time range the file
+ * records. Never followed live, never 'active', never matched to a local project.
+ */
+const importedSessions = new Map<string, { importedAt: number; first?: number; last?: number }>()
+
 /** Working directory of each watched Claude session (read once from its transcript head). */
 const sessionCwd = new Map<string, string>()
 /** Git branch of each watched Claude session, as recorded at the head of its transcript. */
@@ -221,6 +230,20 @@ let teamWatcher: TeamWatcher | null = null
 function toSessionInfo(session: WatchedSession): SessionInfo {
   const tags = teamWatcher?.getSessionTags(session.sessionId)
   const cwd = tagText(sessionCwd.get(session.sessionId))
+  const imported = importedSessions.get(session.sessionId)
+  if (imported) {
+    // Times come from the file itself; the end of the session is not proven, so it is listed as not active
+    const start = imported.first ?? imported.importedAt
+    return {
+      id: session.sessionId, label: session.label,
+      status: 'completed', imported: true, importedAt: imported.importedAt,
+      startTime: start, lastActivityTime: imported.last ?? start,
+      ...(imported.last === undefined ? { lastActivityUnknown: true } : {}),
+      runtime: 'claude',
+      ...(cwd ? { cwd } : {}),
+      ...branchTag(sessionBranch.get(session.sessionId)),
+    }
+  }
   const workspace = tagText(relayWorkspace)
   return {
     id: session.sessionId, label: session.label,
@@ -241,6 +264,10 @@ let enrichSession: (info: SessionInfo) => SessionInfo = info => info
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
   if (type === 'started') {
     const live = sessions.get(sessionId)
+    if (live && importedSessions.has(sessionId)) {
+      broadcast(JSON.stringify({ type: 'session-started', session: enrichSession(toSessionInfo(live)) }), sessionId)
+      return
+    }
     const base: SessionInfo = live
       ? toSessionInfo(live)
       : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
@@ -310,6 +337,8 @@ const watcherDelegate = {
 function resetInactivityTimer(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return
+  // An imported transcript is not live: no activity is inferred from reading it, and no end either
+  if (importedSessions.has(sessionId)) return
 
   const wasCompleted = session.sessionCompleted
   session.lastActivityTime = Date.now()
@@ -360,6 +389,7 @@ function unwatchSession(sessionId: string) {
   parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
   sessionCwd.delete(sessionId)
   sessionBranch.delete(sessionId)
+  importedSessions.delete(sessionId)
   reconciler.forgetSession(sessionId)
   sessions.delete(sessionId)
   teamWatcher?.forgetSession(sessionId)
@@ -380,22 +410,23 @@ function detachSessionOnError(sessionId: string, err: unknown) {
  * the discovery window are evicted (they cannot be rediscovered); returns false when full.
  */
 function ensureWatchCapacity(): boolean {
-  if (sessions.size < RELAY_MAX_WATCHED_SESSIONS) return true
+  // Imported sessions hold no watcher: they neither count against the live budget nor get evicted
+  const liveCount = () => sessions.size - importedSessions.size
+  if (liveCount() < RELAY_MAX_WATCHED_SESSIONS) return true
   let victim: WatchedSession | undefined
   for (const s of sessions.values()) {
+    if (importedSessions.has(s.sessionId)) continue
     if (!s.sessionCompleted || (Date.now() - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
     if (!victim || s.lastActivityTime < victim.lastActivityTime) victim = s
   }
   if (!victim) return false
   unwatchSession(victim.sessionId)
-  return sessions.size < RELAY_MAX_WATCHED_SESSIONS
+  return liveCount() < RELAY_MAX_WATCHED_SESSIONS
 }
 
-function watchSession(sessionId: string, filePath: string) {
-  skippedSessions.watchLimit.delete(sessionId)
-  skippedSessions.sizeLimit.delete(sessionId)
+function newWatchedSession(sessionId: string, filePath: string): WatchedSession {
   const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
-  const session: WatchedSession = {
+  return {
     sessionId, filePath,
     fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
     sessionStartTime: Date.now(),
@@ -415,6 +446,62 @@ function watchSession(sessionId: string, filePath: string) {
     permissionTimer: null, permissionEmitted: false,
     contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
   }
+}
+
+/**
+ * Read an imported transcript once (#294) through the same parser and reconciler as a live session. Its events
+ * carry `imported` (deliverEvent); nothing watches the file afterwards, and no end is invented for it.
+ */
+function importSession(sessionId: string, filePath: string, importedAt: number) {
+  const session = newWatchedSession(sessionId, filePath)
+  // Registered first: every event emitted below is tagged, and the inactivity timer never starts
+  importedSessions.set(sessionId, { importedAt, ...transcriptTimeRange(filePath) })
+  session.sessionCompleted = true
+  sessions.set(sessionId, session)
+  const header = readSessionHeader(filePath)
+  // The cwd of a cloud agent is a container path: shown as a tag, never used to read local files
+  if (header.cwd) sessionCwd.set(sessionId, header.cwd)
+  if (header.branch) sessionBranch.set(sessionId, header.branch)
+  reconciler.withHistory(() => {
+    const size = fs.statSync(filePath).size
+    // Label first (first user prompt), so the orchestrator is announced with it
+    for (const line of readLinesChunked(filePath, size)) {
+      if (session.labelSet) break
+      try { parser.extractSessionLabel([JSON.parse(line) as TranscriptEntry], session) } catch { /* not a turn */ }
+    }
+    broadcastSessionLifecycle('started', sessionId, session.label)
+    broadcastEvent({
+      time: 0, type: 'agent_spawn',
+      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label },
+      sessionId,
+    })
+    session.sessionDetected = true
+    // Unlike a live attach (current turn only), the whole file is replayed line by line through the live
+    // parser: tool calls, results and subagent dispatches included. The relay buffer caps keep the newest.
+    for (const line of readLinesChunked(filePath, size, undefined, session)) {
+      if (!line.trim()) continue
+      parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
+    }
+    emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+    // Subagent transcripts next to it (<dir>/<session id>/subagents/), read once as well
+    session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
+    scanSubagentsDir(watcherDelegate, parser, sessionId)
+  })
+  // Read once: drop the watchers the subagent scan opened
+  session.subagentsDirWatcher?.close()
+  session.subagentsDirWatcher = null
+  for (const sub of session.subagentWatchers.values()) {
+    sub.watcher?.close()
+    sub.watcher = null
+    if (sub.permissionTimer) { clearTimeout(sub.permissionTimer); sub.permissionTimer = null }
+  }
+  log(`[session] Imported ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
+}
+
+function watchSession(sessionId: string, filePath: string) {
+  skippedSessions.watchLimit.delete(sessionId)
+  skippedSessions.sizeLimit.delete(sessionId)
+  const session = newWatchedSession(sessionId, filePath)
   sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
@@ -653,6 +740,10 @@ export interface RelayOptions {
   /** Transcript size past which a Claude session is not (or no longer) watched. Injectable for tests;
    *  defaults to RELAY_MAX_SESSION_FILE_BYTES. */
   maxSessionFileBytes?: number
+  /** Transcripts to import (#294): `<session id>.jsonl` files or folders of them, fetched from a cloud agent.
+   *  Read once at startup, listed as imported, never followed live. Defaults to AGENT_LENS_IMPORT
+   *  (paths separated by the platform delimiter). Only a local flag or variable sets it, never a request. */
+  imports?: string[]
 }
 
 export interface RelaySessionIndexOptions {
@@ -713,6 +804,21 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
 
   const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
+
+  // Imported transcripts (#294): read before the scan, so a live session never takes their id first
+  const importPaths = options.imports ?? parseImportPaths(process.env.AGENT_LENS_IMPORT)
+  if (importPaths.length > 0) {
+    const { transcripts, problems } = resolveImportedTranscripts(importPaths, { maxFileBytes: maxSessionFileBytes, maxSessions: RELAY_MAX_IMPORTED_SESSIONS })
+    for (const problem of problems) relayLog.warn(`Import: ${problem}`)
+    const importedAt = Date.now()
+    for (const t of transcripts) {
+      try { importSession(t.sessionId, t.filePath, importedAt) } catch (e) {
+        unwatchSession(t.sessionId)
+        relayLog.warn(`Import: ${t.filePath} could not be read (${e instanceof Error ? e.message : String(e)})`)
+      }
+    }
+    if (transcripts.length > 0) relayLog.info(`Imported ${transcripts.length} transcript(s)`)
+  }
   const mode = resolveRuntimeMode(options.runtime)
   const wantClaude = mode === 'claude' || mode === 'auto'
   const wantCodex = mode === 'codex' || mode === 'auto'
@@ -748,6 +854,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     hookServer.onEvent((event: AgentEvent) => {
       const who = event.payload?.agent ?? event.payload?.name ?? event.payload?.child
       const isOrchestrator = !who || who === ORCHESTRATOR_NAME
+      // An imported session is what its file recorded: a hook with its id would mix live states into it
+      if (event.sessionId && importedSessions.has(event.sessionId)) return
       // The transcript parser emits agent_link/message_sent for watched sessions; hook copies would duplicate them
       if (TEAM_EVENTS.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
       if (!isOrchestrator && SUBAGENT_LIFECYCLE.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
@@ -890,7 +998,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const handleIssueLinks = createIssueLinksRoute({
     limiter: issueLinksLimiter,
     allWorkspaces,
-    cwdOf: sessionId => sessionCwd.get(sessionId) ?? readIndex()?.sessions.find(s => s.id === sessionId)?.cwd,
+    cwdOf: sessionId => (importedSessions.has(sessionId) ? undefined : sessionCwd.get(sessionId)) ?? readIndex()?.sessions.find(s => s.id === sessionId)?.cwd,
     probe: issueLinksProbe,
   })
   const handleStatus = createStatusRoute({
@@ -913,7 +1021,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   })
   const handleContext = createContextRoute({
     limiter: contextLimiter,
-    cwdOf: sessionId => sessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined,
+    // The cwd of an imported session is a path on another machine: never read locally
+    cwdOf: sessionId => sessions.has(sessionId) && !importedSessions.has(sessionId) ? sessionCwd.get(sessionId) : undefined,
   })
   const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
 

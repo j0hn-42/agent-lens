@@ -127,7 +127,7 @@ describe('relay with imported transcripts', () => {
       .flatMap(m => m.events as Array<{ sessionId?: string; type: string; imported?: boolean }>)
       .filter(e => e.sessionId === CLOUD)
     assert.ok(events.some(e => e.type === 'agent_spawn'), 'the orchestrator is spawned')
-    assert.ok(events.some(e => e.type === 'tool_call_start'), 'the recorded tool call is replayed')
+    assert.ok(events.some(e => e.type === 'tool_call_start'), `the recorded tool call is replayed: ${events.map(e => e.type).join(',')}`)
     assert.ok(events.every(e => e.imported === true), 'every event carries the imported provenance')
     assert.ok(!events.some(e => e.type === 'agent_complete'), 'no end is invented for the imported session')
   })

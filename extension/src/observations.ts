@@ -34,6 +34,8 @@ export interface ObservedSession {
   agentsTruncated?: boolean
   /** The agent list may miss agents (history dropped by the tracker): count and states are lower bounds */
   agentsIncomplete?: boolean
+  /** 'imported': read once from an imported transcript (#294), never observed live; no agent state is reported */
+  provenance?: 'imported'
 }
 
 export interface Observations {
@@ -97,6 +99,7 @@ export const OBSERVATIONS_ACTION = {
             agentCount: { type: 'integer', minimum: 0 },
             agentsTruncated: { type: 'boolean' },
             agentsIncomplete: { type: 'boolean' },
+            provenance: { enum: ['imported'], description: 'Read from an imported transcript, not observed live: freshness is at best stale, no agent list' },
             agents: {
               type: 'array',
               maxItems: OBSERVATIONS_MAX_AGENTS_PER_SESSION,
@@ -266,12 +269,14 @@ export function buildObservations(
       startedAt: Math.trunc(s.startTime),
       lastActivityAt: Math.trunc(s.lastActivityTime),
       ageMs,
-      freshness: s.status === 'completed' ? 'closed' : (ageMs <= staleAfterMs ? 'fresh' : 'stale'),
+      // An imported transcript proves neither that the session runs nor that it ended: only a last known state
+      freshness: s.imported ? 'stale' : s.status === 'completed' ? 'closed' : (ageMs <= staleAfterMs ? 'fresh' : 'stale'),
       agentCount: agents.length,
     }
+    if (s.imported) out.provenance = 'imported'
     // The list is not the whole truth once the tracker had to drop sessions or agents: say so, don't show 0
     if (!tracked.complete) out.agentsIncomplete = true
-    if (includeAgents) {
+    if (includeAgents && !s.imported) {
       out.agents = agents.slice(0, OBSERVATIONS_MAX_AGENTS_PER_SESSION)
       if (agents.length > OBSERVATIONS_MAX_AGENTS_PER_SESSION) out.agentsTruncated = true
     }
