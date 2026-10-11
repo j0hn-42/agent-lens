@@ -276,6 +276,37 @@ test('announcement queue dedupes within a batch and returns same queue when empt
   assert.equal(dup.items.length, 1)
 })
 
+// ─── #194: annonces live nommant la session en vue All ──────────────────────
+
+test('vue multi-session : deux agents homonymes de sessions différentes donnent deux annonces nommant leur session', () => {
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [
+    { kind: 'agent_waiting_permission', id: 's1:orchestrator', name: 'orchestrator', session: 'api-refactor' },
+    { kind: 'agent_waiting_permission', id: 's2:orchestrator', name: 'orchestrator', session: 'docs-site' },
+  ], undefined, { multiSession: true })
+  assert.deepEqual(q.items.map(i => i.text), [
+    'Agent orchestrator in session api-refactor is waiting for permission',
+    'Agent orchestrator in session docs-site is waiting for permission',
+  ])
+})
+
+test('vue d\'une seule session : texte inchangé, sans libellé de session', () => {
+  const t = { kind: 'agent_error', id: 's1:a', name: 'X', session: 'api-refactor' } as const
+  assert.equal(describeTransition(t), 'Agent X failed')
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [t], undefined, { multiSession: false })
+  assert.equal(q.items[0].text, 'Agent X failed')
+})
+
+test('détection : les transitions d\'agent portent le libellé de session (repli sur l\'id)', async () => {
+  const { detectStateChanges } = await import('../web/components/agent-visualizer/canvas/detect-state-changes')
+  const mk = (id: string, sessionId: string, sessionLabel?: string): any => ({
+    id, sessionId, sessionLabel, name: 'orchestrator', state: 'waiting_permission', opacity: 1, x: 0, y: 0,
+  })
+  const agents = new Map<string, any>([['s1:o', mk('s1:o', 's1', 'api-refactor')], ['s2:o', mk('s2:o', 's2')]])
+  const prev = new Map([['s1:o', 'thinking'], ['s2:o', 'thinking']])
+  const { transitions } = detectStateChanges(agents, new Map(), prev, new Map())
+  assert.deepEqual(transitions.map((t: any) => t.session), ['api-refactor', 's2'])
+})
+
 test('recorder captures dispatch particles that exist for a single frame and tool calls after they vanish', () => {
   const agents = new Map<string, any>([['a1', agent()], ['a2', agent({ id: 'a2', name: 'Explorer', isMain: false })]])
   const edges: any[] = [{ id: 'e1', from: 'a1', to: 'a2', type: 'parent-child', opacity: 1 }]

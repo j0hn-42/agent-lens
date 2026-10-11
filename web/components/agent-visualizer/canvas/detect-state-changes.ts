@@ -4,12 +4,17 @@ import { SCENE } from '../../../lib/colors'
 import { MCP_DRAW } from '../../../lib/canvas-constants'
 import type { VisualEffect } from './draw-effects'
 
+/** Session label of an agent for announcements: its label, else its session id. */
+function sessionOf(agent: Agent): string {
+  return agent.sessionLabel || agent.sessionId
+}
+
 /** A semantic state transition detected between frames. */
 export type StateTransition =
-  | { kind: 'agent_spawn'; id: string; name: string }
-  | { kind: 'agent_complete'; id: string; name: string }
-  | { kind: 'agent_error'; id: string; name: string }
-  | { kind: 'agent_waiting_permission'; id: string; name: string }
+  | { kind: 'agent_spawn'; id: string; name: string; session?: string }
+  | { kind: 'agent_complete'; id: string; name: string; session?: string }
+  | { kind: 'agent_error'; id: string; name: string; session?: string }
+  | { kind: 'agent_waiting_permission'; id: string; name: string; session?: string }
   | { kind: 'tool_start'; id: string; name: string }
   | { kind: 'tool_complete'; id: string; name: string }
   | { kind: 'tool_error'; id: string; name: string }
@@ -57,7 +62,7 @@ export function detectStateChanges(
 
     // Spawn: new agent (wasn't in prev)
     if (!oldState) {
-      transitions.push({ kind: 'agent_spawn', id, name: agent.name })
+      transitions.push({ kind: 'agent_spawn', id, name: agent.name, session: sessionOf(agent) })
       if (agent.opacity < 0.5) {
         effects.push({
           type: 'spawn', x: agent.x, y: agent.y,
@@ -68,7 +73,7 @@ export function detectStateChanges(
 
     // Complete: just became complete
     if (oldState && oldState !== 'complete' && agent.state === 'complete') {
-      transitions.push({ kind: 'agent_complete', id, name: agent.name })
+      transitions.push({ kind: 'agent_complete', id, name: agent.name, session: sessionOf(agent) })
       effects.push({
         type: 'complete', x: agent.x, y: agent.y,
         color: SCENE.complete, age: 0, duration: FX.completeDuration,
@@ -77,8 +82,8 @@ export function detectStateChanges(
 
     // Error / permission request: just entered that state (announced to screen readers)
     if (oldState && oldState !== agent.state) {
-      if (agent.state === 'error') transitions.push({ kind: 'agent_error', id, name: agent.name })
-      else if (agent.state === 'waiting_permission') transitions.push({ kind: 'agent_waiting_permission', id, name: agent.name })
+      if (agent.state === 'error') transitions.push({ kind: 'agent_error', id, name: agent.name, session: sessionOf(agent) })
+      else if (agent.state === 'waiting_permission') transitions.push({ kind: 'agent_waiting_permission', id, name: agent.name, session: sessionOf(agent) })
     }
   }
 
