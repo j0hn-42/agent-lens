@@ -100,7 +100,8 @@ test('Tempo labels are centralised in the glossary, in English (#123)', async ()
 })
 
 test('no accented character in UI code outside comments (the UI is English only, #123)', () => {
-  const allowed = new Set<string>([]) // files that may carry accented text
+  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free
+  const allowed = new Set<string>([join('web/lib', 'messages.ts')])
   const hits: string[] = []
   const walk = (dir: string) => {
     if (!existsSync(dir)) return
