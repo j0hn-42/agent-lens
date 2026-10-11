@@ -25,6 +25,16 @@ export type AgentEventType =
   | 'team_info'
   | 'agent_activity'
   | 'normalization_stats'
+  | 'context_compacted'
+
+/** Payload of `context_compacted` (#232): only what the transcript proves; an unproven field is absent. */
+export interface ContextCompactedPayload {
+  agent: string
+  /** Claude Code's compactMetadata.trigger, kept only when 'auto' or 'manual' */
+  trigger?: 'auto' | 'manual'
+  /** Claude Code's compactMetadata.preTokens: context size before the compaction, a positive safe integer */
+  preTokens?: number
+}
 
 /** Why two agents are linked (agent_link event) */
 export type AgentLinkKind = 'teammate' | 'spawn'

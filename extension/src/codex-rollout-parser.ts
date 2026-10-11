@@ -632,6 +632,11 @@ export class CodexRolloutParser {
     state.contextBreakdown.reasoning = 0
     state.contextBreakdown.subagentResults = 0
     // systemPrompt stays — it's the base instructions, still counted.
+    // The last reported total measured the context before the compaction: it is no longer the current
+    // reading, so the estimate stands until the next token_count (#232).
+    state.lastReportedTokens = null
+    // Codex records neither the trigger nor the size before: the event carries neither (#232)
+    this.delegate.emit({ time: this.delegate.elapsed(), type: 'context_compacted', payload: { agent: ORCHESTRATOR_NAME } })
     this.emitContextUpdate(state)
     log.info('Context compacted — token breakdown reset from replacement_history')
   }
