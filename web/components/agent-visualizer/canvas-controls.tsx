@@ -5,7 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { CAMERA, TOOL_EXPIRY_CHOICES_S } from '@/lib/canvas-constants'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
-import type { Locale } from '@/lib/messages'
+import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
@@ -38,8 +38,10 @@ export function CanvasControls({
   onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
 }: CanvasControlsProps) {
   const { controlBarH } = useDockSnapshot().env
+  const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
   return (
     <div
+      lang={locale}
       className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
@@ -48,7 +50,7 @@ export function CanvasControls({
         <div className="flex gap-1">
           <button
             type="button"
-            aria-label="Zoom in"
+            aria-label={t('controls.zoomIn')}
             onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
             className={CONTROL_BUTTON_CLASS}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
@@ -57,7 +59,7 @@ export function CanvasControls({
           </button>
           <button
             type="button"
-            aria-label="Zoom out"
+            aria-label={t('controls.zoomOut')}
             onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
             className={CONTROL_BUTTON_CLASS}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
@@ -66,19 +68,19 @@ export function CanvasControls({
           </button>
           <button
             type="button"
-            aria-label="Fit graph to view"
+            aria-label={t('controls.fitLabel')}
             onClick={doZoomToFit}
             className={CONTROL_BUTTON_CLASS}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
-            Fit
+            {t('controls.fit')}
           </button>
         </div>
         <button
           type="button"
           aria-pressed={animationsPaused || pausedBySystem}
           disabled={pausedBySystem}
-          title={pausedBySystem ? 'Animations are reduced by your system settings' : undefined}
+          title={pausedBySystem ? t('motion.lockedBySystem') : undefined}
           onClick={onToggleAnimationsPaused}
           className={CONTROL_BUTTON_CLASS}
           style={{
@@ -87,7 +89,7 @@ export function CanvasControls({
             color: COLORS.textPrimary,
           }}
         >
-          Pause animations
+          {t('controls.pause')}
         </button>
         <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
         <button
@@ -101,13 +103,13 @@ export function CanvasControls({
             color: COLORS.textPrimary,
           }}
         >
-          Keep cards visible
+          {t('controls.keepCards')}
         </button>
         <label className={`${CONTROL_BUTTON_CLASS} gap-1`} style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}>
-          Expire unanswered calls after
+          {t('controls.expireAfter')}
           <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
             {TOOL_EXPIRY_CHOICES_S.map(n => (
-              <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
+              <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? t('controls.minutes', { n: n / 60 }) : t('controls.seconds', { n })}</option>
             ))}
           </select>
         </label>

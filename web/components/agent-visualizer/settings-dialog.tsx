@@ -6,6 +6,7 @@ import { COLORS } from '@/lib/colors'
 import { GlassCard } from './glass-card'
 import { CloseButton, stopPropagationHandlers } from './shared-ui'
 import { ThemeSelect } from './theme-select'
+import { useLocale, useT, type LocaleChoice } from '@/lib/locale'
 import { parseCostThreshold, type NotificationRules } from '@/lib/notification-rules'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 
@@ -63,6 +64,30 @@ function SwitchRow({ label, help, checked, onChange }: {
   )
 }
 
+/** Native select: keyboard operable, named by its label. Each language is written in its own language. */
+function LanguageSelect({ id, choice, onChange, autoLabel, frLabel, enLabel }: {
+  id: string
+  choice: LocaleChoice
+  onChange: (choice: LocaleChoice) => void
+  autoLabel: string
+  frLabel: string
+  enLabel: string
+}) {
+  return (
+    <select
+      id={id}
+      value={choice}
+      onChange={e => onChange(e.target.value as LocaleChoice)}
+      className="min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
+      style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
+    >
+      <option value="auto" style={{ background: COLORS.surface, color: COLORS.ink }}>{autoLabel}</option>
+      <option value="fr" lang="fr" style={{ background: COLORS.surface, color: COLORS.ink }}>{frLabel}</option>
+      <option value="en" lang="en" style={{ background: COLORS.surface, color: COLORS.ink }}>{enLabel}</option>
+    </select>
+  )
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section aria-label={title} className="mb-3">
@@ -76,29 +101,30 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function NotificationsSection({ notifications }: { notifications: NonNullable<SettingsDialogProps['notifications']> }) {
   const { state, onToggle, rules, onRulesChange } = notifications
+  const t = useT()
   const amountId = useId()
   const errorId = useId()
   const [draft, setDraft] = useState(String(rules.costThresholdUsd))
   const [invalid, setInvalid] = useState(false)
   const usable = state === 'on'
   const set = (patch: Partial<NotificationRules>) => onRulesChange({ ...rules, ...patch })
-  const note = state === 'unsupported' ? 'Notifications are not available in this environment.'
-    : state === 'denied' ? 'Notifications are blocked in the browser settings.'
-    : 'Browser: shown while this tab is hidden. VS Code: shown unless this panel has the focus.'
+  const note = state === 'unsupported' ? t('settings.notify.unsupported')
+    : state === 'denied' ? t('settings.notify.denied')
+    : t('settings.notify.note')
   return (
-    <Section title="Notifications">
+    <Section title={t('settings.section.notifications')}>
       <SwitchRow
-        label="Enable notifications"
+        label={t('settings.notify.enable')}
         help={note}
         checked={state === 'on'}
         onChange={() => { if (state !== 'unsupported' && state !== 'denied') onToggle() }}
       />
-      <SwitchRow label="Agent waiting for a permission" help="An agent starts waiting for you to allow a tool." checked={rules.permission} onChange={v => set({ permission: v })} />
-      <SwitchRow label="Agent in error" help="An agent reports an error." checked={rules.error} onChange={v => set({ error: v })} />
-      <SwitchRow label="Session finished" help="A session you were watching ends. Sessions already finished when loaded are not announced." checked={rules.complete} onChange={v => set({ complete: v })} />
-      <SwitchRow label="Cost threshold reached" help="The session cost crosses the amount below, once. The message keeps the qualification of the figure (at least, estimated)." checked={rules.cost} onChange={v => set({ cost: v })} />
+      <SwitchRow label={t('settings.notify.permission')} help={t('settings.notify.permission.help')} checked={rules.permission} onChange={v => set({ permission: v })} />
+      <SwitchRow label={t('settings.notify.error')} help={t('settings.notify.error.help')} checked={rules.error} onChange={v => set({ error: v })} />
+      <SwitchRow label={t('settings.notify.complete')} help={t('settings.notify.complete.help')} checked={rules.complete} onChange={v => set({ complete: v })} />
+      <SwitchRow label={t('settings.notify.cost')} help={t('settings.notify.cost.help')} checked={rules.cost} onChange={v => set({ cost: v })} />
       <div className="flex items-center gap-2 py-1 pl-8 text-xs font-mono" style={{ color: COLORS.textPrimary }}>
-        <label htmlFor={amountId}>Cost threshold (USD)</label>
+        <label htmlFor={amountId}>{t('settings.notify.threshold')}</label>
         <input
           id={amountId}
           type="number"
@@ -121,11 +147,11 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
       </div>
       {invalid && (
         <p id={errorId} role="alert" className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.error }}>
-          Invalid amount: enter a number above 0.
+          {t('settings.notify.invalid')}
         </p>
       )}
       {!usable && state !== 'unsupported' && state !== 'denied' && (
-        <p className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>The rules apply once notifications are enabled.</p>
+        <p className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.notify.rulesPending')}</p>
       )}
     </Section>
   )
@@ -141,6 +167,9 @@ export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
   hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications,
 }: SettingsDialogProps) {
+  const { locale, choice, setChoice } = useLocale()
+  const t = useT()
+  const langId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -213,39 +242,44 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        lang={locale}
         tabIndex={-1}
         className="max-h-[calc(100vh-24px)] w-[420px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
           <div className="mb-3 flex items-center justify-between">
             <h2 id={titleId} className="m-0 text-xs font-mono font-semibold" style={{ color: COLORS.textPrimary }}>
-              Settings
+              {t('settings.title')}
             </h2>
-            <CloseButton onClick={onClose} />
+            <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
-          <Section title="Appearance">
+          <Section title={t('settings.section.appearance')}>
             <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
-              <label htmlFor={themeId} style={{ color: COLORS.textPrimary }}>Theme</label>
+              <label htmlFor={themeId} style={{ color: COLORS.textPrimary }}>{t('settings.theme')}</label>
               <ThemeSelect id={themeId} />
             </div>
-            <SwitchRow label="Hex grid" help="Show the hexagonal grid behind the graph (G)." checked={hexGrid} onChange={onHexGridChange} />
+            <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+              <label htmlFor={langId} style={{ color: COLORS.textPrimary }}>{t('settings.language')}</label>
+              <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
+            </div>
+            <SwitchRow label={t('settings.hexGrid')} help={t('settings.hexGrid.help')} checked={hexGrid} onChange={onHexGridChange} />
           </Section>
 
-          <Section title="Sound">
-            <SwitchRow label="Sound effects" help="Play sounds for agent and tool activity (M)." checked={!muted} onChange={() => onToggleMute()} />
+          <Section title={t('settings.section.sound')}>
+            <SwitchRow label={t('settings.sound')} help={t('settings.sound.help')} checked={!muted} onChange={() => onToggleMute()} />
           </Section>
 
-          <Section title="Sessions and agents">
+          <Section title={t('settings.section.sessions')}>
             <SwitchRow
-              label="Show finished sessions"
-              help="The 'All' view also lists sessions that finished more than 10 minutes ago."
+              label={t('settings.showFinished')}
+              help={t('settings.showFinished.help')}
               checked={showFinished}
               onChange={onShowFinishedChange}
             />
             <SwitchRow
-              label="Hide inactive agents"
-              help="Idle and complete agents are removed from the canvas."
+              label={t('settings.hideInactive')}
+              help={t('settings.hideInactive.help')}
               checked={hideInactive}
               onChange={onHideInactiveChange}
             />
@@ -253,10 +287,10 @@ export function SettingsDialog({
 
           {notifications && <NotificationsSection notifications={notifications} />}
 
-          <Section title="Keyboard">
+          <Section title={t('settings.section.keyboard')}>
             <SwitchRow
-              label="Enable single-key shortcuts"
-              help="Turn off if letter keys conflict with assistive technology. Esc and ? always work."
+              label={t('settings.singleKey')}
+              help={t('settings.singleKey.help')}
               checked={singleKeyEnabled}
               onChange={onSingleKeyEnabledChange}
             />
@@ -266,7 +300,7 @@ export function SettingsDialog({
               className="mt-1 min-h-6 rounded px-2 py-1 text-[11px] font-mono underline"
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              View keyboard shortcuts
+              {t('settings.shortcuts')}
             </button>
           </Section>
         </GlassCard>
