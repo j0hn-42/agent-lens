@@ -130,7 +130,8 @@ for (const name of THEME_IDS) {
     const m = /^var\((--[\w-]+)\)$/.exec(c as string)
     return m ? vars[m[1]] : (c as string)
   }
-  const dimmed = (fg: string, bg: string) => '#' + [1, 3, 5].map(k => Math.round(parseInt(fg.slice(k, k + 2), 16) * 0.8 + parseInt(bg.slice(k, k + 2), 16) * 0.2).toString(16).padStart(2, '0')).join('')
+  // dim = opacity .8 on the span: fg and bg are both blended toward the page background
+  const fade = (c: string) => '#' + [1, 3, 5].map(k => Math.round(parseInt(c.slice(k, k + 2), 16) * 0.8 + parseInt(vars['--ansi-bg'].slice(k, k + 2), 16) * 0.2).toString(16).padStart(2, '0')).join('')
   test(`#193: text on an ANSI background keeps >= 4.5:1 in the ${name} theme`, () => {
     for (let n = 0; n < 16; n++) {
       const code = n < 8 ? 40 + n : 100 + n - 8
@@ -144,8 +145,8 @@ for (const name of THEME_IDS) {
         for (const dim of [false, true]) {
           const st2 = ansiStyle(parseAnsi(`${E}[${fcode};${code}${dim ? ';2' : ''}mx`)[0], vars)!
           const b2 = resolve(st2.backgroundColor), f2 = resolve(st2.color)
-          const eff = dim ? dimmed(f2, b2) : f2
-          assert.ok(ratio(eff, b2) >= 4.5, `fg ${f} on bg ${n}${dim ? ' dim' : ''}: ${eff} on ${b2} ${ratio(eff, b2).toFixed(2)}`)
+          const [ef, eb] = dim ? [fade(f2), fade(b2)] : [f2, b2]
+          assert.ok(ratio(ef, eb) >= 4.5, `fg ${f} on bg ${n}${dim ? ' dim' : ''}: ${ef} on ${eb} ${ratio(ef, eb).toFixed(2)}`)
         }
       }
     }
