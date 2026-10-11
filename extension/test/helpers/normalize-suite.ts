@@ -97,6 +97,30 @@ export function normalizeSuite(label: string, api: NormalizeApi): void {
       assert.equal(s.clampedFields, 3)
     })
 
+    it('ostr: bidi overrides, C1 controls, zero-width marks and FEFF are removed and counted, in identifiers and in free text (#220)', () => {
+      for (const ch of ['\u202E', '\u009B', '\u202A', '\u2066', '\u2069', '\u200B', '\u200F', '\uFEFF', '\u0085', '\u2028']) {
+        const code = 'U+' + ch.charCodeAt(0).toString(16).toUpperCase()
+        for (const multiline of [false, true]) {
+          const s = api.createStats()
+          assert.equal(api.ostr(`a${ch}png.exe`, 50, s, multiline), 'apng.exe', `${code} multiline=${multiline}`)
+          assert.equal(s.clampedFields, 1, `${code} multiline=${multiline}`)
+        }
+      }
+      const s = api.createStats()
+      assert.equal(api.ostr('tab\there\nline\r', 50, s, true), 'tab\there\nline\r', 'TAB, LF and CR stay in free text')
+      assert.equal(s.clampedFields, 0)
+    })
+
+    it('an agent name and a message text carrying U+202E and U+009B come out clean and count one clamped field each (#220)', () => {
+      const n = new api.SessionNormalizer()
+      const [spawned] = only(n.process(spawn('\u202Egnp.exe\u009B')), 'agent_spawn')
+      assert.equal(spawned.payload.name, 'gnp.exe')
+      assert.equal(n.stats.clampedFields, 1)
+      const [msg] = only(n.process({ time: 2, type: 'message', payload: { agent: 'gnp.exe', role: 'assistant', content: 'a\u202Eb\u009Bc' } }), 'message')
+      assert.equal(msg.payload.content, 'abc')
+      assert.equal(n.stats.clampedFields, 2)
+    })
+
     it('num: min and max are kept as they are, one beyond is clamped and counted', () => {
       const s = api.createStats()
       assert.equal(api.num(10, s, 10, 20), 10)
