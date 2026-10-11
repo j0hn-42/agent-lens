@@ -71,6 +71,8 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Not observed** / "listed - activity not observed" | The session or agent is known (for example listed on disk) but no event was ever received. No state or activity is invented for it. |
 | "Not observed yet" (agent card) | The agent was announced but nothing has been seen from it. |
 | "fin non observée" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
+| "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
+| "waiting for permission for N min" | The last event of the agent was a permission request, and nothing answered it for more than 5 minutes. This is told apart from a plain silence because the agent itself said it was waiting for you. |
 | **at least X** ("au moins") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
 | **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
@@ -78,8 +80,42 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
+| **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
+
+A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
+
+## Repeated reads and calls
+
+The **Files** panel opens with a "Repeated reads and calls" section, computed from the tool events already received (nothing is read from disk). It reports facts, not verdicts: a repeat may be intended.
+
+| Row | It means |
+| --- | --- |
+| **read again N times, no edit seen in between** | The same agent read the same file, with the same offset and limit, N more times, and no Edit, Write or patch on that file (or a patch of unknown path in that session) was seen between the reads. A read of another range, or by another agent, is not a repeat: each agent has its own context. |
+| **same Glob run again N times, no edit seen in between** | The same pattern and path, with no write seen in the session between the calls. |
+| **same Bash command run again N times, right after itself** | The same command (Codex: `exec_command`) with nothing else called by that agent in between. A command can legitimately change its answer, for example when polling a log. |
+| **at least X tokens** / **estimated** | Cost of the repeats only (the first call is not waste). "at least" because some repeat had no reported cost; **tokens not reported** when none had (never shown as 0). |
+| **N calls had no input details and were not compared** | A Read, Glob or Bash call arrived without the input needed to compare it. It is counted apart, not guessed. |
+| **Tracking limit reached: this list is a lower bound** | More distinct calls than the ledger holds (4000) were seen; later ones are not tracked, so the list may be missing repeats. |
+| **N more not shown** | Only the 20 costliest rows are drawn. |
+
+Only Read, Glob and Bash/`exec_command` are compared, because their input summary keeps every argument. Grep and the other tools are never compared: their summary drops options, so two equal summaries would not prove two equal calls. Edits made through Bash (for example `sed -i`) or outside the agent are not seen, so a re-read after one can be listed. Each row is a button that opens the file only when the path is absolute and the host can open files (VS Code); otherwise it is plain text.
+
+## Context window (the "/ 1M" next to the gauge)
+
+The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
+
+1. **Reported by the runtime** (Codex sends `model_context_window`): shown as is, even when the usage is above it.
+2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `npx agent-lens-app` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
+3. **A `[1m]` suffix** in the model id: 1M.
+4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
+
+A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
+
+## Project folders
+
+Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
 
 ## Notifications
 
@@ -96,6 +132,24 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 - **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.
 - **Only what is proven.** A permission or error is counted only while the app can prove it (see the states above). A cost that is unknown never triggers; a lower bound triggers once it has proven the threshold is reached and the message says *at least*; an estimate says *estimated*. The wording is the one of the top bar.
 - **Keyboard.** Every switch and the amount field are reachable with Tab; Space toggles a switch. An invalid amount is refused with a message and the previous threshold stays in force.
+
+## Loops and health verdict
+
+Agent Lens looks for two loop patterns in the tool calls it received (#230), per agent:
+
+- **Repeated identical calls**: the same tool called 3 times or more in a row with the same input (same arguments, whatever their order).
+- **Read → edit → failure cycles**: a file is read, edited (`Edit`, `MultiEdit`, `Write`, `NotebookEdit`), then the edit itself or the next call fails; 3 such cycles in a row on the same file. A call that succeeds after the edit, or whose end was never seen, breaks the streak.
+
+The **Health** section of the inspector gives the verdict of the selected agent, the evidence of each loop (one line each; hover a cycle line for the full path) and the verdict of its session. The Sessions panel marks a session row with "⟳ loop observed" only when a loop is proven; it says nothing otherwise.
+
+| Verdict | It means |
+| --- | --- |
+| **Loop observed** | At least one pattern above was seen in the events. It may be over: the verdict covers the kept history, not only the last minutes. |
+| **No loop observed (N tool calls)** | Every call of the kept history was compared and nothing repeated. |
+| **No loop in the observed part** | No loop seen, but the history is partial: calls without input data cannot be compared ("n of N comparable"), or older messages were dropped (the last 200 conversation messages per agent are kept). A count that may have started before the dropped part reads "at least". |
+| **Not enough activity to judge** | No comparable tool call was received. |
+
+Limits, on purpose: only what the events prove is counted, so a loop can be missed (calls without input data, another tool between two identical calls, an edit followed by a read of another file) but is not invented. A tool that polls on purpose (the same `Bash` status command three times) is reported as a repeat: read the evidence before acting. Only sessions whose events are in the current view have a verdict.
 
 ## Motion by layer
 

@@ -692,6 +692,8 @@ export const STALE_AFTER_MS = 30_000
 export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
 /** A terminal status (error / interrupted) stays visible this long (ms), then the agent reads "closed" */
 export const TERMINAL_STATUS_VISIBLE_MS = 2 * 60_000
+/** A live agent silent for more than this long (ms) is reported as silent for N min, or as waiting for a permission (#226) */
+export const SILENT_AFTER_MS = 5 * 60_000
 /** Period (ms) of the one shared freshness clock */
 export const FRESHNESS_TICK_MS = 1000
 /** Max agent names listed in one screen reader announcement */

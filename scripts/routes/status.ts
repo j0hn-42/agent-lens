@@ -8,6 +8,7 @@ import { guardedRoute, sendJson, sendPlain, type RouteHandler } from './guard'
 export interface StatusSnapshot {
   sessionCount: number
   hooksConfigured: boolean
+  disable1MContext: boolean
   skippedSessions: RelayStatus['skippedSessions']
 }
 
@@ -37,6 +38,7 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       workspace: deps.base.workspace,
       runtimes: deps.base.runtimes,
       hooksConfigured: snapshot.hooksConfigured,
+      disable1MContext: snapshot.disable1MContext,
       sessionCount: snapshot.sessionCount,
       skippedSessions: snapshot.skippedSessions,
       allWorkspaces: deps.base.allWorkspaces,

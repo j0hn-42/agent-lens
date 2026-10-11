@@ -61,6 +61,7 @@ import { useFreshnessValue } from "@/hooks/use-freshness-clock"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
 import { summarizeAttention, withForeignAttention } from "@/lib/attention"
+import { assessHealth, detectLoops } from "@/lib/loop-detection"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 import { useNotificationRules } from "@/hooks/use-notification-rules"
 
@@ -120,6 +121,7 @@ export function AgentVisualizer() {
     edges,
     discoveries,
     fileAttention,
+    waste,
     timelineEntries,
     currentTime,
     isPlaying,
@@ -527,6 +529,12 @@ export function AgentVisualizer() {
   const attentionSession = attention.firstSessionId
   const agentsRef = useRef(agents)
   agentsRef.current = agents
+  // Loop verdict (#230), per agent and per session, from the tool calls kept in the conversations of this view.
+  // Recomputed when a conversation changes, not on every frame; an agent's session never changes.
+  const health = useMemo(
+    () => assessHealth(conversations, droppedMessages, k => agentsRef.current.get(k)?.sessionId),
+    [conversations, droppedMessages],
+  )
   // An agent of another session is not in this view: go to its session instead
   const jumpToAttention = useCallback(() => {
     if (!attentionTarget) return
@@ -882,6 +890,8 @@ export function AgentVisualizer() {
             key={selectedAgent.id}
             agent={selectedAgent}
             toolErrors={selectedAgent.toolErrors}
+            health={health.byAgent.get(selectedAgent.id) ?? detectLoops([], droppedMessages.get(selectedAgent.id) ?? 0)}
+            sessionHealth={health.bySession.get(selectedAgent.sessionId)}
             relayOrigin={bridge.relayOrigin}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
@@ -971,6 +981,8 @@ export function AgentVisualizer() {
         <FileAttentionPanel
           visible={showFileAttention}
           fileAttention={fileAttention}
+          waste={waste}
+          agents={agents}
           onClose={() => setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
         />
@@ -981,6 +993,7 @@ export function AgentVisualizer() {
         <SessionListPanel
           visible={showSessions}
           attention={attention}
+          health={health.bySession}
           onClose={() => setShowSessions(false)}
           sessions={bridge.sessions}
           allSessionCount={allSessionCount}

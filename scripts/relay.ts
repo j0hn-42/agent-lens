@@ -11,7 +11,7 @@ import * as os from 'os'
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEntry } from '../extension/src/protocol'
 import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, readLinesChunked, foldPathCase, runGuarded } from '../extension/src/fs-utils'
+import { safeWatch, readTrackedLines, readLinesChunked, runGuarded } from '../extension/src/fs-utils'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { handlePermissionDetection } from '../extension/src/permission-detection'
@@ -39,7 +39,8 @@ import {
   listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
-import { isHooksConfigured } from '../extension/src/claude-settings'
+import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-settings'
+import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
 import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
@@ -629,14 +630,8 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
   if (!allWorkspaces) {
     let resolved = workspace
     try { resolved = fs.realpathSync(resolved) } catch {}
-    const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
-    // Case-folded on Windows — VS Code/shells report `c:\...` while Claude Code
-    // encodes `C--...`, so exact string matching never found the project dir there.
-    const encodedFolded = foldPathCase(encoded)
-    match = (name) => {
-      const nameFolded = foldPathCase(name)
-      return nameFolded === encodedFolded || nameFolded.startsWith(encodedFolded + '-')
-    }
+    // Case-folded on Windows, cut-and-hashed names matched by prefix (#249)
+    match = projectDirMatcher(resolved)
   }
   // --all-workspaces: every real (non-symlink) project dir directly under ~/.claude/projects
   const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
@@ -903,9 +898,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     teamWatcher.start()
 
     const resolved = (() => { try { return fs.realpathSync(workspace) } catch { return workspace } })()
-    const encoded = resolved.replace(/[^a-zA-Z0-9]/g, '-')
-    const projectDir = path.join(CLAUDE_DIR, encoded)
-    if (fs.existsSync(projectDir)) {
+    const projectDir = encodeProjectDirName(resolved).length > PROJECT_DIR_NAME_MAX
+      ? listProjectDirs(CLAUDE_DIR, projectDirMatcher(resolved), 1)[0]
+      : path.join(CLAUDE_DIR, encodeProjectDirName(resolved))
+    if (projectDir && fs.existsSync(projectDir)) {
       try {
         projectDirWatcher = safeWatch(projectDir, (_eventType, filename) => {
           if (filename?.endsWith('.jsonl')) scanNow?.()
@@ -1016,12 +1012,13 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     computeSnapshot: async () => {
       statusComputations++
       const hooksConfigured = wantClaude ? await hooksProbe(workspace) : false
+      const disable1MContext = wantClaude ? isDisable1MContext() : false
       let sessionCount = 0
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
       return {
-        sessionCount, hooksConfigured,
+        sessionCount, hooksConfigured, disable1MContext,
         skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size },
       }
     },

@@ -213,6 +213,23 @@ test('hooksConfigured comes from GET /status only when the relay watches Claude 
   assert.equal(result2.current.hooksConfigured, undefined, 'Codex only: the flag says nothing')
 })
 
+test('disable1MContext comes from GET /status in relay mode, only when the relay watches Claude Code (#249)', async () => {
+  relayEnv('4321')
+  const g = globalThis as unknown as { fetch: unknown }
+  let body: unknown = { runtimes: ['claude'], hooksConfigured: true, disable1MContext: true }
+  g.fetch = async () => ({ ok: true, json: async () => body })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.disable1MContext, false)
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(result.current.disable1MContext, true)
+  body = { runtimes: ['codex'], hooksConfigured: false, disable1MContext: true }
+  const second = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(second.result.current.disable1MContext, false, 'Codex only: the Claude Code flag says nothing')
+})
+
 test('unmount closes the stream and cancels reconnect timers', async () => {
   relayEnv()
   const { unmount } = renderHook(() => useVSCodeBridge())

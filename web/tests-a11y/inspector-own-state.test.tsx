@@ -34,6 +34,24 @@ test('peer card: own stale freshness, own last event and own errors, not the anc
   assert.equal(d.queryByText('repo-a'), null)
 })
 
+test('silent agent: the card says for how long, with its last known state, and is not shown when fresh', () => {
+  const silent = { ...base, id: 's4:main', name: 'Quiet', lastEventAt: NOW - 7 * 60_000 - 5_000, freshnessSource: 'live' as const }
+  const v = render(<AgentDetailCard agent={silent} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-silence').textContent, 'last known state: Thinking, silent for 7 min')
+  v.rerender(<AgentDetailCard agent={anchor} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.queryByTestId('inspector-silence'), null)
+  v.rerender(<AgentDetailCard agent={peer} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.queryByTestId('inspector-silence'), null, 'stale for under five minutes: only the last known state')
+})
+
+test('pending permission: told apart from silence, and never shown for a history status', () => {
+  const waiting = { ...base, id: 's5:main', name: 'Asker', state: 'waiting_permission' as const, lastEventAt: NOW - 9 * 60_000, freshnessSource: 'live' as const }
+  const v = render(<AgentDetailCard agent={waiting} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-silence').textContent, 'waiting for permission for 9 min')
+  v.rerender(<AgentDetailCard agent={{ ...waiting, freshnessSource: 'history' }} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.queryByTestId('inspector-silence'), null)
+})
+
 test('rapid selection change: the card for the new node replaces every value of the previous one', () => {
   const v = render(<AgentDetailCard key={anchor.id} agent={anchor} toolErrors={0} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-freshness').textContent, 'Live')

@@ -27,6 +27,7 @@ import {
   type RuntimeFilter, type SessionFilter,
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
+import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
 import { FreshnessAnnouncer } from './freshness-announcer'
@@ -77,6 +78,8 @@ interface SessionListPanelProps {
   observedSessionIds?: ReadonlySet<string>
   /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
   attention?: AttentionSummary
+  /** Loop verdict per session id (#230): only sessions whose events are in the view have one */
+  health?: ReadonlyMap<string, HealthVerdict>
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
   /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
@@ -245,7 +248,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
   filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
@@ -699,6 +702,11 @@ export function SessionListPanel({
                         {sessionAttentionText(attention.bySession.get(session.id)) && (
                           <span className="shrink-0 font-semibold" data-testid="session-attention" style={{ color: attention.bySession.get(session.id)!.waiting > 0 ? COLORS.waiting_permission : COLORS.error }}>
                             <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
+                          </span>
+                        )}
+                        {sessionHealthText(health?.get(session.id)) && (
+                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.waiting_permission }}>
+                            <span aria-hidden="true">⟳ </span>{sessionHealthText(health?.get(session.id))}
                           </span>
                         )}
                         {/* Cost and activity have their own columns from this width on */}

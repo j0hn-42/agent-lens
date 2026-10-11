@@ -83,3 +83,7 @@ mode only; the VS Code webview and the demo show no section.
 
 Only relay mode (dev relay, standalone app) serves links; the VS Code webview has no relay and shows none. In
 `--all-workspaces` mode the repository is that of the relay's own workspace.
+
+## Health: loop verdict (#230)
+
+The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui.md#loops-and-health-verdict).

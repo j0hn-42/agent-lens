@@ -9,7 +9,8 @@ import {
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { MODEL_FAMILY_CONTEXT, DEFAULT_CONTEXT_SIZE, FALLBACK_CONTEXT_SIZE, ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
+import { contextWindowSize } from '@/lib/context-window'
+import { ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
@@ -107,14 +108,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     syncForceSimulation(frameRef.current.agents, frameRef.current.edges)
   }, [sessionProjects, syncForceSimulation])
 
-  const getContextWindowSize = useCallback((modelId?: string): number => {
-    if (!modelId) return disable1MContext ? DEFAULT_CONTEXT_SIZE : FALLBACK_CONTEXT_SIZE
-    const id = modelId.toLowerCase()
-    for (const { pattern, size } of MODEL_FAMILY_CONTEXT) {
-      if (pattern.test(id)) return disable1MContext ? Math.min(size, DEFAULT_CONTEXT_SIZE) : size
-    }
-    return DEFAULT_CONTEXT_SIZE
-  }, [disable1MContext])
+  const getContextWindowSize = useCallback(
+    (modelId?: string): number => contextWindowSize(modelId, disable1MContext),
+    [disable1MContext],
+  )
 
   // A burst of spawns schedules one deferred layout sync per agent: the first one runs, the others queued
   // behind it are skipped (each sync rebuilds every node, and it reads frameRef, so one sees every spawn)
@@ -430,6 +427,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     particles: state.particles, edges: state.edges,
     discoveries: state.discoveries,
     fileAttention: state.fileAttention,
+    /** Repeated reads and identical calls (see lib/waste) */
+    waste: state.waste,
     timelineEntries: state.timelineEntries,
     currentTime: state.currentTime, isPlaying: state.isPlaying, speed: state.speed,
     maxTimeReached: state.maxTimeReached,

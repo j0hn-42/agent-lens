@@ -9,7 +9,7 @@ import {
 } from '../web/lib/bridge-types'
 import { sessionStatusKind, SESSION_STATUS_TEXT } from '../web/lib/chrome-utils'
 import { SESSION_IMPORTED_TEXT, SESSION_IMPORTED_HELP } from '../web/lib/session-model'
-import { deriveFreshness } from '../web/hooks/simulation/freshness'
+import { deriveFreshness, deriveSilence } from '../web/hooks/simulation/freshness'
 import { processEventBatch, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, agentKeyOf } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
@@ -73,4 +73,10 @@ test('agents touched by an imported event are stamped with the imported source',
   const agent = state.agents.get(agentKeyOf('cloud', 'orchestrator'))!
   assert.equal(agent.freshnessSource, 'imported')
   assert.equal(deriveFreshness(agent, 5000), 'stale', 'the recorded tool call is not shown as running now')
+})
+
+test('an imported status is never reported as a silence: its age is not a wall-clock silence', () => {
+  const now = 10 * 3_600_000
+  assert.equal(deriveSilence({ state: 'tool_calling', lastEventAt: 0, freshnessSource: 'imported' }, now), null)
+  assert.equal(deriveSilence({ state: 'waiting_permission', lastEventAt: 0, freshnessSource: 'imported' }, now), null)
 })

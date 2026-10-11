@@ -17,6 +17,21 @@ test('agentRowView: a stale status is said as last known, never as current', () 
   assert.match(view.detail, /^last known state:/)
 })
 
+test('agentRowView: a silent agent says how long, a pending permission is told apart', () => {
+  const silent = agentRowView({ ...base, state: 'thinking' }, 1000 + 6 * 60_000)
+  assert.equal(silent.detail, 'last known state: Thinking, silent for 6 min')
+  const perm = agentRowView({ ...base, state: 'waiting_permission' }, 1000 + 6 * 60_000)
+  assert.equal(perm.detail, 'waiting for permission for 6 min')
+  const brief = agentRowView({ ...base, state: 'thinking' }, 1000 + 2 * 60_000)
+  assert.equal(brief.detail, 'last known state: Thinking', 'under five minutes nothing is added')
+})
+
+test('signature: the minute of a silent agent changes it, a plain tick inside the minute does not', () => {
+  const at = (ms: number) => agentTreeSignature(node(base), 1000 + ms)
+  assert.notEqual(at(6 * 60_000), at(7 * 60_000))
+  assert.equal(at(6 * 60_000), at(6 * 60_000 + 20_000))
+})
+
 test('signature: unchanged content gives the same signature, even for a new object', () => {
   assert.equal(agentTreeSignature(node(base), 1500), agentTreeSignature(node({ ...base }), 1500))
 })
