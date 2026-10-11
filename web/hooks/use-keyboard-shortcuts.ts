@@ -54,6 +54,18 @@ export function shouldHandleShortcut(
   return singleKeyEnabled
 }
 
+/**
+ * Ctrl+K / Cmd+K opens the command palette (#243). It is a modifier combo, so it is not a single-key
+ * shortcut (WCAG 2.1.4) and works whatever that preference says. It is offered from text fields and
+ * buttons (the usual place to be when reaching for it) but not from inside another dialog, whose focus
+ * trap the palette would break.
+ */
+export function isPaletteShortcut(e: ShortcutEventLike & { shiftKey: boolean }): boolean {
+  if (e.key.toLowerCase() !== 'k' || e.altKey || e.shiftKey || (!e.ctrlKey && !e.metaKey)) return false
+  const t = (e.target ?? null) as TargetLike | null
+  return !(t && typeof t.closest === 'function' && t.closest('[role="dialog"]'))
+}
+
 export function useKeyboardShortcuts(actions: {
   togglePlayPause: () => void
   toggleFilePanel: () => void
@@ -74,6 +86,8 @@ export function useKeyboardShortcuts(actions: {
   setSpeed: (speed: number) => void
   /** Open the keyboard shortcuts dialog (`?`) */
   openShortcuts: () => void
+  /** Open the command palette (`Ctrl+K` / `Cmd+K`) */
+  openPalette?: () => void
   /** Run the action of the newest toast (Undo); returns true if one ran */
   undoLast: () => boolean
   /** True while a visible toast has an Undo action (lets U fire from buttons and tabs) */
@@ -86,6 +100,11 @@ export function useKeyboardShortcuts(actions: {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const a = actionsRef.current
+      if (a.openPalette && isPaletteShortcut(e)) {
+        e.preventDefault()
+        a.openPalette()
+        return
+      }
       if (!shouldHandleShortcut(e, a.singleKeyEnabled, { undoAvailable: a.canUndo?.() ?? false })) return
 
       switch (e.key) {
