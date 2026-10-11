@@ -207,9 +207,12 @@ describe('safe discovery', () => {
 
 describe('isCrossOriginRequest (#102)', () => {
   const host = '127.0.0.1:3001'
-  it('refuses Sec-Fetch-Site cross-site', () => {
+  it('refuses Sec-Fetch-Site cross-site when the Origin is absent (no-cors fetch, iframe)', () => {
     assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site' }, host), true)
-    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site', origin: 'http://localhost:3000' }, host), true)
+  })
+  it('decides on the Origin alone when present: the dev UI (localhost:3000 -> 127.0.0.1) is cross-site for the browser yet accepted', () => {
+    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site', origin: 'http://localhost:3000' }, host), false)
+    assert.equal(isCrossOriginRequest({ 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }, host), true)
   })
   it('accepts requests without browser fetch metadata (curl, MCP clients, server-side callers)', () => {
     assert.equal(isCrossOriginRequest({}, host), false)

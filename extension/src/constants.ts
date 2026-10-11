@@ -403,6 +403,10 @@ export const RELAY_ISSUE_LINKS_PROBE_WINDOW_MS = 60_000
 /** Default freshness of the session index cache (ms) */
 export const RELAY_SESSION_INDEX_CACHE_MS = 30_000
 export const RELAY_STATUS_RATE_PER_S = 5
+/** Token bucket per client address for GET /events (#200): each connection triggers a scan and a replay.
+ *  The burst stays above the client cap (RELAY_MAX_SSE_CLIENTS) so that legitimate tabs and reconnects are never refused. */
+export const RELAY_SSE_RATE_BURST = 48
+export const RELAY_SSE_RATE_PER_S = 1
 /** Max distinct clients tracked by the /status rate limiter */
 export const RELAY_STATUS_RATE_MAX_KEYS = 64
 

@@ -12,7 +12,7 @@ export interface ContextRouteDeps {
 }
 
 export function createContextRoute(deps: ContextRouteDeps): RouteHandler {
-  return guardedRoute({ limiter: deps.limiter }, (req, res) => {
+  return guardedRoute({ limiter: deps.limiter, rejectCrossOrigin: true }, (req, res) => {
     let sessionId: string | null = null
     try { sessionId = new URL(req.url ?? '', 'http://localhost').searchParams.get('session') } catch { /* handled below */ }
     if (!isValidSessionId(sessionId)) return sendPlain(res, 400, 'Invalid session parameter')
