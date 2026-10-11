@@ -72,12 +72,19 @@ describe('relay: GET /events guards (#200)', () => {
     assert.equal(after.scanRuns, before.scanRuns)
   })
 
-  it('accepts a same-site dev UI origin and a request without Origin', async () => {
-    const a = await connect({ Origin: 'http://localhost:3000', 'Sec-Fetch-Site': 'same-site' })
+  it('accepts the real dev UI headers (Origin localhost:3000 + Sec-Fetch-Site cross-site) and a request without Origin', async () => {
+    const a = await connect({ Origin: 'http://localhost:3000', 'Sec-Fetch-Site': 'cross-site' })
     assert.equal(a.status, 200)
     const b = await connect()
     assert.equal(b.status, 200)
     a.req.destroy(); b.req.destroy()
+  })
+
+  it('refuses Sec-Fetch-Site cross-site without Origin and a foreign Origin, on /events', async () => {
+    for (const headers of [{ 'Sec-Fetch-Site': 'cross-site' }, { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' }]) {
+      const r = await connect(headers)
+      assert.equal(r.status, 403, JSON.stringify(headers))
+    }
   })
 
   it('rate-limits connection attempts per client with 429 and Retry-After', async () => {
@@ -101,6 +108,20 @@ describe('relay: GET /events guards (#200)', () => {
         }).on('error', reject)
       })
       assert.equal(status, 403, url)
+    }
+  })
+
+  it('accepts the real dev UI headers on /status, /context and /observations, refuses the foreign cases', async () => {
+    const get = (url: string, headers: http.OutgoingHttpHeaders) => new Promise<number>((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port, path: url, agent: false, headers }, res => { res.resume(); resolve(res.statusCode ?? 0) }).on('error', reject)
+    })
+    for (const url of ['/status', '/context?session=x', '/observations']) {
+      const dev = await get(url, { Origin: 'http://localhost:3000', 'Sec-Fetch-Site': 'cross-site' })
+      // /context répond 404 pour une session inconnue : ce qui compte, c'est de ne pas être refusé (403).
+      if (url.startsWith('/context')) assert.notEqual(dev, 403, url)
+      else assert.equal(dev, 200, url)
+      assert.equal(await get(url, { 'Sec-Fetch-Site': 'cross-site' }), 403, url)
+      assert.equal(await get(url, { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' }), 403, url)
     }
   })
 })

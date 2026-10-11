@@ -345,9 +345,11 @@ export function isContextPath(url: string | undefined): boolean {
  * (curl, MCP clients) are not browser-driven and pass.
  */
 export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[]; host?: string }, host: string | undefined): boolean {
-  if (headers['sec-fetch-site'] === 'cross-site') return true
   const origin = headers.origin
-  if (origin === undefined) return false
+  // Sans Origin (fetch no-cors, iframe) : seul Sec-Fetch-Site peut trahir un appel d'un autre site.
+  // Avec Origin : on décide d'après lui seul. L'UI de dev (localhost:3000 -> 127.0.0.1) est cross-site
+  // pour le navigateur mais son Origin est autorisé.
+  if (origin === undefined) return headers['sec-fetch-site'] === 'cross-site'
   if (typeof origin !== 'string') return true
   if (host !== undefined && origin === `http://${host}`) return false
   return !DEV_WEB_ORIGIN_PATTERN.test(origin)
