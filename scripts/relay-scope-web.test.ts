@@ -88,7 +88,7 @@ test('the summary states the scope that is really scanned, with the workspace na
 })
 
 test('an empty list on this workspace says the scope is limited; on all workspaces it does not', () => {
-  assert.match(scopeEmptyHint(state())!, /this workspace only/i)
+  assert.match(scopeEmptyHint(state())!, /only the sessions of this workspace/i)
   assert.match(scopeEmptyHint(state())!, /All workspaces/)
   assert.equal(scopeEmptyHint(state({ scope: 'all' })), null)
   assert.equal(scopeEmptyHint(null), null, 'scope unknown (no relay): nothing is claimed')
@@ -100,9 +100,9 @@ test('ceilings that were hit are listed, with their numbers; none hit, nothing i
   const notices = scopeNotices(hit)
   assert.equal(notices.length, 4)
   assert.ok(notices.some(n => /first 200 project folders/.test(n)))
-  assert.ok(notices.some(n => /at least 2/.test(n) && /500/.test(n)))
-  assert.ok(notices.some(n => /at least 1/.test(n) && /too large/i.test(n)))
-  assert.ok(notices.some(n => /at least 3/.test(n) && /limit/i.test(n)))
+  assert.ok(notices.some(n => /at least 2/i.test(n) && /500/.test(n)))
+  assert.ok(notices.some(n => /at least 1/i.test(n) && /too large/i.test(n)))
+  assert.ok(notices.some(n => /at least 3/i.test(n) && /limit/i.test(n)))
 })
 
 test('applyRelayScope POSTs strict JSON and trusts only a coherent answer', async () => {

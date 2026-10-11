@@ -20,6 +20,7 @@ import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
 import { SessionListPanel } from "./session-list-panel"
+import { planScopeChoice, scopeEmptyHint, type ScopeChoice } from "@/lib/relay-scope"
 import { ProjectContextPanel } from "./project-context-panel"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
@@ -83,7 +84,12 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
 }
 
 export function AgentVisualizer() {
-  const bridge = useVSCodeBridge()
+  // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
+  // Speed is deliberately not persisted; the Sessions panel is not in the schema.
+  const uiPrefs = useUiPreferences()
+  const { prefs, setPref, getPrefs } = uiPrefs
+  // The project filter is also the project scope of the All view (#291)
+  const bridge = useVSCodeBridge({ projectScope: prefs.sessionFilterProject })
   // A theme switch re-renders the whole tree so every COLORS-based inline style repaints
   useThemeVersion()
 
@@ -186,10 +192,6 @@ export function AgentVisualizer() {
     pushToast({ message: n.message, durationMs: n.kind === 'relay-down' ? 8000 : 5000 })
   }, [bridge.notice, pushToast])
 
-  // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
-  // Speed is deliberately not persisted; the Sessions panel is not in the schema.
-  const uiPrefs = useUiPreferences()
-  const { prefs, setPref, getPrefs } = uiPrefs
   const [showStats, setShowStats] = usePersistedFlag('showStats', uiPrefs)
   const [showHexGrid, setShowHexGrid] = usePersistedFlag('showHexGrid', uiPrefs)
   const [showCostOverlay, setShowCostOverlay] = usePersistedFlag('showCostOverlay', uiPrefs)
@@ -705,7 +707,30 @@ export function AgentVisualizer() {
     sessionCount: detectedSessions(bridge.sessions).length,
     hooksConfigured: bridge.hooksConfigured,
     isVSCode: bridge.isVSCode,
+    scope: bridge.relayScope?.scope,
   })
+
+  // Scope selector (#291). The shown scope is the relay's own report; a choice becomes the remembered one only once the relay applied it.
+  const { relayScope, setRelayScope } = bridge
+  const chooseScope = useCallback((choice: ScopeChoice) => {
+    const plan = planScopeChoice(choice, relayScope?.scope ?? 'workspace')
+    setPref('sessionFilterProject', plan.projectId)
+    if (choice.kind === 'project') return
+    if (relayScope && plan.relayScope === relayScope.scope) { setPref('relayScope', plan.relayScope); return }
+    void setRelayScope(plan.relayScope).then(ok => { if (ok) setPref('relayScope', plan.relayScope) })
+  }, [relayScope, setRelayScope, setPref])
+  const scopeProps = useMemo(() => ({
+    state: relayScope, sessions: bridge.sessions, projectId: prefs.sessionFilterProject,
+    pending: bridge.relayScopePending, error: bridge.relayScopeError, onChoose: chooseScope,
+  }), [relayScope, bridge.sessions, prefs.sessionFilterProject, bridge.relayScopePending, bridge.relayScopeError, chooseScope])
+  // A scope chosen earlier is asked of the relay once per page load, when it reports another one
+  const scopeRestoredRef = useRef(false)
+  useEffect(() => {
+    if (scopeRestoredRef.current || !relayScope) return
+    scopeRestoredRef.current = true
+    const wanted = getPrefs().relayScope
+    if (wanted && wanted !== relayScope.scope) void setRelayScope(wanted)
+  }, [relayScope, setRelayScope, getPrefs])
 
   const handleSeek = (time: number) => {
     seekingRef.current = true
@@ -766,6 +791,7 @@ export function AgentVisualizer() {
         onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode}
         connectionStatus={bridge.connectionStatus}
+        scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         isDemo={bridge.useMockData}
         activeAgentCount={activeAgentCount}
         staleAgentCount={staleAgentCount}
@@ -1013,6 +1039,7 @@ export function AgentVisualizer() {
           filterProject={prefs.sessionFilterProject}
           filterRuntime={prefs.sessionFilterRuntime}
           filterBranch={prefs.sessionFilterBranch}
+          scopeHint={scopeEmptyHint(relayScope)}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)

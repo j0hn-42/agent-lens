@@ -43,7 +43,7 @@ boundary are not merged.
 
 - Listens on `127.0.0.1` only. The default port is unchanged; `AGENT_LENS_PORT=0` (or `--port 0` for
   the standalone app) asks the OS for an ephemeral port, which is printed at startup.
-- `GET`, `HEAD`, `OPTIONS` only (`405` + `Allow` otherwise). `HEAD /events` never opens a stream.
+- `GET`, `HEAD`, `OPTIONS` only (`405` + `Allow` otherwise), plus `POST` on `/scope` and nowhere else (see below). `HEAD /events` never opens a stream.
 - Every response carries `Content-Security-Policy`, `Cache-Control: no-store`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. API/SSE/error responses use
   `default-src 'none'`; the static app uses a strict same-origin policy.
@@ -57,3 +57,48 @@ boundary are not merged.
   existed at startup) or by the scan that runs when the next client connects. That scan runs before the
   client joins the broadcast, so the client receives the session once (session list + replay).
 - The earlier limits (SSE client cap, replay caps, `/status` rate limit) are unchanged.
+
+## Scope of the discovery (#291)
+
+The relay discovers Claude Code sessions in one of two scopes:
+
+| Scope | What is scanned |
+| --- | --- |
+| `workspace` (default) | the project folder of the workspace the relay was started in, and its sub-projects (`<encoded>-...`) |
+| `all` | every real (non-symlink) project folder directly under `~/.claude/projects` |
+
+`--all-workspaces` / `AGENT_LENS_ALL_WORKSPACES=1` only set the **initial** scope. It is changed at run time, without a restart, by the scope selector of the UI, which calls `POST /scope`. "One project" is not a relay scope: it keeps the relay scope and sets the project filter of the UI.
+
+What a change does, in the relay (`setScope`, one entry point):
+
+- widening runs a scan at once: the sessions of the other workspaces are watched and announced (`session-started`);
+- narrowing stops following the sessions of other folders, announces them (`session-ended`), drops their buffered events (a later connection does not replay them) and closes the wake-up watchers of the folders no longer scanned: workspace -> all -> workspace leaves no watcher behind (tested);
+- the "cold" state of the previous scan and the counters below are forgotten and recounted, the Agent Teams watcher follows the new scope, and every SSE client receives `{"type":"relay-scope","allWorkspaces":bool}` so each open tab reloads its view;
+- setting the scope already in force changes nothing and announces nothing.
+
+### `POST /scope`
+
+The only route that changes the relay's state, so the most guarded. Same chain as the other routes (`scripts/routes/guard.ts`), in this order:
+
+1. loopback peer and loopback `Host` (`403`, DNS rebinding);
+2. another site refused (`403`): `Origin` that is not the relay's own or a dev web origin, or `Sec-Fetch-Site: cross-site`; the request is also CORS-preflighted, since `Content-Type: application/json` is not a simple type;
+3. method `POST` (`405`, `Allow: POST`); the server-level guard lets `POST` through on `/scope` only;
+4. rate limit per client (`429`): burst 5, one every 2 s;
+5. `Content-Type: application/json` exactly, optionally `; charset=utf-8` (`415`; `text/plain` and forms are refused);
+6. body of at most 256 bytes and read within 3 s (`413`, `408`);
+7. strict JSON: an object with the single key `scope` whose value is `"workspace"` or `"all"` (`400` for anything else). The client never sends a path or an identifier.
+
+The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. Strict headers (CSP `default-src 'none'`, `no-store`, `nosniff`) as on every API response.
+
+### What `GET /status` says about the scope
+
+`allWorkspaces` is the scope the scan uses **right now** (read when the answer is built, never a value cached with a shared computation), so the UI shows what is scanned, not what was asked. The discovery ceilings, which stay in force in both scopes, are reported and cleared when the scope that hit them is left:
+
+| Field | Ceiling | Reported as |
+| --- | --- | --- |
+| `discovery.projectDirsCapped` | 200 project folders (`maxProjectDirs`), the first ones by name | `true` when more exist |
+| `skippedSessions.fileLimit` | 500 transcripts per folder (`maxFilesPerDir`), the newest kept | sessions left out |
+| `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
+| `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
+
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex and Copilot sessions are matched to the workspace by their own watchers and ignore the scope.

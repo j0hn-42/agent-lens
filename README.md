@@ -80,6 +80,17 @@ To restrict to one runtime:
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`.
 
+### Scope: this workspace, a project, or all workspaces
+
+By default the relay only discovers the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and `npx agent-lens-app` the top bar has a **Session scope** selector (a native select, keyboard operable): **This workspace**, **All workspaces**, or **Project: <name>** (one of the projects in the list). The choice is applied to the running relay, with no restart, and remembered in the browser; the line next to the selector always says what is really scanned ("Scanning this workspace only (name)" / "Scanning all workspaces"), taken from the relay's own `GET /status`, and an empty list on a single workspace says so and how to widen it.
+
+- `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
+- The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
+- A project choice narrows the Sessions list and the **All** view of the canvas to that project; it does not change what the relay scans.
+- Codex and Copilot sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
+
+See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guards.
+
 ### Event sources and the local server
 
 Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).

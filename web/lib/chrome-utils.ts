@@ -361,6 +361,8 @@ export function emptyStateChecklist(opts: {
   /** Claude Code hooks state: undefined when unknown (old relay, Codex/Copilot only): no line, never a default tick */
   hooksConfigured?: boolean
   isVSCode?: boolean
+  /** What the relay really scans (#291); absent = not known (extension, older relay): no claim */
+  scope?: 'workspace' | 'all'
 }): ChecklistItem[] {
   const relayOk = opts.status === 'connected' || opts.status === 'watching'
   const items: ChecklistItem[] = [
@@ -370,7 +372,14 @@ export function emptyStateChecklist(opts: {
       ok: relayOk,
       detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable',
     },
-    { id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching', detail: opts.status === 'watching' ? undefined : 'only the current workspace is watched' },
+    opts.scope === 'all'
+      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk }
+      : {
+          id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching',
+          detail: opts.status === 'watching' ? undefined
+            : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
+            : 'only the current workspace is watched',
+        },
     { id: 'runtime', label: 'Claude Code, Codex or Copilot session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
   if (opts.hooksConfigured !== undefined) {

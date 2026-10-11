@@ -28,8 +28,9 @@ Options:
   -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT}; 0 = ephemeral,
                        env: AGENT_LENS_PORT=0)
   --no-open            Don't open the browser automatically
-  --all-workspaces     Also discover Claude sessions from other workspaces
-                       (env: AGENT_LENS_ALL_WORKSPACES=1)
+  --all-workspaces     Start by discovering Claude sessions from every workspace
+                       (env: AGENT_LENS_ALL_WORKSPACES=1); the scope selector
+                       in the UI changes it later without a restart
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)

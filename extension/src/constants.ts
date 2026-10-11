@@ -403,6 +403,11 @@ export const RELAY_ISSUE_LINKS_PROBE_WINDOW_MS = 60_000
 /** Default freshness of the session index cache (ms) */
 export const RELAY_SESSION_INDEX_CACHE_MS = 30_000
 export const RELAY_STATUS_RATE_PER_S = 5
+/** POST /scope (#291) changes what the relay scans: a small burst, slow refill, a tiny body, and a deadline to send it */
+export const RELAY_SCOPE_RATE_BURST = 5
+export const RELAY_SCOPE_RATE_PER_S = 0.5
+export const RELAY_SCOPE_BODY_MAX_BYTES = 256
+export const RELAY_SCOPE_BODY_TIMEOUT_MS = 3000
 /** Token bucket per client address for GET /events (#200): each connection triggers a scan and a replay.
  *  The burst stays above the client cap (RELAY_MAX_SSE_CLIENTS) so that legitimate tabs and reconnects are never refused. */
 export const RELAY_SSE_RATE_BURST = 48
@@ -439,6 +444,8 @@ export const EPHEMERAL_PORT = 0
 export const LOOPBACK_HOST = '127.0.0.1'
 /** HTTP methods the local servers accept (anything else gets 405) */
 export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
+/** The only path that also accepts POST (#291): the route behind it applies its own guards and strict body check */
+export const SERVER_POST_PATHS = ['/scope'] as const
 /** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 /** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */

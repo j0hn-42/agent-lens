@@ -20,7 +20,8 @@ const FAILURE_RETRY_AFTER_S = 10
 
 export interface IssueLinksRouteDeps {
   limiter: KeyedRateLimiter
-  allWorkspaces: boolean
+  /** Lu à chaque requête : la portée change à l'exécution (#291) */
+  allWorkspaces: boolean | (() => boolean)
   /** Le cwd connu d'une session (suivie, ou issue de l'index). */
   cwdOf: (sessionId: string) => string | undefined
   probe: (role: string, cwd?: string) => Promise<IssueLink[]>
@@ -51,7 +52,7 @@ export function createIssueLinksRoute(deps: IssueLinksRouteDeps): RouteHandler {
     const scope = issueLinksScope({
       session: sessionParam,
       cwd: sessionParam ? deps.cwdOf(sessionParam) : undefined,
-      allWorkspaces: deps.allWorkspaces,
+      allWorkspaces: typeof deps.allWorkspaces === 'function' ? deps.allWorkspaces() : deps.allWorkspaces,
     })
     // The project of this session is unknown: the relay's own repository would be another project's work
     if (workView && scope.kind === 'unknown') return sendPlain(res, 404, 'Unknown project for this session')

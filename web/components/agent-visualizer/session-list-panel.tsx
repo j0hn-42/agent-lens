@@ -87,6 +87,8 @@ interface SessionListPanelProps {
   filterRuntime?: RuntimeFilter | null
   filterBranch?: string | null
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
+  /** Why an empty list may be incomplete (#291): shown with the empty state when the scope is a single workspace */
+  scopeHint?: string | null
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -249,7 +251,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
@@ -545,7 +547,7 @@ export function SessionListPanel({
           )}
           {filtering && (
             <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
-              Filter applies to this list only; the canvas still shows every session of the view.
+              Filter applies to this list only; the canvas still shows every session of the view, except that the project also narrows the All view.
             </p>
           )}
         </div>
@@ -558,6 +560,7 @@ export function SessionListPanel({
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
               {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {scopeHint && !filtering && <span className="block mt-1">{scopeHint}</span>}
             </div>
           )}
           <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">

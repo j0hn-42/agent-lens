@@ -2,6 +2,8 @@
 // named, keyboard operable, stating the scope the relay REALLY scans, with the discovery ceilings that were hit.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
+import fs from 'node:fs'
+import path from 'node:path'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
@@ -91,7 +93,7 @@ test('the ceilings that were hit are listed in a polite live region; none, no no
   const region = hit.container.querySelector('[data-scope-notices]') as HTMLElement
   assert.equal(region.getAttribute('role'), 'status')
   assert.match(region.textContent ?? '', /first 200 project folders/)
-  assert.match(region.textContent ?? '', /at least 4/)
+  assert.match(region.textContent ?? '', /at least 4/i)
 })
 
 test('a failed change is said, and the shown scope is still the scanned one', () => {
@@ -111,11 +113,12 @@ test('no axe violation, with notices and an error showing', async () => {
   assert.deepEqual(results.violations.map(v => v.id), [])
 })
 
-test('colours come from tokens and no animation is declared', () => {
-  const { container } = render(<ScopeSelector {...base} state={state({ allWorkspaces: true })} pending />)
-  const html = container.innerHTML
-  assert.doesNotMatch(html, /#[0-9a-fA-F]{3,8}\b/, 'no hard-coded hex colour')
-  assert.doesNotMatch(html, /animate-|transition/, 'no motion')
+test('colours come from the theme tokens and no animation is declared', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'components', 'agent-visualizer', 'scope-selector.tsx'), 'utf8')
+  assert.doesNotMatch(source, /#[0-9a-fA-F]{3,8}\b/, 'no hard-coded hex colour')
+  assert.doesNotMatch(source, /rgba?\(|hsla?\(/, 'no hard-coded colour function')
+  assert.doesNotMatch(source, /animate-|transition|@keyframes/, 'no motion, so nothing to switch off for prefers-reduced-motion')
+  assert.match(source, /COLORS\./, 'colours are read from COLORS')
 })
 
 const topBarProps: TopBarProps = {
