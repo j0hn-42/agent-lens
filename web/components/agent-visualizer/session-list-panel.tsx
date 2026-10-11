@@ -647,7 +647,7 @@ export function SessionListPanel({
                         onSubmit={e => { e.preventDefault(); endRename(true) }}
                       >
                         <input
-                          autoFocus
+                          ref={el => { if (el && document.activeElement !== el && !el.dataset.focused) { el.dataset.focused = '1'; el.focus(); el.select() } }}
                           type="text"
                           value={draft}
                           maxLength={ALIAS_MAX_LENGTH}
