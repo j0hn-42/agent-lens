@@ -61,7 +61,13 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
     transitions.push(...team.transitions)
 
     if (transitions.length > 0) {
-      const next = enqueueAnnouncements(announcementsRef.current, transitions)
+      let multiSession = false
+      let firstSession: string | undefined
+      for (const a of agents.values()) {
+        if (firstSession === undefined) firstSession = a.sessionId
+        else if (a.sessionId !== firstSession) { multiSession = true; break }
+      }
+      const next = enqueueAnnouncements(announcementsRef.current, transitions, undefined, { multiSession })
       if (next !== announcementsRef.current) {
         announcementsRef.current = next
         setAnnouncements(next.items)
