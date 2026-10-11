@@ -954,6 +954,7 @@ export function AgentVisualizer() {
           sessionModels={bridge.sessionModels}
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
+          onRenameSession={bridge.renameSession}
           agents={listAgents}
           selectedAgentId={selection.selectedAgentId}
           onSelectAgent={selection.handleAgentClick}

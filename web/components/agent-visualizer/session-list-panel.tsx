@@ -28,6 +28,7 @@ import {
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { emptyMatch } from '@/lib/ui-glossary'
+import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
 import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
@@ -58,6 +59,8 @@ interface SessionListPanelProps {
   sessionModels?: ReadonlyMap<string, string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
+  /** Give a session a name of your own (#246); an empty name restores the original label. Absent = no rename control. */
+  onRenameSession?: (id: string, name: string) => void
   /** Agents of the current view (the selected session, team or all sessions) */
   agents: ReadonlyMap<string, SessionListAgent>
   selectedAgentId: string | null
@@ -241,7 +244,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
-  onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
+  onSelectSession, onCloseSession, onRenameSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
   filterProject, filterRuntime, filterBranch, onFilterChange,
 }: SessionListPanelProps) {
@@ -348,6 +351,26 @@ export function SessionListPanel({
   const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
+  // Inline rename (#246): one row at a time; Enter saves, Escape or leaving the field cancels
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const startRename = (id: string) => {
+    if (!onRenameSession) return
+    setDraft(sessions.find(s => s.id === id)?.label ?? '')
+    setRenaming(id)
+  }
+  const endRename = (save: boolean) => {
+    const id = renaming
+    if (id === null) return
+    setRenaming(null)
+    if (save && onRenameSession) {
+      onRenameSession(id, draft)
+      setAnnouncement(sanitizeAlias(draft) === null ? 'Original name restored' : `Session renamed to ${sanitizeAlias(draft)}`)
+    }
+    // Back on the row, whatever way the field was left
+    requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-row-key="session:${id}"]`)?.focus())
+  }
+
   const toggleCollapsed = (id: string, collapse: boolean) => {
     const label = sessions.find(s => s.id === id)?.label ?? id
     setAnnouncement(`Agents of ${label} ${collapse ? 'collapsed' : 'expanded'}`)
@@ -377,6 +400,13 @@ export function SessionListPanel({
       if (id) {
         e.preventDefault()
         toggleCollapsed(id, e.key === 'ArrowLeft')
+      }
+      return
+    } else if (e.key === 'F2') {
+      const id = target.dataset.closableId
+      if (id && onRenameSession) {
+        e.preventDefault()
+        startRename(id)
       }
       return
     } else if (e.key === 'Delete') {
@@ -611,6 +641,27 @@ export function SessionListPanel({
                     >
                       <span aria-hidden="true">{hasAgents ? (isCollapsed ? '▸' : '▾') : '·'}</span>
                     </button>
+                    {renaming === session.id ? (
+                      <form
+                        className="flex min-w-0 flex-1 items-center gap-1 px-1"
+                        onSubmit={e => { e.preventDefault(); endRename(true) }}
+                      >
+                        <input
+                          autoFocus
+                          type="text"
+                          value={draft}
+                          maxLength={ALIAS_MAX_LENGTH}
+                          aria-label={`New name for session ${session.originalLabel ?? session.label}`}
+                          aria-describedby="session-rename-help"
+                          onChange={e => setDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(false) } }}
+                          onBlur={() => endRename(false)}
+                          className={`min-h-6 min-w-0 flex-1 rounded border bg-transparent px-1 text-xs ${FOCUS_RING}`}
+                          style={{ color: COLORS.textPrimary, borderColor: COLORS.controlBorder }}
+                        />
+                        <span id="session-rename-help" className="sr-only">Enter saves, Escape cancels, an empty name restores the original</span>
+                      </form>
+                    ) : (
                     <button
                       type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
                       data-closable-id={session.id}
@@ -628,7 +679,8 @@ export function SessionListPanel({
                           ,{' '}
                         </span>
                         {badge && <span className="sr-only">{badge.label} session, </span>}
-                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? `${session.label} (renamed; original: ${session.originalLabel})` : session.label}>{session.label}</span>
+                        {session.originalLabel && <span className="sr-only">, renamed, original name {session.originalLabel}</span>}
                       </span>
                       <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
                       <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
@@ -653,6 +705,20 @@ export function SessionListPanel({
                         <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>
+                    )}
+                    {onRenameSession && renaming !== session.id && (
+                      <button
+                        type="button"
+                        aria-label={`Rename session ${session.label}`}
+                        title="Rename session (F2)"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => startRename(session.id)}
+                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        <span aria-hidden="true">✎</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`Close session ${session.label}`}

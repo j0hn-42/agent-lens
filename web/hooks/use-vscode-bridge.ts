@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession } from '@/lib/bridge-types'
+import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
@@ -35,8 +36,10 @@ interface BridgeHookResult {
   hooksConfigured: boolean | undefined
   /** Open a file in the VS Code editor */
   bridgeOpenFile: (filePath: string, line?: number) => void
-  /** Known sessions from the extension */
+  /** Known sessions from the extension (label replaced by the user's own name when renamed, #246) */
   sessions: SessionInfo[]
+  /** Give a session a name of your own (kept in this browser); an empty name restores the original label */
+  renameSession: (sessionId: string, name: string) => void
   /** Currently selected session ID */
   selectedSessionId: string | null
   /** Select a session to view (does not flush events — call flushSessionEvents after state swap). */
@@ -124,6 +127,18 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // Session state
   const [sessions, setSessions] = useState<SessionInfo[]>([])
   const sessionsRef = useRef<SessionInfo[]>([])
+  const [aliases, setAliases] = useState<ReadonlyMap<string, string>>(() => new Map())
+  const displaySessions = useMemo(() => applyAliases(sessions, aliases), [sessions, aliases])
+  const renameSession = useCallback((sessionId: string, name: string) => {
+    setAliases(prev => {
+      const next = setAlias(prev, sessionId, name)
+      try { localStorage.setItem(SESSION_ALIASES_STORAGE_KEY, serializeAliases(next)) } catch { /* storage unavailable: the name lasts for this page */ }
+      return next
+    })
+  }, [])
+  useEffect(() => {
+    try { setAliases(parseAliases(localStorage.getItem(SESSION_ALIASES_STORAGE_KEY))) } catch { /* storage unavailable */ }
+  }, [])
   /** The tour demo declares its sessions (a relay would list them); true while only the demo lists them */
   const demoSessionsRef = useRef(false)
   /** Every change of the session list goes through here so the ref is current before React re-renders
@@ -599,7 +614,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     disable1MContext,
     hooksConfigured,
     bridgeOpenFile,
-    sessions,
+    sessions: displaySessions,
+    renameSession,
     selectedSessionId,
     selectedSessionIdRef,
     selectSession,
