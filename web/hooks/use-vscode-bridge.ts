@@ -303,6 +303,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .then(j => {
         const watchesClaude = Array.isArray(j?.runtimes) && j.runtimes.includes('claude')
         setHooksConfigured(watchesClaude && typeof j.hooksConfigured === 'boolean' ? j.hooksConfigured : undefined)
+        setDisable1MContext(watchesClaude && j.disable1MContext === true)
       })
       .catch(() => {})
     return () => ctl.abort()

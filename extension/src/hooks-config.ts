@@ -130,12 +130,7 @@ export function migrateLegacyHooks(): void {
 
 // ─── Claude Code Environment ─────────────────────────────────────────────────
 
-/** Check whether CLAUDE_CODE_DISABLE_1M_CONTEXT is set (via env or Claude Code settings). */
-export function isDisable1MContext(): boolean {
-  if (process.env.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1') { return true }
-  const settings = readGlobalSettings()
-  return (settings?.env as Record<string, unknown>)?.CLAUDE_CODE_DISABLE_1M_CONTEXT === '1'
-}
+export { isDisable1MContext } from './claude-settings'
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
