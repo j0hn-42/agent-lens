@@ -989,6 +989,8 @@ export function AgentVisualizer() {
           unavailableReason={bridge.isVSCode ? 'Project context is read through the standalone relay; it is not available inside VS Code.'
             : bridge.useMockData ? 'Project context is not available in demo mode.' : undefined}
           fetchContext={fetchContext}
+          relayOrigin={contextOrigin}
+          sessionBranch={bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.branch}
           onClose={() => setShowContext(false)}
         />
       </div>
