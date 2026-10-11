@@ -1,4 +1,4 @@
-import type { Page } from 'playwright'
+import type { Frame, Page } from 'playwright'
 
 // Plain JS string (tsx would inject a __name helper the page lacks). Resolves once the bounding
 // boxes of all visible interactive elements and landmarks are unchanged over two consecutive
@@ -24,6 +24,6 @@ const STABLE_SCRIPT = `new Promise((resolve, reject) => {
   requestAnimationFrame(tick)
 })`
 
-export async function waitForStableLayout(page: Page) {
+export async function waitForStableLayout(page: Page | Frame) {
   await page.evaluate(STABLE_SCRIPT)
 }

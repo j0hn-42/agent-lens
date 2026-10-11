@@ -15,7 +15,7 @@
 //   renders (agent count, card text, stable layout), never for a fixed delay.
 import { test, before, after, describe } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { chromium, type Browser, type Page } from 'playwright'
+import { chromium, type Browser, type Frame } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 
@@ -41,10 +41,17 @@ const spawn = (sessionId: string, payload: Record<string, unknown>) =>
 /** Two sessions: payments-api (main-a and its worker-a, the one shown) and web-app (main-b). */
 async function openWithFakeRelay(width: number, height: number) {
   const context = await browser.newContext({ viewport: { width, height } })
-  const page = await context.newPage()
-  await page.goto(server.url)
+  const host = await context.newPage()
+  // The bridge only accepts messages from window.parent (#202): like VS Code, a host page embeds the app in an
+  // iframe that fills the viewport and posts to it. Same origin as the app, served by a route.
+  await host.route(`${server.url}/__host`, route => route.fulfill({
+    contentType: 'text/html',
+    body: `<!doctype html><title>host</title><style>html,body{margin:0;height:100%}iframe{border:0;width:100%;height:100%}</style><iframe id="app" src="${server.url}"></iframe>`,
+  }))
+  await host.goto(`${server.url}/__host`)
+  const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
   await page.getByRole('button', { name: 'Files' }).waitFor()
-  const post = (data: unknown) => page.evaluate((d) => window.postMessage(d, '*'), data)
+  const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
   await post({ type: '__vscode-bridge-init' })
   await post({ type: 'config', showMockData: false })
   await post({ type: 'session-list', sessions: [info('sa', 'payments-api'), info('sb', 'web-app', { lastActivityTime: Date.now() - 5000 })] })
@@ -60,7 +67,7 @@ async function openWithFakeRelay(width: number, height: number) {
   return { page, close: () => context.close() }
 }
 
-const selectWorker = (page: Page) =>
+const selectWorker = (page: Frame) =>
   page.locator('button[data-graph-node]', { hasText: /^worker-a/ }).first().evaluate((el: HTMLElement) => el.click())
 
 describe('agent inspector in a real browser', () => {
