@@ -66,21 +66,24 @@ test('folder prefix: not repeated under a project heading, nor with a single fol
   assert.equal(nameOf(single.container, 'new'), 'newest work')
 })
 
+const settle = () => new Promise(r => setTimeout(r, 60))
 const handler = (calls: Array<[string, string]>) => (id: string, name: string) => { calls.push([id, name]) }
 
 test('rename by keyboard: F2 opens a named field, Enter saves, focus returns to the row', async () => {
   const calls: Array<[string, string]> = []
   const { container, getByRole } = render(panel({ onRenameSession: handler(calls) }))
+  await settle() // the panel moves focus to its Close button a couple of frames after opening
   row(container, 'new').focus()
   fireEvent.keyDown(row(container, 'new'), { key: 'F2' })
   const input = getByRole('textbox', { name: 'New name for session newest work' }) as HTMLInputElement
-  assert.equal(document.activeElement, input)
+  assert.ok(document.activeElement === input, 'the field has focus')
   fireEvent.change(input, { target: { value: 'my label' } })
   fireEvent.submit(input.closest('form')!)
   assert.deepEqual(calls, [['new', 'my label']])
   assert.equal(container.querySelector('input[type="text"]'), null, 'the field is gone')
-  await new Promise(r => setTimeout(r, 40))
-  assert.equal(document.activeElement, row(container, 'new'))
+  await settle()
+  // compared by identity: a failed assert.equal would diff two DOM trees
+  assert.ok(document.activeElement === row(container, 'new'), 'focus is back on the session row')
   assert.match(container.querySelector('[data-panel-announcer]')!.textContent ?? '', /Session renamed to my label/)
 })
 
