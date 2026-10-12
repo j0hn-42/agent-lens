@@ -36,7 +36,9 @@ import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bri
 import { selectionLabel } from "@/lib/session-tree"
 
 import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
-import { GUIDED_STEPS } from "@/lib/guided-steps"
+import { GUIDED_STEPS, type TourStep } from "@/lib/guided-steps"
+import { buildLiveTourSteps } from "@/lib/live-tour"
+import { EMPTY_PRESENCE, type LegendPresence } from "@/lib/legend-presence"
 import { useGuidedTour } from "@/hooks/use-guided-tour"
 import { GuidedTourCard } from "./guided-tour-card"
 import { TourHighlight } from "./tour-highlight"
@@ -53,6 +55,8 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { SettingsDialog } from "./settings-dialog"
+import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
+import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
 import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
@@ -486,6 +490,26 @@ export function AgentVisualizer() {
     else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
   }, [immersive])
 
+  // Presentation mode (#245): options persist, the mode does not. Escape stops it once nothing else is open.
+  const presentation = usePresentationMode()
+  const presentationOn = presentation.active
+  const presentationMasked = presentationOn && presentation.options.mask
+  usePresentationMaskAttribute(presentationMasked)
+  const presentationSubtitle = usePresentationSubtitle(agents, { enabled: presentationOn && presentation.options.subtitles, mask: presentation.options.mask })
+  const wasPresentingRef = useRef(false)
+  const [presentationNote, setPresentationNote] = useState<string | null>(null)
+  useEffect(() => {
+    if (presentationOn === wasPresentingRef.current) return
+    wasPresentingRef.current = presentationOn
+    setPresentationNote(presentationOn ? 'Presentation mode on' : 'Presentation mode off')
+  }, [presentationOn])
+  const stopPresentation = presentation.stop
+  const closeTopPanelOrImmersiveOrPresentation = useCallback((): boolean => {
+    if (closeTopPanelOrImmersive()) return true
+    if (presentationOn) { stopPresentation(); return true }
+    return false
+  }, [closeTopPanelOrImmersive, presentationOn, stopPresentation])
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -499,7 +523,8 @@ export function AgentVisualizer() {
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     toggleFullscreen,
-    closeTopPanel: closeTopPanelOrImmersive,
+    togglePresentation: presentation.toggle,
+    closeTopPanel: closeTopPanelOrImmersiveOrPresentation,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
@@ -507,7 +532,7 @@ export function AgentVisualizer() {
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersive, toggleFullscreen, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation, toggleFullscreen, presentation.toggle, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -776,9 +801,20 @@ export function AgentVisualizer() {
     resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
   }
 
-  // Guided tour (demo ?scenario=guided): step times only match the guided scenario, so it is offered nowhere else
-  const tour = useGuidedTour({ steps: GUIDED_STEPS, seek: handleSeek, play })
+  // Guided tour. Demo (?scenario=guided): step times only match the guided scenario, so it runs nowhere else.
+  // Real session (#244): the steps are built from what the canvas proves on screen when the tour starts; they have
+  // no scenario time, so the tour neither seeks nor pauses the live scene.
+  const [liveSteps, setLiveSteps] = useState<readonly TourStep[] | null>(null)
+  const tour = useGuidedTour({
+    steps: liveSteps ?? GUIDED_STEPS,
+    seek: liveSteps ? () => {} : handleSeek,
+    play: liveSteps ? () => {} : play,
+  })
   const canvasToScreenRef = useRef<TourBridge['canvasToScreenRef']['current']>(null)
+  // What the canvas proves on screen now (reported by the canvas, read when the live tour starts and by its steps)
+  const [presence, setPresence] = useState<LegendPresence>(EMPTY_PRESENCE)
+  const presenceRef = useRef(presence)
+  presenceRef.current = presence
   // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical.
   // A real source taking over ends the tour: its step times do not match the real event log.
   const [guidedDemo, setGuidedDemo] = useState(false)
@@ -787,10 +823,24 @@ export function AgentVisualizer() {
     if (isGuidedDemo) tour.start()
     else if (tour.active) tour.exit()
   }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
-  const startTour = guidedDemo && !tour.active ? tour.start : undefined
-  const tourBridge = useMemo(() => ({ legendOpen: Boolean(tour.step?.opensLegend), canvasToScreenRef, startTour }), [tour.step, startTour])
+  const startLiveTour = useCallback(() => {
+    const steps = buildLiveTourSteps(presenceRef.current)
+    if (steps.length === 0) return
+    setLiveSteps(steps)
+    tour.start()
+  }, [tour.start])   // eslint-disable-line react-hooks/exhaustive-deps
+  const exitTour = useCallback(() => { tour.exit(); setLiveSteps(null) }, [tour.exit])   // eslint-disable-line react-hooks/exhaustive-deps
+  const canStartLiveTour = !guidedDemo && presence.entries.length > 0
+  const startTour = tour.active ? undefined : guidedDemo ? tour.start : canStartLiveTour ? startLiveTour : undefined
+  const startTourLabel = guidedDemo ? undefined : 'Tour this session'
+  const tourBridge = useMemo(
+    () => ({ legendOpen: Boolean(tour.step?.opensLegend), legendShowAll: guidedDemo, canvasToScreenRef, startTour, startTourLabel, reportPresence: setPresence }),
+    [tour.step, guidedDemo, startTour, startTourLabel],
+  )
+  // A live step is a snapshot: when what it explains left the scene, the card says so instead of going on as if
+  const tourStale = Boolean(liveSteps && tour.step && !tour.step.covers.every(id => presence.entries.includes(id)))
   const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])
-  useEffect(() => { setTourShowsInactive(tour.active) }, [tour.active])
+  useEffect(() => { setTourShowsInactive(tour.active && !liveSteps) }, [tour.active, liveSteps])
 
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
@@ -800,7 +850,7 @@ export function AgentVisualizer() {
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
-        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote}
+        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
@@ -855,6 +905,9 @@ export function AgentVisualizer() {
         onToggleNotify={toggleNotify}
       />
       </div>
+
+      {presentationOn && <PresentationBadge onStop={presentation.stop} />}
+      <PresentationSubtitle text={presentationSubtitle} />
 
       {immersive && (
         <button
@@ -930,6 +983,7 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
         hideInactive={hideInactiveShown}
+        presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -1115,7 +1169,7 @@ export function AgentVisualizer() {
       {tour.active && tour.step && (
         <>
           <TourHighlight key={tour.step.id} target={tour.step.target} getAgents={getTourAgents} />
-          <GuidedTourCard steps={GUIDED_STEPS} index={tour.index} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={tour.exit} />
+          <GuidedTourCard steps={liveSteps ?? GUIDED_STEPS} index={tour.index} stale={tourStale} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={exitTour} />
         </>
       )}
 
@@ -1142,6 +1196,7 @@ export function AgentVisualizer() {
         singleKeyEnabled={singleKeyShortcuts}
         onSingleKeyEnabledChange={updateSingleKeyShortcuts}
         onOpenShortcuts={openShortcuts}
+        presentation={{ active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption }}
         notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
       />
 

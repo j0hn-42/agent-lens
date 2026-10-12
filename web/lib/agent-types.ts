@@ -319,6 +319,7 @@ export interface SimulationEvent {
     | 'message_sent'
     | 'team_info'
     | 'agent_activity'
+    | 'context_compacted'
   payload: Record<string, unknown>
   sessionId?: string
   /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
