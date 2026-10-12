@@ -60,7 +60,9 @@ test('a failed tool call counts a tool error but does not put the agent in error
   const failed = run([orch, start(), { type: 'tool_call_end', time: 2, payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: 'toolu_1', result: 'exit 1', isError: true } }])
   const agent = Array.from(failed.agents.values()).find(a => a.isMain)!
   assert.equal(agent.toolErrors, 1)
-  assert.equal(agent.state, 'thinking')
+  // Neither error (#363) nor a thinking nobody observed (#362): idle between two steps
+  assert.equal(agent.state, 'idle')
+  assert.equal(agent.awaitingNextEvent, true)
 })
 
 test('readToolOutcome: explicit outcome wins over isError, unknown values fall back', () => {
