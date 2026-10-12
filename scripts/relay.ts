@@ -28,7 +28,7 @@ import {
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
-  RELAY_SCOPE_RATE_BURST, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
+  RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -43,7 +43,9 @@ import { isLoopbackAddress, KeyedRateLimiter } from '../extension/src/hook-guard
 import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-settings'
 import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
+import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, defaultExec, type IssueLink } from '../extension/src/issue-links'
+import { parseRepoAllowlist, resolveBudgetUsd, LAUNCH_CAPS } from '../extension/src/launch-policy'
+import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
@@ -56,6 +58,9 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
+import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './routes/launch'
+import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
+import { createFileJournal } from './launch-journal'
 import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
 
 const DISCOVERY_DIR = discoveryDir()
@@ -194,6 +199,11 @@ function broadcast(data: string, sessionId?: string) {
   }
 }
 
+/** Local clients only: what a launch is doing is not for a tunnel Host (#241 keeps /launch off the remote surface). */
+function broadcastLocal(data: string) {
+  for (const res of [...sseClients]) if (!remoteSseClients.has(res)) writeLive(res, data)
+}
+
 // ─── Event buffering ────────────────────────────────────────────────────────
 
 const eventBuffer = new Map<string, AgentEvent[]>()
@@ -286,11 +296,19 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
   }
 }
 
+/** Set by createRelay when launching is enabled (#229): tells the supervisor that a transcript of this session id was seen. */
+let launchSessionSeen: ((sessionId: string) => void) | null = null
+/** Set by createRelay when launching is enabled: the launches a newly connected LOCAL client is told about. */
+let launchSnapshot: (() => LaunchView[]) | null = null
+/** Kills every launched child (SIGKILL). Also called by the crash handler: the children are detached and would outlive the relay. */
+let launchKillAll: (() => void) | null = null
+
 /** Adds the facts of the session index (declared parent, cwd) to a session entry; set up by createRelay. */
 let enrichSession: (info: SessionInfo) => SessionInfo = info => info
 
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
   if (type === 'started') {
+    launchSessionSeen?.(sessionId)
     const live = sessions.get(sessionId)
     if (live && importedSessions.has(sessionId)) {
       broadcast(JSON.stringify({ type: 'session-started', session: enrichSession(toSessionInfo(live)) }), sessionId)
@@ -630,6 +648,10 @@ export interface Relay {
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
   handleScope: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle POST /launch and /launch/<id>/stop (#229): 404 unless the relay was started with --allow-launch */
+  handleLaunch: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** True when launching agents from the relay is on (--allow-launch) */
+  launchEnabled: boolean
   /** Change what the scan covers without a restart (#291): 'workspace' = this workspace only, 'all' = every project folder.
    *  Returns the scope now in force. The flag / env var only gave the initial value. */
   setScope: (scope: RelayScope) => { scope: RelayScope; allWorkspaces: boolean }
@@ -685,6 +707,32 @@ export interface RelayOptions {
    *  with their own https origin and RELAY_MAX_REMOTE_SSE_CLIENTS streams; the other routes stay loopback only.
    *  An invalid value makes createRelay throw (fail closed). Default: none. */
   allowedHosts?: string[]
+  /** Launching an agent on an issue (#229). Absent = OFF: POST /launch answers 404. Present = ON, which needs an explicit
+   *  repository allow-list; an invalid value makes createRelay throw (fail closed). Only a local flag sets it, never a request. */
+  launch?: RelayLaunchOptions
+}
+
+export interface RelayLaunchOptions {
+  /** `owner/name` of the repositories that may be launched on (also required to be the workspace origin) */
+  repos: string[]
+  /** Bearer token. Default: random for this start. Injectable for tests only. */
+  token?: string
+  /** Receives the token once, at creation. The relay keeps it in memory only; it is never served over HTTP. */
+  onToken?: (token: string) => void
+  /** 1 (default) or 2 */
+  maxConcurrent?: number
+  /** `--max-budget-usd` (default and ceiling in launch-policy) */
+  budgetUsd?: number
+  /** Journal file (default `~/.agent-lens/launch-journal.jsonl`) */
+  journalPath?: string
+  // Injectable for tests
+  /** Request budget of POST /launch (default RELAY_LAUNCH_RATE_BURST / RELAY_LAUNCH_RATE_PER_S) */
+  rate?: { burst: number; perSecond: number }
+  journal?: Journal
+  spawn?: SpawnFn
+  killGroup?: KillGroupFn
+  workspaceOrigin?: () => Promise<string | undefined>
+  lookupIssue?: (cmd: { file: 'gh'; args: string[] }) => Promise<string>
 }
 
 export interface RelaySessionIndexOptions {
@@ -723,6 +771,18 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const remoteHosts = parseAllowedHosts(options.allowedHosts ?? [])
   if (remoteHosts.errors.length > 0) throw new Error(`allowedHosts: ${remoteHosts.errors.join('; ')}`)
   const allowedHosts: readonly string[] = remoteHosts.hosts
+  // Launching (#229): validated before anything is started, so a bad flag stops the relay instead of silently disabling the guard
+  let launchAllowlist: ReadonlySet<string> | null = null
+  if (options.launch) {
+    const list = parseRepoAllowlist(options.launch.repos)
+    if (!list.ok || list.value.size === 0) throw new Error('launch: --allow-launch needs at least one valid --launch-repo owner/name')
+    if (options.launch.budgetUsd !== undefined && !resolveBudgetUsd(options.launch.budgetUsd).ok) throw new Error('launch: invalid budget')
+    const cap = options.launch.maxConcurrent
+    if (cap !== undefined && (!Number.isInteger(cap) || cap < 1 || cap > LAUNCH_CAPS.concurrentMax)) {
+      throw new Error(`launch: maxConcurrent must be an integer from 1 to ${LAUNCH_CAPS.concurrentMax}`)
+    }
+    launchAllowlist = list.value
+  }
   relayCreated = true
   maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
@@ -952,6 +1012,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         error_class: err?.constructor?.name ?? 'Error',
       })
     } catch { /* don't let the handler itself crash */ }
+    // Detached launched agents do not die with us: kill them first (#229)
+    try { launchKillAll?.() } catch { /* best effort */ }
     // Preserve default crash-on-uncaught behavior: log, then exit.
     console.error(err)
     process.exit(1)
@@ -995,6 +1057,36 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     probe: issueLinksProbe,
     workProbe: sessionWorkProbe,
   })
+  // Launch an agent on an issue (#229): OFF unless --allow-launch. The route is loopback only, behind a per-start token.
+  let launchSupervisor: LaunchSupervisor | null = null
+  let handleLaunch = createLaunchDisabledRoute()
+  if (options.launch && launchAllowlist) {
+    const opts = options.launch
+    const token = opts.token ?? newLaunchToken()
+    launchSupervisor = createLaunchSupervisor({
+      workspace,
+      journal: opts.journal ?? createFileJournal({ file: opts.journalPath ?? path.join(os.homedir(), '.agent-lens', 'launch-journal.jsonl') }),
+      ...(opts.spawn ? { spawn: opts.spawn } : {}),
+      ...(opts.killGroup ? { killGroup: opts.killGroup } : {}),
+      ...(opts.maxConcurrent !== undefined ? { maxConcurrent: opts.maxConcurrent } : {}),
+      onChange: launch => broadcastLocal(JSON.stringify({ type: 'launch', launch })),
+    })
+    const supervisor = launchSupervisor
+    launchSessionSeen = id => supervisor.sessionSeen(id)
+    launchSnapshot = () => supervisor.list()
+    launchKillAll = () => supervisor.dispose()
+    handleLaunch = createLaunchRoute({
+      limiter: new KeyedRateLimiter(opts.rate?.burst ?? RELAY_LAUNCH_RATE_BURST, opts.rate?.perSecond ?? RELAY_LAUNCH_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS),
+      token, allowlist: launchAllowlist, supervisor,
+      workspaceOrigin: opts.workspaceOrigin ?? (() => repoUrlOf(workspace)),
+      lookupIssue: opts.lookupIssue ?? (cmd => defaultExec(cmd.file, cmd.args, { cwd: workspace })),
+      ...(opts.budgetUsd !== undefined ? { budgetUsd: opts.budgetUsd } : {}),
+    })
+    opts.onToken?.(token)
+  }
+  const launchStatus = launchSupervisor
+    ? () => ({ maxConcurrent: launchSupervisor!.maxConcurrent, launches: launchSupervisor!.list() })
+    : undefined
   const handleStatus = createStatusRoute({
     limiter: statusLimiter,
     coalescer: statusCoalescer,
@@ -1019,6 +1111,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     }),
     readIndex,
     allowedHosts,
+    ...(launchStatus ? { launch: launchStatus } : {}),
   })
   const handleContext = createContextRoute({
     limiter: contextLimiter,
@@ -1055,6 +1148,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   return {
     handleScope,
+    handleLaunch,
+    launchEnabled: launchSupervisor !== null,
     setScope,
     handleIssueLinks,
     handleStatus,
@@ -1153,6 +1248,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
       }
 
+      // Local clients learn the launches in progress (a tunnel Host never does)
+      if (launchSnapshot && hostClass !== 'allowed') {
+        const launches = launchSnapshot()
+        if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
+      }
+
       // Replay buffered events: only the requested session with ?session=<id>,
       // otherwise every session's buffer (most recent active session last).
       const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
@@ -1206,6 +1307,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
+      // Agents started from here do not outlive the relay (#229)
+      launchSupervisor?.dispose()
+      launchSessionSeen = null
+      launchSnapshot = null
+      launchKillAll = null
       heartbeatTicker.stop()
       observations.dispose()
       webhooks?.dispose()

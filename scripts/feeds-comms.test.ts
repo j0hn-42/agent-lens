@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   commKindOf, directionText, safeHexColor, teamColorOf, buildFeedMessages, filterByTab, filterByPair,
-  droppedMarkerFor, agentIdsWithMessages, groupByTeam, isAgentDone, hasMultipleSessions, agentNameOf,
+  droppedMarkerFor, agentIdsWithMessages, isAgentDone, hasMultipleSessions, agentNameOf,
   COMM_LABELS,
 } from '../web/lib/feed-utils'
 import {
@@ -99,7 +99,7 @@ test('dropped marker uses the shared wording and sums for the all tab', () => {
   assert.equal(droppedMarkerFor(undefined, 'all'), null)
 })
 
-test('agent helpers: done state, names, sessions, teams', () => {
+test('agent helpers: done state, names, sessions', () => {
   assert.equal(isAgentDone(undefined), true)
   assert.equal(isAgentDone({ name: 'a', state: 'complete' }), true)
   assert.equal(isAgentDone({ name: 'a', archived: true }), true)
@@ -108,8 +108,6 @@ test('agent helpers: done state, names, sessions, teams', () => {
   assert.equal(agentNameOf(new Map(), 'sess:explore'), 'explore')
   assert.equal(hasMultipleSessions(new Map([['a', { sessionId: '1' }], ['b', { sessionId: '1' }]])), false)
   assert.equal(hasMultipleSessions(new Map([['a', { sessionId: '1' }], ['b', { sessionId: '2' }]])), true)
-  const groups = groupByTeam([{ teamName: 'z', n: 1 }, { n: 2 }, { teamName: 'a', n: 3 }, { teamName: 'z', n: 4 }])
-  assert.deepEqual(groups.map(g => [g.team, g.items.length]), [['a', 1], ['z', 2], [null, 1]])
 })
 
 // ─── Swimlane ───────────────────────────────────────────────────────────────
@@ -168,7 +166,7 @@ test('hitTestArrow finds an arrow near its vertical line', () => {
 
 // ─── Review fixes: dedupe, pair filter, unread, arrow cap ────────────────────
 
-import { commDedupeKeys, pairFromShiftClick, pairOfMessage, unreadSources, agentsWithNewText } from '../web/lib/feed-utils'
+import { commDedupeKeys, pairFromShiftClick, pairOfMessage } from '../web/lib/feed-utils'
 import { capMessageRows } from '../web/lib/timeline-rows'
 
 test('buildFeedMessages keeps distinct same-timestamp peer messages without toolUseId', () => {
@@ -219,13 +217,6 @@ test('pairOfMessage only for directed communications, and filterByPair uses it',
   const filtered = filterByPair(all, y, x)
   assert.ok(filtered.length > 0)
   assert.ok(filtered.every(m => (m.from === x && m.to === y) || (m.from === y && m.to === x)))
-})
-
-test('link-only teammate messages mark both agents unread', () => {
-  const lk = new Map([['l', { from: 'a', to: 'b', messages: [msg({ id: 'u1', type: 'message', content: 'hi', timestamp: 1, from: 'a', to: 'b' })] }]])
-  const src = unreadSources(new Map(), lk)
-  const { increased } = agentsWithNewText(new Map(), src, new Set(['message']))
-  assert.deepEqual(increased.sort(), ['a', 'b'])
 })
 
 test('capMessageRows keeps the latest rows and reports the hidden count', () => {

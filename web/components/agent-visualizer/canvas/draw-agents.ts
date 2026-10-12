@@ -103,7 +103,7 @@ function getPiMarkPath() {
 
 /** Gemini mark: a four-point star, drawn as a path so it needs no asset (#238).
  *  Same footprint as the Claude spark. Geometry is shared with the legend (GEMINI_MARK_PATH). */
-export function drawGeminiMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+function drawGeminiMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
   ctx.save()
   ctx.translate(cx, cy)
   const scale = (r * AGENT_DRAW.sparkScale) / GEMINI_MARK_VIEWBOX

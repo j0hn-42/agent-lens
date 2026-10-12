@@ -40,4 +40,12 @@ describe('parseArgs', () => {
     assert.equal(parseArgs([]).host, undefined)
     assert.equal(parseArgs(['--host', '0.0.0.0']).host, '0.0.0.0')
   })
+  it('--allow-launch is off by default; --launch-repo collects owner/name in order (#229)', () => {
+    assert.equal(parseArgs([]).allowLaunch, false)
+    assert.deepEqual(parseArgs([]).launchRepos, [])
+    const a = parseArgs(['--allow-launch', '--launch-repo', 'j0hn-42/agent-lens', '--no-open', '--launch-repo', 'o/n'])
+    assert.equal(a.allowLaunch, true)
+    assert.deepEqual(a.launchRepos, ['j0hn-42/agent-lens', 'o/n'])
+    assert.deepEqual(parseArgs(['--launch-repo']).launchRepos, [])
+  })
 })

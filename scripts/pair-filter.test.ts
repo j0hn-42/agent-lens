@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  EMPTY_PAIR, isPairComplete, isPairSet, makePair, pickPairAgent, prunePair, messageMatchesPair, applyPair,
+  EMPTY_PAIR, isPairComplete, isPairSet, makePair, pickPairAgent, prunePair, messageMatchesPair,
   pairChipLabel, pairAnnouncement, pairEmptyText, pairSpokenLabel,
 } from '../web/lib/pair-filter'
 import { getPair, setPair, pickPair, clearPair, subscribePair } from '../web/lib/pair-filter-store'
@@ -40,17 +40,6 @@ const msgs = [
   { id: '4', type: 'assistant', from: 'o', to: 'u' },
   { id: '5', type: 'message', from: 'e', to: 'o' },
 ]
-
-test('applyPair keeps both directions of comm messages only', () => {
-  assert.deepEqual(applyPair(msgs, { a: 'o', b: 'u' }).map(m => m.id), ['1', '2'])
-  assert.deepEqual(applyPair(msgs, { a: 'u', b: 'o' }).map(m => m.id), ['1', '2'])
-  assert.equal(messageMatchesPair(msgs[3], { a: 'o', b: 'u' }), false)
-})
-
-test('an incomplete pair does not filter', () => {
-  assert.equal(applyPair(msgs, { a: 'o', b: '' }).length, msgs.length)
-  assert.equal(applyPair(msgs, { a: 'o', b: 'o' }).length, msgs.length)
-})
 
 test('chip label, announcements and empty state wording', () => {
   const p = { a: 'o', b: 'u' }
