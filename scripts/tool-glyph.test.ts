@@ -24,7 +24,7 @@ test('toolGlyph: Bash running git or gh takes the git / gh shape, from the comma
 
 test('toolGlyph: MCP and unknown tools have no glyph', () => {
   assert.equal(toolGlyph('mcp__srv__read', {}), null)
-  assert.equal(toolGlyph('TodoWrite', {}), null)
+  assert.equal(toolGlyph('ExitPlanMode', {}), null)
 })
 
 /** A canvas context that records the drawing calls and ignores the rest. */
@@ -32,12 +32,15 @@ function recorder() {
   const calls: string[] = []
   const ctx = new Proxy({}, {
     get: (_t, prop: string) => (...args: unknown[]) => { calls.push(`${prop}(${args.map(a => (typeof a === 'number' ? a.toFixed(2) : String(a))).join(',')})`) },
-    set: () => true,
+    set: (_t, prop: string, value: unknown) => { calls.push(`${prop}=${String(value)}`); return true },
   }) as unknown as CanvasRenderingContext2D
   return { ctx, calls }
 }
 
-const GLYPHS: ToolGlyph[] = ['read', 'search', 'write', 'edit', 'shell', 'git', 'gh']
+const GLYPHS: ToolGlyph[] = [
+  'read', 'search', 'write', 'edit', 'shell', 'git', 'gh',
+  'todo', 'web', 'ask', 'task', 'notebook', 'python', 'test', 'docker', 'package',
+]
 const draw = (g: ToolGlyph, time: number, running: boolean, reducedMotion: boolean) => {
   const { ctx, calls } = recorder()
   drawToolGlyph(ctx, g, 0, 0, 12, '#fff', time, running, reducedMotion)
@@ -61,6 +64,6 @@ test('a finished call is static whatever the motion setting', () => {
   for (const g of GLYPHS) assert.equal(draw(g, 0, false, false), draw(g, 0.37, false, false), g)
 })
 
-test('running with motion allowed animates at least the shell, search and git glyphs', () => {
-  for (const g of ['shell', 'search', 'git'] as const) assert.notEqual(draw(g, 0, true, false), draw(g, 0.6, true, false), g)
+test('running with motion allowed animates the shell, search, git, web, ask, task, python and test glyphs', () => {
+  for (const g of ['shell', 'search', 'git', 'web', 'ask', 'task', 'python', 'test'] as const) assert.notEqual(draw(g, 0, true, false), draw(g, 0.6, true, false), g)
 })

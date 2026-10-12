@@ -78,11 +78,48 @@ test('Read: the range is spelled out from offset and limit', () => {
   assert.ok(getByText('lines 10–59'))
 })
 
+test('TodoWrite: progress counted from the list, stated in text', () => {
+  const { getByRole } = show('TodoWrite', {
+    todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }, { content: 'c', status: 'pending' }],
+  })
+  const p = getByRole('group', { name: 'Todo progress' })
+  assert.match(p.textContent ?? '', /1 of 3 done/)
+  assert.match(p.textContent ?? '', /1 in progress/)
+})
+
+test('WebFetch: the host is named on its own', () => {
+  const { getByText } = show('WebFetch', { url: 'https://stripe.com/docs/api', prompt: 'p' })
+  assert.ok(getByText('stripe.com'))
+})
+
+test('Task: sub-agent type and description are shown', () => {
+  const { getByText } = show('Task', { subagent_type: 'Explore', description: 'Find the relay', prompt: 'long prompt' })
+  assert.ok(getByText('Explore'))
+  assert.ok(getByText('Find the relay'))
+})
+
+test('NotebookEdit: path, cell and mode as stated by the call', () => {
+  const { container } = show('NotebookEdit', { notebook_path: '/n.ipynb', cell_number: 3, edit_mode: 'replace' })
+  assert.match(container.textContent ?? '', /n\.ipynb/)
+  assert.match(container.textContent ?? '', /cell 3/)
+  assert.match(container.textContent ?? '', /replace/)
+})
+
+test('Bash: Python, test, docker and package commands get their own list', () => {
+  const { getByRole } = show('Bash', { command: 'pnpm install && python analyse.py && pnpm test' })
+  const list = getByRole('list', { name: 'Tooling commands' })
+  const items = Array.from(list.querySelectorAll('li')).map(li => li.textContent?.replace(/\s+/g, ' ').trim())
+  assert.deepEqual(items, ['pnpm install', 'python analyse.py', 'pnpm test'])
+})
+
 test('the new cards have no axe violation', async () => {
   for (const [name, input] of [
     ['Edit', { file_path: '/a.ts', old_string: 'a', new_string: 'b' }],
     ['MultiEdit', { file_path: '/a.ts', edits: [{ old_string: 'a', new_string: 'b' }] }],
-    ['Bash', { command: 'git push origin main' }],
+    ['Bash', { command: 'git push origin main && pytest' }],
+    ['TodoWrite', { todos: [{ content: 'a', status: 'completed' }] }],
+    ['Task', { subagent_type: 'Explore', description: 'd' }],
+    ['NotebookEdit', { notebook_path: '/n.ipynb', cell_number: 1 }],
   ] as const) {
     const { container } = show(name, input)
     const res = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })

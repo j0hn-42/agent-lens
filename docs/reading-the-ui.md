@@ -73,14 +73,18 @@ A failed call also gets a **Causal chain of this failure**, an ordered list from
 
 ## What the action cards show
 
-On the canvas, a tool card carries a small shape on its left that says what kind of action it is, so you do not have to read the label: a page (Read), a page with a plus (Write), a magnifier (Grep, Glob), a pencil (Edit, MultiEdit), a prompt chevron and cursor (Bash), a node on a line (a Bash command that runs `git`) and a rounded square with a node (a Bash command that runs `gh`). The shape comes from the tool name and, for Bash, from the command line. MCP tools keep the generic card. While the call runs, the magnifier sweeps, the cursor blinks and the git node breathes; with reduced motion (OS setting or Freeze motion) the glyphs are still.
+On the canvas, a tool card carries a small shape on its left that says what kind of action it is, so you do not have to read the label: a page (Read), a page with a plus (Write), a magnifier (Grep, Glob), a pencil (Edit, MultiEdit), a notebook (NotebookEdit), a checklist (TodoWrite), a globe (WebSearch, WebFetch), a speech bubble with a question mark (AskUserQuestion), a fork (Task, Agent sub-agent), and for Bash a prompt chevron and cursor, or, when the command line runs one of them (the first one wins): a node on a line (`git`), a rounded square with a node (`gh`), a snake (`python`), a flask (a test runner: `pytest`, `pnpm test`, `node --test`, `cargo test`), stacked containers (`docker`) or a parcel (a package manager: `pnpm install`, `pip install`). The shape comes from the tool name and, for Bash, from the command line only. MCP tools keep the generic card. While the call runs, the magnifier sweeps, the cursor blinks, the git node breathes, the globe turns, the bubble swells while an answer is awaited, a dot travels down the fork, the snake crawls and bubbles rise in the flask; with reduced motion (OS setting or Freeze motion) the glyphs are still. A shape says which command was issued, never that it succeeded.
 
 Some tool calls have their own card content in the popup and the transcript. Every figure comes from the call's own input; when the input does not carry it, nothing is shown.
 
 - **Edit / MultiEdit**: a `+N -M` summary (lines of `new_string` and `old_string`, summed over the blocks for MultiEdit, with the block count). The sign and a spoken equivalent ("2 lines added, 3 lines removed") carry the meaning, not the color. A MultiEdit whose blocks are incomplete shows no summary.
 - **Write**: the number of lines of the content written. It does not say whether the file already existed, because the call does not prove it.
 - **Read**: the line range requested (`lines 10–59`, or `from line 100` when only an offset was given), from the call's `offset` and `limit`. Nothing is shown when the call states neither.
-- **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
+- **TodoWrite**: "N of M done" and "N in progress", counted from the list the call carries.
+- **WebFetch**: the host of the URL on its own line.
+- **Task / Agent**: the sub-agent type and the short description.
+- **NotebookEdit**: the notebook, the cell and the edit mode, when the call states them.
+- **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A second row lists Python, test, docker and package-manager calls (`python analyse.py`, `pnpm test`, `docker compose up`, `pnpm install`). A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
 
 ## Themes
 

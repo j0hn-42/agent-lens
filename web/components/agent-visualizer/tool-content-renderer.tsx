@@ -4,8 +4,8 @@ import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
 import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
-import { editStats, shellCommands, writeStats, readRange, type EditStats } from '@/lib/action-summary'
-import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon } from './feed-icons'
+import { editStats, shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind } from '@/lib/action-summary'
+import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
 type OpenFileCallback = (filePath: string, line?: number) => void
@@ -47,6 +47,11 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
       return <WebFetchContent data={inputData} />
     case 'AskUserQuestion':
       return <AskUserContent data={inputData} />
+    case 'Task':
+    case 'Agent':
+      return <TaskContent data={inputData} />
+    case 'NotebookEdit':
+      return <NotebookContent data={inputData} />
     default:
       return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
@@ -223,8 +228,16 @@ const TODO_STATUS_TEXT: Record<string, string> = {
 function TodoContent({ data }: { data: Record<string, unknown> }) {
   if (!isTodoArray(data.todos)) return null
   const todos = data.todos
+  const progress = todoProgress(data)
 
   return (
+    <>
+    {progress && (
+      <div role="group" aria-label="Todo progress" className="mb-1 flex flex-wrap gap-x-2 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+        <span>{progress.done} of {progress.total} done</span>
+        {progress.active > 0 && <span>{progress.active} in progress</span>}
+      </div>
+    )}
     <ul className="space-y-0.5 list-none p-0 m-0" aria-label="Todo list">
       {todos.map((todo, i) => {
         const icon = todo.status === 'completed' ? <CheckIcon /> :
@@ -247,6 +260,62 @@ function TodoContent({ data }: { data: Record<string, unknown> }) {
         )
       })}
     </ul>
+    </>
+  )
+}
+
+/** A row of small labelled chips with a shape: the label is text, the icon is decoration. */
+function Pills({ label, items }: { label: string; items: Array<{ key: string; icon: React.ReactNode; text: string }> }) {
+  if (items.length === 0) return null
+  return (
+    <ul aria-label={label} className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
+      {items.map(it => (
+        <li
+          key={it.key}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono"
+          style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }}
+        >
+          {it.icon}
+          {it.text}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function toolingIcon(kind: ToolingKind) {
+  switch (kind) {
+    case 'python': return <PythonIcon size={11} />
+    case 'test': return <TestIcon size={11} />
+    case 'docker': return <DockerIcon size={11} />
+    case 'package': return <PackageIcon size={11} />
+  }
+}
+
+function TaskContent({ data }: { data: Record<string, unknown> }) {
+  const type = typeof data.subagent_type === 'string' ? data.subagent_type : ''
+  const description = typeof data.description === 'string' ? data.description : ''
+  if (!type && !description) return null
+  return (
+    <div className="text-xs font-mono break-words">
+      {type && <span className="mr-1.5 rounded px-1.5 py-px text-[11px]" style={{ background: COLORS.codeBlockBg, color: COLORS.tool_calling }}>{type}</span>}
+      {description && <span style={{ color: COLORS.assistantText }}>{description}</span>}
+    </div>
+  )
+}
+
+function NotebookContent({ data }: { data: Record<string, unknown> }) {
+  const path = String(data.notebook_path || '')
+  const { cell, mode } = notebookCell(data)
+  return (
+    <div>
+      <FilePath path={path} />
+      {(cell || mode) && (
+        <div className="text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+          {[cell, mode].filter(Boolean).join(', ')}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -255,6 +324,7 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
   const description = String(data.description || '')
   const maxLen = compact ? 120 : 300
   const vcs = shellCommands(command)
+  const tooling = toolingCommands(command)
 
   return (
     <div>
@@ -265,20 +335,14 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
         <span aria-hidden="true" className="mr-1" style={{ color: COLORS.contentDim }}>$</span>
         <ClampedText text={command} max={maxLen} />
       </div>
-      {vcs.length > 0 && (
-        <ul aria-label="Version control commands" className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
-          {vcs.map(c => (
-            <li
-              key={`${c.tool} ${c.sub}`}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono"
-              style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }}
-            >
-              {c.tool === 'git' ? <GitIcon size={11} /> : <GhIcon size={11} />}
-              {c.tool} {c.sub}
-            </li>
-          ))}
-        </ul>
-      )}
+      <Pills
+        label="Version control commands"
+        items={vcs.map(c => ({ key: `${c.tool} ${c.sub}`, icon: c.tool === 'git' ? <GitIcon size={11} /> : <GhIcon size={11} />, text: `${c.tool} ${c.sub}` }))}
+      />
+      <Pills
+        label="Tooling commands"
+        items={tooling.map(c => ({ key: `${c.kind} ${c.label}`, icon: toolingIcon(c.kind), text: c.label }))}
+      />
     </div>
   )
 }
@@ -363,9 +427,11 @@ function WebSearchContent({ data }: { data: Record<string, unknown> }) {
 function WebFetchContent({ data }: { data: Record<string, unknown> }) {
   const url = String(data.url || '')
   const prompt = String(data.prompt || '')
+  const host = urlHost(url)
 
   return (
     <div>
+      {host && <div className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{host}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono break-all" style={{ background: COLORS.codeBlockBg, color: COLORS.filePathActive }}>
         <span aria-hidden="true" className="mr-1"><GlobeIcon /></span><span className="sr-only">Fetch: </span>
         <ClampedText text={url} max={80} />
