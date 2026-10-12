@@ -1,12 +1,13 @@
 name: CI
 
-# La CI ne tourne que sur main (push et PR vers main) : évite de consommer les minutes GitHub Actions.
+# La CI tourne sur push et PR vers main et develop : les checks `test` et `e2e-a11y` sont requis par la
+# protection de branche (voir CONTRIBUTING.md), ils doivent donc exister sur toute PR qui cible une branche protégée.
 # workflow_call : release.yml rejoue exactement ces jobs avant de construire le .vsix.
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_call:
 
 jobs:

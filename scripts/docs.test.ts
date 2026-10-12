@@ -83,6 +83,17 @@ test('every CI command is listed in CONTRIBUTING (#135)', () => {
   for (const run of runs) assert.ok(c.includes(run), `CONTRIBUTING should list the CI command: ${run}`)
 })
 
+test('CI runs on push and pull requests to main and develop, and stays callable (#182)', () => {
+  const ci = read('.github/workflows/ci.yml')
+  assert.match(ci, /push:\s*\n\s+branches: \[main, develop\]/)
+  assert.match(ci, /pull_request:\s*\n\s+branches: \[main, develop\]/)
+  assert.match(ci, /workflow_call:/)
+  const c = read('CONTRIBUTING.md')
+  assert.ok(!/to `main` only/.test(c), 'CONTRIBUTING no longer says the CI is main-only')
+  assert.ok(c.includes('required_status_checks'), 'CONTRIBUTING gives the required-checks command')
+  assert.ok(c.includes('required_conversation_resolution'), 'the PUT example repeats the existing protection settings')
+})
+
 test('the PR template points to CONTRIBUTING and lists lint:a11y and e2e (#135)', () => {
   const t = read('.github/pull_request_template.md')
   assert.match(t, /CONTRIBUTING\.md/)
