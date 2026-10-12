@@ -24,39 +24,10 @@ export const KILL_GRACE_MS = 10_000
 const HISTORY_MAX_DEFAULT = 20
 const FAILURE_CODE_RE = /^[A-Z][A-Z0-9_]{1,30}$/
 
-export type LaunchState = 'requested' | 'started' | 'session' | 'exited' | 'stopped' | 'expired' | 'failed'
+import type { LaunchState, LaunchView } from '../extension/src/protocol'
+export type { LaunchState, LaunchView }
 const TERMINAL: ReadonlySet<LaunchState> = new Set(['exited', 'stopped', 'expired', 'failed'])
-export type StopReason = 'stop' | 'expired' | 'relay-stopped'
-
-/** What clients get (SSE, GET /status): facts only. Never argv, never the output, never the issue text. */
-export interface LaunchView {
-  id: string
-  repo: string
-  issue: number
-  role: string
-  /** `--worktree` name, also the branch name */
-  worktree: string
-  /** The --session-id we chose: the key that proves launch <-> session */
-  sessionId: string
-  state: LaunchState
-  /** Present once the spawn was observed */
-  pid?: number
-  requestedAt: number
-  startedAt?: number
-  sessionSeenAt?: number
-  /** A stop was asked for (or the deadline came) at this time; the end is only known from the exit */
-  stopRequestedAt?: number
-  stopReason?: StopReason
-  endedAt?: number
-  exitCode?: number
-  signal?: string
-  /** Bounded code: ENOENT, EACCES..., 'spawn-error', 'exit-before-start' */
-  failure?: string
-  /** Absolute path of the worktree, only when it exists after the end (the work is kept there) */
-  worktreePath?: string
-  outputBytes: number
-  outputDroppedBytes: number
-}
+export type StopReason = NonNullable<LaunchView['stopReason']>
 
 export interface JournalEntry {
   ts?: string

@@ -3,6 +3,7 @@ import type { RelayStatus } from '../../extension/src/protocol'
 import type { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import type { SessionIndexResult } from '../../extension/src/session-index'
 import type { KeyedCoalescer } from '../server-hardening'
+import { classifyHost } from '../remote-access'
 import { guardedRoute, sendJson, sendPlain, type RouteHandler } from './guard'
 
 export interface StatusSnapshot {
@@ -27,6 +28,8 @@ export interface StatusRouteDeps {
   readIndex: () => SessionIndexResult | null
   /** Hôtes de tunnel acceptés (--allow-host, #241) : /status fait partie de la surface distante en lecture seule. */
   allowedHosts?: readonly string[]
+  /** Agent launches (#229), when enabled. Only given to local clients: a tunnel Host never sees them. */
+  launch?: () => RelayStatus['launch']
 }
 
 export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
@@ -58,6 +61,8 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
         ...(indexed.message ? { message: indexed.message } : {}),
       }
     }
+    const launch = deps.launch?.()
+    if (launch && classifyHost(req.headers.host, deps.allowedHosts ?? []) === 'loopback') status.launch = launch
     sendJson(req, res, 200, status)
   })
 }
