@@ -289,3 +289,17 @@ test('the launch security page states the guards and caps of the code (#229)', (
   ]) assert.ok(doc.includes(needle), `docs/launch-security.md should mention ${needle}`)
   assert.ok(read('README.md').includes('(docs/launch-security.md)'), 'README should link docs/launch-security.md')
 })
+
+test('the launch docs describe the button, the pasted token and the same-origin limit (#229)', () => {
+  for (const file of ['docs/launch-security.md', 'docs/node-inspector.md']) {
+    const doc = read(file)
+    assert.ok(!/no button or dialog yet|no button yet/i.test(doc), `${file} still says there is no button`)
+    assert.ok(doc.includes("Lancer un agent sur l'issue #N"), `${file} names the button`)
+    assert.match(doc, /same origin/i, `${file} states the same-origin limit`)
+    assert.match(doc, /preflight/i, `${file} explains why (CORS preflight)`)
+  }
+  const sec = read('docs/launch-security.md')
+  for (const needle of ['Jeton du relais', 'localStorage', 'cleared when the dialog closes', 'Annuler', 'Arrêter', 'worktree']) {
+    assert.ok(sec.includes(needle), `docs/launch-security.md should mention ${needle}`)
+  }
+})
