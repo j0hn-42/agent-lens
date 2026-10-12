@@ -1,5 +1,7 @@
 // Per-action summaries for the tool cards (#317). Each figure is read from the call's own input;
 // when the input does not carry it, the function returns null / [] and the card shows nothing.
+// The result pills (gh link, Grep / Glob count) are read from the call's own output, under the same rule.
+import { GITHUB_ISSUE_URL_RE } from './issue-links'
 
 export interface EditStats {
   added: number
@@ -300,6 +302,61 @@ export function toolingCommands(command: string): ToolingCommand[] {
     if (!found.some(f => f.kind === r.kind && f.label === r.label)) found.push({ kind: r.kind, label: r.label })
   }
   return found
+}
+
+/** Characters of a tool result kept on the event (`RESULT_MAX` in extension/src/constants.ts): a result that long may be cut. */
+export const RESULT_CAPTURE_LIMIT = 200
+
+/** Prefix the hook server puts on the result of a failed call */
+const FAILED_PREFIX = '[FAILED]'
+
+export interface GhResultLink {
+  kind: 'pr' | 'issue'
+  number: number
+  url: string
+}
+
+/**
+ * PR or issue a `gh` call printed (`gh pr create`, `gh issue create` print the URL on its own line).
+ * Null unless the command line runs gh, the result has exactly one distinct line that is a plain github.com
+ * issue / PR URL, that line cannot have been cut by the capture limit, and the call did not fail.
+ */
+export function ghResultLink(command: string, result: string): GhResultLink | null {
+  if (result.startsWith(FAILED_PREFIX)) return null
+  if (!shellCommands(command).some(c => c.tool === 'gh')) return null
+  const lines = result.split('\n')
+  // The last line may stop mid-URL when the result reached the capture limit
+  const whole = result.length >= RESULT_CAPTURE_LIMIT ? lines.slice(0, -1) : lines
+  let found: GhResultLink | null = null
+  for (const line of whole) {
+    const m = GITHUB_ISSUE_URL_RE.exec(line.trim())
+    if (!m) continue
+    const url = m[0]
+    if (found && found.url !== url) return null
+    found = { kind: m[1] === 'pull' ? 'pr' : 'issue', number: Number(m[2]), url }
+  }
+  return found
+}
+
+/** Number of files a Grep / Glob result reports in its own header (`Found N files`). Null otherwise: lines are never counted. */
+export function searchResultCount(toolName: string, result: string): number | null {
+  const tool = canonicalTool(toolName)
+  if (tool !== 'Grep' && tool !== 'Glob') return null
+  const m = /^Found (\d{1,9}) files?(?=$|\s)/.exec(result)
+  return m ? Number(m[1]) : null
+}
+
+export type ResultPill = { kind: 'link'; link: GhResultLink } | { kind: 'count'; files: number }
+
+/** The pill a call's result proves: the gh link of a shell call, or the file count of Grep / Glob. */
+export function resultPill(toolName: string, input: Record<string, unknown> | undefined, result: string): ResultPill | null {
+  if (isShellTool(toolName)) {
+    const command = typeof input?.command === 'string' ? input.command : ''
+    const link = command ? ghResultLink(command, result) : null
+    return link && { kind: 'link', link }
+  }
+  const files = searchResultCount(toolName, result)
+  return files == null ? null : { kind: 'count', files }
 }
 
 export type ToolGlyph =
