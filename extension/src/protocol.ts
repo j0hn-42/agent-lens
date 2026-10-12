@@ -441,9 +441,9 @@ export interface WatchedSession {
   seenToolUseIds: Set<string>
   seenMessageHashes: Set<string>
   sessionDetected: boolean
+  /** The end of the session was observed (SessionEnd hook). A silence never sets it (#360) */
   sessionCompleted: boolean
   lastActivityTime: number
-  inactivityTimer: NodeJS.Timeout | null
   subagentWatchers: Map<string, SubagentState>
   /** Names of subagents already spawned (by transcript parser or file watcher) — prevents duplicate spawns */
   spawnedSubagents: Set<string>

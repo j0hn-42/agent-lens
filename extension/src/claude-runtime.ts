@@ -135,7 +135,9 @@ export async function startClaudeRuntime(
         return
       }
 
-      watcher.submitHookEvent(event)
+      // A Stop is a turn end here too: only a SessionEnd finishes an orchestrator (#360)
+      const filtered = filterOrchestratorCompletion(event)
+      if (filtered) watcher.submitHookEvent(filtered)
       panel.setConnectionStatus('watching', `Claude Code hooks (:${hookPort})`)
     })
   }
