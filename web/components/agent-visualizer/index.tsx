@@ -22,6 +22,7 @@ import { LinkPanel } from "./link-panel"
 import { SessionListPanel } from "./session-list-panel"
 import { planScopeChoice, scopeEmptyHint, type ScopeChoice } from "@/lib/relay-scope"
 import { ProjectContextPanel } from "./project-context-panel"
+import { SystemPanel } from "./system-panel"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
@@ -257,11 +258,13 @@ export function AgentVisualizer() {
   const timelinePanelRef = useRef<HTMLDivElement>(null)
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
   const contextPanelRef = useRef<HTMLDivElement>(null)
+  const systemPanelRef = useRef<HTMLDivElement>(null)
   useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
   // The Conversation panel restores focus itself (to its pill or its top bar button)
   useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
   useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
   useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
+  useFocusReturn(showSystem, systemPanelRef, PANEL_BUTTON_IDS.system)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
@@ -791,6 +794,7 @@ export function AgentVisualizer() {
         if (panel === 'sessions') setShowSessions(prev => !prev)
         else if (panel === 'timeline') setShowTimeline(prev => !prev)
         else if (panel === 'stats') setShowStats(prev => !prev)
+        else if (panel === 'system') setShowSystem(prev => !prev)
         else toggleExclusivePanel(panel)
       },
       selectSession,
@@ -1185,6 +1189,17 @@ export function AgentVisualizer() {
           session={bridge.sessions.find(s => s.id === bridge.selectedSessionId)}
           onOpenTerminal={bridge.isVSCode ? bridge.bridgeOpenTerminal : undefined}
           onClose={() => setShowContext(false)}
+        />
+      </div>
+
+      {/* System panel: machine health sampled by the standalone relay (left dock, below the agent card) */}
+      <div ref={systemPanelRef} style={{ display: 'contents' }}>
+        <SystemPanel
+          visible={showSystem}
+          samples={bridge.systemStats}
+          unavailableReason={bridge.isVSCode ? 'System metrics come from the standalone relay; not available inside VS Code.'
+            : bridge.useMockData ? 'System metrics are not available in demo mode.' : undefined}
+          onClose={() => setShowSystem(false)}
         />
       </div>
 

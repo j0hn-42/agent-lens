@@ -364,7 +364,7 @@ export const TopBar = memo(function TopBar({
         </span>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
-          {/* Mutually exclusive panel group */}
+          {/* Side panels: Files, Conversation and Context are mutually exclusive; System opens beside them */}
           <div role="group" aria-label="Side panels" className="flex items-center gap-1 px-1 py-0.5 rounded" style={{
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,

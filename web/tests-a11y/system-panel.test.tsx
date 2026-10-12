@@ -5,11 +5,14 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import React from 'react'
-import { render, cleanup, fireEvent } from '@testing-library/react'
+import { render, cleanup, act, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { SystemPanel } from '@/components/agent-visualizer/system-panel'
 import type { SystemSample } from '@/lib/bridge-types'
+import { AgentVisualizer } from '@/components/agent-visualizer'
+import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { clearPair } from '@/lib/pair-filter-store'
 
@@ -235,4 +238,41 @@ test('a polite announcement fires only when a severity changes', () => {
   assert.deepEqual(announced, ['Memory is warm, 90 %', 'Memory is critical, 97 %'])
   feed(0.50)
   assert.equal(announced[2], 'Memory is normal, 50 %', 'going back is announced too')
+})
+
+// ─── In the real shell: shortcut, Escape stack, focus return, non-exclusive ───
+
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
+const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
+const key = (k: string) => act(async () => { fireEvent.keyDown(document.body, { key: k }) })
+
+async function mountShell() {
+  const r = render(<AgentVisualizer />)
+  await act(async () => { post({ type: '__vscode-bridge-init' }) })
+  await wait(100)
+  return r
+}
+
+test('shell: Y opens the System panel (with the reason it is unavailable here), Escape closes it and focus returns to its button', async () => {
+  const r = await mountShell()
+  const button = document.getElementById(PANEL_BUTTON_IDS.system)!
+  assert.equal(button.id, 'topbar-toggle-system')
+  await key('y')
+  await wait(50)
+  const region = r.getByRole('region', { name: 'System' })
+  assert.match(region.textContent ?? '', /not available/i)
+  assert.equal(button.getAttribute('aria-pressed'), 'true')
+  await key('Escape')
+  await wait(50)
+  assert.equal(r.queryByRole('region', { name: 'System' }), null)
+  assert.equal(document.activeElement?.id, 'topbar-toggle-system')
+})
+
+test('shell: System is not exclusive, opening it keeps the Context panel open', async () => {
+  const r = await mountShell()
+  await key('p')
+  await key('y')
+  await wait(50)
+  assert.ok(r.getByRole('region', { name: 'System' }))
+  assert.equal(document.getElementById(PANEL_BUTTON_IDS.context)!.getAttribute('aria-pressed'), 'true')
 })
