@@ -76,7 +76,9 @@ export function handleAgentSpawn(
   if (existing) {
     state.agents.set(name, {
       ...existing,
-      state: 'idle',
+      // Several sources announce the same agent (hooks, session and subagent watchers): a duplicate spawn must
+      // not demote an agent that is working or waiting. Only a finished or resting one comes back as idle.
+      state: existing.state === 'thinking' || existing.state === 'tool_calling' || existing.state === 'waiting_permission' ? existing.state : 'idle',
       // A returning agent is live again: undo archiving
       archived: false,
       completeTime: undefined,
