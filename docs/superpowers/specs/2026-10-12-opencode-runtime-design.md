@@ -2,11 +2,21 @@
 
 Date : 2026-10-12. Statut : en attente de relecture.
 
+Ticket : #346
+
 ## Objectif
 
 Afficher les sessions [OpenCode](https://github.com/anomalyco/opencode) dans Agent Lens comme celles de Pi ou Gemini : agents, sous-agents, appels d'outils, modèle, tokens. Le runtime est le sixième après `claude`, `codex`, `copilot`, `pi` et `gemini`.
 
 Principe du projet : rien n'est affiché qui ne soit prouvé ([docs/reading-the-ui.md](../../reading-the-ui.md)). Ce qu'OpenCode n'écrit pas en base n'apparaît pas dans l'UI.
+
+## Options
+
+- **(A) Lecture SQLite par sondage. Recommandée.** Le relais lit la base locale d'OpenCode en lecture seule, à intervalle régulier. Rien à installer chez l'utilisateur, aucun port ouvert, aucun code exécuté dans OpenCode. Tout ce qui est affiché vient d'une ligne en base, ce qui respecte le principe de preuve. Coût : latence du sondage, et ce qui n'est pas durable (permissions, streaming) reste invisible.
+- **(B) Client SSE du serveur OpenCode.** Hors périmètre. Il faut qu'OpenCode écoute sur un port HTTP, et rien ne garantit qu'il reste sur loopback ni que le port soit authentifié. Le relais deviendrait client d'un service réseau tiers, ce qui élargit la surface relue par `relay-hardening-reviewer`. Il faut aussi que l'utilisateur lance OpenCode en mode serveur.
+- **(C) Plugin OpenCode.** Hors périmètre. Il faut installer un plugin chez l'utilisateur, qui s'exécute dans le processus d'OpenCode, hors de notre contrôle. Il faudrait aussi un canal du plugin vers le relais, donc une écoute ou une écriture de plus à durcir.
+
+B et C donneraient le temps réel et les permissions en attente. On pourra les rouvrir dans une issue dédiée une fois A livré.
 
 ## Décisions déjà prises
 
@@ -17,7 +27,7 @@ Principe du projet : rien n'est affiché qui ne soit prouvé ([docs/reading-the-
 
 - Flux temps réel (serveur HTTP/SSE), plugin OpenCode, contrôle des permissions.
 - Ancien stockage JSON (`storage/session|message|part`), utilisé avant OpenCode 1.2.0. OpenCode a retiré sa migration depuis ; seule la base SQLite est lue.
-- Table `session_message` (modèle « v2 »). Le runtime CLI/TUI écrit dans `message` et `part` ; `session_message` n'est alimentée que par le runner v2, dont l'activation par défaut n'est pas vérifiée.
+- Table `session_message` (modèle « v2 »), proposée hors périmètre. Le runtime CLI/TUI écrit dans `message` et `part` ; `session_message` n'est alimentée que par le runner v2, dont l'activation par défaut n'est pas vérifiée. Voir « Questions ouvertes ».
 - Import de transcripts OpenCode (`imported-transcripts.ts`).
 
 ## Format source (vérifié dans OpenCode v1.19.0)
@@ -111,3 +121,14 @@ Le plan d'implémentation reconfirme la liste exacte des occurrences par recherc
 - Aucune installation d'OpenCode n'était disponible : les fixtures sont construites d'après le code source v1.19.0, pas d'après des sessions réelles. La première vérification sur une vraie base se fait après l'implémentation.
 - Le schéma évolue (38 migrations entre janvier et juin 2026). Le parseur ne dépend que des colonnes listées et tolère les champs absents.
 - Les chemins sous Windows et macOS ne sont pas vérifiés.
+- Sécurité : le relais ouvre un fichier dont le chemin peut venir de l'environnement (`OPENCODE_DB`). Le fichier est une base tierce en WAL, que d'autres processus écrivent pendant la lecture.
+- Accessibilité : un nouveau badge, une marque canvas et une entrée de légende. Ils doivent avoir un nom accessible et un contraste AA dans tous les thèmes, et ne pas reposer sur la seule couleur.
+
+## Questions ouvertes (à trancher avant le code)
+
+1. **`OPENCODE_DB` côté relais.** Faut-il suivre cette surcharge ? Si oui, il faut la confiner : chemin absolu résolu, fichier ordinaire, pas de `:memory:`, ouverture en lecture seule, aucun chemin renvoyé au client web. Le choix est à faire relire par `relay-hardening-reviewer` avant l'implémentation.
+2. **Chemins Windows et macOS.** Le code d'OpenCode et ses notes de release se contredisent sous Windows. Faut-il vérifier sur une vraie machine, ou livrer Linux seul et masquer le runtime ailleurs avec un message explicite ?
+3. **`session_message` (v2).** La laisser hors périmètre ? Ou la lire dès qu'elle contient des lignes, au cas où le runner v2 deviendrait le défaut ?
+4. **Seuil « session active ».** Reprendre `ACTIVE_SESSION_AGE_S`, utilisé par les watchers Pi et Gemini, appliqué à `time_updated` au lieu du `mtime` d'un fichier. Faut-il confirmer que ce seuil convient aussi à une base partagée par toutes les sessions ?
+5. **Couleur et badge « OC ».** Quelle couleur de runtime retenir ? Elle s'ajoute dans `web/lib/theme-tokens.json`, puis `pnpm run gen:themes`. Le contraste du badge doit être validé dans chaque thème.
+6. **Découpage en PR successives.** Proposition : (1) parseur pur et ses tests ; (2) `opencode-db` et watcher, avec base de test ; (3) câblage du relais et `relay-opencode.test.ts` ; (4) web (types, badge, légende, filtres) et documentation. Chaque PR porte « Refs #346 », la dernière « Closes #346 ».
