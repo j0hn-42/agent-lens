@@ -10,6 +10,7 @@ import { useLocale, useT, type LocaleChoice } from '@/lib/locale'
 import { parseCostThreshold, type NotificationRules } from '@/lib/notification-rules'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 import type { PresentationOptions } from '@/lib/presentation'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -86,7 +87,7 @@ function LanguageSelect({ id, choice, onChange, autoLabel, frLabel, enLabel }: {
       id={id}
       value={choice}
       onChange={e => onChange(e.target.value as LocaleChoice)}
-      className="min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
+      className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono ${FOCUS_RING}`}
       style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
     >
       <option value="auto" style={{ background: COLORS.surface, color: COLORS.ink }}>{autoLabel}</option>

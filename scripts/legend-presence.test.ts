@@ -38,6 +38,12 @@ test('a Pi agent proves the Pi entry, never the Claude one (#238)', () => {
   assert.ok(!has(p, 'rt-claude'))
 })
 
+test('a Gemini agent proves the Gemini entry, never the Claude one (#238)', () => {
+  const p = derive({ agents: [agent({ id: 'k:g', isMain: true, runtime: 'gemini' })] })
+  assert.ok(has(p, 'rt-gemini'))
+  assert.ok(!has(p, 'rt-claude'))
+})
+
 test('every agent state maps to its own entry', () => {
   for (const state of ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete'] as const) {
     const p = derive({ agents: [agent({ id: 'k:a', state })] })
