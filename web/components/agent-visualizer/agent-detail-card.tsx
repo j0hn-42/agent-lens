@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
-import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
+import { formatModelName, formatDuration, pluralize } from '@/lib/utils'
+import { formatContextWindow } from '@/lib/context-window'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
@@ -39,6 +40,7 @@ interface AgentDetailCardProps {
     tokenStatus?: UsageStatus
     tokensEstimated?: boolean
     tokensMax: number
+    tokensMaxAssumed?: boolean
     toolCalls: number
     timeAlive: number
     currentTool?: string
@@ -199,9 +201,9 @@ export function AgentDetailCard({
         {/* Context bar */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
-            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>Context</span>
-            <span className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-              {formatTokenUsage(usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{agent.tokenStatus === 'unavailable' ? '' : ` (${agent.tokenStatus === 'partial' ? '≥ ' : ''}${contextPercent}%)`}
+            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>Context window</span>
+            <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
+              {formatTokenUsage(usageFromAgent(agent))} / {formatContextWindow(agent)}{agent.tokenStatus === 'unavailable' ? '' : ` (${agent.tokenStatus === 'partial' ? '≥ ' : ''}${contextPercent}%${agent.tokensMaxAssumed ? ' of an assumed window' : ''})`}
             </span>
           </div>
           {/* Textual value is adjacent, so the bar itself is decorative */}
