@@ -22,14 +22,16 @@ export { stopPropagationHandlers, panelStopPropagationHandlers }
 interface CloseButtonProps {
   onClick: () => void
   className?: string
+  /** Accessible name (translated by the caller when its panel is) */
+  label?: string
 }
 
-export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
+export function CloseButton({ onClick, className = '', label = 'Close' }: CloseButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label="Close"
+      aria-label={label}
       data-panel-close
       className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] ${className}`}
       style={{ color: COLORS.scrollBtnText }}
