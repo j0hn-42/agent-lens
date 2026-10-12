@@ -46,6 +46,10 @@ export const NEON_COLORS = {
   contextReasoning: '#cc88ff',  // purple — agent thinking
   contextSubagent: '#66ffaa',   // green — child agent results
 
+  // System panel severity (bar and status text; always paired with a word and an icon)
+  systemWarm: '#ff9944',
+  systemCritical: '#ff6666',
+
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
   textPrimary: '#aaeeff',
@@ -398,6 +402,9 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     message: accent,
 
     contextSystem: t['context-system'],
+    systemWarm: t['system-warm'],
+    systemCritical: t['system-critical'],
+
     contextUser: accent,
     contextToolResults: warn,
     contextReasoning: delegate,

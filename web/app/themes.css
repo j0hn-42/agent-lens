@@ -19,6 +19,8 @@
   --lens-delegate: #b7bdf8;
   --lens-info: #8bd5ca;
   --lens-context-system: #8087a2;
+  --lens-system-warm: #f5a97f;
+  --lens-system-critical: #ed8796;
   --lens-bar-bg: #1e2030;
   --lens-bar-shadow: inset 0 0 0 1px #494d64;
   --lens-bar-pad: 6px 8px;
@@ -115,6 +117,8 @@
   --lens-delegate: #b4befe;
   --lens-info: #94e2d5;
   --lens-context-system: #7f849c;
+  --lens-system-warm: #fab387;
+  --lens-system-critical: #f38ba8;
   --lens-bar-bg: #181825;
   --lens-bar-shadow: inset 0 0 0 1px #45475a;
   --lens-bar-pad: 6px 8px;
@@ -211,6 +215,8 @@
   --lens-delegate: #babbf1;
   --lens-info: #81c8be;
   --lens-context-system: #838ba7;
+  --lens-system-warm: #ef9f76;
+  --lens-system-critical: #e78284;
   --lens-bar-bg: #292c3c;
   --lens-bar-shadow: inset 0 0 0 1px #51576d;
   --lens-bar-pad: 6px 8px;
@@ -307,6 +313,8 @@
   --lens-delegate: #be96ff;
   --lens-info: #7cc6f2;
   --lens-context-system: #7d86bd;
+  --lens-system-warm: #f0a070;
+  --lens-system-critical: #f26683;
   --lens-bar-bg: #121730;
   --lens-bar-shadow: inset 0 0 0 1px #2c3562;
   --lens-bar-pad: 6px 8px;
@@ -403,6 +411,8 @@
   --lens-delegate: #b9a9d6;
   --lens-info: #9fb7c4;
   --lens-context-system: #8c8c90;
+  --lens-system-warm: #e8995a;
+  --lens-system-critical: #e86a6a;
   --lens-bar-bg: #1b1b1c;
   --lens-bar-shadow: inset 0 0 0 1px #343436;
   --lens-bar-pad: 6px 8px;
@@ -499,6 +509,8 @@
   --lens-delegate: #cc88ff;
   --lens-info: #22d3ee;
   --lens-context-system: #7777a0;
+  --lens-system-warm: #ff9944;
+  --lens-system-critical: #ff6666;
   --lens-shadow-card: 0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08);
   --lens-focus-width: 2px;
   --lens-glass-bg: rgba(10, 15, 30, 0.7);
@@ -595,6 +607,8 @@
   --lens-delegate: #cc9bbe;
   --lens-info: #8fc2b4;
   --lens-context-system: #968573;
+  --lens-system-warm: #f09858;
+  --lens-system-critical: #e17260;
   --lens-bar-bg: #1e1814;
   --lens-bar-shadow: inset 0 0 0 1px #43362b;
   --lens-bar-pad: 6px 8px;
@@ -691,6 +705,8 @@
   --lens-delegate: #6a9bcc;
   --lens-info: #7fb5a8;
   --lens-context-system: #7c7970;
+  --lens-system-warm: #e8935a;
+  --lens-system-critical: #e5707a;
   --lens-bar-bg: #141413;
   --lens-bar-shadow: inset 0 0 0 1px #34322e;
   --lens-bar-pad: 6px 8px;
@@ -787,6 +803,8 @@
   --lens-delegate: #cdadff;
   --lens-info: #7adbff;
   --lens-context-system: #a8a8a8;
+  --lens-system-warm: #ffb070;
+  --lens-system-critical: #ff8686;
   --lens-bar-bg: #0a0a0a;
   --lens-bar-shadow: inset 0 0 0 1px #ffffff;
   --lens-bar-pad: 6px 8px;

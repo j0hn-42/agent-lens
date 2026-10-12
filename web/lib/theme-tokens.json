@@ -280,6 +280,36 @@
           "contrast": "#a8a8a8"
         },
         "usage": "Fixed system overhead slice in the context bar. Non-text, 3:1 or more."
+      },
+      {
+        "name": "system-warm",
+        "value": {
+          "catppuccin-macchiato": "#f5a97f",
+          "catppuccin-mocha": "#fab387",
+          "catppuccin-frappe": "#ef9f76",
+          "midnight": "#f0a070",
+          "graphite": "#e8995a",
+          "neon": "#ff9944",
+          "ember": "#f09858",
+          "anthropic": "#e8935a",
+          "contrast": "#ffb070"
+        },
+        "usage": "System panel: bar and status text of a warm metric (orange, distinct from the yellow `warn`). Always paired with a word and an icon. Text 4.5:1 or more, bar 3:1 or more on `surface`."
+      },
+      {
+        "name": "system-critical",
+        "value": {
+          "catppuccin-macchiato": "#ed8796",
+          "catppuccin-mocha": "#f38ba8",
+          "catppuccin-frappe": "#e78284",
+          "midnight": "#f26683",
+          "graphite": "#e86a6a",
+          "neon": "#ff6666",
+          "ember": "#e17260",
+          "anthropic": "#e5707a",
+          "contrast": "#ff8686"
+        },
+        "usage": "System panel: bar and status text of a critical metric (red). Always paired with a word and an icon. At least 1.2:1 in luminance from `system-warm`."
       }
     ]
   },

@@ -45,6 +45,7 @@ export function isThemeId(value: unknown): value is ThemeId {
 export const ROLES = [
   'void', 'surface', 'surface-raised', 'edge', 'control-border', 'ink', 'ink-muted',
   'accent', 'on-accent', 'focus', 'ok', 'warn', 'danger', 'delegate', 'info', 'context-system',
+  'system-warm', 'system-critical',
 ] as const
 export type Role = (typeof ROLES)[number]
 export type ThemeTokens = Record<Role, string>
