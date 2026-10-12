@@ -94,19 +94,31 @@ export interface SessionSpan {
   startTime: number
   lastActivityTime: number
   lastActivityUnknown?: boolean
+  recordedStartTime?: number
+  startTimeWatched?: boolean
 }
 
 /**
  * Duration of a session: elapsed since the start while it is active, start to last activity once it is
- * completed. Unknown (dash) when the end of a completed session was never observed.
+ * completed. The start is the one the transcript records (#365); when only the moment watching began is known,
+ * the duration is a lower bound (≥) and its name says "watched for". Unknown (dash) when the end of a completed
+ * session was never observed.
  */
 export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
   const end = s.status === 'active' ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
-  const ms = end - s.startTime
+  const watched = s.recordedStartTime === undefined && s.startTimeWatched === true
+  const ms = end - (s.recordedStartTime ?? s.startTime)
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
+  if (watched) {
+    const label = s.status === 'active' ? `watched for ${text}` : `at least ${text} long`
+    return { text: `≥${text}`, label: `${label}, ${SESSION_START_UNRECORDED_TEXT}`, empty: false }
+  }
   return { text, label: `${text} ${s.status === 'active' ? 'since start' : 'long'}`, empty: false }
 }
+
+/** Said of a session whose transcript records no start: its duration only counts since watching began. */
+export const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
 
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {

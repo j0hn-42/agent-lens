@@ -177,6 +177,22 @@ export function isAgentEvent(v: unknown): v is AgentEvent {
     && (v.sessionId === undefined || typeof v.sessionId === 'string')
 }
 
+/**
+ * A known session announced again ('session-started': now watched live, or resumed after inactivity). It turns
+ * active and takes the times the source gives (#365): the last write of its transcript, not the moment the
+ * message arrived; `now` only when the source gives none. Its label (and alias) stays.
+ */
+export function resumeSession(known: SessionInfo, announced: SessionInfo, now: number): SessionInfo {
+  const { indexedOnly: _indexedOnly, ...live } = known
+  return {
+    ...live,
+    status: 'active',
+    lastActivityTime: Number.isFinite(announced.lastActivityTime) ? announced.lastActivityTime : now,
+    ...(announced.recordedStartTime !== undefined ? { recordedStartTime: announced.recordedStartTime } : {}),
+    ...(announced.startTimeWatched !== undefined ? { startTimeWatched: announced.startTimeWatched } : {}),
+  }
+}
+
 export function isSessionInfo(v: unknown): v is SessionInfo {
   return isRecord(v)
     && typeof v.id === 'string'
