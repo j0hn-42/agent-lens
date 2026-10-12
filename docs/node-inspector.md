@@ -86,11 +86,19 @@ Only relay mode (dev relay, standalone app) serves links; the VS Code webview ha
 
 ## Launch an agent on an issue (#229)
 
-**Off by default, and no button yet.** The validation rules below are in `extension/src/launch-policy.ts` (pure
+**Off by default.** The validation rules below are in `extension/src/launch-policy.ts` (pure
 functions, tested in `scripts/launch-policy.test.ts`). The process supervisor, the journal and the opt-in route are in
 too (`--allow-launch`, see [launch-security.md](launch-security.md) for the token, the guards, the states and the
-journal); the button and the dialog come next. Without `--allow-launch`, nothing in Agent Lens can start a `claude`
-process: the routes answer 404.
+journal). Without `--allow-launch`, nothing in Agent Lens can start a `claude` process: the routes answer 404 and no
+button is rendered.
+
+With it, the inspector shows a button "Lancer un agent sur l'issue #N" ("Launch an agent on issue #N" in English) under each open issue of the agent's
+`agent:<role>` links. It opens a confirmation dialog (repository, issue, role, title, command, caps) where you paste
+the token printed on the relay's console; the token is never stored and is cleared when the dialog closes. The dialog
+announces each observed state, offers "Arrêter" while the launch runs, and shows the kept worktree path once it ended.
+The button needs the page to be served by the relay itself (same origin): the dev server on :3000 and the VS Code
+webview do not offer it, because the relay answers no CORS preflight (a separate follow-up). Details in
+[launch-security.md](launch-security.md#use-it-from-the-inspector).
 
 When it is enabled, a launch is refused unless every check passes:
 
