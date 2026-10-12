@@ -4,13 +4,14 @@
  * jamais lu), sous-agents ignorés, lecture des lignes et reprise à chaud.
  */
 import './helpers/alias-vscode'
-import { describe, it, beforeEach, afterEach } from 'node:test'
+import { describe, it, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { GeminiSessionWatcher, geminiTmpRoot, readGeminiSessionHeader } from '../src/gemini-session-watcher'
-import { geminiProjectHash } from '../src/gemini-event-parser'
+import { geminiProjectHash, GEMINI_SEEN_MAX } from '../src/gemini-event-parser'
+import * as fsUtils from '../src/fs-utils'
 import type { AgentEvent } from '../src/protocol'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
 
@@ -233,6 +234,78 @@ describe('GeminiSessionWatcher', () => {
     }
     assert.equal(events.filter(e => e.payload.content === 'Fix the bug').length, 1)
     assert.equal(events.filter(e => e.payload.content === 'And this').length, 1)
+  })
+
+  it('does not send again after a resume a message evicted from the parser memory', () => {
+    let body = ''
+    for (let i = 0; i < GEMINI_SEEN_MAX + 1; i++) body += user(`u${i}`, `prompt ${i}`)
+    const file = addSession(1, ws, body)
+    watcher = new GeminiSessionWatcher(ws)
+    const events: AgentEvent[] = []
+    watcher.onEvent(e => events.push(e))
+    watcher.start()
+    const shown = events.length
+    assert.ok(shown > GEMINI_SEEN_MAX)
+    fs.writeFileSync(`${file}.tmp`, header(ws, 1) + body + user('new', 'after resume'))
+    fs.renameSync(`${file}.tmp`, file)
+    ;(watcher as unknown as { readNewLinesUnguarded(id: string): void }).readNewLinesUnguarded(uuid(1))
+    // only the new message is news (the normalizer may add a statistics event)
+    assert.deepEqual(events.slice(shown).filter(e => e.type !== 'normalization_stats').map(e => e.payload.content), ['after resume'])
+    assert.equal(events.filter(e => e.payload.content === 'prompt 0').length, 1)
+    assert.equal(events.filter(e => e.payload.content === 'after resume').length, 1)
+  })
+
+  it('re-reads a rewritten file in bounded chunks, not in one allocation', () => {
+    const file = addSession(1, ws, user('u1', 'Fix the bug'))
+    watcher = new GeminiSessionWatcher(ws)
+    watcher.start()
+    let big = ''
+    for (let i = 0; i < 50; i++) big += user(`b${i}`, 'x'.repeat(100 * 1024))
+    fs.writeFileSync(`${file}.tmp`, header(ws, 1) + user('u1', 'Fix the bug') + big)
+    fs.renameSync(`${file}.tmp`, file)
+    const size = fs.statSync(file).size
+    assert.ok(size > fsUtils.PRESCAN_CHUNK_BYTES)
+    const lens: number[] = []
+    const realRead = (require('fs') as typeof fs).readSync
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fsCjs = require('fs') as typeof fs
+    const spy = mock.method(fsCjs, 'readSync', (...args: unknown[]) => {
+      lens.push(args[3] as number)
+      return (realRead as (...a: unknown[]) => number)(...args)
+    })
+    try {
+      ;(watcher as unknown as { readNewLinesUnguarded(id: string): void }).readNewLinesUnguarded(uuid(1))
+    } finally { spy.mock.restore() }
+    assert.ok(lens.length >= 2, 'several chunked reads')
+    assert.ok(Math.max(...lens) <= fsUtils.PRESCAN_CHUNK_BYTES)
+  })
+
+  it('ignores a chats directory that is a symbolic link', () => {
+    const outside = path.join(home, 'outside-chats')
+    fs.mkdirSync(outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, fileName(1)), header(ws, 1) + user('u1', 'leak'))
+    fs.mkdirSync(path.join(tmp(), 'linked'), { recursive: true })
+    fs.symlinkSync(outside, path.join(tmp(), 'linked', 'chats'))
+    watcher = new GeminiSessionWatcher(ws)
+    watcher.start()
+    assert.equal(watcher.getActiveSessions().length, 0)
+  })
+
+  it('does not read a session file replaced by a symbolic link after attach', () => {
+    const file = addSession(1, ws, user('u1', 'Fix the bug'))
+    watcher = new GeminiSessionWatcher(ws)
+    const events: AgentEvent[] = []
+    watcher.onEvent(e => events.push(e))
+    watcher.start()
+    const shown = events.length
+    const target = path.join(home, 'secret.jsonl')
+    fs.writeFileSync(target, header(ws, 1) + user('u9', 'secret from outside'))
+    fs.rmSync(file)
+    fs.symlinkSync(target, file)
+    ;(watcher as unknown as { readNewLinesUnguarded(id: string): void }).readNewLinesUnguarded(uuid(1))
+    assert.equal(events.length, shown)
+    assert.equal(events.some(e => e.payload.content === 'secret from outside'), false)
+    assert.equal(watcher.isSessionActive(uuid(1)), false)
   })
 
   it('does not follow a symbolic link to a session file', () => {

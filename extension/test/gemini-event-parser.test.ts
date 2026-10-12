@@ -16,6 +16,7 @@ import {
   GeminiEventParser,
   createGeminiEventState,
   geminiProjectHash,
+  GEMINI_SEEN_MAX,
   type GeminiParserDelegate,
 } from '../src/gemini-event-parser'
 import type { AgentEvent } from '../src/protocol'
@@ -198,5 +199,52 @@ describe('GeminiEventParser', () => {
   it('does not take a missing model for a model', () => {
     const { events } = runLines([HEADER, gemini('g', { content: 'hi', model: undefined })])
     assert.equal(events.filter(e => e.type === 'model_detected').length, 0)
+  })
+})
+
+describe('GeminiEventParser bounds (review)', () => {
+  it('duplicated orderIds neither grow the order list nor push real messages out of memory', () => {
+    const { state, parser } = runLines([HEADER, gemini('a', { content: 'A' }), gemini('b', { content: 'B' })])
+    parser.processLine(JSON.stringify({ $patch: { orderIds: Array(20000).fill('a') } }), state)
+    assert.equal(state.messageOrder.length, 2)
+    assert.deepEqual([...state.messageOrder].sort(), ['a', 'b'])
+    assert.equal(state.messages.size, 2)
+  })
+
+  it('a huge removeIds array is processed in linear time and removes what it names', () => {
+    const lines = [HEADER]
+    for (let i = 0; i < 2000; i++) lines.push(gemini(`m${i}`, { content: `t${i}` }))
+    const { state, parser } = runLines(lines)
+    const ids = Array.from({ length: 100000 }, (_, i) => `m${i % 2000}`)
+    const t0 = Date.now()
+    parser.processLine(JSON.stringify({ $patch: { removeIds: ids } }), state)
+    assert.ok(Date.now() - t0 < 1000, 'removeIds must not be quadratic')
+    assert.equal(state.messageOrder.length, 0)
+    assert.equal(state.messages.size, 0)
+  })
+
+  it('does not send again, after a rewrite, a message whose id was evicted from memory', () => {
+    const lines = [HEADER]
+    const total = GEMINI_SEEN_MAX + 1
+    for (let i = 0; i < total; i++) lines.push(gemini(`m${i}`, { content: `t${i}`, toolCalls: [call(`c${i}`, 'success')] }))
+    const { events, state, parser } = runLines(lines)
+    assert.equal(state.evicted, 1)
+    const before = events.length
+    // the CLI rewrote the file: the whole history is read again, then one new message
+    parser.beginRewrite(state)
+    for (const l of lines.slice(1)) parser.processLine(l, state)
+    parser.endRewrite(state)
+    assert.equal(events.length, before, 'no event may be sent again')
+    parser.processLine(gemini('new', { content: 'fresh' }), state)
+    assert.equal(events.filter(e => e.payload.content === 'fresh').length, 1)
+    assert.equal(events.filter(e => e.payload.content === 't0').length, 1)
+  })
+
+  it('without eviction a rewrite is not in replay mode: a new message is shown at once', () => {
+    const { events, state, parser } = runLines([HEADER, gemini('a', { content: 'A' })])
+    parser.beginRewrite(state)
+    assert.equal(state.replaying, false)
+    parser.processLine(gemini('b', { content: 'B' }), state)
+    assert.equal(events.filter(e => e.payload.content === 'B').length, 1)
   })
 })

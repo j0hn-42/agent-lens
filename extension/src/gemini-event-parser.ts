@@ -74,6 +74,11 @@ export interface GeminiEventState {
   /** Messages already shown, by id, in file order (bounded). */
   messages: Map<string, ShownMessage>
   messageOrder: string[]
+  /** Messages forgotten because of the SEEN_MAX bound (not by a rewind or a patch). */
+  evicted: number
+  /** True while the file is re-read after a rewrite and ids were evicted: unknown ids are history
+   *  already shown, not new messages. */
+  replaying: boolean
   pendingToolCalls: Map<string, PendingGeminiToolCall>
   spawnEmitted: boolean
 }
@@ -87,6 +92,8 @@ export function createGeminiEventState(): GeminiEventState {
     labelFromSummary: false,
     messages: new Map(),
     messageOrder: [],
+    evicted: 0,
+    replaying: false,
     pendingToolCalls: new Map(),
     spawnEmitted: false,
   }
@@ -107,6 +114,7 @@ export interface GeminiParserDelegate {
 
 /** Bound on remembered messages and pending tool calls per session. */
 const SEEN_MAX = 5000
+export const GEMINI_SEEN_MAX = SEEN_MAX
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
@@ -239,18 +247,34 @@ export class GeminiEventParser {
     // `content` and tool call `result` edits change what the CLI sends back to the model, not what
     // was shown: ignored. Removal and order are state the next rewind depends on.
     if (Array.isArray(patch.removeIds)) {
+      const removed = new Set<string>()
       for (const rid of patch.removeIds) {
         if (typeof rid !== 'string') continue
-        const idx = state.messageOrder.indexOf(rid)
-        if (idx >= 0) state.messageOrder.splice(idx, 1)
-        state.messages.delete(rid)
+        removed.add(rid)
+        if (removed.size >= SEEN_MAX) break
+      }
+      if (removed.size > 0) {
+        state.messageOrder = state.messageOrder.filter(x => !removed.has(x))
+        for (const rid of removed) state.messages.delete(rid)
       }
     }
     if (Array.isArray(patch.orderIds)) {
-      const ordered = patch.orderIds.filter((x): x is string => typeof x === 'string' && state.messages.has(x))
+      const ordered = [...new Set(patch.orderIds.filter((x): x is string => typeof x === 'string' && state.messages.has(x)))].slice(0, SEEN_MAX)
       const set = new Set(ordered)
       state.messageOrder = [...state.messageOrder.filter(x => !set.has(x)), ...ordered]
     }
+  }
+
+  /** The file is about to be read again from the start (the CLI rewrote it). If messages were
+   *  evicted from memory, their ids are unknown now: until the first id still remembered shows up
+   *  (the evicted ones are the oldest, so they come first) unknown ids are history, not news. */
+  beginRewrite(state: GeminiEventState): void {
+    state.replaying = state.evicted > 0
+  }
+
+  /** End of the re-read: whatever follows is new. */
+  endRewrite(state: GeminiEventState): void {
+    state.replaying = false
   }
 
   // ─── Messages ────────────────────────────────────────────────────────────
@@ -288,7 +312,7 @@ export class GeminiEventParser {
     shown = { textShown: false, thoughtsShown: 0, started: new Set(), ended: new Set() }
     if (state.messageOrder.length >= SEEN_MAX) {
       const oldest = state.messageOrder.shift()
-      if (oldest !== undefined) state.messages.delete(oldest)
+      if (oldest !== undefined) { state.messages.delete(oldest); state.evicted++ }
     }
     state.messages.set(id, shown)
     state.messageOrder.push(id)
@@ -298,6 +322,10 @@ export class GeminiEventParser {
   private handleMessage(record: Record<string, unknown>, state: GeminiEventState): void {
     const id = idStr(record.id)
     if (!id) return
+    if (state.replaying && (record.type === 'user' || record.type === 'gemini')) {
+      if (!state.messages.has(id)) return
+      state.replaying = false
+    }
     switch (record.type) {
       case 'user': return this.handleUser(id, record, state)
       case 'gemini': return this.handleGemini(id, record, state)

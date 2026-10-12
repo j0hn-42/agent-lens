@@ -15,7 +15,10 @@
  * are not listed and not read: no parent/child link is guessed.
  *
  * A resumed session is rewritten by the CLI (temp file + rename): a changed inode restarts the read
- * at 0, and the parser's per-message memory keeps already shown messages from appearing twice.
+ * at 0, in bounded chunks, and the parser's per-message memory keeps already shown messages from
+ * appearing twice (a replay mode covers the ids the bounded memory dropped).
+ * Symbolic links are never followed: not the `chats` directory, not a session file, not one swapped in
+ * after attach (the session is detached).
  *
  * Every watcher and timer callback runs through runGuarded: in the relay an uncaught exception ends
  * the process (#206). A session whose read throws is detached and can be reattached later.
@@ -249,7 +252,12 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       if (!entry.isDirectory()) continue
       const chats = path.join(root, entry.name, 'chats')
       let mtime = 0
-      try { mtime = fs.statSync(chats).mtimeMs } catch { continue }
+      // lstat: a `chats` that is a symbolic link is not followed (it could lead outside the Gemini tree)
+      try {
+        const st = fs.lstatSync(chats)
+        if (!st.isDirectory()) continue
+        mtime = st.mtimeMs
+      } catch { continue }
       dirs.push({ dir: chats, mtime })
     }
     if (dirs.length > RELAY_MAX_PROJECT_DIRS) this.warnScanCap()
@@ -467,9 +475,16 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     if (!session) return
 
     let stat: fs.Stats
-    try { stat = fs.statSync(session.filePath) } catch { return }
+    try { stat = fs.lstatSync(session.filePath) } catch { return }
+    // The file became something else (a symbolic link, ...): never read it, stop watching
+    if (!stat.isFile()) {
+      log.warn(`Session Gemini ${sessionId.slice(0, SESSION_ID_DISPLAY)} : le fichier n'est plus un fichier régulier, session détachée.`)
+      this.detachOnError(sessionId, new Error('not a regular file'))
+      return
+    }
     // The CLI rewrote the file (new inode): read it again from the start; shown messages are remembered
-    if (stat.ino !== session.ino) {
+    const rewritten = stat.ino !== session.ino
+    if (rewritten) {
       session.ino = stat.ino
       session.fileSize = 0
       session.fileTail = ''
@@ -485,8 +500,12 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       return
     }
 
-    const lines = readTrackedLines(session.filePath, session)
-    if (!lines) return
+    // A rewritten file is read in bounded chunks, like the history at attach time
+    let lines: string[] | null = null
+    if (!rewritten) {
+      lines = readTrackedLines(session.filePath, session)
+      if (!lines) return
+    }
     session.lastActivityTime = Date.now()
 
     // New content in a session marked complete on inactivity means the user resumed it.
@@ -496,9 +515,15 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
     }
 
-    for (const line of lines) {
-      try { session.parser.processLine(line, session.eventState) }
-      catch (err) { log.debug('Parser threw on line:', err) }
+    if (rewritten) {
+      session.parser.beginRewrite(session.eventState)
+      try { this.drainHistory(session, size) }
+      finally { session.parser.endRewrite(session.eventState) }
+    } else {
+      for (const line of lines ?? []) {
+        try { session.parser.processLine(line, session.eventState) }
+        catch (err) { log.debug('Parser threw on line:', err) }
+      }
     }
 
     this.resetInactivityTimer(sessionId)
