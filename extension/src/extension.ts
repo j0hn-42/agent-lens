@@ -6,9 +6,10 @@ import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
 import { startPiRuntime } from './pi-runtime'
-import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
+import { promptHookSetupIfNeeded, configureClaudeHooks, installControlHook, removeControlHook, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
+import { getOperatorControl } from './operator-control'
 import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
@@ -138,6 +139,15 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   )
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentVisualizer.installControlHook', async () => {
+      await installControlHook()
+    }),
+    vscode.commands.registerCommand('agentVisualizer.removeControlHook', async () => {
+      await removeControlHook()
+    }),
+  )
+
   // ─── Serializer (restore panel on VS Code restart) ─────────────────────────
 
   vscode.window.registerWebviewPanelSerializer(VisualizerPanel.viewType, {
@@ -200,6 +210,8 @@ function wirePanel(panel: VisualizerPanel): void {
   if (panel.isWired) { return }
   panel.markWired()
   const notifyThrottle = new NotifyThrottle(2000)
+  // Nobody can answer once the panel is gone: what waits for a decision ends with none (#240)
+  panel.onDisposed(() => getOperatorControl()?.panelDisposed())
   let readyHandled = false
   panel.onCommand((message: WebviewToExtensionMessage) => {
     switch (message.type) {
@@ -251,6 +263,17 @@ function wirePanel(panel: VisualizerPanel): void {
       case 'open-file':
         handleOpenFile(message.filePath, message.line)
         break
+
+      case 'permission-surface':
+      case 'permission-decision': {
+        const control = getOperatorControl()
+        if (control) {
+          control.handlePanelMessage(panel, message)
+        } else if (message.type === 'permission-decision') {
+          panel.postMessage({ type: 'permission-result', nonce: null, ok: false, reason: 'disabled' })
+        }
+        break
+      }
 
       case 'open-terminal': {
         const req = parseOpenTerminalMessage(message)

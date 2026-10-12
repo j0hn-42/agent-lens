@@ -77,11 +77,6 @@ export function hashWorkspace(workspace: string): string {
 /** Length of the control token: 32 random bytes, hex encoded */
 export const CONTROL_TOKEN_HEX_LENGTH = 64
 
-/** A new per-start token for the PermissionRequest hook: 32 random bytes. It lives in memory and in the 0600 discovery file only. */
-export function newControlToken(): string {
-  return crypto.randomBytes(32).toString('hex')
-}
-
 /**
  * Publishes this instance for the hook scripts. The file is owner-only. `token` is written only while the operator
  * control is on (#240): without it permission-hook.js never connects to this instance.

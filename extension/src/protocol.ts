@@ -189,6 +189,28 @@ export type ExtensionToWebviewMessage =
   | { type: 'session-started'; session: SessionInfo }
   | { type: 'session-ended'; sessionId: string }
   | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string }
+  /** Operator control (#240), sent only to a panel that sent `permission-surface` ready: a PermissionRequest waits for a decision */
+  | { type: 'permission-request'; request: PermissionRequestMessage }
+  /** The request ended: `sent` = the decision was handed to Claude Code (not proof it was applied); the others had no decision */
+  | { type: 'permission-closed'; nonce: string; sessionId: string; toolUseId: string | null; outcome: string }
+  /** Answer to a `permission-decision`: accepted, or why not */
+  | { type: 'permission-result'; nonce: string | null; ok: boolean; reason?: string }
+
+/** A waiting PermissionRequest, as the panel is shown it (the decision must name sessionId, toolUseId and nonce) */
+export interface PermissionRequestMessage {
+  sessionId: string
+  /** null when the hook input does not name the call and no single open call of the session matches */
+  toolUseId: string | null
+  nonce: string
+  toolName: string
+  /** Tool input as JSON text with sorted keys, cut at 64 KiB */
+  inputPreview: string
+  inputTruncated: boolean
+  /** SHA-256 of the whole input */
+  inputSha256: string
+  requestedAt: number
+  expiresAt: number
+}
 
 export interface VisualizerConfig {
   mode: 'live' | 'replay'
@@ -230,6 +252,10 @@ export type WebviewToExtensionMessage =
   | { type: 'open-file'; filePath: string; line?: number }
   /** Open a terminal in the working directory of a session (#240): the webview names the session, never a directory */
   | { type: 'open-terminal'; sessionId: string }
+  /** The page can show and answer permission requests (#240); sent again with ready:false when it can no longer */
+  | { type: 'permission-surface'; ready: boolean }
+  /** The operator's decision for one waiting request (#240); a redirect carries its text */
+  | { type: 'permission-decision'; sessionId: string; toolUseId: string | null; nonce: string; action: 'approve' | 'deny' | 'redirect'; message?: string }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
   /** Native notification asked for by a rule of the webview (#225); validated by parseNotifyMessage */
   | { type: 'notify'; trigger: string; title: string; body: string }
