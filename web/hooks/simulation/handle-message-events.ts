@@ -56,12 +56,14 @@ export function handleMessage(
     }
 
     // Only an observed thinking block proves the agent thinks (#362). A prompt or an answer ends that
-    // block (and a past tool failure): the agent is then waiting for its next event, neutral.
+    // block (and a past tool failure): the agent is then waiting for its next event, neutral, with its
+    // turn not over (idle between two steps, not at rest).
     if (msgAgent.state !== 'complete' && msgAgent.state !== 'tool_calling') {
       if (role === 'thinking') {
         updates.state = 'thinking'
       } else if (msgAgent.state === 'thinking' || msgAgent.state === 'error') {
         updates.state = 'idle'
+        updates.awaitingNextEvent = true
       }
     }
     if (Object.keys(updates).length > 0) {

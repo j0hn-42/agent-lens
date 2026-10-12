@@ -1,13 +1,13 @@
 import { SCENE } from '../../lib/colors'
 import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
-import { pushTimelineBlock, closeTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
+import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
 import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader, TimelineBlock } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
@@ -64,6 +64,19 @@ function findCallToClose(toolCalls: Map<string, ToolCallNode>, agentId: string, 
     if (tc.state === 'expired' && toolUseId !== undefined && tc.toolUseId === toolUseId) expired = id
   }
   return expired
+}
+
+/**
+ * Index of the Timeline block of a call (the latest tool block that started with it and carries its tool name),
+ * or -1. It may already be closed: a later block cuts the previous one.
+ */
+function findCallBlock(blocks: TimelineBlock[], tc: Pick<ToolCallNode, 'startTime' | 'toolName'>): number {
+  const prefix = `${formatToolName(tc.toolName)}:`
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]
+    if (b.type === 'tool_call' && b.startTime === tc.startTime && b.label.startsWith(prefix)) return i
+  }
+  return -1
 }
 
 /** Token counters after one more figure: a present value adds up, an absent one only widens the gap. */
@@ -215,16 +228,20 @@ export function handleToolCallEnd(
 
   if (agent) {
     const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
+    const matchedCall = matchedId ? state.toolCalls.get(matchedId) : undefined
     // Another call of this agent still running (a parallel batch): the agent is still calling that tool
     let stillRunning: ToolCallNode | undefined
     for (const [id, tc] of state.toolCalls) {
       if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
     }
+    const nextState = outcome === 'error' ? 'error' : stillRunning ? 'tool_calling' : 'idle'
     state.agents.set(agentName, {
       ...agent,
       // A cancelled call is neither a success nor an agent failure. What the agent does next is unknown
-      // until its next event: neutral, never a 'thinking' nobody observed (#362)
-      state: outcome === 'error' ? 'error' : stillRunning ? 'tool_calling' : 'idle',
+      // until its next event: neutral, never a 'thinking' nobody observed (#362). Its turn is not over
+      // though: idle between two steps, not at rest.
+      state: nextState,
+      ...(nextState === 'idle' ? { awaitingNextEvent: true } : {}),
       currentTool: stillRunning && outcome !== 'error' ? stillRunning.toolName : undefined,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
@@ -276,17 +293,24 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      let base = entry
-      const last = entry.blocks.length - 1
-      if ((isError || isCancelled) && last >= 0 && !entry.blocks[last].endTime) {
-        const blocks = entry.blocks.slice()
+      // The block of the call that ended, never the block of another call still running (#362). Without a
+      // matched call (an end whose start was not seen), the last open block, as long as no other call runs.
+      const blocks = entry.blocks.slice()
+      const last = blocks.length - 1
+      const own = matchedCall ? findCallBlock(blocks, matchedCall) : -1
+      const idx = own >= 0 ? own : !stillRunning && last >= 0 && !blocks[last].endTime ? last : -1
+      if (idx >= 0) {
+        let block = blocks[idx]
         // A cancelled call is not a failure: neutral color, never the error red
-        blocks[last] = { ...blocks[last], color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
-        base = { ...entry, blocks }
+        if (isError || isCancelled) block = { ...block, color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        if (block.endTime === undefined) block = { ...block, endTime: currentTime }
+        blocks[idx] = block
       }
-      // The call's block closes here, unless it belongs to a call still running; no 'Thinking...' block
-      // opens until a thinking block is observed (#362)
-      state.timelineEntries.set(agentName, stillRunning ? base : closeTimelineBlock(base, currentTime))
+      // No other call runs: whatever block is still open (a permission wait) ends here too. No 'Thinking...'
+      // block opens until a thinking block is observed.
+      const closeTrailing = !stillRunning && last >= 0 && blocks[last].endTime === undefined
+      if (closeTrailing) blocks[last] = { ...blocks[last], endTime: currentTime }
+      if (idx >= 0 || closeTrailing) state.timelineEntries.set(agentName, { ...entry, blocks })
     }
 
     // File attention token cost
