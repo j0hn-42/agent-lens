@@ -4,7 +4,7 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState } from '@/lib/ui-glossary'
+import { emptyState, USAGE_LABELS } from '@/lib/ui-glossary'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
 import type { Agent } from '@/lib/agent-types'
@@ -104,12 +104,14 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           <ul className="space-y-1 list-none p-0 m-0">
           {files.map((file) => {
             const heatRatio = file.totalTokens / maxTokens
-            const heatColor = heatRatio > 0.7 ? COLORS.error :
-              heatRatio > 0.4 ? COLORS.tool :
+            // A heavy file is not a failure: never the error red
+            const heatColor = heatRatio > 0.7 ? COLORS.tool :
+              heatRatio > 0.4 ? COLORS.filePathActive :
                 COLORS.holoBase
             const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
-            const tokenText = file.totalTokens > 0 ? formatTokens(file.totalTokens) : '—'
+            const tokenText = file.totalTokens > 0 ? `${file.tokensEstimated ? '~' : ''}${formatTokens(file.totalTokens)}` : '—'
+            const tokenLabel = file.totalTokens > 0 && file.tokensEstimated ? `${tokenText} tokens, ${USAGE_LABELS.estimated}` : `${tokenText} tokens`
             const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
@@ -137,7 +139,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     type="button"
                     onClick={() => onOpenFile?.(file.path)}
                     title={file.path}
-                    aria-label={`Open ${file.path}, ${tokenText} tokens${conflicted ? ', conflict' : ''}`}
+                    aria-label={`Open ${file.path}, ${tokenLabel}${conflicted ? ', conflict' : ''}`}
                     className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {headerInner}
@@ -188,7 +190,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             color: COLORS.textMuted,
           }}>
             <span>{pluralize(files.length, 'file')}</span>
-            <span>{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
+            <span>{files.some(f => f.tokensEstimated) ? `${USAGE_LABELS.estimated}: ` : ''}{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
           </div>
         )}
       </div>

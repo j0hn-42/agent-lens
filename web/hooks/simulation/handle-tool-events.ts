@@ -315,12 +315,17 @@ export function handleToolCallEnd(
 
     // File attention token cost
     if (tokenCost) { // 0 and null add nothing
-      const matchedTc = Array.from(state.toolCalls.values()).find(tc => tc.agentId === agentName && tc.toolName === toolName)
+      // The call that just ended, never the first call of this tool the agent ever made
+      const matchedTc = matchedId ? state.toolCalls.get(matchedId) : undefined
       const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
       if (filePath) {
         const existing = state.fileAttention.get(filePath)
         if (existing) {
-          state.fileAttention.set(filePath, { ...existing, totalTokens: existing.totalTokens + tokenCost })
+          state.fileAttention.set(filePath, {
+            ...existing,
+            totalTokens: existing.totalTokens + tokenCost,
+            ...(tokenSource === 'estimated' ? { tokensEstimated: true } : {}),
+          })
         }
       }
     }
