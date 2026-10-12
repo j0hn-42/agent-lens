@@ -10,6 +10,7 @@ import {
   SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
@@ -33,7 +34,7 @@ export function CloseButton({ onClick, className = '', label = 'Close' }: CloseB
       onClick={onClick}
       aria-label={label}
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] ${className}`}
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>

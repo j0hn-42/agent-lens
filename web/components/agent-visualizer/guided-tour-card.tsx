@@ -5,6 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { TourStep } from '@/lib/guided-steps'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 
 interface GuidedTourCardProps {
@@ -20,7 +21,7 @@ interface GuidedTourCardProps {
 
 const BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono aria-disabled:opacity-50 '
-  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
+  + FOCUS_RING
 const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
 
 /**

@@ -1,7 +1,7 @@
 {
   "name": "agent-lens",
   "displayName": "Agent Lens",
-  "description": "Real-time visualization of Claude Code, Codex, GitHub Copilot and Pi agent orchestration",
+  "description": "Real-time visualization of Claude Code, Codex, GitHub Copilot, Pi and Gemini CLI agent orchestration",
   "version": "0.10.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Visualization", "Other"],
-  "keywords": ["llm", "agent", "claude", "codex", "copilot", "pi", "ai", "visualization", "orchestration"],
+  "keywords": ["llm", "agent", "claude", "codex", "copilot", "pi", "gemini", "ai", "visualization", "orchestration"],
   "activationEvents": [
     "onWebviewPanel:agentVisualizer"
   ],
@@ -40,6 +40,16 @@
         "command": "agentVisualizer.configureHooks",
         "title": "Configure Claude Code Hooks",
         "category": "Agent Lens"
+      },
+      {
+        "command": "agentVisualizer.installControlHook",
+        "title": "Install the Permission Hook (operator control)",
+        "category": "Agent Lens"
+      },
+      {
+        "command": "agentVisualizer.removeControlHook",
+        "title": "Remove the Permission Hook (operator control)",
+        "category": "Agent Lens"
       }
     ],
     "keybindings": [
@@ -54,13 +64,14 @@
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",
-          "enum": ["auto", "claude", "codex", "copilot", "pi"],
+          "enum": ["auto", "claude", "codex", "copilot", "pi", "gemini"],
           "enumDescriptions": [
-            "Watch Claude Code, Codex, GitHub Copilot and Pi sessions concurrently (default)",
+            "Watch Claude Code, Codex, GitHub Copilot, Pi and Gemini CLI sessions concurrently (default)",
             "Watch only Claude Code sessions",
             "Watch only Codex sessions",
             "Watch only local GitHub Copilot sessions",
-            "Watch only Pi coding agent sessions"
+            "Watch only Pi coding agent sessions",
+            "Watch only Gemini CLI sessions"
           ],
           "default": "auto",
           "description": "Which agent runtime(s) to watch. In auto mode, runtimes you don't use are harmless no-ops (no session directory = nothing to scan)."
@@ -75,6 +86,12 @@
           "type": "string",
           "default": "",
           "description": "Path to JSONL event log file to watch for agent events"
+        },
+        "agentVisualizer.allowControl": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Let the Agent Lens panel answer Claude Code permission requests (approve, deny, redirect). Off by default. Needs the permission hook (command \"Agent Lens: Install the Permission Hook\"). Machine-scoped: set it in your User Settings, a workspace .vscode/settings.json is ignored. Fails closed: with no answer, Claude Code asks as usual."
         },
         "agentVisualizer.autoOpen": {
           "type": "boolean",

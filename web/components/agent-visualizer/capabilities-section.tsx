@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import {
   CAPABILITIES_READ_LIMIT_MB, groupSkillsByPlugin, type SessionCapabilities,
 } from '@/lib/session-capabilities'
@@ -21,7 +21,7 @@ function Note({ children, color }: { children: ReactNode; color?: string }) {
 function Group({ title, open, children }: { title: string; open: boolean; children: ReactNode }) {
   return (
     <details open={open} className="mt-1">
-      <summary className={`cursor-pointer text-[11px] font-mono rounded py-0.5 ${FOCUS_RING}`} style={{ color: COLORS.panelLabel }}>{title}</summary>
+      <summary className={`cursor-pointer text-[11px] font-mono rounded py-0.5 ${FOCUS_RING_INSET}`} style={{ color: COLORS.panelLabel }}>{title}</summary>
       <div className="pl-3">{children}</div>
     </details>
   )

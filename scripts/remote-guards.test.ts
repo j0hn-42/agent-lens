@@ -55,7 +55,7 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     // Fail closed: an invalid allow list stops createRelay (and does not use up the per-process relay)
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', allowedHosts: ['*.ts.net'] }), /allowedHosts/)
     relay = await createRelay({ workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], hooksProbe: () => true, issueLinksProbe: async () => [] })
-    server = http.createServer(createAppRequestHandler(relay, { allowedHosts: [TUNNEL] }))
+    server = http.createServer(createAppRequestHandler(relay))
     port = await listenLoopback(server, 0)
   })
 
@@ -152,20 +152,54 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     assert.equal((await request('GET', '/status', { Host: TUNNEL.toUpperCase() })).status, 200)
   })
 
-  it('refuses a request carrying two Host headers', async () => {
-    const reply = await new Promise<string>((resolve, reject) => {
-      const s = net.connect({ host: '127.0.0.1', port }, () => s.end(`GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nHost: evil.example\r\nConnection: close\r\n\r\n`))
+  /** Raw request: Node's client cannot send two Host headers. */
+  function raw(target: number, head: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const s = net.connect({ host: '127.0.0.1', port: target }, () => s.end(head))
       let out = ''
       s.on('data', c => { out += c.toString() })
       s.on('end', () => resolve(out))
       s.on('error', reject)
     })
-    assert.match(reply, /^HTTP\/1\.1 (400|403)/)
+  }
+
+  it('refuses a request carrying two Host headers: 403 with the strict headers, nothing computed (Node does not reject it)', async () => {
+    const runs = relay.debugState().statusRuns
+    const reply = await raw(port, `GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nHost: evil.example\r\nConnection: close\r\n\r\n`)
+    assert.match(reply, /^HTTP\/1\.1 403 /)
+    assert.match(reply, /x-content-type-options: nosniff/i)
+    assert.equal(relay.debugState().statusRuns, runs)
   })
 
-  it('the request handler validates its own allow list (fail closed)', async () => {
+  it('the relay itself refuses two Host headers, without the app gate (handleSSE, handleStatus)', async () => {
+    const bare = http.createServer((req, res) => { void (req.url === '/status' ? relay.handleStatus : relay.handleSSE)(req, res) })
+    const barePort = await listenLoopback(bare, 0)
+    try {
+      const runs = relay.debugState().statusRuns
+      for (const target of ['/events', '/status']) {
+        for (const hosts of [`Host: ${TUNNEL}\r\nHost: evil.example`, 'Host: 127.0.0.1\r\nHost: evil.example']) {
+          const reply = await raw(barePort, `GET ${target} HTTP/1.1\r\n${hosts}\r\nConnection: close\r\n\r\n`)
+          assert.match(reply, /^HTTP\/1\.1 403 /, `${target} ${hosts}`)
+        }
+      }
+      assert.equal(relay.debugState().statusRuns, runs)
+    } finally {
+      bare.close()
+    }
+  })
+
+  it('the app handler takes its allow list from the relay: one list, no second parameter', async () => {
     const { createAppRequestHandler } = await import('../app/src/server')
-    assert.throws(() => createAppRequestHandler(relay, { allowedHosts: ['*.ts.net'] }), /allowedHosts/)
+    const single = http.createServer(createAppRequestHandler(relay))
+    const singlePort = await listenLoopback(single, 0)
+    try {
+      const reply = await raw(singlePort, `GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nConnection: close\r\n\r\n`)
+      assert.match(reply, /^HTTP\/1\.1 200 /)
+      const other = await raw(singlePort, 'GET /status HTTP/1.1\r\nHost: other.ts.net\r\nConnection: close\r\n\r\n')
+      assert.match(other, /^HTTP\/1\.1 403 /)
+    } finally {
+      single.close()
+    }
   })
 
   it('rate-limits remote clients by tunnel name, whatever their User-Agent (the tunnel peer is always 127.0.0.1)', async () => {

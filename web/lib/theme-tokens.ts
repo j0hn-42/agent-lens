@@ -158,7 +158,6 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
   if (id === 'neon') {
     return {
       '--lens-shadow-card': SHADOW_CARD.neon,
-      '--lens-focus-ring': '#aaeeff',
       '--lens-focus-width': '2px',
       '--lens-glass-bg': 'rgba(10, 15, 30, 0.7)',
       '--lens-glass-border': 'rgba(102, 204, 255, 0.22)',
@@ -194,7 +193,6 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
     '--lens-bar-shadow': `inset 0 0 0 1px ${boundary}`,
     '--lens-bar-pad': '6px 8px',
     '--lens-shadow-card': SHADOW_CARD[id],
-    '--lens-focus-ring': t.focus,
     '--lens-focus-width': id === 'contrast' ? '3px' : '2px',
     '--lens-glass-bg': t.surface,
     '--lens-glass-border': boundary,

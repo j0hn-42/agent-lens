@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { COLORS, ROLE_COLORS } from '../web/lib/colors'
 import {
-  truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex, stateLabel, STATE_LABELS,
+  truncateWithMarker, formatElapsed, agentsWithNewText, stateLabel, STATE_LABELS,
 } from '../web/lib/feed-utils'
 
 // ─── Pure helpers ───────────────────────────────────────────────────────────
@@ -42,15 +42,6 @@ test('agentsWithNewText only reports agents whose text count increased', () => {
   ])
   const second = agentsWithNewText(first.nextLens, conv2, types)
   assert.deepEqual(second.increased, ['b'])
-})
-
-test('nextTabIndex wraps and supports Home/End', () => {
-  assert.equal(nextTabIndex('ArrowRight', 2, 3), 0)
-  assert.equal(nextTabIndex('ArrowLeft', 0, 3), 2)
-  assert.equal(nextTabIndex('Home', 2, 3), 0)
-  assert.equal(nextTabIndex('End', 0, 3), 2)
-  assert.equal(nextTabIndex('a', 0, 3), null)
-  assert.equal(nextTabIndex('Home', 0, 0), null)
 })
 
 test('state labels contain no underscores', () => {

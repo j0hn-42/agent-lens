@@ -51,12 +51,11 @@ test('neon reproduces the legacy COLORS palette key for key (the look must not m
   for (const [key, value] of Object.entries(legacy)) assert.equal(neon[key], value, key)
 })
 
-test('neon CSS keeps the legacy glass, ring, input and scrollbar values', () => {
+test('neon CSS keeps the legacy glass, input and scrollbar values', () => {
   const v = extraVars('neon')
   assert.equal(v['--lens-glass-bg'], 'rgba(10, 15, 30, 0.7)')
   assert.equal(v['--lens-glass-border'], 'rgba(102, 204, 255, 0.22)')
   assert.equal(v['--lens-glass-blur'], 'blur(20px)')
-  assert.equal(v['--lens-focus-ring'], '#aaeeff')
   assert.equal(v['--lens-input-border'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(v['--lens-scrollbar-thumb'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(shadcnVars('neon')['--background'], 'oklch(0.145 0 0)')

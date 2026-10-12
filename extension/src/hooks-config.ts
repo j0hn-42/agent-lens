@@ -1,8 +1,8 @@
 import * as vscode from 'vscode'
 import * as path from 'path'
-import { HOOK_TIMEOUT_S } from './constants'
+import { HOOK_TIMEOUT_S, PERMISSION_HOOK_TIMEOUT_S } from './constants'
 import {
-  getHookCommand, ensureHookScript,
+  getHookCommand, ensureHookScript, getPermissionHookCommand, ensurePermissionHookScript,
   addWorkspaceToManifest,
 } from './discovery'
 import {
@@ -11,6 +11,7 @@ import {
 } from './claude-settings'
 import { claudeSettingsPath, discoveryDir } from './claude-config-dir'
 import { updateSettings, SettingsUnreadableError } from './settings-writer'
+import { applyControlHook, removeControlHook as stripControlHook, settingsHaveControlHook } from '../scripts/claude-hooks'
 import { recordSettingsPath } from '../scripts/claude-hooks'
 import { createLogger } from './logger'
 
@@ -103,6 +104,70 @@ export async function configureClaudeHooks(): Promise<void> {
   vscode.window.showInformationMessage(
     'Claude Code hooks configured. New sessions will stream events to Agent Lens.',
   )
+}
+
+// ─── Operator control hook (#240) ─────────────────────────────────────────────
+
+function controlHookEntry(): { hooks: Array<{ type: string; command: string; timeout: number }> } {
+  return { hooks: [{ type: 'command', command: getPermissionHookCommand(), timeout: PERMISSION_HOOK_TIMEOUT_S }] }
+}
+
+/** True when the global settings hold the PermissionRequest hook of the operator control. Never throws. */
+export function isControlHookInstalled(): boolean {
+  return settingsHaveControlHook(readGlobalSettings())
+}
+
+/**
+ * Called at each start of the Claude runtime: when the control hook is installed, bring its script up to date, as
+ * hook.js is, so a protocol change (headers, proof, answer shape) reaches existing installs without a manual
+ * reinstall. Never installs anything on a machine that did not ask for the control hook.
+ */
+export function refreshControlHookScript(): void {
+  try {
+    if (isControlHookInstalled()) { ensurePermissionHookScript() }
+  } catch (err) {
+    log.warn('Could not refresh the permission hook script:', err)
+  }
+}
+
+/**
+ * Install the optional PermissionRequest hook (separate from the observation hooks, 60 s timeout). It does nothing
+ * unless agentVisualizer.allowControl is on and a panel can answer: otherwise it prints no decision.
+ */
+export async function installControlHook(): Promise<void> {
+  ensurePermissionHookScript()
+  const settingsPath = globalSettingsPath()
+  try {
+    updateSettings(settingsPath, settings => applyControlHook(settings, controlHookEntry()))
+  } catch (err) {
+    if (err instanceof SettingsUnreadableError) {
+      log.error(err.message)
+      vscode.window.showErrorMessage(unreadableSettingsMessage(err))
+      return
+    }
+    throw err
+  }
+  rememberGlobalSettings(settingsPath)
+  vscode.window.showInformationMessage(
+    'Agent Lens permission hook installed. It is inactive until the setting "agentVisualizer.allowControl" is on, '
+    + 'and it only holds a request while the Agent Lens panel can answer it.',
+  )
+}
+
+/** Remove the PermissionRequest hook of the operator control; the observation hooks and the user's hooks stay. */
+export async function removeControlHook(): Promise<void> {
+  const settingsPath = globalSettingsPath()
+  try {
+    updateSettings(settingsPath, settings => { stripControlHook(settings) })
+  } catch (err) {
+    if (err instanceof SettingsUnreadableError) {
+      log.error(err.message)
+      vscode.window.showErrorMessage(unreadableSettingsMessage(err))
+      return
+    }
+    throw err
+  }
+  vscode.window.showInformationMessage('Agent Lens permission hook removed. Claude Code asks for permissions as usual.')
 }
 
 // ─── Migration ────────────────────────────────────────────────────────────────

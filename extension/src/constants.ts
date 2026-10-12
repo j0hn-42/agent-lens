@@ -24,6 +24,9 @@ export const COPILOT_MAX_WATCHED_SESSIONS = 25
 /** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
 export const PI_MAX_WATCHED_SESSIONS = 25
 
+/** Plafond de sessions Gemini CLI suivies en même temps (même logique que Pi, #238) */
+export const GEMINI_MAX_WATCHED_SESSIONS = 25
+
 /** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
  *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
 export const COLD_RESCAN_CYCLES = 30
@@ -74,6 +77,39 @@ export const HOOK_SAFETY_MARGIN_MS = 500
 
 /** Timeout for HTTP requests in hook forwarding script (ms) */
 export const HOOK_FORWARD_TIMEOUT_MS = 1000
+
+// ─── Operator control (#240) ─────────────────────────────────────────────────
+
+/** Header carrying the discovery-file token on a PermissionRequest hook request (lower case, as Node reads it) */
+export const HOOK_CONTROL_TOKEN_HEADER = 'x-agent-lens-token'
+
+/** Header with the random challenge the hook script sends, so the answer cannot be replayed or forged without the token */
+export const HOOK_CONTROL_CHALLENGE_HEADER = 'x-agent-lens-challenge'
+
+/** Header with the proof (HMAC-SHA256 keyed by the token) that the answer comes from the instance that holds the token */
+export const HOOK_CONTROL_PROOF_HEADER = 'x-agent-lens-proof'
+
+/** Timeout written to settings.json for the optional PermissionRequest hook (seconds): the hook waits for a decision. */
+export const PERMISSION_HOOK_TIMEOUT_S = 60
+
+/** How long the extension holds a request before giving up (ms). Shorter than the hook's own deadline
+ *  (PERMISSION_HOOK_TIMEOUT_S minus HOOK_SAFETY_MARGIN_MS), so the extension always answers first, with no decision. */
+export const PERMISSION_REQUEST_TTL_MS = 55_000
+
+/** Requests held at the same time; past it a request gets no decision and Claude Code asks as usual */
+export const PERMISSION_MAX_PENDING = 16
+
+/** Largest tool input sent to the panel as text; the SHA-256 in the journal is always over the whole input */
+export const PERMISSION_INPUT_PREVIEW_MAX = 64 * 1024
+
+/** Longest redirect message handed to Claude (characters) */
+export const PERMISSION_MESSAGE_MAX = 2000
+
+/** Closed requests remembered, to tell a replay ("already used") from an unknown nonce */
+export const PERMISSION_RECENT_CLOSED_MAX = 64
+
+/** Size at which decisions.jsonl rotates to decisions.jsonl.1 (bytes) */
+export const DECISION_JOURNAL_MAX_BYTES = 1024 * 1024
 
 /** Length of workspace hash prefix used in discovery file names */
 export const WORKSPACE_HASH_LENGTH = 16

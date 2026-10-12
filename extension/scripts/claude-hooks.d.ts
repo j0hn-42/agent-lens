@@ -2,18 +2,22 @@
 
 export const HOOK_COMMAND_MARKER: 'agent-lens/hook.js'
 export const LEGACY_HOOK_COMMAND_MARKER: 'agent-flow/hook.js'
+export const CONTROL_HOOK_COMMAND_MARKER: 'agent-lens/permission-hook.js'
 export const SETTINGS_FILE_MAX_BYTES: number
 export const SETTINGS_PATHS_FILE: string
 
-export type HookKind = 'current' | 'legacy' | null
+export type HookKind = 'current' | 'legacy' | 'control' | null
 
 export function hookKind(hook: unknown): HookKind
 export function isAgentLensHook(entry: unknown): boolean
 export function isCurrentAgentLensHook(entry: unknown): boolean
 export function settingsHaveAgentLensHooks(settings: unknown): boolean
 export function settingsHaveLegacyHooks(settings: unknown): boolean
-export function removeAgentLensHooks(settings: Record<string, unknown>): boolean
+export function removeAgentLensHooks(settings: Record<string, unknown>, removes?: (kind: HookKind) => boolean): boolean
 export function applyAgentLensHooks(settings: Record<string, unknown>, hooksConfig: Record<string, unknown[]>): void
+export function settingsHaveControlHook(settings: unknown): boolean
+export function applyControlHook(settings: Record<string, unknown>, entry: unknown): void
+export function removeControlHook(settings: Record<string, unknown>): boolean
 export function migrateLegacyHooks(settings: Record<string, unknown>, entry: unknown): boolean
 
 export function claudeConfigDir(env?: NodeJS.ProcessEnv, home?: string): string

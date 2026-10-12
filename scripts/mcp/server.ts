@@ -124,7 +124,7 @@ function projectSession(raw: unknown): ObservedSession | null {
   if (!isObj(raw)) return null
   const { id, runtime, status, startedAt, lastActivityAt, ageMs, freshness, agentCount } = raw
   if (typeof id !== 'string' || !SESSION_ID_RE.test(id)) return null
-  if (!oneOf(runtime, ['claude', 'codex', 'copilot', 'pi', 'unknown'] as const)) return null
+  if (!oneOf(runtime, ['claude', 'codex', 'copilot', 'pi', 'gemini', 'unknown'] as const)) return null
   if (!oneOf(status, ['active', 'completed'] as const)) return null
   if (!isInt(startedAt) || !isInt(lastActivityAt) || !isInt(ageMs, 0) || !isInt(agentCount, 0)) return null
   if (!oneOf(freshness, ['fresh', 'stale', 'closed'] as const)) return null

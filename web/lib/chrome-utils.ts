@@ -9,10 +9,6 @@ import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
-/** Shared visible keyboard-focus style for every interactive control in the chrome. */
-export const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
-
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
 export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
@@ -113,6 +109,7 @@ export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; 
   if (runtime === 'codex') return { short: 'CX', label: 'Codex' }
   if (runtime === 'copilot') return { short: 'GC', label: 'GitHub Copilot' }
   if (runtime === 'pi') return { short: 'PI', label: 'Pi' }
+  if (runtime === 'gemini') return { short: 'GM', label: 'Gemini CLI' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
 }
@@ -137,18 +134,6 @@ export function resolvePendingFocus(
   if (!pending) return { focusId: null, keep: null }
   if (sessionIds.includes(pending.closedId)) return { focusId: null, keep: pending }
   return { focusId: sessionIds.includes(pending.focusId) ? pending.focusId : null, keep: null }
-}
-
-/** Roving-tabindex arrow navigation: returns the index to focus, or null when the key is not ours. */
-export function nextTabIndex(current: number, key: string, count: number): number | null {
-  if (count <= 0) return null
-  switch (key) {
-    case 'ArrowRight': return (current + 1) % count
-    case 'ArrowLeft': return (current - 1 + count) % count
-    case 'Home': return 0
-    case 'End': return count - 1
-    default: return null
-  }
 }
 
 // ─── Scrubber ────────────────────────────────────────────────────────────────
@@ -221,7 +206,7 @@ export function formatDroppedMessages(dropped: number): string | null {
 }
 
 /** Minimal agent shape needed to label it with its session. */
-interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' }
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' }
 
 /**
  * Attach the human-readable session label (and the session runtime when the agent has none) to each
@@ -387,7 +372,7 @@ export function emptyStateChecklist(opts: {
             : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
             : 'only the current workspace is watched',
         },
-    { id: 'runtime', label: 'Claude Code, Codex, Copilot or Pi session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
   if (opts.hooksConfigured !== undefined) {
     items.push({
@@ -480,7 +465,7 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
 
 export interface CanvasSessionMeta {
   label: string
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   workspace?: string
   projectId?: string
   projectName?: string

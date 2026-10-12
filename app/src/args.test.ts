@@ -31,7 +31,10 @@ describe('parseArgs', () => {
     assert.deepEqual(parseArgs([]).allowHosts, [])
     const a = parseArgs(['--allow-host', 'box.ts.net', '--no-open', '--allow-host', 'lens.example.com:8443'])
     assert.deepEqual(a.allowHosts, ['box.ts.net', 'lens.example.com:8443'])
-    assert.deepEqual(parseArgs(['--allow-host']).allowHosts, [])
+  })
+  it('keeps a trailing --allow-host / --host without value, so that the start refuses it instead of ignoring it (#241)', () => {
+    assert.deepEqual(parseArgs(['--allow-host']).allowHosts, [''])
+    assert.equal(parseArgs(['--host']).host, '')
   })
   it('keeps --host so that the start can refuse it instead of silently ignoring it (#241)', () => {
     assert.equal(parseArgs([]).host, undefined)

@@ -3,7 +3,7 @@ import type { RelayStatus } from '../../extension/src/protocol'
 import type { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import type { SessionIndexResult } from '../../extension/src/session-index'
 import type { KeyedCoalescer } from '../server-hardening'
-import { classifyHost } from '../remote-access'
+import { requestHostClass } from '../remote-access'
 import { guardedRoute, sendJson, sendPlain, type RouteHandler } from './guard'
 
 export interface StatusSnapshot {
@@ -62,7 +62,7 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       }
     }
     const launch = deps.launch?.()
-    if (launch && classifyHost(req.headers.host, deps.allowedHosts ?? []) === 'loopback') status.launch = launch
+    if (launch && requestHostClass(req, deps.allowedHosts ?? []) === 'loopback') status.launch = launch
     sendJson(req, res, 200, status)
   })
 }

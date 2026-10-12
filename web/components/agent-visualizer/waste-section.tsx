@@ -3,7 +3,7 @@
 import { useId } from 'react'
 import type { Agent } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { pluralize, truncatePath } from '@/lib/utils'
 import { describeWaste, formatWasteTokens, wasteSummary, type WasteLedger } from '@/lib/waste'
 
@@ -57,7 +57,7 @@ export function WasteSection({ waste, agents, onOpenFile }: WasteSectionProps) {
                     onClick={() => onOpenFile?.(item.target)}
                     title={item.target}
                     aria-label={`Open ${item.target}`}
-                    className={`flex items-center gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING}`}
+                    className={`flex items-center gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {label}
                   </button>

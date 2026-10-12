@@ -31,7 +31,7 @@ pnpm run dev:demo       # web app with mock data on http://localhost:3000
 
 ## Checks to run before a pull request
 
-These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` only (not `develop`, to save GitHub Actions minutes) — run these commands locally before merging into `develop`. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
+These are the commands of `.github/workflows/ci.yml`, which runs on every push and pull request to `main` and `develop` — run these commands locally before opening the pull request. All must pass; a failing step no longer hides the following ones. The release workflow reruns this same CI (reusable workflow) before building the `.vsix`.
 
 ```bash
 pnpm install --frozen-lockfile
@@ -80,20 +80,36 @@ Two files act as guard rails. They record known violations; they are not a place
 
 ## Branch protection (owner)
 
-The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks on `main` (the CI does not run on `develop`, so do not require them there):
+The merge gate lives in the repository settings, not in the workflows. Once, as repository admin, require the CI checks `test` and `e2e-a11y`. Read the current protection first (`gh api repos/j0hn-42/agent-lens/branches/<branch>/protection`): a `PUT` on `/protection` replaces every setting, so it must repeat the existing ones.
+
+If the branch already requires some checks, only change those (this keeps the rest of the protection):
+
+```bash
+gh api -X PATCH "repos/j0hn-42/agent-lens/branches/main/protection/required_status_checks" \
+  -F strict=false -f 'contexts[]=test' -f 'contexts[]=e2e-a11y'
+```
+
+If the branch requires no check yet (the endpoint above answers 404), send a `PUT` that repeats the existing settings and adds the checks. Example for `main` as it was configured (no required review, conversation resolution required, no force push):
 
 ```bash
 gh api -X PUT "repos/j0hn-42/agent-lens/branches/main/protection" --input - <<'JSON'
 {
   "required_status_checks": { "strict": false, "contexts": ["test", "e2e-a11y"] },
   "enforce_admins": false,
-  "required_pull_request_reviews": null,
+  "required_pull_request_reviews": { "required_approving_review_count": 0 },
   "restrictions": null,
+  "required_linear_history": false,
   "allow_force_pushes": false,
-  "allow_deletions": false
+  "allow_deletions": false,
+  "block_creations": false,
+  "required_conversation_resolution": true,
+  "lock_branch": false,
+  "allow_fork_syncing": false
 }
 JSON
 ```
+
+Apply it to `develop` only once the CI runs on pull requests to `develop` (it does since #182, after that change is merged): before, no check would ever report there and nothing could be merged. Verify by reading the protection back.
 
 ## Pull requests
 

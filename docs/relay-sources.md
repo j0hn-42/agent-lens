@@ -103,7 +103,7 @@ streaming from a remote agent and provider connectors are tracks 2 and 3 of #294
 Watching agents from a phone or another machine is not available yet. This step only puts the guards in place; the standalone app **refuses to start** with the new options (exit code 2, the reason on stderr):
 
 - `--allow-host <name>` is refused until token authentication ships (step 2 of #241). The event stream carries prompts, tool outputs and file contents: without a token, anyone who reaches the tunnel would read them.
-- `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a tunnel (SSH `-L`, Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS.
+- `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a named tunnel (Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS. An SSH `-L` tunnel is treated as local, see the end of this section.
 
 What the guards will enforce once the token exists (tested now through the app's request handler):
 
@@ -119,7 +119,7 @@ What the guards will enforce once the token exists (tested now through the app's
 
 `--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL, credentials or default port (`:80`, `:443`, which browsers leave out of `Host`); at most 4 names. The peer must still be loopback: a tunnel's is. So every client of a tunnel shares one rate-limit bucket per name (its `User-Agent` is ignored). The total SSE cap, the rate limits and the strict headers are unchanged.
 
-The tunnel must forward the `Host` header unchanged (SSH `-L` does, it does not touch HTTP). A tunnel that rewrites `Host` to `127.0.0.1` makes remote requests look local: they would reach the full loopback surface. Step 2 (token) has to close this before `--allow-host` is enabled.
+`--allow-host` only covers named tunnels (Tailscale serve, a reverse proxy with its own name), which must forward the `Host` header unchanged. An SSH `-L` tunnel is not one of them: the remote browser opens `http://localhost:<port>`, so it sends `Host: localhost:<port>`, which is a loopback `Host`. It gets the full loopback surface (`/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope`), and the `Origin` check of a tunnel does not apply. The same holds for a tunnel that rewrites `Host` to `127.0.0.1`. Step 2 (token) has to close this before `--allow-host` is enabled: the token must be required even on a loopback `Host` when the access is remote.
 
 ## Scope of the discovery (#291)
 
@@ -164,4 +164,4 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 | `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
 
-The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot and Pi sessions are matched to the workspace by their own watchers and ignore the scope.
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and ignore the scope.
