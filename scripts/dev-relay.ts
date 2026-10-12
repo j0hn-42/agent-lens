@@ -6,7 +6,7 @@
 import * as http from 'http'
 import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { isDevWebOrigin, parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../extension/src/relay-guards'
+import { isDevWebOrigin, parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 
@@ -47,6 +47,10 @@ async function main() {
 
     if (isStatusPath(req.url)) {
       return relay.handleStatus(req, res)
+    }
+
+    if (isStatusLinePath(req.url)) {
+      return relay.handleStatusLine(req, res)
     }
 
     if (isContextPath(req.url)) {

@@ -49,6 +49,12 @@ export function isStatusPath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
 }
 
+/** True when the request path (query ignored) is the relay's GET /statusline endpoint (#236). */
+export function isStatusLinePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/statusline' } catch { return false }
+}
+
 /** Which observations route a request path (query ignored) is: the action itself, its schema, or neither. */
 export function observationsRoute(url: string | undefined): 'observations' | 'schema' | null {
   if (!url) { return null }

@@ -52,7 +52,9 @@ import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
 import { createStatusRoute, type StatusSnapshot } from './routes/status'
 import { createContextRoute } from './routes/context'
+import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, type WebhookDispatcher, type WebhookEventType, type WebhookStats } from './webhooks'
 import { createObservationsRoute } from './routes/observations'
+import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
 
 const DISCOVERY_DIR = discoveryDir()
@@ -62,6 +64,14 @@ const TEAMS_DIR = claudeTeamsDir()
 let relayCreated = false
 let verbose = false
 let sessionEventCount = 0
+/** Webhooks (#236): null without destinations. Only live events of watched Claude sessions are notified. */
+let webhooks: WebhookDispatcher | null = null
+/** > 0 while a transcript history is read: its events are replayed, not live, and never notified */
+let historyDepth = 0
+function withHistory<T>(load: () => T): T {
+  historyDepth++
+  try { return reconciler.withHistory(load) } finally { historyDepth-- }
+}
 /** Distinct model IDs seen across all watched sessions during this relay session.
  *  Populated from `model_detected` events (emitted by both the Claude transcript
  *  parser and the Codex rollout parser). Read at session_end for telemetry. */
@@ -210,6 +220,9 @@ function deliverEvent(delivered: AgentEvent) {
   }
 
   broadcast(JSON.stringify({ type: 'agent-event', event }), event.sessionId)
+
+  // Webhooks: a replayed history or an imported session is not something that just happened
+  if (webhooks && historyDepth === 0 && !event.imported && event.sessionId && sessions.has(event.sessionId)) webhooks.notify(event)
 }
 
 /** Untrusted text shown as a session tag: single line, no controls, capped. */
@@ -468,7 +481,7 @@ function importSession(sessionId: string, filePath: string, importedAt: number) 
   // The cwd of a cloud agent is a container path: shown as a tag, never used to read local files
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
-  reconciler.withHistory(() => {
+  withHistory(() => {
     const size = fs.statSync(filePath).size
     // Label first (first user prompt), so the orchestrator is announced with it
     for (const line of readLinesChunked(filePath, size)) {
@@ -516,7 +529,7 @@ function watchSession(sessionId: string, filePath: string) {
 
   // The live flow (hooks) is already subscribed: events arriving while the history is read are held
   // and replayed, deduplicated against the history, when the load ends (issue #53).
-  reconciler.withHistory(() => {
+  withHistory(() => {
     const stat = fs.statSync(filePath)
     // Also positions the tail (fileSize, unfinished last line in fileTail) for readNewLines
     const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
@@ -745,6 +758,8 @@ export interface Relay {
   handleContext: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /observations and /observations/schema: the typed action Claude can query (loopback only, rate-limited) */
   handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  /** Handle GET /statusline: one line of text for a tmux / zellij bar, derived from the observations (#236) */
+  handleStatusLine: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /issue-links?role=<role>: open PRs/issues labelled agent:<role> through gh (loopback only, rate-limited, cached) */
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
@@ -752,6 +767,8 @@ export interface Relay {
   /** Change what the scan covers without a restart (#291): 'workspace' = this workspace only, 'all' = every project folder.
    *  Returns the scope now in force. The flag / env var only gave the initial value. */
   setScope: (scope: RelayScope) => { scope: RelayScope; allWorkspaces: boolean }
+  /** Counters of the webhooks (#236): sent, failed, dropped; null when no destination is configured */
+  webhookStats: () => WebhookStats | null
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
@@ -793,6 +810,9 @@ export interface RelayOptions {
    *  Read once at startup, listed as imported, never followed live. Defaults to AGENT_LENS_IMPORT
    *  (paths separated by the platform delimiter). Only a local flag or variable sets it, never a request. */
   imports?: string[]
+  /** Webhooks (#236): explicit destinations only. Defaults to AGENT_LENS_WEBHOOKS (URLs separated by commas) and
+   *  AGENT_LENS_WEBHOOK_EVENTS. `post` is injectable for tests. */
+  webhooks?: { destinations: string[]; events?: WebhookEventType[]; post?: (url: string, body: string) => Promise<number> }
 }
 
 export interface RelaySessionIndexOptions {
@@ -829,6 +849,18 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
   relayCreated = true
   maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
+
+  // Webhooks (#236): a URL may hold a secret, so problems are reported without it
+  {
+    const wanted = options.webhooks?.destinations ?? (process.env.AGENT_LENS_WEBHOOKS ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const parsedEvents = options.webhooks?.events ? { events: options.webhooks.events } : parseWebhookEvents(process.env.AGENT_LENS_WEBHOOK_EVENTS)
+    const parsed = parseWebhookDestinations(wanted)
+    for (const problem of parsed.errors) relayLog.warn(`Webhook: ${problem}`)
+    if ('error' in parsedEvents && parsedEvents.error) relayLog.warn(`Webhook: ${parsedEvents.error}; using the defaults`)
+    webhooks = parsed.destinations.length > 0
+      ? createWebhookDispatcher({ destinations: parsed.destinations, events: parsedEvents.events, ...(options.webhooks?.post ? { post: options.webhooks.post } : {}) })
+      : null
+  }
 
   // Optional session index: read lazily, cached briefly, never fatal (a degraded index only logs and shows in /status)
   const indexConfig: RelaySessionIndexOptions | undefined = options.sessionIndex
@@ -1085,6 +1117,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     transcriptOf: sessionId => importedSessions.has(sessionId) ? undefined : sessions.get(sessionId)?.filePath,
   })
   const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
+  const handleStatusLine = createStatusLineRoute({ limiter: observationsLimiter, observe: () => observations.run({ includeAgents: true }) })
 
   // Scope at run time (#291). One entry point (setScope), used by POST /scope, so the state shown by GET /status is the one the scan uses.
   const setScope = (scope: RelayScope): { scope: RelayScope; allWorkspaces: boolean } => {
@@ -1117,6 +1150,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     handleStatus,
     handleContext,
     handleObservations,
+    handleStatusLine,
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
@@ -1243,6 +1277,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       wakeWatchers: projectDirWakeWatchers.size + subagentWakeWatchers.size,
     }),
 
+    webhookStats: () => webhooks?.stats() ?? null,
+
     dispose() {
       // Defense in depth — server.ts already guards cleanup(), but direct
       // callers or hot-reload could call this twice.
@@ -1250,6 +1286,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       relayDisposed = true
       heartbeatTicker.stop()
       observations.dispose()
+      webhooks?.dispose()
+      webhooks = null
       const models = [...observedModels].sort().join(',').slice(0, 128)
       const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot'].filter(Boolean).join(',')
       telemetry?.emit({
