@@ -149,6 +149,13 @@ test('the remote access guards are documented as refused at startup, with their 
   }
   assert.ok(doc.includes(`more than ${RELAY_MAX_REMOTE_SSE_CLIENTS} SSE streams`), 'remote SSE cap matches the constant')
   assert.ok(doc.includes(`at most ${RELAY_MAX_ALLOWED_HOSTS} names`), 'allow list cap matches the constant')
+  // SSH -L browses http://localhost:<port>: its Host is loopback, so --allow-host does not cover it
+  assert.match(doc, /SSH `-L` tunnel is not[\s\S]*`Host: localhost[\s\S]*full loopback surface/i, 'SSH -L is documented as a loopback Host with the full surface')
+  assert.match(doc, /`--allow-host` only covers named tunnels/)
+  assert.match(doc, /token[^.]*(even|also)[^.]*loopback `Host`/i, 'step 2 must also cover a loopback Host reached remotely')
+  for (const f of ['app/src/args.ts', 'scripts/remote-access.ts']) {
+    assert.ok(!/SSH -L or Tailscale/.test(read(f)) && !/\(SSH -L, Tailscale serve\)/.test(read(f)), `${f} does not present SSH -L as covered by --allow-host`)
+  }
 })
 
 test('the launch policy is documented as not yet enabled, with the code constants (#229)', () => {
