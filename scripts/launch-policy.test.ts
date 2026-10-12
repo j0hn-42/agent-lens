@@ -5,8 +5,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_PERMISSION_MODE,
-  buildLaunchCommand, checkRepoAllowed, evaluateIssue, issueLookupCommand, launchPrompt, newSessionId,
+  LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE,
+  buildLaunchCommand, checkRepoAllowed, evaluateIssue, issueLookupCommand, launchAllowedTools, launchPrompt, newSessionId,
   parseLaunchRequest, parseRepoAllowlist, parseRepoSlug, resolveBudgetUsd,
   type LaunchRequest,
 } from '../extension/src/launch-policy'
@@ -69,6 +69,11 @@ describe('parseLaunchRequest', () => {
     assert.deepEqual(parseLaunchRequest({ repo: REPO, issue: 1 }), { ok: false, reason: 'body' })
     assert.deepEqual(parseLaunchRequest(JSON.parse(`{"repo":"${REPO}","issue":1,"role":"qa","__proto__":{"x":1}}`)), { ok: false, reason: 'body' })
   })
+  it('reads each field once (a getter cannot pass the check then change)', () => {
+    let reads = 0
+    const body = { repo: REPO, role: 'qa', get issue() { return reads++ === 0 ? 1 : -5 } }
+    assert.deepEqual(parseLaunchRequest(body), { ok: true, value: { repo: REPO, issue: 1, role: 'qa' } })
+  })
   it('refuses a bad repo', () => {
     for (const repo of ['a/b; rm -rf /', 'a/$(id)', '--repo=x/y', 'a/b\nc/d', 1]) {
       assert.deepEqual(parseLaunchRequest({ ...req, repo }), { ok: false, reason: 'repo' })
@@ -92,7 +97,9 @@ describe('parseRepoAllowlist / checkRepoAllowed', () => {
     const list = parseRepoAllowlist(['J0hn-42/Agent-Lens', 'a/b'])
     assert.ok(list.ok)
     assert.deepEqual([...list.value].sort(), ['a/b', 'j0hn-42/agent-lens'])
-    assert.deepEqual(parseRepoAllowlist(['a/b', 'evil; id']), { ok: false, reason: 'repo' })
+    for (const bad of ['evil; id', '-a/b', 'a/-b', '__proto__', '__proto__/x/y', '', 7, null]) {
+      assert.deepEqual(parseRepoAllowlist(['a/b', bad]), { ok: false, reason: 'repo' }, String(bad))
+    }
     assert.deepEqual(parseRepoAllowlist('a/b'), { ok: false, reason: 'repo' })
   })
   it('an empty allow-list allows nothing', () => {
@@ -141,6 +148,9 @@ describe('evaluateIssue', () => {
       assert.deepEqual(evaluateIssue(ghIssue({ labels }), req), { ok: false, reason: 'label' }, JSON.stringify(labels))
     }
     assert.equal(evaluateIssue(ghIssue({ labels: [{ name: 'Agent:Backend-Engineer' }] }), req).ok, true, 'GitHub labels are case-insensitive')
+    // U+212A KELVIN SIGN lower-cases to "k": refused, labels are compared as ASCII
+    assert.deepEqual(evaluateIssue(ghIssue({ labels: [{ name: 'agent:bacKend-engineer' }] }), req), { ok: false, reason: 'label' })
+    assert.deepEqual(evaluateIssue(ghIssue({ labels: [{ name: 7 }, { name: null }, { name: ['agent:backend-engineer'] }] }), req), { ok: false, reason: 'label' })
   })
   it('refuses a pull request (the issues endpoint also returns PRs)', () => {
     assert.deepEqual(evaluateIssue(ghIssue({ pull_request: { url: 'x' } }), req), { ok: false, reason: 'pull-request' })
@@ -161,6 +171,10 @@ describe('evaluateIssue', () => {
     assert.ok(!/[\u0000-\u001F‮]/.test(r.value.title))
     assert.ok(r.value.title.length <= 200)
     assert.equal(evaluateIssue(ghIssue({ title: 5 }), req).ok, true)
+    const emoji = evaluateIssue(ghIssue({ title: '\u{1F600}'.repeat(300) }), req)
+    assert.ok(emoji.ok)
+    assert.equal(Array.from(emoji.value.title).length, 200)
+    assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(emoji.value.title), 'no lone surrogate')
   })
 })
 
@@ -176,12 +190,15 @@ describe('newSessionId', () => {
 
 describe('resolveBudgetUsd', () => {
   it('defaults, and accepts a finite amount within the cap', () => {
-    assert.deepEqual(resolveBudgetUsd(undefined), { ok: true, value: LAUNCH_CAPS.budgetUsdDefault })
-    assert.deepEqual(resolveBudgetUsd(2.5), { ok: true, value: 2.5 })
-    assert.deepEqual(resolveBudgetUsd(LAUNCH_CAPS.budgetUsdMax), { ok: true, value: LAUNCH_CAPS.budgetUsdMax })
+    assert.deepEqual(resolveBudgetUsd(undefined), { ok: true, value: '5.00' })
+    assert.equal(LAUNCH_CAPS.budgetUsdDefault, 5)
+    assert.deepEqual(resolveBudgetUsd(2.5), { ok: true, value: '2.50' })
+    assert.deepEqual(resolveBudgetUsd(0.01), { ok: true, value: '0.01' })
+    assert.deepEqual(resolveBudgetUsd(0.1 + 0.2), { ok: true, value: '0.30' })
+    assert.deepEqual(resolveBudgetUsd(LAUNCH_CAPS.budgetUsdMax), { ok: true, value: '20.00' })
   })
-  it('refuses anything else (never silently raised)', () => {
-    for (const v of [0, -1, NaN, Infinity, LAUNCH_CAPS.budgetUsdMax + 0.01, '5', '5; id', null]) {
+  it('refuses anything else (never silently raised or rounded, never exponent notation)', () => {
+    for (const v of [0, -0, -1, 1e-7, 0.001, 2.505, NaN, Infinity, LAUNCH_CAPS.budgetUsdMax + 0.01, 20.000001, '5', '5; id', null]) {
       assert.deepEqual(resolveBudgetUsd(v), { ok: false, reason: 'caps' }, String(v))
     }
   })
@@ -213,11 +230,20 @@ describe('buildLaunchCommand', () => {
     assert.equal(after('--session-id'), UUID)
     assert.equal(after('--output-format'), 'stream-json')
     assert.ok(a.includes('--verbose'), 'stream-json with -p needs --verbose')
-    assert.equal(after('--max-budget-usd'), String(LAUNCH_CAPS.budgetUsdDefault))
+    assert.equal(after('--max-budget-usd'), '5.00')
     assert.equal(after('--permission-mode'), 'default')
     assert.equal(LAUNCH_PERMISSION_MODE, 'default')
+    // User and local settings (whose allow rules would add to ours) and every MCP server stay out
+    assert.equal(after('--setting-sources'), 'project')
+    assert.ok(a.includes('--strict-mcp-config'))
+    assert.ok(!a.includes('--mcp-config'))
     const toolsAt = a.indexOf('--allowedTools')
-    assert.deepEqual(a.slice(toolsAt + 1, toolsAt + 1 + LAUNCH_ALLOWED_TOOLS.length), [...LAUNCH_ALLOWED_TOOLS])
+    const denyAt = a.indexOf('--disallowedTools')
+    const end = a.indexOf('--')
+    assert.ok(toolsAt > 0 && toolsAt < denyAt && denyAt < end)
+    assert.deepEqual(a.slice(toolsAt + 1, denyAt), launchAllowedTools(req))
+    assert.deepEqual(a.slice(denyAt + 1, end), [...LAUNCH_DISALLOWED_TOOLS])
+    for (const flag of ['--setting-sources', '--strict-mcp-config', '--permission-mode']) assert.ok(a.indexOf(flag) < toolsAt, flag)
     // The prompt comes last, after "--": a variadic flag cannot swallow it and it is never read as a flag
     assert.equal(a[a.length - 2], '--')
     assert.equal(a[a.length - 1], launchPrompt(req))
@@ -231,14 +257,25 @@ describe('buildLaunchCommand', () => {
     assert.equal(a.filter(x => x === '--permission-mode').length, 1)
   })
 
-  it('restricts tools: no unrestricted Bash, no network tool other than gh/git', () => {
-    for (const tool of LAUNCH_ALLOWED_TOOLS) {
+  it('restricts tools: no unrestricted Bash, reading only this issue, no git diff/log', () => {
+    const allowed = launchAllowedTools(req)
+    for (const tool of allowed) {
       assert.notEqual(tool, 'Bash')
-      assert.ok(!/^(WebFetch|WebSearch)/.test(tool), tool)
+      assert.ok(!/^(WebFetch|WebSearch|mcp__)/.test(tool), tool)
       const bash = /^Bash\((.*)\)$/.exec(tool)
-      if (bash) assert.match(bash[1], /^(gh issue view|git (status|diff|log|add|commit)):\*$/, tool)
+      if (bash) assert.match(bash[1], /^(gh issue view 229 --repo j0hn-42\/agent-lens|git status|git add:\*|git commit:\*)$/, tool)
     }
-    assert.ok(!LAUNCH_ALLOWED_TOOLS.some(t => /git push|gh pr|curl|wget/.test(t)))
+    assert.ok(allowed.includes('Bash(gh issue view 229 --repo j0hn-42/agent-lens)'), 'exactly this issue, no prefix rule')
+  })
+
+  it('denies network, publishing and writes to git / Claude Code configuration, whatever the settings allow', () => {
+    const deny = new Set<string>(LAUNCH_DISALLOWED_TOOLS)
+    for (const t of ['WebFetch', 'WebSearch', 'Bash(git push:*)', 'Bash(gh pr:*)', 'Bash(gh api:*)', 'Bash(curl:*)', 'Bash(gh issue view:* --comments*)']) {
+      assert.ok(deny.has(t), t)
+    }
+    for (const p of ['.git', '.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.claude/**', '.mcp.json', '.husky/**']) {
+      assert.ok(deny.has(`Edit(${p})`) && deny.has(`Write(${p})`), p)
+    }
   })
 
   it('re-validates its input (defence in depth) and refuses a bad session id or budget', () => {
@@ -247,12 +284,13 @@ describe('buildLaunchCommand', () => {
     assert.deepEqual(buildLaunchCommand({ ...req, issue: -1 }, { sessionId: UUID }), { ok: false, reason: 'issue' })
     assert.deepEqual(buildLaunchCommand(req, { sessionId: '--resume' }), { ok: false, reason: 'session-id' })
     assert.deepEqual(buildLaunchCommand(req, { sessionId: UUID, budgetUsd: 1e6 }), { ok: false, reason: 'caps' })
+    assert.deepEqual(buildLaunchCommand(req, { sessionId: UUID, budgetUsd: 1e-7 }), { ok: false, reason: 'caps' })
     assert.deepEqual(buildLaunchCommand({ ...req, extra: 1 } as LaunchRequest, { sessionId: UUID }), { ok: false, reason: 'body' })
   })
 
   it('every argument is a plain single-line string; only the fixed tool patterns hold shell-like characters', () => {
     const a = ok(buildLaunchCommand(req, { sessionId: UUID })).args
-    const tools = new Set<string>(LAUNCH_ALLOWED_TOOLS)
+    const tools = new Set<string>([...launchAllowedTools(req), ...LAUNCH_DISALLOWED_TOOLS])
     for (const arg of a) {
       assert.equal(typeof arg, 'string')
       assert.ok(!/[\r\n\u0000]/.test(arg), arg)

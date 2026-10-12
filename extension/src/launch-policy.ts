@@ -15,8 +15,9 @@
  *   reach the argv, the prompt or the worktree name (`buildLaunchCommand` does not even receive them);
  * - the argv is meant for `execFile`/`spawn` without a shell, ends with `--` then the prompt;
  * - the agent runs headless (`-p`) in the `default` permission mode with a short `--allowedTools`
- *   list: anything else is denied, since no one can answer a permission prompt. Never
- *   `bypassPermissions`: the issue body the agent reads stays untrusted data.
+ *   list, an explicit `--disallowedTools` list, no user/local settings and no MCP server: no one can
+ *   answer a permission prompt, so anything not allowed is denied. Never `bypassPermissions`: the
+ *   issue body the agent reads stays untrusted data. These rules are not a sandbox (see the docs).
  */
 import { normalizeRepoUrl, sanitizeRole } from './issue-links'
 import { CONTROL_ALL } from './control-chars'
@@ -52,15 +53,36 @@ export const LAUNCH_CAPS = Object.freeze({
 export const LAUNCH_PERMISSION_MODE = 'default'
 
 /**
- * Tools the headless agent may use without asking. In `-p` with the `default` mode, any other tool
- * (unrestricted Bash, WebFetch, WebSearch, git push, gh pr ...) is denied. The only network access is
- * reading the issue with gh. Each entry is one argv element.
+ * Tools the headless agent may use without asking, besides the exact `gh issue view <n> --repo <slug>`
+ * rule built per launch ({@link launchAllowedTools}). `--allowedTools` only ADDS to what the loaded
+ * settings allow: the deny list, `--strict-mcp-config` and `--setting-sources project` are what keep
+ * the user's and local allow rules and MCP servers out. No `git diff` / `git log` (`--output=<file>`
+ * writes anywhere, `--no-index` reads anywhere). Each entry is one argv element.
  */
 export const LAUNCH_ALLOWED_TOOLS = Object.freeze([
   'Read', 'Glob', 'Grep', 'Edit', 'Write',
-  'Bash(gh issue view:*)',
-  'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'Bash(git add:*)', 'Bash(git commit:*)',
+  'Bash(git status)', 'Bash(git add:*)', 'Bash(git commit:*)',
 ] as const)
+
+/** Files whose content git or Claude Code would execute or trust: writing them turns Edit/Write into code execution */
+const PROTECTED_PATHS = ['.git', '.git/**', '**/.git/**', '.gitattributes', '**/.gitattributes', '.gitmodules', '.claude/**', '.mcp.json', '.husky/**']
+
+/**
+ * Denied whatever a settings layer allows (deny wins over allow): network tools, publishing, and
+ * writes to the files that configure git or Claude Code.
+ */
+export const LAUNCH_DISALLOWED_TOOLS = Object.freeze([
+  'WebFetch', 'WebSearch',
+  'Bash(git push:*)', 'Bash(git remote:*)', 'Bash(git config:*)', 'Bash(git -c:*)',
+  'Bash(gh pr:*)', 'Bash(gh api:*)', 'Bash(gh issue comment:*)', 'Bash(gh issue view:* --comments*)', 'Bash(gh issue view:* --web*)',
+  'Bash(curl:*)', 'Bash(wget:*)',
+  ...PROTECTED_PATHS.flatMap(p => [`Edit(${p})`, `Write(${p})`]),
+])
+
+/** The allowed tools of one launch: the fixed list plus reading exactly this issue (validated values only). */
+export function launchAllowedTools(req: LaunchRequest): string[] {
+  return [...LAUNCH_ALLOWED_TOOLS, `Bash(gh issue view ${req.issue} --repo ${req.repo})`]
+}
 
 const ISSUE_MAX = 1_000_000_000
 /** Largest gh answer looked at; beyond, the answer is refused rather than parsed */
@@ -70,6 +92,7 @@ const AUTHOR_ASSOCIATIONS: ReadonlySet<string> = new Set(['OWNER', 'MEMBER', 'CO
 // Never "." or "..", never starting with "-" (it could read as a flag), GitHub's character set
 const SEGMENT = '(?!\\.{1,2}(?:/|$))(?!-)[A-Za-z0-9_.-]{1,100}'
 const SLUG_RE = new RegExp(`^${SEGMENT}/${SEGMENT}$`)
+const PRINTABLE_ASCII_RE = /^[\x20-\x7e]+$/
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 export interface LaunchRequest {
@@ -100,11 +123,13 @@ export function parseLaunchRequest(body: unknown): LaunchResult<LaunchRequest> {
   if (!isPlainObject(body)) return refuse('body')
   const keys = Object.keys(body)
   if (keys.length !== 3 || !['repo', 'issue', 'role'].every(k => keys.includes(k))) return refuse('body')
-  const repo = parseRepoSlug(body.repo)
+  // Each field is read once: a getter cannot pass the check and return another value
+  const { repo: rawRepo, issue, role } = body
+  const repo = parseRepoSlug(rawRepo)
   if (!repo) return refuse('repo')
-  if (!isIssueNumber(body.issue)) return refuse('issue')
-  if (!isRole(body.role)) return refuse('role')
-  return { ok: true, value: { repo, issue: body.issue, role: body.role } }
+  if (!isIssueNumber(issue)) return refuse('issue')
+  if (!isRole(role)) return refuse('role')
+  return { ok: true, value: { repo, issue, role } }
 }
 
 /** The allow-list given when the relay starts: every entry must be a slug, compared case-insensitively. */
@@ -166,10 +191,12 @@ export function evaluateIssue(stdout: string, req: LaunchRequest): LaunchResult<
   if (data.state !== 'open') return refuse('closed')
   const wanted = `agent:${req.role}`
   const labels = Array.isArray(data.labels) ? data.labels : []
-  const labelled = labels.some(l => isPlainObject(l) && typeof l.name === 'string' && l.name.toLowerCase() === wanted)
+  // ASCII only before lower-casing: U+212A KELVIN SIGN would otherwise fold to "k"
+  const labelled = labels.some(l => isPlainObject(l) && typeof l.name === 'string' && PRINTABLE_ASCII_RE.test(l.name) && l.name.toLowerCase() === wanted)
   if (!labelled) return refuse('label')
   if (typeof data.author_association !== 'string' || !AUTHOR_ASSOCIATIONS.has(data.author_association)) return refuse('author')
-  const title = typeof data.title === 'string' ? data.title.replace(CONTROL_ALL, ' ').slice(0, TITLE_MAX) : ''
+  // Cut by code points, never inside a surrogate pair
+  const title = typeof data.title === 'string' ? Array.from(data.title.replace(CONTROL_ALL, ' ')).slice(0, TITLE_MAX).join('') : ''
   return { ok: true, value: { number: req.issue, url, title } }
 }
 
@@ -180,11 +207,16 @@ export function newSessionId(randomUUID: () => string): LaunchResult<string> {
   return typeof id === 'string' && UUID_V4_RE.test(id) ? { ok: true, value: id } : refuse('session-id')
 }
 
-/** `--max-budget-usd`: the default, or a finite positive amount up to the ceiling. Never raised silently. */
-export function resolveBudgetUsd(value: unknown): LaunchResult<number> {
-  if (value === undefined) return { ok: true, value: LAUNCH_CAPS.budgetUsdDefault }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > LAUNCH_CAPS.budgetUsdMax) return refuse('caps')
-  return { ok: true, value }
+/**
+ * `--max-budget-usd`: the default, or a whole number of cents from $0.01 up to the ceiling. Never
+ * raised or rounded silently. Returned as the argv string (`5.00`), never in exponent notation.
+ */
+export function resolveBudgetUsd(value: unknown): LaunchResult<string> {
+  if (value === undefined) return { ok: true, value: LAUNCH_CAPS.budgetUsdDefault.toFixed(2) }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.01 || value > LAUNCH_CAPS.budgetUsdMax) return refuse('caps')
+  const cents = Math.round(value * 100)
+  if (Math.abs(cents - value * 100) > 1e-6) return refuse('caps')
+  return { ok: true, value: (cents / 100).toFixed(2) }
 }
 
 /** The fixed prompt: issue number, repository and role, all validated. No issue text. */
@@ -205,7 +237,7 @@ export interface LaunchCommand {
 
 /**
  * The argv of the launch. Takes only the validated request (not the issue), and validates it again.
- * Order matters: `--allowedTools` is variadic, so the prompt comes after `--`, last.
+ * Order matters: `--allowedTools` and `--disallowedTools` are variadic, so the prompt comes after `--`, last.
  */
 export function buildLaunchCommand(
   req: LaunchRequest, opts: { sessionId: string; budgetUsd?: number },
@@ -223,9 +255,13 @@ export function buildLaunchCommand(
     '--worktree', worktree,
     '--session-id', sessionId.value,
     '--output-format', 'stream-json', '--verbose',
-    '--max-budget-usd', String(budget.value),
+    '--max-budget-usd', budget.value,
     '--permission-mode', LAUNCH_PERMISSION_MODE,
-    '--allowedTools', ...LAUNCH_ALLOWED_TOOLS,
+    // No user/local settings (their allow rules would add to ours), no MCP server
+    '--setting-sources', 'project',
+    '--strict-mcp-config',
+    '--allowedTools', ...launchAllowedTools({ repo, issue, role }),
+    '--disallowedTools', ...LAUNCH_DISALLOWED_TOOLS,
     '--', launchPrompt({ repo, issue, role }),
   ]
   return { ok: true, value: { file: 'claude', args, worktree, sessionId: sessionId.value } }
