@@ -109,11 +109,16 @@ describe('relay launch (#229)', () => {
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [] } }), /launch/)
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: ['https://github.com/a/b'] } }), /launch/)
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [REPO], budgetUsd: 9999 } }), /budget/)
+    // maxConcurrent is validated with the other options, before the relay is marked as created (the next call would
+    // otherwise be refused with "can only be called once")
+    await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [REPO], maxConcurrent: 3 } }), /maxConcurrent/)
+    await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [REPO], maxConcurrent: 0 } }), /maxConcurrent/)
+    await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [REPO], maxConcurrent: 1.5 } }), /maxConcurrent/)
     let pid = 7000
     relay = await createRelay({
       workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL],
       launch: {
-        repos: [REPO], token: TOKEN, onToken: t => { tokenSeen = t },
+        repos: [REPO], token: TOKEN, maxConcurrent: 2, onToken: t => { tokenSeen = t },
         journal: { append: e => { journal.push(e); return true } },
         spawn: () => { const c = new FakeChild(++pid); children.push(c); return c as never },
         killGroup: (p, s) => { kills.push([p, s]) },
@@ -164,7 +169,7 @@ describe('relay launch (#229)', () => {
     // Started is not "session": no transcript of our uuid exists yet
     const status = JSON.parse((await request('GET', '/status')).body)
     assert.equal(status.launch.launches[0].state, 'started')
-    assert.equal(status.launch.maxConcurrent, 1)
+    assert.equal(status.launch.maxConcurrent, 2, 'the value the supervisor applies, not a default')
 
     // The transcript of the SAME uuid appears in the project folder of the worktree: only now the session is seen
     const worktree = path.join(ws, '.claude', 'worktrees', 'issue-229-backend-engineer')

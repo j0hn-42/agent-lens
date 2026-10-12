@@ -45,7 +45,7 @@ import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-s
 import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
 import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, defaultExec, type IssueLink } from '../extension/src/issue-links'
-import { parseRepoAllowlist, resolveBudgetUsd } from '../extension/src/launch-policy'
+import { parseRepoAllowlist, resolveBudgetUsd, LAUNCH_CAPS } from '../extension/src/launch-policy'
 import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
@@ -301,6 +301,8 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
 let launchSessionSeen: ((sessionId: string) => void) | null = null
 /** Set by createRelay when launching is enabled: the launches a newly connected LOCAL client is told about. */
 let launchSnapshot: (() => LaunchView[]) | null = null
+/** Kills every launched child (SIGKILL). Also called by the crash handler: the children are detached and would outlive the relay. */
+let launchKillAll: (() => void) | null = null
 
 /** Adds the facts of the session index (declared parent, cwd) to a session entry; set up by createRelay. */
 let enrichSession: (info: SessionInfo) => SessionInfo = info => info
@@ -915,6 +917,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const list = parseRepoAllowlist(options.launch.repos)
     if (!list.ok || list.value.size === 0) throw new Error('launch: --allow-launch needs at least one valid --launch-repo owner/name')
     if (options.launch.budgetUsd !== undefined && !resolveBudgetUsd(options.launch.budgetUsd).ok) throw new Error('launch: invalid budget')
+    const cap = options.launch.maxConcurrent
+    if (cap !== undefined && (!Number.isInteger(cap) || cap < 1 || cap > LAUNCH_CAPS.concurrentMax)) {
+      throw new Error(`launch: maxConcurrent must be an integer from 1 to ${LAUNCH_CAPS.concurrentMax}`)
+    }
     launchAllowlist = list.value
   }
   relayCreated = true
@@ -1132,6 +1138,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         error_class: err?.constructor?.name ?? 'Error',
       })
     } catch { /* don't let the handler itself crash */ }
+    // Detached launched agents do not die with us: kill them first (#229)
+    try { launchKillAll?.() } catch { /* best effort */ }
     // Preserve default crash-on-uncaught behavior: log, then exit.
     console.error(err)
     process.exit(1)
@@ -1191,6 +1199,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const supervisor = launchSupervisor
     launchSessionSeen = id => supervisor.sessionSeen(id)
     launchSnapshot = () => supervisor.list()
+    launchKillAll = () => supervisor.dispose()
     handleLaunch = createLaunchRoute({
       limiter: new KeyedRateLimiter(RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS),
       token, allowlist: launchAllowlist, supervisor,
@@ -1201,7 +1210,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     opts.onToken?.(token)
   }
   const launchStatus = launchSupervisor
-    ? () => ({ maxConcurrent: options.launch?.maxConcurrent ?? 1, launches: launchSupervisor!.list() })
+    ? () => ({ maxConcurrent: launchSupervisor!.maxConcurrent, launches: launchSupervisor!.list() })
     : undefined
   const handleStatus = createStatusRoute({
     limiter: statusLimiter,
@@ -1424,6 +1433,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       launchSupervisor?.dispose()
       launchSessionSeen = null
       launchSnapshot = null
+      launchKillAll = null
       heartbeatTicker.stop()
       observations.dispose()
       webhooks?.dispose()
