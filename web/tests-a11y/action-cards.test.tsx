@@ -63,11 +63,109 @@ test('Bash: no git / gh, no pill list; no exit code or duration is claimed', () 
   assert.doesNotMatch(container.textContent ?? '', /exit code|exited/i)
 })
 
+test('Write: the line count is stated in text', () => {
+  const { getByText } = show('Write', { file_path: '/a.ts', content: 'a\nb\nc' })
+  assert.ok(getByText('3 lines'))
+})
+
+test('Write without content: no count', () => {
+  const { queryByText } = show('Write', { file_path: '/a.ts' })
+  assert.equal(queryByText(/^\d+ lines?$/), null)
+})
+
+test('Read: the range is spelled out from offset and limit', () => {
+  const { getByText } = show('Read', { file_path: '/a.ts', offset: 10, limit: 50 })
+  assert.ok(getByText('lines 10–59'))
+})
+
+test('TodoWrite: progress counted from the list, stated in text', () => {
+  const { getByRole } = show('TodoWrite', {
+    todos: [{ content: 'a', status: 'completed' }, { content: 'b', status: 'in_progress' }, { content: 'c', status: 'pending' }],
+  })
+  const p = getByRole('group', { name: 'Todo progress' })
+  assert.match(p.textContent ?? '', /1 of 3 done/)
+  assert.match(p.textContent ?? '', /1 in progress/)
+})
+
+test('WebFetch: the host is named on its own', () => {
+  const { getByText } = show('WebFetch', { url: 'https://stripe.com/docs/api', prompt: 'p' })
+  assert.ok(getByText('stripe.com'))
+})
+
+test('Task: sub-agent type and description are shown', () => {
+  const { getByText } = show('Task', { subagent_type: 'Explore', description: 'Find the relay', prompt: 'long prompt' })
+  assert.ok(getByText('Explore'))
+  assert.ok(getByText('Find the relay'))
+})
+
+test('NotebookEdit: path, cell and mode as stated by the call', () => {
+  const { container } = show('NotebookEdit', { notebook_path: '/n.ipynb', cell_number: 3, edit_mode: 'replace' })
+  assert.match(container.textContent ?? '', /n\.ipynb/)
+  assert.match(container.textContent ?? '', /cell 3/)
+  assert.match(container.textContent ?? '', /replace/)
+})
+
+test('Bash: Python, test, docker and package commands get their own list', () => {
+  const { getByRole } = show('Bash', { command: 'pnpm install && python analyse.py && pnpm test' })
+  const list = getByRole('list', { name: 'Tooling commands' })
+  const items = Array.from(list.querySelectorAll('li')).map(li => li.textContent?.replace(/\s+/g, ' ').trim())
+  assert.deepEqual(items, ['pnpm install', 'python analyse.py', 'pnpm test'])
+})
+
+test('Codex shell and exec_command: same card as Bash, with the pills', () => {
+  for (const name of ['shell', 'exec_command']) {
+    const { getByRole } = show(name, { command: 'git add -A && pnpm test' })
+    assert.equal(getByRole('list', { name: 'Version control commands' }).querySelectorAll('li').length, 1, name)
+    assert.equal(getByRole('list', { name: 'Tooling commands' }).querySelectorAll('li').length, 1, name)
+    cleanup()
+  }
+})
+
+test('Codex update_plan: same progress line and list as TodoWrite', () => {
+  const { getByRole } = show('update_plan', { plan: [{ step: 'a', status: 'completed' }, { step: 'b', status: 'pending' }] })
+  assert.match(getByRole('group', { name: 'Todo progress' }).textContent ?? '', /1 of 2 done/)
+  assert.equal(getByRole('list', { name: 'Todo list' }).querySelectorAll('li').length, 2)
+})
+
+test('Copilot grep / glob / view: same content as Grep / Glob / Read', () => {
+  const grep = show('grep', { pattern: 'catch|error', path: '/repo/src' })
+  assert.ok(grep.getByText('catch|error'))
+  cleanup()
+  const read = show('view', { file_path: '/a.ts', offset: 5, limit: 10 })
+  assert.ok(read.getByText('lines 5–14'))
+})
+
+test('apply_patch: files, operation and +N -M from the patch text', () => {
+  const patch = '*** Begin Patch\n*** Update File: docs/a.md\n-old\n+new\n+newer\n*** Add File: docs/b.md\n+x\n*** End Patch'
+  const { getByRole, container } = show('apply_patch', { patch })
+  const summary = getByRole('group', { name: 'Edit summary' })
+  assert.match(summary.textContent ?? '', /\+3/)
+  assert.match(summary.textContent ?? '', /-1/)
+  const files = Array.from(getByRole('list', { name: 'Patched files' }).querySelectorAll('li')).map(li => li.textContent?.replace(/\s+/g, ' ').trim())
+  assert.deepEqual(files, ['update docs/a.md', 'add docs/b.md'])
+  assert.match(container.textContent ?? '', /\+newer/)
+})
+
+test('apply_patch cut by the capture limit: files shown, no figure invented, truncation said', () => {
+  const patch = ('*** Update File: docs/a.md\n' + '+line\n'.repeat(200)).slice(0, 500)
+  const { queryByRole, getByText } = show('apply_patch', { patch })
+  assert.equal(queryByRole('group', { name: 'Edit summary' }), null)
+  assert.ok(getByText('Patch cut at 500 characters: line counts not shown'))
+})
+
+test('apply_patch without patch text: no card content', () => {
+  const { queryByRole } = show('apply_patch', { path: 'docs/a.md' })
+  assert.equal(queryByRole('list', { name: 'Patched files' }), null)
+})
+
 test('the new cards have no axe violation', async () => {
   for (const [name, input] of [
     ['Edit', { file_path: '/a.ts', old_string: 'a', new_string: 'b' }],
     ['MultiEdit', { file_path: '/a.ts', edits: [{ old_string: 'a', new_string: 'b' }] }],
-    ['Bash', { command: 'git push origin main' }],
+    ['Bash', { command: 'git push origin main && pytest' }],
+    ['TodoWrite', { todos: [{ content: 'a', status: 'completed' }] }],
+    ['Task', { subagent_type: 'Explore', description: 'd' }],
+    ['NotebookEdit', { notebook_path: '/n.ipynb', cell_number: 1 }],
   ] as const) {
     const { container } = show(name, input)
     const res = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })

@@ -61,6 +61,26 @@ export function GhIcon(p: IconProps) {
   return <Svg {...p}><rect x="2" y="2" width="12" height="12" rx="3" /><circle cx="8" cy="8" r="1.8" /></Svg>
 }
 
+/** Snake: an S curve (Python) */
+export function PythonIcon(p: IconProps) {
+  return <Svg {...p}><path d="M13 4C3 2 3 8 8 8s5 6-5 4" /></Svg>
+}
+
+/** Flask (tests) */
+export function TestIcon(p: IconProps) {
+  return <Svg {...p}><path d="M6 2v4l-3.5 7h11L10 6V2M5 2h6" /></Svg>
+}
+
+/** Stacked containers (docker) */
+export function DockerIcon(p: IconProps) {
+  return <Svg {...p}><rect x="2" y="7" width="3.5" height="3" /><rect x="6.2" y="7" width="3.5" height="3" /><rect x="10.4" y="7" width="3.5" height="3" /><rect x="6.2" y="3.5" width="3.5" height="3" /><path d="M1.5 12c4 3 9 3 13 0" /></Svg>
+}
+
+/** Parcel (package manager) */
+export function PackageIcon(p: IconProps) {
+  return <Svg {...p}><rect x="2" y="3" width="12" height="10" /><path d="M8 3v10M2 6.5h12" /></Svg>
+}
+
 export function GearIcon(p: IconProps) {
   return <Svg {...p}><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></Svg>
 }
