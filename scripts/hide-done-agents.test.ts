@@ -1,7 +1,7 @@
 // 'Hide inactive agents' also hides the done agents (#147): isInactiveAgent / visibleAgents / announcement text.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { listedAgents, visibleAgents, isInactiveAgent, isDoneAgent, hiddenDoneCount, hiddenDoneText } from '../web/lib/inactive-agents'
+import { listedAgents, visibleAgents, isInactiveAgent, isDoneAgent, hiddenDoneCount, hiddenDoneText, emptiedByHidingCount } from '../web/lib/inactive-agents'
 import type { Agent } from '../web/lib/agent-types'
 
 const mk = (id: string, state: Agent['state'], parentId: string | null = null) =>
@@ -98,6 +98,18 @@ test('hiddenDoneCount / hiddenDoneText: only finished agents are counted and wor
   assert.equal(hiddenDoneText(2), '2 finished agents hidden')
   assert.equal(hiddenDoneText(1), '1 finished agent hidden')
   assert.equal(hiddenDoneText(0), '')
+})
+
+test('emptiedByHidingCount: count of an all-finished set the filter leaves with a blank canvas (#369)', () => {
+  const done = new Map([['a', mk('a', 'complete')], ['b', mk('b', 'complete', 'a')]])
+  assert.equal(emptiedByHidingCount(done, true), 2)
+  assert.equal(emptiedByHidingCount(done, false), 0, 'filter off: nothing hidden')
+  assert.equal(emptiedByHidingCount(done, true, ['b']), 0, 'a kept agent leaves the canvas non-empty')
+  const mixed = new Map([['a', mk('a', 'complete')], ['b', mk('b', 'thinking')]])
+  assert.equal(emptiedByHidingCount(mixed, true), 0, 'a drawn agent: the canvas is not blank')
+  const idle = new Map([['a', mk('a', 'complete')], ['b', mk('b', 'idle')]])
+  assert.equal(emptiedByHidingCount(idle, true), 0, 'an idle agent is hidden too: a "finished" count would not be provable')
+  assert.equal(emptiedByHidingCount(new Map(), true), 0)
 })
 
 test('listedAgents: the sessions list loses the same finished agents as the canvas, and keeps idle ones', () => {
