@@ -1045,6 +1045,7 @@ export function AgentVisualizer() {
             delegation={delegation}
             onSelectAgent={selection.handleAgentClick}
             relayOrigin={bridge.relayOrigin}
+            launch={bridge.launch}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
           />

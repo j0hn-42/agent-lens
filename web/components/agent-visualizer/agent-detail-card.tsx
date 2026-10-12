@@ -11,7 +11,9 @@ import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, INSPECTOR_IGNORE_SELECTOR, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
-import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-links'
+import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
+import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type LaunchView } from '@/lib/launch-client'
+import { LaunchDialog } from './launch-dialog'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
@@ -65,6 +67,8 @@ interface AgentDetailCardProps {
   onSelectAgent?: (agentId: string) => void
   /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
   relayOrigin?: string | null
+  /** Agent launches (#229): present only when the relay serving this page has `launch` in GET /status (--allow-launch) */
+  launch?: { maxConcurrent: number; launches: ReadonlyMap<string, LaunchView> } | null
   onClose: () => void
   /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
   onEscape?: () => void
@@ -95,6 +99,7 @@ export function AgentDetailCard({
   delegation,
   onSelectAgent,
   relayOrigin = null,
+  launch = null,
   onClose,
   onEscape,
   freshnessClock,
@@ -120,6 +125,8 @@ export function AgentDetailCard({
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
   const { links: issueLinks, status: issueLinksStatus } = useIssueLinks(relayOrigin, role, agent.sessionId)
+  /** Issue whose launch dialog is open (null: closed) */
+  const [launchTarget, setLaunchTarget] = useState<{ link: IssueLink; repo: string } | null>(null)
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
@@ -290,6 +297,14 @@ export function AgentDetailCard({
                   >
                     {issueLinkLabel(link)}
                   </a>
+                  {launch && relayOrigin !== null && link.kind === 'issue' && link.state === 'open' && repoOfIssueUrl(link.url) && (
+                    <LaunchRow
+                      link={link}
+                      repo={repoOfIssueUrl(link.url)!}
+                      launches={launch.launches}
+                      onOpen={() => setLaunchTarget({ link, repo: repoOfIssueUrl(link.url)! })}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -298,7 +313,47 @@ export function AgentDetailCard({
             )}
           </div>
         )}
+        {launch && relayOrigin !== null && role && launchTarget && (
+          <LaunchDialog
+            repo={launchTarget.repo}
+            issue={launchTarget.link.number}
+            role={role}
+            title={launchTarget.link.title}
+            maxConcurrent={launch.maxConcurrent}
+            launches={launch.launches}
+            origin={relayOrigin}
+            onClose={() => setLaunchTarget(null)}
+          />
+        )}
       </GlassCard>
+    </div>
+  )
+}
+
+/** Launch button of an open issue (#229), and the last state the relay reported for it, in words */
+function LaunchRow({ link, repo, launches, onOpen }: {
+  link: IssueLink
+  repo: string
+  launches: ReadonlyMap<string, LaunchView>
+  onOpen: () => void
+}) {
+  const latest = latestLaunchFor(launches, repo, link.number)
+  return (
+    <div className="flex flex-col gap-0.5 pl-2" lang="fr">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`self-start min-h-6 rounded px-1.5 py-0.5 ${FOCUS_RING}`}
+        style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+      >
+        Lancer un agent sur l&apos;issue #{link.number}
+      </button>
+      {latest && (
+        <span style={{ color: COLORS.textMuted }} data-testid="launch-state">
+          {launchStateLabel(latest)}
+          {isLaunchEnded(latest) && latest.worktreePath && <span className="block break-all">Worktree : {latest.worktreePath}</span>}
+        </span>
+      )}
     </div>
   )
 }
