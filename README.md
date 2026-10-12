@@ -36,6 +36,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
 - **Headless use**: `ps`, `tail` and `statusline` commands, a one-line `/statusline` endpoint for tmux or zellij, and webhooks on live agent events (explicit destinations, fixed body, bounded). See [docs/headless.md](docs/headless.md)
 - **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
+- **MCP server `agent-lens`**: register it in `.mcp.json` and Claude reads, as read-only MCP tools, the observed sessions and agent states and the PR / issue links of a session's project; a failure is an error, never an empty list (see [docs/mcp-server.md](docs/mcp-server.md))
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
 ## Getting Started
@@ -158,6 +159,7 @@ Other scripts:
 | `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
 | `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)). On a real session, **Tour this session** (beside **Legend**) explains only the symbols on screen ([docs/reading-the-ui.md](docs/reading-the-ui.md)) |
 | `pnpm run dev:relay` | Run the event relay server standalone |
+| `pnpm run mcp` | Run the read-only `agent-lens` MCP server on stdio (started by Claude Code from `.mcp.json`, see [docs/mcp-server.md](docs/mcp-server.md)) |
 | `pnpm run dev:extension` | Watch-build the extension |
 | `pnpm run build:all` | Production build (webview + extension) |
 | `pnpm run build:web` | Build the Next.js web app |
@@ -175,6 +177,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
+- [MCP server](docs/mcp-server.md): give Claude the observations as MCP tools, and how to register it in `.mcp.json`
 - [Session export](docs/session-export.md): the standalone HTML replay, what it contains and how secrets are redacted
 - [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
 

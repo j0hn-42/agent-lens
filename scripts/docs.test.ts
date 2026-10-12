@@ -14,7 +14,7 @@ function relativeLinks(file: string): string[] {
     .filter(t => t && !/^[a-z]+:/i.test(t))
 }
 
-for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md']) {
+for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -31,6 +31,16 @@ test('README documents the fork views and links the docs (#129)', () => {
   for (const doc of ['docs/node-inspector.md', 'docs/relay-sources.md', 'docs/state-share.md', 'docs/reading-the-ui.md', 'docs/headless.md']) {
     assert.ok(readme.includes(`(${doc})`), `README should link ${doc}`)
   }
+})
+
+test('the MCP server doc says how to register it and what it does not prove (#235)', () => {
+  const doc = read('docs/mcp-server.md')
+  const pkg = JSON.parse(read('package.json'))
+  assert.equal(pkg.scripts.mcp, 'node --import tsx scripts/mcp/main.ts')
+  for (const needle of ['.mcp.json', '"run", "mcp"', '--silent', 'AGENT_LENS_RELAY_URL', 'observations', 'session_work', 'no cost tool', 'at least']) {
+    assert.ok(doc.includes(needle), `docs/mcp-server.md should mention ${needle}`)
+  }
+  assert.ok(read('README.md').includes('(docs/mcp-server.md)'), 'README should link docs/mcp-server.md')
 })
 
 test('the reading guide explains the honesty vocabulary (#129)', () => {
