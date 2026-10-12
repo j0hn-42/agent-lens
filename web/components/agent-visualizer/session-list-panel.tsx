@@ -62,6 +62,10 @@ interface SessionListPanelProps {
   onCloseSession: (id: string) => void
   /** Give a session a name of your own (#246); an empty name restores the original label. Absent = no rename control. */
   onRenameSession?: (id: string, name: string) => void
+  /** Save a session as a standalone HTML replay (#237). Absent (demo) = no export control. */
+  onExportSession?: (id: string) => void
+  /** True when the session has events in memory to export; the button is drawn only then */
+  canExportSession?: (id: string) => boolean
   /** Agents of the current view (the selected session, team or all sessions) */
   agents: ReadonlyMap<string, SessionListAgent>
   selectedAgentId: string | null
@@ -249,7 +253,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
-  onSelectSession, onCloseSession, onRenameSession, agents, selectedAgentId, onSelectAgent,
+  onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
   filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
 }: SessionListPanelProps) {
@@ -729,6 +733,18 @@ export function SessionListPanel({
                         style={{ color: COLORS.textMuted }}
                       >
                         <span aria-hidden="true">✎</span>
+                      </button>
+                    )}
+                    {onExportSession && renaming !== session.id && canExportSession?.(session.id) && (
+                      <button
+                        type="button"
+                        aria-label={`Export session ${session.label} as an HTML replay`}
+                        title="Export as a standalone HTML replay (secrets redacted, best effort)"
+                        onClick={() => onExportSession(session.id)}
+                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        <span aria-hidden="true">⤓</span>
                       </button>
                     )}
                     <button

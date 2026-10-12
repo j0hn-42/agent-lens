@@ -33,6 +33,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand
 - **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in the top bar (the theme applies to the interface only; the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui.md#themes)
 - **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
 - **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
@@ -171,6 +172,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
+- [Session export](docs/session-export.md): the standalone HTML replay, what it contains and how secrets are redacted
 - [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
 
 ## Releasing
