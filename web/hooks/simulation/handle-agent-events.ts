@@ -51,7 +51,7 @@ export function handleAgentSpawn(
   const requestedModel = typeof payload.requestedModel === 'string' ? cappedString(payload.requestedModel, MAX_ID_LEN) || undefined : undefined
   const effort = parseEffort(payload.effort)
   const subagentType = typeof payload.subagentType === 'string' ? cappedString(payload.subagentType, MAX_ID_LEN) || undefined : undefined
-  const runtime = payload.runtime === 'codex' || payload.runtime === 'copilot' ? payload.runtime : undefined
+  const runtime = payload.runtime === 'codex' || payload.runtime === 'copilot' || payload.runtime === 'pi' || payload.runtime === 'gemini' ? payload.runtime : undefined
 
   const team = parseTeammateExtras(payload)
   const teamFields = team ? {
@@ -76,7 +76,9 @@ export function handleAgentSpawn(
   if (existing) {
     state.agents.set(name, {
       ...existing,
-      state: 'idle',
+      // Several sources announce the same agent (hooks, session and subagent watchers): a duplicate spawn must
+      // not demote an agent that is working or waiting. Only a finished or resting one comes back as idle.
+      state: existing.state === 'thinking' || existing.state === 'tool_calling' || existing.state === 'waiting_permission' ? existing.state : 'idle',
       // A returning agent is live again: undo archiving
       archived: false,
       completeTime: undefined,
@@ -151,8 +153,7 @@ export function handleAgentSpawn(
     startTime: currentTime,
     blocks: [],
   }
-  pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: SCENE.idle }, ctx)
-  state.timelineEntries.set(name, timelineEntry)
+  state.timelineEntries.set(name, pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: SCENE.idle }, ctx))
 
   // A subagent_dispatch is emitted just before agent_spawn and may already have
   // recorded the prompt in the child's conversation — keep it.
@@ -161,6 +162,13 @@ export function handleAgentSpawn(
   if (!ctx.skipForceSync) {
     setTimeout(() => ctx.syncForceSimulation(state.agents, state.edges), 0)
   }
+}
+
+function completeTimelineEntry(state: MutableEventState, id: string, currentTime: number, ctx: ProcessEventContext): void {
+  const entry = state.timelineEntries.get(id)
+  if (!entry) return
+  const done = pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
+  state.timelineEntries.set(id, { ...done, endTime: currentTime })
 }
 
 export function handleAgentComplete(
@@ -183,22 +191,14 @@ export function handleAgentComplete(
       state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
     })
 
-    const entry = state.timelineEntries.get(name)
-    if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
-      entry.endTime = currentTime
-    }
+    completeTimelineEntry(state, name, currentTime, ctx)
 
     const agentsToComplete = [name]
     for (const [childId, childAgent] of state.agents) {
       if (childAgent.parentId === name && childAgent.state !== 'complete') {
         state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime, archived: true, ...(childAgent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
         agentsToComplete.push(childId)
-        const childEntry = state.timelineEntries.get(childId)
-        if (childEntry) {
-          pushTimelineBlock(childEntry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
-          childEntry.endTime = currentTime
-        }
+        completeTimelineEntry(state, childId, currentTime, ctx)
       }
     }
 
@@ -231,7 +231,7 @@ export function handlePermissionRequested(
 
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: SCENE.waiting_permission }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: SCENE.waiting_permission }, ctx))
     }
   }
 }

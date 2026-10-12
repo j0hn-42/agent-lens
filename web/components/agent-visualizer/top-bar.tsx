@@ -7,7 +7,8 @@ import { formatTokens, formatCost } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
 import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
@@ -16,6 +17,10 @@ import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
+import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
+
+/** DOM id of the Enter full screen button: focus returns here on exit (#196) */
+export const FULLSCREEN_BUTTON_ID = 'topbar-enter-fullscreen'
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
@@ -69,9 +74,13 @@ function GearIcon() {
   )
 }
 
+/** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
+const CONTEXT_UNAVAILABLE_IN_VSCODE = 'Context: project CLAUDE.md, memory and issues come from the standalone relay, not available in VS Code'
+const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
+
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -90,6 +99,8 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   hasDialog?: boolean
   /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
   keepsInspector?: boolean
+  /** id of an element describing the button (read after its name) */
+  describedBy?: string
 }) {
   return (
     <button
@@ -98,6 +109,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       onClick={onClick}
       aria-pressed={pressed}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
@@ -209,6 +221,8 @@ export interface TopBarProps {
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
+  /** Scope of the session discovery (#291): shown permanently when a relay reports its scope */
+  scope?: ScopeSelectorProps
 }
 
 export const TopBar = memo(function TopBar({
@@ -216,11 +230,11 @@ export const TopBar = memo(function TopBar({
   showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
-  connectionStatus, isDemo = false,
+  isVSCode, connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
-  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
+  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
@@ -253,7 +267,7 @@ export const TopBar = memo(function TopBar({
         keepsInspector
         style={{ maxWidth: 'min(320px, 100%)' }}
       >
-        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
+        <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {unobservedCount > 0 && (
           <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
@@ -267,6 +281,8 @@ export const TopBar = memo(function TopBar({
           </>
         )}
       </ToggleButton>
+
+      {scope && <ScopeSelector {...scope} />}
 
       {/* Spacer pushes info to the right */}
       <div className="flex-1" />
@@ -298,9 +314,9 @@ export const TopBar = memo(function TopBar({
             onClick={onToggleNotify}
             title={notifyState === 'denied'
               ? 'Notifications are blocked in the browser settings'
-              : 'Notify when an agent waits for a permission or fails while this tab is hidden'}
+              : 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)'}
           >
-            {notifyState === 'denied' ? 'Notifications blocked' : 'Notify when blocked'}
+            {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
           </ToggleButton>
         )}
         {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
@@ -352,7 +368,8 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={`${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
@@ -381,6 +398,7 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
           {onToggleFullscreen && (
             <ToggleButton
+              id={FULLSCREEN_BUTTON_ID}
               active={false}
               onClick={onToggleFullscreen}
               ariaLabel="Enter full screen"

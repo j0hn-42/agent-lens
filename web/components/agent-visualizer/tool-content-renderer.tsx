@@ -3,8 +3,10 @@
 import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
-import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
-import { SearchIcon, GlobeIcon, CheckIcon } from './feed-icons'
+import { truncateWithMarker, truncateLines } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind, type ResultPill } from '@/lib/action-summary'
+import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
 type OpenFileCallback = (filePath: string, line?: number) => void
@@ -23,9 +25,13 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
     return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
 
-  switch (toolName) {
+  switch (canonicalTool(toolName)) {
+    case 'apply_patch':
+      return <PatchContent data={inputData} compact={compact} />
     case 'Edit':
       return <EditContent data={inputData} compact={compact} />
+    case 'MultiEdit':
+      return <MultiEditContent data={inputData} compact={compact} />
     case 'TodoWrite':
       return <TodoContent data={inputData} />
     case 'Bash':
@@ -44,6 +50,11 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
       return <WebFetchContent data={inputData} />
     case 'AskUserQuestion':
       return <AskUserContent data={inputData} />
+    case 'Task':
+    case 'Agent':
+      return <TaskContent data={inputData} />
+    case 'NotebookEdit':
+      return <NotebookContent data={inputData} />
     default:
       return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
@@ -62,7 +73,7 @@ function ClampedText({ text, max }: { text: string; max: number }) {
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`ml-1.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING}`}
+          className={`ml-1.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? 'Show less' : 'Show all'}
@@ -79,7 +90,7 @@ function ShowAllToggle({ visible, showAll, onToggle }: { visible: boolean; showA
       type="button"
       aria-expanded={showAll}
       onClick={onToggle}
-      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING}`}
+      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.textMuted }}
     >
       {showAll ? 'Show less' : 'Show all'}
@@ -104,7 +115,7 @@ function FilePath({ path: filePath }: { path: string }) {
       onClick={() => openFile(filePath)}
       title={filePath}
       aria-label={`Open ${filePath}`}
-      className={`block max-w-full min-h-6 mb-1 text-left text-[11px] truncate rounded hover:underline ${FOCUS_RING}`}
+      className={`block max-w-full min-h-6 mb-1 text-left text-[11px] truncate rounded hover:underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.filePathActive }}
     >
       {short}
@@ -112,50 +123,139 @@ function FilePath({ path: filePath }: { path: string }) {
   )
 }
 
-function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
-  const [showAll, setShowAll] = useState(false)
-  const filePath = String(data.file_path || '')
-  const maxLines = showAll ? Infinity : (compact ? 4 : 8)
-  const old = truncateLines(String(data.old_string || ''), maxLines)
-  const next = truncateLines(String(data.new_string || ''), maxLines)
-  const hiddenTotal = old.hidden + next.hidden
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+/** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. */
+function EditSummary({ stats }: { stats: EditStats }) {
   return (
-    <div>
-      <FilePath path={filePath} />
-      <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
-        {old.lines.map((line, i) => (
-          <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
-            <span className="sr-only">Removed: </span>
-            <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
-          </div>
-        ))}
-        {old.hidden > 0 && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
-        )}
-        {next.lines.map((line, i) => (
-          <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
-            <span className="sr-only">Added: </span>
-            <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
-          </div>
-        ))}
-        {next.hidden > 0 && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
-        )}
-      </div>
-      <ShowAllToggle visible={hiddenTotal > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+    <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
+      <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
+      <span aria-hidden="true" style={{ color: COLORS.diffRemoved }}>-{stats.removed}</span>
+      <span className="sr-only">{plural(stats.added, 'line')} added, {plural(stats.removed, 'line')} removed</span>
+      {stats.blocks != null && <span style={{ color: COLORS.contentDim }}>{plural(stats.blocks, 'block')}</span>}
     </div>
   )
 }
 
-interface TodoItem {
-  content: string
-  status: string
-  activeForm?: string
+function DiffBlock({ oldText, newText, maxLines }: { oldText: string; newText: string; maxLines: number }) {
+  const old = truncateLines(oldText, maxLines)
+  const next = truncateLines(newText, maxLines)
+  return (
+    <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
+      {old.lines.map((line, i) => (
+        <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
+          <span className="sr-only">Removed: </span>
+          <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
+        </div>
+      ))}
+      {old.hidden > 0 && (
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
+      )}
+      {next.lines.map((line, i) => (
+        <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
+          <span className="sr-only">Added: </span>
+          <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
+        </div>
+      ))}
+      {next.hidden > 0 && (
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
+      )}
+    </div>
+  )
 }
 
-function isTodoArray(v: unknown): v is TodoItem[] {
-  return Array.isArray(v) && v.every(t => t && typeof t === 'object' && 'content' in t)
+const hiddenLines = (oldText: string, newText: string, max: number) =>
+  truncateLines(oldText, max).hidden + truncateLines(newText, max).hidden
+
+function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  const filePath = String(data.file_path || '')
+  const oldText = String(data.old_string || '')
+  const newText = String(data.new_string || '')
+  const base = compact ? 4 : 8
+  const stats = editStats('Edit', data)
+
+  return (
+    <div>
+      <FilePath path={filePath} />
+      {stats && <EditSummary stats={stats} />}
+      <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
+      <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+    </div>
+  )
+}
+
+/** Codex apply_patch: the raw patch text. Figures are counted only from a patch that was not cut. */
+function PatchContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  const patch = typeof data.patch === 'string' ? data.patch : ''
+  const stats = patchStats(data)
+  if (!patch) return null
+  const cut = patch.length >= PATCH_CAPTURE_LIMIT
+  const body = truncateLines(patch.split('\n').filter(l => !/^\*\*\* (Begin|End) Patch/.test(l)).join('\n'), showAll ? Infinity : (compact ? 4 : 8))
+  const files = stats?.files ?? []
+
+  return (
+    <div>
+      {files.length > 0 && (
+        <ul aria-label="Patched files" className="mb-1 list-none p-0 m-0 text-[11px] font-mono">
+          {files.map(f => (
+            <li key={`${f.op} ${f.path}`} title={f.path} className="truncate" style={{ color: COLORS.filePathInactive }}>
+              <span style={{ color: COLORS.contentDim }}>{f.op}</span>{' '}{f.path}
+            </li>
+          ))}
+        </ul>
+      )}
+      {stats && <EditSummary stats={{ added: stats.added, removed: stats.removed, blocks: null }} />}
+      {cut && <div className="mb-1 text-[11px]" style={{ color: COLORS.contentDim }}>Patch cut at {PATCH_CAPTURE_LIMIT} characters: line counts not shown</div>}
+      <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
+        {body.lines.map((line, i) => {
+          const added = line.startsWith('+')
+          const removed = line.startsWith('-')
+          return (
+            <div
+              key={i}
+              className="px-1.5 py-px whitespace-pre-wrap break-words"
+              style={added ? { color: COLORS.diffAdded, background: COLORS.diffAddedBg } : removed ? { color: COLORS.diffRemoved, background: COLORS.diffRemovedBg } : { color: COLORS.contentDim }}
+            >
+              {added && <span className="sr-only">Added: </span>}
+              {removed && <span className="sr-only">Removed: </span>}
+              {line || ' '}
+            </div>
+          )
+        })}
+        {body.hidden > 0 && <div className="px-1.5 py-px" style={{ color: COLORS.contentDim }}>… (+{body.hidden} lines)</div>}
+      </div>
+      <ShowAllToggle visible={body.hidden > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+    </div>
+  )
+}
+
+function MultiEditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  const filePath = String(data.file_path || '')
+  const stats = editStats('MultiEdit', data)
+  // editStats only returns stats when every block carries both strings
+  const edits = stats ? (data.edits as Array<{ old_string: string; new_string: string }>) : []
+  const base = compact ? 4 : 8
+
+  return (
+    <div>
+      <FilePath path={filePath} />
+      {stats && <EditSummary stats={stats} />}
+      {edits.map((e, i) => (
+        <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
+          <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
+          <DiffBlock oldText={e.old_string} newText={e.new_string} maxLines={showAll ? Infinity : base} />
+        </div>
+      ))}
+      <ShowAllToggle
+        visible={showAll || edits.some(e => hiddenLines(e.old_string, e.new_string, base) > 0)}
+        showAll={showAll}
+        onToggle={() => setShowAll(v => !v)}
+      />
+    </div>
+  )
 }
 
 const TODO_STATUS_TEXT: Record<string, string> = {
@@ -165,10 +265,18 @@ const TODO_STATUS_TEXT: Record<string, string> = {
 }
 
 function TodoContent({ data }: { data: Record<string, unknown> }) {
-  if (!isTodoArray(data.todos)) return null
-  const todos = data.todos
+  const todos = todoItems(data)
+  if (!todos) return null
+  const progress = todoProgress(data)
 
   return (
+    <>
+    {progress && (
+      <div role="group" aria-label="Todo progress" className="mb-1 flex flex-wrap gap-x-2 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+        <span>{progress.done} of {progress.total} done</span>
+        {progress.active > 0 && <span>{progress.active} in progress</span>}
+      </div>
+    )}
     <ul className="space-y-0.5 list-none p-0 m-0" aria-label="Todo list">
       {todos.map((todo, i) => {
         const icon = todo.status === 'completed' ? <CheckIcon /> :
@@ -191,6 +299,97 @@ function TodoContent({ data }: { data: Record<string, unknown> }) {
         )
       })}
     </ul>
+    </>
+  )
+}
+
+/** A row of small labelled chips with a shape: the label is text, the icon is decoration. */
+function Pills({ label, items }: { label: string; items: Array<{ key: string; icon: React.ReactNode; text: string }> }) {
+  if (items.length === 0) return null
+  return (
+    <ul aria-label={label} className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
+      {items.map(it => (
+        <li
+          key={it.key}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono"
+          style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }}
+        >
+          {it.icon}
+          {it.text}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
+ * What a call's own output proves (#317): the PR / issue a gh call printed, as a link, or the file count
+ * Grep / Glob reported. Text and shape (icon, underline) carry the meaning, never the color alone.
+ */
+export function ResultPillView({ pill }: { pill: ResultPill | null | undefined }) {
+  if (!pill) return null
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono'
+  const chipStyle = { background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }
+  return (
+    <ul aria-label="Result summary" className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
+      <li className={chip} style={chipStyle}>
+        {pill.kind === 'link' ? (
+          <a
+            href={pill.link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={pill.link.url}
+            className={`inline-flex items-center gap-1 underline rounded ${FOCUS_RING_INSET}`}
+            style={{ color: COLORS.textPrimary }}
+          >
+            <GhIcon size={11} />
+            {pill.link.kind === 'pr' ? 'PR' : 'issue'} #{pill.link.number}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : (
+          <>
+            <SearchIcon size={11} />
+            {plural(pill.files, 'file')}
+          </>
+        )}
+      </li>
+    </ul>
+  )
+}
+
+function toolingIcon(kind: ToolingKind) {
+  switch (kind) {
+    case 'python': return <PythonIcon size={11} />
+    case 'test': return <TestIcon size={11} />
+    case 'docker': return <DockerIcon size={11} />
+    case 'package': return <PackageIcon size={11} />
+  }
+}
+
+function TaskContent({ data }: { data: Record<string, unknown> }) {
+  const type = typeof data.subagent_type === 'string' ? data.subagent_type : ''
+  const description = typeof data.description === 'string' ? data.description : ''
+  if (!type && !description) return null
+  return (
+    <div className="text-xs font-mono break-words">
+      {type && <span className="mr-1.5 rounded px-1.5 py-px text-[11px]" style={{ background: COLORS.codeBlockBg, color: COLORS.tool_calling }}>{type}</span>}
+      {description && <span style={{ color: COLORS.assistantText }}>{description}</span>}
+    </div>
+  )
+}
+
+function NotebookContent({ data }: { data: Record<string, unknown> }) {
+  const path = String(data.notebook_path || '')
+  const { cell, mode } = notebookCell(data)
+  return (
+    <div>
+      <FilePath path={path} />
+      {(cell || mode) && (
+        <div className="text-[11px] font-mono" style={{ color: COLORS.contentDim }}>
+          {[cell, mode].filter(Boolean).join(', ')}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -198,6 +397,8 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
   const command = String(data.command || '')
   const description = String(data.description || '')
   const maxLen = compact ? 120 : 300
+  const vcs = shellCommands(command)
+  const tooling = toolingCommands(command)
 
   return (
     <div>
@@ -208,6 +409,14 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
         <span aria-hidden="true" className="mr-1" style={{ color: COLORS.contentDim }}>$</span>
         <ClampedText text={command} max={maxLen} />
       </div>
+      <Pills
+        label="Version control commands"
+        items={vcs.map(c => ({ key: `${c.tool} ${c.sub}`, icon: c.tool === 'git' ? <GitIcon size={11} /> : <GhIcon size={11} />, text: `${c.tool} ${c.sub}` }))}
+      />
+      <Pills
+        label="Tooling commands"
+        items={tooling.map(c => ({ key: `${c.kind} ${c.label}`, icon: toolingIcon(c.kind), text: c.label }))}
+      />
     </div>
   )
 }
@@ -216,10 +425,12 @@ function WriteContent({ data, compact }: { data: Record<string, unknown>; compac
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const t = truncateLines(String(data.content || ''), showAll ? Infinity : (compact ? 4 : 8))
+  const stats = writeStats(data)
 
   return (
     <div>
       <FilePath path={filePath} />
+      {stats && <div className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{plural(stats.lines, 'line')}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim }}>
         {t.lines.map((line, i) => (
           <div key={i} className={showAll ? 'whitespace-pre-wrap break-words' : 'truncate'} title={!showAll && line.length > 60 ? line : undefined}>{line || ' '}</div>
@@ -235,15 +446,14 @@ function WriteContent({ data, compact }: { data: Record<string, unknown>; compac
 
 function ReadContent({ data }: { data: Record<string, unknown> }) {
   const filePath = String(data.file_path || '')
-  const offset = typeof data.offset === 'number' ? data.offset : undefined
-  const limit = typeof data.limit === 'number' ? data.limit : undefined
+  const range = readRange(data)
 
   return (
     <div>
       <FilePath path={filePath} />
-      {(offset != null || limit != null) && (
+      {range && (
         <div className="text-[11px]" style={{ color: COLORS.contentDim }}>
-          {offset ? `from line ${offset}` : ''}{offset && limit ? ', ' : ''}{limit ? `${limit} lines` : ''}
+          {range.to == null ? `from line ${range.from}` : `lines ${range.from}–${range.to}`}
         </div>
       )}
     </div>
@@ -291,9 +501,11 @@ function WebSearchContent({ data }: { data: Record<string, unknown> }) {
 function WebFetchContent({ data }: { data: Record<string, unknown> }) {
   const url = String(data.url || '')
   const prompt = String(data.prompt || '')
+  const host = urlHost(url)
 
   return (
     <div>
+      {host && <div className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{host}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono break-all" style={{ background: COLORS.codeBlockBg, color: COLORS.filePathActive }}>
         <span aria-hidden="true" className="mr-1"><GlobeIcon /></span><span className="sr-only">Fetch: </span>
         <ClampedText text={url} max={80} />

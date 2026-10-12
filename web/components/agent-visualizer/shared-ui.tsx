@@ -10,6 +10,7 @@ import {
   SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
@@ -22,16 +23,18 @@ export { stopPropagationHandlers, panelStopPropagationHandlers }
 interface CloseButtonProps {
   onClick: () => void
   className?: string
+  /** Accessible name (translated by the caller when its panel is) */
+  label?: string
 }
 
-export function CloseButton({ onClick, className = '' }: CloseButtonProps) {
+export function CloseButton({ onClick, className = '', label = 'Close' }: CloseButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-label="Close"
+      aria-label={label}
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] ${className}`}
+      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -146,10 +149,12 @@ interface DetailPopupProps {
   onClose: () => void
   /** id of the heading element (PanelHeader titleId) labelling the dialog */
   titleId: string
+  /** Free text of the session: blurred in presentation mode (#245) */
+  sensitive?: boolean
   children: ReactNode
 }
 
-export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children }: DetailPopupProps) {
+export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children, sensitive }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { env } = useDockSnapshot()
   // Between the top bar and the control bar, inside the viewport (never over either bar)
@@ -159,19 +164,22 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   useDialogBehavior(ref, onClose)
 
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-labelledby={titleId}
-      tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onClose)}
-      {...stopPropagationHandlers}
-      className="outline-none"
-      style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
-    >
-      <GlassCard visible={true} style={{ maxHeight: placed.maxHeight, overflowY: 'auto' }}>
-        {children}
-      </GlassCard>
+    // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less
+    // presentational wrapper, so the dialog itself carries no handler (display: contents).
+    <div role="presentation" style={{ display: 'contents' }} onKeyDown={dialogEscapeHandler(onClose)} {...stopPropagationHandlers}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-sensitive={sensitive ? '' : undefined}
+        className="outline-none"
+        style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
+      >
+        <GlassCard visible={true} style={{ maxHeight: placed.maxHeight, overflowY: 'auto' }}>
+          {children}
+        </GlassCard>
+      </div>
     </div>
   )
 }
@@ -231,11 +239,6 @@ export function dockAttrs(id: PanelId, edge: 'left' | 'right' | 'bottom', placem
     'data-dock-panel': id,
     'data-canvas-inset': visible && !placement.sheet ? edge : 'auto',
   }
-}
-
-export function useRightDockWidth(): [number, (w: number) => void] {
-  const { layout } = useDockSnapshot()
-  return [layout.rightWidth, (w: number) => dockStore.setRightWidth(w)]
 }
 
 // Listeners told when the USER resized the right dock (drag or keyboard), so the width can be persisted

@@ -55,6 +55,25 @@ export function activeSessionIds(input: SessionVisibilityInput): Set<string> {
   return out
 }
 
+/**
+ * Narrows the sessions the 'All' view shows to one project (#291). `visible` null means "everything": it is then
+ * the sessions of the list. A project nobody belongs to any more is ignored, so the view is never emptied by a
+ * filter no control can show.
+ */
+export function restrictToProject(
+  visible: ReadonlySet<string> | null,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'projectId' | 'indexedOnly'>>,
+  projectId: string | null,
+): ReadonlySet<string> | null {
+  if (projectId === null || !sessions.some(s => s.projectId === projectId)) return visible
+  const out = new Set<string>()
+  for (const s of sessions) {
+    if (s.projectId !== projectId || s.indexedOnly) continue
+    if (visible === null || visible.has(s.id)) out.add(s.id)
+  }
+  return out
+}
+
 /** Sessions of the list that are not in the active set (the 'finished' ones). */
 export function finishedSessionIds(
   sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'indexedOnly'>>,

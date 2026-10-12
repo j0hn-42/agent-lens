@@ -9,6 +9,7 @@
  * Counts are honest: whatever is capped or skipped is reported in `truncated` / `omittedSessions`.
  */
 import type { AgentEvent, SessionInfo } from './protocol'
+import { CONTROL_ALL } from './control-chars'
 import {
   OBSERVATIONS_MAX_SESSIONS, OBSERVATIONS_MAX_AGENTS_PER_SESSION, OBSERVATIONS_NAME_MAX, SNAPSHOT_STALE_AFTER_MS,
 } from './constants'
@@ -22,7 +23,7 @@ export interface ObservedAgent { name: string; state: ObservedAgentState }
 
 export interface ObservedSession {
   id: string
-  runtime: 'claude' | 'codex' | 'copilot' | 'unknown'
+  runtime: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'unknown'
   status: 'active' | 'completed'
   startedAt: number
   lastActivityAt: number
@@ -33,6 +34,8 @@ export interface ObservedSession {
   agentsTruncated?: boolean
   /** The agent list may miss agents (history dropped by the tracker): count and states are lower bounds */
   agentsIncomplete?: boolean
+  /** 'imported': read once from an imported transcript (#294), never observed live; no agent state is reported */
+  provenance?: 'imported'
 }
 
 export interface Observations {
@@ -87,7 +90,7 @@ export const OBSERVATIONS_ACTION = {
           required: ['id', 'runtime', 'status', 'startedAt', 'lastActivityAt', 'ageMs', 'freshness', 'agentCount'],
           properties: {
             id: { type: 'string', pattern: OBSERVATIONS_SESSION_ID_PATTERN },
-            runtime: { enum: ['claude', 'codex', 'copilot', 'unknown'] },
+            runtime: { enum: ['claude', 'codex', 'copilot', 'pi', 'gemini', 'unknown'] },
             status: { enum: ['active', 'completed'] },
             startedAt: { type: 'integer' },
             lastActivityAt: { type: 'integer' },
@@ -96,6 +99,7 @@ export const OBSERVATIONS_ACTION = {
             agentCount: { type: 'integer', minimum: 0 },
             agentsTruncated: { type: 'boolean' },
             agentsIncomplete: { type: 'boolean' },
+            provenance: { enum: ['imported'], description: 'Read from an imported transcript, not observed live: freshness is at best stale, no agent list' },
             agents: {
               type: 'array',
               maxItems: OBSERVATIONS_MAX_AGENTS_PER_SESSION,
@@ -140,8 +144,7 @@ export function parseObservationsInput(raw: unknown): { ok: true; input: Observa
  */
 export function safeAgentName(raw: unknown): string {
   if (typeof raw !== 'string') return 'agent'
-  // eslint-disable-next-line no-control-regex
-  const clean = raw.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/\s+/g, ' ').trim()
+  const clean = raw.replace(CONTROL_ALL, ' ').replace(/\s+/g, ' ').trim()
   if (!clean) return 'agent'
   if (/[\\/]/.test(clean) || /^[A-Za-z]:/.test(clean) || clean.startsWith('~')) return 'agent'
   return clean.slice(0, OBSERVATIONS_NAME_MAX)
@@ -261,17 +264,19 @@ export function buildObservations(
     const agents = tracked.agents
     const out: ObservedSession = {
       id: s.id,
-      runtime: s.runtime === 'claude' || s.runtime === 'codex' || s.runtime === 'copilot' ? s.runtime : 'unknown',
+      runtime: s.runtime === 'claude' || s.runtime === 'codex' || s.runtime === 'copilot' || s.runtime === 'pi' || s.runtime === 'gemini' ? s.runtime : 'unknown',
       status: s.status === 'completed' ? 'completed' : 'active',
       startedAt: Math.trunc(s.startTime),
       lastActivityAt: Math.trunc(s.lastActivityTime),
       ageMs,
-      freshness: s.status === 'completed' ? 'closed' : (ageMs <= staleAfterMs ? 'fresh' : 'stale'),
+      // An imported transcript proves neither that the session runs nor that it ended: only a last known state
+      freshness: s.imported ? 'stale' : s.status === 'completed' ? 'closed' : (ageMs <= staleAfterMs ? 'fresh' : 'stale'),
       agentCount: agents.length,
     }
+    if (s.imported) out.provenance = 'imported'
     // The list is not the whole truth once the tracker had to drop sessions or agents: say so, don't show 0
     if (!tracked.complete) out.agentsIncomplete = true
-    if (includeAgents) {
+    if (includeAgents && !s.imported) {
       out.agents = agents.slice(0, OBSERVATIONS_MAX_AGENTS_PER_SESSION)
       if (agents.length > OBSERVATIONS_MAX_AGENTS_PER_SESSION) out.agentsTruncated = true
     }

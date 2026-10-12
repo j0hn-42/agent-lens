@@ -5,7 +5,9 @@ import type { MutableEventState } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { windowCoveringUsage } from '../../lib/context-window'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
+import { readCompaction, compactionText } from '../../lib/compaction'
 
 export function handleMessage(
   payload: Record<string, unknown>,
@@ -96,9 +98,24 @@ export function handleContextUpdate(
       ...(tokens !== null
         ? { tokensUsed: tokens, tokenStatus: 'available' as const, tokenGaps: 0, tokensEstimated: readTokenSource(payload.tokenSource) === 'estimated' }
         : {}),
-      tokensMax: tokensMaxOverride ?? agent.tokensMax,
+      tokensMax: tokensMaxOverride ?? windowCoveringUsage(agent.tokensMax, tokens ?? 0),
       contextBreakdown: breakdown || agent.contextBreakdown,
       state: agent.state === 'complete' ? 'complete' : 'thinking'
     })
   }
+}
+
+/**
+ * A context compaction (#232): one row in the agent's conversation at the time it happened. The agent's
+ * state and bubbles are left alone; the context gauge follows the context_update that comes with it.
+ */
+export function handleContextCompacted(
+  payload: Record<string, unknown>,
+  currentTime: number,
+  state: MutableEventState,
+  sessionId: string = DEFAULT_SESSION_ID,
+): void {
+  const agentName = agentKeyOf(sessionId, idString(payload.agent))
+  const compaction = readCompaction(payload)
+  appendBoundedConversation(state, agentName, { type: 'compaction', content: compactionText(compaction), timestamp: currentTime, compaction })
 }

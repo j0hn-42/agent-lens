@@ -22,6 +22,8 @@ import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
 import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
+import type { FileAttention } from '../../../lib/agent-types'
+import { deriveFileConflicts, describeConflictEditors } from '../../../lib/file-conflicts'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -233,6 +235,13 @@ export interface A11yDiscoveryItem {
   agentName: string
 }
 
+export interface A11yFileConflictItem {
+  path: string
+  agentIds: string[]
+  /** "/repo/a.ts edited by alpha (session Main): 2 successful edits; beta (session Fix): 1 successful edit" */
+  text: string
+}
+
 export interface A11yModel {
   /** aria-label for the canvas wrapper */
   summary: string
@@ -244,6 +253,8 @@ export interface A11yModel {
   links: A11yLinkItem[]
   /** Session / team clusters, in outline order; agents without a cluster are listed first */
   clusters: A11yClusterItem[]
+  /** Files that two or more agents were observed to edit successfully (#227) */
+  fileConflicts?: A11yFileConflictItem[]
 }
 
 /** Optional inputs of the team-aware DOM model */
@@ -261,6 +272,8 @@ export interface A11yExtras {
   sessionLinks?: ReadonlyArray<SessionLink>
   /** Every agent of the simulation (even those a collapsed branch hides): cluster costs count them all */
   costAgents?: Iterable<Agent>
+  /** Files touched by the agents: the source of the file conflicts */
+  fileAttention?: ReadonlyMap<string, FileAttention>
 }
 
 /** "3 agents, 2 running, 1 waiting for permission" */
@@ -318,7 +331,7 @@ export function buildA11yModel(
       state: a.state,
       stateText: stateText(a.state),
       model: describeModel(a, formatModelName),
-      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : 'Claude',
+      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
       tokens: tokenSummary(a),
       cost: formatCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
@@ -342,11 +355,13 @@ export function buildA11yModel(
 
   const teams = buildTeamItems(agents, extras.teams, extras.sessions)
   const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
+  const fileConflicts = buildFileConflictItems(agents, extras.fileAttention, extras.sessions, extras.costAgents)
 
   return {
     summary: buildGraphLabel(agents.values(), teams.length),
     teams,
     links,
+    fileConflicts,
     clusters: clusterList.map(c => ({
       key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: [clusterAnnouncement(c), ...(linkNotes.get(c.key) ?? [])].join(', '), memberIds: c.memberIds, color: c.color,
     })),
@@ -410,15 +425,44 @@ export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, Ag
   })
 }
 
+/** One entry per proven file conflict; an agent hidden from the canvas is still named, and said to be off screen. */
+export function buildFileConflictItems(
+  agents: ReadonlyMap<string, Agent>,
+  fileAttention: ReadonlyMap<string, FileAttention> | undefined,
+  sessions?: ReadonlyMap<string, SessionMeta>,
+  allAgents?: Iterable<Agent>,
+): A11yFileConflictItem[] {
+  if (!fileAttention || fileAttention.size === 0) return []
+  const conflicts = deriveFileConflicts(fileAttention)
+  if (conflicts.length === 0) return []
+  const known = new Map<string, Agent>()
+  for (const a of allAgents ?? []) known.set(a.id, a)
+  const label = (key: string) => {
+    const a = agents.get(key) ?? known.get(key)
+    if (!a) return `${cleanText(key, 80)} (not on screen)`
+    const session = cleanText(sessions?.get(a.sessionId)?.label || a.sessionLabel || a.sessionId, 40)
+    const where = [session ? `session ${session}` : '', agents.has(key) ? '' : 'not on screen'].filter(Boolean).join(', ')
+    return `${cleanText(a.name, 60) || 'agent'}${where ? ` (${where})` : ''}`
+  }
+  return conflicts.map(c => ({
+    path: c.path,
+    agentIds: c.editors.map(e => e.agent),
+    text: `${clip(c.path, 160)} ${describeConflictEditors(c, label)}`,
+  }))
+}
+
 // ─── Live-region announcements ───────────────────────────────────────────────
 
 /** Human sentence for a semantic transition, or null when it is not worth announcing. */
-export function describeTransition(t: StateTransition): string | null {
+export function describeTransition(t: StateTransition, opts: { multiSession?: boolean } = {}): string | null {
+  // In the All view several sessions share agent names: say which session the agent belongs to.
+  const who = (name: string, session?: string) =>
+    opts.multiSession && session ? `Agent ${name} in session ${cleanText(session, 60)}` : `Agent ${name}`
   switch (t.kind) {
-    case 'agent_spawn': return `Agent ${t.name} started`
-    case 'agent_complete': return `Agent ${t.name} completed`
-    case 'agent_error': return `Agent ${t.name} failed`
-    case 'agent_waiting_permission': return `Agent ${t.name} is waiting for permission`
+    case 'agent_spawn': return `${who(t.name, t.session)} started`
+    case 'agent_complete': return `${who(t.name, t.session)} completed`
+    case 'agent_error': return `${who(t.name, t.session)} failed`
+    case 'agent_waiting_permission': return `${who(t.name, t.session)} is waiting for permission`
     case 'tool_error': return `Tool ${t.name} failed`
     case 'agent_activity': return `${t.name} is ${t.activity}`
     case 'message_sent': return `${t.from} sent a message to ${t.to}`
@@ -465,11 +509,19 @@ export function createAnnouncementQueue(): AnnouncementQueue {
  * duplicates inside one batch are dropped, and bulk batches collapse into one summary.
  * Returns the same queue object when nothing was added.
  */
-export function enqueueAnnouncements(queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX): AnnouncementQueue {
+export function enqueueAnnouncements(
+  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
+): AnnouncementQueue {
   const texts: string[] = []
+  const seen = new Set<string>()
   for (const t of transitions) {
-    const text = describeTransition(t)
-    if (text && !texts.includes(text)) texts.push(text)
+    const text = describeTransition(t, opts)
+    if (!text) continue
+    // Agent transitions dedupe on (agent id, kind): same-named agents of other sessions stay distinct.
+    const key = t.kind.startsWith('agent_') && t.kind !== 'agent_activity' ? `${t.kind}|${t.id}` : `text|${text}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    texts.push(text)
   }
   if (texts.length === 0) return queue
   const added = texts.length > ANNOUNCE_BULK_THRESHOLD ? [`${texts.length} agent graph updates`] : texts

@@ -39,14 +39,57 @@ boundary are not merged.
 | Content and ordering: messages, tool calls and results, tokens, model, subagent names | **JSONL** | Durable record, real names and ids |
 | `permission_requested`, `agent_idle`, `agent_complete` (permission prompts, liveness) | **Hooks** | Only Claude Code knows a prompt is on screen or that the session stopped |
 
+## Imported transcripts (#294)
+
+A session that runs on a cloud agent writes nothing on this machine, so the relay cannot watch it. When you
+fetch its JSONL transcript (downloaded, synced or copied into a folder), the relay can **import** it:
+
+```bash
+node app/dist/app.js --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
+node app/dist/app.js --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
+AGENT_LENS_IMPORT="/path/a.jsonl:/path/folder" pnpm run dev      # same list from the environment (';' on Windows)
+pnpm run dev:relay -- --import /path/folder                     # dev relay only
+```
+
+- Only a local flag or environment variable designates the files. There is no HTTP endpoint to import: the
+  server stays loopback-only and read-only (`GET`/`HEAD`/`OPTIONS`).
+- A file is named `<session id>.jsonl`; a folder contributes the regular `*.jsonl` files directly inside it
+  (no recursion, symbolic links skipped). Subagent transcripts next to it (`<session id>/subagents/`) are read
+  as for a local session. At most 20 imported sessions, each under the transcript size cap; what is refused
+  is logged as `Import: ...` at startup, never silently dropped.
+- The file is read **once**, at startup, through the same `TranscriptParser` and `EventReconciler` as a live
+  session. Unlike a live attach (current turn only), every line is replayed, so the recorded tool calls and
+  results are visible; the relay's replay caps keep the newest events. Lines of a type the parser does not know
+  are ignored: the JSONL format is internal to Claude Code and may change between versions, so an import is
+  only as complete as the parser's understanding of that version.
+- Nothing watches the file afterwards (no file watcher, no poll, no inactivity timer). Re-run the relay to
+  read a newer copy.
+- Provenance: the session is listed with `imported: true` and `importedAt` (when it was read). Its start and
+  last activity are the first and last `timestamp` recorded in the file (`lastActivityUnknown` if none). It is
+  never listed as `active`, and no end (`agent_complete`) is invented for it. Every event it produces carries
+  `imported: true`; hook events with the same session id are ignored, so live and imported states never mix.
+- Its `cwd` is a path on the cloud machine (for example `/home/user/...`). It is shown as a tag but never used
+  to read local files (project context, issue links) and never matched to a local project: the web app groups
+  imported sessions under **Imported transcripts**.
+- The `observations` action reports `provenance: "imported"`, a freshness of `stale` (never `fresh` nor
+  `closed`) and no agent list for such a session.
+
+Limits: the VS Code extension does not import (relay and standalone app only); where a cloud provider stores
+its transcripts, and in which format, is up to that provider (only Claude Code JSONL is parsed). Live
+streaming from a remote agent and provider connectors are tracks 2 and 3 of #294.
+
 ## Hardened local server (#68)
 
 - Listens on `127.0.0.1` only. The default port is unchanged; `AGENT_LENS_PORT=0` (or `--port 0` for
   the standalone app) asks the OS for an ephemeral port, which is printed at startup.
-- `GET`, `HEAD`, `OPTIONS` only (`405` + `Allow` otherwise). `HEAD /events` never opens a stream.
+- `GET`, `HEAD`, `OPTIONS` only (`405` + `Allow` otherwise), plus `POST` on `/scope` and nowhere else (see below). `HEAD /events` never opens a stream.
 - Every response carries `Content-Security-Policy`, `Cache-Control: no-store`,
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`. API/SSE/error responses use
   `default-src 'none'`; the static app uses a strict same-origin policy.
+- Dev relay CORS (#201): only the dev web server origin (`http://localhost:3000` or `127.0.0.1:3000`) gets
+  `Access-Control-Allow-Origin`. If Next.js falls back to another port, set `AGENT_LENS_WEB_PORT` (comma
+  list, at most 5 ports). Other local ports are refused, and so are their cross-origin requests.
+- The standalone app refuses (`403`) a non-loopback `Host` on every path, the static files included (#241); the API routes already did.
 - `?session=` / `?sessionId=` are validated (`400`).
 - One in-flight refresh per key (`KeyedCoalescer`): 50 concurrent `GET /status` share one computation.
 - One shared scan interval for all SSE clients (`SharedTicker`), stopped when the last client leaves.
@@ -54,3 +97,71 @@ boundary are not merged.
   existed at startup) or by the scan that runs when the next client connects. That scan runs before the
   client joins the broadcast, so the client receives the session once (session list + replay).
 - The earlier limits (SSE client cap, replay caps, `/status` rate limit) are unchanged.
+
+## Remote access: guards only (#241, step 1)
+
+Watching agents from a phone or another machine is not available yet. This step only puts the guards in place; the standalone app **refuses to start** with the new options (exit code 2, the reason on stderr):
+
+- `--allow-host <name>` is refused until token authentication ships (step 2 of #241). The event stream carries prompts, tool outputs and file contents: without a token, anyone who reaches the tunnel would read them.
+- `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a named tunnel (Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS. An SSH `-L` tunnel is treated as local, see the end of this section.
+
+What the guards will enforce once the token exists (tested now through the app's request handler):
+
+| Request | Answer |
+| --- | --- |
+| `Host` loopback (`127.0.0.1`, `localhost`, `[::1]`, any port) | unchanged |
+| `Host` exactly a `--allow-host` name (case-insensitive; with the port only if one was given) | read-only surface: `GET`/`HEAD` on `/events`, `/status` and the static app |
+| same, on `/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope` or any other method | `403` |
+| same, with an `Origin` other than `https://<name>` (the dev origins included) or a `Sec-Fetch-Site` other than `same-origin` / `none` | `403` |
+| two `Host` headers | `403` |
+| any other `Host` (suffix or prefix look-alikes, trailing dot, other port), static files included | `403` (DNS rebinding) |
+| more than 4 SSE streams through allowed names (`RELAY_MAX_REMOTE_SSE_CLIENTS`) | `503` + `Retry-After`; local tabs are not counted against it |
+
+`--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL, credentials or default port (`:80`, `:443`, which browsers leave out of `Host`); at most 4 names. The peer must still be loopback: a tunnel's is. So every client of a tunnel shares one rate-limit bucket per name (its `User-Agent` is ignored). The total SSE cap, the rate limits and the strict headers are unchanged.
+
+`--allow-host` only covers named tunnels (Tailscale serve, a reverse proxy with its own name), which must forward the `Host` header unchanged. An SSH `-L` tunnel is not one of them: the remote browser opens `http://localhost:<port>`, so it sends `Host: localhost:<port>`, which is a loopback `Host`. It gets the full loopback surface (`/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope`), and the `Origin` check of a tunnel does not apply. The same holds for a tunnel that rewrites `Host` to `127.0.0.1`. Step 2 (token) has to close this before `--allow-host` is enabled: the token must be required even on a loopback `Host` when the access is remote.
+
+## Scope of the discovery (#291)
+
+The relay discovers Claude Code sessions in one of two scopes:
+
+| Scope | What is scanned |
+| --- | --- |
+| `workspace` (default) | the project folder of the workspace the relay was started in, and its sub-projects (`<encoded>-...`) |
+| `all` | every real (non-symlink) project folder directly under `~/.claude/projects` |
+
+`--all-workspaces` / `AGENT_LENS_ALL_WORKSPACES=1` only set the **initial** scope. It is changed at run time, without a restart, by the scope selector of the UI, which calls `POST /scope`. "One project" is not a relay scope: it keeps the relay scope and sets the project filter of the UI.
+
+What a change does, in the relay (`setScope`, one entry point):
+
+- widening runs a scan at once: the sessions of the other workspaces are watched and announced (`session-started`);
+- narrowing stops following the sessions of other folders, announces them (`session-ended`), drops their buffered events (a later connection does not replay them) and closes the wake-up watchers of the folders no longer scanned: workspace -> all -> workspace leaves no watcher behind (tested);
+- the "cold" state of the previous scan and the counters below are forgotten and recounted, the Agent Teams watcher follows the new scope, and every SSE client receives `{"type":"relay-scope","allWorkspaces":bool}` so each open tab reloads its view;
+- setting the scope already in force changes nothing and announces nothing.
+
+### `POST /scope`
+
+The only route that changes the relay's state, so the most guarded. Same chain as the other routes (`scripts/routes/guard.ts`), in this order:
+
+1. loopback peer and loopback `Host` (`403`, DNS rebinding);
+2. another site refused (`403`): `Origin` that is not the relay's own or a dev web origin, or `Sec-Fetch-Site: cross-site`; the request is also CORS-preflighted, since `Content-Type: application/json` is not a simple type;
+3. method `POST` (`405`, `Allow: POST`); the server-level guard lets `POST` through on `/scope` only;
+4. rate limit per client (`429`): burst 5, one every 2 s;
+5. `Content-Type: application/json` exactly, optionally `; charset=utf-8` (`415`; `text/plain` and forms are refused);
+6. body of at most 256 bytes and read within 3 s (`413`, `408`);
+7. strict JSON: an object with the single key `scope` whose value is `"workspace"` or `"all"` (`400` for anything else). The client never sends a path or an identifier.
+
+The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. Strict headers (CSP `default-src 'none'`, `no-store`, `nosniff`) as on every API response.
+
+### What `GET /status` says about the scope
+
+`allWorkspaces` is the scope the scan uses **right now** (read when the answer is built, never a value cached with a shared computation), so the UI shows what is scanned, not what was asked. The discovery ceilings, which stay in force in both scopes, are reported and cleared when the scope that hit them is left:
+
+| Field | Ceiling | Reported as |
+| --- | --- | --- |
+| `discovery.projectDirsCapped` | 200 project folders (`maxProjectDirs`), the first ones by name | `true` when more exist |
+| `skippedSessions.fileLimit` | 500 transcripts per folder (`maxFilesPerDir`), the newest kept | sessions left out |
+| `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
+| `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
+
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and ignore the scope.

@@ -49,3 +49,21 @@ test('the Stats button reports its state and toggles the overlay', () => {
   rerender(<TopBar {...props} showStats />)
   assert.equal(document.getElementById(PANEL_BUTTON_IDS.stats)!.getAttribute('aria-pressed'), 'true')
 })
+
+// #180: the Context panel needs the standalone relay; inside VS Code the button says so instead of opening an empty panel.
+test('in VS Code the Context button exposes why the panel is unavailable', () => {
+  render(<TopBar {...props} isVSCode />)
+  const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
+  assert.ok(btn, 'the Context button stays visible')
+  assert.match(btn.getAttribute('title') ?? '', /standalone relay.*not available in VS Code/i)
+  const described = btn.getAttribute('aria-describedby')
+  assert.ok(described, 'aria-describedby')
+  assert.match(document.getElementById(described)!.textContent ?? '', /standalone relay.*not available in VS Code/i)
+})
+
+test('outside VS Code the Context button has no unavailability note', () => {
+  render(<TopBar {...props} />)
+  const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
+  assert.doesNotMatch(btn.getAttribute('title') ?? '', /not available/i)
+  assert.equal(btn.getAttribute('aria-describedby'), null)
+})

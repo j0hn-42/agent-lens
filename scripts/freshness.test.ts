@@ -3,10 +3,11 @@ import { strict as assert } from 'node:assert'
 import {
   DEFAULT_FRESHNESS_THRESHOLDS, deriveFreshness, lastKnownStateText, stampTouchedAgents, carryFreshness,
   freshnessKey, freshnessMap, buildFreshnessAnnouncement, type Freshness,
+  deriveSilence, silenceText,
 } from '../web/hooks/simulation/freshness'
 import { createFreshnessClock } from '../web/hooks/use-freshness-clock'
 import {
-  STALE_AFTER_MS, HISTORY_STATUS_EXPIRY_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_TICK_MS,
+  STALE_AFTER_MS, HISTORY_STATUS_EXPIRY_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_TICK_MS, SILENT_AFTER_MS,
 } from '../web/lib/canvas-constants'
 import type { Agent } from '../web/lib/agent-types'
 
@@ -209,4 +210,56 @@ test('clock: subscribing while hidden does not start the timer', () => {
   assert.equal(f.running, false)
   f.show()
   assert.equal(f.running, true)
+})
+
+// Silent or waiting for a permission (#226): only what the events prove, never "stuck" as a verdict.
+test('SILENT_AFTER_MS is five minutes, well past the stale threshold', () => {
+  assert.equal(SILENT_AFTER_MS, 5 * 60_000)
+  assert.ok(SILENT_AFTER_MS > STALE_AFTER_MS)
+})
+
+interface SilenceRow { name: string; state: string; source?: 'live' | 'history'; at?: number; age: number; expected: unknown }
+const silenceRows: SilenceRow[] = [
+  { name: 'fresh agent: nothing to report', state: 'thinking', at: T0, age: 1000, expected: null },
+  { name: 'stale but under 5 min: only "last known state"', state: 'thinking', at: T0, age: SILENT_AFTER_MS, expected: null },
+  { name: 'silent one millisecond past 5 min', state: 'thinking', at: T0, age: SILENT_AFTER_MS + 1, expected: { kind: 'silent', ms: SILENT_AFTER_MS + 1 } },
+  { name: 'a long tool call is silent, not "blocked"', state: 'tool_calling', at: T0, age: 10 * 60_000, expected: { kind: 'silent', ms: 10 * 60_000 } },
+  { name: 'idle also reports silence', state: 'idle', at: T0, age: 6 * 60_000, expected: { kind: 'silent', ms: 6 * 60_000 } },
+  { name: 'a pending permission is told apart from silence', state: 'waiting_permission', at: T0, age: 6 * 60_000, expected: { kind: 'permission', ms: 6 * 60_000 } },
+  { name: 'a permission pending for under 5 min is not reported', state: 'waiting_permission', at: T0, age: SILENT_AFTER_MS, expected: null },
+  { name: 'history status: its age is not wall-clock proof', state: 'thinking', source: 'history', at: T0, age: 20 * 60_000, expected: null },
+  { name: 'history permission: not proven either', state: 'waiting_permission', source: 'history', at: T0, age: 20 * 60_000, expected: null },
+  { name: 'complete is closed, not silent', state: 'complete', at: T0, age: 60 * 60_000, expected: null },
+  { name: 'error is closed, not silent', state: 'error', at: T0, age: 60 * 60_000, expected: null },
+  { name: 'interrupted is closed, not silent', state: 'paused', at: T0, age: 60 * 60_000, expected: null },
+  { name: 'never observed: no silence can be claimed', state: 'thinking', age: 0, expected: null },
+  { name: 'a clock going backwards claims nothing', state: 'thinking', at: T0, age: -SILENT_AFTER_MS * 2, expected: null },
+]
+for (const r of silenceRows) {
+  test(`deriveSilence: ${r.name}`, () => {
+    const out = deriveSilence({ state: r.state, lastEventAt: r.at, freshnessSource: r.source }, T0 + r.age)
+    if (r.expected === null) return assert.equal(out, null)
+    const exp = r.expected as { kind: string; ms: number }
+    assert.equal(out?.kind, exp.kind)
+    assert.equal(out?.ms, exp.ms)
+  })
+}
+
+test('deriveSilence: a non-finite clock claims nothing; custom threshold is honoured', () => {
+  assert.equal(deriveSilence({ state: 'thinking', lastEventAt: T0 }, Number.NaN), null)
+  assert.equal(deriveSilence({ state: 'thinking', lastEventAt: 0 }, 60_000, 40_000)?.kind, 'silent')
+})
+
+test('silenceText: whole minutes in words, last known state kept, permission said as such', () => {
+  assert.equal(silenceText({ kind: 'silent', ms: 6 * 60_000 + 59_000 }, 'thinking'), 'last known state: Thinking, silent for 6 min')
+  assert.equal(silenceText({ kind: 'silent', ms: 61 * 60_000 }, 'tool_calling'), 'last known state: Calling tool, silent for 1 h 1 min')
+  assert.equal(silenceText({ kind: 'permission', ms: 7 * 60_000 }, 'waiting_permission'), 'waiting for permission for 7 min')
+})
+
+test('freshnessKey follows the minute of a silent agent, and still ignores plain ticks', () => {
+  const agents = [ag('a', { lastEventAt: T0 }), ag('p', { lastEventAt: T0, state: 'waiting_permission' })]
+  const k = freshnessKey(agents, T0 + SILENT_AFTER_MS + 1000)
+  assert.equal(k, 'a=stale:5m|p=stale:5m')
+  assert.equal(freshnessKey(agents, T0 + SILENT_AFTER_MS + 30_000), k, 'same minute, same key')
+  assert.equal(freshnessKey(agents, T0 + SILENT_AFTER_MS + 61_000), 'a=stale:6m|p=stale:6m')
 })

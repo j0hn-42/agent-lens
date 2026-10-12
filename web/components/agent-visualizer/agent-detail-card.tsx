@@ -11,12 +11,18 @@ import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, INSPECTOR_IGNORE_SELECTOR, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
-import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN } from '@/lib/issue-links'
+import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
+import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type LaunchView } from '@/lib/launch-client'
+import { LaunchDialog } from './launch-dialog'
+import { useLocale, useT } from '@/lib/locale'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
-import { deriveFreshness, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
+import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
+import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
+import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
+import { tokensText, filesReadText, durationText, resultText, type DelegationRow } from '@/lib/delegation-report'
 
 interface AgentDetailCardProps {
   agent: {
@@ -43,7 +49,7 @@ interface AgentDetailCardProps {
     activity?: 'working' | 'idle' | 'done'
     /** The node's OWN last event (wall clock) and where it comes from: never the anchor session's */
     lastEventAt?: number
-    freshnessSource?: 'live' | 'history'
+    freshnessSource?: 'live' | 'history' | 'imported'
     sessionLabel?: string
     activeMs?: number
     activeSince?: number
@@ -52,8 +58,18 @@ interface AgentDetailCardProps {
   }
   /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
+  /** Loop verdict of this node only (#230); absent = not assessed, nothing shown */
+  health?: HealthVerdict
+  /** Loop verdict of the node's whole session; absent = not shown */
+  sessionHealth?: HealthVerdict
+  /** Delegation report of this node (#233): one row per direct sub-agent; absent or empty = no section */
+  delegation?: DelegationRow[]
+  /** Opens the inspector of another agent (a sub-agent of the report) */
+  onSelectAgent?: (agentId: string) => void
   /** Origin of the relay API when a relay feeds the view (null: no relay, no issue links) */
   relayOrigin?: string | null
+  /** Agent launches (#229): present only when the relay serving this page has `launch` in GET /status (--allow-launch) */
+  launch?: { maxConcurrent: number; launches: ReadonlyMap<string, LaunchView> } | null
   onClose: () => void
   /** Escape pressed inside the card; defaults to onClose. The shell uses it to close newer panels first. */
   onEscape?: () => void
@@ -79,7 +95,12 @@ function formatClockTime(ms: number): string {
 export function AgentDetailCard({
   agent,
   toolErrors,
+  health,
+  sessionHealth,
+  delegation,
+  onSelectAgent,
   relayOrigin = null,
+  launch = null,
   onClose,
   onEscape,
   freshnessClock,
@@ -95,21 +116,33 @@ export function AgentDetailCard({
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
+  // A string that changes once a minute while the agent stays silent (never on a plain tick)
+  const silenceLine = useFreshnessValue(t => {
+    const s = deriveSilence(agent, t)
+    return s ? silenceText(s, agent.state) : ''
+  }, freshnessClock)
   const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
   const { links: issueLinks, status: issueLinksStatus } = useIssueLinks(relayOrigin, role, agent.sessionId)
+  /** Issue whose launch dialog is open (null: closed) */
+  const [launchTarget, setLaunchTarget] = useState<{ link: IssueLink; repo: string } | null>(null)
+  // The launch surface going away (relay link dropped) closes the dialog for good: when it comes back, nobody asked for it
+  const launchAvailable = launch !== null
+  useEffect(() => { if (!launchAvailable) setLaunchTarget(null) }, [launchAvailable])
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 
   return (
+    // Key boundary of the dialog (Escape, see dialogEscapeHandler): a box-less presentational wrapper,
+    // so the dialog itself carries no handler and its layout is unchanged (display: contents).
+    <div role="presentation" style={{ display: 'contents' }} onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}>
     <div
       ref={ref}
       role="dialog"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
       {...dockAttrs('detail', 'left', dock)}
       className="agent-detail-card outline-none"
       style={{
@@ -129,7 +162,7 @@ export function AgentDetailCard({
             style={{ background: stateColor, boxShadow: `0 0 8px ${stateColor}` }}
           />
           <span className="flex flex-col">
-            <span className="text-xs font-mono" style={{ color: COLORS.textPrimary }}>
+            <span className="text-xs font-mono" data-sensitive="" style={{ color: COLORS.textPrimary }}>
               {agent.name}
             </span>
             {agent.model && (
@@ -185,9 +218,10 @@ export function AgentDetailCard({
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
           <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
+          {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
-              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : ''}`
+              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : agent.freshnessSource === 'imported' ? ' (imported transcript)' : ''}`
               : 'no event observed'}
           </span>
           {typeof toolErrors === 'number' && (
@@ -200,6 +234,12 @@ export function AgentDetailCard({
         <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
           <ActiveTimeStat agent={agent} />
         </div>
+
+        {/* Loop verdict (#230): words and evidence, never a bare "healthy" */}
+        {health && <HealthSection health={health} sessionHealth={sessionHealth} />}
+
+        {/* Delegation report (#233): per sub-agent, each value proven or said unknown */}
+        {delegation && delegation.length > 0 && <DelegationSection rows={delegation} onSelectAgent={onSelectAgent} />}
 
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
@@ -257,12 +297,20 @@ export function AgentDetailCard({
                     href={link.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus-strong)]"
+                    className={`block truncate underline ${FOCUS_RING_STRONG}`}
                     style={{ color: COLORS.textPrimary }}
                     title={issueLinkLabel(link)}
                   >
                     {issueLinkLabel(link)}
                   </a>
+                  {launch && relayOrigin !== null && link.kind === 'issue' && link.state === 'open' && repoOfIssueUrl(link.url) && (
+                    <LaunchRow
+                      link={link}
+                      repo={repoOfIssueUrl(link.url)!}
+                      launches={launch.launches}
+                      onOpen={() => setLaunchTarget({ link, repo: repoOfIssueUrl(link.url)! })}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -271,8 +319,137 @@ export function AgentDetailCard({
             )}
           </div>
         )}
+        {launch && relayOrigin !== null && role && launchTarget && (
+          <LaunchDialog
+            repo={launchTarget.repo}
+            issue={launchTarget.link.number}
+            role={role}
+            title={launchTarget.link.title}
+            maxConcurrent={launch.maxConcurrent}
+            launches={launch.launches}
+            origin={relayOrigin}
+            onClose={() => setLaunchTarget(null)}
+          />
+        )}
       </GlassCard>
     </div>
+    </div>
+  )
+}
+
+/** Launch button of an open issue (#229), and the last state the relay reported for it, in words */
+function LaunchRow({ link, repo, launches, onOpen }: {
+  link: IssueLink
+  repo: string
+  launches: ReadonlyMap<string, LaunchView>
+  onOpen: () => void
+}) {
+  const { locale } = useLocale()
+  const t = useT()
+  const latest = latestLaunchFor(launches, repo, link.number)
+  return (
+    <div className="flex flex-col gap-0.5 pl-2" lang={locale}>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`self-start min-h-6 rounded px-1.5 py-0.5 ${FOCUS_RING}`}
+        style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+      >
+        {t('launch.button', { n: link.number })}
+      </button>
+      {latest && (
+        <span style={{ color: COLORS.textMuted }} data-testid="launch-state">
+          {launchStateLabel(latest, locale)}
+          {isLaunchEnded(latest) && latest.worktreePath && <span className="block break-all">{t('launch.worktree', { path: latest.worktreePath })}</span>}
+        </span>
+      )}
+    </div>
+  )
+}
+
+const FINDINGS_SHOWN = 5
+
+function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessionHealth?: HealthVerdict }) {
+  const loop = health.status === 'loop'
+  return (
+    <div className="mb-3 text-[11px] font-mono" data-testid="inspector-health">
+      <div className="mb-1" style={{ color: COLORS.textMuted }}>Health</div>
+      <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.waiting_permission : COLORS.textDim }}>
+        {loop && <span aria-hidden="true">⟳ </span>}{healthText(health)}
+      </p>
+      {health.findings.length > 0 && (
+        <ul className="flex flex-col gap-0.5 mt-0.5" aria-label="Loop evidence" style={{ color: COLORS.textDim }}>
+          {health.findings.slice(0, FINDINGS_SHOWN).map((f, i) => (
+            <li key={i} className="truncate" title={f.kind === 'edit-cycle' ? f.path : undefined}>{findingText(f)}</li>
+          ))}
+        </ul>
+      )}
+      {health.findings.length > FINDINGS_SHOWN && (
+        <div style={{ color: COLORS.textDim }}>+{health.findings.length - FINDINGS_SHOWN} more</div>
+      )}
+      {sessionHealth && (
+        <p className="m-0 mt-0.5" data-testid="inspector-session-health" style={{ color: COLORS.textDim }}>
+          Session: {healthText(sessionHealth)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function DelegationSection({ rows, onSelectAgent }: { rows: DelegationRow[]; onSelectAgent?: (agentId: string) => void }) {
+  const headingId = useId()
+  return (
+    <section className="mb-3 text-[11px] font-mono" aria-labelledby={headingId} data-testid="delegation-report">
+      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>Delegation report</h3>
+      <ul className="flex flex-col gap-2" aria-label={`Delegation report: ${pluralize(rows.length, 'sub-agent')}`}>
+        {rows.map(row => (
+          <li key={row.agentId} className="min-w-0" data-testid="delegation-row">
+            <div className="flex min-w-0 items-center gap-x-2">
+              {onSelectAgent ? (
+                <button
+                  type="button"
+                  aria-label={`Inspect sub-agent ${row.name}`}
+                  onClick={() => onSelectAgent(row.agentId)}
+                  className={`truncate underline ${FOCUS_RING}`}
+                  style={{ color: COLORS.textPrimary }}
+                >
+                  {row.name}
+                </button>
+              ) : (
+                <span className="truncate" style={{ color: COLORS.textPrimary }}>{row.name}</span>
+              )}
+              {row.subagentType && <span className="truncate" style={{ color: COLORS.textDim }}>{row.subagentType}</span>}
+            </div>
+            {!row.linkVerified && <div style={{ color: COLORS.textDim }}>parent link not verified</div>}
+            <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2" style={{ color: COLORS.textDim }}>
+              <dt style={{ color: COLORS.textMuted }}>Tokens</dt>
+              <dd className="m-0">{tokensText(row)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>Files read</dt>
+              <dd className="m-0 min-w-0">
+                {row.filesReadCount > 0 ? (
+                  <details>
+                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{filesReadText(row)}</summary>
+                    <ul className="flex flex-col">
+                      {row.filesRead.map(f => <li key={f} className="truncate" title={f}>{f}</li>)}
+                    </ul>
+                    {row.filesReadCount > row.filesRead.length && <div>+{row.filesReadCount - row.filesRead.length} more</div>}
+                  </details>
+                ) : filesReadText(row)}
+              </dd>
+              <dt style={{ color: COLORS.textMuted }}>Duration</dt>
+              <dd className="m-0">{durationText(row.duration)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>Result</dt>
+              <dd className="m-0 min-w-0 break-words" style={row.result.kind === 'error' ? { color: COLORS.error } : undefined}>
+                {resultText(row.result)}
+                {row.result.kind !== 'not-returned' && row.result.truncated && (
+                  <span style={{ color: COLORS.textDim }}> (full report in Conversation)</span>
+                )}
+              </dd>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

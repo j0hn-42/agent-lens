@@ -11,7 +11,13 @@ permissions:
   contents: read
 
 jobs:
+  # Mêmes contrôles que la CI (typecheck, lint a11y, tests, e2e) : pas de .vsix depuis un code rouge.
+  ci:
+    if: github.ref != 'refs/heads/develop'
+    uses: ./.github/workflows/ci.yml
+
   package:
+    needs: ci
     # Jamais sur develop, même lancé à la main.
     if: github.ref != 'refs/heads/develop'
     runs-on: ubuntu-latest
@@ -34,12 +40,6 @@ jobs:
         run: node scripts/release-check.js
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-
-      - name: Root tests (scripts, app)
-        run: pnpm test
-
-      - name: Extension tests
-        run: pnpm --dir extension test
 
       - name: Build webview and extension
         run: pnpm run build:all

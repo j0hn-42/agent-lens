@@ -6,4 +6,6 @@ esbuild.js
 tsconfig.json
 **/*.ts
 !dist/**
+!scripts/uninstall.js
+!scripts/claude-hooks.js
 .next/**

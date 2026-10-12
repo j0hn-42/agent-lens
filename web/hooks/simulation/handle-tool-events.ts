@@ -7,12 +7,48 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
+import { recordToolStart, recordToolEnd } from '../../lib/waste'
+import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
-  return asString(inputData?.file_path) || args?.split(' ')[0] || ''
+  return asString(inputData?.file_path) || asString(inputData?.notebook_path) || args?.split(' ')[0] || ''
+}
+
+/** The pill a successful call's output proves (#317): the gh link of a shell call, or the Grep / Glob file count. */
+function provenResultPill(tc: Pick<ToolCallNode, 'toolName' | 'inputData'>, result: string): ResultPill | null {
+  if (isShellTool(tc.toolName)) {
+    const command = asString(tc.inputData?.command)
+    const link = command ? ghResultLink(command, result) : null
+    return link && { kind: 'link', link }
+  }
+  const files = searchResultCount(tc.toolName, result)
+  return files == null ? null : { kind: 'count', files }
+}
+
+/** Tools that write a file: their observed success is what proves a file conflict (#227) */
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** Copy of the file entry with one editor changed (created when absent). */
+function withEditor(file: FileAttention, agent: string, change: (e: FileEditor) => FileEditor): FileAttention {
+  const editors = file.editors ?? []
+  const i = editors.findIndex(e => e.agent === agent)
+  const next = editors.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(editors[i])
+  return { ...file, editors: next }
+}
+
+/** Copy of the file entry with one reader changed (created when absent). */
+function withReader(file: FileAttention, agent: string, change: (r: FileReader) => FileReader): FileAttention {
+  const readers = file.readers ?? []
+  const i = readers.findIndex(r => r.agent === agent)
+  const next = readers.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(readers[i])
+  return { ...file, readers: next }
 }
 
 /**
@@ -104,6 +140,8 @@ export function handleToolCallStart(
 
     state.edges.push({ id: `edge-${toolId}`, from: agentName, to: toolId, type: 'tool', opacity: 0 })
 
+    state.waste = recordToolStart(state.waste, { sessionId, agentId: agentName, toolName, inputData, toolUseId, toolCallId: toolId, time: currentTime }, state.wasteToken)
+
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
@@ -116,19 +154,24 @@ export function handleToolCallStart(
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx))
     }
 
     // Track file attention
-    if (toolName === 'Read' || toolName === 'Edit' || toolName === 'Write') {
+    if (toolName === 'Read' || EDIT_TOOLS.has(toolName)) {
       const filePath = extractFilePath(inputData, args)
       if (filePath) {
         const prev = state.fileAttention.get(filePath)
-        const updated = prev
+        let updated: FileAttention = prev
           ? { ...prev, agents: [...prev.agents] }
           : { path: filePath, reads: 0, edits: 0, totalTokens: 0, lastAccessed: currentTime, agents: [] as string[] }
-        if (toolName === 'Read') updated.reads++
-        else updated.edits++
+        if (toolName === 'Read') {
+          updated.reads++
+          updated = withReader(updated, agentName, r => ({ ...r, started: r.started + 1 }))
+        } else {
+          updated.edits++
+          updated = withEditor(updated, agentName, e => ({ ...e, started: e.started + 1 }))
+        }
         updated.lastAccessed = currentTime
         if (!updated.agents.includes(agentName)) updated.agents.push(agentName)
         state.fileAttention.set(filePath, updated)
@@ -161,6 +204,8 @@ export function handleToolCallEnd(
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
+  // Read from the result of the matched call, and only once it is known to have succeeded
+  let pill: ResultPill | null = null
 
   // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
   const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
@@ -185,10 +230,26 @@ export function handleToolCallEnd(
     const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
       if (id === matchedId) {
+        pill = toolState === 'complete' ? provenResultPill(tc, result) : null
         state.toolCalls.set(id, {
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost, tokenSource, endObserved: true,
           errorMessage: isError ? (errorMessage || result) : undefined,
+          ...(pill ? { resultPill: pill } : {}),
         })
+
+        // A file conflict needs a write that is known to have happened: only an observed success counts
+        if (toolState === 'complete' && EDIT_TOOLS.has(tc.toolName)) {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withEditor(file, agentName, e => ({ ...e, succeeded: e.succeeded + 1, lastEditTime: currentTime })))
+        }
+        // A file counts as read by the agent only once its Read was observed to succeed (#233)
+        if (toolState === 'complete' && tc.toolName === 'Read') {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
+        }
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
@@ -209,15 +270,15 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      if (isError || isCancelled) {
-        const lastBlock = entry.blocks[entry.blocks.length - 1]
-        if (lastBlock && !lastBlock.endTime) {
-          // A cancelled call is not a failure: neutral color, never the error red
-          lastBlock.color = isError ? SCENE.error : SCENE.idle
-          lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
-        }
+      let base = entry
+      const last = entry.blocks.length - 1
+      if ((isError || isCancelled) && last >= 0 && !entry.blocks[last].endTime) {
+        const blocks = entry.blocks.slice()
+        // A cancelled call is not a failure: neutral color, never the error red
+        blocks[last] = { ...blocks[last], color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        base = { ...entry, blocks }
       }
-      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(base, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
     }
 
     // File attention token cost
@@ -239,6 +300,7 @@ export function handleToolCallEnd(
       toolName,
       toolUseId,
       ...(outcome === 'error' ? { isError: true } : {}),
+      ...(pill ? { resultPill: pill } : {}),
     }, state.droppedMessages)
   }
 }

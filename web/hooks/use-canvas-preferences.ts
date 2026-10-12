@@ -2,6 +2,11 @@ import { useRef, useEffect, useState, useCallback, type ChangeEvent } from 'reac
 import {
   ANIM_PAUSE_KEY, NEVER_HIDE_KEY, TOOL_EXPIRY_CHOICES_S, loadToolExpiryS, setToolExpiryS,
 } from '@/lib/canvas-constants'
+import {
+  DEFAULT_CALM_LAYERS, MOTION_LAYERS_STORAGE_KEY, allLayersCalm, parseCalmLayers, serializeCalmLayers, toggleCalmLayer,
+  type CalmLayers, type MotionLayer,
+} from '@/lib/motion-layers'
+import { useLocale } from '@/lib/locale'
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -12,7 +17,7 @@ function writeStoredFlag(key: string, value: boolean): void {
 
 /**
  * Motion and comfort preferences of the canvas: OS reduced motion (read once + change listener) OR the
- * visible "Pause animations" toggle, "Keep cards visible" and the tool-call expiry. The refs mirror the
+ * visible "Freeze motion" toggle, "Pin cards" and the tool-call expiry. The refs mirror the
  * state for the draw loop.
  */
 export function useCanvasPreferences() {
@@ -20,8 +25,15 @@ export function useCanvasPreferences() {
   const [animationsPaused, setAnimationsPaused] = useState(false)
   const [neverHide, setNeverHide] = useState(false)
   const [toolExpiryS, setToolExpiryState] = useState<number>(TOOL_EXPIRY_CHOICES_S[2])
+  const [calmLayers, setCalmLayers] = useState<CalmLayers>(DEFAULT_CALM_LAYERS)
+  const { locale } = useLocale()
   const reducedMotionRef = useRef(false)
-  reducedMotionRef.current = osReducedMotion || animationsPaused
+  // All four layers calm is the same as reduced motion: the clock freezes and the gate slows down
+  reducedMotionRef.current = osReducedMotion || animationsPaused || allLayersCalm(calmLayers)
+  const globalReducedRef = useRef(false)
+  globalReducedRef.current = osReducedMotion || animationsPaused
+  const calmLayersRef = useRef<CalmLayers>(DEFAULT_CALM_LAYERS)
+  calmLayersRef.current = calmLayers
   const animationsPausedRef = useRef(false)
   animationsPausedRef.current = animationsPaused
   const neverHideRef = useRef(false)
@@ -32,6 +44,7 @@ export function useCanvasPreferences() {
     setAnimationsPaused(readStoredFlag(ANIM_PAUSE_KEY))
     setNeverHide(readStoredFlag(NEVER_HIDE_KEY))
     setToolExpiryState(loadToolExpiryS())
+    try { setCalmLayers(parseCalmLayers(window.localStorage.getItem(MOTION_LAYERS_STORAGE_KEY))) } catch { /* storage unavailable */ }
     if (typeof window.matchMedia !== 'function') return
     const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
     setOsReducedMotion(mql.matches)
@@ -42,6 +55,13 @@ export function useCanvasPreferences() {
 
   const toggleAnimationsPaused = useCallback(() => {
     setAnimationsPaused(prev => { writeStoredFlag(ANIM_PAUSE_KEY, !prev); return !prev })
+  }, [])
+  const toggleCalmLayerPref = useCallback((layer: MotionLayer) => {
+    setCalmLayers(prev => {
+      const next = toggleCalmLayer(prev, layer)
+      try { window.localStorage.setItem(MOTION_LAYERS_STORAGE_KEY, serializeCalmLayers(next)) } catch { /* storage unavailable */ }
+      return next
+    })
   }, [])
   const toggleNeverHide = useCallback(() => {
     setNeverHide(prev => { writeStoredFlag(NEVER_HIDE_KEY, !prev); return !prev })
@@ -54,6 +74,7 @@ export function useCanvasPreferences() {
   return {
     animationsPaused, neverHide, toolExpiryS,
     pausedBySystem: osReducedMotion,
+    calmLayers, locale, calmLayersRef, globalReducedRef, toggleCalmLayer: toggleCalmLayerPref,
     reducedMotionRef, animationsPausedRef, neverHideRef,
     toggleAnimationsPaused, toggleNeverHide, changeToolExpiry,
   }

@@ -4,12 +4,15 @@ import { useEffect, useRef } from 'react'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
-import type { GuidedStep } from '@/lib/guided-steps'
+import type { TourStep } from '@/lib/guided-steps'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 
 interface GuidedTourCardProps {
-  steps: readonly GuidedStep[]
+  steps: readonly TourStep[]
   index: number
+  /** Real-session tour: what the step explains is no longer on screen */
+  stale?: boolean
   onNext: () => void
   onPrev: () => void
   onGoTo: (index: number) => void
@@ -18,7 +21,7 @@ interface GuidedTourCardProps {
 
 const BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono aria-disabled:opacity-50 '
-  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
+  + FOCUS_RING
 const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
 
 /**
@@ -26,7 +29,7 @@ const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.c
  * explorable (zoom, click an agent) while the tour is open. Arrow keys and Escape work only while the focus is
  * inside the card, so they never take the arrow keys away from the graph keyboard navigation.
  */
-export function GuidedTourCard({ steps, index, onNext, onPrev, onGoTo, onExit }: GuidedTourCardProps) {
+export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, onExit }: GuidedTourCardProps) {
   // The tour opens on Next: a first Enter goes forward instead of ending the tour (Exit tour comes first in the card)
   const nextRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -94,6 +97,11 @@ export function GuidedTourCard({ steps, index, onNext, onPrev, onGoTo, onExit }:
       <div aria-live="polite">
         <h2 id="guided-tour-title" className="mb-1 text-sm font-semibold">{step.title}</h2>
         <p id="guided-tour-body" className="leading-relaxed" style={{ color: COLORS.textPrimary }}>{step.body}</p>
+        {stale && (
+          <p className="mt-1 leading-relaxed" style={{ color: COLORS.textMuted }}>
+            This is no longer on screen: the session moved on since the tour started.
+          </p>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Previous</button>

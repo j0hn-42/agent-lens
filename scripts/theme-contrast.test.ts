@@ -41,7 +41,7 @@ const TEXT_KEYS: ColorKey[] = [
   'thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded', 'bashResultText', 'toolResultText',
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
-  'roleUserText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
+  'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
@@ -56,11 +56,13 @@ const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],
+  ['resume command / issue chip', 'holoBg05', ['assistantText']],
   ['diff removed', 'diffRemovedBg', ['diffRemoved']],
   ['diff added', 'diffAddedBg', ['diffAdded']],
   ['assistant role', 'roleAssistantBgSelected', ['roleAssistantText']],
   ['thinking role', 'roleThinkingBgSelected', ['roleThinkingText']],
   ['user role', 'roleUserBgSelected', ['roleUserText']],
+  ['compaction row', 'roleCompactionBgSelected', ['roleCompactionText']],
   ['search highlight', 'searchHighlightBg', ['textPrimary']],
   ['dispatch row', 'commDispatchBgSelected', ['commDispatchText']],
   ['return row', 'commReturnBgSelected', ['commReturnText']],
@@ -145,7 +147,7 @@ for (const id of THEME_IDS) {
       assert.ok(ratio(over(v['--lens-scrollbar-thumb'], bg), bg) >= 3, `scrollbar thumb on ${name}`)
       assert.ok(ratio(over(v['--lens-scrollbar-thumb-hover'], bg), bg) >= 3, `scrollbar thumb hover on ${name}`)
       assert.ok(ratio(over(v['--lens-input-border'], bg), bg) >= 3, `input border on ${name}`)
-      assert.ok(ratio(over(v['--lens-focus-ring'], bg), bg) >= 3, `focus ring on ${name}`)
+      assert.ok(ratio(over(TOKENS[id].focus, bg), bg) >= 3, `focus ring on ${name}`)
       const input = over(v['--lens-input-bg'], bg)
       assert.ok(ratio(over(v['--lens-input-placeholder'], input), input) >= 4.5, `placeholder on ${name}`)
       assert.ok(ratio(over(v['--lens-input-color'], input), input) >= 4.5, `input text on ${name}`)

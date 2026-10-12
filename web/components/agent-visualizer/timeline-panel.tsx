@@ -27,6 +27,7 @@ import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -281,8 +282,6 @@ function drawTimeline(
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
-const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
-
 export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -337,7 +336,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     if (!ctx) return
 
     // Use the scroll container's clientWidth (excludes scrollbar) for a snug fit
-    const scrollContainer = canvas.parentElement
+    const scrollContainer = scrollRef.current
     const width = scrollContainer?.clientWidth ?? canvas.clientWidth
     const dpr = window.devicePixelRatio || 1
     canvas.width = width * dpr
@@ -372,7 +371,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
       zIndex={Z.sidePanel}
       width={dockRect?.w}
       className="motion-reduce:transition-none"
-      attrs={dockAttrs('timeline', 'bottom', dock, visible)}
+      attrs={{ ...dockAttrs('timeline', 'bottom', dock, visible), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
       <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>
@@ -418,18 +417,19 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
         >
-          <canvas
-            ref={canvasRef}
-            role="img"
-            aria-label={ariaLabel}
-            title={hoveredName}
-            hidden={tableView}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
-            style={{ display: tableView ? 'none' : 'block' }}
-          >
-            {ariaLabel}. Open the table view for the list of agents, states, start and end times.
-          </canvas>
+          {/* The image role sits on a wrapper: the canvas keeps its pointer handlers (hover names) without
+              being turned into a non-interactive element. The table view is the full text alternative. */}
+          <div role="img" aria-label={ariaLabel} hidden={tableView} style={{ display: tableView ? 'none' : 'block' }}>
+            <canvas
+              ref={canvasRef}
+              title={hoveredName}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
+              style={{ display: 'block' }}
+            >
+              {ariaLabel}. Open the table view for the list of agents, states, start and end times.
+            </canvas>
+          </div>
 
           <table
             id={tableId}

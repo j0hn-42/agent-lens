@@ -4,6 +4,8 @@ import { PARTICLE_DRAW, MCP_DRAW } from '@/lib/canvas-constants'
 import { alphaHex } from '@/lib/utils'
 import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edges'
 import { getGlowSprite } from './render-cache'
+import { pointInView, PARTICLE_CULL_EXTENT } from './view-cull'
+import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
@@ -55,6 +57,7 @@ export function drawParticles(
     const baseY = bezierPoint(t, fromY, cp1y, cp2y, toY)
     const px = baseX + normalX * wobbleAmt
     const py = baseY + normalY * wobbleAmt
+    if (!pointInView(opts.view, px, py, PARTICLE_CULL_EXTENT)) continue
 
     ctx.save()
 
@@ -100,7 +103,7 @@ export function drawParticles(
       ctx.fillStyle = particle.color + 'aa'
       ctx.font = `${PARTICLE_DRAW.labelFontSize}px monospace`
       ctx.textAlign = 'center'
-      ctx.fillText(particle.label, px, py + PARTICLE_DRAW.labelYOffset)
+      ctx.fillText(opts.maskText ? maskText(particle.label) : particle.label, px, py + PARTICLE_DRAW.labelYOffset)
     }
 
     ctx.restore()

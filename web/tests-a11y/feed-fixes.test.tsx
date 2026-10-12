@@ -89,7 +89,7 @@ test('D6: arrow-key tab navigation clears the pair filter so tab and list agree'
   // the highlighted tab and the list agree: the list is the one of the selected tab, not the pair
   const selected = r.getAllByRole('tab').filter(t => t.getAttribute('aria-selected') === 'true')
   assert.equal(selected.length, 1)
-  const owner = selected[0].textContent ?? ''
+  const owner = selected[0].getAttribute('title') ?? ''
   const label = r.container.querySelector('[role="log"]')!.getAttribute('aria-label') ?? ''
   assert.equal(owner, 'orchestrator')
   assert.equal(label, 'Messages from orchestrator')

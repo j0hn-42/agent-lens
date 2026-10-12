@@ -5,16 +5,28 @@ import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { emptyState } from '@/lib/ui-glossary'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
+import type { Agent } from '@/lib/agent-types'
+import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
+import { WasteSection } from './waste-section'
 
 interface FileAttentionPanelProps {
   visible: boolean
   fileAttention: Map<string, FileAttention>
   onClose: () => void
   onOpenFile?: (filePath: string) => void
+  /** Readable name of an agent key ("alpha (session Main)"); the key itself when absent */
+  agentLabel?: (agentKey: string) => string
+  /** Repeated reads and identical calls (see lib/waste); absent: nothing observed */
+  waste?: WasteLedger
+  /** Names of the agents the waste rows refer to */
+  agents?: ReadonlyMap<string, Agent>
 }
 
-export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile }: FileAttentionPanelProps) {
+const EMPTY_WASTE = emptyWasteLedger()
+
+export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
   const { rect } = dock
@@ -24,6 +36,9 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
     .sort((a, b) => b.totalTokens - a.totalTokens)
 
   const maxTokens = Math.max(...files.map(f => f.totalTokens), 1)
+  const conflicts = deriveFileConflicts(fileAttention)
+  const inConflict = conflictPathSet(conflicts)
+  const label = agentLabel ?? ((key: string) => key)
 
   return (
     <SlidingPanel
@@ -31,7 +46,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
       zIndex={Z.sidePanel}
       width={rect?.w ?? 380}
-      attrs={dockAttrs('files', 'right', dock)}
+      attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
@@ -47,11 +62,43 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           role="region"
           aria-label="Files accessed by agents"
           tabIndex={0}
-          className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
+          className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING_INSET}`}
         >
+          <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
               {emptyState('files')}
+            </div>
+          )}
+          {conflicts.length > 0 && (
+            <div className="mb-2">
+              <h3 id="file-conflicts-heading" className="text-[11px] font-mono font-semibold mb-1" style={{ color: COLORS.error }}>
+                {pluralize(conflicts.length, 'conflict')}: files edited by several agents
+              </h3>
+              <ul aria-label="File conflicts" className="space-y-1 list-none p-0 m-0">
+                {conflicts.map(c => {
+                  const who = describeConflictEditors(c, label)
+                  return (
+                    <li key={c.path} className="rounded px-2 py-1.5 text-[11px] font-mono" style={{ background: COLORS.fileCardBg, border: `1px solid ${COLORS.error}40` }}>
+                      {onOpenFile ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenFile(c.path)}
+                          title={c.path}
+                          aria-label={`Open ${c.path}, conflict: ${who}`}
+                          className={`block w-full min-h-6 truncate rounded text-left hover:brightness-125 ${FOCUS_RING_INSET}`}
+                          style={{ color: COLORS.textPrimary }}
+                        >
+                          {truncatePath(c.path)}
+                        </button>
+                      ) : (
+                        <div className="truncate" title={c.path} style={{ color: COLORS.textPrimary }}>{c.path}</div>
+                      )}
+                      <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{who}</p>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
           )}
           <ul className="space-y-1 list-none p-0 m-0">
@@ -63,6 +110,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
             const tokenText = file.totalTokens > 0 ? formatTokens(file.totalTokens) : '—'
+            const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
                 <span className="text-[11px] font-mono truncate min-w-0 flex-1 text-left" style={{ color: heatColor }}>
@@ -89,8 +137,8 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     type="button"
                     onClick={() => onOpenFile?.(file.path)}
                     title={file.path}
-                    aria-label={`Open ${file.path}, ${tokenText} tokens`}
-                    className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING}`}
+                    aria-label={`Open ${file.path}, ${tokenText} tokens${conflicted ? ', conflict' : ''}`}
+                    className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {headerInner}
                   </button>
@@ -115,6 +163,9 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
                       {file.edits} edit{file.edits > 1 ? 's' : ''}
                     </span>
+                  )}
+                  {conflicted && (
+                    <span className="text-[11px] font-mono font-semibold" style={{ color: COLORS.error }}>conflict</span>
                   )}
                   {file.agents.length > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.textMuted }}

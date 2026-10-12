@@ -7,6 +7,7 @@
  * session was requested; a failure is shown as a failure (the previous data, if any, is marked stale).
  */
 import { createLoadToken } from './reconnect'
+import { parseSessionCapabilities, type SessionCapabilities } from './session-capabilities'
 
 /** Mirrors extension/src/project-context.ts (kept separate, like bridge-types). */
 export interface ProjectContextFile {
@@ -25,6 +26,9 @@ export interface ProjectContextData {
   loadedAt: number
   files: ProjectContextFile[]
   issues: number[]
+  /** Capabilities recorded by the session transcript (#242). Absent: this relay does not provide them;
+   *  'invalid': the relay sent them in an unexpected shape (the files stay usable). */
+  capabilities?: SessionCapabilities | 'invalid'
 }
 
 /** Mirrors RELAY_ISSUE_LINKS_CACHE_TTL_MS (a test compares them) */
@@ -61,7 +65,8 @@ export function parseProjectContext(raw: unknown): ProjectContextData | null {
   const issues = (Array.isArray(r.issues) ? r.issues : [])
     .filter((n): n is number => Number.isInteger(n) && (n as number) >= 1)
     .slice(0, MAX_ISSUES)
-  return { sessionId: r.sessionId, loadedAt: r.loadedAt, files, issues }
+  const capabilities = r.capabilities === undefined ? undefined : parseSessionCapabilities(r.capabilities) ?? 'invalid'
+  return { sessionId: r.sessionId, loadedAt: r.loadedAt, files, issues, ...(capabilities ? { capabilities } : {}) }
 }
 
 /** GET <origin>/context?session=<id>. Resolves 'unavailable' on 404; rejects on any other failure. */

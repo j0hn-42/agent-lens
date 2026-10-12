@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
-  sessionStatusKind, nextTabIndex, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
+  sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
   agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
@@ -11,15 +11,6 @@ test('session status: unseen activity beats active, selected tab never shows new
   assert.equal(sessionStatusKind({ status: 'active' }, true, false), 'new-activity')
   assert.equal(sessionStatusKind({ status: 'active' }, true, true), 'active')
   assert.equal(sessionStatusKind({ status: 'completed' }, false, false), 'completed')
-})
-
-test('tab arrow navigation wraps and supports Home/End', () => {
-  assert.equal(nextTabIndex(2, 'ArrowRight', 3), 0)
-  assert.equal(nextTabIndex(0, 'ArrowLeft', 3), 2)
-  assert.equal(nextTabIndex(1, 'Home', 3), 0)
-  assert.equal(nextTabIndex(1, 'End', 3), 2)
-  assert.equal(nextTabIndex(1, 'a', 3), null)
-  assert.equal(nextTabIndex(0, 'ArrowRight', 0), null)
 })
 
 test('scrubber keyboard steps are clamped', () => {
@@ -70,6 +61,22 @@ test('empty-state checklist reflects connection and sessions', () => {
   assert.match(down[0].detail ?? '', /:3001/)
   const up = emptyStateChecklist({ status: 'watching', sessionCount: 2 })
   assert.deepEqual(up.map(i => i.ok), [true, true, true])
+})
+
+test('empty-state checklist reports the Claude Code hooks state (#176)', () => {
+  const base = { status: 'watching' as const, sessionCount: 0 }
+  const find = (items: ReturnType<typeof emptyStateChecklist>) => items.find(i => i.id === 'hooks')
+  const ok = find(emptyStateChecklist({ ...base, hooksConfigured: true }))
+  assert.equal(ok?.label, 'Claude Code hooks configured')
+  assert.equal(ok?.ok, true)
+  assert.equal(ok?.detail, undefined)
+  const missingCli = find(emptyStateChecklist({ ...base, hooksConfigured: false }))
+  assert.equal(missingCli?.ok, false)
+  assert.match(missingCli?.detail ?? '', /pnpm run setup/)
+  const missingVsc = find(emptyStateChecklist({ ...base, hooksConfigured: false, isVSCode: true }))
+  assert.match(missingVsc?.detail ?? '', /Agent Lens: Configure Claude Code Hooks/)
+  // Unknown (old relay, Codex only): never a default tick
+  assert.equal(find(emptyStateChecklist(base)), undefined)
 })
 
 test('focus is restored only from inside the panel or from body', () => {
@@ -124,4 +131,17 @@ test('agent counts: an agent whose status is older than the freshness limit is n
 test('agent counts: without stale agents the text is unchanged; agents never heard from stay counted as before', () => {
   assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
   assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
+})
+
+test('empty-state checklist states the scope the relay really scans (#291)', () => {
+  const ws = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'workspace' }).find(i => i.id === 'workspace')
+  assert.equal(ws?.label, 'Workspace watched')
+  assert.match(ws?.detail ?? '', /this workspace only/i)
+  assert.match(ws?.detail ?? '', /All workspaces/)
+  const all = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'all' }).find(i => i.id === 'workspace')
+  assert.equal(all?.label, 'All workspaces watched')
+  assert.equal(all?.ok, true)
+  assert.equal(all?.detail, undefined)
+  // Scope unknown (extension, old relay): the previous wording, no claim
+  assert.equal(emptyStateChecklist({ status: 'connected', sessionCount: 0 }).find(i => i.id === 'workspace')?.label, 'Workspace watched')
 })

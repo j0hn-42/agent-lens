@@ -12,12 +12,20 @@ export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /** Interval between active-session directory scans (ms) */
 export const SCAN_INTERVAL_MS = 1000
+/** Les événements fs.watch du dossier du jour (un par ligne écrite par une session Codex) sont coalescés en un scan par fenêtre de cette durée. */
+export const WATCH_SCAN_DEBOUNCE_MS = 250
 
 /** Plafond de sessions Codex suivies en même temps (watcher + timer chacune), comme RELAY_MAX_WATCHED_SESSIONS côté Claude */
 export const CODEX_MAX_WATCHED_SESSIONS = 25
 
 /** Plafond de sessions Copilot suivies en même temps (même logique que Codex) */
 export const COPILOT_MAX_WATCHED_SESSIONS = 25
+
+/** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
+export const PI_MAX_WATCHED_SESSIONS = 25
+
+/** Plafond de sessions Gemini CLI suivies en même temps (même logique que Pi, #238) */
+export const GEMINI_MAX_WATCHED_SESSIONS = 25
 
 /** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
  *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
@@ -50,16 +58,10 @@ export const BRIDGE_INIT_MAX_RETRIES = 50
 export const BRIDGE_INIT_RETRY_MS = 100
 
 /** Default dev server port */
-export const DEFAULT_DEV_PORT = 3002
+export const DEFAULT_DEV_PORT = 3000
 
 /** Default SSE relay port (used by dev relay, standalone app, and webview build) */
 export const DEFAULT_RELAY_PORT = 3001
-
-/** Accept CORS requests from any localhost origin during dev — Next.js falls
- *  back to a higher port when 3000 is taken, so a single hard-coded value
- *  would silently break dev. The relay binds to 127.0.0.1 already, so this
- *  pattern is safe (no external origin can reach it). */
-export const DEV_WEB_ORIGIN_PATTERN = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/
 
 /** Returned by HookServer.start() when the port is already in use by another instance */
 export const HOOK_SERVER_NOT_STARTED = -1
@@ -75,6 +77,39 @@ export const HOOK_SAFETY_MARGIN_MS = 500
 
 /** Timeout for HTTP requests in hook forwarding script (ms) */
 export const HOOK_FORWARD_TIMEOUT_MS = 1000
+
+// ─── Operator control (#240) ─────────────────────────────────────────────────
+
+/** Header carrying the discovery-file token on a PermissionRequest hook request (lower case, as Node reads it) */
+export const HOOK_CONTROL_TOKEN_HEADER = 'x-agent-lens-token'
+
+/** Header with the random challenge the hook script sends, so the answer cannot be replayed or forged without the token */
+export const HOOK_CONTROL_CHALLENGE_HEADER = 'x-agent-lens-challenge'
+
+/** Header with the proof (HMAC-SHA256 keyed by the token) that the answer comes from the instance that holds the token */
+export const HOOK_CONTROL_PROOF_HEADER = 'x-agent-lens-proof'
+
+/** Timeout written to settings.json for the optional PermissionRequest hook (seconds): the hook waits for a decision. */
+export const PERMISSION_HOOK_TIMEOUT_S = 60
+
+/** How long the extension holds a request before giving up (ms). Shorter than the hook's own deadline
+ *  (PERMISSION_HOOK_TIMEOUT_S minus HOOK_SAFETY_MARGIN_MS), so the extension always answers first, with no decision. */
+export const PERMISSION_REQUEST_TTL_MS = 55_000
+
+/** Requests held at the same time; past it a request gets no decision and Claude Code asks as usual */
+export const PERMISSION_MAX_PENDING = 16
+
+/** Largest tool input sent to the panel as text; the SHA-256 in the journal is always over the whole input */
+export const PERMISSION_INPUT_PREVIEW_MAX = 64 * 1024
+
+/** Longest redirect message handed to Claude (characters) */
+export const PERMISSION_MESSAGE_MAX = 2000
+
+/** Closed requests remembered, to tell a replay ("already used") from an unknown nonce */
+export const PERMISSION_RECENT_CLOSED_MAX = 64
+
+/** Size at which decisions.jsonl rotates to decisions.jsonl.1 (bytes) */
+export const DECISION_JOURNAL_MAX_BYTES = 1024 * 1024
 
 /** Length of workspace hash prefix used in discovery file names */
 export const WORKSPACE_HASH_LENGTH = 16
@@ -179,9 +214,8 @@ export const HASH_PREFIX_MAX = 200
 
 /** Hook server listen address */
 export const HOOK_SERVER_HOST = '127.0.0.1'
-
-/** URL prefix for hook server on localhost */
-export const HOOK_URL_PREFIX = `http://${HOOK_SERVER_HOST}:`
+// No URL-prefix constant on purpose: a hook is recognised as ours by its command marker only,
+// a user's own http hook to 127.0.0.1 is never touched (#199).
 
 /** Default agent name for the main orchestrator */
 export const ORCHESTRATOR_NAME = 'orchestrator'
@@ -276,6 +310,10 @@ export const SUBAGENT_TRANSCRIPT_MAX_QUEUE = 16
 
 /** Max simultaneous SSE clients on the relay (extra clients get 503) */
 export const RELAY_MAX_SSE_CLIENTS = 32
+/** Of those, max SSE clients reaching the relay through an allowed tunnel Host (--allow-host, #241); extra ones get 503 */
+export const RELAY_MAX_REMOTE_SSE_CLIENTS = 4
+/** Max names accepted by --allow-host (#241): an explicit, short list */
+export const RELAY_MAX_ALLOWED_HOSTS = 4
 /** The relay writes a keep-alive to every SSE client this often (ms); the web client mirrors it (a test compares them) */
 export const RELAY_SSE_HEARTBEAT_MS = 15_000
 /** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */
@@ -291,6 +329,8 @@ export const RELAY_MAX_BUFFERED_SESSIONS = 50
 export const RELAY_MAX_BUFFERED_EVENTS_TOTAL = 50000
 /** Max sessions with live file watchers / timers */
 export const RELAY_MAX_WATCHED_SESSIONS = 25
+/** Max transcripts imported with --import / AGENT_LENS_IMPORT (#294); read once, they hold no watcher */
+export const RELAY_MAX_IMPORTED_SESSIONS = 20
 /** Max length of the ?session= query parameter */
 export const RELAY_SESSION_PARAM_MAX_LENGTH = 128
 /** Discovery caps (--all-workspaces): project dirs scanned, files per dir, max transcript size */
@@ -408,6 +448,20 @@ export const RELAY_ISSUE_LINKS_PROBE_WINDOW_MS = 60_000
 /** Default freshness of the session index cache (ms) */
 export const RELAY_SESSION_INDEX_CACHE_MS = 30_000
 export const RELAY_STATUS_RATE_PER_S = 5
+/** POST /scope (#291) changes what the relay scans: a small burst, slow refill, a tiny body, and a deadline to send it */
+export const RELAY_SCOPE_RATE_BURST = 5
+export const RELAY_SCOPE_RATE_PER_S = 0.5
+export const RELAY_SCOPE_BODY_MAX_BYTES = 256
+export const RELAY_SCOPE_BODY_TIMEOUT_MS = 3000
+/** POST /launch (#229) starts a process: its own limiter (3 requests, then one every 10 s) and a tiny body ({repo, issue, role}) */
+export const RELAY_LAUNCH_RATE_BURST = 3
+export const RELAY_LAUNCH_RATE_PER_S = 0.1
+export const RELAY_LAUNCH_BODY_MAX_BYTES = 512
+export const RELAY_LAUNCH_BODY_TIMEOUT_MS = 3000
+/** Token bucket per client address for GET /events (#200): each connection triggers a scan and a replay.
+ *  The burst stays above the client cap (RELAY_MAX_SSE_CLIENTS) so that legitimate tabs and reconnects are never refused. */
+export const RELAY_SSE_RATE_BURST = 48
+export const RELAY_SSE_RATE_PER_S = 1
 /** Max distinct clients tracked by the /status rate limiter */
 export const RELAY_STATUS_RATE_MAX_KEYS = 64
 
@@ -440,6 +494,8 @@ export const EPHEMERAL_PORT = 0
 export const LOOPBACK_HOST = '127.0.0.1'
 /** HTTP methods the local servers accept (anything else gets 405) */
 export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
+/** The only path that also accepts POST (#291): the route behind it applies its own guards and strict body check */
+export const SERVER_POST_PATHS = ['/scope'] as const
 /** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 /** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */
@@ -493,6 +549,13 @@ export const PROJECT_CONTEXT_MAX_ISSUES = 50
 /** Token bucket per client address for GET /context: burst and sustained refill (tokens/s) */
 export const RELAY_CONTEXT_RATE_BURST = 10
 export const RELAY_CONTEXT_RATE_PER_S = 2
+
+/** Max bytes of a session transcript read for its capabilities (#242); past it only the head is read and the result is partial */
+export const SESSION_CAPABILITIES_MAX_BYTES = 32 * 1024 * 1024
+/** Max entries per capabilities list (instructions, skills, MCP servers, tools of a server) */
+export const SESSION_CAPABILITIES_MAX_ITEMS = 200
+/** Max characters of a capability name (skill, server, tool, file name) */
+export const SESSION_CAPABILITIES_MAX_NAME = 120
 
 // ─── Shared state snapshots (#71) and observations (#72) ─────────────────────
 

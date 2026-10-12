@@ -3,7 +3,7 @@
  * curve, a return a third of the way from the child, a teammate (peer) message at the midpoint. Up to
  * EDGE_BUBBLE.maxPerLink bubbles per link and EDGE_BUBBLE.maxTotal on the canvas. A bubble expires after
  * EDGE_BUBBLE.visibleS simulation seconds unless it is held (hovered / focused bubble, hovered or selected
- * link, paused playback, "Keep cards visible"). Also builds the accessible names and the DOM list entries.
+ * link, paused playback, "Pin cards"). Also builds the accessible names and the DOM list entries.
  * No React and no canvas: unit-testable under node:test (relative runtime imports only).
  */
 import type { Agent } from '../../../lib/agent-types'

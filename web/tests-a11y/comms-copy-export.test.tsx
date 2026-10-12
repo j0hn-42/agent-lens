@@ -100,6 +100,15 @@ test('copyText resolves false instead of throwing when the clipboard refuses and
   ;(document as unknown as { execCommand: unknown }).execCommand = exec
 })
 
+// jsdom n'applique pas Tailwind : on vérifie que la région n'est pas masquée par une classe `hidden`
+// (y compris `empty:hidden`, qui donne display:none tant que le paragraphe est vide) ni par l'attribut hidden.
+function assertStatusAlwaysRendered(el: HTMLElement) {
+  assert.ok(!el.hasAttribute('hidden'), 'status region must not carry the hidden attribute')
+  assert.notEqual(el.style.display, 'none')
+  const classes = el.className.split(/\s+/)
+  assert.ok(!classes.some(c => c === 'hidden' || c.endsWith(':hidden')), `status region must not be display:none (classes: ${el.className})`)
+}
+
 // ── Link panel ──
 const long = 'x'.repeat(LINK_MESSAGE_MAX_CHARS)
 const link = {
@@ -148,6 +157,17 @@ test('link panel: Export conversation downloads Markdown with the dropped and tr
   assert.match(r.getByRole('status').textContent ?? '', /exported as Markdown/)
 })
 
+test('link panel: the status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
+  const r = render(<LinkPanel link={link} agents={agents} onClose={() => {}} />)
+  const status = r.getByRole('status')
+  assert.equal(status.textContent, '')
+  assertStatusAlwaysRendered(status)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(r.getByRole('status'), status)
+  assert.match(status.textContent ?? '', /DISPATCH copied/)
+})
+
 test('link panel: axe finds no violation with the new buttons', async () => {
   const r = render(<LinkPanel link={link} agents={agents} onClose={() => {}} />)
   const res = await axe.run(r.container, {
@@ -179,6 +199,17 @@ test('conversation panel: Copy only on DISPATCH and RETURN rows, copying the who
   await flush()
   assert.deepEqual(copied, ['full prompt text'])
   assert.match(r.getAllByRole('status').map(s => s.textContent).join(' '), /DISPATCH copied/)
+})
+
+test('conversation panel: the copy status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
+  const r = panel()
+  const status = r.getByTestId('copy-feedback')
+  assert.equal(status.getAttribute('role'), 'status')
+  assert.equal(status.textContent, '')
+  assertStatusAlwaysRendered(status)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.match(status.textContent ?? '', /DISPATCH copied/)
 })
 
 test('conversation panel: export lists the visible messages and flags hidden tools and dropped messages', () => {

@@ -9,6 +9,7 @@ import type { TeamSummary } from './agent-types'
 import type { UsageStatus } from './usage'
 import { isGroupActive, type GroupSummary } from '../hooks/simulation/team-info'
 import { isSessionObserved } from './session-model'
+import { folderPrefixedLabel } from './session-tabs'
 
 /** The slice of an Agent the panel needs. */
 export interface AgentLike {
@@ -31,7 +32,7 @@ export interface AgentLike {
   spawnTime: number
   /** Wall-clock ms of the last live event (freshness, issue #48); absent = never observed */
   lastEventAt?: number
-  freshnessSource?: 'live' | 'history'
+  freshnessSource?: 'live' | 'history' | 'imported'
   /** Active time (issue #59): closed spans in ms, and the start of the running span; absent = never observed working */
   activeMs?: number
   activeSince?: number
@@ -183,7 +184,7 @@ function groupByProject(sessionRows: SessionRow[]): SessionRow[] {
 /** Visible label of the current selection, shown on the panel's button. */
 export function selectionLabel(
   selectedId: string | null,
-  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label'>>,
+  sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label' | 'projectId' | 'projectName'>>,
   teams?: ReadonlyMap<string, TeamSummary>,
 ): string {
   if (selectedId === null || selectedId === ALL_SESSIONS_ID) return 'All sessions'
@@ -193,7 +194,9 @@ export function selectionLabel(
     const team = teams?.get(key)
     return groupHeading(team?.kind, team?.name ?? key)
   }
-  return sessions.find(s => s.id === selectedId)?.label ?? 'Session'
+  const session = sessions.find(s => s.id === selectedId)
+  // Several folders open: the folder tells two same-named sessions apart (#246)
+  return session ? folderPrefixedLabel(session, sessions) : 'Session'
 }
 
 /** "just now", "5s ago", "3 min ago", "2 h ago", "4 d ago" */

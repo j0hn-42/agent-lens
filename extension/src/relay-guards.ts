@@ -5,12 +5,14 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AgentEvent } from './protocol'
+import { listSubagentTranscripts } from './fs-utils'
+import { newestTranscriptMtime } from './discovery-activity'
 import {
   RELAY_SESSION_PARAM_MAX_LENGTH, RELAY_MAX_REPLAY_PER_SESSION, RELAY_MAX_REPLAY_TOTAL, RELAY_REPLAY_BATCH_SIZE,
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
-  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEV_WEB_ORIGIN_PATTERN,
+  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEFAULT_DEV_PORT,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -45,6 +47,12 @@ export function parseSessionParam(url: string | undefined): SessionParamResult {
 export function isStatusPath(url: string | undefined): boolean {
   if (!url) { return false }
   try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
+}
+
+/** True when the request path (query ignored) is the relay's GET /statusline endpoint (#236). */
+export function isStatusLinePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/statusline' } catch { return false }
 }
 
 /** Which observations route a request path (query ignored) is: the action itself, its schema, or neither. */
@@ -178,6 +186,18 @@ export function isTruthyFlag(value: string | undefined): boolean {
   return value !== undefined && /^(1|true|yes|on)$/i.test(value.trim())
 }
 
+/** True when the request path (query ignored) is exactly /scope: the run-time scope of the relay (#291). */
+export function isScopePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/scope' } catch { return false }
+}
+
+/** True for `/launch` and `/launch/<id>/stop` (#229): the routes that start and stop an agent process. <id> is 16 lower-case hex digits. */
+export function isLaunchPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return /^\/launch(?:\/[0-9a-f]{16}\/stop)?$/.test(new URL(url, 'http://localhost').pathname) } catch { return false }
+}
+
 export interface DiscoveredSession { sessionId: string; filePath: string; dirPath: string; mtimeMs: number; size: number }
 
 export interface DiscoveryOptions {
@@ -187,6 +207,9 @@ export interface DiscoveryOptions {
   maxFileBytes?: number
   /** Fichiers écartés (au-delà du plafond, trop gros, non réguliers) : pas de lstat avant COLD_RESCAN_CYCLES cycles */
   cold?: ColdScan
+  /** Appelé pour chaque transcript écarté par un plafond (taille, nombre par dossier), pour l'afficher et non le taire (#291).
+   *  Pas rappelé pour un fichier déjà mis au froid : l'appelant garde sa propre liste. */
+  onSkipped?: (reason: 'sizeLimit' | 'fileLimit', f: { sessionId: string; filePath: string }) => void
 }
 
 /** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
@@ -195,22 +218,28 @@ export function createColdScan(): ColdScan { return { cycle: 0, until: new Map()
 
 /**
  * Safe lookup of Claude Code project directories under `root`.
- * Only real directories (symlinks are skipped) are returned, capped at `maxDirs`.
- * With `encodedWorkspace` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
+ * Only real directories (symlinks are skipped) are returned, at most `maxDirs`, the first ones BY NAME so the
+ * cut does not depend on the order the file system lists them in. `report.truncated` says whether another
+ * eligible directory was left out (#291): the cap is shown, not silent.
+ * With `match` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
  */
 export function listProjectDirs(
   root: string,
   match: ((name: string) => boolean) | null,
   maxDirs = RELAY_MAX_PROJECT_DIRS,
+  report?: { truncated: boolean },
 ): string[] {
   const out: string[] = []
+  if (report) { report.truncated = false }
   let entries: fs.Dirent[]
   try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    if (out.length >= maxDirs) { break }
-    if (!e.isDirectory() || e.isSymbolicLink()) { continue }
-    if (match && !match(e.name)) { continue }
-    out.push(path.join(root, e.name))
+  const names = entries
+    .filter(e => e.isDirectory() && !e.isSymbolicLink() && (!match || match(e.name)))
+    .map(e => e.name)
+    .sort()
+  for (const name of names) {
+    if (out.length >= maxDirs) { if (report) { report.truncated = true } break }
+    out.push(path.join(root, name))
   }
   return out
 }
@@ -238,6 +267,7 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
       if (cold && (cold.until.get(filePath) ?? 0) > cold.cycle) { continue }
       try {
         const st = fs.lstatSync(filePath)
+        if (st.isFile() && st.size > maxBytes) opts.onSkipped?.('sizeLimit', { sessionId, filePath })
         if (!st.isFile() || st.size > maxBytes) { cold?.until.set(filePath, cold.cycle + COLD_RESCAN_CYCLES); continue }
         found.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
       } catch { /* vanished */ }
@@ -245,7 +275,77 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
     found.sort((a, b) => b.mtimeMs - a.mtimeMs)
     for (const f of found.slice(0, maxFiles)) { out.push(f) }
     // Au-delà du plafond : écartés et mis au froid, pas de lstat à chaque cycle
-    if (cold) { for (const f of found.slice(maxFiles)) { cold.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES) } }
+    for (const f of found.slice(maxFiles)) {
+      opts.onSkipped?.('fileLimit', f)
+      cold?.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES)
+    }
+  }
+  return out
+}
+
+/** Sort un transcript du froid (événement de watch). Vrai s'il était froid. */
+export function wakeColdFile(cold: ColdScan, filePath: string): boolean {
+  return cold.until.delete(filePath)
+}
+
+/** Sort `<dirPath>/<sessionId>.jsonl` du froid. */
+export function wakeColdSession(cold: ColdScan, dirPath: string, sessionId: string): boolean {
+  return wakeColdFile(cold, path.join(dirPath, `${sessionId}.jsonl`))
+}
+
+/**
+ * Admission dans un ensemble borné de surveillances (dossiers subagents des sessions froides). Plein, il
+ * garde les sessions les plus récentes : sinon les premières sessions inactives vues (souvent très
+ * anciennes) occuperaient les places pour toute la vie du relais et une session devenue inactive plus tard
+ * n'aurait jamais de réveil par son dossier subagents.
+ */
+export function admitWatchSlot(
+  slots: ReadonlyMap<string, { mtimeMs: number }>, max: number, mtimeMs: number,
+): { admit: boolean; evict?: string } {
+  if (slots.size < max) return { admit: true }
+  let oldest: string | undefined
+  let oldestMtime = Infinity
+  for (const [key, s] of slots) { if (s.mtimeMs < oldestMtime) { oldestMtime = s.mtimeMs; oldest = key } }
+  return oldest !== undefined && mtimeMs > oldestMtime ? { admit: true, evict: oldest } : { admit: false }
+}
+
+export interface ActiveSessionsOptions extends DiscoveryOptions {
+  /** Au-delà de cet âge (s), le transcript principal est jugé inactif : on regarde ses sous-agents */
+  activeAgeS: number
+  now?: () => number
+  /** Sessions déjà suivies : ignorées sans examen des sous-agents */
+  skip?: (sessionId: string) => boolean
+  /** Appelé quand une session est jugée inactive (et mise au froid) */
+  onIdle?: (s: DiscoveredSession) => void
+}
+
+export interface ActiveSessionCandidate { sessionId: string; filePath: string; newestMtime: number }
+
+/**
+ * Sessions récemment actives parmi les transcripts découverts (fichier principal ou sous-agents,
+ * dont ceux du Workflow tool). Une session jugée inactive est mise au froid COLD_RESCAN_CYCLES
+ * cycles : ni lstat ni readdir de ses sous-agents tant qu'un événement de watch (wakeColdFile)
+ * ne la réveille pas (#211).
+ */
+export function findActiveSessions(opts: ActiveSessionsOptions): ActiveSessionCandidate[] {
+  const now = opts.now ?? Date.now
+  const out: ActiveSessionCandidate[] = []
+  for (const f of discoverSessionFiles(opts)) {
+    if (opts.skip?.(f.sessionId)) { continue }
+    let newestMtime = f.mtimeMs
+    if ((now() - newestMtime) / 1000 > opts.activeAgeS) {
+      // Fichier principal inactif : un sous-agent peut encore tourner (agents du Workflow tool compris)
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(path.join(f.dirPath, f.sessionId, 'subagents')), newestMtime, now() - opts.activeAgeS * 1000,
+      )
+    }
+    if ((now() - newestMtime) / 1000 <= opts.activeAgeS) {
+      opts.cold?.until.delete(f.filePath)
+      out.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
+    } else if (opts.cold) {
+      opts.cold.until.set(f.filePath, opts.cold.cycle + COLD_RESCAN_CYCLES)
+      opts.onIdle?.(f)
+    }
   }
   return out
 }
@@ -276,10 +376,31 @@ export function isContextPath(url: string | undefined): boolean {
  * (curl, MCP clients) are not browser-driven and pass.
  */
 export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[]; host?: string }, host: string | undefined): boolean {
-  if (headers['sec-fetch-site'] === 'cross-site') return true
   const origin = headers.origin
-  if (origin === undefined) return false
+  // Sans Origin (fetch no-cors, iframe) : seul Sec-Fetch-Site peut trahir un appel d'un autre site.
+  // Avec Origin : on décide d'après lui seul. L'UI de dev (localhost:3000 -> 127.0.0.1) est cross-site
+  // pour le navigateur mais son Origin est autorisé.
+  if (origin === undefined) return headers['sec-fetch-site'] === 'cross-site'
   if (typeof origin !== 'string') return true
   if (host !== undefined && origin === `http://${host}`) return false
-  return !DEV_WEB_ORIGIN_PATTERN.test(origin)
+  return !isDevWebOrigin(origin)
+}
+
+/** Ports of the dev web server allowed to call the relay: AGENT_LENS_WEB_PORT (comma list), default 3000. */
+function devWebPorts(env: Record<string, string | undefined>): number[] {
+  const ports = (env.AGENT_LENS_WEB_PORT ?? '').split(',')
+    .map(p => p.trim())
+    .filter(p => /^\d{1,5}$/.test(p))
+    .map(Number)
+    .filter(p => p >= 1 && p <= 65535)
+  return ports.length > 0 ? ports.slice(0, 5) : [DEFAULT_DEV_PORT]
+}
+
+/**
+ * True when `origin` is the dev web server (#201): http on localhost or 127.0.0.1 and one of the configured
+ * ports only. Any other local port (another app, Jupyter, a compromised dev server) is refused.
+ */
+export function isDevWebOrigin(origin: string, env: Record<string, string | undefined> = process.env): boolean {
+  const m = /^http:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})$/.exec(origin)
+  return m !== null && devWebPorts(env).includes(Number(m[1]))
 }

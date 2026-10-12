@@ -17,13 +17,6 @@ import { COLUMN_LABELS, agentTimeCell, type ColumnCell } from '@/lib/session-col
 import type { Freshness } from '@/hooks/simulation/freshness'
 import type { ActiveTimeFields } from '@/lib/active-time'
 
-/** Container width (px) under which the panel stacks the columns on a second line. */
-export const COLUMNS_REFLOW_PX = 440
-
-/** Container widths (px) from which the extra columns appear: Cost + Activity, then Runtime + Branch. */
-export const COLUMNS_COST_PX = 520
-export const COLUMNS_BRANCH_PX = 640
-
 /**
  * The row grid. Wide panel: [name | model | tokens | time]; wider: + cost and activity; widest: + runtime
  * and branch. Cells that are not shown are `display: none` (so they take no slot and are not read), the

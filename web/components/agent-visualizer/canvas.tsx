@@ -1,13 +1,13 @@
 'use client'
 
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { HitTarget, Cluster } from './canvas/index'
 import { graphKeyboardHelp } from '@/lib/shortcuts'
 import { buildNodeOrder, sameNode, type NavNode } from './canvas/keyboard-nav'
 import { describeTooltip } from './canvas/tooltip'
 import type { CanvasProps } from './canvas/canvas-props'
-import { GraphA11yList } from './graph-a11y-list'
+import { GraphA11yList, type AuxFocusItem } from './graph-a11y-list'
 import { CanvasControls } from './canvas-controls'
 import { useCanvasCamera } from '@/hooks/use-canvas-camera'
 import { useCanvasInteraction } from '@/hooks/use-canvas-interaction'
@@ -20,12 +20,17 @@ import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
 import { useTourBridge } from './guided-tour-context'
 
+type PresentationFlags = { follow: boolean; mask: boolean }
+const NO_PRESENTATION: PresentationFlags = { follow: false, mask: false }
+
 export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
   } = props
+  const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
+  presentationRef.current = presentation ?? NO_PRESENTATION
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const simTimeRef = useRef(0)
@@ -40,6 +45,12 @@ export function AgentCanvas(props: CanvasProps) {
   const [hasFocus, setHasFocus] = useState(false)
   const hasFocusRef = useRef(false)
   hasFocusRef.current = hasFocus
+  // Outline button without a canvas node holding the focus (cluster, link, branch): no agent ring, a visible label instead (#195)
+  const [auxFocus, setAuxFocus] = useState<AuxFocusItem | null>(null)
+  const handleFocusAux = useCallback((item: AuxFocusItem | null) => {
+    setAuxFocus(item)
+    if (item) setFocusedNode(null)
+  }, [])
   const hoverTargetRef = useRef<HitTarget | null>(null)
   const tooltipTargetRef = useRef<NavNode | null>(null)
 
@@ -79,13 +90,13 @@ export function AgentCanvas(props: CanvasProps) {
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
     transformRef, userHasNavigatedRef, panVelocityRef,
-    screenToCanvas, doZoomToFit, updateCamera, zoomBy, panBy, canvasToScreen, ensureVisible, zoomToCircle,
+    screenToCanvas, doZoomToFit, updateCamera, isCameraBusy, zoomBy, panBy, canvasToScreen, ensureVisible, zoomToCircle,
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey,
+    clustersRef, getInsets, scopeKey, presentationRef,
   })
-  const { canvasToScreenRef: tourCanvasToScreenRef } = useTourBridge()
+  const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
 
   // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───
@@ -113,10 +124,11 @@ export function AgentCanvas(props: CanvasProps) {
   drawPropsRef.current.isDragging = isDragging
 
   // ─── Accessible mirror, state effects, draw loop ────────────────────────
-  const { a11yModel, communications, linkMessages, bubbleLayerRef, heldBubbleKeysRef } = useCanvasA11yMirror({
+  const { a11yModel, communications, linkMessages, legendPresence, legendShown, bubbleLayerRef, heldBubbleKeysRef } = useCanvasA11yMirror({
     simulationRef, mainCanvasRef, drawPropsRef, hideInactiveRef, hasFocusRef, focusedNodeRef,
     collapseMemoryRef, collapseViewRef, linksPropRef, teamsRef, sessionsRef, sessionLinksRef, onLinkClickRef,
   })
+  useEffect(() => { reportPresence?.(legendPresence) }, [legendPresence, reportPresence])
   const { effectsRef, announcements, detectStateChanges } = useCanvasStateEffects({
     simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef,
   })
@@ -125,8 +137,8 @@ export function AgentCanvas(props: CanvasProps) {
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
-    reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, neverHideRef: prefs.neverHideRef,
-    updateCamera, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
+    presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
+    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
   })
 
   // ─── Tooltip target (hover or keyboard focus) ──────────────────────────
@@ -138,10 +150,13 @@ export function AgentCanvas(props: CanvasProps) {
   const tooltipContent = tooltipTarget ? describeTooltip(tooltipTarget, simulationRef.current) : null
 
   // ─── Keyboard focus entry ──────────────────────────────────────────────
-  const handleWrapperFocus = useCallback((e: React.FocusEvent) => {
-    if (e.target !== e.currentTarget || focusedNodeRef.current) return
+  // Runs from the root's focus observer (the graph surface itself carries only its key handlers)
+  const graphSurfaceRef = useRef<HTMLDivElement>(null)
+  const handleSurfaceFocus = useCallback((e: React.FocusEvent) => {
+    const surface = graphSurfaceRef.current
+    if (!surface || e.target !== surface || focusedNodeRef.current) return
     // Only keyboard focus gets the automatic ring; a mouse click must not (matches :focus-visible)
-    try { if (!e.currentTarget.matches(':focus-visible')) return } catch { /* older engines: fall through */ }
+    try { if (!surface.matches(':focus-visible')) return } catch { /* older engines: fall through */ }
     // Show the ring immediately when keyboard focus lands on the graph
     const p = drawPropsRef.current
     const order = buildNodeOrder(p.agents, p.toolCalls, p.discoveries)
@@ -153,12 +168,15 @@ export function AgentCanvas(props: CanvasProps) {
   const rootCursor = isDragging ? 'grabbing' : overInteractive ? 'pointer' : 'grab'
 
   return (
+    // Root: a presentational focus observer (has focus within: focus tooltip, keyboard focus entry); it is
+    // not an interaction target itself
     <div
       ref={containerRef}
+      role="presentation"
       data-agent-canvas-root=""
       className="relative w-full h-full overflow-hidden"
       style={{ cursor: rootCursor }}
-      onFocus={() => setHasFocus(true)}
+      onFocus={(e) => { setHasFocus(true); handleSurfaceFocus(e) }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHasFocus(false)
       }}
@@ -166,11 +184,11 @@ export function AgentCanvas(props: CanvasProps) {
       {/* Graph surface: one image for assistive tech (its content is in the outline below),
           focusable so the keyboard map works (arrows, Enter, +/-/0, Shift+arrows, context menu key). */}
       <div
+        ref={graphSurfaceRef}
         role="img"
         aria-label={a11yModel.summary}
         aria-describedby="graph-keyboard-help"
         tabIndex={0}
-        onFocus={handleWrapperFocus}
         onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
         {...keyHandlers}
         className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
@@ -188,6 +206,16 @@ export function AgentCanvas(props: CanvasProps) {
         data-edge-bubble-layer=""
         className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
+      {auxFocus && (
+        <div
+          aria-hidden="true"
+          data-aux-focus={auxFocus.kind}
+          className="pointer-events-none absolute left-1/2 top-3 z-10 max-w-[min(32rem,calc(100vw-24px))] -translate-x-1/2 truncate rounded-md px-3 py-1 font-mono text-xs"
+          style={{ background: COLORS.panelBg, color: COLORS.textPrimary, border: `2px solid ${COLORS.textPrimary}` }}
+        >
+          {auxFocus.label}
+        </div>
+      )}
       <p id="graph-keyboard-help" className="sr-only">{graphKeyboardHelp()}</p>
 
       <GraphA11yList
@@ -204,6 +232,7 @@ export function AgentCanvas(props: CanvasProps) {
         onToolCallClick={onToolCallClick}
         onDiscoveryClick={onDiscoveryClick}
         onFocusNode={focusNode}
+        onFocusAux={handleFocusAux}
         onToggleBranch={handleToggleBranch}
       />
 
@@ -211,6 +240,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={tooltipRef}
         aria-hidden="true"
+        data-sensitive=""
         className="pointer-events-none absolute left-0 top-0 z-10 max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
         style={{
           visibility: 'hidden',
@@ -231,10 +261,14 @@ export function AgentCanvas(props: CanvasProps) {
 
       <CanvasControls
         teams={a11yModel.teams}
+        present={legendShown}
         zoomBy={zoomBy}
         doZoomToFit={doZoomToFit}
         animationsPaused={prefs.animationsPaused}
         pausedBySystem={prefs.pausedBySystem}
+        locale={prefs.locale}
+        calmLayers={prefs.calmLayers}
+        onToggleCalmLayer={prefs.toggleCalmLayer}
         neverHide={prefs.neverHide}
         toolExpiryS={prefs.toolExpiryS}
         onToggleAnimationsPaused={prefs.toggleAnimationsPaused}

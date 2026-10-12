@@ -12,7 +12,7 @@
  *
  * The hook script and discovery files always live under ~/.claude/agent-lens, whatever the
  * account: every account's settings.json points to that one stable hook.js.
- * A settings.json that cannot be parsed is never modified (see updateSettingsFile).
+ * A settings.json that cannot be parsed is never modified (see updateSettings in extension/scripts/claude-hooks.js).
  */
 'use strict'
 
@@ -21,18 +21,17 @@ const path = require('path')
 const os = require('os')
 const { execFileSync } = require('child_process')
 
+// Hook detection, CLAUDE_CONFIG_DIR resolution and the safe settings.json write are shared with the
+// extension and its uninstall script (one implementation, #217): only command markers count (#199),
+// and legacy agent-flow hooks (LEGACY_HOOK_COMMAND_MARKER) are replaced but are not "set up" (#175).
+const {
+  HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER, isAgentLensHook, applyAgentLensHooks,
+  settingsHaveAgentLensHooks, SettingsUnreadableError, readSettingsStrict, updateSettings,
+  claudeConfigDir, recordSettingsPath,
+} = require('../extension/scripts/claude-hooks.js')
+
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
-const SETTINGS_FILE_MAX_BYTES = 1024 * 1024
-
-/** Claude Code's config root: CLAUDE_CONFIG_DIR when set, otherwise ~/.claude (mirrors extension/src/claude-config-dir.ts). */
-function claudeConfigDir(env = process.env, home = os.homedir()) {
-  const raw = (env.CLAUDE_CONFIG_DIR || '').trim()
-  if (!raw) return path.join(home, '.claude')
-  if (raw === '~') return home
-  if (raw.startsWith('~/') || raw.startsWith('~\\')) return path.join(home, raw.slice(2))
-  return path.resolve(raw)
-}
 
 function settingsPath() {
   return path.join(claudeConfigDir(), 'settings.json')
@@ -41,8 +40,6 @@ function settingsPath() {
 const HOOK_TIMEOUT_S = 2
 const HOOK_SAFETY_MARGIN_MS = 500
 const HOOK_FORWARD_TIMEOUT_MS = 1000
-const HOOK_COMMAND_MARKER = 'agent-lens/hook.js'
-const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js' // hooks installed under the former project name
 
 // ─── Resolve node path ──────────────────────────────────────────────────────
 
@@ -185,86 +182,6 @@ function ensureHookScript() {
 
 // ─── Configure Claude Code hooks ────────────────────────────────────────────
 
-function isAgentLensHook(entry) {
-  if (!entry || !Array.isArray(entry.hooks)) return false
-  return entry.hooks.some(h => {
-    if (!h || typeof h !== 'object') return false
-    const command = typeof h.command === 'string' ? h.command.replace(/\\/g, '/') : ''
-    return command.includes(HOOK_COMMAND_MARKER) ||
-      command.includes(LEGACY_HOOK_COMMAND_MARKER) ||
-      (typeof h.url === 'string' && h.url.startsWith('http://127.0.0.1:'))
-  })
-}
-
-// ─── Safe settings.json update (mirrors extension/src/settings-writer.ts) ───
-
-class SettingsUnreadableError extends Error {
-  constructor(filePath, reason) {
-    super(`Cannot read ${filePath} (${reason}). Agent Lens will not modify it: fix or remove the file, then retry.`)
-    this.name = 'SettingsUnreadableError'
-    this.filePath = filePath
-    this.reason = reason
-  }
-}
-
-/** Parsed settings, or null when the file is missing. Throws SettingsUnreadableError otherwise. */
-function readSettingsStrict(filePath) {
-  let stat
-  try {
-    stat = fs.statSync(filePath)
-  } catch (err) {
-    if (err.code === 'ENOENT') return null
-    throw new SettingsUnreadableError(filePath, err.message)
-  }
-  if (!stat.isFile()) throw new SettingsUnreadableError(filePath, 'not a regular file')
-  if (stat.size > SETTINGS_FILE_MAX_BYTES) throw new SettingsUnreadableError(filePath, 'file too large')
-  let raw
-  try { raw = fs.readFileSync(filePath, 'utf-8') } catch (err) { throw new SettingsUnreadableError(filePath, err.message) }
-  if (raw.trim() === '') throw new SettingsUnreadableError(filePath, 'empty file')
-  let parsed
-  try { parsed = JSON.parse(raw) } catch (err) { throw new SettingsUnreadableError(filePath, `invalid JSON: ${err.message}`) }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new SettingsUnreadableError(filePath, 'not a JSON object')
-  }
-  return parsed
-}
-
-/** Atomic write (tmp + rename) that follows a symlinked file and keeps the original file mode. */
-function writeFileAtomic(filePath, content) {
-  let target = filePath
-  let mode
-  try {
-    target = fs.realpathSync(filePath)
-    mode = fs.statSync(target).mode & 0o777
-  } catch {}
-  const tmpPath = `${target}.${process.pid}.tmp`
-  try {
-    fs.writeFileSync(tmpPath, content, mode === undefined ? undefined : { mode })
-    if (mode !== undefined) fs.chmodSync(tmpPath, mode)
-    fs.renameSync(tmpPath, target)
-  } catch (err) {
-    try { fs.unlinkSync(tmpPath) } catch {}
-    throw err
-  }
-}
-
-/** Apply mutate() to the settings and write atomically (tmp + rename), keeping a one-time .bak of the original. */
-function updateSettingsFile(filePath, mutate) {
-  const existing = readSettingsStrict(filePath)
-  const settings = existing || {}
-  const before = JSON.stringify(settings)
-  mutate(settings)
-  if (existing && JSON.stringify(settings) === before) return false
-
-  fs.mkdirSync(path.dirname(filePath), { recursive: true })
-  if (existing) {
-    const backupPath = `${filePath}.bak`
-    if (!fs.existsSync(backupPath)) fs.copyFileSync(filePath, backupPath)
-  }
-  writeFileAtomic(filePath, JSON.stringify(settings, null, 2) + '\n')
-  return true
-}
-
 function configureHooks(options = {}) {
   const target = options.settingsPath || settingsPath()
   const hookCommand = options.hookCommand || `"${resolveNodePath()}" "${HOOK_SCRIPT_PATH}"`
@@ -275,15 +192,13 @@ function configureHooks(options = {}) {
     'SubagentStart', 'SubagentStop', 'Notification', 'Stop', 'SessionEnd',
   ]
 
-  updateSettingsFile(target, settings => {
-    const existingHooks = settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {}
-    for (const event of events) {
-      const existing = Array.isArray(existingHooks[event]) ? existingHooks[event] : []
-      const filtered = existing.filter(entry => !isAgentLensHook(entry))
-      existingHooks[event] = [...filtered, hookEntry]
-    }
-    settings.hooks = existingHooks
+  // Only Agent Lens hooks (current or legacy agent-flow) are replaced; the user's own hooks,
+  // including sibling hooks of the same entry and http hooks to 127.0.0.1, are kept (#199).
+  updateSettings(target, settings => {
+    applyAgentLensHooks(settings, Object.fromEntries(events.map(event => [event, [hookEntry]])))
   })
+  // Remember it so uninstalling the extension also cleans this account (#217); never fatal.
+  try { recordSettingsPath(DISCOVERY_DIR, target) } catch {}
   console.log('Configured Claude Code hooks in:', target)
 }
 
@@ -297,16 +212,9 @@ function isAlreadySetup() {
     if (fs.readFileSync(HOOK_SCRIPT_PATH, 'utf8') !== getHookScriptContent()) return false
   } catch { return false }
 
-  // Check hooks are configured in settings.json
+  // Check current hooks are configured in settings.json (legacy agent-flow hooks do not count, #175)
   try {
-    const settings = readSettingsStrict(settingsPath())
-    if (!settings) return false
-    const hooks = settings.hooks
-    if (!hooks || typeof hooks !== 'object') return false
-    return Object.values(hooks).some(entries => {
-      if (!Array.isArray(entries)) return false
-      return entries.some(entry => isAgentLensHook(entry))
-    })
+    return settingsHaveAgentLensHooks(readSettingsStrict(settingsPath()))
   } catch {
     return false
   }
@@ -330,8 +238,8 @@ function ensureSetup() {
 }
 
 module.exports = {
-  ensureSetup, getHookScriptContent, isAlreadySetup, configureHooks, updateSettingsFile, readSettingsStrict,
-  claudeConfigDir, SettingsUnreadableError,
+  ensureSetup, getHookScriptContent, isAlreadySetup, configureHooks, updateSettingsFile: updateSettings, readSettingsStrict,
+  claudeConfigDir, SettingsUnreadableError, isAgentLensHook, HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER,
 }
 
 // Run directly: node scripts/setup.js [--force]

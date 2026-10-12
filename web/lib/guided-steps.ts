@@ -3,12 +3,13 @@ import type { LegendEntryId } from './legend-entries'
 export type TourTarget =
   | { kind: 'dom'; id: string }
   | { kind: 'agent'; name: string }
+  /** A real agent, by its key (`<session>:<name>`): names are not unique in a live session */
+  | { kind: 'agent-key'; key: string }
   | { kind: 'none' }
 
-export interface GuidedStep {
+/** A step of a tour: what it points at and says. The demo adds a scenario time, a live session has none. */
+export interface TourStep {
   id: string
-  /** Scenario time to seek to (web/lib/guided-scenario.ts) */
-  time: number
   target: TourTarget
   /** Opens the graph legend while this step is shown (without touching the saved preference) */
   opensLegend?: boolean
@@ -18,12 +19,17 @@ export interface GuidedStep {
   covers: readonly LegendEntryId[]
 }
 
+export interface GuidedStep extends TourStep {
+  /** Scenario time to seek to (web/lib/guided-scenario.ts) */
+  time: number
+}
+
 /** Entries no event can produce in a demo: explained in words only, and the text must say so. */
 export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
   'particle-dispatch', 'particle-return',
-  'state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
+  'state-paused', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
   'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
-  'rt-copilot',
+  'rt-copilot', 'rt-pi', 'rt-gemini',
 ]
 
 // A main agent is labelled by its first prompt (cut to 40 characters), not by the name in the events.
@@ -68,6 +74,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'When no new message has gone through for a while, the link fades to a thin quiet line with a message-count badge. Click it to read the messages.',
     covers: ['link-quiet'] },
   { id: 'not-in-demo', time: 44.5, target: { kind: 'dom', id: 'legend-edges' }, opensLegend: true, title: 'Seen only in a real session',
-    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a "+N" badge on a folded branch, a red error message link, the dotted session halo, the discovery cards (file, pattern, finding, code) and the visor logo of a GitHub Copilot agent. Keep the legend open to recognise them later.',
-    covers: ['state-paused', 'edge-unverified', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code', 'rt-copilot'] },
+    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a file conflict (a red dash-dot line with a diamond between two agents that edited the same file), a "+N" badge on a folded branch, a red error message link, the dotted session halo, the discovery cards (file, pattern, finding, code) the visor logo of a GitHub Copilot agent the pi letter of a Pi agent and the four-point star of a Gemini CLI agent. Keep the legend open to recognise them later.',
+    covers: ['state-paused', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code', 'rt-copilot', 'rt-pi', 'rt-gemini'] },
 ] as const

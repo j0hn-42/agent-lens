@@ -25,6 +25,16 @@ export type AgentEventType =
   | 'team_info'
   | 'agent_activity'
   | 'normalization_stats'
+  | 'context_compacted'
+
+/** Payload of `context_compacted` (#232): only what the transcript proves; an unproven field is absent. */
+export interface ContextCompactedPayload {
+  agent: string
+  /** Claude Code's compactMetadata.trigger, kept only when 'auto' or 'manual' */
+  trigger?: 'auto' | 'manual'
+  /** Claude Code's compactMetadata.preTokens: context size before the compaction, a positive safe integer */
+  preTokens?: number
+}
 
 /** Why two agents are linked (agent_link event) */
 export type AgentLinkKind = 'teammate' | 'spawn'
@@ -125,6 +135,8 @@ export interface AgentEvent {
   type: AgentEventType
   payload: Record<string, unknown>
   sessionId?: string
+  /** Event of an imported transcript (#294): read from a file, never seen live */
+  imported?: boolean
 }
 
 export interface SessionInfo {
@@ -139,7 +151,7 @@ export interface SessionInfo {
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
   memberName?: string
-  /** 'claude' | 'codex' | 'copilot' */
+  /** 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' */
   runtime?: string
   /** Workspace root the session was discovered for (untrusted, capped) */
   workspace?: string
@@ -149,6 +161,10 @@ export interface SessionInfo {
   parentSessionId?: string
   /** Listed only from the read-only session index: not watched live, so it has no events to replay and is never auto-selected */
   indexedOnly?: boolean
+  /** Read once from an imported transcript (#294, --import / AGENT_LENS_IMPORT): not observed live, never 'active' */
+  imported?: boolean
+  /** When the relay read the imported transcript (ms since epoch) */
+  importedAt?: number
   /** Hash of the repository's git common dir: shared by all worktrees of a repo; absent outside git */
   projectId?: string
   /** Folder name of the repository's main checkout, shown as the group title (untrusted, capped) */
@@ -173,6 +189,28 @@ export type ExtensionToWebviewMessage =
   | { type: 'session-started'; session: SessionInfo }
   | { type: 'session-ended'; sessionId: string }
   | { type: 'session-updated'; sessionId: string; label: string; teamName?: string; memberName?: string }
+  /** Operator control (#240), sent only to a panel that sent `permission-surface` ready: a PermissionRequest waits for a decision */
+  | { type: 'permission-request'; request: PermissionRequestMessage }
+  /** The request ended: `sent` = the decision was handed to Claude Code (not proof it was applied); the others had no decision */
+  | { type: 'permission-closed'; nonce: string; sessionId: string; toolUseId: string | null; outcome: string }
+  /** Answer to a `permission-decision`: accepted, or why not */
+  | { type: 'permission-result'; nonce: string | null; ok: boolean; reason?: string }
+
+/** A waiting PermissionRequest, as the panel is shown it (the decision must name sessionId, toolUseId and nonce) */
+export interface PermissionRequestMessage {
+  sessionId: string
+  /** null when the hook input does not name the call and no single open call of the session matches */
+  toolUseId: string | null
+  nonce: string
+  toolName: string
+  /** Tool input as JSON text with sorted keys, cut at 64 KiB */
+  inputPreview: string
+  inputTruncated: boolean
+  /** SHA-256 of the whole input */
+  inputSha256: string
+  requestedAt: number
+  expiresAt: number
+}
 
 export interface VisualizerConfig {
   mode: 'live' | 'replay'
@@ -185,16 +223,59 @@ export interface VisualizerConfig {
 }
 
 /** Response of the relay's GET /status endpoint (small, no secrets, no paths beyond the workspace). */
+/** Life cycle of an agent launched from the relay (#229). Each state is set only when its fact was observed. */
+export type LaunchState = 'requested' | 'started' | 'session' | 'exited' | 'stopped' | 'expired' | 'failed'
+
+/** What the relay tells local clients about a launch (SSE `launch`, GET /status): facts only, never the command line, the output or the issue text. */
+export interface LaunchView {
+  id: string
+  repo: string
+  issue: number
+  role: string
+  /** `--worktree` name, also the branch name */
+  worktree: string
+  /** The --session-id chosen by the relay: the key that proves launch <-> session */
+  sessionId: string
+  state: LaunchState
+  /** Present once the spawn was observed */
+  pid?: number
+  requestedAt: number
+  startedAt?: number
+  sessionSeenAt?: number
+  /** A stop was asked for (or the deadline came); the end is only known from the exit */
+  stopRequestedAt?: number
+  stopReason?: 'stop' | 'expired' | 'relay-stopped'
+  endedAt?: number
+  exitCode?: number
+  signal?: string
+  /** Bounded code: ENOENT, EACCES..., 'spawn-error', 'exit-before-start' */
+  failure?: string
+  /** Absolute path of the worktree, only when it exists after the end (the work is kept there) */
+  worktreePath?: string
+  outputBytes: number
+  outputDroppedBytes: number
+}
+
 export interface RelayStatus {
   relayVersion: string
   workspace: string
   /** Runtimes the relay is watching, e.g. ['claude', 'codex'] */
   runtimes: string[]
   hooksConfigured: boolean
+  /** CLAUDE_CODE_DISABLE_1M_CONTEXT=1 in the relay's environment or Claude Code settings (#249); false when Claude Code is not watched */
+  disable1MContext: boolean
   sessionCount: number
+  /** Claude sessions not followed (#208, #291): watch limit reached when found, transcript past the size cap (at discovery
+   *  or after growing), transcript past the per-folder cap. Distinct sessions of the current scope, bounded: read as "at least". */
+  skippedSessions: { watchLimit: number; sizeLimit: number; fileLimit: number }
+  /** What the scan covers RIGHT NOW (#291): false = the workspace folder only, true = every project folder. Changed by POST /scope. */
   allWorkspaces: boolean
+  /** Discovery ceilings (#291): `projectDirsCapped` = more project folders exist than maxProjectDirs, the others are not scanned */
+  discovery: { projectDirsCapped: boolean; maxProjectDirs: number; maxFilesPerDir: number }
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
+  /** Agent launches (#229): present only when the relay was started with --allow-launch, and never for a tunnel Host */
+  launch?: { maxConcurrent: number; launches: LaunchView[] }
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────
@@ -204,7 +285,15 @@ export type WebviewToExtensionMessage =
   | { type: 'request-connect' }
   | { type: 'request-disconnect' }
   | { type: 'open-file'; filePath: string; line?: number }
+  /** Open a terminal in the working directory of a session (#240): the webview names the session, never a directory */
+  | { type: 'open-terminal'; sessionId: string }
+  /** The page can show and answer permission requests (#240); sent again with ready:false when it can no longer */
+  | { type: 'permission-surface'; ready: boolean }
+  /** The operator's decision for one waiting request (#240); a redirect carries its text */
+  | { type: 'permission-decision'; sessionId: string; toolUseId: string | null; nonce: string; action: 'approve' | 'deny' | 'redirect'; message?: string }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
+  /** Native notification asked for by a rule of the webview (#225); validated by parseNotifyMessage */
+  | { type: 'notify'; trigger: string; title: string; body: string }
 
 // ─── Transcript Types (from Claude Code JSONL files) ─────────────────────────
 
@@ -229,7 +318,8 @@ export interface ToolUseBlock {
 export interface ToolResultBlock {
   type: 'tool_result'
   tool_use_id: string
-  content: string | Array<{ text?: string; type?: string }>
+  /** Text, content blocks, or a structured object (summarizeResult reads its text fields) */
+  content: string | Array<{ text?: string; type?: string }> | Record<string, unknown>
   /** Structured error flag set by Claude Code when the tool call failed */
   is_error?: boolean
 }

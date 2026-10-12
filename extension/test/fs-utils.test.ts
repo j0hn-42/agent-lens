@@ -10,9 +10,10 @@
 import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
+import fsModule from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { safeWatch, resetWatchLimitWarning, readNewFileLines, readTrackedLines } from '../src/fs-utils'
+import { safeWatch, resetWatchLimitWarning, readNewFileLines, readTrackedLines, runGuarded } from '../src/fs-utils'
 
 describe('readNewFileLines', () => {
   let dir: string
@@ -100,6 +101,41 @@ describe('readNewFileLines', () => {
 
   it('returns null when the file does not exist', () => {
     assert.equal(readNewFileLines(path.join(dir, 'missing.jsonl'), 0), null)
+  })
+
+  // #206 : supprimé ou verrouillé entre stat et open (EPERM d'une suppression différée sous Windows)
+  it('returns null instead of throwing when open fails after a successful stat', () => {
+    fs.writeFileSync(file, 'a\nb\n')
+    const openSync = mock.method(fsModule, 'openSync', () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }) })
+    try {
+      assert.equal(readNewFileLines(file, 0), null)
+    } finally { openSync.mock.restore() }
+  })
+
+  it('returns null instead of throwing when the read fails (path replaced by a directory)', () => {
+    const swapped = path.join(dir, 'swapped.jsonl')
+    fs.mkdirSync(swapped)
+    assert.equal(readNewFileLines(swapped, 0), null)
+  })
+})
+
+describe('runGuarded (#206)', () => {
+  it('runs the callback and reports nothing when it succeeds', () => {
+    let ran = 0
+    const errors: unknown[] = []
+    runGuarded(() => { ran++ }, err => errors.push(err))
+    assert.equal(ran, 1)
+    assert.deepEqual(errors, [])
+  })
+
+  it('hands an exception to onError instead of letting it escape', () => {
+    const errors: unknown[] = []
+    assert.doesNotThrow(() => runGuarded(() => { throw new Error('boom') }, err => errors.push(err)))
+    assert.equal((errors[0] as Error).message, 'boom')
+  })
+
+  it('never throws, even when onError itself throws', () => {
+    assert.doesNotThrow(() => runGuarded(() => { throw new Error('boom') }, () => { throw new Error('again') }))
   })
 })
 

@@ -15,7 +15,7 @@ const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k =
 afterEach(() => { cleanup(); document.body.replaceChildren(); try { window.localStorage.clear() } catch { /* ignore */ } })
 
 test('the docs URL targets the repository and a branch that holds the reading guide', () => {
-  assert.match(DOCS_READING_THE_UI_URL, /^https:\/\/github\.com\/jobailla\/agent-lens\/blob\/develop\/docs\/reading-the-ui\.md$/)
+  assert.match(DOCS_READING_THE_UI_URL, /^https:\/\/github\.com\/j0hn-42\/agent-lens\/blob\/develop\/docs\/reading-the-ui\.md$/)
 })
 
 test('the open legend links to the reading guide', async () => {

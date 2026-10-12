@@ -8,6 +8,7 @@ import type { Agent } from '../../../lib/agent-types'
 import type { AgentLink, ConversationMessage } from '../../../hooks/simulation/types'
 import { resolveAgentRef } from './link-geometry'
 import { cleanText } from './team-style'
+import { formatDuration } from '../../../lib/utils'
 
 /** A message with more characters or lines than this starts collapsed */
 export const LINK_MESSAGE_COLLAPSE_CHARS = 400
@@ -59,14 +60,6 @@ export function cleanMessageText(value: unknown, max = LINK_MESSAGE_MAX_CHARS): 
   return text.length > max ? text.slice(0, max - 1) + '…' : text
 }
 
-/** "m:ss" of a time in seconds (never negative, never NaN). */
-export function formatLinkTime(seconds: number): string {
-  const total = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : 0
-  const m = Math.floor(total / 60)
-  const s = total % 60
-  return `${m}:${s < 10 ? '0' : ''}${s}`
-}
-
 /** Should this message start collapsed? */
 export function isLongMessage(content: string): boolean {
   return content.length > LINK_MESSAGE_COLLAPSE_CHARS || content.split('\n').length > LINK_MESSAGE_COLLAPSE_LINES
@@ -109,7 +102,7 @@ export function buildLinkPanelModel(link: AgentLink, agents: Map<string, Agent>)
       receiverName,
       arrow: forward ? '→' : '←',
       directionText: `${senderName} to ${receiverName}`,
-      timeText: formatLinkTime(m.timestamp),
+      timeText: formatDuration(m.timestamp),
       content,
       long: isLongMessage(content),
       isError: !!m.isError,

@@ -12,13 +12,14 @@ import { deriveFreshness } from '@/hooks/simulation/freshness'
 import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
-import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
 import { rollupBranch, rollupRows, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
-import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP } from '@/lib/session-model'
+import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
@@ -27,7 +28,10 @@ import {
   type RuntimeFilter, type SessionFilter,
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
+import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
 import { emptyMatch } from '@/lib/ui-glossary'
+import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
+import { folderPrefixedLabel } from '@/lib/session-tabs'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
 import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
@@ -58,6 +62,12 @@ interface SessionListPanelProps {
   sessionModels?: ReadonlyMap<string, string>
   onSelectSession: (id: string) => void
   onCloseSession: (id: string) => void
+  /** Give a session a name of your own (#246); an empty name restores the original label. Absent = no rename control. */
+  onRenameSession?: (id: string, name: string) => void
+  /** Save a session as a standalone HTML replay (#237). Absent (demo) = no export control. */
+  onExportSession?: (id: string) => void
+  /** True when the session has events in memory to export; the button is drawn only then */
+  canExportSession?: (id: string) => boolean
   /** Agents of the current view (the selected session, team or all sessions) */
   agents: ReadonlyMap<string, SessionListAgent>
   selectedAgentId: string | null
@@ -74,6 +84,8 @@ interface SessionListPanelProps {
   observedSessionIds?: ReadonlySet<string>
   /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
   attention?: AttentionSummary
+  /** Loop verdict per session id (#230): only sessions whose events are in the view have one */
+  health?: ReadonlyMap<string, HealthVerdict>
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
   /** Project / runtime filter (persisted by the parent); when absent the panel keeps its own */
@@ -81,6 +93,8 @@ interface SessionListPanelProps {
   filterRuntime?: RuntimeFilter | null
   filterBranch?: string | null
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
+  /** Why an empty list may be incomplete (#291): shown with the empty state when the scope is a single workspace */
+  scopeHint?: string | null
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -241,9 +255,9 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
-  onSelectSession, onCloseSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention,
-  filterProject, filterRuntime, filterBranch, onFilterChange,
+  onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
@@ -348,6 +362,29 @@ export function SessionListPanel({
   const rollups = useMemo(() => rollupRows(rows, { sessions, forests }), [rows, sessions, forests])
   const activeCount = sessions.filter(s => s.status === 'active' && isObserved(s)).length
 
+  // Inline rename (#246): one row at a time; Enter saves, Escape or leaving the field cancels
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const startRename = (id: string) => {
+    if (!onRenameSession) return
+    setDraft(sessions.find(s => s.id === id)?.label ?? '')
+    setRenaming(id)
+  }
+  // The session left the list while its name was being edited: drop the edit, it must not come back with the id
+  const renamingGone = renaming !== null && !sessions.some(s => s.id === renaming)
+  useEffect(() => { if (renamingGone) setRenaming(null) }, [renamingGone])
+  const endRename = (save: boolean, refocusRow = true) => {
+    const id = renaming
+    if (id === null) return
+    setRenaming(null)
+    if (save && onRenameSession) {
+      onRenameSession(id, draft)
+      setAnnouncement(sanitizeAlias(draft) === null ? 'Original name restored' : `Session renamed to ${sanitizeAlias(draft)}`)
+    }
+    // Back on the row, whatever way the field was left
+    if (refocusRow) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`[data-row-key="session:${id}"]`)?.focus())
+  }
+
   const toggleCollapsed = (id: string, collapse: boolean) => {
     const label = sessions.find(s => s.id === id)?.label ?? id
     setAnnouncement(`Agents of ${label} ${collapse ? 'collapsed' : 'expanded'}`)
@@ -377,6 +414,13 @@ export function SessionListPanel({
       if (id) {
         e.preventDefault()
         toggleCollapsed(id, e.key === 'ArrowLeft')
+      }
+      return
+    } else if (e.key === 'F2') {
+      const id = target.dataset.closableId
+      if (id && onRenameSession) {
+        e.preventDefault()
+        startRename(id)
       }
       return
     } else if (e.key === 'Delete') {
@@ -486,6 +530,8 @@ export function SessionListPanel({
               <option value="claude">Claude Code</option>
               <option value="codex">Codex</option>
               <option value="copilot">GitHub Copilot</option>
+              <option value="pi">Pi</option>
+              <option value="gemini">Gemini CLI</option>
             </select>
           )}
           {(branches.length > 0 || filter.branch !== null) && (
@@ -512,7 +558,7 @@ export function SessionListPanel({
           )}
           {filtering && (
             <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
-              Filter applies to this list only; the canvas still shows every session of the view.
+              Filter applies to this list only; the canvas still shows every session of the view, except that the project also narrows the All view.
             </p>
           )}
         </div>
@@ -525,9 +571,10 @@ export function SessionListPanel({
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
               {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {scopeHint && !filtering && <span className="block mt-1">{scopeHint}</span>}
             </div>
           )}
-          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
+          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents" data-sensitive="">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
               const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
@@ -588,11 +635,13 @@ export function SessionListPanel({
 
               const session = row.session!
               const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
-              const unobserved = kind === 'unobserved' || kind === 'indexed'
-              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : SESSION_NOT_OBSERVED_HELP
+              const unobserved = kind === 'unobserved' || kind === 'indexed' || kind === 'imported'
+              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : kind === 'imported' ? SESSION_IMPORTED_HELP : SESSION_NOT_OBSERVED_HELP
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const isCollapsed = collapsed.has(session.id)
+              // Under a project heading the folder is already named; a team member has no heading (#246)
+              const tabName = row.teamName ? folderPrefixedLabel(session, sessions) : session.label
               const hasAgents = row.roots.length > 0
               return (
                 <li key={row.id} className={row.teamName || hasProjectHeadings ? 'pl-3' : undefined}>
@@ -611,9 +660,31 @@ export function SessionListPanel({
                     >
                       <span aria-hidden="true">{hasAgents ? (isCollapsed ? '▸' : '▾') : '·'}</span>
                     </button>
+                    {renaming === session.id ? (
+                      <form
+                        className="flex min-w-0 flex-1 items-center gap-1 px-1"
+                        onSubmit={e => { e.preventDefault(); endRename(true) }}
+                      >
+                        <input
+                          ref={el => { if (el && document.activeElement !== el && !el.dataset.focused) { el.dataset.focused = '1'; el.focus(); el.select() } }}
+                          type="text"
+                          value={draft}
+                          maxLength={ALIAS_MAX_LENGTH}
+                          aria-label={`New name for session ${session.originalLabel ?? session.label}`}
+                          aria-describedby="session-rename-help"
+                          onChange={e => setDraft(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); endRename(false) } }}
+                          onBlur={() => endRename(false, false)}
+                          className={`min-h-6 min-w-0 flex-1 rounded border bg-transparent px-1 text-xs ${FOCUS_RING}`}
+                          style={{ color: COLORS.textPrimary, borderColor: COLORS.controlBorder }}
+                        />
+                        <span id="session-rename-help" className="sr-only">Enter saves, Escape cancels, an empty name restores the original</span>
+                      </form>
+                    ) : (
                     <button
                       type="button" data-row-main data-row-key={`session:${row.id}`} data-session-id={hasAgents ? session.id : undefined}
                       data-closable-id={session.id}
+                      aria-keyshortcuts={onRenameSession ? 'F2 Delete' : 'Delete'}
                       tabIndex={stopId === row.id ? 0 : -1}
                       aria-current={selected ? 'true' : undefined}
                       onClick={() => onSelectSession(session.id)}
@@ -628,7 +699,8 @@ export function SessionListPanel({
                           ,{' '}
                         </span>
                         {badge && <span className="sr-only">{badge.label} session, </span>}
-                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.label}>{session.label}</span>
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? `${tabName} (renamed; original: ${session.originalLabel})` : tabName}>{tabName}</span>
+                        {session.originalLabel && <span className="sr-only">, renamed, original name {session.originalLabel}</span>}
                       </span>
                       <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
                       <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
@@ -648,11 +720,42 @@ export function SessionListPanel({
                             <span aria-hidden="true">! </span>{sessionAttentionText(attention.bySession.get(session.id))}
                           </span>
                         )}
+                        {sessionHealthText(health?.get(session.id)) && (
+                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.waiting_permission }}>
+                            <span aria-hidden="true">⟳ </span>{sessionHealthText(health?.get(session.id))}
+                          </span>
+                        )}
                         {/* Cost and activity have their own columns from this width on */}
                         {hasAgents && rollups.get(row.id) && <span className={COLUMN_CLASSES.coveredByColumns}><RollupLabel total={rollups.get(row.id)!} label="session total" /></span>}
                         <span className={`shrink-0 tabular-nums ${COLUMN_CLASSES.coveredByColumns}`} style={{ color: COLORS.textDim }}>{session.lastActivityUnknown ? 'activity unknown' : formatRelativeTime(session.lastActivityTime, currentTime)}</span>
                       </span>
                     </button>
+                    )}
+                    {onRenameSession && renaming !== session.id && (
+                      <button
+                        type="button"
+                        aria-label={`Rename session ${session.label}`}
+                        title="Rename session (F2)"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => startRename(session.id)}
+                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        <span aria-hidden="true">✎</span>
+                      </button>
+                    )}
+                    {onExportSession && renaming !== session.id && canExportSession?.(session.id) && (
+                      <button
+                        type="button"
+                        aria-label={`Export session ${session.label} as an HTML replay`}
+                        title="Export as a standalone HTML replay (secrets redacted, best effort)"
+                        onClick={() => onExportSession(session.id)}
+                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        <span aria-hidden="true">⤓</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       aria-label={`Close session ${session.label}`}
@@ -675,9 +778,6 @@ export function SessionListPanel({
               )
             })}
           </ul>
-          <p className="mt-2 mb-0 text-[11px]" style={{ color: COLORS.textDim }}>
-            Agents are listed for the sessions of the current view. Select a session to see its agents.
-          </p>
         </div>
       </div>
     </SlidingPanel>

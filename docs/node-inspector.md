@@ -45,8 +45,105 @@ shell and with a timeout, `gh pr list` and `gh issue list` on the workspace's `o
 - the role comes from the node's dispatch subagent type (else its team role) and must match `[a-z0-9][a-z0-9_-]{0,39}`;
 - the repository must be a plain `github.com/<owner>/<name>` remote; any other URL disables the feature;
 - every returned URL must be exactly `<repo>/issues/<n>` or `<repo>/pull/<n>`, and the web client checks it again;
-- if `gh` is missing, unauthenticated, slow or fails, the relay answers an empty list and the inspector shows nothing;
-- the web client tells "no link" (a successful answer, even empty, cached 60 s) from "unavailable" (a 503 "Busy", a network error, a timeout or an unreadable answer, #149): the latter is never cached, the inspector says "Issue and PR links unavailable for now." and the request is retried with a short backoff (1 s doubling up to 30 s, longer if `Retry-After` asks for it, at most 4 retries).
+- if `gh` or `git` is missing, unauthenticated, rate-limited, slow or fails (or prints something other than a list), the relay answers `502` with `Retry-After` and caches nothing (#205); a workspace without repository, without `origin` or with a non-GitHub remote is a true empty list. A failed repository lookup is not kept: the next request looks again;
+- the web client tells "no link" (a successful answer, even empty, cached 60 s) from "unavailable" (a 502 or 503, a network error, a timeout or an unreadable answer, #149): the latter is never cached, the inspector says "Issue and PR links unavailable for now." and the request is retried with a short backoff (1 s doubling up to 30 s, longer if `Retry-After` asks for it, at most 4 retries).
+
+## Pull requests and issues of a session (#228)
+
+The **Context** panel of a single selected session ends with two sections, read from the relay's
+`GET /issue-links?scope=session&session=<id>` (same guards, 60 s cache and `gh` process budget as the role query; the
+panel asks only while it is open):
+
+- **Pull requests by branch**: a table of the open PRs of the session's repository (`gh pr list --state open --limit 50`,
+  fields `number,title,url,isDraft,headRefName,statusCheckRollup`), sorted by branch. A row reads "(this session)" only
+  when the session recorded its branch (transcript header) and it is exactly the PR's head branch; a session without a
+  recorded branch matches nothing and the panel says so.
+- **Issues without an agent**: open issues (`gh issue list --state open --limit 100`, fields `number,title,url,labels`)
+  that carry no `agent:<role>` label. An issue whose labels cannot be read is left out, not claimed to be unassigned.
+
+The repository is the `origin` of the session's own working directory. A session of an unknown project (relay in
+`--all-workspaces` mode, no known cwd) answers `404` and the panel says the project is unknown rather than showing the
+relay's own repository.
+
+Checks come from `statusCheckRollup`, in words and never by colour alone:
+
+| Checks column | It means |
+| --- | --- |
+| `N of N passing` | every check run / status succeeded, was neutral or skipped |
+| `X failing[, Y pending] of N` | at least one failed, timed out, was cancelled or errored |
+| `Y pending of N` | none failed, some are queued, running or expected |
+| `no checks reported` | gh listed no check for the PR (it does not mean they passed) |
+| `checks unknown` | the rollup was missing, or an entry has a state Agent Lens does not know; never shown as passing |
+
+A full page from gh (50 PRs, 100 issues scanned, 50 issues kept) is shown as "At least N ... shown; more may exist".
+As for the role links: a failure of `gh` or `git` is `502` and "Pull requests and issues unavailable for now." (not cached,
+retried with a backoff), a project without a github.com `origin` says so, and a true empty list says "No open pull
+request." Every URL must be exactly `<repo>/pull/<n>` or `<repo>/issues/<n>`, checked again by the web client. Relay
+mode only; the VS Code webview and the demo show no section.
 
 Only relay mode (dev relay, standalone app) serves links; the VS Code webview has no relay and shows none. In
 `--all-workspaces` mode the repository is that of the relay's own workspace.
+
+## Launch an agent on an issue (#229)
+
+**Off by default.** The validation rules below are in `extension/src/launch-policy.ts` (pure
+functions, tested in `scripts/launch-policy.test.ts`). The process supervisor, the journal and the opt-in route are in
+too (`--allow-launch`, see [launch-security.md](launch-security.md) for the token, the guards, the states and the
+journal). Without `--allow-launch`, nothing in Agent Lens can start a `claude` process: the routes answer 404 and no
+button is rendered.
+
+With it, the inspector shows a button "Lancer un agent sur l'issue #N" ("Launch an agent on issue #N" in English) under each open issue of the agent's
+`agent:<role>` links. It opens a confirmation dialog (repository, issue, role, title, command, caps) where you paste
+the token printed on the relay's console; the token is never stored and is cleared when the dialog closes. The dialog
+announces each observed state, offers "Arrêter" while the launch runs, and shows the kept worktree path once it ended.
+The button needs the page to be served by the relay itself (same origin): the dev server on :3000 and the VS Code
+webview do not offer it, because the relay answers no CORS preflight (a separate follow-up). Details in
+[launch-security.md](launch-security.md#use-it-from-the-inspector).
+
+When it is enabled, a launch is refused unless every check passes:
+
+- the request body is exactly `{"repo": "<owner>/<name>", "issue": <positive integer>, "role": "<role>"}`; the role
+  has the same shape as for the issue links above and is not silently lower-cased;
+- the repository is in the allow-list given when the relay starts, and is the workspace's `origin` remote;
+- the issue, read again with `gh api repos/<owner>/<name>/issues/<n>`, is that issue of that repository (not a pull
+  request), is open, carries `agent:<role>`, and was opened by an `OWNER`, `MEMBER` or `COLLABORATOR`.
+
+The command is built without a shell, from a fixed prompt holding only the issue number, the repository and the
+role. The issue title and body never enter the command, the prompt or the worktree name (`issue-<n>-<role>`); the
+title is kept, without control or bidi characters, only for display in the confirmation dialog. The agent reads
+the issue itself with `gh issue view`, and that text stays untrusted:
+
+```
+claude -p --worktree issue-<n>-<role> --session-id <uuid> --output-format stream-json --verbose
+       --max-budget-usd <amount> --permission-mode default --setting-sources project --strict-mcp-config
+       --allowedTools <tools...> --disallowedTools <tools...> -- "<fixed prompt>"
+```
+
+- headless (`-p`), `--permission-mode default`, never `bypassPermissions` or `acceptEdits`. No one can answer a
+  permission prompt in this mode, so a tool that no loaded rule allows is denied;
+- `--allowedTools` only adds to what the loaded settings allow. So the user and local settings are not loaded
+  (`--setting-sources project`), no MCP server is started (`--strict-mcp-config` without `--mcp-config`), and an
+  explicit deny list wins over any allow rule left;
+- allowed tools: `Read`, `Glob`, `Grep`, `Edit`, `Write`, `Bash(git status)`, `Bash(git add:*)`,
+  `Bash(git commit:*)`, plus exactly `Bash(gh issue view <n> --repo <owner>/<name>)` for this issue. No
+  `git diff` or `git log` (their `--output` and `--no-index` options reach files outside the worktree);
+- denied tools: `WebFetch`, `WebSearch`, `Bash(git push:*)`, `Bash(git remote:*)`, `Bash(git config:*)`,
+  `Bash(git -c:*)`, `Bash(gh pr:*)`, `Bash(gh api:*)`, `Bash(gh issue comment:*)`, `Bash(gh issue view:* --comments*)`,
+  `Bash(gh issue view:* --web*)`, `Bash(curl:*)`, `Bash(wget:*)`, and `Edit` / `Write` on `.git`, `.git/**`,
+  `**/.git/**`, `.gitattributes`, `**/.gitattributes`, `.gitmodules`, `.claude/**`, `.mcp.json`, `.husky/**`
+  (writing those would let the next `git` command or Claude Code run code the agent chose). The agent commits
+  in its worktree; a human pushes;
+- the `--session-id` is a v4 UUID generated by the relay, so the canvas can prove which session a launch started.
+
+These rules are permission rules, not a sandbox: they reduce what a prompt injection in the issue can do, they do
+not make it impossible. Running the agent under an OS-level sandbox and with a neutral git configuration is left
+to a later step: the supervisor only filters the environment of the child and starts it in its own process group. The issue author is checked, not the authors of its comments: the comments
+are not part of the allowed `gh issue view` command.
+
+Caps (enforced by the supervisor): 1 simultaneous launch by default (2 at most), 1 per issue,
+60 min of wall-clock time, a budget of $5 by default and $20 at most (whole cents from $0.01; a larger amount is
+refused, never lowered silently), and the last 256 KB of output kept.
+
+## Health: loop verdict (#230)
+
+The inspector shows the loop verdict of the selected node (its own tool calls only, never its session's), the evidence of each loop found, then the verdict of the whole session. The rules and the wording are in [reading-the-ui.md](reading-the-ui.md#loops-and-health-verdict).

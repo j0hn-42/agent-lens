@@ -21,8 +21,9 @@ extension/.vscode/
 !.vscode/tasks.json
 !.vscode/settings.json
 
-# Claude Code
-.claude/
+# Claude Code (shared: .claude/settings.json, hooks, skills, agents)
+.claude/worktrees/
+.claude/settings.local.json
 
 # Subdirectory lock files (project uses pnpm workspace)
 extension/package-lock.json

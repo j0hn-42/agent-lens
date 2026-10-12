@@ -5,8 +5,13 @@ import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
-import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
+import { startPiRuntime } from './pi-runtime'
+import { startGeminiRuntime } from './gemini-runtime'
+import { promptHookSetupIfNeeded, configureClaudeHooks, installControlHook, removeControlHook, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
+import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
+import { getOperatorControl } from './operator-control'
+import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
@@ -18,7 +23,7 @@ let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
   const raw = vscode.workspace.getConfiguration('agentVisualizer').get<string>('runtime', 'auto')
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
 }
 
 interface StartRuntimesResult {
@@ -47,6 +52,16 @@ async function startRuntimes(
     try { runtimes.push(startCopilotRuntime(context)) }
     catch (err) { log.error('Copilot runtime failed to start:', err); failures.push('copilot') }
   }
+  if (mode === 'pi' || mode === 'auto') {
+    log.info('Starting Pi runtime...')
+    try { runtimes.push(startPiRuntime(context)) }
+    catch (err) { log.error('Pi runtime failed to start:', err); failures.push('pi') }
+  }
+  if (mode === 'gemini' || mode === 'auto') {
+    log.info('Starting Gemini CLI runtime...')
+    try { runtimes.push(startGeminiRuntime(context)) }
+    catch (err) { log.error('Gemini CLI runtime failed to start:', err); failures.push('gemini') }
+  }
   return { runtimes, failures }
 }
 
@@ -68,6 +83,22 @@ export async function activate(context: vscode.ExtensionContext) {
   } else if (failures.length > 0) {
     log.info(`Partial startup — ${failures.join(', ')} failed but ${runtimes.map(r => r.mode).join(', ')} active`)
   }
+
+  // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
+
+  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi or Gemini CLI) when autoOpen is on.
+  // Read at event time, so toggling the setting needs no reload.
+  for (const r of runtimes) {
+    context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
+  }
+  if (collectActiveSessions().length > 0) { autoOpenIfEnabled(context) }
+
+  applyEventLogPath(context)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('agentVisualizer.eventLogPath')) { applyEventLogPath(context) }
+    }),
+  )
 
   // ─── Commands ──────────────────────────────────────────────────────────────
 
@@ -102,23 +133,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (choice.value === 'hooks') {
         await configureClaudeHooks()
-      } else if (choice.value === 'jsonl') {
-        const fileUri = await vscode.window.showOpenDialog({
-          canSelectFiles: true,
-          canSelectFolders: false,
-          canSelectMany: false,
-          filters: { 'JSONL Files': ['jsonl', 'json', 'ndjson'] },
-          title: 'Select agent event log file',
-        })
-
-        if (fileUri?.[0]) {
-          connectToJsonl(fileUri[0].fsPath, context)
-        }
-      } else if (choice.value === 'mock') {
-        const panel = VisualizerPanel.getCurrent()
-        if (panel) {
-          panel.postMessage({ type: 'config', config: { mode: 'replay', autoPlay: true, showMockData: true } })
-        }
+      } else {
+        await connectToAgent(choice.value as 'jsonl' | 'mock', context)
       }
     }),
   )
@@ -126,6 +142,15 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('agentVisualizer.configureHooks', async () => {
       await configureClaudeHooks()
+    }),
+  )
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentVisualizer.installControlHook', async () => {
+      await installControlHook()
+    }),
+    vscode.commands.registerCommand('agentVisualizer.removeControlHook', async () => {
+      await removeControlHook()
     }),
   )
 
@@ -139,8 +164,28 @@ export async function activate(context: vscode.ExtensionContext) {
   })
 }
 
+/** Open the panel when `agentVisualizer.autoOpen` is on and none is open yet. */
+function autoOpenIfEnabled(context: vscode.ExtensionContext): void {
+  const enabled = vscode.workspace.getConfiguration('agentVisualizer').get<boolean>('autoOpen', false)
+  if (!enabled || VisualizerPanel.getCurrent()) { return }
+  const panel = VisualizerPanel.create(context.extensionUri, vscode.ViewColumn.Beside)
+  wirePanel(panel)
+  promptHookSetupIfNeededForClaude(context)
+}
+
+/** Follow `agentVisualizer.eventLogPath`: watch the file when set, stop watching when cleared. */
+function applyEventLogPath(context: vscode.ExtensionContext): void {
+  const configured = vscode.workspace.getConfiguration('agentVisualizer').get<string>('eventLogPath', '').trim()
+  if (configured) {
+    log.info(`Watching JSONL event log from settings: ${configured}`)
+    connectToJsonl(configured, context)
+  } else if (eventSource) {
+    disconnectEventSource()
+  }
+}
+
 /** Only prompt for Claude hook setup if a Claude runtime is active —
- *  otherwise a Codex- or Copilot-only user would see an irrelevant prompt. */
+ *  otherwise a Codex-, Copilot-, Pi- or Gemini-only user would see an irrelevant prompt. */
 function promptHookSetupIfNeededForClaude(context: vscode.ExtensionContext): void {
   if (runtimes.some(r => r.mode === 'claude')) {
     promptHookSetupIfNeeded(context)
@@ -170,6 +215,9 @@ function combinedConnectionStatus(): string {
 function wirePanel(panel: VisualizerPanel): void {
   if (panel.isWired) { return }
   panel.markWired()
+  const notifyThrottle = new NotifyThrottle(2000)
+  // Nobody can answer once the panel is gone: what waits for a decision ends with none (#240)
+  panel.onDisposed(() => getOperatorControl()?.panelDisposed())
   let readyHandled = false
   panel.onCommand((message: WebviewToExtensionMessage) => {
     switch (message.type) {
@@ -211,9 +259,35 @@ function wirePanel(panel: VisualizerPanel): void {
         panel.setConnectionStatus('disconnected', '')
         break
 
+      case 'notify': {
+        const note = parseNotifyMessage(message)
+        if (!note || !notifyThrottle.allow(note.trigger, Date.now())) break
+        showNativeNotification(note, { focused: panel.isFocused && vscode.window.state.focused }, vscode.window)
+        break
+      }
+
       case 'open-file':
         handleOpenFile(message.filePath, message.line)
         break
+
+      case 'permission-surface':
+      case 'permission-decision': {
+        const control = getOperatorControl()
+        if (control) {
+          control.handlePanelMessage(panel, message)
+        } else if (message.type === 'permission-decision') {
+          panel.postMessage({ type: 'permission-result', nonce: null, ok: false, reason: 'disabled' })
+        }
+        break
+      }
+
+      case 'open-terminal': {
+        const req = parseOpenTerminalMessage(message)
+        if (!req) break
+        const result = openSessionTerminal(req.sessionId, collectActiveSessions(), { window: vscode.window })
+        if (!result.ok) vscode.window.showWarningMessage(OPEN_TERMINAL_FAILURE_TEXT[result.reason])
+        break
+      }
 
       case 'log': {
         const webviewLog = createLogger('Webview')
@@ -229,27 +303,74 @@ function wirePanel(panel: VisualizerPanel): void {
 
 // ─── JSONL Connection ──────────────────────────────────────────────────────
 
+async function pickJsonlFile(): Promise<string | undefined> {
+  const fileUri = await vscode.window.showOpenDialog({
+    canSelectFiles: true,
+    canSelectFolders: false,
+    canSelectMany: false,
+    filters: { 'JSONL Files': ['jsonl', 'json', 'ndjson'] },
+    title: 'Select agent event log file',
+  })
+  return fileUri?.[0]?.fsPath
+}
+
+/** « Connect to Running Agent » (JSONL ou démo) : ouvre le panneau s'il n'existe pas,
+ *  puis branche la source. Un échec est signalé à l'utilisateur (#177). */
+export async function connectToAgent(
+  kind: 'jsonl' | 'mock',
+  context: vscode.ExtensionContext,
+  pickFile: () => Promise<string | undefined> = pickJsonlFile,
+): Promise<void> {
+  let filePath: string | undefined
+  if (kind === 'jsonl') {
+    filePath = await pickFile()
+    if (!filePath) { return }
+  }
+
+  let panel = VisualizerPanel.getCurrent()
+  if (!panel) {
+    panel = VisualizerPanel.create(context.extensionUri, vscode.ViewColumn.Beside)
+    wirePanel(panel)
+  }
+
+  if (filePath) {
+    try {
+      connectToJsonl(filePath, context)
+    } catch (err) {
+      log.error('JSONL connection failed:', err)
+      const reason = err instanceof Error ? err.message : String(err)
+      vscode.window.showErrorMessage(`Agent Lens: cannot read the JSONL file ${filePath} (${reason}).`)
+    }
+  } else {
+    panel.postMessage({ type: 'config', config: { mode: 'replay', autoPlay: true, showMockData: true } })
+  }
+}
+
 function connectToJsonl(filePath: string, context: vscode.ExtensionContext): void {
   disconnectEventSource()
 
-  eventSource = new JsonlEventSource(filePath)
-  context.subscriptions.push(eventSource)
+  const source = new JsonlEventSource(filePath)
+  eventSource = source
+  context.subscriptions.push(source)
 
-  const panel = VisualizerPanel.getCurrent()
-  if (!panel) { return }
-
-  eventSource.onEvent((event) => {
-    panel.sendEvent(event)
+  // Resolve the panel at event time: the log may be configured before any panel is open
+  source.onEvent((event) => {
+    VisualizerPanel.getCurrent()?.sendEvent(event)
   })
 
-  eventSource.onStatus((status) => {
-    panel.setConnectionStatus(
+  source.onStatus((status) => {
+    VisualizerPanel.getCurrent()?.setConnectionStatus(
       status === 'connected' ? 'watching' : 'disconnected',
       filePath,
     )
   })
 
-  eventSource.start()
+  try {
+    source.start()
+  } catch (err) {
+    disconnectEventSource()
+    throw err
+  }
 }
 
 function disconnectEventSource(): void {

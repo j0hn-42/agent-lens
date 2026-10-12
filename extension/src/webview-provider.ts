@@ -34,6 +34,11 @@ export class VisualizerPanel implements vscode.Disposable {
   private _ready = false
 
   readonly onCommand = this._onCommand.event
+  private readonly _onDisposed = new vscode.EventEmitter<void>()
+  /** Fires when the panel is closed */
+  readonly onDisposed = this._onDisposed.event
+  /** The page declared it can show and answer permission requests (operator control, #240); false until it says so */
+  controlSurface = false
 
   /** Returns true if wirePanel has already been called on this instance */
   get isWired(): boolean { return this._wired }
@@ -42,6 +47,8 @@ export class VisualizerPanel implements vscode.Disposable {
   /** Whether the webview has signaled 'ready' and replay is complete.
    *  Live events should be gated on this to prevent duplication with replay. */
   get isReady(): boolean { return this._ready }
+  /** The panel is the visible, focused editor tab */
+  get isFocused(): boolean { return this.panel.visible && this.panel.active }
   markReady(): void { this._ready = true }
 
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
@@ -63,6 +70,7 @@ export class VisualizerPanel implements vscode.Disposable {
     this.panel.onDidDispose(
       () => {
         VisualizerPanel.instance = undefined
+        this._onDisposed.fire()
         this.dispose()
       },
       undefined,
@@ -184,6 +192,7 @@ export class VisualizerPanel implements vscode.Disposable {
     (function() {
       const vscode = acquireVsCodeApi();
       const iframe = document.getElementById('app-frame');
+      const appOrigin = 'http://localhost:${port}';
       const loading = document.getElementById('loading');
       let iframeReady = false;
       let pendingMessages = [];
@@ -200,7 +209,7 @@ export class VisualizerPanel implements vscode.Disposable {
             clearInterval(initInterval);
             return;
           }
-          iframe.contentWindow.postMessage({ type: '__vscode-bridge-init', source: 'extension' }, '*');
+          iframe.contentWindow.postMessage({ type: '__vscode-bridge-init', source: 'extension' }, appOrigin);
           initAttempts++;
         }, ${BRIDGE_INIT_RETRY_MS});
       });
@@ -208,12 +217,13 @@ export class VisualizerPanel implements vscode.Disposable {
       // Single unified message handler
       window.addEventListener('message', (e) => {
         if (e.source === iframe.contentWindow) {
-          // Message from iframe → forward to extension host
+          // Message from iframe → forward to extension host, only from the expected origin
+          if (e.origin !== appOrigin) { return; }
           if (e.data && e.data.type === 'ready') {
             iframeReady = true;
             // Flush any pending messages
             for (const msg of pendingMessages) {
-              iframe.contentWindow.postMessage(msg, '*');
+              iframe.contentWindow.postMessage(msg, appOrigin);
             }
             pendingMessages = [];
           }
@@ -221,7 +231,7 @@ export class VisualizerPanel implements vscode.Disposable {
         } else {
           // Message from extension host → forward to iframe
           if (iframeReady) {
-            iframe.contentWindow.postMessage(e.data, '*');
+            iframe.contentWindow.postMessage(e.data, appOrigin);
           } else {
             pendingMessages.push(e.data);
           }
@@ -257,5 +267,6 @@ export class VisualizerPanel implements vscode.Disposable {
     }
     this.disposables.length = 0
     this._onCommand.dispose()
+    this._onDisposed.dispose()
   }
 }

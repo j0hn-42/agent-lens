@@ -56,7 +56,10 @@ describe('SharedTicker tick', () => {
     let calls = 0
     const t = new SharedTicker(() => { calls++; throw new Error('boom') }, 10)
     const release = t.acquire()
-    await sleep(80)
+    // Attend la condition observable (au moins 2 ticks) plutot qu'une duree fixe :
+    // sur un coeur sature, 80 ms ne garantissent pas 2 ticks de 10 ms.
+    const deadline = Date.now() + 5000
+    while (calls < 2 && Date.now() < deadline) await sleep(5)
     release()
     assert.ok(calls >= 2, `ticked ${calls} times despite throwing`)
   })

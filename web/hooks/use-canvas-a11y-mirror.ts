@@ -3,6 +3,8 @@ import type { TeamSummary } from '@/lib/agent-types'
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import { A11Y_SNAPSHOT_MS, expiryHold } from '@/lib/canvas-constants'
+import type { LegendEntryId } from '@/lib/legend-entries'
+import { deriveLegendPresence, holdPresence, EMPTY_PRESENCE, LEGEND_HOLD_MS, type LegendPresence } from '@/lib/legend-presence'
 import {
   buildA11yModel, a11yRecorder, type A11yModel, type CommEntry, type SessionMeta,
 } from '@/components/agent-visualizer/canvas/index'
@@ -10,10 +12,11 @@ import { sceneAgents, costScope } from '@/components/agent-visualizer/canvas/sce
 import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import type { CollapseMemory, CollapseView } from '@/components/agent-visualizer/canvas/branch-collapse'
 import { buildLinkMessageItems, type LinkMessageItem } from '@/components/agent-visualizer/canvas/edge-bubble-set'
+import { resolveLinks } from '@/components/agent-visualizer/canvas/link-geometry'
 import { attachBubbleLayer } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
-const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [] }
+const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [], fileConflicts: [] }
 
 interface A11yMirrorDeps {
   simulationRef: RefObject<SimulationState>
@@ -43,6 +46,12 @@ export function useCanvasA11yMirror({
   const [a11yModel, setA11yModel] = useState<A11yModel>(EMPTY_MODEL)
   const [communications, setCommunications] = useState<CommEntry[]>([])
   const [linkMessages, setLinkMessages] = useState<LinkMessageItem[]>([])
+  /** What the scene proves on screen now (the live tour reads it) and the legend rows to list (held a few seconds) */
+  const [legendPresence, setLegendPresence] = useState<LegendPresence>(EMPTY_PRESENCE)
+  const [legendShown, setLegendShown] = useState<LegendEntryId[]>([])
+  const legendSeenRef = useRef<ReadonlyMap<LegendEntryId, number>>(new Map())
+  const legendPresenceSigRef = useRef('')
+  const legendShownSigRef = useRef('')
   const a11ySignatureRef = useRef('')
   const linkMessagesSigRef = useRef('')
   /** DOM layer holding the focusable buttons of the edge bubbles, and the message ids hovered / focused in it */
@@ -77,7 +86,32 @@ export function useCanvasA11yMirror({
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
+        fileAttention: s.fileAttention,
       })
+      // Legend: derived on every tick, even when the outline did not change (a held row expires with time)
+      const links = linksPropRef.current ?? s.links
+      const sceneEdges = s.edges.filter(e => scene.agents.has(e.from) && scene.agents.has(e.to))
+      const sceneEdgeIds = new Set(sceneEdges.map(e => e.id))
+      const presence = deriveLegendPresence({
+        agents: scene.agents.values(),
+        toolCallCount: scene.toolCalls.size,
+        discoveryTypes: scene.discoveries.map(d => d.type),
+        edges: sceneEdges,
+        particleTypes: s.particles.filter(p => sceneEdgeIds.has(p.edgeId)).map(p => p.type),
+        links: resolveLinks(links, scene.agents, s.currentTime).map(l => ({ state: l.state, messageCount: l.count })),
+        bubbleCount: buildLinkMessageItems(links, scene.agents).length,
+        fileConflictCount: model.fileConflicts?.length ?? 0,
+        branches: scene.collapse.branches.values(),
+        teamCount: model.teams.length,
+        sessionHaloCount: model.clusters.filter(c => c.kind === 'session').length,
+      })
+      const presenceSig = JSON.stringify(presence)
+      if (presenceSig !== legendPresenceSigRef.current) { legendPresenceSigRef.current = presenceSig; setLegendPresence(presence) }
+      const held = holdPresence(legendSeenRef.current, presence.entries, Date.now(), LEGEND_HOLD_MS)
+      legendSeenRef.current = held.lastSeen
+      const shownSig = held.shown.join(',')
+      if (shownSig !== legendShownSigRef.current) { legendShownSigRef.current = shownSig; setLegendShown(held.shown) }
+
       const comms = Array.from(a11yRecorder.comms.values())
       const signature = JSON.stringify([model, comms.length, comms[comms.length - 1]?.id])
       if (signature === a11ySignatureRef.current) return
@@ -104,5 +138,5 @@ export function useCanvasA11yMirror({
     }
   }, [simulationRef]) // eslint-disable-line react-hooks/exhaustive-deps -- the other deps are refs
 
-  return { a11yModel, communications, linkMessages, bubbleLayerRef, heldBubbleKeysRef }
+  return { a11yModel, communications, linkMessages, legendPresence, legendShown, bubbleLayerRef, heldBubbleKeysRef }
 }

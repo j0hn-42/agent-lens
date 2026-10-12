@@ -6,6 +6,7 @@ import { planKey, resolvePlacement } from './overlay-plan'
 import { overlayHits } from './overlay-state'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
+import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
@@ -44,7 +45,7 @@ export function drawMessageBubblesWorld(
       const isThinking = role === 'thinking'
       const bgColor = isThinking ? SCENE.bubbleThinkingBase : role === 'user' ? SCENE.bubbleUserBase : SCENE.bubbleAssistantBase
       const textColor = isThinking ? SCENE.roleThinkingText : role === 'user' ? SCENE.roleUserText : SCENE.roleAssistantText
-      const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : agent.runtime === 'copilot' ? 'COPILOT' : 'CLAUDE'
+      const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : agent.runtime === 'copilot' ? 'COPILOT' : agent.runtime === 'pi' ? 'PI' : agent.runtime === 'gemini' ? 'GEMINI' : 'CLAUDE'
       const label = isThinking ? 'THINKING' : role === 'user' ? 'USER' : assistantLabel
 
       // Thinking bubbles: smaller font, tighter spacing, more translucent
@@ -105,7 +106,7 @@ export function drawMessageBubblesWorld(
         ctx.font = `${style.fontSize}px monospace`
         ctx.fillStyle = textColor + (isThinking ? 'e0' : '')
         for (let i = 0; i < lines.length; i++) {
-          ctx.fillText(lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
+          ctx.fillText(opts.maskText ? maskText(lines[i]) : lines[i], anchorX + style.padding, cursorY + style.headerH + i * style.lineH)
         }
         if (truncated) {
           ctx.fillStyle = textColor + 'c0'

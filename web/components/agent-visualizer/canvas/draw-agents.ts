@@ -5,13 +5,15 @@ import {
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
-import { alphaHex, formatTokens, formatDuration, pluralize } from '../../../lib/utils'
+import { alphaHex, formatTokens, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
-import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX } from './draw-misc'
+import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX } from './draw-misc'
+import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
+import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
@@ -78,6 +80,48 @@ function getCopilotMarkPath() {
   return _copilotMarkPath
 }
 
+/** Pi mark: the letter pi, drawn as a path so it needs no asset (#238).
+ *  Same footprint as the Claude spark. Geometry is shared with the legend (PI_MARK_PATH). */
+export function drawPiMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+  ctx.save()
+  ctx.translate(cx, cy)
+  const scale = (r * AGENT_DRAW.sparkScale) / PI_MARK_VIEWBOX
+  ctx.scale(scale, scale)
+  ctx.translate(-PI_MARK_VIEWBOX / 2, -PI_MARK_VIEWBOX / 2)
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 6 / scale
+  ctx.fill(getPiMarkPath())
+  ctx.restore()
+}
+
+let _piMarkPath: Path2D | null = null
+function getPiMarkPath() {
+  if (!_piMarkPath) _piMarkPath = new Path2D(PI_MARK_PATH)
+  return _piMarkPath
+}
+
+/** Gemini mark: a four-point star, drawn as a path so it needs no asset (#238).
+ *  Same footprint as the Claude spark. Geometry is shared with the legend (GEMINI_MARK_PATH). */
+function drawGeminiMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+  ctx.save()
+  ctx.translate(cx, cy)
+  const scale = (r * AGENT_DRAW.sparkScale) / GEMINI_MARK_VIEWBOX
+  ctx.scale(scale, scale)
+  ctx.translate(-GEMINI_MARK_VIEWBOX / 2, -GEMINI_MARK_VIEWBOX / 2)
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 6 / scale
+  ctx.fill(getGeminiMarkPath())
+  ctx.restore()
+}
+
+let _geminiMarkPath: Path2D | null = null
+function getGeminiMarkPath() {
+  if (!_geminiMarkPath) _geminiMarkPath = new Path2D(GEMINI_MARK_PATH)
+  return _geminiMarkPath
+}
+
 /** Pick the brand logo for the agent's runtime. Defaults to Claude. */
 export function drawAgentBrand(
   ctx: CanvasRenderingContext2D,
@@ -86,6 +130,8 @@ export function drawAgentBrand(
 ) {
   if (runtime === 'codex') drawOpenAILogo(ctx, cx, cy, r, color)
   else if (runtime === 'copilot') drawCopilotMark(ctx, cx, cy, r, color)
+  else if (runtime === 'pi') drawPiMark(ctx, cx, cy, r, color)
+  else if (runtime === 'gemini') drawGeminiMark(ctx, cx, cy, r, color)
   else drawClaudeSpark(ctx, cx, cy, r, color)
 }
 
@@ -292,6 +338,24 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
   }
 }
 
+/** With a known model the centre icon moves up a little to leave room for the model name underneath. */
+function modelLogoDy(agent: Agent, r: number): number {
+  return agent.model && formatModelName(agent.model) ? -r * 0.14 : 0
+}
+
+/** Model name (tier-coloured) under the centre icon of main agents, subagents and teammates. */
+function drawModelCaption(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
+  const modelName = agent.model ? formatModelName(agent.model) : ''
+  if (!modelName) return
+  ctx.save()
+  ctx.fillStyle = modelTierColor(agent.model)
+  ctx.font = `bold ${Math.max(6, r * 0.22)}px monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(modelName, agent.x, agent.y + r * 0.4, r * 1.3)
+  ctx.restore()
+}
+
 function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isWaiting: boolean) {
   if (isWaiting) {
     // Geometric lock icon — fits the holographic style
@@ -314,15 +378,19 @@ function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, 
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('\u25C6', agent.x, agent.y)
+    ctx.fillText('\u25C6', agent.x, agent.y + modelLogoDy(agent, r))
+    drawModelCaption(ctx, agent, r)
   } else if (agent.isMain) {
-    drawAgentBrand(ctx, agent.x, agent.y, r, color + '90', agent.runtime)
+    const dy = modelLogoDy(agent, r)
+    drawAgentBrand(ctx, agent.x, agent.y + dy, r, color + '90', agent.runtime)
+    drawModelCaption(ctx, agent, r)
   } else {
     ctx.fillStyle = color + '90'
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y)
+    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y + modelLogoDy(agent, r))
+    drawModelCaption(ctx, agent, r)
   }
 }
 
@@ -386,6 +454,10 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
  * tooltip carries the full name. `place` comes from the overlay plan: hidden, shifted to a free spot,
  * or collapsed to one line. Returns the number of extra lines so the context bar can move down.
  */
+function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | undefined): OrchestratorInfo | null {
+  return info && masked ? { ...info, groupName: maskText(info.groupName) } : info
+}
+
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
@@ -566,6 +638,7 @@ export function drawAgents(
   const lod = lodForZoom(opts.zoom)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
+    if (!pointInView(opts.view, agent.x, agent.y, AGENT_CULL_EXTENT)) continue
     const radius = agent.isMain ? NODE.radiusMain : NODE.radiusSub
     const stale = deriveFreshness(agent, now) === 'stale'
     const color = stale ? FRESHNESS_DRAW.staleColor : stateColor(agent.state)
@@ -609,8 +682,8 @@ export function drawAgents(
     ctx.globalAlpha = baseAlpha
     const labelDrawn = lod.labels
       ? drawAgentLabel(
-        ctx, agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
-        orchestratorInfo(agent, opts.teams), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
+        ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
+        maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
         stale ? lastKnownStateText(agent.state) : undefined,
       )
       : { extraLines: 0, dx: 0, dy: 0 }

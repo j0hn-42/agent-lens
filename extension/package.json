@@ -1,20 +1,20 @@
 {
   "name": "agent-lens",
   "displayName": "Agent Lens",
-  "description": "Real-time visualization of Claude Code, Codex and GitHub Copilot agent orchestration",
+  "description": "Real-time visualization of Claude Code, Codex, GitHub Copilot, Pi and Gemini CLI agent orchestration",
   "version": "0.10.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jobailla/agent-lens"
+    "url": "https://github.com/j0hn-42/agent-lens"
   },
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Visualization", "Other"],
-  "keywords": ["llm", "agent", "claude", "codex", "copilot", "ai", "visualization", "orchestration"],
+  "keywords": ["llm", "agent", "claude", "codex", "copilot", "pi", "gemini", "ai", "visualization", "orchestration"],
   "activationEvents": [
     "onWebviewPanel:agentVisualizer"
   ],
@@ -40,6 +40,16 @@
         "command": "agentVisualizer.configureHooks",
         "title": "Configure Claude Code Hooks",
         "category": "Agent Lens"
+      },
+      {
+        "command": "agentVisualizer.installControlHook",
+        "title": "Install the Permission Hook (operator control)",
+        "category": "Agent Lens"
+      },
+      {
+        "command": "agentVisualizer.removeControlHook",
+        "title": "Remove the Permission Hook (operator control)",
+        "category": "Agent Lens"
       }
     ],
     "keybindings": [
@@ -54,12 +64,14 @@
       "properties": {
         "agentVisualizer.runtime": {
           "type": "string",
-          "enum": ["auto", "claude", "codex", "copilot"],
+          "enum": ["auto", "claude", "codex", "copilot", "pi", "gemini"],
           "enumDescriptions": [
-            "Watch Claude Code, Codex and GitHub Copilot sessions concurrently (default)",
+            "Watch Claude Code, Codex, GitHub Copilot, Pi and Gemini CLI sessions concurrently (default)",
             "Watch only Claude Code sessions",
             "Watch only Codex sessions",
-            "Watch only local GitHub Copilot sessions"
+            "Watch only local GitHub Copilot sessions",
+            "Watch only Pi coding agent sessions",
+            "Watch only Gemini CLI sessions"
           ],
           "default": "auto",
           "description": "Which agent runtime(s) to watch. In auto mode, runtimes you don't use are harmless no-ops (no session directory = nothing to scan)."
@@ -67,12 +79,19 @@
         "agentVisualizer.devServerPort": {
           "type": "number",
           "default": 0,
-          "description": "Port for the development server. Set to 0 (default) for production mode, or 3002 for development."
+          "scope": "machine",
+          "description": "Port for the development server. Set to 0 (default) for production mode, or to the port of the Next.js dev server (3000 with `pnpm run dev:web`) for development."
         },
         "agentVisualizer.eventLogPath": {
           "type": "string",
           "default": "",
           "description": "Path to JSONL event log file to watch for agent events"
+        },
+        "agentVisualizer.allowControl": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "description": "Let the Agent Lens panel answer Claude Code permission requests (approve, deny, redirect). Off by default. Needs the permission hook (command \"Agent Lens: Install the Permission Hook\"). Machine-scoped: set it in your User Settings, a workspace .vscode/settings.json is ignored. Fails closed: with no answer, Claude Code asks as usual."
         },
         "agentVisualizer.autoOpen": {
           "type": "boolean",
@@ -91,7 +110,7 @@
     "package": "vsce package",
     "lint": "tsc --noEmit",
     "lint:test": "tsc --noEmit --project tsconfig.test.json",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test \"test/**/*.test.ts\"",
     "vscode:uninstall": "node scripts/uninstall.js"
   },
   "devDependencies": {

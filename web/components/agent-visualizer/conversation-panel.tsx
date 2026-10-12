@@ -13,13 +13,14 @@ import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
-  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState, nextTabIndex,
-  markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING,
-  FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
+  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState,
+  markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
   droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
   pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, type FeedMessage,
 } from '@/lib/feed-utils'
+import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { nextTabIndex } from '@/lib/tab-nav'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { formatDroppedMessages } from '@/lib/chrome-utils'
@@ -104,6 +105,12 @@ export function ConversationPanel({
     () => agentIdsWithMessages(allMessages, agents),
     [allMessages, agents],
   )
+
+  const messageCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of allMessages) counts.set(m.agentId, (counts.get(m.agentId) ?? 0) + 1)
+    return counts
+  }, [allMessages])
 
   const pairActive = isPairComplete(pair)
   const tabMessages = useMemo(
@@ -222,7 +229,7 @@ export function ConversationPanel({
   }
 
   const onTabKeyDown = (e: React.KeyboardEvent) => {
-    const next = nextTabIndex(e.key, activeTabIndex, tabKeys.length)
+    const next = nextTabIndex(activeTabIndex, e.key, tabKeys.length, 'both')
     if (next === null) return
     e.preventDefault()
     clearPair()
@@ -268,7 +275,7 @@ export function ConversationPanel({
           aria-label={`${CONVERSATION_LABELS.open}. Latest ${role.label.toLowerCase()} message from ${agentName}: ${preview}`}
           title={agentName}
           onClick={onOpen}
-          className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING}`}
+          className={`glass-card text-left px-3 py-2 min-h-6 flex items-center gap-2 w-full motion-safe:transition-all motion-safe:hover:scale-[1.02] ${FOCUS_RING_INSET}`}
           style={{ maxWidth: PILL_MAX_WIDTH }}
         >
           <span aria-hidden="true" className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: role.text }} />
@@ -306,7 +313,7 @@ export function ConversationPanel({
       aria-live="off"
       aria-label={pairActive ? `Messages between ${agentNameOf(agents, pair.a)} and ${agentNameOf(agents, pair.b)}` : activeTab === 'all' ? 'Messages from all agents' : `Messages from ${agentNameOf(agents, activeTab)}`}
       tabIndex={0}
-      className={`flex-1 min-h-32 overflow-y-auto px-2 pb-2 ${FOCUS_RING}`}
+      className={`flex-1 min-h-32 overflow-y-auto px-2 pb-2 ${FOCUS_RING_INSET}`}
       style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
     >
       {messages.length === 0 ? (
@@ -396,7 +403,7 @@ export function ConversationPanel({
       zIndex={Z.sidePanel}
       width={rect?.w ?? dock.rightWidth}
       labelledBy={titleId}
-      attrs={dockAttrs('conversation', 'right', dock)}
+      attrs={{ ...dockAttrs('conversation', 'right', dock), 'data-sensitive': '' }}
       style={{ height: rect?.h, display: dock.hidden ? 'none' : undefined }}
     >
       <DockResizer label="Resize conversation panel" controls={dockPanelDomId('conversation')} />
@@ -428,7 +435,7 @@ export function ConversationPanel({
               aria-pressed={showTools}
               title="Show or hide tool calls and results"
               onClick={() => setShowTools(v => !v)}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showTools ? COLORS.toggleActive : 'transparent',
                 color: showTools ? COLORS.assistantText : COLORS.textMuted,
@@ -442,7 +449,7 @@ export function ConversationPanel({
               disabled={messages.length === 0}
               onClick={exportConversation}
               title="Download the messages listed below as a Markdown file"
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all disabled:opacity-50 ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
               Export conversation
@@ -455,7 +462,7 @@ export function ConversationPanel({
               aria-expanded={showSearch}
               aria-controls={searchId}
               title={CONVERSATION_LABELS.search}
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{
                 background: showSearch ? COLORS.toggleActive : 'transparent',
                 color: showSearch ? COLORS.assistantText : COLORS.textMuted,
@@ -481,7 +488,7 @@ export function ConversationPanel({
                 e.stopPropagation()
               }}
               placeholder="Search messages..."
-              className="w-full px-2 py-1 min-h-6 rounded text-xs font-mono focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--lens-focus-ring)] placeholder:text-[color:var(--ph)]"
+              className={`w-full px-2 py-1 min-h-6 rounded text-xs font-mono placeholder:text-[color:var(--ph)] ${FOCUS_RING}`}
               style={{
                 background: COLORS.holoBg05,
                 border: `1px solid ${COLORS.controlBorder}`,
@@ -494,15 +501,18 @@ export function ConversationPanel({
 
         {/* Agent tabs (hidden when only one agent speaks) */}
         {showTabs && (
-          <div className="relative flex-shrink-0 pt-1.5">
+          <div className="relative flex-shrink-0 pt-1.5 flex items-start pr-2" style={{ borderBottom: `1px solid ${COLORS.holoBorder06}` }}>
+            <div className="relative min-w-0 flex-1">
             <div
               ref={tabsRef}
               role="tablist"
               aria-label={CONVERSATION_LABELS.tablist}
               aria-orientation="horizontal"
+              // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
+              tabIndex={-1}
               onKeyDown={onTabKeyDown}
               onScroll={updateTabOverflow}
-              className="flex gap-0.5 px-2 pb-1.5 overflow-x-auto"
+              className="flex gap-1 px-2 pb-1.5 overflow-x-auto outline-none"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {
@@ -525,6 +535,9 @@ export function ConversationPanel({
                     onClick={(e) => onTabClick(key, e.shiftKey)}
                     color={color}
                     hasUnread={key !== 'all' && unread.has(key)}
+                    count={key === 'all' ? allMessages.length : (messageCounts.get(key) ?? 0)}
+                    working={key !== 'all' && !done && (agent?.state === 'thinking' || agent?.state === 'tool_calling')}
+                    isAll={key === 'all'}
                   />
                 )
               })}
@@ -537,22 +550,34 @@ export function ConversationPanel({
               <span aria-hidden="true" className="pointer-events-none absolute right-0 top-1.5 bottom-1.5 w-4 flex items-center justify-end"
                 style={{ color: COLORS.textMuted, background: `linear-gradient(270deg, ${COLORS.panelBg}, transparent)` }}><ChevronIcon direction="right" size={10} /></span>
             )}
-          </div>
-        )}
-
-        {/* Pair filter: the communications exchanged between two agents */}
-        {(agentsWithMessages.length > 1 || isPairSet(pair)) && (
-          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 overflow-y-auto">
+            </div>
             <button
               type="button"
               aria-expanded={pickerOpen}
               title="Filter on the messages exchanged between two agents (or Shift-click a second agent tab or message row)"
               onClick={() => setPickerOpen(v => !v)}
-              className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING}`}
-              style={{ color: pickerOpen ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+              className={`shrink-0 min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+              style={{ color: pickerOpen || isPairSet(pair) ? COLORS.textPrimary : COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
             >
               Filter pair
             </button>
+          </div>
+        )}
+
+        {/* Pair filter: the communications exchanged between two agents (toggle lives in the tab row) */}
+        {(pickerOpen || isPairSet(pair)) && (
+          <div className="px-2 py-1 flex flex-wrap items-center gap-1 flex-shrink-0 max-h-16 overflow-y-auto">
+            {!showTabs && (
+              <button
+                type="button"
+                aria-expanded={pickerOpen}
+                onClick={() => setPickerOpen(v => !v)}
+                className={`min-h-6 px-2 rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
+                style={{ color: COLORS.textMuted, border: `1px solid ${COLORS.controlBorder}` }}
+              >
+                Filter pair
+              </button>
+            )}
             <PairFilterChip pair={pair} nameOf={nameOfAgent} count={messages.length} onClear={clearPair} />
             {pickerOpen && (
               <span className="inline-flex flex-wrap items-center gap-1">
@@ -562,7 +587,7 @@ export function ConversationPanel({
                     aria-label={label}
                     value={value}
                     onChange={e => set(e.target.value)}
-                    className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING}`}
+                    className={`min-h-6 max-w-[120px] rounded text-[11px] font-mono ${FOCUS_RING_INSET}`}
                     style={{ background: COLORS.holoBg05, color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}` }}
                   >
                     <option value="">{label}</option>
@@ -576,7 +601,7 @@ export function ConversationPanel({
 
         {/* Teammates grouped under their team heading */}
         {teamGroups.length > 0 && (
-          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
+          <section aria-label={teamGroups.some(g => g.kind === 'workflow') ? 'Teams and workflows' : 'Teams'} tabIndex={0} className={`px-3 py-1.5 flex-shrink-0 max-h-24 overflow-y-auto ${FOCUS_RING_INSET}`} style={{ borderBottom: `1px solid ${COLORS.holoBorder06}`, scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}>
             {teamGroups.map(g => (
               <div key={g.key} role="group" aria-label={g.label}>
                 <h3 className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>
@@ -613,7 +638,7 @@ export function ConversationPanel({
         {/* Intentional: the log is not live (it would read every message). While pinned to the bottom the
             list is already in view; when scrolled up this polite status line announces only the unseen count. */}
         <div role="status" className="sr-only">{!isAtBottom && newCount > 0 ? newMessagesText : ''}</div>
-        <p role="status" className="m-0 px-3 py-1 text-[11px] font-mono empty:hidden" style={{ color: COLORS.textPrimary }}>{feedback}</p>
+        <p role="status" data-testid="copy-feedback" className={`m-0 px-3 text-[11px] font-mono ${feedback ? 'py-1' : ''}`} style={{ color: COLORS.textPrimary }}>{feedback}</p>
 
         {!isAtBottom && messages.length > 0 && (
           <div className="flex justify-center py-1 flex-shrink-0" style={{ borderTop: `1px solid ${COLORS.holoBorder06}` }}>
@@ -621,7 +646,7 @@ export function ConversationPanel({
               type="button"
               aria-controls={listId}
               onClick={scrollToBottom}
-              className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-3 min-h-6 rounded-full motion-safe:transition-all ${FOCUS_RING_INSET}`}
               style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.scrollBtnText }}
             >
               <ArrowDownIcon size={11} className="mr-1 align-[-1px]" />
@@ -638,6 +663,8 @@ export function ConversationPanel({
 function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
   if (type === 'assistant' && runtime === 'codex') return 'CODEX'
   if (type === 'assistant' && runtime === 'copilot') return 'COPILOT'
+  if (type === 'assistant' && runtime === 'pi') return 'PI'
+  if (type === 'assistant' && runtime === 'gemini') return 'GEMINI'
   return (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label
 }
 
@@ -650,7 +677,7 @@ function roleTermOf(agent: { kind?: string; isMain?: boolean }): string {
 
 // ── Tab Button ──
 
-function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread, done, accent }: {
+function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active, onClick, color, hasUnread, done, accent, count, working, isAll }: {
   id: string
   panelId: string
   buttonRef: (el: HTMLButtonElement | null) => void
@@ -665,6 +692,12 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
   done?: boolean
   /** Validated team color */
   accent?: string
+  /** Messages shown for this tab */
+  count?: number
+  /** The agent is running: its dot pulses */
+  working?: boolean
+  /** The 'All' tab has no state dot */
+  isAll?: boolean
 }) {
   const accessibleName = [fullName, stateText ? `(${stateText})` : '', hasUnread ? ', unread messages' : '']
     .filter(Boolean).join(' ')
@@ -680,15 +713,25 @@ function TabButton({ id, panelId, buttonRef, label, fullName, stateText, active,
       tabIndex={active ? 0 : -1}
       title={fullName}
       onClick={onClick}
-      className={`px-2 min-h-6 rounded text-[11px] font-mono motion-safe:transition-all shrink-0 relative ${FOCUS_RING}`}
+      className={`px-2 min-h-7 rounded-md text-xs font-mono motion-safe:transition-all shrink-0 relative inline-flex items-center gap-1.5 ${active ? 'font-semibold' : ''} ${FOCUS_RING_INSET}`}
       style={{
-        background: active ? color + '20' : 'transparent',
+        background: active ? color + '26' : COLORS.holoBg05,
         color: active ? color : COLORS.textMuted,
         ...tabBorderStyle({ active, color, accent, done }),
       }}
     >
+      {!isAll && (
+        <span
+          aria-hidden="true"
+          className={`inline-block w-2 h-2 rounded-full shrink-0 ${working ? 'motion-safe:animate-pulse' : ''}`}
+          style={{ background: color, opacity: done ? 0.5 : 1 }}
+        />
+      )}
       {label}
-      {done && <span aria-hidden="true" className="ml-1 text-[11px]">done</span>}
+      {count !== undefined && count > 0 && (
+        <span aria-hidden="true" className="text-[10px] tabular-nums px-1 rounded" style={{ background: COLORS.holoBg10, color: COLORS.textMuted }}>{count}</span>
+      )}
+      {done && <span aria-hidden="true" className="text-[11px]">done</span>}
       {hasUnread && (
         <>
           <span className="sr-only"> unread</span>
@@ -756,7 +799,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
         aria-pressed={isSelected}
         onClick={onClick}
         title={direction ? `${direction} - ${roleLabel}` : (showAgent ? `${agentName}: show this agent` : 'Show this agent')}
-        className={`block w-full min-h-6 text-left rounded ${FOCUS_RING}`}
+        className={`block w-full min-h-6 text-left rounded ${FOCUS_RING_INSET}`}
       >
         {/* Header row */}
         <span className="flex items-center gap-1.5 mb-0.5 flex-wrap">
@@ -805,7 +848,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={`Filter pair ${direction ?? ''}`.trim()}
           onClick={onFilterPair}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           Filter pair
@@ -817,7 +860,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-label={`Copy ${roleLabel.toLowerCase()}${direction ? `, ${direction}` : ''}`}
           onClick={onCopy}
-          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+          className={`text-[11px] font-mono mt-0.5 mr-1 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           Copy
@@ -830,7 +873,7 @@ function MessageRow({ message, agentName, fromName, toName, accent, sessionChip,
           type="button"
           aria-expanded={expanded}
           aria-controls={contentId}
-          className={`text-[11px] font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+          className={`text-[11px] font-mono mt-0.5 min-h-6 px-1 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
           onClick={() => setExpanded(prev => !prev)}
         >

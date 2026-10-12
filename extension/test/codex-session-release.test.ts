@@ -10,7 +10,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { CodexSessionWatcher } from '../src/codex-session-watcher'
-import { ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS } from '../src/constants'
+import { ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, POLL_FALLBACK_MS } from '../src/constants'
 
 type Internals = { sessions: Map<string, unknown>; dirWatchers: Map<string, unknown> }
 
@@ -94,6 +94,27 @@ describe('CodexSessionWatcher : libération des sessions terminées', () => {
     mock.timers.tick(1000)
     assert.equal(internals.sessions.size, 1)
     assert.deepEqual(lifecycle.filter(l => l.startsWith('started')), [`started:${uuid(1)}`, `started:${uuid(1)}`])
+  })
+
+  // #206 : dans le relais, une exception dans le poll est un uncaughtException fatal
+  it('une exception pendant la lecture du poll détache la session (ended) sans sortir du timer', () => {
+    fs.writeFileSync(rollout(1), metaLine)
+    watcher = new CodexSessionWatcher(null)
+    const lifecycle: string[] = []
+    let starts = 0
+    watcher.onSessionLifecycle(e => {
+      lifecycle.push(`${e.type}:${e.sessionId}`)
+      if (e.type === 'started' && ++starts === 2) throw new Error('listener failed')
+    })
+    watcher.start()
+    const internals = watcher as unknown as Internals
+    mock.timers.tick(INACTIVITY_TIMEOUT_MS + 1000) // terminée : la reprise refire 'started'
+    assert.equal(internals.sessions.size, 1)
+
+    fs.appendFileSync(rollout(1), JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'hi' } }) + '\n')
+    assert.doesNotThrow(() => mock.timers.tick(POLL_FALLBACK_MS))
+    assert.ok(lifecycle.includes(`ended:${uuid(1)}`), lifecycle.join(','))
+    assert.equal(lifecycle.filter(l => l === `ended:${uuid(1)}`).length, 2, 'inactivité puis détachement')
   })
 
   it('plafonne le nombre de sessions suivies en gardant les plus récentes', () => {

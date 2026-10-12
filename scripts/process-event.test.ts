@@ -245,3 +245,77 @@ test('tool errors are counted per agent and survive the fade-out of the tool cal
   assert.equal(s.agents.get(agentKeyOf('s1', 'a'))!.toolErrors, 2)
   assert.equal(s.agents.get(agentKeyOf('s2', 'a'))!.toolErrors, 0)
 })
+
+test('a tool_result row carries the pill its own output proves, and only after a success (#317)', () => {
+  const url = 'https://github.com/o/r/pull/42'
+  const calls: Array<[tool: string, inputData: Record<string, unknown> | undefined, result: string, isError?: boolean]> = [
+    ['Bash', { command: 'gh pr create --title t' }, `${url}\n`],
+    ['Grep', { pattern: 'x' }, 'Found 3 files\n/a\n/b\n/c'],
+    ['Bash', { command: 'gh pr create' }, `${url}\n`, true],
+    ['Bash', { command: `echo ${url}` }, `${url}\n`],
+    ['Bash', undefined, `${url}\n`],
+    ['Read', { file_path: '/a' }, 'Found 2 files'],
+  ]
+  const s = run([
+    { type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    ...calls.flatMap(([tool, inputData, result, isError], i) => [
+      { time: 10 * i + 1, type: 'tool_call_start' as const, payload: { agent: 'a', tool, args: `c${i}`, toolUseId: `t${i}`, ...(inputData ? { inputData } : {}) } },
+      { time: 10 * i + 2, type: 'tool_call_end' as const, payload: { agent: 'a', tool, result, toolUseId: `t${i}`, ...(isError ? { isError } : {}) } },
+    ]),
+  ])
+  const rows = s.conversations.get(agentKeyOf('default', 'a'))!.filter(m => m.type === 'tool_result')
+  const link = { kind: 'link', link: { kind: 'pr', number: 42, url } }
+  assert.deepEqual(rows.map(r => r.resultPill ?? null), [link, { kind: 'count', files: 3 }, null, null, null, null])
+  // The popup reads the same pill from the tool call node
+  assert.deepEqual(Array.from(s.toolCalls.values()).map(tc => tc.resultPill ?? null), [link, { kind: 'count', files: 3 }, null, null, null, null])
+})
+
+// #214: entries of the previous state must never be mutated, or memoised views (table view) keep stale rows
+function step(prev: SimulationState, e: Pick<SimulationEvent, 'type' | 'payload'> & { time: number }): SimulationState {
+  return processEvent({ time: e.time, type: e.type, payload: e.payload, sessionId: 's1' }, { ...prev, currentTime: e.time }, ctx)
+}
+
+function timelineSnapshot(s: SimulationState): string {
+  return JSON.stringify(Array.from(s.timelineEntries))
+}
+
+test('tool_call_start publishes a new timeline map and leaves the previous entry untouched (#214)', () => {
+  const prev = step(createEmptyState(), { time: 1, type: 'agent_spawn', payload: { name: 'a', isMain: true } })
+  const id = agentKeyOf('s1', 'a')
+  const before = prev.timelineEntries.get(id)!
+  const length = before.blocks.length
+  const next = step(prev, { time: 2, type: 'tool_call_start', payload: { agent: 'a', tool: 'Read', args: 'a.ts' } })
+  assert.equal(prev.timelineEntries.get(id)!.blocks.length, length, 'the previous entry keeps its block count')
+  assert.equal(prev.timelineEntries.get(id)!.blocks[length - 1].endTime, undefined, 'the previous last block stays open')
+  assert.notEqual(next.timelineEntries, prev.timelineEntries)
+  assert.notEqual(next.timelineEntries.get(id), before)
+  assert.equal(next.timelineEntries.get(id)!.blocks.length, length + 1)
+  assert.equal(next.timelineEntries.get(id)!.blocks[length - 1].endTime, 2)
+})
+
+test('no timeline event mutates an entry or a block of the previous state (#214)', () => {
+  const events: Array<Pick<SimulationEvent, 'type' | 'payload'>> = [
+    { type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    { type: 'agent_spawn', payload: { name: 'child', parent: 'a' } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'x' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: 'boom', isError: true } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Bash', args: 'y' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Bash', result: '', outcome: 'cancelled' } },
+    { type: 'tool_call_start', payload: { agent: 'a', tool: 'Read', args: 'z' } },
+    { type: 'tool_call_end', payload: { agent: 'a', tool: 'Read', result: 'ok' } },
+    { type: 'permission_requested', payload: { agent: 'a', tool: 'Bash' } },
+    { type: 'agent_complete', payload: { name: 'a' } },
+  ]
+  let state = createEmptyState()
+  events.forEach((e, i) => {
+    const before = timelineSnapshot(state)
+    const next = step(state, { ...e, time: i + 1 })
+    assert.equal(timelineSnapshot(state), before, `${e.type} left the previous timeline unchanged`)
+    assert.notEqual(next.timelineEntries, state.timelineEntries, `${e.type} publishes a new timeline map`)
+    state = next
+  })
+  const a = state.timelineEntries.get(agentKeyOf('s1', 'a'))!
+  assert.equal(a.endTime, 10)
+  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Thinking...', 'Bash: CANCELLED'])
+  assert.equal(state.timelineEntries.get(agentKeyOf('s1', 'child'))!.endTime, 10)
+})

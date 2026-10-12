@@ -67,6 +67,37 @@ test('clear history: Escape closes the confirmation and focus returns to the Cle
   assert.equal(document.activeElement, getByRole('button', { name: 'Clear history' }))
 })
 
+test('live/review swap: focus held in the bar moves to the primary control of the new bar (#258)', async () => {
+  const props = {
+    isPlaying: false, speed: 1, currentTime: 5, totalDuration: 10,
+    onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onResumeLive: noop, timelineEvents: [],
+  }
+  const r = render(<ControlBar {...props} isReviewing />)
+  const live = r.container.querySelector<HTMLElement>('[data-primary-control]')
+  assert.ok(live, 'the review bar has a primary control')
+  await act(async () => { live!.focus() })
+  await act(async () => { r.rerender(<ControlBar {...props} isReviewing={false} />) })
+  const next = r.container.querySelector<HTMLElement>('[data-primary-control]')
+  assert.ok(next, 'the live bar has a primary control')
+  assert.equal(document.activeElement, next, 'focus is carried over instead of dropping to <body>')
+})
+
+test('clear history: Escape pressed on the focused Confirm button cancels without reaching the global shortcuts (#258)', async () => {
+  const { getByRole, queryByRole } = reviewBar()
+  await act(async () => { fireEvent.click(getByRole('button', { name: 'Clear history' })) })
+  const seen: string[] = []
+  const spy = (e: KeyboardEvent) => { seen.push(e.key) }
+  window.addEventListener('keydown', spy)
+  try {
+    await act(async () => { fireEvent.keyDown(getByRole('button', { name: 'Confirm clear' }), { key: 'Escape' }) })
+  } finally {
+    window.removeEventListener('keydown', spy)
+  }
+  assert.equal(queryByRole('group', { name: 'Confirm clearing history' }), null)
+  assert.equal(document.activeElement, getByRole('button', { name: 'Clear history' }))
+  assert.deepEqual(seen, [], 'one Escape closes one layer')
+})
+
 // ─── Global shortcuts: real hook, real window listener ──────────────────────
 
 function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boolean }) {
@@ -74,7 +105,7 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
   useKeyboardShortcuts({
     togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleConversation: rec('conversation'),
     toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'),
-    toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'),
+    toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'), togglePresentation: rec('presentation'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
     openShortcuts: rec('shortcuts'), undoLast: () => { props.calls.push('undo'); return false },
@@ -125,6 +156,18 @@ test('P toggles the Context panel and S the Stats panel (#124)', () => {
   fireEvent.keyDown(document.body, { key: 'p' })
   fireEvent.keyDown(document.body, { key: 'S' })
   assert.deepEqual(calls, ['context', 'stats'])
+})
+
+test('V toggles presentation mode, and is inert when single-key shortcuts are off (#245)', () => {
+  const calls: string[] = []
+  const { rerender } = render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'v' })
+  fireEvent.keyDown(document.body, { key: 'V' })
+  assert.deepEqual(calls, ['presentation', 'presentation'])
+  calls.length = 0
+  rerender(<Harness calls={calls} closeResult singleKey={false} />)
+  fireEvent.keyDown(document.body, { key: 'v' })
+  assert.deepEqual(calls, [])
 })
 
 // ─── Context menu ───────────────────────────────────────────────────────────

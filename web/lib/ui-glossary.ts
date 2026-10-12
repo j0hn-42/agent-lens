@@ -23,9 +23,6 @@ export const HIERARCHY_TERMS = {
   teammate: 'Teammate',
 } as const
 
-/** The hierarchy as a sentence fragment, for help text. */
-export const HIERARCHY_TEXT = `${HIERARCHY_TERMS.session} > ${HIERARCHY_TERMS.agent} (${HIERARCHY_TERMS.main} / ${HIERARCHY_TERMS.lead}) > ${HIERARCHY_TERMS.subagent} / ${HIERARCHY_TERMS.teammate}`
-
 /** The one empty-state wording of the app: "No <things> yet". */
 export function emptyState(things: string): string {
   return `No ${things} yet`
@@ -108,6 +105,37 @@ export const EXPIRED_WARNING = 'Expired, end not observed: the result is unknown
 
 /** Warning for a result that was reported although the end of the call was not observed. */
 export const RESULT_WITHOUT_END_WARNING = `Result reported, ${END_NOT_OBSERVED}.`
+
+/** "Why this tool?" and the causal chain of a failure (issue #231): each line says what was observed, or that it cannot be proven. */
+export const WHY_LABELS = {
+  title: 'Why this tool?',
+  reasoning: 'Reasoning observed just before this call',
+  reasoningNone: 'No reasoning observed just before this call',
+  redacted: 'Reasoning not disclosed by the runtime',
+  incomplete: 'Older messages were dropped: earlier reasoning may be missing',
+  unknown: {
+    'no-tool-use-id': 'Not provable: this call has no tool_use_id',
+    'call-not-in-history': 'Not provable: the call is no longer in the kept history',
+    'history-truncated': 'Not provable: older messages were dropped',
+  },
+  chain: 'Causal chain of this failure',
+  failure: 'Failure',
+  noErrorText: 'Error text not reported',
+  chainReasoning: 'Reasoning before the failing call',
+  dispatchReasoning: 'Reasoning before the dispatch',
+  prompt: 'Latest prompt observed before it',
+  promptUnknown: {
+    'none-observed': 'No prompt observed before it',
+    'no-tool-use-id': 'Prompt not provable: the call has no tool_use_id',
+    'call-not-in-history': 'Prompt not provable: the call is no longer in the kept history',
+    'history-truncated': 'Prompt not provable: older messages were dropped',
+  },
+  stop: {
+    'dispatch-not-observed': 'Chain stops: the dispatch of this sub-agent was not observed',
+    'link-unverified': 'Chain stops: the link to its parent is unverified',
+    'parent-unknown': 'Chain stops: the parent is no longer listed',
+  },
+} as const
 
 /** Suffix of a timeline label whose call expired. */
 export const EXPIRED_LABEL_SUFFIX = `(expired, ${END_NOT_OBSERVED})`

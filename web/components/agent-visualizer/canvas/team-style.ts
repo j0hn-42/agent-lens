@@ -227,10 +227,10 @@ export interface AgentLabelLayout {
 
 /**
  * Lines drawn under a node. Teammates may use two name lines and a wider box; other agents keep
- * the single truncated line. `sessionLabel` is only shown when `showSession` is set.
+ * the single truncated line; a subagent adds its type above. `sessionLabel` is only shown when `showSession` is set.
  */
 export function layoutAgentLabel(
-  agent: Pick<Agent, 'kind' | 'name' | 'state' | 'activity' | 'sessionLabel'>,
+  agent: Pick<Agent, 'kind' | 'name' | 'state' | 'activity' | 'sessionLabel' | 'subagentType'>,
   radius: number,
   measure: MeasureText,
   showSession = false,
@@ -239,6 +239,9 @@ export function layoutAgentLabel(
   const teammate = agent.kind === 'teammate'
   const maxWidth = radius * (teammate ? TEAMMATE_LABEL_WIDTH_RADII : AGENT_DRAW.labelWidthMultiplier)
   const { lines, truncated } = wrapLabel(agent.name, maxWidth, measure, teammate ? TEAMMATE_NAME_LINES : 1)
+  // A subagent is named by its description; its type (the agent's real name, e.g. 'Explore') comes first
+  const type = agent.kind === 'subagent' ? cleanText(agent.subagentType, 40) : ''
+  if (type && type !== agent.name) lines.unshift(ellipsize(type, maxWidth, measure))
   // An orchestrator shows its badge and team / session name instead of the plain session line
   const session = showSession && !orchestrator ? cleanText(agent.sessionLabel, 40) : ''
   const sessionLine = session ? ellipsize(session, maxWidth, measure) : undefined

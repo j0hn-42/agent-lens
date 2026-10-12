@@ -101,7 +101,7 @@ test('legend steps open the legend and leave the saved preference alone', async 
   await page.getByRole('region', { name: 'Graph legend' }).waitFor()
   assert.equal(await page.evaluate(() => window.localStorage.getItem('agent-viz-legend-open')), null)
   // The tour also shows the idle and finished agents it talks about without saving 'Hide inactive agents'
-  assert.equal(await page.evaluate(() => window.localStorage.getItem('agent-lens:hide-inactive-agents')), null)
+  assert.equal(await page.evaluate(() => window.localStorage.getItem('agent-lens:ui-prefs')), null)
 })
 
 const apiDevListed = (page: Page, listed: boolean) => page.waitForFunction(
@@ -112,12 +112,18 @@ const apiDevListed = (page: Page, listed: boolean) => page.waitForFunction(
 /** Page opened with 'Hide inactive agents' saved as on (the default, made explicit) */
 async function openWithHideInactiveSaved() {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
-  await context.addInitScript(() => { if (window.localStorage.getItem('agent-lens:hide-inactive-agents') === null) window.localStorage.setItem('agent-lens:hide-inactive-agents', 'true') })
+  await context.addInitScript(() => { if (window.localStorage.getItem('agent-lens:ui-prefs') === null) window.localStorage.setItem('agent-lens:ui-prefs', JSON.stringify({ v: 1, prefs: { hideInactive: true } })) })
   const page = await context.newPage()
   await page.goto(`${server.url}/?scenario=guided`)
   const dialog = page.getByRole('dialog')
   await dialog.waitFor()
-  const stored = () => page.evaluate(() => window.localStorage.getItem('agent-lens:hide-inactive-agents'))
+  // The preference sits in the ui-prefs blob; its write is batched on a frame, so wait two frames before reading
+  const stored = () => page.evaluate(async () => {
+    await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+    const raw = window.localStorage.getItem('agent-lens:ui-prefs')
+    const v = raw ? JSON.parse(raw)?.prefs?.hideInactive : undefined
+    return typeof v === 'boolean' ? String(v) : null
+  })
   const hideToggle = page.getByRole('button', { name: 'Hide inactive agents' })
   assert.equal(await stored(), 'true')
   // The team step targets api-dev while it is idle: shown by the tour, while the toggle still reflects the preference

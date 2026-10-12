@@ -12,7 +12,7 @@ import {
   TranscriptEntry, ToolUseBlock, ToolResultBlock,
   emitSubagentSpawn,
 } from './protocol'
-import { readFileChunk } from './fs-utils'
+import { readLinesChunked } from './fs-utils'
 import { claudeProjectsDir } from './claude-config-dir'
 import {
   PREVIEW_MAX, ARGS_MAX, RESULT_MAX, MESSAGE_MAX,
@@ -38,6 +38,7 @@ import {
 } from './team-links'
 import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
+import { asyncLaunchOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
 
 const log = createLogger('TranscriptParser')
 
@@ -64,6 +65,35 @@ export function coerceToolUseBlock(block: Record<string, unknown>): ToolUseBlock
   const name = ostr(block.name, NORM_ID_MAX) || 'unknown'
   const input = isRecord(block.input) && !Array.isArray(block.input) ? block.input : {}
   return { type: 'tool_use', id, name, input }
+}
+
+/**
+ * A tool_result block with a string tool_use_id; content is kept when it is a string, an array or an
+ * object (anything else becomes ''), is_error only when boolean. Anything without an id is rejected.
+ */
+export function coerceToolResultBlock(block: Record<string, unknown>): ToolResultBlock | null {
+  if (typeof block.tool_use_id !== 'string') return null
+  const raw = block.content
+  const content: ToolResultBlock['content'] = typeof raw === 'string' || Array.isArray(raw) || isRecord(raw) ? raw : ''
+  return {
+    type: 'tool_result',
+    tool_use_id: block.tool_use_id,
+    content,
+    ...(typeof block.is_error === 'boolean' ? { is_error: block.is_error } : {}),
+  }
+}
+
+/** The user/assistant turn of a parsed line, or null for any other line or a turn without a message object. */
+function toTranscriptEntry(parsed: Record<string, unknown>): TranscriptEntry | null {
+  if (parsed.type !== 'user' && parsed.type !== 'assistant') return null
+  const msg = parsed.message
+  if (!isRecord(msg)) return null
+  return {
+    sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : '',
+    type: parsed.type,
+    uuid: typeof parsed.uuid === 'string' ? parsed.uuid : undefined,
+    message: msg as TranscriptEntry['message'],
+  }
 }
 
 /** Safely extract trimmed text from a text block */
@@ -100,32 +130,8 @@ const REDACTED_THINKING_LABEL = 'Thinking...'
 
 const PRESCAN_KEEP_HEAD = 50
 const PRESCAN_KEEP_TAIL = 400
-const PRESCAN_CHUNK_BYTES = 4 * 1024 * 1024
 
-/** Yield the lines of the first `size` bytes of a file, reading PRESCAN_CHUNK_BYTES at a time. */
-export function* readLinesChunked(filePath: string, size: number, chunkBytes = PRESCAN_CHUNK_BYTES): Generator<string> {
-  const fd = fs.openSync(filePath, 'r')
-  try {
-    let offset = 0
-    let carry: Buffer = Buffer.alloc(0)
-    while (offset < size) {
-      const len = Math.min(chunkBytes, size - offset)
-      const buf = Buffer.alloc(len)
-      const n = fs.readSync(fd, buf, 0, len, offset)
-      if (n <= 0) break
-      offset += n
-      let data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n)
-      const cut = data.lastIndexOf(0x0a)
-      if (cut < 0) { carry = Buffer.from(data); continue }
-      carry = Buffer.from(data.subarray(cut + 1))
-      data = data.subarray(0, cut)
-      for (const line of data.toString('utf-8').split(/\r?\n/)) yield line
-    }
-    if (carry.length) yield carry.toString('utf-8')
-  } finally {
-    fs.closeSync(fd)
-  }
-}
+export { readLinesChunked }
 
 /** Claude Code's text for a tool call the user interrupted (Esc / cancel) */
 const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
@@ -133,6 +139,40 @@ const INTERRUPTED_RESULT = /^\[Request interrupted by user/i
 /** A model that ran: Claude Code writes "<synthetic>" (an <angle-bracket> pseudo-model) on messages it makes itself. */
 function isRealModel(model: unknown): model is string {
   return typeof model === 'string' && model.trim() !== '' && !/^<.*>$/.test(model.trim())
+}
+
+/** A <task-notification> Claude Code queued for the model: `{ type: 'queue-operation', operation: 'enqueue', content }` (#239). */
+function isQueuedNotification(parsed: Record<string, unknown>): boolean {
+  return parsed.type === 'queue-operation' && parsed.operation === 'enqueue' && typeof parsed.content === 'string'
+}
+
+/** Claude Code's compaction marker: `{ type: 'system', subtype: 'compact_boundary', compactMetadata }` (#232). */
+function isCompactBoundary(parsed: Record<string, unknown>): boolean {
+  return parsed.type === 'system' && parsed.subtype === 'compact_boundary'
+}
+
+/** The fields of compactMetadata that can be proven: a known trigger, a positive whole size. Anything else is absent. */
+export function readCompactMetadata(meta: unknown): { trigger?: 'auto' | 'manual'; preTokens?: number } {
+  if (!isRecord(meta) || Array.isArray(meta)) return {}
+  const trigger = meta.trigger === 'auto' || meta.trigger === 'manual' ? meta.trigger : undefined
+  const pre = meta.preTokens
+  const preTokens = typeof pre === 'number' && Number.isSafeInteger(pre) && pre > 0 ? pre : undefined
+  return { ...(trigger ? { trigger } : {}), ...(preTokens !== undefined ? { preTokens } : {}) }
+}
+
+/** Dedup key of a compaction boundary; null without a uuid (nothing proves two such lines are the same). */
+function compactKey(uuid: unknown): string | null {
+  const id = ostr(uuid, NORM_ID_MAX)
+  return id ? `compact:${id}` : null
+}
+
+/** After a compaction the model only keeps the system prompt and the summary: the estimate restarts from there. */
+function resetContextEstimate(session: WatchedSession): void {
+  const bd = session.contextBreakdown
+  bd.userMessages = 0
+  bd.toolResults = 0
+  bd.reasoning = 0
+  bd.subagentResults = 0
 }
 
 export class TranscriptParser {
@@ -160,6 +200,9 @@ export class TranscriptParser {
 
   /** tool_use ids of Agent calls that spawned a teammate: their (immediate) result must not complete the node */
   private teammateSpawnIds = new Set<string>()
+
+  /** Background subagents launched and not yet finished (#239): only their <task-notification> finishes them. */
+  private backgroundLaunches = new BackgroundLaunches()
 
   /** Per-session input normalizers (bounded, oldest evicted): every emitted event goes through one. */
   private normalizers = new Map<string, SessionNormalizer>()
@@ -297,6 +340,39 @@ export class TranscriptParser {
     }
   }
 
+  /**
+   * Finish the background subagents a <task-notification> proves finished (#239): known terminal status,
+   * launch seen in this session. Each launch is finished once, whatever the number of copies of the notice.
+   */
+  private finishBackgroundSubagents(text: string, sessionId?: string): void {
+    for (const n of parseTaskNotifications(text)) {
+      const launch = this.backgroundLaunches.take(n, sessionId ?? '')
+      if (!launch) continue
+      this.subagentChildNames.delete(launch.toolUseId)
+      this.inlineSubagentState.delete(launch.toolUseId)
+      const durationS = n.durationMs !== undefined
+        ? Math.round(n.durationMs / 100) / 10
+        : launch.startTime !== undefined ? Math.round((Date.now() - launch.startTime) / 100) / 10 : undefined
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'subagent_return',
+        payload: {
+          child: launch.childName,
+          parent: launch.parent,
+          summary: n.report.slice(0, MESSAGE_MAX),
+          toolUseId: launch.toolUseId,
+          isError: n.terminalStatus !== 'completed',
+          ...(durationS !== undefined ? { durationS } : {}),
+        },
+      }, sessionId)
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'agent_complete',
+        payload: { name: launch.childName },
+      }, sessionId)
+    }
+  }
+
   /** Subagent registry for a session (created on demand). */
   getSubagentRegistry(sessionId?: string): SubagentRegistry {
     const key = sessionId ?? ''
@@ -318,8 +394,10 @@ export class TranscriptParser {
       this.leadAliases.delete(sessionId)
       this.normalizers.get(sessionId)?.dispose()
       this.normalizers.delete(sessionId)
+      this.backgroundLaunches.clearSession(sessionId)
     }
     for (const toolUseId of pendingToolUseIds) {
+      this.backgroundLaunches.delete(toolUseId)
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
       this.teammateSpawnIds.delete(toolUseId)
@@ -362,8 +440,19 @@ export class TranscriptParser {
       return
     }
 
+    if (isCompactBoundary(parsed)) {
+      this.handleCompactBoundary(parsed, agentName, ctxPending, sessionId, ctxSeenMessages)
+      return
+    }
+
     // Session name written by Claude Code (/rename, auto title): preferred over the first prompt
     if (sessionId && this.applySessionTitle(parsed, sessionId)) return
+
+    // A notification absorbed mid-turn is only logged as a queued operation (#239)
+    if (isQueuedNotification(parsed)) {
+      this.finishBackgroundSubagents(parsed.content as string, sessionId)
+      return
+    }
 
     // Only process actual conversation entries (user/assistant turns)
     if (parsed.type !== 'user' && parsed.type !== 'assistant') {
@@ -409,6 +498,7 @@ export class TranscriptParser {
     if (typeof msg.content === 'string' && msg.content.trim()) {
       if (role === 'user' || role === 'human') {
         const text = msg.content.trim()
+        this.finishBackgroundSubagents(text, sessionId)
         this.handleTeamNotifications(text, agentName, entry.uuid, seenMsgs, sessionId)
         // Skip system-injected context (continuation summaries, IDE context, etc.)
         if (!this.isSystemInjectedContent(text)) {
@@ -422,6 +512,13 @@ export class TranscriptParser {
               type: 'message',
               payload: { agent: agentName, role: 'user', content: text.slice(0, MESSAGE_MAX) },
             }, sessionId)
+          }
+        } else if (session && parsed.isCompactSummary === true && ctxPending === session.pendingToolCalls) {
+          // The compaction summary is not a prompt, but it is what the context now holds (#232)
+          const hash = entry.uuid ? `summary:${entry.uuid}` : `summary:${text.slice(0, HASH_PREFIX_MAX)}`
+          if (!seenMsgs?.has(hash)) {
+            seenMsgs?.add(hash)
+            session.contextBreakdown.userMessages += estimateTokensFromText(text)
           }
         }
       }
@@ -443,8 +540,9 @@ export class TranscriptParser {
         ctxSeen.add(toolBlock.id)
         this.handleToolUse(toolBlock, agentName, ctxPending, sessionId)
       } else if (block.type === 'tool_result') {
-        if (typeof block.tool_use_id !== 'string') { norm.noteMalformed(); continue }
-        this.handleToolResult(block as unknown as ToolResultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
+        const resultBlock = coerceToolResultBlock(block)
+        if (!resultBlock) { norm.noteMalformed(); continue }
+        this.handleToolResult(resultBlock, agentName, ctxPending, sessionId, parsed.toolUseResult)
       } else if (block.type === 'text' && 'text' in block) {
         this.handleTextBlock(block, emitRole, entry.uuid, agentName, seenMsgs, session, sessionId)
       } else if (block.type === 'thinking' && 'thinking' in block) {
@@ -453,6 +551,36 @@ export class TranscriptParser {
     }
 
     if (session) { this.delegate.emitContextUpdate(agentName, session, sessionId) }
+  }
+
+  /**
+   * A compaction boundary (#232): report it once (dedup by uuid) with what compactMetadata proves. On the
+   * session's own transcript the local estimate restarts from the system prompt; a subagent's boundary is
+   * reported for that subagent and leaves the session estimate alone.
+   */
+  private handleCompactBoundary(
+    parsed: Record<string, unknown>,
+    agentName: string,
+    ctxPending: Map<string, PendingToolCall>,
+    sessionId?: string,
+    ctxSeenMessages?: Set<string>,
+  ): void {
+    const session = sessionId ? this.delegate.getSession(sessionId) : undefined
+    const seen = ctxSeenMessages ?? session?.seenMessageHashes
+    const key = compactKey(parsed.uuid)
+    if (key && seen) {
+      if (seen.has(key)) return
+      seen.add(key)
+    }
+    this.delegate.emit({
+      time: this.delegate.elapsed(sessionId),
+      type: 'context_compacted',
+      payload: { agent: agentName, ...readCompactMetadata(parsed.compactMetadata) },
+    }, sessionId)
+    if (session && ctxPending === session.pendingToolCalls) {
+      resetContextEstimate(session)
+      this.delegate.emitContextUpdate(agentName, session, sessionId)
+    }
   }
 
   /** Process a text block — dedup, track tokens, emit message event */
@@ -467,7 +595,10 @@ export class TranscriptParser {
   ): void {
     const text = safeText(block)
     if (!text) return
-    if (emitRole === 'user') this.handleTeamNotifications(text, agentName, entryUuid, seenMsgs, sessionId)
+    if (emitRole === 'user') {
+      this.finishBackgroundSubagents(text, sessionId)
+      this.handleTeamNotifications(text, agentName, entryUuid, seenMsgs, sessionId)
+    }
     // Skip system/IDE context injected into user turns
     if (emitRole === 'user' && this.isSystemInjectedContent(text)) return
 
@@ -650,10 +781,13 @@ export class TranscriptParser {
     // Build discovery for file-related tools
     const discovery = buildDiscovery(toolName, pending?.filePath || '', result)
 
-    // Errors: the structured is_error flag is authoritative. Free-text heuristics only
-    // run for ordinary tools — a subagent report is prose that may legitimately
-    // contain words like "failed" or "not found".
-    const isError = block.is_error === true || (!isSubagentTool && detectError(result))
+    // Errors: when the structured is_error flag is present it is the sole authority
+    // (true or false). The free-text heuristic only runs when the flag is absent, and
+    // never for subagents: a report is prose that may legitimately contain words like
+    // "failed" or "not found".
+    const isError = typeof block.is_error === 'boolean'
+      ? block.is_error
+      : !isSubagentTool && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
@@ -666,8 +800,19 @@ export class TranscriptParser {
       this.inlineSubagentState.delete(block.tool_use_id)
     }
 
+    // A background launch receipt is not a finish (#239): the subagent keeps running until its notification
+    const asyncLaunch = isSubagentTool && !spawnedTeammate ? asyncLaunchOf(toolUseResult) : null
+    if (asyncLaunch) {
+      const childName = this.subagentChildNames.get(block.tool_use_id) || pending.args.slice(0, CHILD_NAME_MAX) || 'subagent'
+      this.backgroundLaunches.register({
+        toolUseId: block.tool_use_id, childName, parent: agentName, sessionId: sessionId ?? '',
+        ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
+        startTime: pending.startTime,
+      })
+    }
+
     // If it was a subagent call completing, emit subagent return
-    if (isSubagentTool && !spawnedTeammate) {
+    if (isSubagentTool && !spawnedTeammate && !asyncLaunch) {
       const childName = this.subagentChildNames.get(block.tool_use_id) || pending?.args?.slice(0, CHILD_NAME_MAX) || 'subagent'
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
@@ -762,8 +907,12 @@ export class TranscriptParser {
    * Pre-scan existing file content:
    * 1. Build seenToolUseIds dedup set (prevents re-emitting old tool calls)
    * 2. Return all entries for catch-up emission
+   * 3. Position the session for readTrackedLines: fileSize at the end of what was read, and an
+   *    unfinished last line (still being written) kept in fileTail, never parsed here.
    */
   prescanExistingContent(filePath: string, size: number, session: WatchedSession): TranscriptEntry[] {
+    session.fileSize = size
+    session.fileTail = ''
     if (size === 0) { return [] }
     const catchUpEntries: TranscriptEntry[] = []
     try {
@@ -772,19 +921,37 @@ export class TranscriptParser {
       // been accounted for in fileSize, causing readNewLines to silently skip them.
       // Streamed in bounded chunks: a multi-hundred-MB lead transcript is never held in memory at once.
       const norm = this.getNormalizer(session.sessionId)
-      for (const line of readLinesChunked(filePath, size)) {
+      for (const line of readLinesChunked(filePath, size, undefined, session)) {
         if (!line.trim()) { continue }
         try {
           const parsedEntry = norm.parseLine(line)
           if (!parsedEntry) { continue }
           this.setSessionTitle(session, parsedEntry)
-          const entry = parsedEntry as unknown as TranscriptEntry
+          if (isQueuedNotification(parsedEntry)) {
+            this.forgetNotifiedLaunches(parsedEntry.content as string, session.sessionId)
+            continue
+          }
+          if (isCompactBoundary(parsedEntry)) {
+            // An earlier compaction: what preceded it is no longer in the context; it is not listed (#232)
+            resetContextEstimate(session)
+            const key = compactKey(parsedEntry.uuid)
+            if (key) session.seenMessageHashes.add(key)
+            continue
+          }
+          const entry = toTranscriptEntry(parsedEntry)
+          if (!entry) {
+            // Same rule as the live path: a turn without a message object is malformed
+            if (parsedEntry.type === 'user' || parsedEntry.type === 'assistant') norm.noteMalformed()
+            continue
+          }
           // Build dedup sets for tool_use blocks and messages + accumulate token counts
-          const isUser = entry.message?.role === 'user' || entry.message?.role === 'human'
-          if (entry.message && Array.isArray(entry.message.content)) {
-            for (const block of entry.message.content) {
-              if (block.type === 'tool_use' && (block as ToolUseBlock).id) {
-                const toolBlock = block as ToolUseBlock
+          const isUser = entry.message.role === 'user' || entry.message.role === 'human'
+          if (Array.isArray(entry.message.content)) {
+            for (const block of entry.message.content as unknown[]) {
+              if (!isRecord(block)) { norm.noteMalformed(); continue }
+              if (block.type === 'tool_use') {
+                const toolBlock = coerceToolUseBlock(block)
+                if (!toolBlock) { norm.noteMalformed(); continue }
                 session.seenToolUseIds.add(toolBlock.id)
                 // Track subagent names so startWatchingSubagentFile assigns correct names
                 // and handleToolResult can resolve the child name on completion
@@ -794,7 +961,7 @@ export class TranscriptParser {
                   record.spawned = true
                   session.spawnedSubagents.add(record.name)
                   this.subagentChildNames.set(toolBlock.id, record.name)
-                  if (sanitizeTeamField(toolBlock.input?.team_name) && this.teammateSpawnIds.size < 256) {
+                  if (sanitizeTeamField(toolBlock.input.team_name) && this.teammateSpawnIds.size < 256) {
                     this.teammateSpawnIds.add(toolBlock.id)
                   }
                 }
@@ -804,15 +971,26 @@ export class TranscriptParser {
                 const filePath = typeof rawPath === 'string' ? rawPath : undefined
                 session.pendingToolCalls.set(toolBlock.id, { name: toolBlock.name, args, filePath, startTime: Date.now() })
               } else if (block.type === 'tool_result') {
-                const resultBlock = block as ToolResultBlock
-                // Clear matched pending tool call
-                if (resultBlock.tool_use_id) {
-                  session.pendingToolCalls.delete(resultBlock.tool_use_id)
+                const resultBlock = coerceToolResultBlock(block)
+                if (!resultBlock) { norm.noteMalformed(); continue }
+                // A background subagent launched in the history stays open until its notification (#239)
+                const launched = session.pendingToolCalls.get(resultBlock.tool_use_id)
+                const asyncLaunch = launched && (launched.name === 'Agent' || launched.name === 'Task')
+                  && !this.teammateSpawnIds.has(resultBlock.tool_use_id) ? asyncLaunchOf(parsedEntry.toolUseResult) : null
+                const childName = this.subagentChildNames.get(resultBlock.tool_use_id)
+                if (asyncLaunch && childName) {
+                  this.backgroundLaunches.register({
+                    toolUseId: resultBlock.tool_use_id, childName, parent: ORCHESTRATOR_NAME, sessionId: session.sessionId,
+                    ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
+                  })
                 }
+                // Clear matched pending tool call
+                session.pendingToolCalls.delete(resultBlock.tool_use_id)
                 // Accumulate tool result tokens
                 session.contextBreakdown.toolResults += estimateTokensFromContent(resultBlock.content)
               } else if (block.type === 'text' && 'text' in block) {
                 const text = safeText(block)
+                if (text && isUser) this.forgetNotifiedLaunches(text, session.sessionId)
                 if (text) {
                   const emitRole = isUser ? 'user' : 'assistant'
                   const hashKey = entry.uuid ? `${emitRole}:${entry.uuid}` : `${emitRole}:${text.slice(0, HASH_PREFIX_MAX)}`
@@ -830,24 +1008,23 @@ export class TranscriptParser {
                 }
               }
             }
-          } else if (entry.type === 'user' && typeof entry.message?.content === 'string') {
+          } else if (entry.type === 'user' && typeof entry.message.content === 'string') {
             const text = entry.message.content.trim()
             if (text) {
+              this.forgetNotifiedLaunches(text, session.sessionId)
               const hashKey = entry.uuid ? `user:${entry.uuid}` : `user:${text.slice(0, HASH_PREFIX_MAX)}`
               session.seenMessageHashes.add(hashKey)
               session.contextBreakdown.userMessages += estimateTokensFromText(text)
             }
           }
           // Extract model from first assistant message
-          if (entry.type === 'assistant' && isRealModel(entry.message?.model) && !session.model) {
+          if (entry.type === 'assistant' && isRealModel(entry.message.model) && !session.model) {
             session.model = entry.message.model
           }
           // Collect emittable entries (user and assistant turns)
-          if (entry.type === 'user' || entry.type === 'assistant') {
-            catchUpEntries.push(entry)
-            // Only the head (session label) and the recent tail (current turn) are needed for catch-up
-            if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
-          }
+          catchUpEntries.push(entry)
+          // Only the head (session label) and the recent tail (current turn) are needed for catch-up
+          if (catchUpEntries.length > PRESCAN_KEEP_HEAD + PRESCAN_KEEP_TAIL) catchUpEntries.splice(PRESCAN_KEEP_HEAD, 1)
         } catch (err) { norm.noteMalformed(); log.debug('Skipping malformed transcript line:', err) }
       }
       log.info(`Pre-scanned ${session.seenToolUseIds.size} existing tool_use IDs, ${catchUpEntries.length} entries total`)
@@ -855,8 +1032,16 @@ export class TranscriptParser {
       return catchUpEntries
     } catch (err) {
       log.error('Pre-scan failed:', err)
+      // What could not be read is skipped, not replayed (the position the callers used to set)
+      session.fileSize = size
+      session.fileTail = ''
       return []
     }
+  }
+
+  /** Pre-scan: a launch already notified as finished in the history is no longer open (nothing is emitted). */
+  private forgetNotifiedLaunches(text: string, sessionId: string): void {
+    for (const n of parseTaskNotifications(text)) this.backgroundLaunches.take(n, sessionId)
   }
 
   /** Emit message events for pre-existing transcript entries (catch-up on session detection).

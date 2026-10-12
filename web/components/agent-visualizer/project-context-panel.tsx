@@ -3,9 +3,13 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
+import { SessionWorkSection } from './session-work-section'
+import { CapabilitiesSection } from './capabilities-section'
+import { ResumeSection } from './resume-section'
+import type { ResumableSession } from '@/lib/resume-command'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
@@ -18,6 +22,14 @@ interface ProjectContextPanelProps {
   /** Set when the relay cannot be asked from here (VS Code, demo): states why instead of loading */
   unavailableReason?: string
   fetchContext: (sessionId: string) => Promise<ProjectContextData | 'unavailable'>
+  /** Relay origin for the PRs and issues of the session's project ('' = same origin); null or absent: none is requested (#228) */
+  relayOrigin?: string | null
+  /** Branch the selected session recorded; absent when it recorded none */
+  sessionBranch?: string
+  /** The selected session as listed (#240): its resume command is built from it, with no request */
+  session?: ResumableSession
+  /** Set only inside VS Code (#240): asks the extension for a terminal in the session's directory */
+  onOpenTerminal?: (sessionId: string) => void
   onClose: () => void
 }
 
@@ -55,7 +67,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
           <pre
             ref={preRef}
             aria-label={`${file.name} content`}
-            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING}`}
+            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING_INSET}`}
             style={{ background: COLORS.holoBg05, color: COLORS.assistantText, scrollbarWidth: 'thin' }}
           >{file.text}</pre>
         </>
@@ -78,7 +90,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
       zIndex={Z.sidePanel}
       width={rect?.w ?? 360}
-      attrs={dockAttrs('files', 'right', dock)}
+      attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       {children(rect?.h ?? '70vh')}
@@ -86,7 +98,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
   )
 }
 
-export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, onClose }: ProjectContextPanelProps) {
+export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, session, onOpenTerminal, onClose }: ProjectContextPanelProps) {
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
@@ -100,7 +112,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
   return (
     <ContextDock>
       {maxHeight => (
-      <div className="glass-card relative flex flex-col" style={{ maxHeight, background: COLORS.void }}>
+      <div className="glass-card relative flex flex-col" data-sensitive="" style={{ maxHeight, background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
           actions={canLoad && (
@@ -109,7 +121,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
               onClick={refresh}
               aria-label="Refresh project context"
               title="Refresh"
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
               Refresh
@@ -120,6 +132,9 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
         </PanelHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+          {/* Needs no relay: shown in VS Code as well, for the single selected session */}
+          {sessionId !== null && session?.id === sessionId && <ResumeSection session={session} onOpenTerminal={onOpenTerminal} />}
+
           {unavailableReason ? <Note>{unavailableReason}</Note>
             : sessionId === null ? <Note>Select a single session to see its project context.</Note>
             : current?.status === 'unavailable' ? <Note>No project context is available for this session (its working directory is unknown).</Note>
@@ -146,7 +161,12 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
                   </ul>
                 </section>
               )}
+              <CapabilitiesSection capabilities={data.capabilities} />
             </>
+          )}
+
+          {canLoad && relayOrigin != null && (
+            <SessionWorkSection relayOrigin={relayOrigin} sessionId={sessionId} sessionBranch={sessionBranch} active={visible} />
           )}
         </div>
       </div>

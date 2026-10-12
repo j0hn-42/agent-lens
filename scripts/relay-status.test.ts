@@ -70,9 +70,12 @@ describe('relay GET /status', () => {
     assert.equal(r.headers['cache-control'], 'no-store')
     assert.ok(r.body.length < 1024)
     const s = JSON.parse(r.body)
-    assert.deepEqual(Object.keys(s).sort(), ['allWorkspaces', 'hooksConfigured', 'relayVersion', 'runtimes', 'sessionCount', 'workspace'])
+    assert.deepEqual(Object.keys(s).sort(), ['allWorkspaces', 'disable1MContext', 'discovery', 'hooksConfigured', 'relayVersion', 'runtimes', 'sessionCount', 'skippedSessions', 'workspace'])
+    assert.deepEqual(s.skippedSessions, { watchLimit: 0, sizeLimit: 0, fileLimit: 0 })
+    assert.deepEqual(s.discovery, { projectDirsCapped: false, maxProjectDirs: 200, maxFilesPerDir: 500 })
     assert.deepEqual(s.runtimes, ['claude'])
     assert.equal(s.hooksConfigured, false)
+    assert.equal(s.disable1MContext, false)
     assert.equal(s.allWorkspaces, false)
     assert.equal(typeof s.sessionCount, 'number')
     assert.equal(typeof s.relayVersion, 'string')
@@ -88,6 +91,14 @@ describe('relay GET /status', () => {
     // Wait for the rate limiter bucket to hold a token (earlier test used one)
     const s = JSON.parse((await get('/status')).body)
     assert.equal(s.hooksConfigured, true)
+  })
+
+  it('reports disable1MContext when Claude Code settings set CLAUDE_CODE_DISABLE_1M_CONTEXT=1 (#249)', async () => {
+    const file = path.join(fakeHome, '.claude', 'settings.json')
+    const settings = JSON.parse(fs.readFileSync(file, 'utf8'))
+    fs.writeFileSync(file, JSON.stringify({ ...settings, env: { CLAUDE_CODE_DISABLE_1M_CONTEXT: '1' } }))
+    const s = JSON.parse((await get('/status')).body)
+    assert.equal(s.disable1MContext, true)
   })
 
   it('answers 403 to a foreign Host header (DNS rebinding)', async () => {

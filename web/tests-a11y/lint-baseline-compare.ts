@@ -1,4 +1,5 @@
 /** Pure helpers: compare jsx-a11y lint results with the per-violation baseline. */
+import { checkOpenIssue } from './axe-compare'
 
 export interface LintBaselineEntry {
   /** Path relative to web/, forward slashes */
@@ -48,13 +49,15 @@ export function compareLint(findings: readonly LintFinding[], baseline: readonly
   return { unexpected: unexpected.sort(), stale: stale.sort() }
 }
 
-export function validateLintBaseline(baseline: readonly LintBaselineEntry[]): string[] {
+export function validateLintBaseline(baseline: readonly LintBaselineEntry[], openIssues?: readonly number[]): string[] {
   const errors: string[] = []
   const keys = new Set<string>()
   baseline.forEach((e, i) => {
     if (!e.file || !e.rule) errors.push(`entry ${i}: file and rule are required`)
     if (!Number.isInteger(e.count) || e.count <= 0) errors.push(`entry ${i}: count must be a positive integer`)
     if (!Number.isInteger(e.issue) || e.issue <= 0) errors.push(`entry ${i}: issue must be a positive integer`)
+    const closed = checkOpenIssue(e.issue, openIssues)
+    if (closed) errors.push(`entry ${i}: ${closed}`)
     if (keys.has(key(e.file, e.rule))) errors.push(`entry ${i}: duplicate ${key(e.file, e.rule)}`)
     keys.add(key(e.file, e.rule))
   })

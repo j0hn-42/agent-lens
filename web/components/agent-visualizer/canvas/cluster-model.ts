@@ -22,7 +22,7 @@ import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 export interface SessionMeta {
   label?: string
   workspace?: string
-  runtime?: 'claude' | 'codex' | 'copilot'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   /** Repository of the session (both fields or none); see SessionInfo.projectId */
   projectId?: string
   projectName?: string
@@ -49,7 +49,7 @@ export interface Cluster {
   teamName?: string
   /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
   teamKind?: GroupKind
-  runtime: 'Claude' | 'Codex' | 'Copilot'
+  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI'
   workspace?: string
   /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
   projectName?: string
@@ -257,7 +257,7 @@ export function computeClusters(
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
       teamKind,
-      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : 'Claude',
+      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
       ...(project ? { projectName: project } : {}),
       status,
@@ -311,11 +311,6 @@ export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'titl
 /** Anchor of the halo label: top centre, just above the circle. */
 export function clusterLabelAnchor(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { x: number; y: number } {
   return { x: c.cx, y: c.cy - c.r }
-}
-
-/** Camera target (world centre and radius) that frames the cluster. */
-export function clusterBounds(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { cx: number; cy: number; r: number } {
-  return { cx: c.cx, cy: c.cy, r: c.r }
 }
 
 /** Label of one phase of a workflow on the canvas (#146) */

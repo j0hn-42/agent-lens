@@ -5,6 +5,7 @@
 import { test, afterEach, beforeEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { renderHook, cleanup, act } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-bridge'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
@@ -31,7 +32,7 @@ const setEnv = (k: (typeof ENV_KEYS)[number], v: string | undefined) => {
   if (v === undefined) delete env[k]; else env[k] = v
 }
 let posted: unknown[] = []
-const realPostMessage = window.postMessage
+const realDispatch = vscodeBridge!.dispatch.bind(vscodeBridge)
 let statusFetches = 0
 let statusUrls: string[] = []
 let statusOk = false
@@ -46,8 +47,10 @@ beforeEach(() => {
   for (const k of ENV_KEYS) if (k !== 'NODE_ENV') setEnv(k, undefined)
   FakeES.all = []; posted = []; statusFetches = 0; statusUrls = []; statusOk = false
   g.EventSource = FakeES
-  g.fetch = async (url: string) => { statusFetches++; statusUrls.push(url); return { ok: statusOk } }
-  ;(window as unknown as { postMessage: unknown }).postMessage = (d: unknown) => { posted.push(d) }
+  g.fetch = async (url: string, init?: { headers?: unknown }) => {
+    if (init?.headers) return { ok: false } // hooks-state read (#176), not a reachability probe
+    statusFetches++; statusUrls.push(url); return { ok: statusOk } }
+  mock.method(vscodeBridge!, 'dispatch', (d: unknown) => { posted.push(d) }) // what the relay forwards to the bridge
   mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
   mock.method(Math, 'random', () => 0) // no jitter: exact delays
 })
@@ -56,7 +59,6 @@ afterEach(() => {
   mock.timers.reset()
   mock.restoreAll()
   for (const k of ENV_KEYS) setEnv(k, savedEnv[k])
-  window.postMessage = realPostMessage
 })
 
 const tick = async (ms: number) => { await act(async () => { mock.timers.tick(ms); await Promise.resolve() }) }
@@ -193,6 +195,41 @@ test('relaySessionId asks the relay for one session and rejects the others', asy
   assert.equal(posted.length, 1)
 })
 
+test('hooksConfigured comes from GET /status only when the relay watches Claude Code (#176)', async () => {
+  relayEnv('4321')
+  const g = globalThis as unknown as { fetch: unknown }
+  let body: unknown = { runtimes: ['claude'], hooksConfigured: false }
+  g.fetch = async () => ({ ok: true, json: async () => body })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.hooksConfigured, undefined)
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(result.current.hooksConfigured, false)
+  body = { runtimes: ['codex'], hooksConfigured: false }
+  const second = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  const result2 = second.result
+  assert.equal(result2.current.hooksConfigured, undefined, 'Codex only: the flag says nothing')
+})
+
+test('disable1MContext comes from GET /status in relay mode, only when the relay watches Claude Code (#249)', async () => {
+  relayEnv('4321')
+  const g = globalThis as unknown as { fetch: unknown }
+  let body: unknown = { runtimes: ['claude'], hooksConfigured: true, disable1MContext: true }
+  g.fetch = async () => ({ ok: true, json: async () => body })
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.disable1MContext, false)
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(result.current.disable1MContext, true)
+  body = { runtimes: ['codex'], hooksConfigured: false, disable1MContext: true }
+  const second = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await tick(0)
+  assert.equal(second.result.current.disable1MContext, false, 'Codex only: the Claude Code flag says nothing')
+})
+
 test('unmount closes the stream and cancels reconnect timers', async () => {
   relayEnv()
   const { unmount } = renderHook(() => useVSCodeBridge())
@@ -258,7 +295,7 @@ test('inside VS Code the relay is not used, even in relay mode', async () => {
   assert.equal(result.current.reconnectAttempt, 1)
   assert.equal(result.current.connectionDetail, 'reconnecting (attempt 1, retry in 5s)')
   await act(async () => {
-    window.dispatchEvent(new (window as unknown as { MessageEvent: typeof MessageEvent }).MessageEvent('message', { data: { type: '__vscode-bridge-init' } }))
+    realDispatch({ type: '__vscode-bridge-init' })
   })
   assert.equal(result.current.isVSCode, true)
   assert.equal(stream.closed, true, 'the relay stream is released')

@@ -130,7 +130,8 @@ describe('CodexRolloutParser', () => {
 
   it('uses last_token_usage from token_count as authoritative context fill', () => {
     const { events, state } = runFixture()
-    assert.equal(state.lastReportedTokens, 12000)
+    // The fixture ends with a compaction: the pre-compaction total is no longer the current reading (#232)
+    assert.equal(state.lastReportedTokens, null)
     assert.equal(state.reportedContextWindow, 258400)
     // Every context_update after the token_count carries the authoritative
     // tokensMax from model_context_window.
