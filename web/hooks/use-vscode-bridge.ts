@@ -8,7 +8,10 @@ import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSum
 import {
   activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
-import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
+import {
+  vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice,
+  type PermissionBridgeMessage, type PermissionRequestMessage, type PermissionDecision,
+} from '@/lib/vscode-bridge'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
@@ -772,4 +775,162 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     relayLinkMode: source.mode,
     notice,
   }
+}
+
+// ─── Operator decisions (#240) ───────────────────────────────────────────────
+
+/** waiting: can be answered; sending: a decision left this page; sent: the extension handed a decision to Claude Code */
+export type PermissionRowState = 'waiting' | 'sending' | 'sent'
+
+export interface PermissionRow {
+  request: PermissionRequestMessage
+  state: PermissionRowState
+  /** The decision this page sent, when it sent one */
+  action?: PermissionDecision['action']
+}
+
+/** One polite announcement; `id` changes at each one so the same text is announced again */
+export type PermissionNotice =
+  | { id: number; kind: 'sent'; request: PermissionRequestMessage }
+  | { id: number; kind: 'closed'; request: PermissionRequestMessage; outcome: string }
+  | { id: number; kind: 'error'; reason: string; request?: PermissionRequestMessage }
+
+export interface PermissionState {
+  rows: readonly PermissionRow[]
+  notice: PermissionNotice | null
+  nextId: number
+}
+
+export type PermissionEvent =
+  | PermissionBridgeMessage
+  | { kind: 'decide'; nonce: string; action: PermissionDecision['action'] }
+  | { kind: 'dismiss'; nonce: string }
+
+export const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
+
+/** Sent rows kept on screen (oldest dropped); waiting rows are never dropped here, the extension ends them */
+export const MAX_SENT_PERMISSION_ROWS = 5
+
+/** Refusals after which the request still waits for a decision; any other refusal means it is gone */
+const STILL_WAITING_REASONS = new Set(['mismatch', 'message-required'])
+
+type NoticeBody =
+  | { kind: 'sent'; request: PermissionRequestMessage }
+  | { kind: 'closed'; request: PermissionRequestMessage; outcome: string }
+  | { kind: 'error'; reason: string; request?: PermissionRequestMessage }
+
+/**
+ * What the panel shows of the waiting requests. Only the extension's messages move a row to `sent` or remove it:
+ * a click only makes it `sending`. Nothing here ever says a decision was applied (docs/reading-the-ui.md).
+ */
+export function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionState {
+  const find = (nonce: string | null) => (nonce === null ? undefined : s.rows.find(r => r.request.nonce === nonce))
+  const announce = (n: NoticeBody) => ({ notice: { ...n, id: s.nextId } as PermissionNotice, nextId: s.nextId + 1 })
+  const withRow = (nonce: string, next: PermissionRow | null): PermissionRow[] => {
+    const rows = next
+      ? s.rows.map(r => (r.request.nonce === nonce ? next : r))
+      : s.rows.filter(r => r.request.nonce !== nonce)
+    const sent = rows.filter(r => r.state === 'sent')
+    return sent.length > MAX_SENT_PERMISSION_ROWS ? rows.filter(r => r !== sent[0]) : rows
+  }
+
+  switch (e.kind) {
+    case 'request': {
+      const row = find(e.request.nonce)
+      if (!row) return { ...s, rows: [...s.rows, { request: e.request, state: 'waiting' }] }
+      return row.state === 'waiting' ? { ...s, rows: withRow(e.request.nonce, { request: e.request, state: 'waiting' }) } : s
+    }
+    case 'decide': {
+      const row = find(e.nonce)
+      if (!row || row.state !== 'waiting') return s
+      return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action }) }
+    }
+    case 'dismiss': {
+      const row = find(e.nonce)
+      if (!row || row.state !== 'sent') return s
+      return { ...s, rows: withRow(e.nonce, null) }
+    }
+    case 'closed': {
+      const row = find(e.nonce)
+      if (!row || row.state === 'sent') return s
+      if (e.outcome === 'sent') {
+        return { ...s, rows: withRow(e.nonce, { ...row, state: 'sent' }), ...announce({ kind: 'sent', request: row.request }) }
+      }
+      return { ...s, rows: withRow(e.nonce, null), ...announce({ kind: 'closed', request: row.request, outcome: e.outcome }) }
+    }
+    case 'result': {
+      const row = find(e.nonce)
+      if (e.ok) {
+        if (!row || row.state === 'sent') return s
+        return { ...s, rows: withRow(row.request.nonce, { ...row, state: 'sent' }), ...announce({ kind: 'sent', request: row.request }) }
+      }
+      const reason = e.reason ?? 'unknown'
+      if (!row) {
+        // No request named: whatever this page was sending did not go through, it can be answered again
+        const rows = e.nonce === null
+          ? s.rows.map(r => (r.state === 'sending' ? { request: r.request, state: 'waiting' as const } : r))
+          : s.rows
+        return { ...s, rows, ...announce({ kind: 'error', reason }) }
+      }
+      if (row.state === 'sent') return s
+      const rows = STILL_WAITING_REASONS.has(reason)
+        ? withRow(row.request.nonce, { request: row.request, state: 'waiting' })
+        : withRow(row.request.nonce, null)
+      return { ...s, rows, ...announce({ kind: 'error', reason, request: row.request }) }
+    }
+  }
+}
+
+export interface PermissionRequestsResult {
+  /** Inside VS Code: the only place the extension offers decisions (#240) */
+  available: boolean
+  rows: readonly PermissionRow[]
+  notice: PermissionNotice | null
+  decide: (nonce: string, action: PermissionDecision['action']) => void
+  dismiss: (nonce: string) => void
+}
+
+/**
+ * Waiting permission requests of the VS Code extension (#240, PR 4). While mounted inside VS Code it declares the
+ * decision surface (the extension holds requests only then) and withdraws it when unmounted or when the page
+ * unloads. Outside VS Code it sends nothing and stays empty.
+ */
+export function usePermissionRequests(): PermissionRequestsResult {
+  const [available, setAvailable] = useState(false)
+  const stateRef = useRef<PermissionState>(EMPTY_PERMISSIONS)
+  const [, setVersion] = useState(0)
+
+  const apply = useCallback((e: PermissionEvent) => {
+    const next = reducePermissions(stateRef.current, e)
+    if (next === stateRef.current) return
+    stateRef.current = next
+    setVersion(v => v + 1)
+  }, [])
+
+  useEffect(() => vscodeBridge?.onInit(() => setAvailable(true)), [])
+
+  useEffect(() => {
+    if (!available || !vscodeBridge) return
+    // Listen first: the extension answers the surface with the requests already waiting
+    const off = vscodeBridge.onPermission(apply)
+    const detach = vscodeBridge.attachPermissionSurface()
+    return () => {
+      detach()
+      off()
+    }
+  }, [available, apply])
+
+  const decide = useCallback((nonce: string, action: PermissionDecision['action']) => {
+    const row = stateRef.current.rows.find(r => r.request.nonce === nonce)
+    if (!row || row.state !== 'waiting' || !vscodeBridge) return
+    // State first: a second click before the re-render finds the row 'sending' and sends nothing
+    apply({ kind: 'decide', nonce, action })
+    const { sessionId, toolUseId } = row.request
+    vscodeBridge.sendPermissionDecision({ sessionId, toolUseId, nonce, action })
+  }, [apply])
+
+  const dismiss = useCallback((nonce: string) => { apply({ kind: 'dismiss', nonce }) }, [apply])
+
+  const s = stateRef.current
+  return { available, rows: s.rows, notice: s.notice, decide, dismiss }
 }
