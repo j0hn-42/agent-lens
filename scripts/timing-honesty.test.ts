@@ -95,7 +95,7 @@ test('#109 a cancelled tool call is not a tool error, an errored one is', () => 
   ])
   const cancelled = round({ outcome: 'cancelled' })
   assert.equal(cancelled.agents.get(key)!.toolErrors, 0)
-  assert.equal(cancelled.agents.get(key)!.state, 'thinking')
+  assert.equal(cancelled.agents.get(key)!.state, 'idle', 'neither an error nor a thinking nobody observed (#362)')
   assert.equal(Array.from(cancelled.toolCalls.values())[0].errorMessage, undefined)
   const block = cancelled.timelineEntries.get(key)!.blocks.find(b => b.label.endsWith('CANCELLED'))!
   assert.notEqual(block.color, SCENE.error, 'cancelled is not drawn as an error')

@@ -176,7 +176,7 @@ test('a duplicate spawn of a live agent does not make it idle', () => {
       { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
       live === 'tool_calling'
         ? { type: 'tool_call_start', payload: { agent: 'w', tool: 'Bash', args: 'sleep 60' } }
-        : { type: 'message', payload: { agent: 'w', role: 'assistant', content: 'working' } },
+        : { type: 'message', payload: { agent: 'w', role: 'thinking', content: 'working' } },
       // a second source (hook server + session watcher) announces the same agent again
       { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
     ])

@@ -1,6 +1,6 @@
 import { SCENE } from '../../lib/colors'
 import { TOOL_DEDUP_WINDOW_S } from '../../lib/canvas-constants'
-import { pushTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
+import { pushTimelineBlock, closeTimelineBlock, type ProcessEventContext, type MutableEventState } from './process-event'
 import { appendConversation, asString, agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_PARTICLE, LABEL_LEN_TIMELINE } from './types'
 import { idString } from './agent-keys'
 import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
@@ -214,11 +214,18 @@ export function handleToolCallEnd(
   }
 
   if (agent) {
+    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
+    // Another call of this agent still running (a parallel batch): the agent is still calling that tool
+    let stillRunning: ToolCallNode | undefined
+    for (const [id, tc] of state.toolCalls) {
+      if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
+    }
     state.agents.set(agentName, {
       ...agent,
-      // A cancelled call is neither a success nor an agent failure
-      state: outcome === 'error' ? 'error' : 'thinking',
-      currentTool: undefined,
+      // A cancelled call is neither a success nor an agent failure. What the agent does next is unknown
+      // until its next event: neutral, never a 'thinking' nobody observed (#362)
+      state: outcome === 'error' ? 'error' : stillRunning ? 'tool_calling' : 'idle',
+      currentTool: stillRunning && outcome !== 'error' ? stillRunning.toolName : undefined,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
         ? addToken(agent, tokenCost, tokenSource)
@@ -227,7 +234,6 @@ export function handleToolCallEnd(
     })
 
     const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome
-    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
       if (id === matchedId) {
         pill = toolState === 'complete' ? provenResultPill(tc, result) : null
@@ -278,7 +284,9 @@ export function handleToolCallEnd(
         blocks[last] = { ...blocks[last], color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
         base = { ...entry, blocks }
       }
-      state.timelineEntries.set(agentName, pushTimelineBlock(base, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
+      // The call's block closes here, unless it belongs to a call still running; no 'Thinking...' block
+      // opens until a thinking block is observed (#362)
+      state.timelineEntries.set(agentName, stillRunning ? base : closeTimelineBlock(base, currentTime))
     }
 
     // File attention token cost

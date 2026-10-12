@@ -125,7 +125,12 @@ test('seeking between two moments where the agent is working keeps the running s
   const view = mount()
   send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
   advance(3_000)
-  send(view, [{ sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }, toolStart('alpha', 5)])
+  // The call ends, then an observed thinking block keeps the agent working until the next call (#362)
+  send(view, [
+    { sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } },
+    { sessionId: 's1', time: 4, type: 'message', payload: { agent: 'alpha', role: 'thinking', content: 'next step' } },
+    toolStart('alpha', 5),
+  ])
   const before = byName(view, 'alpha')
   assert.ok(isActiveState(before.state) && before.activeSince !== undefined, 'precondition: working with an open span')
   act(() => { view.result.current.seekToTime(4.5) })

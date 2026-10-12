@@ -1,7 +1,8 @@
 import type { ContextBreakdown } from '../../lib/agent-types'
+import { SCENE } from '../../lib/colors'
 import type { ConversationMessage } from './types'
 import { agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME, LABEL_LEN_TASK, LABEL_LEN_BUBBLE, MAX_BUBBLES } from './types'
-import type { MutableEventState } from './process-event'
+import { pushTimelineBlock, closeTimelineBlock, type MutableEventState, type ProcessEventContext } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
@@ -13,6 +14,7 @@ export function handleMessage(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
+  ctx: ProcessEventContext,
   sessionId: string = DEFAULT_SESSION_ID,
 ): void {
   const agentName = agentKeyOf(sessionId, idString(payload.agent))
@@ -53,13 +55,30 @@ export function handleMessage(
       }
     }
 
+    // Only an observed thinking block proves the agent thinks (#362). A prompt or an answer ends that
+    // block (and a past tool failure): the agent is then waiting for its next event, neutral.
     if (msgAgent.state !== 'complete' && msgAgent.state !== 'tool_calling') {
-      if (role === 'user' || role === 'thinking' || role === 'assistant') {
+      if (role === 'thinking') {
         updates.state = 'thinking'
+      } else if (msgAgent.state === 'thinking' || msgAgent.state === 'error') {
+        updates.state = 'idle'
       }
     }
     if (Object.keys(updates).length > 0) {
       state.agents.set(agentName, { ...msgAgent, ...updates })
+    }
+
+    if (msgAgent.state !== 'complete') {
+      const entry = state.timelineEntries.get(agentName)
+      if (entry) {
+        const lastBlock = entry.blocks[entry.blocks.length - 1]
+        const thinkingOpen = lastBlock !== undefined && lastBlock.type === 'thinking' && !lastBlock.endTime
+        if (role === 'thinking' && msgAgent.state !== 'tool_calling') {
+          if (!thinkingOpen) state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
+        } else if (role !== 'thinking' && thinkingOpen) {
+          state.timelineEntries.set(agentName, closeTimelineBlock(entry, currentTime, 'thinking'))
+        }
+      }
     }
   }
 
@@ -100,7 +119,7 @@ export function handleContextUpdate(
         : {}),
       tokensMax: tokensMaxOverride ?? windowCoveringUsage(agent.tokensMax, tokens ?? 0),
       contextBreakdown: breakdown || agent.contextBreakdown,
-      state: agent.state === 'complete' ? 'complete' : 'thinking'
+      // A context reading says nothing about what the agent is doing: its state stays as it was (#362)
     })
   }
 }
