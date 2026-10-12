@@ -11,7 +11,7 @@ const BUTTON_CLASS =
 interface MotionLayerControlsProps {
   locale: Locale
   calm: CalmLayers
-  /** Why every layer is already calm and cannot be changed: the OS asks for reduced motion, or Pause animations is on */
+  /** Why every layer is already calm and cannot be changed: the OS asks for reduced motion, or Freeze motion is on */
   lock: 'system' | 'pause' | null
   onToggle: (layer: MotionLayer) => void
 }

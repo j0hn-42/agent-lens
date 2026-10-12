@@ -12,7 +12,7 @@ test('four layers, in draw order, none calm by default', () => {
   assert.ok(MOTION_LAYERS_STORAGE_KEY.length > 0)
 })
 
-test('the global reduced motion (OS or Pause animations) calms every layer', () => {
+test('the global reduced motion (OS or Freeze motion) calms every layer', () => {
   for (const l of MOTION_LAYERS) assert.equal(layerIsCalm(true, DEFAULT_CALM_LAYERS, l), true)
   for (const l of MOTION_LAYERS) assert.equal(layerIsCalm(false, DEFAULT_CALM_LAYERS, l), false)
 })

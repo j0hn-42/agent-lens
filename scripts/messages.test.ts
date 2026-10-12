@@ -39,7 +39,7 @@ test('translate fills placeholders and falls back to the default locale for an u
 
 // Step 2: the catalog covers the canvas controls and the settings dialog
 // units and a word that is the same in both languages
-const SAME_IN_BOTH = new Set<string>(['controls.seconds', 'controls.minutes', 'settings.section.notifications', 'settings.language.fr', 'settings.language.en'])
+const SAME_IN_BOTH = new Set<string>(['controls.seconds', 'controls.minutes', 'controls.zoomGroup', 'settings.section.notifications', 'settings.language.fr', 'settings.language.en'])
 
 test('a French message is not a copy of the English one', () => {
   for (const k of Object.keys(MESSAGES.fr) as MessageKey[]) {
@@ -50,7 +50,7 @@ test('a French message is not a copy of the English one', () => {
 
 test('the controls and settings keys exist in every locale', () => {
   const wanted = [
-    'controls.zoomIn', 'controls.zoomOut', 'controls.fit', 'controls.fitLabel', 'controls.pause', 'controls.keepCards',
+    'controls.zoomIn', 'controls.zoomOut', 'controls.fit', 'controls.zoomGroup', 'controls.view', 'controls.viewSettings', 'controls.pause', 'controls.keepCards',
     'controls.expireAfter', 'controls.seconds', 'controls.minutes',
     'common.close', 'settings.title', 'settings.language', 'settings.language.auto', 'settings.theme',
     'settings.notify.cost.help', 'settings.notify.invalid',
@@ -61,4 +61,12 @@ test('the controls and settings keys exist in every locale', () => {
 test('a figure keeps its qualification in French (at least, estimated)', () => {
   assert.match(MESSAGES.fr['settings.notify.cost.help'], /au moins/)
   assert.match(MESSAGES.fr['settings.notify.cost.help'], /estim/)
+})
+
+test('the canvas control labels are the ones the owner validated, in both locales', () => {
+  const expected = {
+    fr: { fit: 'Tout afficher', pause: 'Figer les animations', keepCards: 'Garder les cartes affichées', expireAfter: 'Masquer les appels sans réponse après', view: 'Affichage', viewSettings: 'Réglages d’affichage', zoomIn: 'Zoom avant', zoomOut: 'Zoom arrière' },
+    en: { fit: 'Fit to view', pause: 'Freeze motion', keepCards: 'Pin cards', expireAfter: 'Hide unanswered calls after', view: 'View', viewSettings: 'View settings', zoomIn: 'Zoom in', zoomOut: 'Zoom out' },
+  } as const
+  for (const l of LOCALES) for (const [k, v] of Object.entries(expected[l])) assert.equal(MESSAGES[l][`controls.${k}` as MessageKey], v, `${l}.controls.${k}`)
 })

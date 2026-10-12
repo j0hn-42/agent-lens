@@ -40,7 +40,13 @@ test('when the system reduces motion every toggle is pressed, locked, and says w
   }
 })
 
-test('when Pause animations is on every toggle is pressed and locked, with its own reason', () => {
+test('the lock reason names the button by its current label, in each locale', () => {
+  assert.match(MESSAGES.en['motion.lockedByPause'], new RegExp(MESSAGES.en['controls.pause']))
+  assert.match(MESSAGES.fr['motion.lockedByPause'], new RegExp(MESSAGES.fr['controls.pause']))
+  assert.doesNotMatch(MESSAGES.en['motion.lockedByPause'], /Pause animations/)
+})
+
+test('when Freeze motion is on every toggle is pressed and locked, with its own reason', () => {
   const view = render(<MotionLayerControls locale="fr" calm={DEFAULT_CALM_LAYERS} lock="pause" onToggle={() => {}} />)
   for (const l of MOTION_LAYERS) {
     const b = view.getByRole('button', { name: MESSAGES.fr[`motion.layer.${l}`] }) as HTMLButtonElement

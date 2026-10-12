@@ -127,7 +127,7 @@ export function useCanvasCamera({
 
   // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
   // once the user panned/zoomed manually the camera stays where they put it
-  // (an explicit "Fit" or the fit trigger re-enables it).
+  // (an explicit "Fit to view" or the fit trigger re-enables it).
   useEffect(() => {
     targetTransformRef.current = null
   }, [selectedAgentId])
@@ -223,7 +223,7 @@ export function useCanvasCamera({
     }
 
     // Auto-fit rule (see classifyContentChange): a manual pan / zoom is respected when the content
-    // changes; auto-fit resumes only on the first content, a tab / scope change and the Fit button.
+    // changes; auto-fit resumes only on the first content, a tab / scope change and the "Fit to view" button.
     // The content set is fingerprinted without allocation every frame; the signature (sorted keys and
     // sessions) is built only when that fingerprint changes.
     const { agents, dimensions } = drawPropsRef.current
