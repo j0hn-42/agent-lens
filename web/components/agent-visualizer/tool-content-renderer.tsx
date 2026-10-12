@@ -4,7 +4,8 @@ import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
 import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
-import { SearchIcon, GlobeIcon, CheckIcon } from './feed-icons'
+import { editStats, shellCommands, type EditStats } from '@/lib/action-summary'
+import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
 type OpenFileCallback = (filePath: string, line?: number) => void
@@ -26,6 +27,8 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
   switch (toolName) {
     case 'Edit':
       return <EditContent data={inputData} compact={compact} />
+    case 'MultiEdit':
+      return <MultiEditContent data={inputData} compact={compact} />
     case 'TodoWrite':
       return <TodoContent data={inputData} />
     case 'Bash':
@@ -112,38 +115,91 @@ function FilePath({ path: filePath }: { path: string }) {
   )
 }
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. */
+function EditSummary({ stats }: { stats: EditStats }) {
+  return (
+    <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
+      <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
+      <span aria-hidden="true" style={{ color: COLORS.diffRemoved }}>-{stats.removed}</span>
+      <span className="sr-only">{plural(stats.added, 'line')} added, {plural(stats.removed, 'line')} removed</span>
+      {stats.blocks != null && <span style={{ color: COLORS.contentDim }}>{plural(stats.blocks, 'block')}</span>}
+    </div>
+  )
+}
+
+function DiffBlock({ oldText, newText, maxLines }: { oldText: string; newText: string; maxLines: number }) {
+  const old = truncateLines(oldText, maxLines)
+  const next = truncateLines(newText, maxLines)
+  return (
+    <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
+      {old.lines.map((line, i) => (
+        <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
+          <span className="sr-only">Removed: </span>
+          <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
+        </div>
+      ))}
+      {old.hidden > 0 && (
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
+      )}
+      {next.lines.map((line, i) => (
+        <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
+          <span className="sr-only">Added: </span>
+          <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
+        </div>
+      ))}
+      {next.hidden > 0 && (
+        <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
+      )}
+    </div>
+  )
+}
+
+const hiddenLines = (oldText: string, newText: string, max: number) =>
+  truncateLines(oldText, max).hidden + truncateLines(newText, max).hidden
+
 function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
-  const maxLines = showAll ? Infinity : (compact ? 4 : 8)
-  const old = truncateLines(String(data.old_string || ''), maxLines)
-  const next = truncateLines(String(data.new_string || ''), maxLines)
-  const hiddenTotal = old.hidden + next.hidden
+  const oldText = String(data.old_string || '')
+  const newText = String(data.new_string || '')
+  const base = compact ? 4 : 8
+  const stats = editStats('Edit', data)
 
   return (
     <div>
       <FilePath path={filePath} />
-      <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
-        {old.lines.map((line, i) => (
-          <div key={`old-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffRemoved, background: COLORS.diffRemovedBg }}>
-            <span className="sr-only">Removed: </span>
-            <span aria-hidden="true" className="mr-1">-</span>{line || ' '}
-          </div>
-        ))}
-        {old.hidden > 0 && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffRemoved }}>… (+{old.hidden} lines removed)</div>
-        )}
-        {next.lines.map((line, i) => (
-          <div key={`new-${i}`} className="px-1.5 py-px" style={{ color: COLORS.diffAdded, background: COLORS.diffAddedBg }}>
-            <span className="sr-only">Added: </span>
-            <span aria-hidden="true" className="mr-1">+</span>{line || ' '}
-          </div>
-        ))}
-        {next.hidden > 0 && (
-          <div className="px-1.5 py-px" style={{ color: COLORS.diffAdded }}>… (+{next.hidden} lines added)</div>
-        )}
-      </div>
-      <ShowAllToggle visible={hiddenTotal > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+      {stats && <EditSummary stats={stats} />}
+      <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
+      <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+    </div>
+  )
+}
+
+function MultiEditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  const filePath = String(data.file_path || '')
+  const stats = editStats('MultiEdit', data)
+  // editStats only returns stats when every block carries both strings
+  const edits = stats ? (data.edits as Array<{ old_string: string; new_string: string }>) : []
+  const base = compact ? 4 : 8
+
+  return (
+    <div>
+      <FilePath path={filePath} />
+      {stats && <EditSummary stats={stats} />}
+      {edits.map((e, i) => (
+        <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
+          <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
+          <DiffBlock oldText={e.old_string} newText={e.new_string} maxLines={showAll ? Infinity : base} />
+        </div>
+      ))}
+      <ShowAllToggle
+        visible={showAll || edits.some(e => hiddenLines(e.old_string, e.new_string, base) > 0)}
+        showAll={showAll}
+        onToggle={() => setShowAll(v => !v)}
+      />
     </div>
   )
 }
@@ -198,6 +254,7 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
   const command = String(data.command || '')
   const description = String(data.description || '')
   const maxLen = compact ? 120 : 300
+  const vcs = shellCommands(command)
 
   return (
     <div>
@@ -208,6 +265,20 @@ function BashContent({ data, compact }: { data: Record<string, unknown>; compact
         <span aria-hidden="true" className="mr-1" style={{ color: COLORS.contentDim }}>$</span>
         <ClampedText text={command} max={maxLen} />
       </div>
+      {vcs.length > 0 && (
+        <ul aria-label="Version control commands" className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
+          {vcs.map(c => (
+            <li
+              key={`${c.tool} ${c.sub}`}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono"
+              style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }}
+            >
+              {c.tool === 'git' ? <GitIcon size={11} /> : <GhIcon size={11} />}
+              {c.tool} {c.sub}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

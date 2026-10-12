@@ -71,6 +71,13 @@ Click a tool call (or press Enter on its button in the graph list, or on the foc
 
 A failed call also gets a **Causal chain of this failure**, an ordered list from the failure back to the prompt: the error text, the reasoning before the call, then for a sub-agent the dispatch that started it (who dispatched whom, with the full prompt and the parent's reasoning before the dispatch), and finally the **latest prompt observed before it** in the root agent's conversation. A hop needs the dispatch message with the same `tool_use_id` and a *verified* parent-child link; otherwise the chain stops with `Chain stops: ...` and says why. The prompt is an ordering fact (the latest one seen before), not a claim that it caused the failure. The derivation lives in `web/lib/tool-reasoning.ts`.
 
+## What the action cards show
+
+Some tool calls have their own card content in the popup and the transcript. Every figure comes from the call's own input; when the input does not carry it, nothing is shown.
+
+- **Edit / MultiEdit**: a `+N -M` summary (lines of `new_string` and `old_string`, summed over the blocks for MultiEdit, with the block count). The sign and a spoken equivalent ("2 lines added, 3 lines removed") carry the meaning, not the color. A MultiEdit whose blocks are incomplete shows no summary.
+- **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
+
 ## Themes
 
 The **Theme** selector in the top bar (View controls) offers nine themes, all dark:
