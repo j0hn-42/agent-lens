@@ -87,7 +87,7 @@ The view (SSE `{"type":"launch","launch":{...}}`, the list `{"type":"launch-list
 | Output kept | the last 256 KB of stdout+stderr in a ring buffer; only its size is exposed |
 | Finished launches remembered | the last 20 |
 
-When the relay exits, every running child is killed with `SIGKILL` at once: the process is going away, and a grace timer would not survive it. The worktree stays.
+When the relay exits (Ctrl+C, `SIGTERM`, `SIGHUP` when the terminal closes, or an uncaught exception), every running child is killed with `SIGKILL` at once: the process is going away, and a grace timer would not survive it. The worktree stays.
 
 ## Environment of the child
 
