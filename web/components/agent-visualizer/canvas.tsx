@@ -150,10 +150,13 @@ export function AgentCanvas(props: CanvasProps) {
   const tooltipContent = tooltipTarget ? describeTooltip(tooltipTarget, simulationRef.current) : null
 
   // ─── Keyboard focus entry ──────────────────────────────────────────────
-  const handleWrapperFocus = useCallback((e: React.FocusEvent) => {
-    if (e.target !== e.currentTarget || focusedNodeRef.current) return
+  // Runs from the root's focus observer (the graph surface itself carries only its key handlers)
+  const graphSurfaceRef = useRef<HTMLDivElement>(null)
+  const handleSurfaceFocus = useCallback((e: React.FocusEvent) => {
+    const surface = graphSurfaceRef.current
+    if (!surface || e.target !== surface || focusedNodeRef.current) return
     // Only keyboard focus gets the automatic ring; a mouse click must not (matches :focus-visible)
-    try { if (!e.currentTarget.matches(':focus-visible')) return } catch { /* older engines: fall through */ }
+    try { if (!surface.matches(':focus-visible')) return } catch { /* older engines: fall through */ }
     // Show the ring immediately when keyboard focus lands on the graph
     const p = drawPropsRef.current
     const order = buildNodeOrder(p.agents, p.toolCalls, p.discoveries)
@@ -165,12 +168,15 @@ export function AgentCanvas(props: CanvasProps) {
   const rootCursor = isDragging ? 'grabbing' : overInteractive ? 'pointer' : 'grab'
 
   return (
+    // Root: a presentational focus observer (has focus within: focus tooltip, keyboard focus entry); it is
+    // not an interaction target itself
     <div
       ref={containerRef}
+      role="presentation"
       data-agent-canvas-root=""
       className="relative w-full h-full overflow-hidden"
       style={{ cursor: rootCursor }}
-      onFocus={() => setHasFocus(true)}
+      onFocus={(e) => { setHasFocus(true); handleSurfaceFocus(e) }}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setHasFocus(false)
       }}
@@ -178,11 +184,11 @@ export function AgentCanvas(props: CanvasProps) {
       {/* Graph surface: one image for assistive tech (its content is in the outline below),
           focusable so the keyboard map works (arrows, Enter, +/-/0, Shift+arrows, context menu key). */}
       <div
+        ref={graphSurfaceRef}
         role="img"
         aria-label={a11yModel.summary}
         aria-describedby="graph-keyboard-help"
         tabIndex={0}
-        onFocus={handleWrapperFocus}
         onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
         {...keyHandlers}
         className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"

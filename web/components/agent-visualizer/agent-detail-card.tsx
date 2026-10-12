@@ -135,12 +135,14 @@ export function AgentDetailCard({
   const teamColor = safeTeamColor(agent.teamColor)
 
   return (
+    // Key boundary of the dialog (Escape, see dialogEscapeHandler): a box-less presentational wrapper,
+    // so the dialog itself carries no handler and its layout is unchanged (display: contents).
+    <div role="presentation" style={{ display: 'contents' }} onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}>
     <div
       ref={ref}
       role="dialog"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onEscape ?? onClose)}
       {...dockAttrs('detail', 'left', dock)}
       className="agent-detail-card outline-none"
       style={{
@@ -330,6 +332,7 @@ export function AgentDetailCard({
           />
         )}
       </GlassCard>
+    </div>
     </div>
   )
 }
