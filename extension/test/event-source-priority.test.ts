@@ -204,6 +204,15 @@ describe('EventReconciler overlap', () => {
     assert.deepEqual(out.map(e => e.replayed), [true, true, true])
   })
 
+  it('asReplayed: what is re-sent to a reconnecting client is replayed, delivered at once, and the next live event is not (#361)', () => {
+    const { r, out } = harness()
+    r.asReplayed(() => {
+      r.submit(ev('agent_spawn', { name: 'orchestrator' }), { source: 'jsonl' })
+    })
+    r.submit(ev('tool_call_start', { toolUseId: 'next' }), { source: 'jsonl' })
+    assert.deepEqual(out.map(e => [e.type, e.replayed]), [['agent_spawn', true], ['tool_call_start', undefined]])
+  })
+
   it('bounds the remembered ids per session (oldest forgotten)', () => {
     const out: AgentEvent[] = []
     const r = new EventReconciler({ deliver: e => out.push(e), maxPerSession: 2 })

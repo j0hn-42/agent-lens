@@ -48,5 +48,8 @@ describe('webview replay of workflow agents', () => {
     assert.ok(again, 'the teammate is replayed')
     assert.equal(again.payload.teamKind, 'workflow')
     assert.equal(again.payload.teamName, 'demo-flow')
+    // #361: a reopened panel gets a replay, not live news
+    assert.ok(replayed.length > 0)
+    for (const e of replayed) assert.equal(e.replayed, true, `${e.type} re-sent to a reopened webview is marked replayed`)
   })
 })
