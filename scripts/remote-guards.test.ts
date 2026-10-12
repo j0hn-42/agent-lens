@@ -99,6 +99,10 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     const scope = await request('POST', '/scope', { Host: TUNNEL, 'Content-Type': 'application/json' }, '{"scope":"all"}')
     assert.equal(scope.status, 403)
     assert.equal(JSON.parse((await request('GET', '/status')).body).allWorkspaces, false, 'POST /scope through the tunnel changed nothing')
+    // Launching an agent (#229) is never on the remote surface: refused at the gate, before any route or token check
+    const auth = { Host: TUNNEL, 'Content-Type': 'application/json', Authorization: `Bearer ${'e'.repeat(64)}` }
+    assert.equal((await request('POST', '/launch', auth, '{"repo":"o/n","issue":1,"role":"qa-engineer"}')).status, 403)
+    assert.equal((await request('POST', '/launch/0123456789abcdef/stop', auth)).status, 403)
     assert.equal(relay.debugState().statusRuns, before.statusRuns + 1, 'only the loopback /status above was computed')
   })
 

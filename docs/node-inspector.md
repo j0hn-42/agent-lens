@@ -86,12 +86,13 @@ Only relay mode (dev relay, standalone app) serves links; the VS Code webview ha
 
 ## Launch an agent on an issue (#229)
 
-**Not yet enabled.** No button, route or process exists yet: only the validation rules below are in the code
-(`extension/src/launch-policy.ts`, pure functions, tested in `scripts/launch-policy.test.ts`). The process
-supervisor and the opt-in route (`--allow-launch`, off by default) come next, then the button. Until then, nothing
-in Agent Lens can start a `claude` process.
+**Off by default, and no button yet.** The validation rules below are in `extension/src/launch-policy.ts` (pure
+functions, tested in `scripts/launch-policy.test.ts`). The process supervisor, the journal and the opt-in route are in
+too (`--allow-launch`, see [launch-security.md](launch-security.md) for the token, the guards, the states and the
+journal); the button and the dialog come next. Without `--allow-launch`, nothing in Agent Lens can start a `claude`
+process: the routes answer 404.
 
-When it is enabled, a launch will be refused unless every check passes:
+When it is enabled, a launch is refused unless every check passes:
 
 - the request body is exactly `{"repo": "<owner>/<name>", "issue": <positive integer>, "role": "<role>"}`; the role
   has the same shape as for the issue links above and is not silently lower-cased;
@@ -128,10 +129,10 @@ claude -p --worktree issue-<n>-<role> --session-id <uuid> --output-format stream
 
 These rules are permission rules, not a sandbox: they reduce what a prompt injection in the issue can do, they do
 not make it impossible. Running the agent under an OS-level sandbox and with a neutral git configuration is left
-to the process supervisor (next step). The issue author is checked, not the authors of its comments: the comments
+to a later step: the supervisor only filters the environment of the child and starts it in its own process group. The issue author is checked, not the authors of its comments: the comments
 are not part of the allowed `gh issue view` command.
 
-Proposed caps (still open for discussion on #229): 1 simultaneous launch by default (2 at most), 1 per issue,
+Caps (enforced by the supervisor): 1 simultaneous launch by default (2 at most), 1 per issue,
 60 min of wall-clock time, a budget of $5 by default and $20 at most (whole cents from $0.01; a larger amount is
 refused, never lowered silently), and the last 256 KB of output kept.
 

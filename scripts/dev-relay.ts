@@ -6,25 +6,36 @@
 import * as http from 'http'
 import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { isDevWebOrigin, parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../extension/src/relay-guards'
+import { isDevWebOrigin, parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isLaunchPath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
+import { launchStartupError, launchTokenNotice } from './routes/launch'
 
 async function main() {
   // dev-relay [workspace] [--import <path>]... (imported transcripts, #294; env: AGENT_LENS_IMPORT)
   const args = process.argv.slice(2)
   const imports: string[] = []
+  let allowLaunch = false
+  const launchRepos: string[] = []
   let workspaceArg: string | undefined
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--import') { if (args[i + 1]) imports.push(args[i + 1]); i++ }
+    else if (args[i] === '--allow-launch') allowLaunch = true
+    else if (args[i] === '--launch-repo') { if (args[i + 1]) launchRepos.push(args[i + 1]); i++ }
     else if (!workspaceArg) workspaceArg = args[i]
   }
+  // Launching an agent from the UI (#229) is OFF unless asked for, and then needs an explicit repository list (fail closed)
+  const launchError = launchStartupError({ allowLaunch, repos: launchRepos })
+  if (launchError) { console.error(`Agent Lens: ${launchError}`); process.exit(2) }
   const workspace = workspaceArg || process.cwd()
 
   console.log('Starting Agent Lens dev relay...\n')
   console.log(`Workspace: ${workspace}`)
 
-  const relay = await createRelay({ workspace, verbose: true, ...(imports.length > 0 ? { imports } : {}) })
+  const relay = await createRelay({
+    workspace, verbose: true, ...(imports.length > 0 ? { imports } : {}),
+    ...(allowLaunch ? { launch: { repos: launchRepos, onToken: token => console.log(`\n${launchTokenNotice(token, launchRepos)}\n`) } } : {}),
+  })
 
   const server = http.createServer((req, res) => {
     // Echo back the request Origin only for the dev web server's port (3000, or AGENT_LENS_WEB_PORT
@@ -35,7 +46,7 @@ async function main() {
       res.setHeader('Vary', 'Origin')
     }
     res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS, POST')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
     // Security headers, GET/HEAD/OPTIONS only (405), session parameter validation (400)
     if (guardRequest(req, res, { kind: 'api' })) return
@@ -60,6 +71,11 @@ async function main() {
     // Run-time scope (#291): the only POST; JSON body, same-site only, rate-limited
     if (isScopePath(req.url)) {
       return relay.handleScope(req, res)
+    }
+
+    // Launch / stop an agent (#229): 404 unless --allow-launch; loopback, token, caps
+    if (isLaunchPath(req.url)) {
+      return relay.handleLaunch(req, res)
     }
 
     if (observationsRoute(req.url)) {

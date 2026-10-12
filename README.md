@@ -177,6 +177,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Node inspector](docs/node-inspector.md): model, cost attribution, issue and PR links
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
+- [Launching an agent](docs/launch-security.md): the opt-in `--allow-launch` route, its token, guards, caps and journal
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
 - [MCP server](docs/mcp-server.md): give Claude the observations as MCP tools, and how to register it in `.mcp.json`
 - [Session export](docs/session-export.md): the standalone HTML replay, what it contains and how secrets are redacted

@@ -18,7 +18,7 @@ import * as http from 'http'
 import type { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_BODY_TIMEOUT_MS } from '../../extension/src/constants'
 import {
-  buildLaunchCommand, checkRepoAllowed, evaluateIssue, issueLookupCommand, newSessionId, parseLaunchRequest,
+  buildLaunchCommand, checkRepoAllowed, evaluateIssue, issueLookupCommand, newSessionId, parseLaunchRequest, parseRepoAllowlist,
   type LaunchRefusal, type LaunchRequest,
 } from '../../extension/src/launch-policy'
 import { applySecurityHeaders } from '../server-hardening'
@@ -28,6 +28,32 @@ import { isJsonContentType, readLimitedBody } from './scope'
 
 const TOKEN_MIN_LENGTH = 32
 const STOP_PATH_RE = /^\/launch\/([0-9a-f]{16})\/stop$/
+
+/**
+ * Why the start must stop (exit code 2), or null. Launching needs --allow-launch AND at least one valid --launch-repo;
+ * a repository given without --allow-launch is refused too, so that no one believes a flag protects something it does not.
+ * The message never echoes the raw value.
+ */
+export function launchStartupError(opts: { allowLaunch: boolean; repos: readonly string[] }): string | null {
+  if (!opts.allowLaunch) {
+    return opts.repos.length > 0 ? '--launch-repo has no effect without --allow-launch: add --allow-launch, or remove it (#229).' : null
+  }
+  const list = parseRepoAllowlist([...opts.repos])
+  if (!list.ok || list.value.size === 0) {
+    return '--allow-launch needs at least one --launch-repo <owner/name> (letters, digits, "-", "_", "."; no URL), and every one must be valid (#229).'
+  }
+  return null
+}
+
+/** What the console shows at startup. The token is shown here and nowhere else: never served over HTTP, never written to a file. */
+export function launchTokenNotice(token: string, repos: readonly string[]): string {
+  return [
+    `Launch is ON for: ${repos.join(', ')}`,
+    'Token of this start (paste it in the launch dialog; it is kept in memory only and changes at each start):',
+    `  ${token}`,
+    'Anyone who has it and can reach 127.0.0.1 can start an agent on those repositories. See docs/launch-security.md',
+  ].join('\n')
+}
 
 /** 256 random bits, hex. New at every start of the relay; never written to disk, never in a URL. */
 export function newLaunchToken(): string {

@@ -10,7 +10,7 @@ import { EventEmitter } from 'node:events'
 import { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { buildLaunchCommand } from '../../extension/src/launch-policy'
 import { createLaunchSupervisor, type ChildLike, type JournalEntry, type LaunchSupervisor } from '../launch-supervisor'
-import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken, tokenMatches } from './launch'
+import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken, tokenMatches, launchStartupError, launchTokenNotice } from './launch'
 
 const REPO = 'j0hn-42/agent-lens'
 const ORIGIN = 'git@github.com:j0hn-42/agent-lens.git'
@@ -384,5 +384,33 @@ describe('token', () => {
       limiter: new KeyedRateLimiter(1, 1, 1), token: 'short', allowlist: new Set(), supervisor: sup,
       workspaceOrigin: async () => undefined, lookupIssue: async () => '',
     }), /token/)
+  })
+})
+
+describe('launchTokenNotice', () => {
+  it('shows the token once, with the repositories and the scope of the risk', () => {
+    const text = launchTokenNotice(TOKEN, ['o/n', 'a/b'])
+    assert.equal(text.split(TOKEN).length, 2)
+    assert.match(text, /o\/n, a\/b/)
+    assert.match(text, /127\.0\.0\.1/)
+  })
+})
+
+describe('launchStartupError', () => {
+  it('is null when launching is not asked for', () => {
+    assert.equal(launchStartupError({ allowLaunch: false, repos: [] }), null)
+  })
+  it('refuses repositories without --allow-launch, so nobody believes a repository is protected by a flag that does nothing', () => {
+    assert.match(String(launchStartupError({ allowLaunch: false, repos: ['o/n'] })), /--allow-launch/)
+  })
+  it('refuses --allow-launch without a repository, and malformed repositories', () => {
+    assert.match(String(launchStartupError({ allowLaunch: true, repos: [] })), /--launch-repo/)
+    for (const bad of ['https://github.com/o/n', 'o', '-x/y', '../x', 'o/n/extra', '']) {
+      assert.match(String(launchStartupError({ allowLaunch: true, repos: ['o/n', bad] })), /--launch-repo/, bad)
+    }
+  })
+  it('is null for a valid allow-list, and does not echo raw input', () => {
+    assert.equal(launchStartupError({ allowLaunch: true, repos: ['j0hn-42/agent-lens', 'o/n'] }), null)
+    assert.equal(String(launchStartupError({ allowLaunch: true, repos: ['\u001b[31mred'] })).includes('\u001b'), false)
   })
 })
