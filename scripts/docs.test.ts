@@ -205,6 +205,49 @@ test('the launch policy is documented as off by default, with the code constants
   ]) assert.ok(section.includes(needle), `section should mention ${needle}`)
 })
 
+/** All TypeScript sources of the UI (web/lib, web/components, web/hooks), lowercased. */
+function uiSources(): string {
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`
+      if (e.isDirectory()) walk(rel)
+      else if (/\.tsx?$/.test(e.name) && !/\.test\./.test(e.name)) out.push(read(rel))
+    }
+  }
+  for (const d of ['web/lib', 'web/components', 'web/hooks']) walk(d)
+  return out.join('\n').toLowerCase()
+}
+
+test('Honest values: every quoted label exists in the UI (#179)', () => {
+  const doc = read('docs/reading-the-ui.md')
+  const section = doc.slice(doc.indexOf('## Honest values'), doc.indexOf('## The `observations` action'))
+  // Only the "You see" cell (first column) quotes UI labels; labels with a placeholder (X, N) are templates.
+  const seen = section.split('\n').filter(l => l.startsWith('|')).map(l => l.split('|')[1] ?? '').join('\n')
+  const labels = [...seen.matchAll(/"([^"]+)"/g)].map(m => m[1]).filter(l => !/\b[XN]\b|\.\.\./.test(l))
+  const sources = uiSources()
+  for (const label of labels) {
+    assert.ok(sources.includes(label.toLowerCase()), `"${label}" is quoted in Honest values but absent from web/lib, web/components and web/hooks`)
+  }
+  for (const word of ['end not observed', 'not reported', 'at least', 'estimated']) {
+    assert.ok(section.includes(`"${word}"`), `Honest values should quote "${word}"`)
+  }
+})
+
+test('docs cite the English UI labels, not French ones the UI never shows (#179)', () => {
+  assert.ok(read('docs/demo.md').includes('end not observed'))
+  for (const f of ['docs/demo.md', 'docs/reading-the-ui.md']) {
+    assert.ok(!/fin non observée|non renseigné/.test(read(f)), `${f} cites a French label the UI never shows`)
+  }
+})
+
+test('the theme is documented in Settings, not in the top bar (#179)', () => {
+  for (const f of ['README.md', 'docs/reading-the-ui.md']) {
+    assert.ok(!/\*\*Theme\*\* selector in the top bar/.test(read(f)), `${f} places the Theme selector in the top bar`)
+    assert.ok(/\bSettings\b/.test(read(f)), `${f} should mention Settings`)
+  }
+})
+
 // #178: the docs only cite entry points that exist, and the repository URL and Node floor agree everywhere.
 test('no doc cites `npx agent-lens-app` while the package is not published (#178)', () => {
   for (const file of ['README.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/relay-sources.md']) {
