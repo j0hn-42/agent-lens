@@ -10,11 +10,11 @@
   ],
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jobailla/agent-lens"
+    "url": "https://github.com/j0hn-42/agent-lens"
   },
   "keywords": [
     "agent",
