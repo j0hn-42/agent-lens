@@ -1,10 +1,10 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { contextWindowSize, contextWindowAssumed, windowCoveringUsage, formatContextWindow } from '../web/lib/context-window'
+import { contextWindowSize, contextWindowAssumed, windowCoveringUsage, formatTokensOfWindow } from '../web/lib/context-window'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { Agent, SimulationEvent } from '../web/lib/agent-types'
-import { contextPercentLabel, contextPercentColor } from '../web/components/agent-visualizer/canvas/overlay-metrics'
+import { contextPercentLabel, contextPercentColor, contextAlertLevel } from '../web/components/agent-visualizer/canvas/overlay-metrics'
 import { SCENE } from '../web/lib/colors'
 
 describe('contextWindowSize (#249)', () => {
@@ -49,25 +49,29 @@ describe('windowCoveringUsage (#249)', () => {
 })
 
 describe('contextWindowAssumed (#364)', () => {
-  it('a window from a model id the table knows, a [1m] suffix or the 200k cap is not flagged', () => {
-    assert.equal(contextWindowAssumed('claude-opus-4-6', false), false)
-    assert.equal(contextWindowAssumed('claude-haiku-4-5[1m]', false), false)
-    assert.equal(contextWindowAssumed('gpt-5-codex', false), false)
-    assert.equal(contextWindowAssumed('some-new-model', true), false)
-    assert.equal(contextWindowAssumed(undefined, true), false)
+  it('a window from a model id the table knows or a [1m] suffix is not flagged', () => {
+    assert.equal(contextWindowAssumed('claude-opus-4-6'), false)
+    assert.equal(contextWindowAssumed('claude-haiku-4-5[1m]'), false)
+    assert.equal(contextWindowAssumed('gpt-5-codex'), false)
   })
   it('an unknown model (200k default) or no model at all (1M fallback) is an assumed window', () => {
-    assert.equal(contextWindowAssumed('some-new-model', false), true)
-    assert.equal(contextWindowAssumed(undefined, false), true)
-    assert.equal(contextWindowAssumed('', false), true)
+    assert.equal(contextWindowAssumed('some-new-model'), true)
+    assert.equal(contextWindowAssumed(undefined), true)
+    assert.equal(contextWindowAssumed(''), true)
+  })
+  it('the CLAUDE_CODE_DISABLE_1M_CONTEXT cap is an upper bound, not the size: it does not unflag an unknown model', () => {
+    // contextWindowSize ignores the cap for an unknown id; and a Gemini or Pi model is not bound by a Claude Code setting
+    assert.equal(contextWindowSize('some-new-model', true), 200_000)
+    assert.equal(contextWindowAssumed('some-new-model'), true)
+    assert.equal(contextWindowAssumed('gemini-3-pro'), true)
   })
 })
 
-describe('formatContextWindow (#364)', () => {
-  it('says "assumed" next to a window that is not known', () => {
-    assert.equal(formatContextWindow({ tokensMax: 200_000, tokensMaxAssumed: true }), '200k assumed')
-    assert.equal(formatContextWindow({ tokensMax: 200_000 }), '200k')
-    assert.equal(formatContextWindow({ tokensMax: 200_000, tokensMaxAssumed: false }), '200k')
+describe('formatTokensOfWindow (#364)', () => {
+  it('attaches "assumed" to the window, not to the token count', () => {
+    assert.equal(formatTokensOfWindow('12k', { tokensMax: 200_000, tokensMaxAssumed: true }), '12k / 200k tokens, window assumed')
+    assert.equal(formatTokensOfWindow('12k', { tokensMax: 200_000 }), '12k / 200k tokens')
+    assert.equal(formatTokensOfWindow('12k', { tokensMax: 200_000, tokensMaxAssumed: false }), '12k / 200k tokens')
   })
 })
 
@@ -82,6 +86,13 @@ describe('ring percentage on an assumed window (#364)', () => {
     assert.equal(contextPercentColor(0.95, true), SCENE.textDim)
     assert.equal(contextPercentColor(0.8, true), SCENE.textDim)
   })
+  it('the alert level behind the ring glow and the label colour is none on an assumed window', () => {
+    assert.equal(contextAlertLevel(0.95, false), 'critical')
+    assert.equal(contextAlertLevel(0.85, false), 'warning')
+    assert.equal(contextAlertLevel(0.5, false), 'none')
+    assert.equal(contextAlertLevel(0.95, true), 'none')
+    assert.equal(contextAlertLevel(0.85, true), 'none')
+  })
 })
 
 describe('the assumed flag follows the events (#364)', () => {
@@ -89,7 +100,7 @@ describe('the assumed flag follows the events (#364)', () => {
     syncForceSimulation: () => {},
     findToolSlot: () => ({ x: 0, y: 0 }),
     getContextWindowSize: (m?: string) => contextWindowSize(m, false),
-    isContextWindowAssumed: (m?: string) => contextWindowAssumed(m, false),
+    isContextWindowAssumed: (m?: string) => contextWindowAssumed(m),
     blockIdCounter: { current: 0 },
     skipForceSync: true,
   }

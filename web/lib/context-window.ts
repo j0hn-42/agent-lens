@@ -17,19 +17,20 @@ export function contextWindowSize(modelId: string | undefined, disable1M: boolea
   return DEFAULT_CONTEXT_SIZE
 }
 
-/** True when `contextWindowSize` falls back to a default (no model yet: 1M; a model the table does not know: 200k)
- *  instead of reading the window from the id, the family table or the `CLAUDE_CODE_DISABLE_1M_CONTEXT` cap (#364). */
-export function contextWindowAssumed(modelId: string | undefined, disable1M: boolean): boolean {
-  if (disable1M) return false
+/** True when the window is a fallback (no model yet: 1M; a model the table does not know: 200k) instead of
+ *  being read from the id (`[1m]` suffix) or the family table (#364). `CLAUDE_CODE_DISABLE_1M_CONTEXT` does not
+ *  change this: the cap proves an upper bound, not the size, and it says nothing about a model the table does not list. */
+export function contextWindowAssumed(modelId: string | undefined): boolean {
   if (!modelId) return true
   const id = modelId.toLowerCase()
   if (id.includes('[1m]')) return false
   return !MODEL_FAMILY_CONTEXT.some(({ pattern }) => pattern.test(id))
 }
 
-/** "200k", or "200k assumed" when the window is a fallback: the word goes with the number everywhere it is shown. */
-export function formatContextWindow(a: { tokensMax: number; tokensMaxAssumed?: boolean }): string {
-  return `${formatTokens(a.tokensMax)}${a.tokensMaxAssumed ? ' assumed' : ''}`
+/** "12k / 200k tokens", or "12k / 200k tokens, window assumed": the qualifier goes with the window, never
+ *  with the token count, which is a reading (#364). */
+export function formatTokensOfWindow(used: string, a: { tokensMax: number; tokensMaxAssumed?: boolean }): string {
+  return `${used} / ${formatTokens(a.tokensMax)} tokens${a.tokensMaxAssumed ? ', window assumed' : ''}`
 }
 
 /** A window cannot be smaller than what a reading shows was used. Returns `max` while the usage fits,

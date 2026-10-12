@@ -112,10 +112,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     (modelId?: string): number => contextWindowSize(modelId, disable1MContext),
     [disable1MContext],
   )
-  const isContextWindowAssumed = useCallback(
-    (modelId?: string): boolean => contextWindowAssumed(modelId, disable1MContext),
-    [disable1MContext],
-  )
+  const isContextWindowAssumed = useCallback((modelId?: string): boolean => contextWindowAssumed(modelId), [])
 
   // A burst of spawns schedules one deferred layout sync per agent: the first one runs, the others queued
   // behind it are skipped (each sync rebuilds every node, and it reads frameRef, so one sees every spawn)

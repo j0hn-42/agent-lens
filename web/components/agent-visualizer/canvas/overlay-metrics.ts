@@ -18,8 +18,16 @@ export function contextPercentLabel(agent: Pick<Agent, 'tokensUsed' | 'tokenStat
   return agent.tokensMaxAssumed ? `${pct} assumed` : pct
 }
 
-/** Warning and critical colours claim a window is nearly full: never on an assumed window (#364). */
+export type ContextAlertLevel = 'none' | 'warning' | 'critical'
+
+/** Warning and critical claim a window is nearly full: never on an assumed window, whose size is not known (#364).
+ *  Shared by the ring glow and the percentage colour so the two cannot disagree. */
+export function contextAlertLevel(usage: number, assumed: boolean): ContextAlertLevel {
+  if (assumed) return 'none'
+  return usage > CONTEXT_RING.criticalThreshold ? 'critical' : usage > CONTEXT_RING.warningThreshold ? 'warning' : 'none'
+}
+
 export function contextPercentColor(usage: number, assumed: boolean): string {
-  if (assumed) return SCENE.textDim
-  return usage > CONTEXT_RING.criticalThreshold ? SCENE.error : usage > CONTEXT_RING.warningThreshold ? SCENE.tool : SCENE.textDim
+  const level = contextAlertLevel(usage, assumed)
+  return level === 'critical' ? SCENE.error : level === 'warning' ? SCENE.tool : SCENE.textDim
 }

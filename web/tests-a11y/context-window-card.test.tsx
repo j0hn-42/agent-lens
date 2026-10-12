@@ -1,5 +1,5 @@
 // Context window gauge (#364): the inspector names the gauge "Context window" (the Context panel is something else)
-// and says "assumed" next to a window that is a fallback, never a bare "/ 200k" that reads as a fact.
+// and says when the window (not the token count) is assumed: next to a window that is a fallback, never a bare "/ 200k" that reads as a fact.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -30,5 +30,10 @@ test('the gauge is labelled "Context window" and shows a known window as is', ()
 
 test('an assumed window says so next to the number and the percentage', () => {
   const v = render(<AgentDetailCard agent={{ ...base, tokensMaxAssumed: true }} toolErrors={0} onClose={noop} freshnessClock={clock} />)
-  assert.equal(v.getByTestId('inspector-context').textContent, '190k / 200k assumed (95% of an assumed window)')
+  assert.equal(v.getByTestId('inspector-context').textContent, '190k / 200k (95% of an assumed window)')
+})
+
+test('without a percentage, the assumed window is still said, attached to the window', () => {
+  const v = render(<AgentDetailCard agent={{ ...base, tokenStatus: 'unavailable', tokensMaxAssumed: true }} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.match(v.getByTestId('inspector-context').textContent ?? '', / \/ 200k \(assumed window\)$/)
 })
