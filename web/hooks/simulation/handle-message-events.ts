@@ -92,13 +92,18 @@ export function handleContextUpdate(
     return
   }
   if (agent) {
+    // A reported window is a fact; a window a reading overflowed was wrong, so the grown one is assumed (#364)
+    const coveredMax = windowCoveringUsage(agent.tokensMax, tokens ?? 0)
+    const tokensMax = tokensMaxOverride ?? coveredMax
+    const tokensMaxAssumed = tokensMaxOverride !== undefined ? false : coveredMax !== agent.tokensMax ? true : agent.tokensMaxAssumed
     state.agents.set(agentName, {
       ...agent,
       // An absolute figure replaces the running sum: gaps counted before it no longer apply
       ...(tokens !== null
         ? { tokensUsed: tokens, tokenStatus: 'available' as const, tokenGaps: 0, tokensEstimated: readTokenSource(payload.tokenSource) === 'estimated' }
         : {}),
-      tokensMax: tokensMaxOverride ?? windowCoveringUsage(agent.tokensMax, tokens ?? 0),
+      tokensMax,
+      ...(tokensMaxAssumed !== undefined ? { tokensMaxAssumed } : {}),
       contextBreakdown: breakdown || agent.contextBreakdown,
       state: agent.state === 'complete' ? 'complete' : 'thinking'
     })

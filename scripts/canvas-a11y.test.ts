@@ -72,6 +72,8 @@ test('buildA11yModel lists agent facts, relations, tools and live flag', () => {
   assert.equal(main.relation, 'main agent')
   assert.deepEqual(main.childNames, ['Explorer'])
   assert.equal(main.tokens, '12k / 200k tokens')
+  const assumed = buildA11yModel(new Map([['a1', agent({ tokensMaxAssumed: true })]]), new Map(), [], new Map())
+  assert.equal(assumed.agents[0].tokens, '12k / 200k assumed tokens', 'an assumed window is said, not only drawn (#364)')
   assert.equal(sub.relation, 'child of main')
   assert.equal(sub.stateText, 'waiting for permission')
   assert.equal(sub.runtime, 'Codex')

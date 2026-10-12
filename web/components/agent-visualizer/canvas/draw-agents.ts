@@ -5,13 +5,14 @@ import {
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
-import { alphaHex, formatTokens, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
-import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
+import { alphaHex, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
+import { formatContextWindow } from '../../../lib/context-window'
+import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
-import { hasContextPercentFor } from './overlay-metrics'
+import { hasContextPercentFor, contextPercentLabel, contextPercentColor } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
@@ -164,7 +165,7 @@ export function drawContextComposition(
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(`${formatTokenUsage(usageFromAgent(agent))} / ${formatTokens(agent.tokensMax)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+    ctx.fillText(`${formatTokenUsage(usageFromAgent(agent))} / ${formatContextWindow(agent)} tokens`, agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
   }
 
   // Segments
@@ -257,8 +258,8 @@ export function drawContextRing(
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
-    ctx.fillStyle = usage > CONTEXT_RING.criticalThreshold ? SCENE.error : usage > CONTEXT_RING.warningThreshold ? SCENE.tool : SCENE.textDim
-    ctx.fillText(qualify(usageFromAgent(agent), `${Math.floor(usage * 100)}%`), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
+    ctx.fillStyle = contextPercentColor(usage, agent.tokensMaxAssumed === true)
+    ctx.fillText(contextPercentLabel(agent, usage), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
   }
 }
 

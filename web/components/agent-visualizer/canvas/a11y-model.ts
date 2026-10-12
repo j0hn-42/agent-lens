@@ -5,7 +5,8 @@
  */
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
-import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
+import { formatCost, formatModelName } from '../../../lib/utils'
+import { formatContextWindow } from '../../../lib/context-window'
 import { agentCostUsage } from '../../../lib/cost'
 import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
@@ -43,7 +44,7 @@ function tokenSummary(a: Agent): string {
   const usage = usageFromAgent(a)
   return usage.status === 'unavailable'
     ? `tokens ${formatTokenUsage(usage)}`
-    : `${formatTokenUsage(usage)} / ${formatTokens(a.tokensMax)} tokens`
+    : `${formatTokenUsage(usage)} / ${formatContextWindow(a)} tokens`
 }
 
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────

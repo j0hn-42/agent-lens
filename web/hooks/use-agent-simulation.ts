@@ -9,7 +9,7 @@ import {
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
-import { contextWindowSize } from '@/lib/context-window'
+import { contextWindowSize, contextWindowAssumed } from '@/lib/context-window'
 import { ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
@@ -112,6 +112,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     (modelId?: string): number => contextWindowSize(modelId, disable1MContext),
     [disable1MContext],
   )
+  const isContextWindowAssumed = useCallback(
+    (modelId?: string): boolean => contextWindowAssumed(modelId, disable1MContext),
+    [disable1MContext],
+  )
 
   // A burst of spawns schedules one deferred layout sync per agent: the first one runs, the others queued
   // behind it are skipped (each sync rebuilds every node, and it reads frameRef, so one sees every spawn)
@@ -127,9 +131,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     syncForceSimulation: requestForceSync,
     findToolSlot,
     getContextWindowSize,
+    isContextWindowAssumed,
     blockIdCounter,
     skipForceSync: skipForceSyncRef.current,
-  }), [requestForceSync, getContextWindowSize])
+  }), [requestForceSync, getContextWindowSize, isContextWindowAssumed])
 
   // ─── History catch-up (#210) ─────────────────────────────────────────────
   // Received events wait in this queue and are reduced a frame budget at a time, so a burst (switch to
