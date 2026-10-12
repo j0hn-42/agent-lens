@@ -6,6 +6,7 @@ import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
 import { startPiRuntime } from './pi-runtime'
+import { startGeminiRuntime } from './gemini-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
@@ -20,7 +21,7 @@ let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
   const raw = vscode.workspace.getConfiguration('agentVisualizer').get<string>('runtime', 'auto')
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
 }
 
 interface StartRuntimesResult {
@@ -54,6 +55,11 @@ async function startRuntimes(
     try { runtimes.push(startPiRuntime(context)) }
     catch (err) { log.error('Pi runtime failed to start:', err); failures.push('pi') }
   }
+  if (mode === 'gemini' || mode === 'auto') {
+    log.info('Starting Gemini CLI runtime...')
+    try { runtimes.push(startGeminiRuntime(context)) }
+    catch (err) { log.error('Gemini CLI runtime failed to start:', err); failures.push('gemini') }
+  }
   return { runtimes, failures }
 }
 
@@ -78,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
 
-  // Open the panel on the first detected session (Claude, Codex, Copilot or Pi) when autoOpen is on.
+  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi or Gemini CLI) when autoOpen is on.
   // Read at event time, so toggling the setting needs no reload.
   for (const r of runtimes) {
     context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
@@ -168,7 +174,7 @@ function applyEventLogPath(context: vscode.ExtensionContext): void {
 }
 
 /** Only prompt for Claude hook setup if a Claude runtime is active —
- *  otherwise a Codex-, Copilot- or Pi-only user would see an irrelevant prompt. */
+ *  otherwise a Codex-, Copilot-, Pi- or Gemini-only user would see an irrelevant prompt. */
 function promptHookSetupIfNeededForClaude(context: vscode.ExtensionContext): void {
   if (runtimes.some(r => r.mode === 'claude')) {
     promptHookSetupIfNeeded(context)

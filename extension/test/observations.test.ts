@@ -93,6 +93,11 @@ describe('buildObservations whitelist', () => {
     assert.deepEqual(out.sessions.map(s => [s.id, s.runtime]), [['a', 'copilot']])
   })
 
+  it('reports a Gemini session as gemini, not unknown (#238)', () => {
+    const out = buildObservations({ sessions: [session('a', { runtime: 'gemini' })], agents: tracker() }, {}, NOW)
+    assert.deepEqual(out.sessions.map(s => [s.id, s.runtime]), [['a', 'gemini']])
+  })
+
   it('reports a Pi session as pi, not unknown (#238)', () => {
     const out = buildObservations({ sessions: [session('a', { runtime: 'pi' })], agents: tracker() }, {}, NOW)
     assert.deepEqual(out.sessions.map(s => [s.id, s.runtime]), [['a', 'pi']])

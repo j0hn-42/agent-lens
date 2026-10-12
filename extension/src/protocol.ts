@@ -151,7 +151,7 @@ export interface SessionInfo {
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
   memberName?: string
-  /** 'claude' | 'codex' | 'copilot' | 'pi' */
+  /** 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' */
   runtime?: string
   /** Workspace root the session was discovered for (untrusted, capped) */
   workspace?: string
