@@ -1,7 +1,7 @@
 "use client"
 
 import { useThemeVersion } from '@/lib/theme'
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useMemo } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
@@ -42,6 +42,9 @@ import { ConversationPanel } from "./conversation-panel"
 import { TopBar, FullscreenIcon } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
+import { TruncationBanner } from "./truncation-banner"
+import { createStats, shouldShowTruncationBanner, sumNormalizationStats, truncationTotal } from "@/lib/event-normalize"
+import { isUnionSelection } from "@/lib/bridge-types"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
@@ -64,6 +67,8 @@ export function AgentVisualizer() {
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
+  /** Per selection: truncationTotal when the user dismissed the truncation banner (it returns if more is dropped) */
+  const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => new Map())
   const isReviewingRef = useRef(false)
   isReviewingRef.current = isReviewing
 
@@ -77,7 +82,7 @@ export function AgentVisualizer() {
 
   const {
     frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
-    conversations, droppedEvents, droppedMessages, unattributed, foreignAttention, catchUp, links, teams,
+    conversations, droppedEvents, droppedMessages, normalizationStats, unattributed, foreignAttention, catchUp, links, teams,
     play, pause, restart, setSpeed, seekToTime, updateAgentPosition, saveSnapshot, restoreSnapshot,
   } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
@@ -188,6 +193,16 @@ export function AgentVisualizer() {
   }
   const feedTeamProps = { links, droppedMessages, teams }
 
+  // Counters of the selection: one session, or every session added up for a union view (All, team, project)
+  const truncationKey = bridge.selectedSessionId ?? ''
+  const truncationStats = useMemo(
+    () => bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId)
+      ? normalizationStats.get(bridge.selectedSessionId) ?? createStats()
+      : sumNormalizationStats(normalizationStats.values()),
+    [normalizationStats, bridge.selectedSessionId],
+  )
+  const truncationShown = shouldShowTruncationBanner(truncationStats, truncationDismissed.get(truncationKey))
+
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
   const paletteItems = usePaletteItems({
@@ -215,6 +230,20 @@ export function AgentVisualizer() {
 
       {/* Burst of received events being caught up over several frames (#210) */}
       <HistoryLoadingIndicator progress={catchUp} />
+
+      {/* What the normalizer discarded for the selection: the graph below is partial when this shows */}
+      {truncationShown && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2"
+          style={{ top: 'calc(var(--topbar-h, 60px) + 44px)', zIndex: Z.controlBar + 5 }}
+        >
+          <TruncationBanner
+            key={truncationKey}
+            stats={truncationStats}
+            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncationTotal(truncationStats)))}
+          />
+        </div>
+      )}
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <div style={{ display: immersive ? 'none' : 'contents' }}>

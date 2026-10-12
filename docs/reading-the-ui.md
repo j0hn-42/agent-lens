@@ -321,6 +321,10 @@ With operator control on ([operator-control.md](operator-control.md)), a permiss
 | "Input truncated" | Only the first 64 KiB of the input are shown; the SHA-256 given is the one of the whole input. |
 | `\u202e` and other escapes in the input | An invisible character of the real input, shown as its escape instead of being applied to the text. |
 
+## Graph truncated
+
+When the normalizer discarded something for the selected session (or, in a view that groups sessions, for all of them added up), a "Graph truncated: N events ignored, M nodes dropped" notice appears under the top bar. **Details** lists the counters by reason; the cross is "Dismiss truncation warning". It comes back if more is dropped later. Duplicates skipped and fields shortened alone do not trigger it. While it shows, the graph is partial: counts, "none observed" and "no loop" verdicts only cover what was kept. Events the relay evicts from its buffer are not yet counted here.
+
 ## Presentation mode
 
 For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.

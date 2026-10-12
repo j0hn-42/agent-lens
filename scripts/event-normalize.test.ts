@@ -119,6 +119,15 @@ test('banner rules: duplicates and clamping alone never claim the graph is trunc
   assert.equal(web.shouldShowTruncationBanner({ ...cut, droppedByCap: 5 }, 7), true, 'comes back when more is dropped')
 })
 
+test('sumNormalizationStats adds sessions up and stays capped (#366)', () => {
+  const a = { ...web.createStats(), ignoredEvents: 2, droppedByCap: 1 }
+  const b = { ...web.createStats(), ignoredEvents: 3, malformed: 4 }
+  assert.deepEqual(web.sumNormalizationStats([a, b]), { ...web.createStats(), ignoredEvents: 5, malformed: 4, droppedByCap: 1 })
+  assert.deepEqual(web.sumNormalizationStats([]), web.createStats())
+  const big = { ...web.createStats(), ignoredEvents: web.NORM_NUM_MAX }
+  assert.equal(web.sumNormalizationStats([big, big]).ignoredEvents, web.NORM_NUM_MAX)
+})
+
 // The same behaviour suite as the extension's, run against the web copy: a bug that only the mirror
 // has cannot hide behind the source comparison above.
 import { normalizeSuite, type NormalizeApi } from '../extension/test/helpers/normalize-suite'

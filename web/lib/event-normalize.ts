@@ -535,3 +535,12 @@ export function shouldShowTruncationBanner(s: NormalizationStats, dismissedAt: n
   const total = truncationTotal(s)
   return total > 0 && (dismissedAt === undefined || total > dismissedAt)
 }
+
+/** Counters of several sessions added up (the "All" view reads every session at once). Values stay capped. */
+export function sumNormalizationStats(list: Iterable<NormalizationStats>): NormalizationStats {
+  const out = createStats()
+  for (const s of list) {
+    for (const key of Object.keys(out) as Array<keyof NormalizationStats>) out[key] = Math.min(out[key] + s[key], NORM_NUM_MAX)
+  }
+  return out
+}

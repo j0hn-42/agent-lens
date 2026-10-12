@@ -333,6 +333,7 @@ export interface SimulationEvent {
     | 'subagent_dispatch'
     | 'subagent_return'
     | 'permission_requested'
+    | 'normalization_stats'
     | 'agent_link'
     | 'message_sent'
     | 'team_info'

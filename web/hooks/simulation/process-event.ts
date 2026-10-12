@@ -8,6 +8,7 @@ import {
   type TimelineBlock,
 } from '../../lib/agent-types'
 import type { UnattributedUsage } from '../../lib/attribution'
+import { parseNormalizationStats, type NormalizationStats } from '../../lib/event-normalize'
 import type { WasteLedger } from '../../lib/waste'
 import type { SimulationState, ConversationMessage, AgentLink } from './types'
 import { DEFAULT_SESSION_ID } from './types'
@@ -44,6 +45,8 @@ export interface MutableEventState {
   teams: Map<string, TeamSummary>
   unattributed: Map<string, UnattributedUsage>
   droppedMessages: Map<string, number>
+  /** Counters of what the normalizer discarded, per session (last normalization_stats wins) */
+  normalizationStats: Map<string, NormalizationStats>
   /** Written by the tool handlers through `wasteToken`, see lib/waste */
   waste: WasteLedger
   /** Owns `waste` for this call or batch: the ledger is copied once, then written in place */
@@ -116,6 +119,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
     teams: new Map(prev.teams),
     unattributed: new Map(prev.unattributed),
     droppedMessages: new Map(prev.droppedMessages),
+    normalizationStats: new Map(prev.normalizationStats),
     waste: prev.waste,
     wasteToken: {},
   }
@@ -141,6 +145,7 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'team_info':         handleTeamInfo(event.payload, state, ctx); break
     case 'agent_activity':    handleAgentActivity(event.payload, currentTime, state, ctx, sid); break
     case 'permission_requested': handlePermissionRequested(event.payload, currentTime, state, ctx, sid); break
+    case 'normalization_stats': state.normalizationStats.set(sid, parseNormalizationStats(event.payload)); break
   }
   // Particles normally expire as frames animate; a burst of events between two frames must not pile them up
   if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES)
@@ -163,6 +168,7 @@ function publish(prev: SimulationState, state: MutableEventState, currentTime: n
     teams: mapsEqual(prev.teams, state.teams) ? prev.teams : state.teams,
     unattributed: mapsEqual(prev.unattributed, state.unattributed) ? prev.unattributed : state.unattributed,
     droppedMessages: mapsEqual(prev.droppedMessages, state.droppedMessages) ? prev.droppedMessages : state.droppedMessages,
+    normalizationStats: mapsEqual(prev.normalizationStats, state.normalizationStats) ? prev.normalizationStats : state.normalizationStats,
     waste: state.waste,
   }
 }
