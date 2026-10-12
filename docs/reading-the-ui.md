@@ -140,6 +140,8 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 
 A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
+A silence never ends a session. However long a session is silent (`pnpm test` running for 7 minutes, a permission left unanswered), its agents keep their last known state and its sub-agents are not closed. A session is marked completed (✓ in the Sessions panel, the **Session finished** notification) only when its end is observed: Claude Code's `SessionEnd` hook. A `Stop` hook only ends a turn: the orchestrator becomes idle, not done. Without the hooks, and for Codex, Copilot, Pi and Gemini, which report no end, a session stays active, in its last known state.
+
 ## Repeated reads and calls
 
 The **Files** panel opens with a "Repeated reads and calls" section, computed from the tool events already received (nothing is read from disk). It reports facts, not verdicts: a repeat may be intended.
@@ -303,7 +305,7 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 |---|---|---|
 | **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
 | **Agent in error** | an agent reports an error | on |
-| **Session finished** | a session you were watching goes from active to completed | off |
+| **Session finished** | a session you were watching goes from active to completed: its end was observed (Claude Code's `SessionEnd` hook), a silence never fires it | off |
 | **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
 
 - **Where it shows.** In a browser, a system notification appears only while the tab is hidden (the tab title also carries the number of blocked agents). In VS Code, the webview asks the extension, which shows a native message unless the Agent Lens panel is the focused view. The extension checks and caps every message and shows at most one per trigger every 2 seconds.
