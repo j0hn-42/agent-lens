@@ -217,8 +217,8 @@ export function AgentDetailCard({
 
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
-          {/* A history status within its expiry is not live (#361): it was received, not seen happening */}
-          <span data-testid="inspector-freshness">{freshness === 'fresh' && agent.freshnessSource === 'history' ? 'From history' : FRESHNESS_TEXT[freshness]}</span>
+          {/* A history status is never live (#361): it was received, not seen happening, and never "no longer reporting" */}
+          <span data-testid="inspector-freshness">{freshness === 'stale' && agent.freshnessSource === 'history' ? 'From history' : FRESHNESS_TEXT[freshness]}</span>
           {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)

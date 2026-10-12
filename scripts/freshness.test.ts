@@ -7,7 +7,7 @@ import {
 } from '../web/hooks/simulation/freshness'
 import { createFreshnessClock } from '../web/hooks/use-freshness-clock'
 import {
-  STALE_AFTER_MS, HISTORY_STATUS_EXPIRY_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_TICK_MS, SILENT_AFTER_MS,
+  STALE_AFTER_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_TICK_MS, SILENT_AFTER_MS,
 } from '../web/lib/canvas-constants'
 import type { Agent } from '../web/lib/agent-types'
 
@@ -15,11 +15,10 @@ const T0 = 1_000_000_000_000
 
 test('thresholds are the documented named constants', () => {
   assert.equal(STALE_AFTER_MS, 30_000)
-  assert.equal(HISTORY_STATUS_EXPIRY_MS, 15 * 60_000)
   assert.equal(TERMINAL_STATUS_VISIBLE_MS, 2 * 60_000)
   assert.equal(FRESHNESS_TICK_MS, 1000)
   assert.deepEqual(DEFAULT_FRESHNESS_THRESHOLDS, {
-    staleAfterMs: STALE_AFTER_MS, historyExpiryMs: HISTORY_STATUS_EXPIRY_MS, terminalVisibleMs: TERMINAL_STATUS_VISIBLE_MS,
+    staleAfterMs: STALE_AFTER_MS, terminalVisibleMs: TERMINAL_STATUS_VISIBLE_MS,
   })
 })
 
@@ -30,16 +29,16 @@ const rows: Row[] = [
   { name: 'live, 30 s + 1 ms is stale', state: 'tool_calling', at: T0, age: STALE_AFTER_MS + 1, expected: 'stale' },
   { name: 'idle also ages', state: 'idle', at: T0, age: STALE_AFTER_MS + 1, expected: 'stale' },
   { name: 'waiting for permission also ages', state: 'waiting_permission', at: T0, age: STALE_AFTER_MS + 1, expected: 'stale' },
-  { name: 'history, 30 s old is not stale (its own expiry applies)', state: 'thinking', source: 'history', at: T0, age: STALE_AFTER_MS + 1, expected: 'fresh' },
-  { name: 'history, exactly 15 min is still shown', state: 'thinking', source: 'history', at: T0, age: HISTORY_STATUS_EXPIRY_MS, expected: 'fresh' },
-  { name: 'history, 15 min + 1 ms expired', state: 'thinking', source: 'history', at: T0, age: HISTORY_STATUS_EXPIRY_MS + 1, expected: 'stale' },
+  { name: 'history, just received, is only the last known state (#361)', state: 'thinking', source: 'history', at: T0, age: 0, expected: 'stale' },
+  { name: 'history, 40 min later, is still only the last known state', state: 'tool_calling', source: 'history', at: T0, age: 40 * 60_000, expected: 'stale' },
+  { name: 'history of a closed agent is closed', state: 'complete', source: 'history', at: T0, age: 0, expected: 'closed' },
   { name: 'error, just now', state: 'error', at: T0, age: 0, expected: 'error' },
   { name: 'error, exactly 2 min still visible', state: 'error', at: T0, age: TERMINAL_STATUS_VISIBLE_MS, expected: 'error' },
   { name: 'error, 2 min + 1 ms is closed', state: 'error', at: T0, age: TERMINAL_STATUS_VISIBLE_MS + 1, expected: 'closed' },
   { name: 'paused = interrupted, exactly 2 min', state: 'paused', at: T0, age: TERMINAL_STATUS_VISIBLE_MS, expected: 'interrupted' },
   { name: 'interrupted, 2 min + 1 ms is closed', state: 'paused', at: T0, age: TERMINAL_STATUS_VISIBLE_MS + 1, expected: 'closed' },
   { name: 'complete is closed at once', state: 'complete', at: T0, age: 0, expected: 'closed' },
-  { name: 'complete stays closed', state: 'complete', at: T0, age: 10 * HISTORY_STATUS_EXPIRY_MS, expected: 'closed' },
+  { name: 'complete stays closed', state: 'complete', at: T0, age: 150 * 60_000, expected: 'closed' },
   { name: 'never observed (no timestamp)', state: 'thinking', age: 0, expected: 'never-observed' },
   { name: 'never observed even for a terminal state', state: 'error', age: 0, expected: 'never-observed' },
   { name: 'a clock going backwards does not make it stale', state: 'thinking', at: T0, age: -STALE_AFTER_MS * 10, expected: 'fresh' },
@@ -57,9 +56,9 @@ test('deriveFreshness: a non-finite timestamp or clock is never observed, not fr
 })
 
 test('deriveFreshness: custom thresholds are honoured', () => {
-  const th = { staleAfterMs: 10, historyExpiryMs: 100, terminalVisibleMs: 50 }
+  const th = { staleAfterMs: 10, terminalVisibleMs: 50 }
+  assert.equal(deriveFreshness({ state: 'thinking', lastEventAt: 0 }, 10, th), 'fresh')
   assert.equal(deriveFreshness({ state: 'thinking', lastEventAt: 0 }, 11, th), 'stale')
-  assert.equal(deriveFreshness({ state: 'thinking', lastEventAt: 0, freshnessSource: 'history' }, 99, th), 'fresh')
   assert.equal(deriveFreshness({ state: 'error', lastEventAt: 0 }, 51, th), 'closed')
 })
 
@@ -262,4 +261,17 @@ test('freshnessKey follows the minute of a silent agent, and still ignores plain
   assert.equal(k, 'a=stale:5m|p=stale:5m')
   assert.equal(freshnessKey(agents, T0 + SILENT_AFTER_MS + 30_000), k, 'same minute, same key')
   assert.equal(freshnessKey(agents, T0 + SILENT_AFTER_MS + 61_000), 'a=stale:6m|p=stale:6m')
+})
+
+test('a replayed (history) status reads as last known state on every surface, from the moment it is received (#361)', async () => {
+  const { agentActivityCounts } = await import('../web/lib/chrome-utils')
+  const { agentRowView } = await import('../web/lib/row-sync')
+  const replayed = { id: 'h', name: 'h', state: 'thinking', lastEventAt: T0, freshnessSource: 'history' as const }
+  // Top bar: never counted active
+  assert.deepEqual(agentActivityCounts([replayed], T0), { active: 0, done: 0, stale: 1 })
+  // Sessions panel row (the text alternative to the canvas): the state is said to be the last known one
+  const view = agentRowView(replayed as Parameters<typeof agentRowView>[0], T0 + 31_000)
+  assert.equal(view.stale, true)
+  assert.equal(view.detail, 'last known state: Thinking')
+  assert.equal(deriveSilence(replayed, T0 + 40 * 60_000), null, 'and never a wall-clock silence')
 })

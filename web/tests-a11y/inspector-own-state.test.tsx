@@ -57,9 +57,15 @@ test('history status (#361): never "Live", and the clock is the time the history
   const v = render(<AgentDetailCard agent={replayed} toolErrors={0} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-freshness').textContent, 'From history')
   assert.match(v.getByTestId('inspector-last-event').textContent ?? '', /^history received \d\d:\d\d:\d\d$/)
+  assert.ok(v.getByText('last known state: Thinking'), 'its state is only the last known one, from the moment it is received')
+  // 40 min later: still "From history", never "No longer reporting" (it was never seen reporting)
+  const old = { ...replayed, lastEventAt: NOW - 40 * 60_000 }
+  v.rerender(<AgentDetailCard agent={old} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-freshness').textContent, 'From history')
+  assert.equal(v.queryByTestId('inspector-silence'), null)
 })
 
-test('rapid selection change:the card for the new node replaces every value of the previous one', () => {
+test('rapid selection change: the card for the new node replaces every value of the previous one', () => {
   const v = render(<AgentDetailCard key={anchor.id} agent={anchor} toolErrors={0} onClose={noop} freshnessClock={clock} />)
   assert.equal(v.getByTestId('inspector-freshness').textContent, 'Live')
   for (const [a, errs] of [[peer, 2], [anchor, 0], [peer, 2], [peer, 2]] as const) {

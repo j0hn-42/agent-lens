@@ -73,7 +73,8 @@ test('a replayed event gives the agent a history status, not a live one', () => 
   send(view, [replay(spawn('alpha', 1)), replay(toolStart('alpha', 2))])
   const alpha = byName(view, 'alpha')
   assert.equal(alpha.freshnessSource, 'history', 'what a replay says was not heard live')
-  assert.equal(typeof alpha.lastEventAt, 'number', 'stamped with the reception time, so the status can expire')
+  assert.equal(typeof alpha.lastEventAt, 'number', 'stamped with the reception time')
+  assert.equal(deriveFreshness(alpha, Date.now()), 'stale', 'only a last known state, from the moment it is received')
 })
 
 test('docs/reading-the-ui.md: a status that comes from a replayed history is never reported as silent', () => {
@@ -82,7 +83,7 @@ test('docs/reading-the-ui.md: a status that comes from a replayed history is nev
   const alpha = byName(view, 'alpha')
   const later = Date.now() + 40 * 60_000
   assert.equal(deriveSilence(alpha, later), null, 'its age is not a wall-clock silence')
-  assert.equal(deriveFreshness(alpha, later), 'stale', 'an expired history status is only the last known one')
+  assert.equal(deriveFreshness(alpha, later), 'stale', 'a history status is only the last known one')
 })
 
 test('the next non-replayed event makes the agent live again', () => {
