@@ -101,7 +101,7 @@ export function capReplayBatches(
   for (; i >= 0 && budget > 0; i--) {
     const events = batches[i].events
     const take = Math.min(events.length, perSession, budget)
-    if (take <= 0) { countEvicted(dropped, events); continue }
+    if (take <= 0) { countEvicted(dropped, events, events.length); continue }
     // Lifecycle events cut off by the cap are re-added in front (bounded), so the graph still builds
     const cut = events.slice(0, events.length - take)
     const head = [
@@ -110,10 +110,11 @@ export function capReplayBatches(
     ]
     kept.unshift([...head, ...events.slice(events.length - take)])
     budget -= take + head.length
-    countEvicted(dropped, cut.filter(e => !head.includes(e)))
+    // `head` is a subset of `cut` (no linear includes per event): only what is not re-added is lost
+    countEvicted(dropped, cut, cut.length - head.length)
   }
   // Batches never reached because the total budget ran out
-  for (; i >= 0; i--) countEvicted(dropped, batches[i].events)
+  for (; i >= 0; i--) countEvicted(dropped, batches[i].events, batches[i].events.length)
   const out: ReplayBatchMsg[] = []
   for (const events of kept) {
     for (let i = 0; i < events.length; i += batchSize) {
@@ -123,12 +124,33 @@ export function capReplayBatches(
   return out
 }
 
-/** Add events to a per-session "left out" counter (#366). */
-function countEvicted(counter: Map<string, number> | undefined, events: readonly AgentEvent[]): void {
-  if (!counter) return
-  for (const e of events) {
-    if (typeof e.sessionId !== 'string') continue
-    counter.set(e.sessionId, Math.min((counter.get(e.sessionId) ?? 0) + 1, Number.MAX_SAFE_INTEGER))
+/** Credit `n` of the events of a batch to their session (a batch holds one session; the first event names it). */
+function countEvicted(counter: Map<string, number> | undefined, events: readonly AgentEvent[], n: number): void {
+  if (!counter || n <= 0) return
+  const sid = events.find(e => typeof e.sessionId === 'string')?.sessionId
+  if (typeof sid !== 'string') return
+  counter.set(sid, Math.min((counter.get(sid) ?? 0) + n, Number.MAX_SAFE_INTEGER))
+}
+
+/**
+ * Events the relay buffer let go of (#366). Bounded like the buffer itself: at most `sessions` session
+ * entries (the least recently touched are folded into `other`), so the map and the `event-loss`
+ * message stay small however many sessions pass through a long-running relay.
+ * It counts events the relay can no longer REPLAY, since it started. It does not say what a given
+ * client is missing: a client that stayed connected already received them live.
+ */
+export interface EvictedTally { bySession: Map<string, number>; other: number }
+export function createEvictedTally(): EvictedTally { return { bySession: new Map(), other: 0 } }
+
+export function addEvicted(tally: EvictedTally, sessionId: string, n: number, maxSessions: number = RELAY_MAX_BUFFERED_SESSIONS): void {
+  if (n <= 0) return
+  const next = Math.min((tally.bySession.get(sessionId) ?? 0) + n, Number.MAX_SAFE_INTEGER)
+  tally.bySession.delete(sessionId)
+  tally.bySession.set(sessionId, next)
+  while (tally.bySession.size > Math.max(1, maxSessions)) {
+    const oldest = tally.bySession.keys().next().value as string
+    tally.other = Math.min(tally.other + (tally.bySession.get(oldest) ?? 0), Number.MAX_SAFE_INTEGER)
+    tally.bySession.delete(oldest)
   }
 }
 
@@ -178,8 +200,8 @@ export function appendBounded(
   sessionId: string,
   event: AgentEvent,
   limits: Partial<BufferLimits> = {},
-  /** Per-session count of events the buffer let go of (#366): what a client replay can no longer show. */
-  evicted?: Map<string, number>,
+  /** Events the buffer let go of (#366): what a replay can no longer show. Bounded, see EvictedTally. */
+  evicted?: EvictedTally,
 ): void {
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
@@ -188,7 +210,7 @@ export function appendBounded(
   if (previous >= 0) buf[previous] = event
   else buf.push(event)
   const trimmed = trimKeepingLifecycle(buf, lim.perSession)
-  if (trimmed > 0 && evicted) evicted.set(sessionId, (evicted.get(sessionId) ?? 0) + trimmed)
+  if (evicted) addEvicted(evicted, sessionId, trimmed, lim.sessions)
   // Re-insert so Map order reflects recency of writes
   buffers.delete(sessionId)
   buffers.set(sessionId, buf)
@@ -200,14 +222,14 @@ export function appendBounded(
     if (oldest === undefined || oldest === sessionId) { break }
     const lost = buffers.get(oldest)?.length ?? 0
     totalEvents -= lost
-    if (lost > 0 && evicted) evicted.set(oldest, (evicted.get(oldest) ?? 0) + lost)
+    if (evicted) addEvicted(evicted, oldest, lost, lim.sessions)
     buffers.delete(oldest)
   }
   // A single session may still exceed the total: trim its head
   if (totalEvents > lim.total) {
     const cut = Math.min(buf.length - 1, totalEvents - lim.total)
     buf.splice(0, cut)
-    if (cut > 0 && evicted) evicted.set(sessionId, (evicted.get(sessionId) ?? 0) + cut)
+    if (evicted) addEvicted(evicted, sessionId, cut, lim.sessions)
   }
 }
 
