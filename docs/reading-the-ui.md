@@ -7,7 +7,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Fleet / All**: the All view draws every watched session on one canvas. Each session is a dotted halo (its label gives runtime, workspace, status and cost; click it to zoom to the cluster). Sessions of the same project are grouped together.
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
-- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)).
+- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)). At the top, a **RESUME** block gives the command that reopens the session from a terminal (see [Resuming a session](#resuming-a-session)).
 - **Session scope** (top bar, standalone app and dev relay): this workspace, one project, or all workspaces. The sentence next to the selector is what the relay reports it scans ("Scanning this workspace only (name)"; nothing is written on all workspaces), not what you asked: the selector only moves once the relay confirmed. On a single workspace an empty Sessions list says that the scope is limited and how to widen it. A discovery ceiling that was hit (more than 500 transcripts in a folder, a transcript too large, the watch limit) is written next to the selector as "at least N": it is a partial view, not an absence. Choosing a project narrows the Sessions list and the All view to it and leaves the relay scope as it is. Changing the scope reloads the view (a notice says so). See [relay-sources.md](relay-sources.md).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
 - **Session export**: the ⤓ button of a session row saves it as a standalone HTML replay. The file states its own limits: events dropped before the export ("Incomplete history"), the number of secrets redacted (best effort), stream times, and agent states taken only from lifecycle events (otherwise "unknown"). See [session-export.md](session-export.md).
@@ -210,6 +210,21 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
 Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex and Copilot sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+
+## Resuming a session
+
+The Context panel starts with a **RESUME** block (#240): the command `cd '<cwd>' && claude --resume <session id>`, shown as text, and a **Copy** button that puts it on the clipboard. Paste it in a terminal on the machine where the session ran to reopen it in Claude Code. Nothing is run from Agent Lens and no request is made: the command is built in the page from the session list, so it works in VS Code as well. The result of the copy is announced ("Resume command copied" or "Copy failed: select the command and copy it by hand"); a failed copy is never reported as a success.
+
+The working directory is quoted for a POSIX shell (bash, zsh, sh): every character between the single quotes is literal, and an apostrophe in the path is written `'\''`. Spaces, `$`, backquotes, `;` or `&` in a path are not interpreted.
+
+The command is offered only when it can be shown to be right. Otherwise the block says why, and there is no Copy button:
+
+| You see | It means |
+| --- | --- |
+| "only Claude Code sessions can be resumed" | The session comes from Codex or Copilot, or its runtime is unknown. |
+| "an imported transcript comes from another machine" | The session was imported: its directory is not a local one. |
+| "the working directory ... is unknown or not an absolute POSIX path" | No cwd was reported, or it is not a single-line absolute POSIX path (a Windows path, a relative path, a line break or a control character). |
+| "the session id is not one Claude Code can take" | The id fails the relay's check (letters, digits, `.`, `_`, `:`, `-`, 128 characters at most) or starts with `-`, which `claude` would read as an option. |
 
 ## Presentation mode
 

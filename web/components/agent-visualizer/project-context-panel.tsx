@@ -8,6 +8,8 @@ import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
 import { SessionWorkSection } from './session-work-section'
 import { CapabilitiesSection } from './capabilities-section'
+import { ResumeSection } from './resume-section'
+import type { ResumableSession } from '@/lib/resume-command'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
@@ -24,6 +26,8 @@ interface ProjectContextPanelProps {
   relayOrigin?: string | null
   /** Branch the selected session recorded; absent when it recorded none */
   sessionBranch?: string
+  /** The selected session as listed (#240): its resume command is built from it, with no request */
+  session?: ResumableSession
   onClose: () => void
 }
 
@@ -92,7 +96,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
   )
 }
 
-export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, onClose }: ProjectContextPanelProps) {
+export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, session, onClose }: ProjectContextPanelProps) {
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
@@ -126,6 +130,9 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
         </PanelHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+          {/* Needs no relay: shown in VS Code as well, for the single selected session */}
+          {sessionId !== null && session?.id === sessionId && <ResumeSection session={session} />}
+
           {unavailableReason ? <Note>{unavailableReason}</Note>
             : sessionId === null ? <Note>Select a single session to see its project context.</Note>
             : current?.status === 'unavailable' ? <Note>No project context is available for this session (its working directory is unknown).</Note>

@@ -1186,6 +1186,7 @@ export function AgentVisualizer() {
           fetchContext={fetchContext}
           relayOrigin={contextOrigin}
           sessionBranch={bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.branch}
+          session={bridge.sessions.find(s => s.id === bridge.selectedSessionId)}
           onClose={() => setShowContext(false)}
         />
       </div>
