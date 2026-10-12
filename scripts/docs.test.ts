@@ -14,7 +14,7 @@ function relativeLinks(file: string): string[] {
     .filter(t => t && !/^[a-z]+:/i.test(t))
 }
 
-for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/mcp-server.md']) {
+for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -28,7 +28,7 @@ test('README documents the fork views and links the docs (#129)', () => {
   for (const word of ['Fleet', 'All', 'Workflow', 'Comms', 'Context', 'Reading the UI']) {
     assert.ok(readme.includes(word), `README should mention ${word}`)
   }
-  for (const doc of ['docs/node-inspector.md', 'docs/relay-sources.md', 'docs/state-share.md', 'docs/reading-the-ui.md']) {
+  for (const doc of ['docs/node-inspector.md', 'docs/relay-sources.md', 'docs/state-share.md', 'docs/reading-the-ui.md', 'docs/headless.md']) {
     assert.ok(readme.includes(`(${doc})`), `README should link ${doc}`)
   }
 })
