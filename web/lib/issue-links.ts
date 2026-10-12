@@ -23,7 +23,8 @@ export const ISSUE_LINKS_SHOWN = 5
 export const ISSUE_LINKS_MAX = 100
 
 const ROLE_RE = /^[a-z0-9][a-z0-9_-]{0,39}$/
-const URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/(issues|pull)\/(\d{1,9})$/
+/** A plain github.com issue or PR page, nothing after the number: group 1 is `issues` / `pull`, group 2 the number */
+export const GITHUB_ISSUE_URL_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/(issues|pull)\/(\d{1,9})$/
 
 /** Role behind the `agent:<role>` label of an agent: its dispatch subagent type, else its team role. */
 export function agentRoleOf(agent: Pick<Agent, 'subagentType' | 'agentType'>): string | undefined {
@@ -50,7 +51,7 @@ export function parseIssueLinks(data: unknown): IssueLink[] {
     if (!row || typeof row !== 'object') continue
     const r = row as Record<string, unknown>
     if (typeof r.url !== 'string' || typeof r.number !== 'number') continue
-    const m = URL_RE.exec(r.url)
+    const m = GITHUB_ISSUE_URL_RE.exec(r.url)
     if (!m || Number(m[2]) !== r.number) continue
     const kind = m[1] === 'pull' ? 'pr' : 'issue'
     if (r.kind !== kind) continue

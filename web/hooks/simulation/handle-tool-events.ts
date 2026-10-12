@@ -10,10 +10,22 @@ import { USAGE_LABELS } from '../../lib/ui-glossary'
 import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
+import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
   return asString(inputData?.file_path) || asString(inputData?.notebook_path) || args?.split(' ')[0] || ''
+}
+
+/** The pill a successful call's output proves (#317): the gh link of a shell call, or the Grep / Glob file count. */
+function provenResultPill(tc: Pick<ToolCallNode, 'toolName' | 'inputData'>, result: string): ResultPill | null {
+  if (isShellTool(tc.toolName)) {
+    const command = asString(tc.inputData?.command)
+    const link = command ? ghResultLink(command, result) : null
+    return link && { kind: 'link', link }
+  }
+  const files = searchResultCount(tc.toolName, result)
+  return files == null ? null : { kind: 'count', files }
 }
 
 /** Tools that write a file: their observed success is what proves a file conflict (#227) */
@@ -192,6 +204,8 @@ export function handleToolCallEnd(
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
+  // Read from the result of the matched call, and only once it is known to have succeeded
+  let pill: ResultPill | null = null
 
   // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
   const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
@@ -216,9 +230,11 @@ export function handleToolCallEnd(
     const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
       if (id === matchedId) {
+        pill = toolState === 'complete' ? provenResultPill(tc, result) : null
         state.toolCalls.set(id, {
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost, tokenSource, endObserved: true,
           errorMessage: isError ? (errorMessage || result) : undefined,
+          ...(pill ? { resultPill: pill } : {}),
         })
 
         // A file conflict needs a write that is known to have happened: only an observed success counts
@@ -284,6 +300,7 @@ export function handleToolCallEnd(
       toolName,
       toolUseId,
       ...(outcome === 'error' ? { isError: true } : {}),
+      ...(pill ? { resultPill: pill } : {}),
     }, state.droppedMessages)
   }
 }

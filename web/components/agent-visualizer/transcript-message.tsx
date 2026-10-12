@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { COLORS, themed } from '@/lib/colors'
-import { ToolContentRenderer } from './tool-content-renderer'
+import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
 import { truncateWithMarker, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
@@ -142,6 +142,7 @@ export function TranscriptMessage({ message, searchQuery }: {
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
             <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} />
           </div>
+          {!message.isError && <ResultPillView pill={message.resultPill} />}
         </div>
       )
     }

@@ -10,6 +10,7 @@ import type {
   SimulationEvent,
 } from '../../lib/agent-types'
 import type { SessionProjects } from './fleet-layout'
+import type { ResultPill } from '../../lib/action-summary'
 import type { UnattributedUsage } from '../../lib/attribution'
 import type { CompactionInfo } from '../../lib/compaction'
 import { emptyWasteLedger, type WasteLedger } from '../../lib/waste'
@@ -91,6 +92,8 @@ export interface ConversationMessage {
   /** tool_use_id correlating a dispatch with its return and with the tool call */
   toolUseId?: string
   isError?: boolean
+  /** 'tool_result' rows of a successful call: the gh link or Grep / Glob count its own output proves (#317) */
+  resultPill?: ResultPill
   /** Characters dropped from `content` by the ingestion cap (MAX_TEXT_LEN); absent when nothing was cut */
   cutChars?: number
   /** 'compaction' rows: the provable fields of the context_compacted event (#232) */

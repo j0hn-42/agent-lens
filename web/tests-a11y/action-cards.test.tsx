@@ -7,6 +7,9 @@ import { render, cleanup } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup'
+import { TranscriptMessage } from '@/components/agent-visualizer/transcript-message'
+import type { ConversationMessage } from '@/hooks/simulation/types'
+import type { ResultPill } from '@/lib/action-summary'
 
 afterEach(() => {
   cleanup()
@@ -61,6 +64,55 @@ test('Bash: no git / gh, no pill list; no exit code or duration is claimed', () 
   const { queryByRole, container } = show('Bash', { command: 'ls -la' })
   assert.equal(queryByRole('list', { name: 'Version control commands' }), null)
   assert.doesNotMatch(container.textContent ?? '', /exit code|exited/i)
+})
+
+// The pill is computed at ingestion (scripts/process-event.test.ts); the popup shows what the node carries
+const PR: ResultPill = { kind: 'link', link: { kind: 'pr', number: 42, url: 'https://github.com/o/r/pull/42' } }
+const showResult = (
+  toolName: string, inputData: Record<string, unknown>, result: string, resultPill?: ResultPill,
+  state: 'complete' | 'error' = 'complete', endObserved?: boolean,
+) =>
+  render(
+    <ToolDetailPopup
+      tool={{ id: 't1', toolName, args: '', state, inputData, result, resultPill, endObserved }}
+      position={{ x: 10, y: 10 }}
+      onClose={() => {}}
+    />,
+  )
+
+test('gh: the PR printed in the output becomes a named link that opens outside', () => {
+  const { getByRole } = showResult('Bash', { command: 'gh pr create --title t' }, 'https://github.com/o/r/pull/42\n', PR)
+  const link = getByRole('link', { name: /^PR #42\b/ })
+  assert.equal(link.getAttribute('href'), 'https://github.com/o/r/pull/42')
+  assert.equal(link.getAttribute('target'), '_blank')
+  assert.match(link.getAttribute('rel') ?? '', /noopener/)
+  assert.match(link.textContent ?? '', /opens in a new tab/)
+})
+
+test('gh: an issue URL reads "issue #N"', () => {
+  const { getByRole } = showResult('Bash', { command: 'gh issue create -t x' }, 'https://github.com/o/r/issues/7',
+    { kind: 'link', link: { kind: 'issue', number: 7, url: 'https://github.com/o/r/issues/7' } })
+  assert.ok(getByRole('link', { name: /^issue #7\b/ }))
+})
+
+test('no pill unless the call is seen to succeed, and none without one', () => {
+  for (const [state, endObserved, pill] of [
+    ['error', undefined, PR],
+    ['complete', false, PR],
+    ['complete', undefined, undefined],
+  ] as const) {
+    const { queryByRole } = showResult('Bash', { command: 'gh pr create' }, 'https://github.com/o/r/pull/42', pill, state, endObserved)
+    assert.equal(queryByRole('list', { name: 'Result summary' }), null, `${state} ${endObserved}`)
+    cleanup()
+  }
+})
+
+test('Grep / Glob: the reported file count, in text', () => {
+  const { getByRole } = showResult('Grep', { pattern: 'x' }, 'Found 47 files\n/a.ts', { kind: 'count', files: 47 })
+  assert.match(getByRole('list', { name: 'Result summary' }).textContent ?? '', /47 files/)
+  cleanup()
+  const glob = showResult('Glob', { pattern: '*.ts' }, 'Found 1 file\n/a.ts', { kind: 'count', files: 1 })
+  assert.match(glob.getByRole('list', { name: 'Result summary' }).textContent ?? '', /1 file\b/)
 })
 
 test('Write: the line count is stated in text', () => {
@@ -172,4 +224,32 @@ test('the new cards have no axe violation', async () => {
     assert.deepEqual(res.violations.map(v => v.id), [], name)
     cleanup()
   }
+})
+
+test('the result pills have no axe violation', async () => {
+  for (const [name, input, result, pill] of [
+    ['Bash', { command: 'gh pr create' }, 'https://github.com/o/r/pull/42\n', PR],
+    ['Grep', { pattern: 'x' }, 'Found 2 files\n/a\n/b', { kind: 'count', files: 2 }],
+  ] as const) {
+    const { container } = showResult(name, input, result, pill)
+    const res = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    assert.deepEqual(res.violations.map(v => v.id), [], name)
+    cleanup()
+  }
+})
+
+test('Conversation tool_result row: the pill carried by the row is shown, none otherwise', async () => {
+  const row = (extra: Partial<ConversationMessage>): ConversationMessage =>
+    ({ id: 'r', type: 'tool_result', timestamp: 0, content: '< https://github.com/o/r/pull/42', toolName: 'Bash', ...extra })
+  const withLink = render(<TranscriptMessage message={row({ resultPill: { kind: 'link', link: { kind: 'pr', number: 42, url: 'https://github.com/o/r/pull/42' } } })} />)
+  const link = withLink.getByRole('link', { name: /^PR #42\b/ })
+  assert.equal(link.getAttribute('target'), '_blank')
+  const res = await axe.run(withLink.container, { rules: { 'color-contrast': { enabled: false } } })
+  assert.deepEqual(res.violations.map(v => v.id), [])
+  cleanup()
+  const count = render(<TranscriptMessage message={row({ toolName: 'Grep', content: '< Found 5 files', resultPill: { kind: 'count', files: 5 } })} />)
+  assert.match(count.getByRole('list', { name: 'Result summary' }).textContent ?? '', /5 files/)
+  cleanup()
+  const none = render(<TranscriptMessage message={row({})} />)
+  assert.equal(none.queryByRole('link'), null)
 })

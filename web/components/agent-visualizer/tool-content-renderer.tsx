@@ -5,7 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
 import { truncateWithMarker, truncateLines } from '@/lib/feed-utils'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind } from '@/lib/action-summary'
+import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind, type ResultPill } from '@/lib/action-summary'
 import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
@@ -318,6 +318,41 @@ function Pills({ label, items }: { label: string; items: Array<{ key: string; ic
           {it.text}
         </li>
       ))}
+    </ul>
+  )
+}
+
+/**
+ * What a call's own output proves (#317): the PR / issue a gh call printed, as a link, or the file count
+ * Grep / Glob reported. Text and shape (icon, underline) carry the meaning, never the color alone.
+ */
+export function ResultPillView({ pill }: { pill: ResultPill | null | undefined }) {
+  if (!pill) return null
+  const chip = 'inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-mono'
+  const chipStyle = { background: COLORS.codeBlockBg, color: COLORS.contentDim, border: `1px solid ${COLORS.resultBorder}` }
+  return (
+    <ul aria-label="Result summary" className="mt-1 flex flex-wrap gap-1 list-none p-0 m-0">
+      <li className={chip} style={chipStyle}>
+        {pill.kind === 'link' ? (
+          <a
+            href={pill.link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={pill.link.url}
+            className={`inline-flex items-center gap-1 underline rounded ${FOCUS_RING_INSET}`}
+            style={{ color: COLORS.textPrimary }}
+          >
+            <GhIcon size={11} />
+            {pill.link.kind === 'pr' ? 'PR' : 'issue'} #{pill.link.number}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        ) : (
+          <>
+            <SearchIcon size={11} />
+            {plural(pill.files, 'file')}
+          </>
+        )}
+      </li>
     </ul>
   )
 }
