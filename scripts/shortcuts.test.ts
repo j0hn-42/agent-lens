@@ -73,3 +73,12 @@ test('panel shortcuts: Context (P) and Stats (S) are in the table (#124)', () =>
   assert.match(byKey.get('p')!.description, /^Toggle Context panel/)
   assert.equal(byKey.get('s')!.description, 'Toggle Stats panel')
 })
+
+test('the command palette shortcut is documented and is not a single-key shortcut (#243)', () => {
+  const entry = SHORTCUTS.find(s => s.key === 'Ctrl+K')
+  assert.ok(entry)
+  assert.equal(entry.group, 'General')
+  assert.equal(entry.singleKey, false)
+  assert.match(entry.display, /Ctrl\+K/)
+  assert.match(entry.display, /Cmd\+K/)
+})

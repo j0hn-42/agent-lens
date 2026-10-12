@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { shouldHandleShortcut } from '../web/hooks/use-keyboard-shortcuts'
+import { shouldHandleShortcut, isPaletteShortcut } from '../web/hooks/use-keyboard-shortcuts'
 
 function target(tagName: string, matches: string[] = [tagName.toLowerCase()], isContentEditable = false) {
   return {
@@ -63,4 +63,27 @@ test('undo key is a single-key shortcut: needs the preference and is ignored on 
   assert.equal(shouldHandleShortcut(ev('u'), true), true)
   assert.equal(shouldHandleShortcut(ev('u'), false), false)
   assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true), false)
+})
+
+test('Ctrl+K and Cmd+K open the palette, other K combinations do not (#243)', () => {
+  const k = (mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }>, key = 'k') =>
+    isPaletteShortcut({ key, target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...mods })
+  assert.equal(k({ ctrlKey: true }), true)
+  assert.equal(k({ metaKey: true }), true)
+  assert.equal(k({ ctrlKey: true }, 'K'), true, 'caps lock')
+  assert.equal(k({}), false)
+  assert.equal(k({ ctrlKey: true, altKey: true }), false)
+  assert.equal(k({ ctrlKey: true, shiftKey: true }), false)
+  assert.equal(k({ ctrlKey: true }, 'j'), false)
+})
+
+test('Ctrl+K is offered from a text field but not from another dialog (#243)', () => {
+  const at = (t: unknown) => isPaletteShortcut({ key: 'k', target: t, ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })
+  assert.equal(at(target('INPUT')), true)
+  assert.equal(at(target('BUTTON')), true)
+  assert.equal(at(target('DIV', ['[role="dialog"]'])), false)
+})
+
+test('Ctrl+K is not a single-key shortcut: shouldHandleShortcut still refuses modifier combos (#243)', () => {
+  assert.equal(shouldHandleShortcut(ev('k', body, { ctrlKey: true }), true), false)
 })

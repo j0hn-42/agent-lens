@@ -50,6 +50,7 @@ test('undo is announced and reachable only with the preference on and an actiona
 test('every single-key entry of the shortcuts table is gated by the preference, the others are not', () => {
   for (const def of SHORTCUTS) {
     if (def.group === 'Graph') continue // focus-scoped keys of the graph, not handled by the global hook
+    if (def.key.includes('+')) continue // modifier combos (Ctrl+K) go through isPaletteShortcut, see keyboard-shortcuts.test.ts
     assert.equal(shouldHandleShortcut(ev(def.key), false), !def.singleKey, `${def.key} with the preference off`)
     assert.equal(shouldHandleShortcut(ev(def.key), true), true, `${def.key} with the preference on`)
   }

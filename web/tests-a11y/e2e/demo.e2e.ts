@@ -101,6 +101,32 @@ describe('demo mode: axe-core, serious and critical only', () => {
       expectClean('e2e:shortcuts-dialog', await axeFailures(page, 'e2e:shortcuts-dialog'))
     } finally { await close() }
   })
+
+  test('e2e: command palette (#243)', async () => {
+    const { page, close } = await open()
+    try {
+      await page.keyboard.press('Control+k')
+      const dialog = page.getByRole('dialog', { name: 'Command palette' })
+      await dialog.waitFor()
+      assert.ok(await dialog.getByRole('combobox').evaluate(el => el === document.activeElement), 'the search field has focus')
+      expectClean('e2e:command-palette', await axeFailures(page, 'e2e:command-palette'))
+      await page.keyboard.type('timeline panel')
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('Enter')
+      await dialog.waitFor({ state: 'detached' })
+      await page.getByRole('button', { name: /^Timeline/, pressed: true }).waitFor()
+    } finally { await close() }
+  })
+
+  test('e2e: command palette stays inside a 320 px viewport (#243)', async () => {
+    const { page, close } = await open({ width: 320, height: 640 })
+    try {
+      await page.keyboard.press('Control+k')
+      const box = await page.getByRole('dialog', { name: 'Command palette' }).boundingBox()
+      assert.ok(box && box.x >= 0 && box.x + box.width <= 320, `dialog box ${JSON.stringify(box)}`)
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no horizontal page scroll')
+    } finally { await close() }
+  })
 })
 
 describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {

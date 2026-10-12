@@ -25,6 +25,8 @@ import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { CommandPalette } from '@/components/agent-visualizer/command-palette'
+import { buildPaletteItems } from '@/lib/command-palette'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import type { AgentLink } from '@/hooks/simulation/types'
@@ -306,6 +308,22 @@ test('dialog: keyboard shortcuts', async () => {
     <ShortcutsDialog open onClose={noop} singleKeyEnabled onSingleKeyEnabledChange={noop} />,
   )
   await check('shortcuts-dialog', container)
+})
+
+test('dialog: command palette, with results and with none', async () => {
+  const items = buildPaletteItems({
+    singleKeyEnabled: true, selectedSessionId: 's1', sessions,
+    agents: [{ id: 's1:main', name: 'main-agent', sessionId: 's1', isMain: true }],
+    actions: {
+      togglePlayPause: noop, zoomToFit: noop, toggleFullscreen: noop, toggleHexGrid: noop,
+      toggleMute: noop, openShortcuts: noop, openSettings: noop,
+    },
+    togglePanel: noop, selectSession: noop, selectAgent: noop,
+  })
+  const { container } = render(<CommandPalette open onClose={noop} items={items} />)
+  await check('command-palette', container)
+  await act(async () => { fireEvent.change(within(container).getByRole('combobox'), { target: { value: 'zzzz' } }) })
+  await check('command-palette-empty', container)
 })
 
 test('timeline: canvas view and table view', async () => {

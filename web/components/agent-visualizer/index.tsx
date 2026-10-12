@@ -55,6 +55,8 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { SettingsDialog } from "./settings-dialog"
+import { CommandPalette } from "./command-palette"
+import { buildPaletteItems } from "@/lib/command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
@@ -194,6 +196,9 @@ export function AgentVisualizer() {
   const [showSettings, setShowSettings] = useState(false)
   const openSettings = useCallback(() => setShowSettings(true), [])
   const closeSettings = useCallback(() => setShowSettings(false), [])
+  const [showPalette, setShowPalette] = useState(false)
+  const openPalette = useCallback(() => setShowPalette(true), [])
+  const closePalette = useCallback(() => setShowPalette(false), [])
 
   // Surface bridge notices (relay down/up, malformed data, session reset) as non-blocking toasts
   const lastNoticeIdRef = useRef(0)
@@ -529,10 +534,11 @@ export function AgentVisualizer() {
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
     openShortcuts,
+    openPalette,
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation, toggleFullscreen, presentation.toggle, singleKeyShortcuts])
+  }), [openShortcuts, openPalette, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation, toggleFullscreen, presentation.toggle, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -770,6 +776,34 @@ export function AgentVisualizer() {
     scope: bridge.relayScope?.scope,
   })
 
+  // Command palette (#243): built only while it is open, from the lists the panels already show
+  const paletteItems = useMemo(() => {
+    if (!showPalette) return []
+    return buildPaletteItems({
+      singleKeyEnabled: singleKeyShortcuts,
+      selectedSessionId: bridge.selectedSessionId,
+      sessions: bridge.sessions,
+      agents: listAgents.values(),
+      actions: {
+        togglePlayPause: handlePlayPause,
+        zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
+        toggleFullscreen,
+        toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
+        toggleMute: handleToggleMute,
+        openShortcuts,
+        openSettings,
+      },
+      togglePanel: panel => {
+        if (panel === 'sessions') setShowSessions(prev => !prev)
+        else if (panel === 'timeline') setShowTimeline(prev => !prev)
+        else if (panel === 'stats') setShowStats(prev => !prev)
+        else toggleExclusivePanel(panel)
+      },
+      selectSession,
+      selectAgent: selection.handleAgentClick,
+    })
+  }, [showPalette, singleKeyShortcuts, bridge.selectedSessionId, bridge.sessions, listAgents, handlePlayPause, toggleFullscreen,
+    setShowHexGrid, handleToggleMute, openShortcuts, openSettings, setShowTimeline, setShowStats, toggleExclusivePanel, selectSession, selection.handleAgentClick])
   // Scope selector (#291). The shown scope is the relay's own report; a choice becomes the remembered one only once the relay applied it.
   const { relayScope, setRelayScope } = bridge
   const chooseScope = useCallback((choice: ScopeChoice) => {
@@ -1199,6 +1233,8 @@ export function AgentVisualizer() {
         presentation={{ active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption }}
         notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
       />
+
+      <CommandPalette open={showPalette} onClose={closePalette} items={paletteItems} />
 
       <ShortcutsDialog
         open={showShortcuts}
