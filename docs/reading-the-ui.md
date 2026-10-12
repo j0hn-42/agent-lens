@@ -188,6 +188,8 @@ The used part of the gauge is a reading; the total is a window Agent Lens must *
 
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
 
+**"assumed" next to the window.** When the window is a fallback (no model known yet, a model the table does not know, or a window a reading has already overflowed), it is shown as **/ 200k assumed** on the canvas label, in the inspector's **Context window** gauge (with "of an assumed window" after the percentage) and in the screen-reader summary of the node. The percentage drawn above the node then says "assumed" too and is never coloured as a warning or critical: how full a window of unknown size is cannot be proven. A window reported by the runtime, read from a `[1m]` suffix or the family table, or capped by `CLAUDE_CODE_DISABLE_1M_CONTEXT` is shown without the word.
+
 ## Context compactions
 
 When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
