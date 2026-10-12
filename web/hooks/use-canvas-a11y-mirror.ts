@@ -84,7 +84,7 @@ export function useCanvasA11yMirror({
         hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
-        links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime,
+        links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime, now: Date.now(),
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
         fileAttention: s.fileAttention,
       })

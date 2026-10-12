@@ -324,3 +324,21 @@ test('recorder captures dispatch particles that exist for a single frame and too
   resetRecorder(rec)
   assert.equal(rec.comms.size + rec.tools.size, 0)
 })
+
+// ─── #367 the outline never announces a stale state as current ─────────────
+
+test('buildA11yModel announces a stale state as the last known one, like the canvas', () => {
+  const now = 1_700_000_000_000
+  const fresh = agent({ id: 'f', state: 'thinking', lastEventAt: now - 1_000, freshnessSource: 'live' })
+  const stale = agent({ id: 's', state: 'thinking', lastEventAt: now - 120_000, freshnessSource: 'live', isMain: false })
+  const model = buildA11yModel(new Map([['f', fresh], ['s', stale]]), new Map(), [], new Map(), { now })
+  const by = (id: string) => model.agents.find(a => a.id === id)!
+  assert.equal(by('f').stateText, 'thinking')
+  assert.equal(by('s').stateText, 'last known state: Thinking')
+})
+
+test('buildA11yModel leaves the state text alone without a clock', () => {
+  const stale = agent({ state: 'thinking', lastEventAt: 1, freshnessSource: 'live' })
+  const model = buildA11yModel(new Map([['a1', stale]]), new Map(), [], new Map(), {})
+  assert.equal(model.agents[0].stateText, 'thinking')
+})

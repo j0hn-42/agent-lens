@@ -3,6 +3,7 @@
  * No React and no canvas here, so everything is unit-testable under node:test.
  * Imports are relative (not "@/") on purpose: the root test runner has no path aliases.
  */
+import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
@@ -266,6 +267,8 @@ export interface A11yExtras {
   collapse?: CollapseView
   teams?: Map<string, TeamSummary>
   simTime?: number
+  /** Wall clock (ms): with it, a stale agent is announced as its last known state, like the canvas (#367) */
+  now?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Proven parent -> child session links, worded in the heading of the clusters they connect */
@@ -329,7 +332,7 @@ export function buildA11yModel(
       id: a.id,
       name: a.name,
       state: a.state,
-      stateText: stateText(a.state),
+      stateText: extras.now !== undefined && deriveFreshness(a, extras.now) === 'stale' ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
       tokens: tokenSummary(a),
