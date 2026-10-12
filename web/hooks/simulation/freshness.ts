@@ -109,6 +109,14 @@ export function silenceText(silence: Silence, state: string): string {
     : `${lastKnownStateText(state)}, silent for ${duration}`
 }
 
+/**
+ * `agent` received at `nowMs` from a replayed history (#361): stamped so the status expires
+ * (HISTORY_STATUS_EXPIRY_MS), but never live and never a wall-clock silence.
+ */
+export function historyFrom(agent: Agent, nowMs: number): Agent {
+  return { ...agent, lastEventAt: nowMs, freshnessSource: 'history' }
+}
+
 /** `agent` heard from at `nowMs` by a live event. */
 export function heardFrom(agent: Agent, nowMs: number): Agent {
   return { ...agent, lastEventAt: nowMs, freshnessSource: 'live' }
