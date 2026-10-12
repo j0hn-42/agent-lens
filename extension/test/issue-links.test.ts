@@ -5,7 +5,7 @@ import {
   sanitizeRole, sanitizeSessionParam, issueLinksScope, normalizeRepoUrl, parseGhList, fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, ISSUE_LINKS_MAX, type GhExec,
 } from '../src/issue-links'
 
-const REPO = 'https://github.com/jobailla/agent-lens'
+const REPO = 'https://github.com/j0hn-42/agent-lens'
 
 describe('issue links scope (#109)', () => {
   it('accepts a session id and refuses anything else', () => {
@@ -38,8 +38,8 @@ describe('sanitizeRole', () => {
 describe('normalizeRepoUrl', () => {
   it('normalizes https and ssh GitHub remotes', () => {
     for (const r of [
-      'https://github.com/jobailla/agent-lens', 'https://github.com/jobailla/agent-lens.git',
-      'git@github.com:jobailla/agent-lens.git', 'ssh://git@github.com/jobailla/agent-lens.git', 'https://github.com/jobailla/agent-lens/\n',
+      'https://github.com/j0hn-42/agent-lens', 'https://github.com/j0hn-42/agent-lens.git',
+      'git@github.com:j0hn-42/agent-lens.git', 'ssh://git@github.com/j0hn-42/agent-lens.git', 'https://github.com/j0hn-42/agent-lens/\n',
     ]) assert.equal(normalizeRepoUrl(r), REPO, r)
   })
   it('refuses other hosts, credentials, extra path and look-alike hosts', () => {
@@ -96,7 +96,7 @@ describe('fetchIssueLinks', () => {
     assert.equal(calls.length, 2)
     for (const c of calls) {
       assert.equal(c.file, 'gh')
-      assert.ok(c.args.includes('--repo') && c.args[c.args.indexOf('--repo') + 1] === 'jobailla/agent-lens')
+      assert.ok(c.args.includes('--repo') && c.args[c.args.indexOf('--repo') + 1] === 'j0hn-42/agent-lens')
       assert.ok(c.args.includes('--label') && c.args[c.args.indexOf('--label') + 1] === 'agent:frontend-engineer')
       assert.ok(c.args.includes('--limit') && c.args[c.args.indexOf('--limit') + 1] === String(ISSUE_LINKS_MAX))
     }
@@ -135,7 +135,7 @@ describe('resolveRepoUrl', () => {
     const exec: GhExec = async (file, args) => {
       assert.equal(file, 'git')
       assert.deepEqual(args, ['remote', 'get-url', 'origin'])
-      return 'git@github.com:jobailla/agent-lens.git\n'
+      return 'git@github.com:j0hn-42/agent-lens.git\n'
     }
     assert.equal(await resolveRepoUrl('/tmp/ws', exec), REPO)
   })

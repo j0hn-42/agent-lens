@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { agentRoleOf, parseIssueLinks, loadIssueLinks, issueLinksUrl, issueLinkLabel, parseRetryAfter, issueLinksRetryDelayMs, type FetchLike } from '../web/lib/issue-links'
 
-const U = 'https://github.com/jobailla/agent-lens'
+const U = 'https://github.com/j0hn-42/agent-lens'
 
 test('agentRoleOf: dispatch subagent type first, then team role, only valid labels', () => {
   assert.equal(agentRoleOf({ subagentType: 'Frontend-Engineer' }), 'frontend-engineer')

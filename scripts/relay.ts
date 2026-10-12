@@ -993,11 +993,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const relaySessionId = `relay-${process.pid}-${Math.floor(sessionStart / 1000)}`
   sessionEventCount = 0
 
-  const agentFlowVersion = resolveAgentLensVersion()
+  const agentLensVersion = resolveAgentLensVersion()
 
   const baseEvent = () => ({
     session_id: relaySessionId,
-    agent_lens_version: agentFlowVersion,
+    agent_lens_version: agentLensVersion,
     os: os.platform(),
     arch: os.arch(),
   })
@@ -1102,7 +1102,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (geminiWatcher) sessionCount += geminiWatcher.getActiveSessions().length
       return { sessionCount, hooksConfigured, disable1MContext }
     },
-    base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
+    base: { relayVersion: agentLensVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
     // Read when answering: the scope and the ceilings are those of the scan that really ran
     live: () => ({
       allWorkspaces,

@@ -104,7 +104,7 @@ i18n ; mémorisation de la progression entre visites ; modification du tour exis
 
 ## 9. Livraison
 
-Branche dédiée du fork, PR vers `jobailla/agent-lens` (jamais vers l'upstream). Branche de base : `develop` (`docs/demo.md`, `docs/reading-the-ui.md` et les derniers thèmes ne sont pas dans `origin/main`).
+Branche dédiée du fork, PR vers `j0hn-42/agent-lens` (jamais vers l'upstream). Branche de base : `develop` (`docs/demo.md`, `docs/reading-the-ui.md` et les derniers thèmes ne sont pas dans `origin/main`).
 
 ## 10. Corrections issues de la lecture du code (2026-10-09, avant le plan)
 

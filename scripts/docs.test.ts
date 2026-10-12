@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
 
@@ -203,6 +204,20 @@ test('the launch policy is documented as off by default, with the code constants
     `$${caps.budgetUsdDefault}`, `$${caps.budgetUsdMax}`, `${caps.wallClockMs / 60_000} min`, `${caps.outputBufferBytes / 1024} KB`,
     'OWNER', 'MEMBER', 'COLLABORATOR', 'bypassPermissions',
   ]) assert.ok(section.includes(needle), `section should mention ${needle}`)
+})
+
+test('no old jobailla repository reference remains outside the CHANGELOG (#224)', () => {
+  // The repository was renamed j0hn-42/agent-lens: the old owner name only lives on through a GitHub redirect.
+  // `publisher: "jobailla"` is a different identifier and is kept on purpose.
+  const old = ['jobailla', 'agent-lens'].join('/')
+  const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
+    .split('\0')
+    .filter(f => f && !/(^|\/)CHANGELOG/i.test(f) && f !== 'pnpm-lock.yaml' && fs.existsSync(path.join(root, f)))
+  const offenders = files.filter(f => {
+    const buf = fs.readFileSync(path.join(root, f))
+    return !buf.includes(0) && buf.toString('utf8').includes(old)
+  })
+  assert.deepEqual(offenders, [], `${old} still referenced; use j0hn-42/agent-lens`)
 })
 
 /** All TypeScript sources of the UI (web/lib, web/components, web/hooks), lowercased. */
