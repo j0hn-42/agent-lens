@@ -17,6 +17,7 @@ import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
+import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -110,6 +111,9 @@ interface BridgeHookResult {
   relayLinkMode: 'sse' | 'polling'
   /** Latest non-blocking notice (parse failure, session reset, relay state); consumers toast it */
   notice: BridgeNotice | null
+  /** Agent launches (#229): present only when GET /status of a SAME-ORIGIN relay has `launch` (--allow-launch).
+   *  `launches` is what the relay reported (SSE `launch` / `launch-list` and the status), by id. */
+  launch: { maxConcurrent: number; launches: ReadonlyMap<string, LaunchView> } | null
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -294,12 +298,19 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const relayEnabled = isRelayMode && !!vscodeBridge && !vscodeBridge.isVSCode
   const lastParseNoticeRef = useRef(0)
   const wasDownRef = useRef(false)
+  // Launches reported by the relay (#229). Read from the relay stream only, never from window messages:
+  // a frame that embeds the page cannot make up a launch.
+  const [launches, setLaunches] = useState<ReadonlyMap<string, LaunchView>>(() => new Map())
+  const [launchMax, setLaunchMax] = useState<number | null>(null)
   const source = useReconnectingSource({
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
     sessionId: options?.relaySessionId ?? null,
     generation: connectionGeneration,
-    onMessage: data => vscodeBridge?.dispatch(data),
+    onMessage: data => {
+      if (isLaunchMessage(data)) { setLaunches(prev => reduceLaunches(prev, data)); return }
+      vscodeBridge?.dispatch(data)
+    },
     onParseError: () => {
       // Surface malformed relay payloads without spamming: at most one notice per interval
       const now = Date.now()
@@ -363,6 +374,25 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return () => ctl.abort()
   }, [relayEnabled, source.status, refreshRelayScope])
   useEffect(() => { if (!relayEnabled) { setRelayScopeState(null); syncedScopeRef.current = null } }, [relayEnabled])
+
+  // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
+  // no CORS preflight, which a request with Authorization and a JSON body needs, so the dev server (:3000) and the
+  // VS Code webview never offer it. Read on each connection: `launch` is absent unless --allow-launch.
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected' || relayOrigin !== '') { setLaunchMax(null); return }
+    const ctl = new AbortController()
+    fetch('/status', { signal: ctl.signal, cache: 'no-store', headers: { Accept: 'application/json' } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (ctl.signal.aborted) return
+        const status = parseLaunchStatus(j)
+        setLaunchMax(status ? status.maxConcurrent : null)
+        if (status && status.launches.length > 0) setLaunches(prev => reduceLaunches(prev, { type: 'launch-list', launches: status.launches }))
+      })
+      .catch(() => { if (!ctl.signal.aborted) setLaunchMax(null) })
+    return () => ctl.abort()
+  }, [relayEnabled, source.status, relayOrigin])
+  const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])
 
   /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
   const syncToScope = useCallback((scope: RelayScope) => {
@@ -771,5 +801,6 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     reconnectAttempt: relayEnabled ? source.attempt : 0,
     relayLinkMode: source.mode,
     notice,
+    launch,
   }
 }
