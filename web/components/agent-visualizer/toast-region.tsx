@@ -3,7 +3,8 @@
 import { useCallback, useRef } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING, toastSettleTarget } from '@/lib/chrome-utils'
+import { toastSettleTarget } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import type { ToastItem, PauseSource } from '@/hooks/use-toasts'
 
 interface ToastRegionProps {

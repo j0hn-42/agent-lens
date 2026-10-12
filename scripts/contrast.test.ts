@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { COLORS, refreshColors } from '../web/lib/colors'
 import { FRESHNESS_DRAW } from '../web/lib/canvas-constants'
-import { extraVars } from '../web/lib/theme-tokens'
+import { TOKENS, extraVars } from '../web/lib/theme-tokens'
 
 // This file pins the neon pixels (BACKGROUNDS below are neon's void and glass); scripts/theme-contrast.test.ts covers every theme
 refreshColors('neon')
@@ -170,7 +170,8 @@ function cssValue(selector: string, prop: string): string {
 /** globals.css reads the theme through var(--lens-*): resolve it with the neon values (this file pins neon) */
 function resolveVar(value: string): string {
   return value.replace(/var\((--[a-z-]+)\)/g, (_m, name: string) => {
-    const resolved = extraVars('neon')[name]
+    // --lens-focus is the generated theme token itself, the others are extras
+    const resolved = extraVars('neon')[name] ?? (name === '--lens-focus' ? TOKENS.neon.focus : undefined)
     assert.ok(resolved, `${name} is not defined for neon`)
     return resolved
   })

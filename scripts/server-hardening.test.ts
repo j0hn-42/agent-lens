@@ -121,6 +121,17 @@ describe('methods', () => {
     for (const m of ['PUT', 'DELETE', 'PATCH']) assert.equal((await request(port, m, '/scope')).status, 405, `${m} /scope`)
   })
 
+  it('POST also passes on /launch and /launch/<16 hex>/stop (#229); look-alikes stay 405', async () => {
+    const { port } = await start(routed('api'))
+    for (const p of ['/launch', '/launch?x=1', '/launch/0123456789abcdef/stop']) {
+      assert.notEqual((await request(port, 'POST', p)).status, 405, `POST ${p}`)
+    }
+    for (const p of ['/launch/', '/launches', '/launch/stop', '/launch/0123456789ABCDEF/stop', '/launch/0123456789abcde/stop', '/launch/0123456789abcdef/stop/', '/launch/0123456789abcdef']) {
+      const r = await request(port, 'POST', p)
+      assert.equal(r.status, 405, `POST ${p}`)
+    }
+  })
+
   it('GET and HEAD pass, OPTIONS gets 204', async () => {
     const { port } = await start(routed('api'))
     assert.equal((await request(port, 'GET', '/x')).status, 200)

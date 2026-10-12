@@ -3,7 +3,7 @@ import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_THEME, LEGACY_THEME_IDS, THEME_LABELS, resolveThemeValue, ROLES, THEME_IDS, TOKENS, cssVar, extraVars, shadcnVars, themesCss } from '../web/lib/theme-tokens'
+import { DEFAULT_THEME, LEGACY_THEME_IDS, THEME_LABELS, ROLES, THEME_IDS, TOKENS, cssVar, extraVars, shadcnVars, themesCss } from '../web/lib/theme-tokens'
 import { paletteFor } from '../web/lib/theme-palette'
 import { COLORS, ROLE_COLORS, refreshColors, themed } from '../web/lib/colors'
 import { THEME_STORAGE_KEY as WEB_KEY, readTokens, currentThemeId } from '../web/lib/theme-dom'
@@ -51,12 +51,11 @@ test('neon reproduces the legacy COLORS palette key for key (the look must not m
   for (const [key, value] of Object.entries(legacy)) assert.equal(neon[key], value, key)
 })
 
-test('neon CSS keeps the legacy glass, ring, input and scrollbar values', () => {
+test('neon CSS keeps the legacy glass, input and scrollbar values', () => {
   const v = extraVars('neon')
   assert.equal(v['--lens-glass-bg'], 'rgba(10, 15, 30, 0.7)')
   assert.equal(v['--lens-glass-border'], 'rgba(102, 204, 255, 0.22)')
   assert.equal(v['--lens-glass-blur'], 'blur(20px)')
-  assert.equal(v['--lens-focus-ring'], '#aaeeff')
   assert.equal(v['--lens-input-border'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(v['--lens-scrollbar-thumb'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(shadcnVars('neon')['--background'], 'oklch(0.145 0 0)')
@@ -100,12 +99,6 @@ test('there are nine themes, all dark, with stable ids and a label each; paper i
   assert.doesNotMatch(css, /paper|color-scheme: light/)
   assert.equal((css.match(/color-scheme: dark;/g) ?? []).length, THEME_IDS.length)
   assert.equal(JSON.stringify(Object.keys(TOKENS)), JSON.stringify([...THEME_IDS]))
-})
-
-test('migration: paper, light and dark resolve to catppuccin-macchiato (the default), graphite stays graphite, unknown values to nothing', () => {
-  for (const old of ['paper', 'light', 'dark']) assert.equal(resolveThemeValue(old), 'catppuccin-macchiato', old)
-  for (const id of THEME_IDS) assert.equal(resolveThemeValue(id), id, id)
-  for (const bad of ['purple', 'Paper', '', null, undefined, 3]) assert.equal(resolveThemeValue(bad), null, String(bad))
 })
 
 test('High contrast has a thicker focus ring and a marked card boundary; the others keep 2px', () => {

@@ -9,6 +9,8 @@ export function parseArgs(argv: string[]) {
   const imports: string[] = []
   const webhooks: string[] = []
   const allowHosts: string[] = []
+  let allowLaunch = false
+  const launchRepos: string[] = []
   let host: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
@@ -29,6 +31,11 @@ export function parseArgs(argv: string[]) {
     } else if (arg === '--allow-host') {
       // Without value, '' is kept so that the start refuses it (#241): a security flag is never ignored
       allowHosts.push(argv[i + 1] ?? '')
+      i++
+    } else if (arg === '--allow-launch') {
+      allowLaunch = true
+    } else if (arg === '--launch-repo' && argv[i + 1]) {
+      launchRepos.push(argv[i + 1])
       i++
     } else if (arg === '--host') {
       // Kept so that the start refuses it (#241): an unknown flag would be silently ignored
@@ -63,6 +70,12 @@ Options:
                        tunnel has a loopback Host and is not covered).
                        Read-only surface only. Refused at startup until token
                        authentication ships (#241). See docs/relay-sources.md
+  --allow-launch       Let the UI start a headless agent on an issue (#229). OFF by default.
+                       Needs --launch-repo; a token is printed once at startup and must be
+                       sent as "Authorization: Bearer". Loopback only, never through a tunnel.
+                       See docs/launch-security.md
+  --launch-repo <o/n>  Repository (owner/name) an agent may be launched on. Repeatable. It
+                       must also be the workspace's origin remote
   --host <address>     Only loopback (127.0.0.1) is accepted: there is no listening
                        outside loopback, use a tunnel and --allow-host
   -v, --verbose        Show detailed event logs
@@ -72,5 +85,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, allowLaunch, launchRepos }
 }

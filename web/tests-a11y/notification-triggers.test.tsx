@@ -160,7 +160,7 @@ test('bridge: notify posts a typed message to the extension, and nothing outside
   assert.ok(vscodeBridge)
   const posted: Array<Record<string, unknown>> = []
   vscodeBridge.notify({ trigger: 'cost', title: 'Agent Lens', body: 'x' })
-  assert.deepEqual(posted, [], 'standalone: no-op')
+  assert.equal(posted.length, 0, 'standalone: no-op')
   vscodeBridge.configureWebviewApi(msg => posted.push(msg))
   vscodeBridge.notify({ trigger: 'cost', title: 'Agent Lens', body: 'Cost reached $6.00 (threshold $5.00)' })
   assert.deepEqual(posted.at(-1), { type: 'notify', trigger: 'cost', title: 'Agent Lens', body: 'Cost reached $6.00 (threshold $5.00)' })

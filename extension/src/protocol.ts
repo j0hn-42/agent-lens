@@ -151,7 +151,7 @@ export interface SessionInfo {
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
   memberName?: string
-  /** 'claude' | 'codex' | 'copilot' | 'pi' */
+  /** 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' */
   runtime?: string
   /** Workspace root the session was discovered for (untrusted, capped) */
   workspace?: string
@@ -223,6 +223,39 @@ export interface VisualizerConfig {
 }
 
 /** Response of the relay's GET /status endpoint (small, no secrets, no paths beyond the workspace). */
+/** Life cycle of an agent launched from the relay (#229). Each state is set only when its fact was observed. */
+export type LaunchState = 'requested' | 'started' | 'session' | 'exited' | 'stopped' | 'expired' | 'failed'
+
+/** What the relay tells local clients about a launch (SSE `launch`, GET /status): facts only, never the command line, the output or the issue text. */
+export interface LaunchView {
+  id: string
+  repo: string
+  issue: number
+  role: string
+  /** `--worktree` name, also the branch name */
+  worktree: string
+  /** The --session-id chosen by the relay: the key that proves launch <-> session */
+  sessionId: string
+  state: LaunchState
+  /** Present once the spawn was observed */
+  pid?: number
+  requestedAt: number
+  startedAt?: number
+  sessionSeenAt?: number
+  /** A stop was asked for (or the deadline came); the end is only known from the exit */
+  stopRequestedAt?: number
+  stopReason?: 'stop' | 'expired' | 'relay-stopped'
+  endedAt?: number
+  exitCode?: number
+  signal?: string
+  /** Bounded code: ENOENT, EACCES..., 'spawn-error', 'exit-before-start' */
+  failure?: string
+  /** Absolute path of the worktree, only when it exists after the end (the work is kept there) */
+  worktreePath?: string
+  outputBytes: number
+  outputDroppedBytes: number
+}
+
 export interface RelayStatus {
   relayVersion: string
   workspace: string
@@ -241,6 +274,8 @@ export interface RelayStatus {
   discovery: { projectDirsCapped: boolean; maxProjectDirs: number; maxFilesPerDir: number }
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
+  /** Agent launches (#229): present only when the relay was started with --allow-launch, and never for a tunnel Host */
+  launch?: { maxConcurrent: number; launches: LaunchView[] }
 }
 
 // ─── Webview → Extension Messages ────────────────────────────────────────────

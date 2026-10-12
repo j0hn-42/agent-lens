@@ -38,12 +38,6 @@ export const THEME_LABELS: Record<ThemeId, string> = {
 /** Themes that stored values of earlier versions (and the removed `paper`) resolve to. Mirrored by the bootstrap script. */
 export const LEGACY_THEME_IDS: readonly string[] = ['dark', 'light', 'paper']
 
-/** Theme a stored or URL value resolves to: a known id as is, a legacy value (dark, light, paper) -> the default, else null. */
-export function resolveThemeValue(value: unknown): ThemeId | null {
-  if (isThemeId(value)) return value
-  return typeof value === 'string' && LEGACY_THEME_IDS.includes(value) ? DEFAULT_THEME : null
-}
-
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value)
 }
@@ -158,7 +152,6 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
   if (id === 'neon') {
     return {
       '--lens-shadow-card': SHADOW_CARD.neon,
-      '--lens-focus-ring': '#aaeeff',
       '--lens-focus-width': '2px',
       '--lens-glass-bg': 'rgba(10, 15, 30, 0.7)',
       '--lens-glass-border': 'rgba(102, 204, 255, 0.22)',
@@ -194,7 +187,6 @@ function baseExtraVars(id: ThemeId): Record<string, string> {
     '--lens-bar-shadow': `inset 0 0 0 1px ${boundary}`,
     '--lens-bar-pad': '6px 8px',
     '--lens-shadow-card': SHADOW_CARD[id],
-    '--lens-focus-ring': t.focus,
     '--lens-focus-width': id === 'contrast' ? '3px' : '2px',
     '--lens-glass-bg': t.surface,
     '--lens-glass-border': boundary,

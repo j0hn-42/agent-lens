@@ -180,7 +180,7 @@ A sub-agent whose link to its parent is not proven by the events (dashed on the 
 The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
 
 1. **Reported by the runtime** (Codex sends `model_context_window`): shown as is, even when the usage is above it.
-2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `npx agent-lens-app` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
+2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `node app/dist/app.js` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
 3. **A `[1m]` suffix** in the model id: 1M.
 4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
 
@@ -208,6 +208,19 @@ Pi coding agent sessions (#238) are read from their session files (`~/.pi/agent/
 - **Unknown format.** A session whose header announces a version other than 1 to 3 is neither listed nor read, and the extension log says so once. A session whose id holds a dot (possible with `--session-id`), whose header has no absolute `cwd`, or whose file is a symbolic link is not listed either.
 - **Branches.** Pi keeps abandoned branches (`/tree`) in the same file; they are shown in the order they were written, without the tree.
 
+## Gemini CLI sessions
+
+Gemini CLI sessions (#238) are read from their chat files (`<home>/.gemini/tmp/<project>/chats/session-<timestamp>-<id>.jsonl`, `<home>` being `GEMINI_CLI_HOME` when set). The format is the one written by `chatRecordingService.ts` of `google-gemini/gemini-cli`; it carries no version field, so records are read by shape and an unknown one is ignored. What is shown, and what is not:
+
+- **Which sessions.** The directory name under `tmp/` is a short id from Gemini CLI's own project registry (it was the project hash in older versions), so it is never read. Every `chats/*.jsonl` is swept and the first record decides: its `projectHash` is the sha256 of the project root, compared with the sha256 of your workspace. A session started from a sub-directory of the workspace has another root, hence another hash, and is not listed. The record has no working directory: a session shows a folder only when the workspace hash matched, never otherwise.
+- **Shown.** The prompts (a line starting with `/` or `?`, or empty, is not a prompt), the replies, the thoughts (subject and description), each tool call paired with its end, and the summary Gemini CLI saves as the session label.
+- **Tool calls.** A call starts when it first appears in the file and ends when its `status` reads `success`, `error` or `cancelled`; the last two are drawn as failed. A call still `executing` has no end yet.
+- **Model.** The model written on each reply, once per change. Nothing else is taken for a model.
+- **Not shown.** Tokens and cost (the file records them, they are not read yet, so the gauge stays on the local estimate), info, error and warning messages.
+- **No sub-agents.** Gemini CLI keeps a sub-agent in its own file under the parent session's folder; those files are not read and no parent link is guessed, so every event belongs to the main agent.
+- **Rewinds and edits.** Gemini CLI rewrites a message in the file each time it changes, and can drop messages (`/rewind`) or edit them afterwards. A message is shown once. What was shown before a rewind stays shown: it did happen, and the file cannot say more. Edits to a message after the fact are not shown.
+- **Not listed.** A file whose first record is not a metadata record, whose session id holds a dot, or which is a symbolic link; the old single-file `.json` sessions.
+
 ## Project folders
 
 Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
@@ -230,7 +243,7 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "The session transcript could not be read" | Missing, a symbolic link, outside the Claude projects folder, or a read error: the capabilities are unknown, never shown as empty lists. |
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
-Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot and Pi sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot, Pi and Gemini CLI sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
 
 ## Resuming a session
 

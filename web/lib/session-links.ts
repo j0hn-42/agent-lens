@@ -105,11 +105,3 @@ export function deriveSessionLinks(sessionsIn: ReadonlyArray<LinkSession>): Sess
     .filter(l => !inCycle.has(l.childId))
     .sort((a, b) => (a.childId < b.childId ? -1 : a.childId > b.childId ? 1 : 0))
 }
-
-/** Sentence for assistive technology and tooltips: "<child> appears to run in a worktree of <parent>" (an inference, not a declared fact). */
-export function describeSessionLink(link: SessionLink, sessions: ReadonlyArray<Pick<SessionInfo, 'id' | 'label'>>): string {
-  const label = (id: string) => sessions.find(x => x.id === id)?.label || id
-  return link.kind === 'worktree'
-    ? `${label(link.childId)} appears to run in a worktree of ${label(link.parentId)}`
-    : `${label(link.childId)} was launched by ${label(link.parentId)}`
-}

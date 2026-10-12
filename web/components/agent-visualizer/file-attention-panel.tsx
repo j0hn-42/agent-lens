@@ -5,7 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { emptyState } from '@/lib/ui-glossary'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
@@ -62,7 +62,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           role="region"
           aria-label="Files accessed by agents"
           tabIndex={0}
-          className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING}`}
+          className={`min-h-0 flex-1 overflow-y-auto ${FOCUS_RING_INSET}`}
         >
           <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
           {files.length === 0 && (
@@ -86,7 +86,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                           onClick={() => onOpenFile(c.path)}
                           title={c.path}
                           aria-label={`Open ${c.path}, conflict: ${who}`}
-                          className={`block w-full min-h-6 truncate rounded text-left hover:brightness-125 ${FOCUS_RING}`}
+                          className={`block w-full min-h-6 truncate rounded text-left hover:brightness-125 ${FOCUS_RING_INSET}`}
                           style={{ color: COLORS.textPrimary }}
                         >
                           {truncatePath(c.path)}
@@ -138,7 +138,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     onClick={() => onOpenFile?.(file.path)}
                     title={file.path}
                     aria-label={`Open ${file.path}, ${tokenText} tokens${conflicted ? ', conflict' : ''}`}
-                    className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING}`}
+                    className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {headerInner}
                   </button>

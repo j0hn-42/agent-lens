@@ -5,15 +5,13 @@ import { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { projectTags, branchTag } from './project-identity'
 import { claudeProjectsDir, claudeTeamsDir } from './claude-config-dir'
 import {
-  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES,
-  SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
+  SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES, ORCHESTRATOR_NAME,
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
-import { TranscriptParser } from './transcript-parser'
-import { safeWatch, readTrackedLines, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { ClaudeSessionPipeline } from './claude-session-pipeline'
+import { safeWatch, foldPathCase, listSubagentTranscripts } from './fs-utils'
 import { encodeProjectDirName, PROJECT_DIR_NAME_MAX } from './project-dir'
-import { handlePermissionDetection } from './permission-detection'
-import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone, replayTeammates } from './subagent-watcher'
+import { scanSubagentsDir, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
 import { createLogger } from './logger'
 import { EventReconciler } from './event-source-priority'
@@ -68,22 +66,18 @@ export class SessionWatcher implements AgentSessionWatcher {
   private readonly _onSessionDetected = new vscode.EventEmitter<string>()
   private readonly _onSessionLifecycle = new vscode.EventEmitter<SessionLifecycleEvent>()
 
-  private readonly parser: TranscriptParser = new TranscriptParser({
-    emit: (event, sessionId) => this.emit(event, sessionId),
-    elapsed: (sessionId) => this.elapsed(sessionId),
-    getSession: (sessionId) => this.sessions.get(sessionId),
-    fireSessionLifecycle: (event) => this.fireLifecycle(event.type, event.sessionId, event.label),
-    emitContextUpdate: (agentName, session, sessionId) => this.emitContextUpdate(agentName, session, sessionId),
+  /** Tracking of one transcript, shared with the relay (claude-session-pipeline.ts) */
+  private readonly pipeline = new ClaudeSessionPipeline({
+    sessions: this.sessions,
+    submit: (event) => this.reconciler.submit(event, { source: 'jsonl' }),
+    fireLifecycle: (type, sessionId, label) => this.fireLifecycle(type, sessionId, label),
+    withHistory: (load) => this.reconciler.withHistory(load),
+    onDetected: (sessionId) => this._onSessionDetected.fire(sessionId),
+    log: (message) => log.info(message),
   })
-
+  private readonly parser = this.pipeline.parser
   /** Delegate for subagent/permission modules to call back into this watcher */
-  private readonly selfDelegate = {
-    emit: (event: AgentEvent, sessionId?: string) => this.emit(event, sessionId),
-    elapsed: (sessionId?: string) => this.elapsed(sessionId),
-    getSession: (sessionId: string) => this.sessions.get(sessionId),
-    getLastActivityTime: (sessionId: string) => this.sessions.get(sessionId)?.lastActivityTime,
-    resetInactivityTimer: (sessionId: string) => this.resetInactivityTimer(sessionId),
-  }
+  private readonly selfDelegate = this.pipeline.delegate
 
   /** Hook events that survived reconciliation against the transcript (see event-source-priority.ts) */
   private readonly _onHookEvent = new vscode.EventEmitter<AgentEvent>()
@@ -129,17 +123,7 @@ export class SessionWatcher implements AgentSessionWatcher {
   private unwatchSession(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
-    session.fileWatcher?.close()
-    if (session.pollTimer) clearInterval(session.pollTimer)
-    if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
-    if (session.permissionTimer) clearTimeout(session.permissionTimer)
-    for (const sub of session.subagentWatchers.values()) {
-      sub.watcher?.close()
-      if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
-    }
-    session.subagentWatchers.clear()
-    session.subagentsDirWatcher?.close()
-    this.parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+    this.pipeline.release(session)
     this.sessionCwd.delete(sessionId)
     this.sessionBranch.delete(sessionId)
     this.reconciler.forgetSession(sessionId)
@@ -533,168 +517,12 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private watchSession(sessionId: string, filePath: string): void {
-    const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
-    const session: WatchedSession = {
-      sessionId,
-      filePath,
-      fileWatcher: null,
-      pollTimer: null,
-      fileSize: 0,
-      fileTail: '',
-      sessionStartTime: Date.now(),
-      pendingToolCalls: new Map(),
-      seenToolUseIds: new Set(),
-      seenMessageHashes: new Set(),
-      sessionDetected: false,
-      sessionCompleted: false,
-      lastActivityTime: this.newestMtime(filePath, sessionId),
-      inactivityTimer: null,
-      subagentWatchers: new Map(),
-      spawnedSubagents: new Set(),
-      inlineProgressAgents: new Set(),
-      subagentsDirWatcher: null,
-      subagentsDir: null,
-      label: defaultLabel,
-      labelSet: false,
-      model: null,
-      modelDetectedAgents: new Map(),
-      permissionTimer: null,
-      permissionEmitted: false,
-      contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
-    }
+    const session = this.pipeline.newSession(sessionId, filePath, this.newestMtime(filePath, sessionId))
     this.sessions.set(sessionId, session)
     const header = readSessionHeader(filePath)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
     if (header.branch) this.sessionBranch.set(sessionId, header.branch)
-
-    // The live flow (hooks) is already subscribed: events arriving while the history is read are held
-    // and replayed, deduplicated against the history, when the load ends (issue #53).
-    this.reconciler.withHistory(() => {
-      const stat = fs.statSync(filePath)
-
-      // Pre-scan existing content for dedup IDs + collect recent entries for catch-up.
-      // It also starts the tail from the end of what it read (only NEW events go forward),
-      // keeping an unfinished last line in fileTail.
-      const catchUpEntries = this.parser.prescanExistingContent(filePath, stat.size, session)
-
-      // Extract session label from the first user message in catch-up entries
-      this.parser.extractSessionLabel(catchUpEntries, session)
-
-      // Emit session start
-      this._onSessionDetected.fire(sessionId)
-      this.fireLifecycle('started', sessionId, session.label)
-
-      this.emit({
-        time: 0,
-        type: 'agent_spawn',
-        payload: {
-          name: ORCHESTRATOR_NAME,
-          isMain: true,
-          task: session.label,
-          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
-        },
-      }, sessionId)
-      session.sessionDetected = true
-
-      // Emit initial context breakdown from prescan so the webview shows accumulated tokens
-      this.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
-
-      // Emit catch-up messages for content that was already in the file when we detected
-      // the session (e.g. the first user message). These were pre-scanned for dedup/tokens
-      // but never emitted as events. Emit them now so the webview shows the full history.
-      this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
-    })
-
-    // Watch for new content
-    session.fileWatcher = safeWatch(filePath, (eventType) => {
-      if (eventType === 'change') {
-        this.readNewLines(sessionId)
-      }
-    })
-
-    // Poll fallback — fs.watch on macOS can silently stop firing events
-    // for long-lived watchers. This ensures we still detect new content.
-    session.pollTimer = setInterval(() => {
-      this.readNewLines(sessionId)
-      // Also poll subagent files — fs.watch may not fire after extension restart
-      for (const [subPath] of session.subagentWatchers) {
-        readSubagentNewLines(this.selfDelegate, this.parser,subPath, sessionId)
-      }
-      scanSubagentsDir(this.selfDelegate, this.parser, sessionId)
-    }, POLL_FALLBACK_MS)
-
-    // Track subagents directory for this session
-    session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-    scanSubagentsDir(this.selfDelegate, this.parser, sessionId)
-
-    // Start inactivity timer so the session completes if no new content arrives
-    this.resetInactivityTimer(sessionId)
-  }
-
-  private readNewLines(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) { return }
-
-    const lines = readTrackedLines(session.filePath, session)
-    if (!lines) return
-    for (const line of lines) {
-      this.parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
-    }
-
-    // Detect permission-gated tool calls (skip Agent/Task — subagents are inherently slow)
-    handlePermissionDetection(this.selfDelegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
-
-    // Check for new subagent files
-    scanSubagentsDir(this.selfDelegate, this.parser, sessionId)
-
-    // Reset inactivity timer — session is still active
-    this.resetInactivityTimer(sessionId)
-  }
-
-  /** Reset the inactivity timer. When no new content arrives, emit agent_complete */
-  private resetInactivityTimer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-
-    const wasCompleted = session.sessionCompleted
-    session.lastActivityTime = Date.now()
-    session.sessionCompleted = false
-
-    // If the session was previously marked completed, re-emit agent_spawn
-    // so the webview can receive events for this agent again, then notify
-    // the frontend that it's active again.
-    if (wasCompleted) {
-      this.emit({
-        time: this.elapsed(sessionId),
-        type: 'agent_spawn',
-        payload: {
-          name: ORCHESTRATOR_NAME,
-          isMain: true,
-          task: session.label,
-          ...(session.model ? { model: session.model, modelSource: 'runtime' as const } : {}),
-        },
-      }, sessionId)
-      this.fireLifecycle('started', sessionId, session.label)
-    }
-
-    if (session.inactivityTimer) {
-      clearTimeout(session.inactivityTimer)
-    }
-
-    session.inactivityTimer = setTimeout(() => {
-      if (!session.sessionCompleted && session.sessionDetected) {
-        log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} inactive — emitting orchestrator completion`)
-        session.sessionCompleted = true
-        // Teammates stay on screen but are finished with their lead (never agent_complete)
-        markTeammatesDone(this.selfDelegate, session, sessionId)
-        this.emit({
-          time: this.elapsed(sessionId),
-          type: 'agent_complete',
-          payload: { name: ORCHESTRATOR_NAME, inactivity: true },
-        }, sessionId)
-        this.fireLifecycle('ended', sessionId, session.label)
-      }
-    }, INACTIVITY_TIMEOUT_MS)
+    this.pipeline.attach(session)
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -717,33 +545,11 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private elapsed(sessionId?: string): number {
-    if (sessionId) {
-      const session = this.sessions.get(sessionId)
-      if (session) {
-        return (Date.now() - session.sessionStartTime) / 1000
-      }
-    }
-    return 0
-  }
-
-  /** Emit a context_update event with cumulative token breakdown */
-  private emitContextUpdate(agentName: string, session: WatchedSession, sessionId?: string): void {
-    const bd = session.contextBreakdown
-    const total = bd.systemPrompt + bd.userMessages + bd.toolResults + bd.reasoning + bd.subagentResults
-    this.emit({
-      time: this.elapsed(sessionId),
-      type: 'context_update',
-      payload: {
-        agent: agentName,
-        tokens: total,
-        tokenSource: 'estimated',
-        breakdown: { ...bd },
-      },
-    }, sessionId)
+    return this.pipeline.elapsed(sessionId)
   }
 
   private emit(event: AgentEvent, sessionId?: string): void {
-    this.reconciler.submit(sessionId ? { ...event, sessionId } : event, { source: 'jsonl' })
+    this.pipeline.emit(event, sessionId)
   }
 
   /** Submit an event received from the Claude Code hooks; delivered on `onHookEvent` unless the transcript already reported it. */
@@ -760,20 +566,7 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.dirWatcher = null
     for (const w of this.dirWatchers.values()) w.close()
     this.dirWatchers.clear()
-    for (const [, session] of this.sessions) {
-      session.fileWatcher?.close()
-      if (session.pollTimer) { clearInterval(session.pollTimer) }
-      if (session.inactivityTimer) { clearTimeout(session.inactivityTimer) }
-      if (session.permissionTimer) { clearTimeout(session.permissionTimer) }
-      for (const [, sub] of session.subagentWatchers) {
-        sub.watcher?.close()
-        if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
-      }
-      session.subagentWatchers.clear()
-      session.subagentsDirWatcher?.close()
-      // Clean up orphaned parser state for this session
-      this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
-    }
+    for (const session of this.sessions.values()) this.pipeline.release(session)
     this.sessions.clear()
     if (this.scanInterval) {
       clearInterval(this.scanInterval)

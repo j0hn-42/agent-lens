@@ -45,8 +45,8 @@ A session that runs on a cloud agent writes nothing on this machine, so the rela
 fetch its JSONL transcript (downloaded, synced or copied into a folder), the relay can **import** it:
 
 ```bash
-npx agent-lens-app --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
-npx agent-lens-app --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
+node app/dist/app.js --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
+node app/dist/app.js --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
 AGENT_LENS_IMPORT="/path/a.jsonl:/path/folder" pnpm run dev      # same list from the environment (';' on Windows)
 pnpm run dev:relay -- --import /path/folder                     # dev relay only
 ```
@@ -164,4 +164,4 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 | `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
 
-The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot and Pi sessions are matched to the workspace by their own watchers and ignore the scope.
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and ignore the scope.

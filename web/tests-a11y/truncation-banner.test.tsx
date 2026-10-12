@@ -6,7 +6,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { TruncationBanner } from '@/components/agent-visualizer/truncation-banner'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { createStats, type NormalizationStats } from '@/lib/event-normalize'
 
 afterEach(() => {

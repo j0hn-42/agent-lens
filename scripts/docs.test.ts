@@ -4,7 +4,7 @@ import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
+import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
 
 const root = path.resolve(__dirname, '..')
@@ -17,7 +17,7 @@ function relativeLinks(file: string): string[] {
     .filter(t => t && !/^[a-z]+:/i.test(t))
 }
 
-for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md']) {
+for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -183,12 +183,13 @@ test('the remote access guards are documented as refused at startup, with their 
   }
 })
 
-test('the launch policy is documented as not yet enabled, with the code constants (#229)', () => {
+test('the launch policy is documented as off by default, with the code constants (#229)', () => {
   const doc = read('docs/node-inspector.md')
   const start = doc.indexOf('## Launch an agent on an issue (#229)')
   assert.ok(start >= 0, 'docs/node-inspector.md should have the launch section')
   const section = doc.slice(start).split(/\n## /)[0]
-  assert.match(section, /not yet enabled/i)
+  assert.match(section, /off by default/i)
+  assert.ok(section.includes('(launch-security.md)') || section.includes('[launch-security.md](launch-security.md)'), 'section should link the security page')
   assert.ok(section.includes(`--permission-mode ${LAUNCH_PERMISSION_MODE}`))
   for (const tool of [...LAUNCH_ALLOWED_TOOLS, ...LAUNCH_DISALLOWED_TOOLS.filter(t => !/^(Edit|Write)\(/.test(t))]) {
     assert.ok(section.includes(`\`${tool}\``), `section should list ${tool}`)
@@ -217,4 +218,46 @@ test('no old jobailla repository reference remains outside the CHANGELOG (#224)'
     return !buf.includes(0) && buf.toString('utf8').includes(old)
   })
   assert.deepEqual(offenders, [], `${old} still referenced; use j0hn-42/agent-lens`)
+})
+
+// #178: the docs only cite entry points that exist, and the repository URL and Node floor agree everywhere.
+test('no doc cites `npx agent-lens-app` while the package is not published (#178)', () => {
+  for (const file of ['README.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/relay-sources.md']) {
+    assert.ok(!read(file).includes('npx agent-lens-app'), `${file} cites npx agent-lens-app, which is not published`)
+  }
+})
+
+test('README documents the real standalone command and its options (#178)', () => {
+  const readme = read('README.md')
+  assert.ok(readme.includes('pnpm run build:app'), 'README should document pnpm run build:app')
+  assert.ok(readme.includes('node app/dist/app.js'), 'README should document node app/dist/app.js')
+  for (const flag of ['--port', '--no-open', '--all-workspaces']) {
+    assert.ok(readme.includes(flag), `README should document ${flag}`)
+  }
+})
+
+test('one repository URL in README, CONTRIBUTING and both package.json (#178)', () => {
+  const url = 'https://github.com/j0hn-42/agent-lens'
+  for (const pkg of ['app/package.json', 'extension/package.json']) {
+    assert.equal(JSON.parse(read(pkg)).repository.url, url, `${pkg} repository.url`)
+  }
+  assert.ok(read('README.md').includes(`${url}.git`), 'README clone URL')
+  assert.ok(read('CONTRIBUTING.md').includes(`(${url})`), 'CONTRIBUTING repository link')
+})
+
+test('the minimum Node version of the README matches engines.node (#178)', () => {
+  const m = read('README.md').match(/Node\.js\]\([^)]*\) (\d+)\+/)
+  assert.ok(m, 'README states a minimum Node version')
+  assert.equal(JSON.parse(read('app/package.json')).engines.node, `>=${m![1]}`)
+})
+
+test('the launch security page states the guards and caps of the code (#229)', () => {
+  const doc = read('docs/launch-security.md')
+  for (const needle of [
+    '--allow-launch', '--launch-repo', '404', '401', '403', '409', '429', 'Authorization: Bearer', 'constant time', 'console',
+    'not a sandbox', '0600', 'SIGTERM', 'SIGKILL', '10 s', '**only when it was observed**',
+    `at most ${RELAY_LAUNCH_BODY_MAX_BYTES} bytes`, `${RELAY_LAUNCH_RATE_BURST} requests`,
+    `${LAUNCH_CAPS.wallClockMs / 60_000}-minute`, `${LAUNCH_CAPS.outputBufferBytes / 1024} KB`, `$${LAUNCH_CAPS.budgetUsdDefault}`, `$${LAUNCH_CAPS.budgetUsdMax}`,
+  ]) assert.ok(doc.includes(needle), `docs/launch-security.md should mention ${needle}`)
+  assert.ok(read('README.md').includes('(docs/launch-security.md)'), 'README should link docs/launch-security.md')
 })

@@ -6,7 +6,7 @@ The server is `scripts/mcp/server.ts` (entry point `scripts/mcp/main.ts`). It sp
 
 ## Register it in `.mcp.json`
 
-Agent Lens (the standalone app `npx agent-lens-app`, or `pnpm run dev:relay`) must be running: the server reads the relay, which listens on `http://127.0.0.1:3001` by default.
+Agent Lens (the standalone app `node app/dist/app.js`, or `pnpm run dev:relay`) must be running: the server reads the relay, which listens on `http://127.0.0.1:3001` by default.
 
 In the `.mcp.json` of the project where you run Claude Code (or with `claude mcp add`), point to your Agent Lens checkout (dependencies installed with `pnpm install`):
 

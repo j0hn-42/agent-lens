@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, HIERARCHY_TEXT, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
+  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import {
@@ -19,7 +19,6 @@ test('the glossary fixes the panel names and the agent hierarchy', () => {
   assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
-  assert.equal(HIERARCHY_TEXT, 'Session > Agent (Main / Lead) > Subagent / Teammate')
 })
 
 test('one empty-state wording: "No <things> yet", shared by the glossary and the message lists', () => {

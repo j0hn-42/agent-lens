@@ -10,26 +10,25 @@ import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEntry } from '../extension/src/protocol'
-import { TranscriptParser } from '../extension/src/transcript-parser'
-import { safeWatch, readTrackedLines, readLinesChunked, runGuarded } from '../extension/src/fs-utils'
-import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from '../extension/src/subagent-watcher'
+import { ClaudeSessionPipeline } from '../extension/src/claude-session-pipeline'
+import { safeWatch, readLinesChunked, runGuarded } from '../extension/src/fs-utils'
+import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
-import { handlePermissionDetection } from '../extension/src/permission-detection'
 import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
 import { PiSessionWatcher } from '../extension/src/pi-session-watcher'
+import { GeminiSessionWatcher } from '../extension/src/gemini-session-watcher'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
-  INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
-  SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
+  SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
   RELAY_MAX_SSE_CLIENTS, RELAY_MAX_REMOTE_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS, RELAY_SSE_RATE_BURST, RELAY_SSE_RATE_PER_S,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
-  RELAY_SCOPE_RATE_BURST, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
+  RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -44,7 +43,9 @@ import { isLoopbackAddress, KeyedRateLimiter } from '../extension/src/hook-guard
 import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-settings'
 import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
-import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, type IssueLink } from '../extension/src/issue-links'
+import { fetchIssueLinks, resolveRepoUrl, createRepoUrlCache, defaultExec, type IssueLink } from '../extension/src/issue-links'
+import { parseRepoAllowlist, resolveBudgetUsd, LAUNCH_CAPS } from '../extension/src/launch-policy'
+import type { LaunchView } from '../extension/src/protocol'
 import { fetchSessionWork, type SessionWork } from '../extension/src/session-work'
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
@@ -57,6 +58,9 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
+import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './routes/launch'
+import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
+import { createFileJournal } from './launch-journal'
 import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
 
 const DISCOVERY_DIR = discoveryDir()
@@ -195,6 +199,11 @@ function broadcast(data: string, sessionId?: string) {
   }
 }
 
+/** Local clients only: what a launch is doing is not for a tunnel Host (#241 keeps /launch off the remote surface). */
+function broadcastLocal(data: string) {
+  for (const res of [...sseClients]) if (!remoteSseClients.has(res)) writeLive(res, data)
+}
+
 // ─── Event buffering ────────────────────────────────────────────────────────
 
 const eventBuffer = new Map<string, AgentEvent[]>()
@@ -287,11 +296,19 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
   }
 }
 
+/** Set by createRelay when launching is enabled (#229): tells the supervisor that a transcript of this session id was seen. */
+let launchSessionSeen: ((sessionId: string) => void) | null = null
+/** Set by createRelay when launching is enabled: the launches a newly connected LOCAL client is told about. */
+let launchSnapshot: (() => LaunchView[]) | null = null
+/** Kills every launched child (SIGKILL). Also called by the crash handler: the children are detached and would outlive the relay. */
+let launchKillAll: (() => void) | null = null
+
 /** Adds the facts of the session index (declared parent, cwd) to a session entry; set up by createRelay. */
 let enrichSession: (info: SessionInfo) => SessionInfo = info => info
 
 function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
   if (type === 'started') {
+    launchSessionSeen?.(sessionId)
     const live = sessions.get(sessionId)
     if (live && importedSessions.has(sessionId)) {
       broadcast(JSON.stringify({ type: 'session-started', session: enrichSession(toSessionInfo(live)) }), sessionId)
@@ -324,98 +341,42 @@ function onSessionTags(sessionId: string, _tags: TeamSessionTags | null) {
 
 const sessions = new Map<string, WatchedSession>()
 
-function elapsed(sessionId?: string): number {
-  if (sessionId) {
-    const session = sessions.get(sessionId)
-    if (session) return (Date.now() - session.sessionStartTime) / 1000
-  }
-  return 0
-}
-
-function emitContextUpdate(agentName: string, session: WatchedSession, sessionId?: string) {
-  const bd = session.contextBreakdown
-  const total = bd.systemPrompt + bd.userMessages + bd.toolResults + bd.reasoning + bd.subagentResults
-  broadcastEvent({
-    time: elapsed(sessionId),
-    type: 'context_update',
-    payload: { agent: agentName, tokens: total, breakdown: { ...bd } },
-    sessionId,
-  })
-}
-
-function emitEvent(event: AgentEvent, sessionId?: string) {
-  broadcastEvent(sessionId ? { ...event, sessionId } : event)
-}
-
-const parser = new TranscriptParser({
-  emit: emitEvent,
-  elapsed,
-  getSession: (sessionId: string) => sessions.get(sessionId),
-  fireSessionLifecycle: (event) => broadcastSessionLifecycle(event.type, event.sessionId, event.label),
-  emitContextUpdate,
-})
-
-const watcherDelegate = {
-  emit: emitEvent,
-  elapsed,
-  getSession: (sessionId: string) => sessions.get(sessionId),
-  getLastActivityTime: (sessionId: string) => sessions.get(sessionId)?.lastActivityTime,
-  resetInactivityTimer: (sessionId: string) => resetInactivityTimer(sessionId),
-}
-
-function resetInactivityTimer(sessionId: string) {
-  const session = sessions.get(sessionId)
-  if (!session) return
+/**
+ * Tracking of a transcript (attach, reads, inactivity, context_update): the same code as the extension's
+ * SessionWatcher (extension/src/claude-session-pipeline.ts, #218). The relay plugs in its reconciler,
+ * its lifecycle tags, its size cap and its error guard.
+ */
+const pipeline = new ClaudeSessionPipeline({
+  sessions,
+  submit: (event) => broadcastEvent(event),
+  fireLifecycle: broadcastSessionLifecycle,
+  withHistory,
   // An imported transcript is not live: no activity is inferred from reading it, and no end either
-  if (importedSessions.has(sessionId)) return
-
-  const wasCompleted = session.sessionCompleted
-  session.lastActivityTime = Date.now()
-  session.sessionCompleted = false
-
-  if (wasCompleted) {
-    broadcastEvent({
-      time: elapsed(sessionId),
-      type: 'agent_spawn',
-      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model, modelSource: 'runtime' } : {}) },
-      sessionId,
-    })
-    broadcastSessionLifecycle('started', sessionId, session.label)
-  }
-
-  if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
-  session.inactivityTimer = setTimeout(() => {
-    if (!session.sessionCompleted && session.sessionDetected) {
-      log(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} inactive`)
-      session.sessionCompleted = true
-      // Teammates stay on screen but are finished with their lead (never agent_complete)
-      markTeammatesDone(watcherDelegate, session, sessionId)
-      broadcastEvent({
-        time: elapsed(sessionId),
-        type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, inactivity: true },
-        sessionId,
-      })
-      broadcastSessionLifecycle('ended', sessionId, session.label)
-    }
-  }, INACTIVITY_TIMEOUT_MS)
-}
+  isLive: (sessionId) => !importedSessions.has(sessionId),
+  // An exception here would reach uncaughtException and stop the relay for every client (#206)
+  guard: (fn, sessionId) => runGuarded(fn, (err) => detachSessionOnError(sessionId, err)),
+  maxFileBytes: () => maxSessionFileBytes,
+  // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
+  // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
+  onOversize: (sessionId) => {
+    const session = sessions.get(sessionId)
+    relayLog.warn(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${maxSessionFileBytes} bytes — no longer watched`)
+    noteSkipped('sizeLimit', sessionId)
+    if (session) broadcastSessionLifecycle('ended', sessionId, session.label)
+    dropSession(sessionId)
+  },
+  log: (message) => log(`[session] ${message}`),
+})
+const parser = pipeline.parser
+const watcherDelegate = pipeline.delegate
 
 /** Stop all watchers/timers of a session and forget it. */
-function unwatchSession(sessionId: string) {
+function dropSession(sessionId: string) {
   const session = sessions.get(sessionId)
   if (!session) return
-  session.fileWatcher?.close()
-  session.subagentsDirWatcher?.close()
-  if (session.pollTimer) clearInterval(session.pollTimer)
-  if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
-  if (session.permissionTimer) clearTimeout(session.permissionTimer)
-  for (const sub of session.subagentWatchers.values()) {
-    sub.watcher?.close()
-    if (sub.permissionTimer) clearTimeout(sub.permissionTimer)
-  }
-  // Free per-session parser state (registries, link/dedupe sets) and team bookkeeping
-  parser.clearSessionState(session.pendingToolCalls.keys(), sessionId)
+  // Watchers, timers and per-session parser state (registries, link/dedupe sets)
+  pipeline.release(session)
+  // Team bookkeeping and relay-side tags
   sessionCwd.delete(sessionId)
   sessionBranch.delete(sessionId)
   importedSessions.delete(sessionId)
@@ -430,7 +391,7 @@ function detachSessionOnError(sessionId: string, err: unknown) {
   console.error(`[session] ${sessionId.slice(0, SESSION_ID_DISPLAY)} read failed, no longer watched:`, err)
   if (!session) return
   const announced = session.sessionDetected
-  unwatchSession(sessionId)
+  dropSession(sessionId)
   if (announced) broadcastSessionLifecycle('ended', sessionId, session.label)
 }
 
@@ -449,32 +410,8 @@ function ensureWatchCapacity(): boolean {
     if (!victim || s.lastActivityTime < victim.lastActivityTime) victim = s
   }
   if (!victim) return false
-  unwatchSession(victim.sessionId)
+  dropSession(victim.sessionId)
   return liveCount() < RELAY_MAX_WATCHED_SESSIONS
-}
-
-function newWatchedSession(sessionId: string, filePath: string): WatchedSession {
-  const defaultLabel = `Session ${sessionId.slice(0, SESSION_ID_DISPLAY)}`
-  return {
-    sessionId, filePath,
-    fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
-    sessionStartTime: Date.now(),
-    pendingToolCalls: new Map(),
-    seenToolUseIds: new Set(),
-    seenMessageHashes: new Set(),
-    sessionDetected: false, sessionCompleted: false,
-    lastActivityTime: Date.now(),
-    inactivityTimer: null,
-    subagentWatchers: new Map(),
-    spawnedSubagents: new Set(),
-    inlineProgressAgents: new Set(),
-    subagentsDirWatcher: null, subagentsDir: null,
-    label: defaultLabel, labelSet: false,
-    model: null,
-    modelDetectedAgents: new Map(),
-    permissionTimer: null, permissionEmitted: false,
-    contextBreakdown: { systemPrompt: SYSTEM_PROMPT_BASE_TOKENS, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
-  }
 }
 
 /**
@@ -482,7 +419,7 @@ function newWatchedSession(sessionId: string, filePath: string): WatchedSession 
  * carry `imported` (deliverEvent); nothing watches the file afterwards, and no end is invented for it.
  */
 function importSession(sessionId: string, filePath: string, importedAt: number) {
-  const session = newWatchedSession(sessionId, filePath)
+  const session = pipeline.newSession(sessionId, filePath)
   // Registered first: every event emitted below is tagged, and the inactivity timer never starts
   importedSessions.set(sessionId, { importedAt, ...transcriptTimeRange(filePath) })
   session.sessionCompleted = true
@@ -511,7 +448,7 @@ function importSession(sessionId: string, filePath: string, importedAt: number) 
       if (!line.trim()) continue
       parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
     }
-    emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
+    pipeline.emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
     // Subagent transcripts next to it (<dir>/<session id>/subagents/), read once as well
     session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
     scanSubagentsDir(watcherDelegate, parser, sessionId)
@@ -527,79 +464,16 @@ function importSession(sessionId: string, filePath: string, importedAt: number) 
   log(`[session] Imported ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
 }
 
-function watchSession(sessionId: string, filePath: string) {
+function trackSession(sessionId: string, filePath: string) {
   skippedSessions.watchLimit.delete(sessionId)
   skippedSessions.sizeLimit.delete(sessionId)
   skippedSessions.fileLimit.delete(sessionId)
-  const session = newWatchedSession(sessionId, filePath)
+  const session = pipeline.newSession(sessionId, filePath)
   sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
-
-  // The live flow (hooks) is already subscribed: events arriving while the history is read are held
-  // and replayed, deduplicated against the history, when the load ends (issue #53).
-  withHistory(() => {
-    const stat = fs.statSync(filePath)
-    // Also positions the tail (fileSize, unfinished last line in fileTail) for readNewLines
-    const catchUpEntries = parser.prescanExistingContent(filePath, stat.size, session)
-    parser.extractSessionLabel(catchUpEntries, session)
-
-    broadcastSessionLifecycle('started', sessionId, session.label)
-    broadcastEvent({
-      time: 0, type: 'agent_spawn',
-      payload: { name: ORCHESTRATOR_NAME, isMain: true, task: session.label, ...(session.model ? { model: session.model, modelSource: 'runtime' } : {}) },
-      sessionId,
-    })
-    session.sessionDetected = true
-
-    emitContextUpdate(ORCHESTRATOR_NAME, session, sessionId)
-    parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
-  })
-
-  // An exception here would reach uncaughtException and stop the relay for every client (#206)
-  const detachOnError = (err: unknown) => detachSessionOnError(sessionId, err)
-  session.fileWatcher = safeWatch(filePath, (eventType) => {
-    if (eventType === 'change') runGuarded(() => readNewLines(sessionId), detachOnError)
-  })
-
-  session.pollTimer = setInterval(() => runGuarded(() => {
-    readNewLines(sessionId)
-    for (const [subPath] of session.subagentWatchers) {
-      readSubagentNewLines(watcherDelegate, parser, subPath, sessionId)
-    }
-    scanSubagentsDir(watcherDelegate, parser, sessionId)
-  }, detachOnError), POLL_FALLBACK_MS)
-
-  session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-  scanSubagentsDir(watcherDelegate, parser, sessionId)
-  resetInactivityTimer(sessionId)
-
-  log(`[session] Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
-}
-
-function readNewLines(sessionId: string) {
-  const session = sessions.get(sessionId)
-  if (!session) return
-
-  const lines = readTrackedLines(session.filePath, session)
-  if (!lines) return
-  // The size cap is also enforced after discovery: a transcript that grows past it is dropped.
-  // Clients are told (session-ended), otherwise they keep showing it active and frozen (#208).
-  if (session.fileSize > maxSessionFileBytes) {
-    relayLog.warn(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} exceeds ${maxSessionFileBytes} bytes — no longer watched`)
-    noteSkipped('sizeLimit', sessionId)
-    broadcastSessionLifecycle('ended', sessionId, session.label)
-    unwatchSession(sessionId)
-    return
-  }
-  for (const line of lines) {
-    parser.processTranscriptLine(line, ORCHESTRATOR_NAME, session.pendingToolCalls, session.seenToolUseIds, sessionId, session.seenMessageHashes)
-  }
-
-  handlePermissionDetection(watcherDelegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
-  scanSubagentsDir(watcherDelegate, parser, sessionId)
-  resetInactivityTimer(sessionId)
+  pipeline.attach(session)
 }
 
 // ─── Session scanner ────────────────────────────────────────────────────────
@@ -657,7 +531,7 @@ function dropSessionsOutsideWorkspace(workspace: string) {
     if (importedSessions.has(id) || inWorkspace(path.basename(path.dirname(s.filePath)))) continue
     const announced = s.sessionDetected
     const label = s.label
-    unwatchSession(id)
+    dropSession(id)
     eventBuffer.delete(id)
     if (announced) broadcastSessionLifecycle('ended', id, label)
   }
@@ -685,7 +559,7 @@ function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath
 }
 
 
-function scanForActiveSessions(workspace: string, allWorkspaces = false) {
+function scanTranscripts(workspace: string, allWorkspaces = false) {
   if (!fs.existsSync(CLAUDE_DIR)) return
 
   let match: ((name: string) => boolean) | null = null
@@ -723,8 +597,8 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
       }
       break
     }
-    try { watchSession(c.sessionId, c.filePath) } catch (e) {
-      unwatchSession(c.sessionId)
+    try { trackSession(c.sessionId, c.filePath) } catch (e) {
+      dropSession(c.sessionId)
       log('[session] Failed to watch', c.sessionId, e)
     }
   }
@@ -774,6 +648,10 @@ export interface Relay {
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
   handleScope: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle POST /launch and /launch/<id>/stop (#229): 404 unless the relay was started with --allow-launch */
+  handleLaunch: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** True when launching agents from the relay is on (--allow-launch) */
+  launchEnabled: boolean
   /** Change what the scan covers without a restart (#291): 'workspace' = this workspace only, 'all' = every project folder.
    *  Returns the scope now in force. The flag / env var only gave the initial value. */
   setScope: (scope: RelayScope) => { scope: RelayScope; allWorkspaces: boolean }
@@ -787,7 +665,7 @@ export interface Relay {
   debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
-export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'auto'
+export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'auto'
 
 export interface RelayOptions {
   workspace: string
@@ -829,6 +707,32 @@ export interface RelayOptions {
    *  with their own https origin and RELAY_MAX_REMOTE_SSE_CLIENTS streams; the other routes stay loopback only.
    *  An invalid value makes createRelay throw (fail closed). Default: none. */
   allowedHosts?: string[]
+  /** Launching an agent on an issue (#229). Absent = OFF: POST /launch answers 404. Present = ON, which needs an explicit
+   *  repository allow-list; an invalid value makes createRelay throw (fail closed). Only a local flag sets it, never a request. */
+  launch?: RelayLaunchOptions
+}
+
+export interface RelayLaunchOptions {
+  /** `owner/name` of the repositories that may be launched on (also required to be the workspace origin) */
+  repos: string[]
+  /** Bearer token. Default: random for this start. Injectable for tests only. */
+  token?: string
+  /** Receives the token once, at creation. The relay keeps it in memory only; it is never served over HTTP. */
+  onToken?: (token: string) => void
+  /** 1 (default) or 2 */
+  maxConcurrent?: number
+  /** `--max-budget-usd` (default and ceiling in launch-policy) */
+  budgetUsd?: number
+  /** Journal file (default `~/.agent-lens/launch-journal.jsonl`) */
+  journalPath?: string
+  // Injectable for tests
+  /** Request budget of POST /launch (default RELAY_LAUNCH_RATE_BURST / RELAY_LAUNCH_RATE_PER_S) */
+  rate?: { burst: number; perSecond: number }
+  journal?: Journal
+  spawn?: SpawnFn
+  killGroup?: KillGroupFn
+  workspaceOrigin?: () => Promise<string | undefined>
+  lookupIssue?: (cmd: { file: 'gh'; args: string[] }) => Promise<string>
 }
 
 export interface RelaySessionIndexOptions {
@@ -849,9 +753,9 @@ async function defaultHooksProbe(workspace: string): Promise<boolean> {
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
-  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'auto') return explicit
+  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'gemini' || explicit === 'auto') return explicit
   const raw = process.env.AGENT_LENS_RUNTIME
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
 }
 
 export async function createRelay(options: RelayOptions): Promise<Relay> {
@@ -867,6 +771,18 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const remoteHosts = parseAllowedHosts(options.allowedHosts ?? [])
   if (remoteHosts.errors.length > 0) throw new Error(`allowedHosts: ${remoteHosts.errors.join('; ')}`)
   const allowedHosts: readonly string[] = remoteHosts.hosts
+  // Launching (#229): validated before anything is started, so a bad flag stops the relay instead of silently disabling the guard
+  let launchAllowlist: ReadonlySet<string> | null = null
+  if (options.launch) {
+    const list = parseRepoAllowlist(options.launch.repos)
+    if (!list.ok || list.value.size === 0) throw new Error('launch: --allow-launch needs at least one valid --launch-repo owner/name')
+    if (options.launch.budgetUsd !== undefined && !resolveBudgetUsd(options.launch.budgetUsd).ok) throw new Error('launch: invalid budget')
+    const cap = options.launch.maxConcurrent
+    if (cap !== undefined && (!Number.isInteger(cap) || cap < 1 || cap > LAUNCH_CAPS.concurrentMax)) {
+      throw new Error(`launch: maxConcurrent must be an integer from 1 to ${LAUNCH_CAPS.concurrentMax}`)
+    }
+    launchAllowlist = list.value
+  }
   relayCreated = true
   maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
@@ -914,7 +830,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     const importedAt = Date.now()
     for (const t of transcripts) {
       try { importSession(t.sessionId, t.filePath, importedAt) } catch (e) {
-        unwatchSession(t.sessionId)
+        dropSession(t.sessionId)
         relayLog.warn(`Import: ${t.filePath} could not be read (${e instanceof Error ? e.message : String(e)})`)
       }
     }
@@ -925,7 +841,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const wantCodex = mode === 'codex' || mode === 'auto'
   const wantCopilot = mode === 'copilot' || mode === 'auto'
   const wantPi = mode === 'pi' || mode === 'auto'
-  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter(Boolean).join(', ')})`)
+  const wantGemini = mode === 'gemini' || mode === 'auto'
+  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(', ')})`)
 
   let hookServer: HookServer | null = null
   let scanTicker: SharedTicker | null = null
@@ -967,11 +884,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     writeDiscoveryFile(hookPort, workspace)
     void purgeStaleDiscoveryFiles({ dir: DISCOVERY_DIR }).catch(() => {})
 
-    scanForActiveSessions(workspace, allWorkspaces)
+    scanTranscripts(workspace, allWorkspaces)
     // One shared interval for all SSE clients, stopped when the last one leaves (issue #68).
     // Without a client, new transcripts are still picked up by the project dir watcher and on connect.
     scanNow = () => {
-      scanCoalescer.run('scan', () => scanForActiveSessions(workspace, allWorkspaces))
+      scanCoalescer.run('scan', () => scanTranscripts(workspace, allWorkspaces))
         .catch(e => log('[scan] Failed:', e))
     }
     wakeScan = scanNow
@@ -987,7 +904,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
           .filter(s => s.sessionDetected)
           .map(s => ({ sessionId: s.sessionId, filePath: s.filePath, startTime: s.sessionStartTime })),
         emitTeamInfo: (sessionId, payload) => broadcastEvent({
-          time: elapsed(sessionId), type: 'team_info', payload: { ...payload }, sessionId,
+          time: pipeline.elapsed(sessionId), type: 'team_info', payload: { ...payload }, sessionId,
         }),
         emitInbox: (sessionId, from, to, content) => parser.emitInboxMessage(sessionId, from, to, content),
         setLeadAlias: (sessionId, leadName) => parser.setLeadAlias(sessionId, leadName),
@@ -1057,6 +974,19 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     piWatcher.start()
   }
 
+  // ─── Gemini CLI runtime ───────────────────────────────────────────────────
+  // Watch Gemini CLI sessions (~/.gemini/tmp/<project>/chats/session-*.jsonl, #238), matched to the
+  // workspace by the project hash of the first record. No-op if the directory doesn't exist.
+  let geminiWatcher: GeminiSessionWatcher | null = null
+  if (wantGemini) {
+    geminiWatcher = new GeminiSessionWatcher(workspace)
+    geminiWatcher.onEvent((event) => broadcastEvent(event))
+    geminiWatcher.onSessionLifecycle((lifecycle) => {
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+    })
+    geminiWatcher.start()
+  }
+
   const telemetry = options.telemetry
   const sessionStart = Date.now()
   let relayDisposed = false
@@ -1082,6 +1012,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         error_class: err?.constructor?.name ?? 'Error',
       })
     } catch { /* don't let the handler itself crash */ }
+    // Detached launched agents do not die with us: kill them first (#229)
+    try { launchKillAll?.() } catch { /* best effort */ }
     // Preserve default crash-on-uncaught behavior: log, then exit.
     console.error(err)
     process.exit(1)
@@ -1098,10 +1030,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (codexWatcher) list.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
     if (copilotWatcher) list.push(...copilotWatcher.getActiveSessions())
     if (piWatcher) list.push(...piWatcher.getActiveSessions())
+    if (geminiWatcher) list.push(...geminiWatcher.getActiveSessions())
     return { sessions: list, agents: agentTracker }
   })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
-  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter((r): r is string => typeof r === 'string')
+  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter((r): r is string => typeof r === 'string')
 
   // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
@@ -1124,6 +1057,36 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     probe: issueLinksProbe,
     workProbe: sessionWorkProbe,
   })
+  // Launch an agent on an issue (#229): OFF unless --allow-launch. The route is loopback only, behind a per-start token.
+  let launchSupervisor: LaunchSupervisor | null = null
+  let handleLaunch = createLaunchDisabledRoute()
+  if (options.launch && launchAllowlist) {
+    const opts = options.launch
+    const token = opts.token ?? newLaunchToken()
+    launchSupervisor = createLaunchSupervisor({
+      workspace,
+      journal: opts.journal ?? createFileJournal({ file: opts.journalPath ?? path.join(os.homedir(), '.agent-lens', 'launch-journal.jsonl') }),
+      ...(opts.spawn ? { spawn: opts.spawn } : {}),
+      ...(opts.killGroup ? { killGroup: opts.killGroup } : {}),
+      ...(opts.maxConcurrent !== undefined ? { maxConcurrent: opts.maxConcurrent } : {}),
+      onChange: launch => broadcastLocal(JSON.stringify({ type: 'launch', launch })),
+    })
+    const supervisor = launchSupervisor
+    launchSessionSeen = id => supervisor.sessionSeen(id)
+    launchSnapshot = () => supervisor.list()
+    launchKillAll = () => supervisor.dispose()
+    handleLaunch = createLaunchRoute({
+      limiter: new KeyedRateLimiter(opts.rate?.burst ?? RELAY_LAUNCH_RATE_BURST, opts.rate?.perSecond ?? RELAY_LAUNCH_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS),
+      token, allowlist: launchAllowlist, supervisor,
+      workspaceOrigin: opts.workspaceOrigin ?? (() => repoUrlOf(workspace)),
+      lookupIssue: opts.lookupIssue ?? (cmd => defaultExec(cmd.file, cmd.args, { cwd: workspace })),
+      ...(opts.budgetUsd !== undefined ? { budgetUsd: opts.budgetUsd } : {}),
+    })
+    opts.onToken?.(token)
+  }
+  const launchStatus = launchSupervisor
+    ? () => ({ maxConcurrent: launchSupervisor!.maxConcurrent, launches: launchSupervisor!.list() })
+    : undefined
   const handleStatus = createStatusRoute({
     limiter: statusLimiter,
     coalescer: statusCoalescer,
@@ -1136,6 +1099,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
       if (piWatcher) sessionCount += piWatcher.getActiveSessions().length
+      if (geminiWatcher) sessionCount += geminiWatcher.getActiveSessions().length
       return { sessionCount, hooksConfigured, disable1MContext }
     },
     base: { relayVersion: agentLensVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
@@ -1147,6 +1111,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     }),
     readIndex,
     allowedHosts,
+    ...(launchStatus ? { launch: launchStatus } : {}),
   })
   const handleContext = createContextRoute({
     limiter: contextLimiter,
@@ -1170,7 +1135,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       indexCache = null
       teamWatcher?.setWorkspaces(wide ? null : [workspace])
       if (wantClaude) {
-        scanForActiveSessions(workspace, allWorkspaces)
+        scanTranscripts(workspace, allWorkspaces)
         teamWatcher?.scan()
       }
       // Clients (other tabs included) reload their view: sessions of the left scope must not linger
@@ -1183,6 +1148,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
   return {
     handleScope,
+    handleLaunch,
+    launchEnabled: launchSupervisor !== null,
     setScope,
     handleIssueLinks,
     handleStatus,
@@ -1273,11 +1240,18 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
       if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
       if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
+      if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
       // Indexed sessions complete the list; a session that is also watched live keeps its live entry
       const indexed = readIndex()
       if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
       if (sessionList.length > 0) {
         sendSSE(res, { type: 'session-list', sessions: sessionList })
+      }
+
+      // Local clients learn the launches in progress (a tunnel Host never does)
+      if (launchSnapshot && hostClass !== 'allowed') {
+        const launches = launchSnapshot()
+        if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
       }
 
       // Replay buffered events: only the requested session with ?session=<id>,
@@ -1333,12 +1307,17 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // callers or hot-reload could call this twice.
       if (relayDisposed) return
       relayDisposed = true
+      // Agents started from here do not outlive the relay (#229)
+      launchSupervisor?.dispose()
+      launchSessionSeen = null
+      launchSnapshot = null
+      launchKillAll = null
       heartbeatTicker.stop()
       observations.dispose()
       webhooks?.dispose()
       webhooks = null
       const models = [...observedModels].sort().join(',').slice(0, 128)
-      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter(Boolean).join(',')
+      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(',')
       telemetry?.emit({
         ...baseEvent(),
         event_type: 'session_end',
@@ -1365,8 +1344,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       codexWatcher?.dispose()
       copilotWatcher?.dispose()
       piWatcher?.dispose()
+      geminiWatcher?.dispose()
       for (const client of [...sseClients]) dropClient(client)
-      for (const id of [...sessions.keys()]) unwatchSession(id)
+      for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
       agentTracker.clear()
     },

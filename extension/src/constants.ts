@@ -24,6 +24,9 @@ export const COPILOT_MAX_WATCHED_SESSIONS = 25
 /** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
 export const PI_MAX_WATCHED_SESSIONS = 25
 
+/** Plafond de sessions Gemini CLI suivies en même temps (même logique que Pi, #238) */
+export const GEMINI_MAX_WATCHED_SESSIONS = 25
+
 /** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
  *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
 export const COLD_RESCAN_CYCLES = 30
@@ -450,6 +453,11 @@ export const RELAY_SCOPE_RATE_BURST = 5
 export const RELAY_SCOPE_RATE_PER_S = 0.5
 export const RELAY_SCOPE_BODY_MAX_BYTES = 256
 export const RELAY_SCOPE_BODY_TIMEOUT_MS = 3000
+/** POST /launch (#229) starts a process: its own limiter (3 requests, then one every 10 s) and a tiny body ({repo, issue, role}) */
+export const RELAY_LAUNCH_RATE_BURST = 3
+export const RELAY_LAUNCH_RATE_PER_S = 0.1
+export const RELAY_LAUNCH_BODY_MAX_BYTES = 512
+export const RELAY_LAUNCH_BODY_TIMEOUT_MS = 3000
 /** Token bucket per client address for GET /events (#200): each connection triggers a scan and a replay.
  *  The burst stays above the client cap (RELAY_MAX_SSE_CLIENTS) so that legitimate tabs and reconnects are never refused. */
 export const RELAY_SSE_RATE_BURST = 48
