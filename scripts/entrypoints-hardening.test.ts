@@ -20,6 +20,7 @@ const VSCODE_ALIAS = path.join(ROOT, 'extension', 'test', 'helpers', 'alias-vsco
 const STARTUP_TIMEOUT_MS = 30_000
 const REQUEST_TIMEOUT_MS = 5_000
 const EXIT_TIMEOUT_MS = 10_000
+const SIGNAL_SETTLE_MS = 300
 const PARALLEL_STATUS_REQUESTS = 50
 const RESERVED_PORTS = [3000, 3001, DEFAULT_RELAY_PORT]
 
@@ -226,6 +227,8 @@ for (const entry of ENTRIES) {
       // Without a SIGHUP handler Node dies without cleanup (exit code null): a detached launched agent would be left running
       for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
         const r = await start(entry)
+        // The port line is printed just before the handlers are installed: let that finish before signalling
+        await new Promise(res => setTimeout(res, SIGNAL_SETTLE_MS))
         r.child.kill(signal)
         const code = await Promise.race([r.exited, new Promise<'timeout'>(res => setTimeout(() => res('timeout'), EXIT_TIMEOUT_MS))])
         assert.equal(code, 0, `${signal}: clean exit through cleanup():\n${r.output()}`)
