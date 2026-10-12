@@ -302,7 +302,7 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 | Trigger | Fires when | Default |
 |---|---|---|
 | **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
-| **Agent in error** | an agent reports an error | on |
+| **Agent in error** | an agent itself is reported in error (a failed tool call alone does not count: the agent usually handles it and goes on; it shows in the tool error count of the inspector) | on |
 | **Session finished** | a session you were watching goes from active to completed | off |
 | **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
 

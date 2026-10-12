@@ -216,8 +216,8 @@ export function handleToolCallEnd(
   if (agent) {
     state.agents.set(agentName, {
       ...agent,
-      // A cancelled call is neither a success nor an agent failure
-      state: outcome === 'error' ? 'error' : 'thinking',
+      // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime
+      state: 'thinking',
       currentTool: undefined,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
