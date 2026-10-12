@@ -41,7 +41,7 @@ const TEXT_KEYS: ColorKey[] = [
   'thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded', 'bashResultText', 'toolResultText',
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
-  'roleUserText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
+  'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
@@ -61,6 +61,7 @@ const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['assistant role', 'roleAssistantBgSelected', ['roleAssistantText']],
   ['thinking role', 'roleThinkingBgSelected', ['roleThinkingText']],
   ['user role', 'roleUserBgSelected', ['roleUserText']],
+  ['compaction row', 'roleCompactionBgSelected', ['roleCompactionText']],
   ['search highlight', 'searchHighlightBg', ['textPrimary']],
   ['dispatch row', 'commDispatchBgSelected', ['commDispatchText']],
   ['return row', 'commReturnBgSelected', ['commReturnText']],

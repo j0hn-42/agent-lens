@@ -17,6 +17,8 @@ const CONTROL_BUTTON_CLASS =
 interface CanvasControlsProps {
   /** Teams of the accessible model (legend) */
   teams: ComponentProps<typeof GraphLegend>['teams']
+  /** Legend entries proven on screen (the legend lists only these unless asked for the complete list) */
+  present?: ComponentProps<typeof GraphLegend>['present']
   zoomBy: (factor: number) => void
   doZoomToFit: () => void
   animationsPaused: boolean
@@ -79,7 +81,7 @@ function PanelToggle({ pressed, disabled, title, onClick, children }: {
 
 /** Zoom block (three icon buttons) and one "View" button that opens the comfort settings in a small panel under it */
 export function CanvasControls({
-  teams, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
+  teams, present, zoomBy, doZoomToFit, animationsPaused, pausedBySystem, locale, calmLayers, onToggleCalmLayer, neverHide, toolExpiryS,
   onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
 }: CanvasControlsProps) {
   const { controlBarH } = useDockSnapshot().env
@@ -124,7 +126,7 @@ export function CanvasControls({
       className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
-      <GraphLegend teams={teams} />
+      <GraphLegend teams={teams} present={present} />
       <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         <div className="flex items-center gap-2">
           <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">

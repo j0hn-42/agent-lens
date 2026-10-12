@@ -29,6 +29,7 @@ export const AGENT_EVENT_TYPES: readonly AgentEventType[] = [
   'agent_spawn', 'agent_complete', 'agent_idle', 'message', 'context_update', 'model_detected',
   'tool_call_start', 'tool_call_end', 'subagent_dispatch', 'subagent_return', 'permission_requested',
   'error', 'agent_link', 'message_sent', 'team_info', 'agent_activity', 'normalization_stats',
+  'context_compacted',
 ]
 
 /** Keys that must never be copied from untrusted data (prototype pollution). */
@@ -46,7 +47,7 @@ const ID_KEYS: ReadonlySet<string> = new Set([
   'name', 'agent', 'parent', 'child', 'from', 'to', 'tool', 'toolUseId', 'linkId', 'sessionId',
   'label', 'teamName', 'model', 'subagentType', 'memberSessionId', 'leadSessionId', 'leadName',
   'agentType', 'backendType', 'kind', 'role', 'activity', 'color',
-  'requestedModel', 'modelSource', 'effort',
+  'requestedModel', 'modelSource', 'effort', 'trigger',
 ])
 
 export function createStats(): NormalizationStats {

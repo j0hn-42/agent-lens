@@ -16,13 +16,34 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
   - the path must be absolute (normalised: separators, `.` and `..`, Windows drive letter). A relative path names a file only in a working directory that is not known, so two relative paths are never compared;
   - the edits are not required to overlap in time: a conflict says that two agents wrote the same file, not that they did so at the same moment. Edits made by other runtimes (for example Codex patches) are not recognised yet.
 - **Review (pause) and switching session**: Review pauses the scene; events that arrive meanwhile wait in a queue, and Resume live reports how many. If you switch session while reviewing, the queue of the session you leave is not dropped: the position it had reached is kept with that session, so the events received while paused (and those received during the switch itself) are replayed when you come back. The view you switch to is live, so the review ends with a short notice ("Review ended: session changed") and the bar shows the live controls again; it never shows Review over a scene that is playing.
-- **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
+- **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. If the session leaves the list while you type, the edit is dropped. The panel lists active sessions first, most recent activity first, and groups them by project.
+- **Folder prefix of session tabs**: the folder prefix appears when the sessions you have open come from two or more folders, a tab reads "folder / name" (the Sessions button in the top bar, and the sessions of a team in the Sessions panel) so two sessions called "fix login" can be told apart. The folder is the repository's folder name, proven by the git common dir (worktrees of one repository share it). Limits: a session outside git, or one under "Imported transcripts", gets no prefix, because no folder is proven; with a single folder nothing is added; under a project heading of the Sessions panel the prefix is not repeated, the heading already names the folder; a name that already starts with the folder is left as is. The prefix is display only: it is never written into the name you chose, and the canvas halos keep showing the session name and workspace as before.
 
-The graph legend (bottom left of the canvas) explains every colour, shape and line.
+The graph legend (bottom left of the canvas) explains the colours, shapes and lines that are on screen.
+
+### The legend lists what is on screen
+
+The legend does not list symbols the canvas does not draw (#244). A row appears only when the scene proves it, and a section with no row has no heading:
+
+- an agent state, shape or runtime logo: at least one drawn agent has it (a hidden, folded or filtered-out agent proves nothing). A teammate ring, its working / idle / done mark and the orchestrator crown follow the same rule; a team row needs a team with two members on screen;
+- a tool card line, a discovery card by type, a context part (non-zero for a drawn agent): the card or the part exists;
+- a parent line: solid when the events confirm the link, dashed when they do not; a dispatch or return dot, a file conflict line, a "+N" or green badge on a folded branch, a session halo: drawn right now;
+- a message link style: a link with at least one message in that state (in flight, recent, error, quiet); a bubble: a message bubble exists.
+
+The sentence under the title says how many symbols are listed ("N symbols on screen") or that nothing is on screen yet. **Show all symbols** (a toggle button, Tab then Enter or Space) lists the complete reference, on screen or not; the choice is not saved. A row whose symbol just left the scene (a message in flight, a particle, a tool card) stays listed for 10 seconds so the list does not jump under you. The guided demo keeps the complete legend, because its steps describe symbols the demo never draws.
+
+### Tour this session
+
+With at least one symbol on screen, a **Tour this session** button sits beside **Legend**. It starts a guided tour of the real scene (it is not shown in the guided demo, which has its own **Guided tour**):
+
+- the steps are built when you start it from the symbols the canvas proves are on screen: your agents (main, sub-agent, runtime), each agent state present, tool calls, finished agents, who started whom, folded branches, file conflicts, teams, sessions, links, context parts and discoveries. A step for something that is not on screen does not exist, and no step talks about a symbol that is absent;
+- a step points at a real agent (a ring follows it) or, for a symbol that no single agent shows (a link, a context part), at the matching legend section, which opens without changing your saved preference. The card names the agent it points at;
+- the tour never pauses or seeks the scene: it stays live, and events keep arriving. A step is a snapshot: when what it explains has left the scene, the card says "This is no longer on screen" instead of going on as if;
+- the card is the one of the guided demo: Previous, Next, **Go to step**, **Exit tour**, the arrow keys and Escape (inside the card only), and the focus returns to the button that opened it.
 
 ### See the legend in action
 
-The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
+The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
 
 - **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
 - **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
@@ -88,6 +109,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
 | **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
+| **COMPACTED** (Conversation row) | The runtime compacted the agent's context at that moment. The trigger and the size before are shown only when the transcript records them; "Cost not reported" always, since no transcript gives the cost of a compaction. See [Context compactions](#context-compactions). |
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
@@ -138,6 +160,17 @@ The used part of the gauge is a reading; the total is a window Agent Lens must *
 4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
 
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
+
+## Context compactions
+
+When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
+
+- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record. Nothing else is read as a compaction.
+- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex).
+- **Size before.** The context size before the compaction, *reported by the runtime* (`preTokens`, a positive whole number); otherwise *Size before not reported*. It is never estimated.
+- **Cost not reported.** The summary call that performs the compaction has no usage in the transcript, so no cost is ever shown for it.
+- **The gauge after it.** The local estimate restarts from the system prompt plus the compaction summary, then grows again. For Codex, the last total reported before the compaction is dropped (it measured the old context); the gauge shows the estimate until Codex reports a new total.
+- **Limits.** A compaction written before Agent Lens attached to the session resets the estimate but is not listed. A boundary seen twice (same `uuid`) is listed once. A subagent's compaction is listed for that subagent and does not touch the session estimate. There is no before/after diff yet: the size after is only an estimate.
 
 ## Project folders
 

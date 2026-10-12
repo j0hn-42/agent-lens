@@ -20,6 +20,7 @@ import type { AgentState, ContextBreakdown } from './agent-types'
 import { currentThemeId, readTokens } from './theme-dom'
 import { NEON_COLORS, paletteFor, type ColorKey, type Palette } from './theme-palette'
 import { DEFAULT_THEME, type ThemeId } from './theme-tokens'
+import { COMPACTION_LABEL } from './compaction'
 
 export type { ColorKey } from './theme-palette'
 
@@ -85,6 +86,7 @@ export const ROLE_COLORS: Record<string, RoleColor> = {
   get assistant(): RoleColor { return { bg: COLORS.roleAssistantBg, bgSelected: COLORS.roleAssistantBgSelected, text: COLORS.roleAssistantText, label: 'CLAUDE' } },
   get thinking(): RoleColor { return { bg: COLORS.roleThinkingBg, bgSelected: COLORS.roleThinkingBgSelected, text: COLORS.roleThinkingText, label: 'THINKING' } },
   get user(): RoleColor { return { bg: COLORS.roleUserBg, bgSelected: COLORS.roleUserBgSelected, text: COLORS.roleUserText, label: 'USER' } },
+  get compaction(): RoleColor { return { bg: COLORS.roleCompactionBg, bgSelected: COLORS.roleCompactionBgSelected, text: COLORS.roleCompactionText, label: COMPACTION_LABEL } },
 }
 
 // ─── Color Helper Functions ──────────────────────────────────────────────────

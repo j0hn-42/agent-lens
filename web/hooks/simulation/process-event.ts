@@ -13,7 +13,7 @@ import type { SimulationState, ConversationMessage, AgentLink } from './types'
 import { DEFAULT_SESSION_ID } from './types'
 import { handleAgentSpawn, handleAgentComplete, handleAgentIdle, handlePermissionRequested, handleModelDetected } from './handle-agent-events'
 import { handleToolCallStart, handleToolCallEnd } from './handle-tool-events'
-import { handleMessage, handleContextUpdate } from './handle-message-events'
+import { handleMessage, handleContextUpdate, handleContextCompacted } from './handle-message-events'
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
 import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
@@ -118,6 +118,7 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'tool_call_end':     handleToolCallEnd(event.payload, currentTime, state, ctx, sid); break
     case 'message':           handleMessage(event.payload, currentTime, state, sid); break
     case 'context_update':    handleContextUpdate(event.payload, state, sid); break
+    case 'context_compacted': handleContextCompacted(event.payload, currentTime, state, sid); break
     case 'subagent_dispatch': handleSubagentDispatch(event.payload, currentTime, state, sid); break
     case 'subagent_return':   handleSubagentReturn(event.payload, currentTime, state, sid, { replayed: event.replayed === true || event.imported === true }); break
     case 'agent_link':        handleAgentLink(event.payload, currentTime, state, sid); break
