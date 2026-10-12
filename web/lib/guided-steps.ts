@@ -27,7 +27,7 @@ export interface GuidedStep extends TourStep {
 /** Entries no event can produce in a demo: explained in words only, and the text must say so. */
 export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
   'particle-dispatch', 'particle-return',
-  'state-paused', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
+  'state-paused', 'state-error', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
   'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
   'rt-copilot', 'rt-pi', 'rt-gemini',
 ]
@@ -56,7 +56,7 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'The agent asked for a permission and is blocked until you answer it in your terminal. Nothing is guessed: this state only appears when the agent really asked.',
     covers: ['state-waiting_permission'] },
   { id: 'error', time: 23.5, target: { kind: 'agent', name: 'test-runner' }, title: 'When something fails',
-    body: 'A tool call failed (a missing environment variable) and the agent turned red. Open the card to read the exact error.',
+    body: 'A tool call failed (a missing environment variable). The agent is not marked as failed for that: it reads the error and goes on. The red state is reserved for an error reported by the agent itself. Agent Lens has no source for it yet, so it is not shown in this demo. Open the card to read the exact tool error.',
     covers: ['state-error'] },
   { id: 'team', time: 30.4, target: { kind: 'agent', name: 'api-dev' }, opensLegend: true, title: 'Agent Teams',
     body: 'Teammates share a dashed halo and a coloured ring. An open arc means a teammate is working; a hollow ring means it is idle, waiting for its next turn, and its state is shown in light blue. The orchestrator carries a crown and a LEAD badge. The legend lists each team with its member count.',

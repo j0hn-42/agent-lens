@@ -125,7 +125,12 @@ test('seeking between two moments where the agent is working keeps the running s
   const view = mount()
   send(view, [spawn('alpha', 1), toolStart('alpha', 2)])
   advance(3_000)
-  send(view, [{ sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } }, toolStart('alpha', 5)])
+  // The call ends, then an observed thinking block keeps the agent working until the next call (#362)
+  send(view, [
+    { sessionId: 's1', time: 4, type: 'tool_call_end', payload: { agent: 'alpha', tool: 'Read', result: 'ok' } },
+    { sessionId: 's1', time: 4, type: 'message', payload: { agent: 'alpha', role: 'thinking', content: 'next step' } },
+    toolStart('alpha', 5),
+  ])
   const before = byName(view, 'alpha')
   assert.ok(isActiveState(before.state) && before.activeSince !== undefined, 'precondition: working with an open span')
   act(() => { view.result.current.seekToTime(4.5) })
@@ -178,12 +183,13 @@ test('end of turn (#107): the orchestrator is paused, the reading time after it 
   assert.equal(byName(view, 'alpha').activeMs, closed, 'the reading pause adds nothing')
 })
 
-test('an agent_idle without turnEnd keeps the agent working (permission answered: back to thinking)', () => {
+test('an agent_idle without turnEnd keeps the agent working (permission answered: the call still runs)', () => {
   const view = mount()
   send(view, [spawn('alpha')])
   send(view, [toolStart('alpha', 1)])
   send(view, [{ sessionId: 's1', time: 2, type: 'agent_idle', payload: { name: 'alpha' } }])
-  assert.equal(byName(view, 'alpha').state, 'thinking')
+  // Never a thinking nobody observed (#362): the call it asked permission for is still running
+  assert.equal(byName(view, 'alpha').state, 'tool_calling')
   assert.ok(byName(view, 'alpha').activeSince !== undefined)
 })
 

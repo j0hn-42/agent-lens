@@ -316,6 +316,6 @@ test('no timeline event mutates an entry or a block of the previous state (#214)
   })
   const a = state.timelineEntries.get(agentKeyOf('s1', 'a'))!
   assert.equal(a.endTime, 10)
-  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Thinking...', 'Bash: CANCELLED'])
+  assert.deepEqual(a.blocks.slice(1, 4).map(b => b.label), ['Bash: FAILED', 'Bash: CANCELLED', 'Read: z'], 'no Thinking block between calls (#362)')
   assert.equal(state.timelineEntries.get(agentKeyOf('s1', 'child'))!.endTime, 10)
 })
