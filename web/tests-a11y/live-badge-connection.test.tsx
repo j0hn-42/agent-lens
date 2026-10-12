@@ -1,4 +1,5 @@
-// Badge de la barre de lecture (#181): il suit l'état réel de la connexion, jamais LIVE si le relais est tombé.
+// Badge de la barre de lecture (#181, #367): il suit l'état réel de la connexion avec les mêmes mots que la barre du haut.
+// LIVE (pulsant) est réservé à « watching » ; une simple connexion (« connected ») ne prouve aucun flux : CONNECTED, sans pulsation.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -7,6 +8,7 @@ import axe from 'axe-core'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import type { ConnectionStatus } from '@/lib/bridge-types'
+import { connectionDisplay } from '@/lib/chrome-utils'
 
 afterEach(() => {
   cleanup()
@@ -28,13 +30,17 @@ function bar(connectionStatus?: ConnectionStatus, isDemo = false) {
 const badgeText = (c: HTMLElement) => c.querySelector('[data-live-badge]')?.textContent?.trim()
 const pulses = (c: HTMLElement) => c.querySelector('[data-live-badge] [aria-hidden="true"]')?.className.includes('animate-pulse')
 
-test('connecté ou en observation : LIVE qui pulse', () => {
-  for (const s of ['connected', 'watching'] as const) {
-    const { container, unmount } = bar(s)
-    assert.equal(badgeText(container), 'LIVE')
-    assert.equal(pulses(container), true)
-    unmount()
-  }
+test('en observation : LIVE qui pulse', () => {
+  const { container } = bar('watching')
+  assert.equal(badgeText(container), 'LIVE')
+  assert.equal(pulses(container), true)
+})
+
+test('connecté sans activité observée : CONNECTED, sans pulsation, mot de la barre du haut', () => {
+  const { container } = bar('connected')
+  assert.equal(badgeText(container), 'CONNECTED')
+  assert.equal(pulses(container), false)
+  assert.equal(badgeText(container)?.toLowerCase(), connectionDisplay('connected', false).label.toLowerCase())
 })
 
 test('relais déconnecté : OFFLINE, sans pulsation', () => {
