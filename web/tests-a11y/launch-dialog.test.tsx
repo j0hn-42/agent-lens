@@ -11,6 +11,7 @@ import { AgentDetailCard } from '@/components/agent-visualizer/agent-detail-card
 import { LaunchDialog } from '@/components/agent-visualizer/launch-dialog'
 import { createFreshnessClock } from '@/hooks/use-freshness-clock'
 import type { LaunchView } from '@/lib/bridge-types'
+import { setLocaleChoice } from '@/lib/locale'
 
 const g = globalThis as unknown as Record<string, unknown>
 const realFetch = g.fetch
@@ -36,6 +37,7 @@ const links = [
 ]
 
 beforeEach(() => {
+  act(() => { setLocaleChoice('fr') }) // the wording under test is the French one; English is checked last
   calls = []
   launchAnswer = { ok: true, status: 202, body: view() }
   g.fetch = async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
@@ -46,6 +48,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  act(() => { setLocaleChoice('auto') })
   document.body.replaceChildren()
   g.fetch = realFetch
 })
@@ -110,7 +113,7 @@ test('the dialog shows repository, issue, role, escaped title, command and caps 
   await act(async () => { fireEvent.click(v.getByRole('button', { name: "Lancer un agent sur l'issue #7" })) })
   const dialog = within(document.body).getByTestId('launch-dialog')
   const text = dialog.textContent ?? ''
-  for (const needle of ['o/r', '#7', `agent:${role}`, 'Titre <b>7</b>', '2 lancements simultanés au plus', '60 min']) {
+  for (const needle of ['o/r', '#7', `agent:${role}`, 'Titre <b>7</b>', '2 lancement(s) simultané(s) au plus', '60 min']) {
     assert.ok(text.includes(needle), `shows ${needle}`)
   }
   assert.equal(dialog.querySelector('b'), null, 'the title is text, never markup')
@@ -195,4 +198,16 @@ test('Arrêter sends POST /launch/<id>/stop with the token', async () => {
   await flush()
   assert.deepEqual(sent, [{ url: '/launch/0123456789abcdef/stop', auth: `Bearer ${TOKEN}` }])
   assert.match(within(dialog).getByRole('status').textContent ?? '', /Arrêt demandé/)
+})
+
+test('in English the same controls carry English names', async () => {
+  act(() => { setLocaleChoice('en') })
+  const { v } = await showCard({ maxConcurrent: 1, launches: new Map() })
+  const button = v.getByRole('button', { name: 'Launch an agent on issue #7' })
+  await act(async () => { fireEvent.click(button) })
+  const dialog = within(document.body).getByRole('dialog', { name: 'Launch an agent on issue #7' })
+  assert.equal(dialog.getAttribute('lang'), 'en')
+  assert.equal(document.activeElement, within(dialog).getByRole('button', { name: 'Cancel' }))
+  assert.equal((within(dialog).getByLabelText('Relay token') as HTMLInputElement).type, 'password')
+  assert.deepEqual(await violations(document.body), [])
 })

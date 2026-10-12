@@ -14,6 +14,7 @@ import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
 import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type LaunchView } from '@/lib/launch-client'
 import { LaunchDialog } from './launch-dialog'
+import { useLocale, useT } from '@/lib/locale'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
@@ -337,21 +338,23 @@ function LaunchRow({ link, repo, launches, onOpen }: {
   launches: ReadonlyMap<string, LaunchView>
   onOpen: () => void
 }) {
+  const { locale } = useLocale()
+  const t = useT()
   const latest = latestLaunchFor(launches, repo, link.number)
   return (
-    <div className="flex flex-col gap-0.5 pl-2" lang="fr">
+    <div className="flex flex-col gap-0.5 pl-2" lang={locale}>
       <button
         type="button"
         onClick={onOpen}
         className={`self-start min-h-6 rounded px-1.5 py-0.5 ${FOCUS_RING}`}
         style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
       >
-        Lancer un agent sur l&apos;issue #{link.number}
+        {t('launch.button', { n: link.number })}
       </button>
       {latest && (
         <span style={{ color: COLORS.textMuted }} data-testid="launch-state">
-          {launchStateLabel(latest)}
-          {isLaunchEnded(latest) && latest.worktreePath && <span className="block break-all">Worktree : {latest.worktreePath}</span>}
+          {launchStateLabel(latest, locale)}
+          {isLaunchEnded(latest) && latest.worktreePath && <span className="block break-all">{t('launch.worktree', { path: latest.worktreePath })}</span>}
         </span>
       )}
     </div>

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LaunchView } from '../web/lib/bridge-types'
 import {
-  buildLaunchRequest, buildStopRequest, launchErrorMessage, reduceLaunches, launchStateLabel, parseLaunchView,
+  buildLaunchRequest, buildStopRequest, launchErrorMessage, reduceLaunches, launchStateLabel as frLabel, parseLaunchView,
   parseLaunchStatus, isLaunchMessage, repoOfIssueUrl, launchCommandPreview, activeLaunchFor, isLaunchEnded,
   postLaunch, LAUNCH_WALL_CLOCK_MIN, LAUNCHES_KEPT,
 } from '../web/lib/launch-client'
@@ -50,20 +50,23 @@ test('POST /launch/<id>/stop: Bearer token, no body content, id checked', () => 
 
 test('each refusal code has a fixed French message; the body and the title are never echoed', () => {
   const codes = [401, 403, 404, 409, 413, 415, 422, 429, 502]
-  const messages = codes.map(c => launchErrorMessage(c))
+  const messages = codes.map(c => launchErrorMessage(c, 'launch', 'fr'))
   assert.equal(new Set(messages).size, codes.length, 'one distinct message per code')
   for (const m of messages) {
     assert.ok(m.length > 10)
     assert.match(m, /[a-zàâçéèêëîïôûùüÿœ]/, 'a sentence, not a code')
   }
-  assert.match(launchErrorMessage(401), /jeton/i)
-  assert.match(launchErrorMessage(422), /agent:/)
-  assert.match(launchErrorMessage(429), /plus tard|limite/i)
+  assert.match(launchErrorMessage(401, 'launch', 'fr'), /jeton/i)
+  assert.match(launchErrorMessage(422, 'launch', 'fr'), /agent:/)
+  assert.match(launchErrorMessage(429, 'launch', 'fr'), /plus tard|limite/i)
   // The signature takes no body: a hostile body cannot reach the text
   assert.equal(launchErrorMessage.length <= 2, true)
-  assert.match(launchErrorMessage(418), /418/, 'an unexpected code says its number, nothing else')
-  assert.match(launchErrorMessage(404, 'stop'), /inconnu/i)
-  assert.match(launchErrorMessage(409, 'stop'), /terminé/i)
+  assert.match(launchErrorMessage(418, 'launch', 'fr'), /418/, 'an unexpected code says its number, nothing else')
+  assert.match(launchErrorMessage(404, 'stop', 'fr'), /inconnu/i)
+  assert.match(launchErrorMessage(409, 'stop', 'fr'), /terminé/i)
+  // The English catalog has the same codes, in English
+  assert.match(launchErrorMessage(401, 'launch', 'en'), /token/i)
+  assert.equal(new Set(codes.map(c => launchErrorMessage(c, 'launch', 'en'))).size, codes.length)
 })
 
 test('postLaunch: a refusal gives the fixed message without reading the body; a network failure says the relay did not answer', async () => {
@@ -78,9 +81,9 @@ test('postLaunch: a refusal gives the fixed message without reading the body; a 
     assert.ok(!refused.message.includes('hostile'))
   }
   assert.equal(bodyRead, false)
-  const down = await postLaunch(async () => { throw new TypeError('Failed to fetch') }, '', { repo: 'o/r', issue: 7, role: 'r' }, TOKEN)
+  const down = await postLaunch(async () => { throw new TypeError('Failed to fetch') }, '', { repo: 'o/r', issue: 7, role: 'r' }, TOKEN, 'fr')
   assert.equal(down.ok, false)
-  if (!down.ok) assert.match(down.message, /relais/)
+  if (!down.ok) assert.match(down.message, /relais.*même origine/)
   const accepted = await postLaunch(async () => ({ ok: true, status: 202, json: async () => view() }), '', { repo: 'o/r', issue: 7, role: 'r' }, TOKEN)
   assert.equal(accepted.ok, true)
   if (accepted.ok) assert.equal(accepted.launch?.id, '0123456789abcdef')
@@ -138,6 +141,7 @@ test('the reducer stays bounded: the oldest requests are dropped first', () => {
 })
 
 test('state words come from an observed fact only', () => {
+  const launchStateLabel = (v: LaunchView) => frLabel(v, 'fr')
   assert.match(launchStateLabel(view()), /demandé/i)
   // No "démarré" without a pid
   assert.ok(!/démarré/i.test(launchStateLabel(view({ state: 'started' }))), 'started without pid is not "démarré"')
@@ -152,6 +156,9 @@ test('state words come from an observed fact only', () => {
   assert.match(launchStateLabel(view({ state: 'failed', failure: 'ENOENT' })), /Échec.*ENOENT/)
   assert.match(launchStateLabel(view({ state: 'started', pid: 42, stopRequestedAt: 4 })), /arrêt demandé/i)
   assert.ok(!/<|\n/.test(launchStateLabel(view({ state: 'failed', failure: '<b>\nx' }))), 'a failure code is shown cleaned')
+  // Same rule in English
+  assert.ok(!/Started/.test(frLabel(view({ state: 'started' }), 'en')))
+  assert.match(frLabel(view({ state: 'session', pid: 42, sessionSeenAt: 3 }), 'en'), /session seen/)
 })
 
 test('ended / active launch of an issue', () => {

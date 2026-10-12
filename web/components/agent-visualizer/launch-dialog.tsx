@@ -13,6 +13,7 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { CONTROL_ALL } from '@/lib/control-chars'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { useLocale, useT } from '@/lib/locale'
 import { stopPropagationHandlers } from '@/lib/menu-utils'
 import {
   LAUNCH_WALL_CLOCK_MIN, activeLaunchFor, isLaunchEnded, latestLaunchFor, launchCommandPreview, launchStateLabel,
@@ -41,6 +42,8 @@ export interface LaunchDialogProps {
 const defaultFetch: FetchLike = (url, init) => fetch(url, init)
 
 export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches, origin, onClose, fetchFn = defaultFetch }: LaunchDialogProps) {
+  const { locale } = useLocale()
+  const t = useT()
   const titleId = useId()
   const tokenId = useId()
   const tokenHelpId = useId()
@@ -106,28 +109,28 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
 
   const needToken = (): boolean => {
     if (token.trim()) return true
-    setMessage({ text: 'Collez d’abord le jeton affiché sur la console du relais.', error: true })
+    setMessage({ text: t('launch.needToken'), error: true })
     return false
   }
 
   const launch = async () => {
     if (pending || active || !needToken()) return
     setPending(true)
-    setMessage({ text: 'Demande envoyée au relais…', error: false })
-    const out = await postLaunch(fetchFn, origin, { repo, issue, role }, token)
+    setMessage({ text: t('launch.sending'), error: false })
+    const out = await postLaunch(fetchFn, origin, { repo, issue, role }, token, locale)
     setPending(false)
     setMessage(out.ok
-      ? { text: out.launch ? `Accepté par le relais : ${launchStateLabel(out.launch)}.` : 'Accepté par le relais.', error: false }
+      ? { text: out.launch ? t('launch.acceptedState', { state: launchStateLabel(out.launch, locale) }) : t('launch.accepted'), error: false }
       : { text: out.message, error: true })
   }
 
   const stop = async () => {
     if (pending || !active || !needToken()) return
     setPending(true)
-    setMessage({ text: 'Demande d’arrêt envoyée au relais…', error: false })
-    const out = await postStop(fetchFn, origin, active.id, token)
+    setMessage({ text: t('launch.stopSending'), error: false })
+    const out = await postStop(fetchFn, origin, active.id, token, locale)
     setPending(false)
-    setMessage(out.ok ? { text: 'Arrêt demandé : l’état changera quand le relais aura vu la fin du processus.', error: false } : { text: out.message, error: true })
+    setMessage(out.ok ? { text: t('launch.stopAsked'), error: false } : { text: out.message, error: true })
   }
 
   if (!mounted) return null
@@ -146,34 +149,32 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        lang="fr"
+        lang={locale}
         tabIndex={-1}
         className="max-h-[calc(100vh-24px)] w-[480px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
         data-testid="launch-dialog"
       >
         <GlassCard visible={true}>
           <h2 id={titleId} className="m-0 mb-3 text-xs font-mono font-semibold" style={{ color: COLORS.textPrimary }}>
-            Lancer un agent sur l&apos;issue #{issue}
+            {t('launch.button', { n: issue })}
           </h2>
           <dl className="m-0 flex flex-col gap-1 text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>
-            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>Dépôt</dt><dd className="m-0 min-w-0 break-all">{repo}</dd></div>
-            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>Issue</dt><dd className="m-0">#{issue}</dd></div>
-            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>Rôle</dt><dd className="m-0 break-all">agent:{role}</dd></div>
-            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>Titre</dt><dd className="m-0 min-w-0 break-words">{cleanTitle || '(sans titre)'}</dd></div>
+            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.repo')}</dt><dd className="m-0 min-w-0 break-all">{repo}</dd></div>
+            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.issue')}</dt><dd className="m-0">#{issue}</dd></div>
+            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.role')}</dt><dd className="m-0 break-all">agent:{role}</dd></div>
+            <div className="flex gap-2"><dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.title')}</dt><dd className="m-0 min-w-0 break-words">{cleanTitle || t('launch.untitled')}</dd></div>
             <div className="flex gap-2">
-              <dt className={rowLabel} style={{ color: COLORS.textMuted }}>Commande</dt>
-              <dd className="m-0 min-w-0"><code className="break-all whitespace-pre-wrap" data-testid="launch-command">{launchCommandPreview({ repo, issue, role })}</code></dd>
+              <dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.command')}</dt>
+              <dd className="m-0 min-w-0"><code className="break-all whitespace-pre-wrap" data-testid="launch-command">{launchCommandPreview({ repo, issue, role }, locale)}</code></dd>
             </div>
             <div className="flex gap-2">
-              <dt className={rowLabel} style={{ color: COLORS.textMuted }}>Plafonds</dt>
-              <dd className="m-0">
-                {maxConcurrent} lancement{maxConcurrent > 1 ? 's' : ''} simultané{maxConcurrent > 1 ? 's' : ''} au plus, {LAUNCH_WALL_CLOCK_MIN} min par lancement
-              </dd>
+              <dt className={rowLabel} style={{ color: COLORS.textMuted }}>{t('launch.field.caps')}</dt>
+              <dd className="m-0">{t('launch.caps', { n: maxConcurrent, min: LAUNCH_WALL_CLOCK_MIN })}</dd>
             </div>
           </dl>
 
           <div className="mt-3 flex flex-col gap-1 text-[11px] font-mono">
-            <label htmlFor={tokenId} style={{ color: COLORS.textPrimary }}>Jeton du relais</label>
+            <label htmlFor={tokenId} style={{ color: COLORS.textPrimary }}>{t('launch.token')}</label>
             <input
               id={tokenId}
               type="password"
@@ -186,16 +187,16 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             />
             <p id={tokenHelpId} className="m-0" style={{ color: COLORS.textMuted }}>
-              Affiché sur la console du relais à son démarrage. Gardé en mémoire tant que ce dialogue est ouvert, jamais enregistré.
+              {t('launch.token.help')}
             </p>
           </div>
 
           <div role="status" aria-live="polite" className="mt-3 text-[11px] font-mono" data-testid="launch-status">
             {latest && (
               <p className="m-0" style={{ color: COLORS.textPrimary }}>
-                État : {launchStateLabel(latest)}
+                {t('launch.stateLine', { state: launchStateLabel(latest, locale) })}
                 {isLaunchEnded(latest) && latest.worktreePath && (
-                  <span className="block break-all" style={{ color: COLORS.textMuted }}>Worktree conservé : {latest.worktreePath}</span>
+                  <span className="block break-all" style={{ color: COLORS.textMuted }}>{t('launch.worktree', { path: latest.worktreePath })}</span>
                 )}
               </p>
             )}
@@ -210,7 +211,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
               className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
               style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              Annuler
+              {t('launch.cancel')}
             </button>
             {active ? (
               <button
@@ -220,7 +221,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
                 className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
                 style={{ border: `1px solid ${COLORS.error}`, color: COLORS.error }}
               >
-                Arrêter
+                {t('launch.stop')}
               </button>
             ) : (
               <button
@@ -230,7 +231,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
                 className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
                 style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.toggleInactive, color: COLORS.textPrimary }}
               >
-                Lancer
+                {t('launch.submit')}
               </button>
             )}
           </div>

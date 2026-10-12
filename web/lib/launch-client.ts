@@ -1,11 +1,12 @@
 /**
  * Launch an agent on an issue (#229), client side. Pure: builds the POST /launch and /launch/<id>/stop requests,
- * turns a refusal into a fixed French sentence (the answer body is never read nor shown), validates the views the
+ * turns a refusal into a fixed sentence of the message catalog (French or English; the answer body is never read nor shown), validates the views the
  * relay sends (SSE `launch` / `launch-list`, GET /status `launch`) and says in words what was OBSERVED of a launch.
  * The relay decides everything (docs/launch-security.md); this module only asks and reports.
  */
 import { CONTROL_ALL } from './control-chars'
 import type { LaunchState, LaunchView } from './bridge-types'
+import { DEFAULT_LOCALE, translate, type Locale, type MessageKey } from './messages'
 
 export type { LaunchState, LaunchView }
 
@@ -63,56 +64,43 @@ export function buildStopRequest(origin: string, id: string, token: string): Bui
   }
 }
 
-const LAUNCH_ERRORS: Record<number, string> = {
-  400: 'Demande refusée : elle n’a pas la forme attendue par le relais.',
-  401: 'Jeton refusé : recopiez celui affiché sur la console du relais à son démarrage.',
-  403: 'Refusé par le relais : origine, hôte ou dépôt non autorisé.',
-  404: 'Le lancement n’est pas activé sur ce relais (démarré sans --allow-launch).',
-  405: 'Méthode refusée par le relais.',
-  408: 'Le relais n’a pas reçu la demande à temps.',
-  409: 'Cette issue a déjà un lancement en cours.',
-  413: 'Demande trop volumineuse pour le relais.',
-  415: 'Type de contenu refusé par le relais.',
-  422: 'Issue non éligible : elle doit être ouverte, porter agent:<rôle> et avoir été ouverte par un OWNER, MEMBER ou COLLABORATOR.',
-  429: 'Limite atteinte (lancements simultanés ou demandes trop rapprochées) : réessayez plus tard.',
-  502: 'Le relais n’a pas pu relire l’issue (gh ou git a échoué) : rien n’a été lancé.',
-  503: 'Le journal des lancements est indisponible : rien n’a été lancé.',
+const LAUNCH_ERRORS: Record<number, MessageKey> = {
+  400: 'launch.err.400', 401: 'launch.err.401', 403: 'launch.err.403', 404: 'launch.err.404', 405: 'launch.err.405',
+  408: 'launch.err.408', 409: 'launch.err.409', 413: 'launch.err.413', 415: 'launch.err.415', 422: 'launch.err.422',
+  429: 'launch.err.429', 502: 'launch.err.502', 503: 'launch.err.503',
 }
-const STOP_ERRORS: Record<number, string> = {
-  404: 'Lancement inconnu du relais.',
-  409: 'Ce lancement est déjà terminé.',
-}
+const STOP_ERRORS: Record<number, MessageKey> = { 404: 'launch.err.stop.404', 409: 'launch.err.stop.409' }
 
-/** Fixed sentence for an HTTP refusal. Takes the status only: the body of the answer is never shown. */
-export function launchErrorMessage(status: number, kind: 'launch' | 'stop' = 'launch'): string {
-  return (kind === 'stop' ? STOP_ERRORS[status] : undefined) ?? LAUNCH_ERRORS[status]
-    ?? `Le relais a refusé la demande (HTTP ${Number.isInteger(status) ? status : '?'}).`
+/** Fixed sentence for an HTTP refusal (message catalog). Takes the status only: the body of the answer is never shown. */
+export function launchErrorMessage(status: number, kind: 'launch' | 'stop' = 'launch', locale: Locale = DEFAULT_LOCALE): string {
+  const key = (kind === 'stop' ? STOP_ERRORS[status] : undefined) ?? LAUNCH_ERRORS[status]
+  return key ? translate(locale, key) : translate(locale, 'launch.err.other', { code: Number.isInteger(status) ? status : '?' })
 }
-
-/** Fetch failed before any answer: no relay, or a cross-origin page (no CORS preflight on /launch). */
-export const LAUNCH_NETWORK_ERROR = 'Le relais n’a pas répondu. La page doit être servie par le relais lui-même (même origine).'
 
 export type FetchLike = (url: string, init: BuiltRequest['init']) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>
 
 export type LaunchOutcome = { ok: true; launch: LaunchView | null } | { ok: false; message: string }
 
-async function send(fetchFn: FetchLike, req: BuiltRequest, kind: 'launch' | 'stop'): Promise<LaunchOutcome> {
+/** Fetch failed before any answer: no relay, or a cross-origin page (the relay answers no CORS preflight on /launch). */
+async function send(fetchFn: FetchLike, req: BuiltRequest, kind: 'launch' | 'stop', locale: Locale): Promise<LaunchOutcome> {
   let res: Awaited<ReturnType<FetchLike>>
-  try { res = await fetchFn(req.url, req.init) } catch { return { ok: false, message: LAUNCH_NETWORK_ERROR } }
-  if (!res.ok) return { ok: false, message: launchErrorMessage(res.status, kind) }
+  try { res = await fetchFn(req.url, req.init) } catch { return { ok: false, message: translate(locale, 'launch.err.network') } }
+  if (!res.ok) return { ok: false, message: launchErrorMessage(res.status, kind, locale) }
   let body: unknown = null
   try { body = await res.json() } catch { /* accepted, answer unreadable: no view is invented */ }
   return { ok: true, launch: parseLaunchView(body) }
 }
 
-export function postLaunch(fetchFn: FetchLike, origin: string, req: LaunchRequestBody, token: string): Promise<LaunchOutcome> {
-  return send(fetchFn, buildLaunchRequest(origin, req, token), 'launch')
+export function postLaunch(
+  fetchFn: FetchLike, origin: string, req: LaunchRequestBody, token: string, locale: Locale = DEFAULT_LOCALE,
+): Promise<LaunchOutcome> {
+  return send(fetchFn, buildLaunchRequest(origin, req, token), 'launch', locale)
 }
 
-export function postStop(fetchFn: FetchLike, origin: string, id: string, token: string): Promise<LaunchOutcome> {
+export function postStop(fetchFn: FetchLike, origin: string, id: string, token: string, locale: Locale = DEFAULT_LOCALE): Promise<LaunchOutcome> {
   const req = buildStopRequest(origin, id, token)
-  if (!req) return Promise.resolve({ ok: false, message: launchErrorMessage(404, 'stop') })
-  return send(fetchFn, req, 'stop')
+  if (!req) return Promise.resolve({ ok: false, message: launchErrorMessage(404, 'stop', locale) })
+  return send(fetchFn, req, 'stop', locale)
 }
 
 // ─── Validation of what the relay sends ──────────────────────────────────────
@@ -208,23 +196,27 @@ export function latestLaunchFor(launches: ReadonlyMap<string, LaunchView>, repo:
   return best
 }
 
-const ending = (l: LaunchView): string =>
-  typeof l.exitCode === 'number' ? ` (code ${l.exitCode})` : safeCode(l.signal) ? ` (signal ${safeCode(l.signal)})` : ''
+function ending(l: LaunchView, locale: Locale): string {
+  if (typeof l.exitCode === 'number') return translate(locale, 'launch.end.code', { code: l.exitCode })
+  const signal = safeCode(l.signal)
+  return signal ? translate(locale, 'launch.end.signal', { signal }) : ''
+}
 
-/** The state in words, from the fact the relay observed: no "démarré" without a pid, no "session vue" without sessionSeenAt. */
-export function launchStateLabel(l: LaunchView): string {
-  const stopAsked = l.stopRequestedAt !== undefined && !isLaunchEnded(l) ? ', arrêt demandé' : ''
-  const running = () => l.pid !== undefined ? `Démarré (pid ${l.pid})` : 'Demandé, démarrage pas encore observé'
+/** The state in words, from the fact the relay observed: no "started" without a pid, no "session seen" without sessionSeenAt. */
+export function launchStateLabel(l: LaunchView, locale: Locale = DEFAULT_LOCALE): string {
+  const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
+  const stopAsked = l.stopRequestedAt !== undefined && !isLaunchEnded(l) ? t('launch.state.stopAsked') : ''
+  const running = () => (l.pid !== undefined ? t('launch.state.started', { pid: l.pid }) : t('launch.state.startPending'))
   switch (l.state) {
-    case 'requested': return `Demandé, pas encore démarré${stopAsked}`
+    case 'requested': return t('launch.state.requested') + stopAsked
     case 'started': return running() + stopAsked
-    case 'session': return (l.pid !== undefined && l.sessionSeenAt !== undefined ? `Démarré (pid ${l.pid}), session vue` : running()) + stopAsked
-    case 'exited': return `Terminé${ending(l)}`
-    case 'stopped': return `Arrêté à la demande${ending(l)}`
-    case 'expired': return `Arrêté après ${LAUNCH_WALL_CLOCK_MIN} min (plafond)${ending(l)}`
+    case 'session': return (l.pid !== undefined && l.sessionSeenAt !== undefined ? t('launch.state.session', { pid: l.pid }) : running()) + stopAsked
+    case 'exited': return t('launch.state.exited', { end: ending(l, locale) })
+    case 'stopped': return t('launch.state.stopped', { end: ending(l, locale) })
+    case 'expired': return t('launch.state.expired', { min: LAUNCH_WALL_CLOCK_MIN, end: ending(l, locale) })
     case 'failed': {
       const code = safeCode(l.failure)
-      return `Échec au démarrage${code ? ` (${code})` : ''}`
+      return t('launch.state.failed', { code: code ? ` (${code})` : '' })
     }
   }
 }
@@ -240,8 +232,9 @@ export function repoOfIssueUrl(url: string): string | undefined {
  * and set by the relay; the tool lists and the prompt are fixed by it (docs/node-inspector.md). The order of the
  * flags is that of buildLaunchCommand (compared by scripts/launch-client.test.ts).
  */
-export function launchCommandPreview(req: LaunchRequestBody): string {
-  return `claude -p --worktree issue-${req.issue}-${req.role} --session-id <tirée par le relais> --output-format stream-json --verbose `
-    + '--max-budget-usd <plafond du relais> --permission-mode default --setting-sources project --strict-mcp-config '
-    + '--allowedTools <liste fixe> --disallowedTools <liste fixe> -- "<consigne fixe>"'
+export function launchCommandPreview(req: LaunchRequestBody, locale: Locale = DEFAULT_LOCALE): string {
+  const t = (key: MessageKey) => translate(locale, key)
+  return `claude -p --worktree issue-${req.issue}-${req.role} --session-id ${t('launch.preview.session')} --output-format stream-json --verbose `
+    + `--max-budget-usd ${t('launch.preview.budget')} --permission-mode default --setting-sources project --strict-mcp-config `
+    + `--allowedTools ${t('launch.preview.tools')} --disallowedTools ${t('launch.preview.tools')} -- "${t('launch.preview.prompt')}"`
 }
