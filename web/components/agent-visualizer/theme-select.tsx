@@ -1,7 +1,7 @@
 "use client"
 
 import { COLORS } from "@/lib/colors"
-import { FOCUS_RING } from "@/lib/chrome-utils"
+import { FOCUS_RING } from "@/lib/focus-ring"
 import { useTheme } from "@/lib/theme"
 import { useT } from "@/lib/locale"
 import { THEME_IDS, THEME_LABELS, isThemeId } from "@/lib/theme-tokens"

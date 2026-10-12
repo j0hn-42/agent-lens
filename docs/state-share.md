@@ -40,7 +40,7 @@ wiring them earlier would add a second source of truth to reconcile (see `relay-
 ## Observations for Claude (#72) — `extension/src/observations.ts`
 
 Typed action `observations` (name, description, JSON Schemas `inputSchema` / `outputSchema` in
-`OBSERVATIONS_ACTION`). The relay serves it on loopback only, rate-limited like `/status`:
+`OBSERVATIONS_ACTION`). Only the standalone relay (dev relay, standalone app) serves it, on loopback only, rate-limited like `/status`; the VS Code extension's hook server has no `/observations` route, so a client pointed at it gets nothing:
 
 - `GET /observations[?session=<id>][&agents=0]` runs the action.
 - `GET /observations/schema` returns the definition so a client can learn the schema.

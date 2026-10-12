@@ -65,7 +65,8 @@ import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/li
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
-import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
+import { UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
+import { FOCUS_RING } from "@/lib/focus-ring"
 import { deriveSessionLinks } from "@/lib/session-links"
 import { deriveDelegationReport } from "@/lib/delegation-report"
 import { summarizeAttention, withForeignAttention } from "@/lib/attention"
@@ -969,7 +970,7 @@ export function AgentVisualizer() {
             style={{ fontFamily: "'SF Mono', 'Fira Code', monospace" }}
           >
             <div className="text-sm font-semibold" style={{ color: SCENE.textPrimary }}>Waiting for an agent session</div>
-            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code, Codex, Copilot or Pi session in the watched workspace to see activity</div>
+            <div className="mt-1 text-xs" style={{ color: SCENE.textMuted }}>Start a Claude Code, Codex, Copilot, Pi or Gemini CLI session in the watched workspace to see activity</div>
             <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
               {checklist.map(item => (
                 <li key={item.id}>

@@ -175,6 +175,11 @@ describe('observations tool', () => {
     assert.equal(out.sessions[0].provenance, 'imported')
   })
 
+  it('keeps a Gemini session (#238)', () => {
+    const out = projectObservations(obs([obsSession({ runtime: 'gemini' })]))
+    assert.equal(out?.sessions[0].runtime, 'gemini')
+  })
+
   it('keeps a Pi session (#238)', () => {
     const out = projectObservations(obs([obsSession({ runtime: 'pi' })]))
     assert.equal(out?.sessions[0].runtime, 'pi')

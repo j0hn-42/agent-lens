@@ -64,7 +64,6 @@
   "web/components/agent-visualizer/canvas/link-geometry.ts:LINK_IN_FLIGHT_S",
   "web/components/agent-visualizer/canvas/link-geometry.ts:LINK_RECENT_S",
   "web/components/agent-visualizer/canvas/link-panel-model.ts:cleanMessageText",
-  "web/components/agent-visualizer/canvas/link-panel-model.ts:formatLinkTime",
   "web/components/agent-visualizer/canvas/link-panel-model.ts:isLongMessage",
   "web/components/agent-visualizer/canvas/link-panel-model.ts:LINK_MESSAGE_COLLAPSE_CHARS",
   "web/components/agent-visualizer/canvas/link-panel-model.ts:LINK_MESSAGE_COLLAPSE_LINES",

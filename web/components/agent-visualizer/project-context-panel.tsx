@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { useProjectContext } from '@/hooks/use-project-context'
 import type { ProjectContextData, ProjectContextFile } from '@/lib/project-context'
 import { SessionWorkSection } from './session-work-section'
@@ -67,7 +67,7 @@ function FileBlock({ file }: { file: ProjectContextFile }) {
           <pre
             ref={preRef}
             aria-label={`${file.name} content`}
-            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING}`}
+            className={`m-0 max-h-[260px] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono rounded p-2 ${FOCUS_RING_INSET}`}
             style={{ background: COLORS.holoBg05, color: COLORS.assistantText, scrollbarWidth: 'thin' }}
           >{file.text}</pre>
         </>
@@ -121,7 +121,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
               onClick={refresh}
               aria-label="Refresh project context"
               title="Refresh"
-              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING}`}
+              className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
               Refresh

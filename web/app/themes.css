@@ -23,7 +23,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #494d64;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #8aadf4;
   --lens-focus-width: 2px;
   --lens-glass-bg: #1e2030;
   --lens-glass-border: #494d64;
@@ -120,7 +119,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #45475a;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #89b4fa;
   --lens-focus-width: 2px;
   --lens-glass-bg: #181825;
   --lens-glass-border: #45475a;
@@ -217,7 +215,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #51576d;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #8caaee;
   --lens-focus-width: 2px;
   --lens-glass-bg: #292c3c;
   --lens-glass-border: #51576d;
@@ -314,7 +311,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #2c3562;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #d0d5ff;
   --lens-focus-width: 2px;
   --lens-glass-bg: #121730;
   --lens-glass-border: #2c3562;
@@ -411,7 +407,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #343436;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --lens-focus-ring: #ffffff;
   --lens-focus-width: 2px;
   --lens-glass-bg: #1b1b1c;
   --lens-glass-border: #343436;
@@ -505,7 +500,6 @@
   --lens-info: #22d3ee;
   --lens-context-system: #7777a0;
   --lens-shadow-card: 0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08);
-  --lens-focus-ring: #aaeeff;
   --lens-focus-width: 2px;
   --lens-glass-bg: rgba(10, 15, 30, 0.7);
   --lens-glass-border: rgba(102, 204, 255, 0.22);
@@ -605,7 +599,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #43362b;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #ffd08a;
   --lens-focus-width: 2px;
   --lens-glass-bg: #1e1814;
   --lens-glass-border: #43362b;
@@ -702,7 +695,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #34322e;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
-  --lens-focus-ring: #faf9f5;
   --lens-focus-width: 2px;
   --lens-glass-bg: #141413;
   --lens-glass-border: #34322e;
@@ -799,7 +791,6 @@
   --lens-bar-shadow: inset 0 0 0 1px #ffffff;
   --lens-bar-pad: 6px 8px;
   --lens-shadow-card: none;
-  --lens-focus-ring: #ffe14d;
   --lens-focus-width: 3px;
   --lens-glass-bg: #0a0a0a;
   --lens-glass-border: #ffffff;

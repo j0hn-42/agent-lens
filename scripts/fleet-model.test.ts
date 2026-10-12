@@ -72,7 +72,7 @@ test('300 distinct team names stay bounded by MAX_TEAMS', () => {
 })
 
 test('admitSpawn counts teams by state.teams key: same-named teams of different leads count separately', () => {
-  const state = createEmptyState()
+  const state = { ...createEmptyState(), wasteToken: {} }
   for (let i = 0; i < MAX_TEAMS; i++) {
     state.teams.set(i === 0 ? 'same' : `same@L${i}`, { name: 'same', leadSessionId: `L${i}`, members: [] })
   }

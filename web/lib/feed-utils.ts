@@ -7,6 +7,7 @@ export { STATE_LABELS, getStateLabel as stateLabel } from './state-labels'
 import type { ConversationMessage, AgentLink } from '../hooks/simulation/types'
 import type { TeamSummary } from './agent-types'
 import { formatDroppedMessages } from './chrome-utils'
+import { formatDuration } from './utils'
 import { teamOfAgent, keyOfTeam } from '../hooks/simulation/team-key'
 import { findTeam } from '../hooks/simulation/team-key'
 import { emptyState, emptyMatch, groupHeading, memberNoun, normalizeGroupKind, type GroupKind } from './ui-glossary'
@@ -28,25 +29,10 @@ export function truncateWithMarker(text: string, max: number): { text: string; h
   return { text: text.slice(0, max), hidden, marker: `… (+${hidden} chars)` }
 }
 
-/** Format simulation seconds as m:ss and an ISO-8601 duration for <time dateTime>. */
+/** Format simulation seconds like the control bar (formatDuration) and as an ISO-8601 duration for <time dateTime>. */
 export function formatElapsed(seconds: number): { label: string; iso: string } {
   const s = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
-  const whole = Math.floor(s)
-  const m = Math.floor(whole / 60)
-  const rem = String(whole % 60).padStart(2, '0')
-  return { label: `${m}:${rem}`, iso: `PT${s.toFixed(1)}S` }
-}
-
-/** Roving-tabindex keyboard navigation for tablists. Returns next index or null. */
-export function nextTabIndex(key: string, current: number, count: number): number | null {
-  if (count <= 0) return null
-  switch (key) {
-    case 'ArrowRight': case 'ArrowDown': return (current + 1) % count
-    case 'ArrowLeft': case 'ArrowUp': return (current - 1 + count) % count
-    case 'Home': return 0
-    case 'End': return count - 1
-    default: return null
-  }
+  return { label: formatDuration(s), iso: `PT${s.toFixed(1)}S` }
 }
 
 /** Lists below this size are rendered in full (no windowing). */
@@ -95,10 +81,6 @@ export function markUnread(
 export function activeTabIndexOf(keys: readonly string[], active: string): number {
   return Math.max(0, keys.indexOf(active))
 }
-
-/** Visible keyboard focus ring (inset so it is not clipped by scroll containers). */
-export const FOCUS_RING =
-  'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--lens-focus-ring)]'
 
 /** Top offset of the Conversation pill: just under the top bar, which wraps onto several rows on narrow windows. */
 export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'

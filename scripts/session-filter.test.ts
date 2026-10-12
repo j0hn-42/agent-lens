@@ -67,7 +67,7 @@ test('ui-prefs: project and runtime filters persist, malformed values fall back 
   assert.equal(DEFAULT_UI_PREFS.sessionFilterRuntime, null)
   assert.equal(sanitizePref('sessionFilterRuntime', 'codex'), 'codex')
   assert.equal(sanitizePref('sessionFilterRuntime', 'copilot'), 'copilot')
-  assert.equal(sanitizePref('sessionFilterRuntime', 'gemini'), null)
+  assert.equal(sanitizePref('sessionFilterRuntime', 'cursor'), null)
   assert.equal(sanitizePref('sessionFilterRuntime', 3), null)
   assert.equal(sanitizePref('sessionFilterProject', 'abc'), 'abc')
   assert.equal(sanitizePref('sessionFilterProject', ''), null)
@@ -81,6 +81,16 @@ test('filter: a Copilot session is selected by the Copilot runtime filter only',
   const withCopilot = [...list, s('assist', { runtime: 'copilot' })]
   assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'copilot' }))), ['assist'])
   assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'claude' }))), ['fix-login', 'plain'])
+})
+
+test('filter: a Gemini session is listed as a runtime option and selected by the Gemini filter only (#238)', () => {
+  const withGemini = [...list, s('pi-run', { runtime: 'pi' }), s('gem-run', { runtime: 'gemini' })]
+  assert.deepEqual(runtimeOptions(withGemini), ['claude', 'codex', 'pi', 'gemini'])
+  assert.deepEqual(ids(filterSessionList(withGemini, f({ runtime: 'gemini' }))), ['gem-run'])
+  assert.deepEqual(ids(filterSessionList(withGemini, f({ runtime: 'pi' }))), ['pi-run'])
+  assert.deepEqual(ids(filterSessionList(withGemini, f({ runtime: 'claude' }))), ['fix-login', 'plain'])
+  assert.equal(sanitizePref('sessionFilterRuntime', 'gemini'), 'gemini')
+  assert.equal(sanitizePref('sessionFilterRuntime', 'cursor'), null)
 })
 
 test('filter: a Pi session is listed as a runtime option and selected by the Pi filter only (#238)', () => {

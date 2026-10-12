@@ -1,7 +1,7 @@
 "use client"
 
 import { COLORS } from "@/lib/colors"
-import { FOCUS_RING } from "@/lib/chrome-utils"
+import { FOCUS_RING } from "@/lib/focus-ring"
 import type { SessionInfo } from "@/lib/bridge-types"
 import { parseScopeValue, scopeNotices, scopeOptions, scopeSummary, scopeValue, type RelayScopeState, type ScopeChoice } from "@/lib/relay-scope"
 import { projectOptions } from "@/lib/session-filter"

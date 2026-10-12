@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { paletteStatus, searchPalette, type PaletteItem } from '@/lib/command-palette'
 import { GlassCard } from './glass-card'
 import { stopPropagationHandlers } from './shared-ui'

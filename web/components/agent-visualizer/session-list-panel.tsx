@@ -12,7 +12,8 @@ import { deriveFreshness } from '@/hooks/simulation/freshness'
 import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
-import { FOCUS_RING, SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams, formatRelativeTime,
   type AgentLike, type AgentNode,
@@ -530,6 +531,7 @@ export function SessionListPanel({
               <option value="codex">Codex</option>
               <option value="copilot">GitHub Copilot</option>
               <option value="pi">Pi</option>
+              <option value="gemini">Gemini CLI</option>
             </select>
           )}
           {(branches.length > 0 || filter.branch !== null) && (
