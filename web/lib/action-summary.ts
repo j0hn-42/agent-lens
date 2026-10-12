@@ -43,6 +43,22 @@ export function editStats(toolName: string, input: Record<string, unknown>): Edi
   return null
 }
 
+/** Lines of the content a Write call carries (null when the input has none). */
+export function writeStats(input: Record<string, unknown>): { lines: number } | null {
+  return typeof input.content === 'string' ? { lines: lineCount(input.content) } : null
+}
+
+const positive = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0
+
+/** Line range a Read call asked for; `to` is null when only an offset was given. Null when neither is stated. */
+export function readRange(input: Record<string, unknown>): { from: number; to: number | null } | null {
+  const offset = positive(input.offset) ? input.offset : null
+  const limit = positive(input.limit) ? input.limit : null
+  if (offset == null && limit == null) return null
+  const from = offset ?? 1
+  return { from, to: limit == null ? null : from + limit - 1 }
+}
+
 /** Split a shell line into segments on unquoted `&&`, `||`, `;`, `|` and newlines, each into words. */
 function splitShell(command: string): string[][] {
   const segments: string[][] = []

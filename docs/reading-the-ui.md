@@ -76,6 +76,8 @@ A failed call also gets a **Causal chain of this failure**, an ordered list from
 Some tool calls have their own card content in the popup and the transcript. Every figure comes from the call's own input; when the input does not carry it, nothing is shown.
 
 - **Edit / MultiEdit**: a `+N -M` summary (lines of `new_string` and `old_string`, summed over the blocks for MultiEdit, with the block count). The sign and a spoken equivalent ("2 lines added, 3 lines removed") carry the meaning, not the color. A MultiEdit whose blocks are incomplete shows no summary.
+- **Write**: the number of lines of the content written. It does not say whether the file already existed, because the call does not prove it.
+- **Read**: the line range requested (`lines 10–59`, or `from line 100` when only an offset was given), from the call's `offset` and `limit`. Nothing is shown when the call states neither.
 - **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
 
 ## Themes

@@ -63,6 +63,21 @@ test('Bash: no git / gh, no pill list; no exit code or duration is claimed', () 
   assert.doesNotMatch(container.textContent ?? '', /exit code|exited/i)
 })
 
+test('Write: the line count is stated in text', () => {
+  const { getByText } = show('Write', { file_path: '/a.ts', content: 'a\nb\nc' })
+  assert.ok(getByText('3 lines'))
+})
+
+test('Write without content: no count', () => {
+  const { queryByText } = show('Write', { file_path: '/a.ts' })
+  assert.equal(queryByText(/^\d+ lines?$/), null)
+})
+
+test('Read: the range is spelled out from offset and limit', () => {
+  const { getByText } = show('Read', { file_path: '/a.ts', offset: 10, limit: 50 })
+  assert.ok(getByText('lines 10–59'))
+})
+
 test('the new cards have no axe violation', async () => {
   for (const [name, input] of [
     ['Edit', { file_path: '/a.ts', old_string: 'a', new_string: 'b' }],

@@ -1,7 +1,23 @@
 // Per-action summaries (#317): every figure comes from the call's own input, nothing is inferred.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { editStats, shellCommands } from '../web/lib/action-summary'
+import { editStats, shellCommands, writeStats, readRange } from '../web/lib/action-summary'
+
+test('writeStats: line count of the content, null when absent', () => {
+  assert.deepEqual(writeStats({ file_path: '/a', content: 'a\nb\nc' }), { lines: 3 })
+  assert.deepEqual(writeStats({ content: '' }), { lines: 0 })
+  assert.equal(writeStats({ file_path: '/a' }), null)
+  assert.equal(writeStats({ content: 4 }), null)
+})
+
+test('readRange: only what offset / limit state', () => {
+  assert.deepEqual(readRange({ offset: 10, limit: 50 }), { from: 10, to: 59 })
+  assert.deepEqual(readRange({ limit: 20 }), { from: 1, to: 20 })
+  assert.deepEqual(readRange({ offset: 100 }), { from: 100, to: null })
+  assert.equal(readRange({}), null)
+  assert.equal(readRange({ offset: 0, limit: 0 }), null)
+  assert.equal(readRange({ offset: '5' }), null)
+})
 
 test('Edit: counts the lines of old_string and new_string', () => {
   const s = editStats('Edit', { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })

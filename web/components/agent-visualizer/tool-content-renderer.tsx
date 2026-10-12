@@ -4,7 +4,7 @@ import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
 import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
-import { editStats, shellCommands, type EditStats } from '@/lib/action-summary'
+import { editStats, shellCommands, writeStats, readRange, type EditStats } from '@/lib/action-summary'
 import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
@@ -287,10 +287,12 @@ function WriteContent({ data, compact }: { data: Record<string, unknown>; compac
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const t = truncateLines(String(data.content || ''), showAll ? Infinity : (compact ? 4 : 8))
+  const stats = writeStats(data)
 
   return (
     <div>
       <FilePath path={filePath} />
+      {stats && <div className="mb-1 text-[11px] font-mono" style={{ color: COLORS.contentDim }}>{plural(stats.lines, 'line')}</div>}
       <div className="rounded px-1.5 py-1 text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg, color: COLORS.contentDim }}>
         {t.lines.map((line, i) => (
           <div key={i} className={showAll ? 'whitespace-pre-wrap break-words' : 'truncate'} title={!showAll && line.length > 60 ? line : undefined}>{line || ' '}</div>
@@ -306,15 +308,14 @@ function WriteContent({ data, compact }: { data: Record<string, unknown>; compac
 
 function ReadContent({ data }: { data: Record<string, unknown> }) {
   const filePath = String(data.file_path || '')
-  const offset = typeof data.offset === 'number' ? data.offset : undefined
-  const limit = typeof data.limit === 'number' ? data.limit : undefined
+  const range = readRange(data)
 
   return (
     <div>
       <FilePath path={filePath} />
-      {(offset != null || limit != null) && (
+      {range && (
         <div className="text-[11px]" style={{ color: COLORS.contentDim }}>
-          {offset ? `from line ${offset}` : ''}{offset && limit ? ', ' : ''}{limit ? `${limit} lines` : ''}
+          {range.to == null ? `from line ${range.from}` : `lines ${range.from}–${range.to}`}
         </div>
       )}
     </div>
