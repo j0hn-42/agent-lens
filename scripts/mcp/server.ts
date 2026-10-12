@@ -18,6 +18,7 @@ import {
 } from '../../extension/src/observations'
 import { DEFAULT_RELAY_PORT, OBSERVATIONS_MAX_SESSIONS, OBSERVATIONS_MAX_AGENTS_PER_SESSION, OBSERVATIONS_NAME_MAX } from '../../extension/src/constants'
 import { ISSUE_LINKS_MAX } from '../../extension/src/issue-links'
+import { CONTROL_ALL } from '../../extension/src/control-chars'
 import type { ChecksState } from '../../extension/src/session-work'
 
 export const MCP_SERVER_NAME = 'agent-lens'
@@ -26,6 +27,8 @@ export const MCP_SERVER_VERSION = '1.0.0'
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const
 /** Longest accepted stdin line (one JSON-RPC message); longer lines are dropped with -32600 */
 export const MCP_LINE_MAX = 64 * 1024
+/** Requests waiting for an answer; beyond, a request is answered "busy" at once (stdin never queues without bound) */
+export const MCP_MAX_PENDING = 32
 /** Largest relay answer read; beyond, the call fails (never a cut answer) */
 export const RELAY_BODY_MAX = 256 * 1024
 export const RELAY_TIMEOUT_MS = 5000
@@ -33,8 +36,10 @@ export const RELAY_TIMEOUT_MS = 5000
 const TITLE_MAX = 200
 const BRANCH_MAX = 200
 const SESSION_ID_RE = new RegExp(OBSERVATIONS_SESSION_ID_PATTERN)
-const REPO_RE = /^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/
-const stripControl = (value: string): string => value.replace(/[\u0000-\u001F\u007F]/g, ' ')
+// Same shape as normalizeRepoUrl: an owner or name of "." or ".." is refused
+const REPO_RE = /^https:\/\/github\.com\/(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/
+/** C0, DEL, C1, zero-width, bidi overrides and isolates: the one set of extension/src/control-chars.ts */
+const stripControl = (value: string): string => value.replace(CONTROL_ALL, ' ')
 
 // ─── Relay access ────────────────────────────────────────────────────────────
 
@@ -46,7 +51,8 @@ export interface RelayAnswer {
 /** GET a path (with its query) on the relay. Rejects when the relay cannot be read at all. */
 export type RelayGet = (pathAndQuery: string) => Promise<RelayAnswer>
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
+// The relay listens on 127.0.0.1 only (LOOPBACK_HOST): ::1 would be accepted and never answer
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost'])
 
 /** The relay base URL: plain http to a loopback host, nothing else (the config cannot send data elsewhere). */
 export function parseRelayUrl(raw: string | undefined): { ok: true; url: URL } | { ok: false; error: string } {
@@ -54,7 +60,7 @@ export function parseRelayUrl(raw: string | undefined): { ok: true; url: URL } |
   let url: URL
   try { url = new URL(value) } catch { return { ok: false, error: 'AGENT_LENS_RELAY_URL is not a URL' } }
   if (url.protocol !== 'http:') return { ok: false, error: 'AGENT_LENS_RELAY_URL must use http://' }
-  if (!LOOPBACK_HOSTS.has(url.hostname)) return { ok: false, error: 'AGENT_LENS_RELAY_URL must point to 127.0.0.1, ::1 or localhost' }
+  if (!LOOPBACK_HOSTS.has(url.hostname)) return { ok: false, error: 'AGENT_LENS_RELAY_URL must point to 127.0.0.1 or localhost' }
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
     return { ok: false, error: 'AGENT_LENS_RELAY_URL must be a bare origin, e.g. http://127.0.0.1:3001' }
   }
@@ -65,7 +71,7 @@ export function parseRelayUrl(raw: string | undefined): { ok: true; url: URL } |
 export function createRelayGet(base: URL, opts: { timeoutMs?: number; maxBytes?: number } = {}): RelayGet {
   const timeoutMs = opts.timeoutMs ?? RELAY_TIMEOUT_MS
   const maxBytes = opts.maxBytes ?? RELAY_BODY_MAX
-  const hostname = base.hostname.replace(/^\[|\]$/g, '')
+  const hostname = base.hostname
   const port = base.port ? Number(base.port) : 80
   return pathAndQuery => new Promise<RelayAnswer>((resolve, reject) => {
     let settled = false
@@ -82,8 +88,11 @@ export function createRelayGet(base: URL, opts: { timeoutMs?: number; maxBytes?:
         chunks.push(chunk)
       })
       res.on('error', fail)
+      // A body cut before its end (socket destroyed) must not pass for a complete answer
+      res.on('aborted', () => fail(new Error('relay answer cut')))
       res.on('end', () => {
         if (settled) return
+        if (!res.complete) { fail(new Error('relay answer cut')); return }
         settled = true
         clearTimeout(timer)
         let body: unknown
@@ -288,9 +297,8 @@ const toolError = (text: string): ToolResult => ({ content: [{ type: 'text', tex
 const toolOk = (value: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value, isError: false })
 const UNEXPECTED = 'The relay answered something unexpected: nothing is reported (the answer did not match the schema).'
 
-function relayErrorText(status: number, body: unknown, tool: 'observations' | 'session_work'): string {
-  const detail = isObj(body) && typeof body.error === 'string' ? `: ${stripControl(body.error).slice(0, 200)}` : ''
-  if (status === 400) return `The relay refused the input${detail}`
+function relayErrorText(status: number, tool: 'observations' | 'session_work'): string {
+  if (status === 400) return 'The relay refused the input.'
   if (status === 403) return 'The relay refused the request (loopback and Host checks).'
   if (status === 429) return 'Rate limited by the relay: retry in a second.'
   if (tool === 'session_work') {
@@ -322,7 +330,7 @@ async function runTool(get: RelayGet, name: string, args: unknown): Promise<Tool
     const qs = q.toString()
     const answer = await relayCall(get, '/observations' + (qs ? `?${qs}` : ''))
     if (typeof answer === 'string') return toolError(answer)
-    if (answer.status !== 200) return toolError(relayErrorText(answer.status, answer.body, 'observations'))
+    if (answer.status !== 200) return toolError(relayErrorText(answer.status, 'observations'))
     const out = projectObservations(answer.body)
     return out ? toolOk(out) : toolError(UNEXPECTED)
   }
@@ -332,7 +340,7 @@ async function runTool(get: RelayGet, name: string, args: unknown): Promise<Tool
   if (typeof args.session !== 'string' || !SESSION_ID_RE.test(args.session)) return toolError('Invalid arguments: session must match ' + OBSERVATIONS_SESSION_ID_PATTERN)
   const answer = await relayCall(get, `/issue-links?${new URLSearchParams({ scope: 'session', session: args.session })}`)
   if (typeof answer === 'string') return toolError(answer)
-  if (answer.status !== 200) return toolError(relayErrorText(answer.status, answer.body, 'session_work'))
+  if (answer.status !== 200) return toolError(relayErrorText(answer.status, 'session_work'))
   const out = projectSessionWork(answer.body)
   return out ? toolOk(out) : toolError(UNEXPECTED)
 }
@@ -390,23 +398,58 @@ export function createMcpServer(get: RelayGet): McpServer {
   }
 }
 
-/** Serve over a line stream: answers are written in request order; an over-long line is dropped with -32600. */
+/** The id of a request line, to answer "busy" without running it; undefined for a notification or bad JSON. */
+function requestIdOf(line: string): string | number | undefined {
+  try {
+    const msg: unknown = JSON.parse(line)
+    if (!isObj(msg)) return undefined
+    return typeof msg.id === 'string' || (typeof msg.id === 'number' && Number.isFinite(msg.id)) ? msg.id : undefined
+  } catch { return undefined }
+}
+
+/**
+ * Serve over a line stream: answers are written in request order, waiting for the output to drain.
+ * An over-long line is dropped with -32600; beyond MCP_MAX_PENDING waiting requests, a request is answered
+ * "busy" (-32000, with its id) at once instead of queueing. A closed output (EPIPE) ends the server.
+ */
 export function runStdio(server: McpServer, input: Readable, output: Writable): Promise<void> {
   let buffer = ''
   let discarding = false
+  let pending = 0
+  let closed = false
   let queue: Promise<void> = Promise.resolve()
+  const write = (text: string): Promise<void> => {
+    if (closed) return Promise.resolve()
+    if (output.write(text + '\n')) return Promise.resolve()
+    return new Promise(resolve => {
+      const done = () => { output.off('drain', done); output.off('close', done); resolve() }
+      output.on('drain', done)
+      output.on('close', done)
+    })
+  }
   const enqueue = (work: () => Promise<string | null>) => {
-    queue = queue.then(work).then(out => { if (out !== null) output.write(out + '\n') }, () => { /* handle() never rejects */ })
+    pending++
+    queue = queue
+      .then(work)
+      .then(out => (out !== null ? write(out) : undefined), () => { /* handle() never rejects */ })
+      .finally(() => { pending-- })
   }
   const tooLong = () => enqueue(async () => rpcError(null, -32600, `Message too long (over ${MCP_LINE_MAX} characters)`))
   const take = (line: string) => {
     const trimmed = line.trim()
     if (!trimmed) return
     if (trimmed.length > MCP_LINE_MAX) { tooLong(); return }
+    if (pending >= MCP_MAX_PENDING) {
+      const id = requestIdOf(trimmed)
+      if (id !== undefined) void write(rpcError(id, -32000, 'Server busy: too many requests waiting, retry later'))
+      return
+    }
     enqueue(() => server.handle(trimmed))
   }
   input.setEncoding('utf8')
   return new Promise<void>(resolve => {
+    output.on('error', () => { closed = true; resolve() })
+    input.on('error', () => { void queue.then(() => resolve()) })
     input.on('data', (chunk: string) => {
       buffer += chunk
       let nl: number

@@ -25,7 +25,7 @@ Same thing from the command line: `claude mcp add agent-lens -- pnpm --silent --
 
 `--silent` matters: stdout carries only JSON-RPC, and pnpm would otherwise print the script line on it.
 
-If the relay listens on another port (`--port`, `AGENT_LENS_PORT`), add `"env": { "AGENT_LENS_RELAY_URL": "http://127.0.0.1:<port>" }`. The URL must be plain `http://` to `127.0.0.1`, `::1` or `localhost`, with no path, credentials or query; anything else stops the server at start (exit code 1, the reason on stderr), so a configuration cannot send the observations elsewhere.
+If the relay listens on another port (`--port`, `AGENT_LENS_PORT`), add `"env": { "AGENT_LENS_RELAY_URL": "http://127.0.0.1:<port>" }`. The URL must be plain `http://` to `127.0.0.1` or `localhost` (the relay listens on IPv4 loopback only), with no path, credentials or query; anything else stops the server at start (exit code 1, the reason on stderr), so a configuration cannot send the observations elsewhere.
 
 The repository's own `.mcp.json` does not declare the server: it would fail for every contributor who does not run a relay.
 
@@ -58,6 +58,7 @@ A failure is a tool error (`isError: true`) with its reason, never an empty list
 ## Bounds and checks
 
 - Inputs are validated strictly: unknown keys, wrong types and session ids outside `^[A-Za-z0-9_-]{1,128}$` are refused before the relay is called.
-- One stdin line is at most 64 KiB; a longer one is dropped and answered with JSON-RPC error `-32600`. Batches are not supported.
-- One relay request: GET only, 5 s timeout, 256 KiB body cap, no redirect followed, no keep-alive.
-- Every relay answer is rebuilt field by field from a whitelist, like the relay does (defense in depth, in case another process holds the port). Fields outside the schema are dropped; a field of the wrong type or an out-of-range value fails the whole call ("the relay answered something unexpected"). Agent names are cleaned again (control characters, length, anything that looks like a path becomes `agent`), PR and issue URLs must be pages of the session's own repository, and titles lose their control characters.
+- One stdin line is at most 65,536 characters; a longer one is dropped and answered with JSON-RPC error `-32600` (with a `null` id, since the line is not read). Batches are not supported.
+- At most 32 requests wait for an answer; one more is answered at once with error `-32000` ("Server busy", with its id) instead of being queued. Answers are written in request order and wait for the output to drain; a closed output ends the server.
+- One relay request: GET only, 5 s timeout, 256 KiB body cap, no redirect followed, no keep-alive; a body cut before its end is an error.
+- Every relay answer is rebuilt field by field from a whitelist, like the relay does (defense in depth, in case another process holds the port). Fields outside the schema are dropped; a field of the wrong type or an out-of-range value fails the whole call ("the relay answered something unexpected"). Agent names are cleaned again (control characters, length, anything that looks like a path becomes `agent`), PR and issue URLs must be pages of the session's own repository, and titles and branches lose their control, zero-width and bidi characters (the set of `extension/src/control-chars.ts`).

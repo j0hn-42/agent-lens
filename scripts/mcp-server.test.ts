@@ -14,7 +14,7 @@ import { PassThrough } from 'node:stream'
 import type { AddressInfo } from 'node:net'
 import {
   createMcpServer, runStdio, parseRelayUrl, createRelayGet, projectObservations, projectSessionWork,
-  MCP_LINE_MAX, RELAY_BODY_MAX, type RelayGet,
+  MCP_LINE_MAX, MCP_MAX_PENDING, RELAY_BODY_MAX, type RelayGet,
 } from './mcp/server'
 
 const SESSION = '55555555-5555-4555-8555-555555555555'
@@ -207,6 +207,9 @@ describe('session_work tool', () => {
     assert.equal(projectSessionWork(work({ prs: [{ number: 7, title: 't', url: 'https://evil.example/pull/7', branch: 'b', checks: { state: 'passing', total: 1, failing: 0, pending: 0 } }] })), null)
     assert.equal(projectSessionWork(work({ issues: [{ number: 9, title: 't', url: `${REPO}/issues/10` }] })), null)
     assert.equal(projectSessionWork(work({ repo: 'https://gitlab.com/a/b' })), null)
+    for (const repo of ['https://github.com/../x', 'https://github.com/a/.', 'https://github.com/a/..']) {
+      assert.equal(projectSessionWork(work({ repo, prs: [], issues: [] })), null, repo)
+    }
     assert.equal(projectSessionWork(work({ prs: [{ number: 7, title: 't', url: `${REPO}/pull/7`, branch: 'b', checks: { state: 'green', total: 1, failing: 0, pending: 0 } }] })), null)
     assert.equal(projectSessionWork(work({ prsTruncated: 'maybe' })), null)
     // No GitHub origin is a fact: an empty answer with repo null
@@ -221,6 +224,11 @@ describe('session_work tool', () => {
     assert.ok(out)
     assert.ok(!/[\u0000-\u001f]/.test(out.issues[0].title))
     assert.ok(out.issues[0].title.length <= 200)
+    // C1 controls and bidi overrides too: a hostile title cannot reorder what Claude quotes
+    const bidi = projectSessionWork(work({ issues: [{ number: 9, title: 'a‮b\u009Bc⁦d', url: `${REPO}/issues/9` }] }))
+    assert.equal(bidi?.issues[0].title, 'a b c d')
+    const branch = projectSessionWork(work({ prs: [{ number: 7, title: 't', url: `${REPO}/pull/7`, branch: 'x‏y', checks: { state: 'none', total: 0, failing: 0, pending: 0 } }] }))
+    assert.equal(branch?.prs[0].branch, 'x y')
   })
 })
 
@@ -230,8 +238,9 @@ describe('relay URL', () => {
     if (!d.ok) throw new Error(d.error)
     assert.equal(d.url.href, 'http://127.0.0.1:3001/')
     assert.ok(parseRelayUrl('').ok)
-    for (const u of ['http://127.0.0.1:4000', 'http://localhost:3001/', 'http://[::1]:3001']) assert.ok(parseRelayUrl(u).ok, u)
-    for (const u of ['https://127.0.0.1:3001', 'http://example.com', 'http://10.0.0.1:3001', 'http://user:pw@127.0.0.1:3001', 'http://127.0.0.1:3001/x', 'file:///etc/passwd', 'nope']) {
+    for (const u of ['http://127.0.0.1:4000', 'http://localhost:3001/']) assert.ok(parseRelayUrl(u).ok, u)
+    // The relay listens on 127.0.0.1 only: ::1 would be a setting that can never work
+    for (const u of ['http://[::1]:3001', 'https://127.0.0.1:3001', 'http://example.com', 'http://10.0.0.1:3001', 'http://user:pw@127.0.0.1:3001', 'http://127.0.0.1:3001/x', 'file:///etc/passwd', 'nope']) {
       assert.equal(parseRelayUrl(u).ok, false, u)
     }
   })
@@ -250,6 +259,7 @@ describe('relay HTTP client', () => {
       if (req.url === '/redirect') { res.writeHead(302, { Location: 'http://example.com/' }); res.end(); return }
       if (req.url === '/text') { res.writeHead(502, { 'Content-Type': 'text/plain' }); res.end('Issue links unavailable'); return }
       if (req.url === '/slow') return // never answers
+      if (req.url === '/cut') { res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': '1000' }); res.write('{"a":'); setTimeout(() => res.destroy(), 20); return }
       res.writeHead(404); res.end()
     })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
@@ -262,6 +272,8 @@ describe('relay HTTP client', () => {
     assert.equal(r.status, 200)
     assert.deepEqual(r.body, obs())
     assert.equal(seen.at(-1)?.method, 'GET')
+    // The relay's Host guard reads this header: it must name the loopback origin
+    assert.equal(seen.at(-1)?.host, base.host)
   })
 
   it('refuses a body over the cap, does not follow redirects, keeps non-JSON errors', async () => {
@@ -270,6 +282,10 @@ describe('relay HTTP client', () => {
     const t = await createRelayGet(base)('/text')
     assert.equal(t.status, 502)
     assert.equal(t.body, undefined)
+  })
+
+  it('rejects an answer cut in the middle of its body', async () => {
+    await assert.rejects(createRelayGet(base)('/cut'))
   })
 
   it('times out', async () => {
@@ -293,6 +309,43 @@ describe('stdio transport', () => {
     const lines = text.trim().split('\n').map(l => JSON.parse(l))
     assert.deepEqual(lines.map(l => l.id), [1, null, 2])
     assert.equal(lines[1].error.code, -32600)
+  })
+})
+
+describe('stdio transport bounds', () => {
+  it('drops a single-chunk over-long line with -32600', async () => {
+    const input = new PassThrough()
+    const output = new PassThrough()
+    let text = ''
+    output.on('data', c => { text += c })
+    const done = runStdio(createMcpServer(fakeGet({})), input, output)
+    input.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(MCP_LINE_MAX) } }) + '\n')
+    await done
+    const lines = text.trim().split('\n').map(l => JSON.parse(l))
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0].error.code, -32600)
+  })
+
+  it('answers "busy" with the request id beyond the pending cap instead of queueing without bound', async () => {
+    const never: RelayGet = () => new Promise(() => {})
+    const input = new PassThrough()
+    const output = new PassThrough()
+    const replies: any[] = []
+    let text = ''
+    output.on('data', c => {
+      text += c
+      let nl: number
+      while ((nl = text.indexOf('\n')) !== -1) { replies.push(JSON.parse(text.slice(0, nl))); text = text.slice(nl + 1) }
+    })
+    void runStdio(createMcpServer(never), input, output)
+    for (let i = 1; i <= MCP_MAX_PENDING + 1; i++) {
+      input.write(JSON.stringify({ jsonrpc: '2.0', id: i, method: 'tools/call', params: { name: 'observations', arguments: {} } }) + '\n')
+    }
+    await new Promise(r => setTimeout(r, 50))
+    assert.equal(replies.length, 1)
+    assert.equal(replies[0].id, MCP_MAX_PENDING + 1)
+    assert.equal(replies[0].error.code, -32000)
+    assert.match(replies[0].error.message, /busy/i)
   })
 })
 
@@ -321,6 +374,7 @@ describe('end to end against a real relay', () => {
     server = http.createServer((req, res) => {
       if (req.url?.startsWith('/observations')) return relay.handleObservations(req, res)
       if (req.url === '/events') return relay.handleSSE(req, res)
+      if (req.url?.startsWith('/issue-links')) return relay.handleIssueLinks(req, res)
       res.writeHead(404); res.end()
     })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
@@ -351,5 +405,12 @@ describe('end to end against a real relay', () => {
     assert.equal(s[0].runtime, 'claude')
     const text = r.result.content[0].text
     assert.ok(!text.includes('TOPSECRET') && !text.includes(fakeHome))
+  })
+
+  it('reads the session work through the real issue-links route (project without a repository: repo null)', async () => {
+    const mcp = createMcpServer(createRelayGet(base))
+    const r = await call(mcp, 'session_work', { session: SESSION })
+    assert.equal(r.result.isError, false, r.result.content[0].text)
+    assert.deepEqual(r.result.structuredContent, { session: SESSION, repo: null, prs: [], issues: [], prsTruncated: false, issuesTruncated: false })
   })
 })
