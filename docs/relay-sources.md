@@ -164,4 +164,4 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 | `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
 
-The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot and Pi sessions are matched to the workspace by their own watchers and ignore the scope.
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and ignore the scope.
