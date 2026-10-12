@@ -66,4 +66,23 @@ describe('control hook install', () => {
     assert.ok(hooks.PreToolUse)
     assert.equal(cfg.isControlHookInstalled(), false)
   })
+
+  describe('permission-hook.js follows the extension at each start', () => {
+    const script = path.join(fakeHome, '.claude', 'agent-lens', 'permission-hook.js')
+
+    it('a stale script is rewritten when the control hook is installed', async () => {
+      await cfg.installControlHook()
+      fs.writeFileSync(script, '// old protocol\n')
+      cfg.refreshControlHookScript()
+      const { getPermissionHookScriptContent } = await import('../src/discovery')
+      assert.equal(fs.readFileSync(script, 'utf8'), getPermissionHookScriptContent())
+    })
+
+    it('nothing is installed when the control hook is not: no script appears on a machine that never asked for it', async () => {
+      await cfg.removeControlHook()
+      fs.rmSync(script, { force: true })
+      cfg.refreshControlHookScript()
+      assert.equal(fs.existsSync(script), false)
+    })
+  })
 })

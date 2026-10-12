@@ -24,7 +24,7 @@ import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
 } from './constants'
-import { migrateLegacyHooks } from './hooks-config'
+import { migrateLegacyHooks, refreshControlHookScript } from './hooks-config'
 import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
@@ -77,6 +77,7 @@ export async function startClaudeRuntime(
     // The hook script reads this at invocation time — no port in settings.json.
     if (workspace) {
       ensureHookScript()
+      refreshControlHookScript()
       writeDiscoveryFile(hookPort, workspace, control.discoveryToken())
       // The token is published only while the setting is on: follow the setting without a reload
       context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {

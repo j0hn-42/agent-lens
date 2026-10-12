@@ -118,6 +118,19 @@ export function isControlHookInstalled(): boolean {
 }
 
 /**
+ * Called at each start of the Claude runtime: when the control hook is installed, bring its script up to date, as
+ * hook.js is, so a protocol change (headers, proof, answer shape) reaches existing installs without a manual
+ * reinstall. Never installs anything on a machine that did not ask for the control hook.
+ */
+export function refreshControlHookScript(): void {
+  try {
+    if (isControlHookInstalled()) { ensurePermissionHookScript() }
+  } catch (err) {
+    log.warn('Could not refresh the permission hook script:', err)
+  }
+}
+
+/**
  * Install the optional PermissionRequest hook (separate from the observation hooks, 60 s timeout). It does nothing
  * unless agentVisualizer.allowControl is on and a panel can answer: otherwise it prints no decision.
  */
