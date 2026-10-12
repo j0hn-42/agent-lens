@@ -195,7 +195,7 @@ Pi coding agent sessions (#238) are read from their session files (`~/.pi/agent/
 - **Model.** The model named by each assistant message: the model that answered. A `model_change` entry is a selection (possibly a virtual model) and is not shown on its own.
 - **Not shown.** Tokens and cost (the file records them, they are not read yet, so the gauge stays on the local estimate), system prompt updates, direct shell runs (`!command`), extension entries.
 - **No sub-agents.** Pi documents none: every event belongs to the main agent and no child is ever drawn.
-- **Unknown format.** A session whose header announces a version other than 1 to 3 is neither listed nor read, and the extension log says so once.
+- **Unknown format.** A session whose header announces a version other than 1 to 3 is neither listed nor read, and the extension log says so once. A session whose id holds a dot (possible with `--session-id`), whose header has no absolute `cwd`, or whose file is a symbolic link is not listed either.
 - **Branches.** Pi keeps abandoned branches (`/tree`) in the same file; they are shown in the order they were written, without the tree.
 
 ## Project folders
