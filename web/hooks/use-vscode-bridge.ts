@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
@@ -21,6 +21,7 @@ import {
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
+import { parseSystemSample, pushSample } from '@/lib/system-stats'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -117,6 +118,9 @@ interface BridgeHookResult {
   /** Agent launches (#229): present only when GET /status of a SAME-ORIGIN relay has `launch` (--allow-launch).
    *  `launches` is what the relay reported (SSE `launch` / `launch-list` and the status), by id. */
   launch: { maxConcurrent: number; launches: ReadonlyMap<string, LaunchView> } | null
+  /** Machine health (#357): the relay's `system-stats` samples, oldest first, bounded. Empty until the relay sends one,
+   *  while the link is down, and always in VS Code and demo mode (the relay stream is not used there). */
+  systemStats: readonly SystemSample[]
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -305,6 +309,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // a frame that embeds the page cannot make up a launch.
   const [launches, setLaunches] = useState<ReadonlyMap<string, LaunchView>>(() => new Map())
   const [launchMax, setLaunchMax] = useState<number | null>(null)
+  // Machine health (#357): from the relay stream only, like the launches
+  const [systemStats, setSystemStats] = useState<readonly SystemSample[]>([])
   const source = useReconnectingSource({
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
@@ -312,6 +318,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     generation: connectionGeneration,
     onMessage: data => {
       if (isLaunchMessage(data)) { setLaunches(prev => reduceLaunches(prev, data)); return }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'system-stats') {
+        const next = parseSystemSample((data as { sample?: unknown }).sample)
+        if (next) setSystemStats(prev => pushSample(prev, next))
+        return
+      }
       vscodeBridge?.dispatch(data)
     },
     onParseError: () => {
@@ -377,6 +388,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return () => ctl.abort()
   }, [relayEnabled, source.status, refreshRelayScope])
   useEffect(() => { if (!relayEnabled) { setRelayScopeState(null); syncedScopeRef.current = null } }, [relayEnabled])
+
+  // A buffer from a link that is gone would show old figures as current
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
+  }, [relayEnabled, source.status])
 
   // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
   // no CORS preflight, which a request with Authorization and a JSON body needs, so the dev server (:3000) and the
@@ -806,6 +822,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     relayLinkMode: source.mode,
     notice,
     launch,
+    systemStats,
   }
 }
 
