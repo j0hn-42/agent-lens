@@ -234,15 +234,15 @@ export function handleToolCallEnd(
     for (const [id, tc] of state.toolCalls) {
       if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
     }
-    const nextState = outcome === 'error' ? 'error' : stillRunning ? 'tool_calling' : 'idle'
+    const nextState = stillRunning ? 'tool_calling' : 'idle'
     state.agents.set(agentName, {
       ...agent,
-      // A cancelled call is neither a success nor an agent failure. What the agent does next is unknown
-      // until its next event: neutral, never a 'thinking' nobody observed (#362). Its turn is not over
-      // though: idle between two steps, not at rest.
+      // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime.
+      // What the agent does next is unknown until its next event: neutral, never a 'thinking' nobody observed (#362).
+      // Its turn is not over though: idle between two steps, not at rest.
       state: nextState,
       ...(nextState === 'idle' ? { awaitingNextEvent: true } : {}),
-      currentTool: stillRunning && outcome !== 'error' ? stillRunning.toolName : undefined,
+      currentTool: stillRunning?.toolName,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
         ? addToken(agent, tokenCost, tokenSource)

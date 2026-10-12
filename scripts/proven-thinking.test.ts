@@ -67,7 +67,7 @@ test('a prompt or an answer does not prove thinking', () => {
 
 test('the end of a tool call leaves the agent waiting for the next event, not thinking', () => {
   assert.equal(stateOf(run([orch, toolStart, toolEnd()])), 'idle')
-  assert.equal(stateOf(run([orch, toolStart, toolEnd({ isError: true })])), 'error', 'a failed call is still an error')
+  assert.equal(stateOf(run([orch, toolStart, toolEnd({ isError: true })])), 'idle', 'a failed call is not an agent error (#363)')
   assert.equal(stateOf(run([orch, toolStart, toolEnd({ isError: true, outcome: 'cancelled' })])), 'idle')
 })
 
