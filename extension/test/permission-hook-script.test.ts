@@ -264,6 +264,13 @@ describe('permission-hook.js', () => {
   })
 })
 
+/** The discovery file written for a workspace folder (the folder holds those of the other tests too) */
+function discoveryFileOf(dir: string, wsDir: string): string {
+  const name = fs.readdirSync(dir).find(f => f.endsWith('.json') && JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).workspace === fs.realpathSync(wsDir))
+  assert.ok(name, 'discovery file found')
+  return path.join(dir, name)
+}
+
 describe('writeDiscoveryFile with a token', () => {
   it('stores the token in a file only its owner can read, and none when control is off', { skip: process.platform === 'win32' }, () => {
     const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-permhook-ws-'))
@@ -276,6 +283,37 @@ describe('writeDiscoveryFile with a token', () => {
       const file = path.join(dir, plain)
       assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, TOKEN)
       assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+    } finally { fs.rmSync(wsDir, { recursive: true, force: true }) }
+  })
+
+  it('never puts the token in a file that already exists with wider rights: it writes a new 0600 file and renames it', { skip: process.platform === 'win32' }, () => {
+    const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-permhook-ws-'))
+    const dir = path.join(loadHome, '.claude', 'agent-lens')
+    try {
+      writeDiscoveryFile(4242, wsDir)
+      const file = discoveryFileOf(dir, wsDir)
+      fs.chmodSync(file, 0o644)
+      const before = fs.statSync(file).ino
+      writeDiscoveryFile(4242, wsDir, TOKEN)
+      assert.notEqual(fs.statSync(file).ino, before, 'a new file replaced the old one, so the token was never in the 0644 inode')
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, TOKEN)
+      assert.deepEqual(fs.readdirSync(dir).filter(f => f.endsWith('.tmp')), [], 'no temporary file is left')
+    } finally { fs.rmSync(wsDir, { recursive: true, force: true }) }
+  })
+
+  it('does not write through a symbolic link planted at the temporary path', { skip: process.platform === 'win32' }, () => {
+    const wsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-permhook-ws-'))
+    const victim = path.join(wsDir, 'victim.txt')
+    fs.writeFileSync(victim, 'untouched')
+    const dir = path.join(loadHome, '.claude', 'agent-lens')
+    try {
+      writeDiscoveryFile(4242, wsDir)
+      const file = discoveryFileOf(dir, wsDir)
+      fs.symlinkSync(victim, `${file}.${process.pid}.tmp`)
+      writeDiscoveryFile(4242, wsDir, TOKEN)
+      assert.equal(fs.readFileSync(victim, 'utf8'), 'untouched')
+      assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).token, TOKEN)
     } finally { fs.rmSync(wsDir, { recursive: true, force: true }) }
   })
 })

@@ -85,13 +85,33 @@ export function writeDiscoveryFile(port: number, workspace: string, token?: stri
   ensureDir()
   const hash = hashWorkspace(workspace)
   const filePath = path.join(DISCOVERY_DIR, `${hash}-${process.pid}.json`)
-  fs.writeFileSync(filePath, JSON.stringify({
+  const content = JSON.stringify({
     port,
     pid: process.pid,
     workspace: normalizePath(workspace),
     ...(token ? { token } : {}),
-  }, null, 2) + '\n', { mode: 0o600 })
-  try { fs.chmodSync(filePath, 0o600) } catch { /* the file was just written: best effort on exotic file systems */ }
+  }, null, 2) + '\n'
+  // A new owner-only file renamed over the old one: the token is never in a file that already existed with wider
+  // rights (the create mode only applies to a new file), and a hook reading meanwhile sees the old or the new file, whole.
+  const tmpPath = `${filePath}.${process.pid}.tmp`
+  try { fs.unlinkSync(tmpPath) } catch { /* nothing left over */ }
+  const flags = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | (fs.constants.O_NOFOLLOW ?? 0)
+  const fd = fs.openSync(tmpPath, flags, 0o600)
+  try {
+    fs.writeSync(fd, content)
+  } catch (err) {
+    fs.closeSync(fd)
+    try { fs.unlinkSync(tmpPath) } catch { /* best effort */ }
+    throw err
+  }
+  fs.closeSync(fd)
+  try { fs.chmodSync(tmpPath, 0o600) } catch { /* the create mode went through the umask: best effort on exotic file systems */ }
+  try {
+    fs.renameSync(tmpPath, filePath)
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath) } catch { /* best effort */ }
+    throw err
+  }
   log.info(`Wrote ${filePath}`)
 }
 
