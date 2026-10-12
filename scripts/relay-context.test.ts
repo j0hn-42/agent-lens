@@ -58,7 +58,12 @@ describe('relay GET /context', () => {
     const projectDir = path.join(fakeHome, '.claude', 'projects', realWs.replace(/[^a-zA-Z0-9]/g, '-'))
     fs.mkdirSync(projectDir, { recursive: true })
     fs.writeFileSync(path.join(projectDir, `${SESSION}.jsonl`),
-      line({ type: 'user', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'user', content: 'hi' } }))
+      line({ type: 'user', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'user', content: 'hi' } })
+      + line({ type: 'attachment', cwd: realWs, timestamp: new Date().toISOString(), attachment: { type: 'skill_listing', content: 'descriptions', names: ['loop', 'tools:lint'] } })
+      + line({ type: 'assistant', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'assistant', content: [
+        { type: 'tool_use', id: 'tu1', name: 'Skill', input: { skill: 'tools:lint', args: 'secret-arg' } },
+        { type: 'tool_use', id: 'tu2', name: 'mcp__github__issue_read', input: { issue_number: 1 } },
+      ] } }))
     fs.writeFileSync(path.join(realWs, 'CLAUDE.md'), 'Règles du projet, voir #64')
 
     relay = await createRelay({ workspace: ws, runtime: 'claude' })
@@ -90,6 +95,18 @@ describe('relay GET /context', () => {
     assert.equal(body.files[1].found, false)
     assert.deepEqual(body.issues, [64])
     assert.ok(!r.body.includes(realWs), 'no absolute path leaks')
+  })
+
+  it('adds the capabilities recorded by the session transcript (#242), names only', async () => {
+    const r = await get(`/context?session=${SESSION}`)
+    const caps = JSON.parse(r.body).capabilities
+    assert.equal(caps.status, 'ok')
+    assert.equal(caps.partial, false)
+    assert.deepEqual(caps.skillsListed, ['loop', 'tools:lint'])
+    assert.deepEqual(caps.skillsInvoked, [{ name: 'tools:lint', calls: 1 }])
+    assert.deepEqual(caps.mcpServers, [{ name: 'github', announced: false, calls: 1, tools: [{ name: 'issue_read', calls: 1 }] }])
+    assert.ok(!r.body.includes('secret-arg'), 'skill arguments are not sent')
+    assert.ok(!r.body.includes('descriptions'), 'skill descriptions are not sent')
   })
 
   it('reports a symlinked CLAUDE.md as unreadable through the relay', async () => {

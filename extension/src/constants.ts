@@ -502,6 +502,13 @@ export const PROJECT_CONTEXT_MAX_ISSUES = 50
 export const RELAY_CONTEXT_RATE_BURST = 10
 export const RELAY_CONTEXT_RATE_PER_S = 2
 
+/** Max bytes of a session transcript read for its capabilities (#242); past it only the head is read and the result is partial */
+export const SESSION_CAPABILITIES_MAX_BYTES = 32 * 1024 * 1024
+/** Max entries per capabilities list (instructions, skills, MCP servers, tools of a server) */
+export const SESSION_CAPABILITIES_MAX_ITEMS = 200
+/** Max characters of a capability name (skill, server, tool, file name) */
+export const SESSION_CAPABILITIES_MAX_NAME = 120
+
 // ─── Shared state snapshots (#71) and observations (#72) ─────────────────────
 
 /** Version of the snapshot envelope; a reader refuses any other value */

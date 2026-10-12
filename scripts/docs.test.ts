@@ -119,3 +119,12 @@ test('the reading guide explains repeated reads and calls, with their limits (#2
   }
   assert.ok(read('README.md').toLowerCase().includes('repeated reads'), 'README mentions the feature')
 })
+
+test('the reading guide explains the capabilities of a session and their proof (#242)', () => {
+  const guide = read('docs/reading-the-ui.md')
+  assert.match(guide, /## Skills, plugins and memory/)
+  for (const term of ['skill_listing', 'mcp_instructions_delta', 'Skill', 'sub-agents', 'Partial', 'Not provided by this relay', 'could not be read', 'not what is installed']) {
+    assert.ok(guide.includes(term), `guide should mention "${term}"`)
+  }
+  assert.ok(read('README.md').includes('capabilities'), 'README mentions the capabilities view')
+})
