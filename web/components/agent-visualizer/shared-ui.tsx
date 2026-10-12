@@ -164,20 +164,22 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   useDialogBehavior(ref, onClose)
 
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-labelledby={titleId}
-      tabIndex={-1}
-      onKeyDown={dialogEscapeHandler(onClose)}
-      {...stopPropagationHandlers}
-      data-sensitive={sensitive ? '' : undefined}
-      className="outline-none"
-      style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
-    >
-      <GlassCard visible={true} style={{ maxHeight: placed.maxHeight, overflowY: 'auto' }}>
-        {children}
-      </GlassCard>
+    // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less
+    // presentational wrapper, so the dialog itself carries no handler (display: contents).
+    <div role="presentation" style={{ display: 'contents' }} onKeyDown={dialogEscapeHandler(onClose)} {...stopPropagationHandlers}>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-sensitive={sensitive ? '' : undefined}
+        className="outline-none"
+        style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
+      >
+        <GlassCard visible={true} style={{ maxHeight: placed.maxHeight, overflowY: 'auto' }}>
+          {children}
+        </GlassCard>
+      </div>
     </div>
   )
 }

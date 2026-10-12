@@ -1,7 +1,9 @@
 // Per-action summaries (#317): every figure comes from the call's own input, nothing is inferred.
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { editStats, shellCommands, writeStats, readRange } from '../web/lib/action-summary'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { editStats, shellCommands, writeStats, readRange, ghResultLink, searchResultCount } from '../web/lib/action-summary'
 
 test('writeStats: line count of the content, null when absent', () => {
   assert.deepEqual(writeStats({ file_path: '/a', content: 'a\nb\nc' }), { lines: 3 })
@@ -77,4 +79,73 @@ test('shellCommands: quoted text and look-alike words are not commands', () => {
 test('shellCommands: a bare git or gh has no subcommand to claim', () => {
   assert.deepEqual(shellCommands('git'), [])
   assert.deepEqual(shellCommands('git --version'), [])
+})
+
+// Pills read from the result: only what the tool's own output proves.
+
+const PR_OUT = 'Creating pull request for feat/x into develop in o/r\n\nhttps://github.com/o/r/pull/42\n'
+
+test('ghResultLink: PR or issue number and URL printed by a gh call', () => {
+  assert.deepEqual(ghResultLink('gh pr create --repo o/r --title t', PR_OUT), { kind: 'pr', number: 42, url: 'https://github.com/o/r/pull/42' })
+  assert.deepEqual(
+    ghResultLink('git push -u origin x && gh issue create --title t', 'https://github.com/j0hn-42/agent-lens/issues/317'),
+    { kind: 'issue', number: 317, url: 'https://github.com/j0hn-42/agent-lens/issues/317' },
+  )
+})
+
+test('ghResultLink: nothing without a gh call', () => {
+  assert.equal(ghResultLink('echo https://github.com/o/r/pull/42', 'https://github.com/o/r/pull/42'), null)
+  assert.equal(ghResultLink('echo "gh pr create"', 'https://github.com/o/r/pull/42'), null)
+  assert.equal(ghResultLink('git push', 'https://github.com/o/r/pull/42'), null)
+})
+
+test('ghResultLink: nothing without an exact github.com issue / PR URL', () => {
+  const cmd = 'gh pr create --title t'
+  assert.equal(ghResultLink(cmd, 'Creating pull request...'), null)
+  assert.equal(ghResultLink(cmd, ''), null)
+  assert.equal(ghResultLink(cmd, 'https://gitlab.com/o/r/pull/42'), null)
+  assert.equal(ghResultLink(cmd, 'https://github.com.evil.io/o/r/pull/42'), null)
+  assert.equal(ghResultLink(cmd, 'http://github.com/o/r/pull/42'), null)
+  assert.equal(ghResultLink(cmd, 'https://github.com/o/r/pull/1/files'), null)
+  assert.equal(ghResultLink(cmd, 'https://github.com/o/r/issues/7#issuecomment-123'), null)
+  assert.equal(ghResultLink(cmd, 'see https://github.com/o/r/pull/42 for details'), null)
+})
+
+test('ghResultLink: a failed call proves nothing', () => {
+  assert.equal(ghResultLink('gh pr create', '[FAILED] https://github.com/o/r/pull/42'), null)
+  assert.equal(ghResultLink('gh pr create', '[FAILED] error\nhttps://github.com/o/r/pull/42\n'), null)
+})
+
+test('ghResultLink: two different URLs are ambiguous, the same one repeated is not', () => {
+  assert.equal(ghResultLink('gh pr list', 'https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/2\n'), null)
+  assert.equal(ghResultLink('gh pr view 1', 'https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/1\n')?.number, 1)
+})
+
+test('ghResultLink: a URL on the last line of a result cut at RESULT_MAX is not trusted', () => {
+  // The limit is read from the extension, so the web side cannot drift from what the events really keep
+  const src = readFileSync(join(__dirname, '..', 'extension/src/constants.ts'), 'utf8')
+  const limit = Number(/export const RESULT_MAX = (\d+)/.exec(src)?.[1])
+  assert.ok(limit > 0)
+  const url = 'https://github.com/o/r/pull/4'
+  const head = 'x'.repeat(limit - url.length - 1) + '\n'
+  const cut = head + url
+  assert.equal(cut.length, limit)
+  assert.equal(ghResultLink('gh pr create', cut), null)
+  // The same line closed by a newline is whole
+  assert.equal(ghResultLink('gh pr create', head.slice(1) + url + '\n')?.number, 4)
+  // A shorter result was not cut
+  assert.equal(ghResultLink('gh pr create', head.slice(1) + url)?.number, 4)
+})
+
+test('searchResultCount: the count Grep / Glob report, never a line count', () => {
+  assert.equal(searchResultCount('Grep', 'Found 47 files\n/a.ts\n/b.ts'), 47)
+  assert.equal(searchResultCount('Glob', 'Found 1 file\n/a.ts'), 1)
+  assert.equal(searchResultCount('grep', 'Found 3 files\n/a'), 3)
+  assert.equal(searchResultCount('Grep', '/a.ts\n/b.ts\n/c.ts'), null)
+  assert.equal(searchResultCount('Grep', 'No files found'), null)
+  assert.equal(searchResultCount('Grep', 'Found 12 lines'), null)
+  assert.equal(searchResultCount('Grep', 'Found 47 filesystem entries'), null)
+  assert.equal(searchResultCount('Grep', '[FAILED] Found 2 files'), null)
+  assert.equal(searchResultCount('Bash', 'Found 2 files'), null)
+  assert.equal(searchResultCount('Read', 'Found 2 files'), null)
 })

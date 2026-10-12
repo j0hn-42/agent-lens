@@ -2,7 +2,7 @@
 
 Agent Lens can start a headless `claude` on a GitHub issue. This is the only feature of the relay that starts a process, so it is **off by default** and built so that a web page, another tab, another local user or the text of an issue cannot start one. This page is the reference for what is checked, what is shown, and what is *not* protected. The command line itself (tools, permission mode, prompt) is described in [node-inspector.md](node-inspector.md#launch-an-agent-on-an-issue-229).
 
-State of the work: the supervisor, the journal and the HTTP routes are in. **There is no button or dialog yet** (a later step): today the routes are driven by `curl` or by the web client once it ships.
+State of the work: the supervisor, the journal, the HTTP routes and the launch button with its dialog are in (see [Use it from the inspector](#use-it-from-the-inspector)). The button works only on a page **served by the relay itself** (same origin); see the limit below.
 
 ## Turn it on
 
@@ -28,6 +28,16 @@ Token of this start (paste it in the launch dialog; it is kept in memory only an
 Every launch request must send `Authorization: Bearer <token>`. The comparison is constant time (both sides are hashed to a fixed size first, so neither the value nor the length leaks through timing). A missing, wrong or malformed token is a 401 before the body is read; the token in a URL is ignored.
 
 Why the console and not the served app (decision (c) of #229): the app is served to anything that can open `127.0.0.1:<port>`, including another local user's browser, and a page injected with the token would hand it to every script that page runs. The console is a channel only the person who started the relay reads. The cost is one paste per start. The token is never served over HTTP, never written to a file, never in the journal, never passed to the child (its environment is filtered, see below). Whoever reads the relay's console, its process memory or a terminal log that captured it can launch: treat it as a password for the repositories listed.
+
+## Use it from the inspector
+
+1. Start the relay with `--allow-launch --launch-repo <owner/name>` and open the page it serves (the standalone app). `GET /status` then has a `launch` field; without it, no button is rendered anywhere.
+2. Select an agent whose role has open issues labelled `agent:<role>` (the issue links of the inspector, #63). Each **open issue** gets a button "Lancer un agent sur l'issue #N" ("Launch an agent on issue #N" when the interface is in English; the labels below are the French ones, from the message catalog `web/lib/messages.ts`). Closed issues and pull requests get none.
+3. The button opens a modal dialog. It shows, as plain text, the repository, the issue number, the role, the issue title, the command the relay will build (the session id, the budget, the tool lists and the prompt are filled in by the relay) and the caps (simultaneous launches from `status.launch.maxConcurrent`, 60 min per launch). Focus starts on "Annuler"; Escape closes it and focus returns to the button.
+4. Paste the token printed on the relay's console in the "Jeton du relais" field (a password field) and press "Lancer". The token is kept in the dialog's memory only: never in `localStorage`, never in a URL, and it is cleared when the dialog closes, so each opening needs a new paste.
+5. The states are announced in words in a status region, each from a fact the relay reported (no "Démarré" without a pid, no "session vue" without `sessionSeenAt`). A refusal is a fixed sentence per HTTP code; the body of the answer is never shown. While a launch of that issue runs, the dialog offers "Arrêter" (`POST /launch/<id>/stop`, same token) instead of "Lancer". Once it ended, the path of the kept worktree is shown, in the dialog and under the button.
+
+**Limit: same origin only.** `POST /launch` carries an `Authorization` header and a JSON body, so a browser sends a CORS preflight (`OPTIONS`) first when the page comes from another origin, and the relay answers no preflight. So the button is offered only on a page served by the relay itself. The dev web server (`pnpm run dev`, port 3000, talking to the relay on 3001) and the VS Code webview do not offer it (their launch state is not even read). Supporting them needs `OPTIONS` and CORS answers on the relay, a security change left to a separate follow-up.
 
 ## What a request goes through
 
@@ -55,7 +65,7 @@ The answer to a launch is `202` with the launch **view** (below) and nothing els
 
 ## Injection
 
-The title and body of the issue are untrusted. They are read to check the issue exists and to show the title in a future dialog, then dropped: the argument vector is built by a pure function from the validated `repo`, `issue` and `role` only, with no shell (`spawn` with `shell: false`), the prompt is a fixed template, and the worktree/branch is `issue-<n>-<role>`. The tests feed hostile titles and bodies (quotes, `$(...)`, backticks, newlines, `--dangerously-skip-permissions`, bidi controls) and check they appear in neither the argv, the journal nor any answer. A hostile *request* (a role starting with `--`, a URL as repository, extra keys, `__proto__`) is a 400 and starts nothing.
+The title and body of the issue are untrusted. They are read to check the issue exists and to keep a cleaned title, then dropped (the dialog shows the title listed by `GET /issue-links`, as plain text): the argument vector is built by a pure function from the validated `repo`, `issue` and `role` only, with no shell (`spawn` with `shell: false`), the prompt is a fixed template, and the worktree/branch is `issue-<n>-<role>`. The tests feed hostile titles and bodies (quotes, `$(...)`, backticks, newlines, `--dangerously-skip-permissions`, bidi controls) and check they appear in neither the argv, the journal nor any answer. A hostile *request* (a role starting with `--`, a URL as repository, extra keys, `__proto__`) is a 400 and starts nothing.
 
 ## The life of a launch
 

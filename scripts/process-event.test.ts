@@ -246,6 +246,30 @@ test('tool errors are counted per agent and survive the fade-out of the tool cal
   assert.equal(s.agents.get(agentKeyOf('s2', 'a'))!.toolErrors, 0)
 })
 
+test('a tool_result row carries the pill its own output proves, and only after a success (#317)', () => {
+  const url = 'https://github.com/o/r/pull/42'
+  const calls: Array<[tool: string, inputData: Record<string, unknown> | undefined, result: string, isError?: boolean]> = [
+    ['Bash', { command: 'gh pr create --title t' }, `${url}\n`],
+    ['Grep', { pattern: 'x' }, 'Found 3 files\n/a\n/b\n/c'],
+    ['Bash', { command: 'gh pr create' }, `${url}\n`, true],
+    ['Bash', { command: `echo ${url}` }, `${url}\n`],
+    ['Bash', undefined, `${url}\n`],
+    ['Read', { file_path: '/a' }, 'Found 2 files'],
+  ]
+  const s = run([
+    { type: 'agent_spawn', payload: { name: 'a', isMain: true } },
+    ...calls.flatMap(([tool, inputData, result, isError], i) => [
+      { time: 10 * i + 1, type: 'tool_call_start' as const, payload: { agent: 'a', tool, args: `c${i}`, toolUseId: `t${i}`, ...(inputData ? { inputData } : {}) } },
+      { time: 10 * i + 2, type: 'tool_call_end' as const, payload: { agent: 'a', tool, result, toolUseId: `t${i}`, ...(isError ? { isError } : {}) } },
+    ]),
+  ])
+  const rows = s.conversations.get(agentKeyOf('default', 'a'))!.filter(m => m.type === 'tool_result')
+  const link = { kind: 'link', link: { kind: 'pr', number: 42, url } }
+  assert.deepEqual(rows.map(r => r.resultPill ?? null), [link, { kind: 'count', files: 3 }, null, null, null, null])
+  // The popup reads the same pill from the tool call node
+  assert.deepEqual(Array.from(s.toolCalls.values()).map(tc => tc.resultPill ?? null), [link, { kind: 'count', files: 3 }, null, null, null, null])
+})
+
 // #214: entries of the previous state must never be mutated, or memoised views (table view) keep stale rows
 function step(prev: SimulationState, e: Pick<SimulationEvent, 'type' | 'payload'> & { time: number }): SimulationState {
   return processEvent({ time: e.time, type: e.type, payload: e.payload, sessionId: 's1' }, { ...prev, currentTime: e.time }, ctx)

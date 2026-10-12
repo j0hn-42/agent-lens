@@ -13,8 +13,8 @@
  * stored id before it is read). Use the state machine of lib/ui-preferences.ts (initSessionMemory /
  * stepSessionMemory), seeded from `getPrefs()` and stepped when the session list or the selection changes.
  *
- * Already persisted elsewhere, do NOT add here: mute, hide-inactive, single-key shortcuts,
- * show-finished-sessions (SHOW_FINISHED_STORAGE_KEY). Speed is deliberately not persisted.
+ * Already persisted elsewhere, do NOT add here: mute and show-finished-sessions (SHOW_FINISHED_STORAGE_KEY).
+ * hide-inactive and single-key shortcuts are stored here (their former keys are migrated on load). Speed is deliberately not persisted.
  */
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import {

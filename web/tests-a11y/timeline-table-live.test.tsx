@@ -54,3 +54,20 @@ test('with the table view open, a new tool call adds a row and keeps the number 
   const starting = after.find(r => r.querySelector('th')!.textContent === 'orchestrator' && r.textContent?.includes('Starting'))!
   assert.ok(!starting.textContent?.includes('ongoing'), 'the block closed by the tool call is no longer ongoing')
 })
+
+test('the chart is one named image; hovering a row label names the agent; the table view hides the image (#258)', async () => {
+  let state = createEmptyState()
+  state = step(state, 1, 'agent_spawn', { name: 'orchestrator', isMain: true })
+  const view = render(<TimelinePanel visible timelineEntries={state.timelineEntries} currentTime={1} onClose={() => {}} />)
+  const img = view.getByRole('img')
+  assert.ok(img.getAttribute('aria-label'), 'the chart image is named')
+  const canvas = img.querySelector('canvas')!
+  assert.ok(canvas, 'the canvas is drawn inside the image')
+  // Row 0 label (jsdom rects are at 0,0): x inside the label column, y in the first row under the header
+  fireEvent.mouseMove(canvas, { clientX: 10, clientY: 22 + 5 })
+  assert.equal(canvas.getAttribute('title'), 'orchestrator', 'the hovered label names its agent')
+  fireEvent.mouseLeave(canvas)
+  assert.equal(canvas.getAttribute('title'), null)
+  await act(async () => { fireEvent.click(view.getByRole('button', { name: 'Table view' })) })
+  assert.equal(view.queryByRole('img'), null, 'the table view replaces the image')
+})

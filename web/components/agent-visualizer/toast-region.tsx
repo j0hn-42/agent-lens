@@ -64,15 +64,21 @@ export function ToastRegion({ toasts, onAction, onDismiss, onPause, undoKey = nu
       style={{ zIndex: Z.controlBar + 5 }}
     >
       {toasts.length > 0 && (
+        // Pause boundary (hover and focus within the region): a box-less presentational wrapper, so
+        // the named region itself carries no handler (display: contents keeps the layout).
+        <div
+          role="presentation"
+          style={{ display: 'contents' }}
+          onMouseEnter={() => onPause('hover', true)}
+          onMouseLeave={() => onPause('hover', false)}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+        >
         <div
           ref={regionRef}
           role="region"
           aria-label="Notifications"
           tabIndex={0}
-          onMouseEnter={() => onPause('hover', true)}
-          onMouseLeave={() => onPause('hover', false)}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
           className={`pointer-events-auto flex flex-col items-center gap-2 rounded max-w-full ${FOCUS_RING}`}
         >
           {toasts.map(t => (
@@ -108,6 +114,7 @@ export function ToastRegion({ toasts, onAction, onDismiss, onPause, undoKey = nu
               </button>
             </div>
           ))}
+        </div>
         </div>
       )}
     </div>

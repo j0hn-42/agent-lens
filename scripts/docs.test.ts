@@ -220,6 +220,49 @@ test('no old jobailla repository reference remains outside the CHANGELOG (#224)'
   assert.deepEqual(offenders, [], `${old} still referenced; use j0hn-42/agent-lens`)
 })
 
+/** All TypeScript sources of the UI (web/lib, web/components, web/hooks), lowercased. */
+function uiSources(): string {
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`
+      if (e.isDirectory()) walk(rel)
+      else if (/\.tsx?$/.test(e.name) && !/\.test\./.test(e.name)) out.push(read(rel))
+    }
+  }
+  for (const d of ['web/lib', 'web/components', 'web/hooks']) walk(d)
+  return out.join('\n').toLowerCase()
+}
+
+test('Honest values: every quoted label exists in the UI (#179)', () => {
+  const doc = read('docs/reading-the-ui.md')
+  const section = doc.slice(doc.indexOf('## Honest values'), doc.indexOf('## The `observations` action'))
+  // Only the "You see" cell (first column) quotes UI labels; labels with a placeholder (X, N) are templates.
+  const seen = section.split('\n').filter(l => l.startsWith('|')).map(l => l.split('|')[1] ?? '').join('\n')
+  const labels = [...seen.matchAll(/"([^"]+)"/g)].map(m => m[1]).filter(l => !/\b[XN]\b|\.\.\./.test(l))
+  const sources = uiSources()
+  for (const label of labels) {
+    assert.ok(sources.includes(label.toLowerCase()), `"${label}" is quoted in Honest values but absent from web/lib, web/components and web/hooks`)
+  }
+  for (const word of ['end not observed', 'not reported', 'at least', 'estimated']) {
+    assert.ok(section.includes(`"${word}"`), `Honest values should quote "${word}"`)
+  }
+})
+
+test('docs cite the English UI labels, not French ones the UI never shows (#179)', () => {
+  assert.ok(read('docs/demo.md').includes('end not observed'))
+  for (const f of ['docs/demo.md', 'docs/reading-the-ui.md']) {
+    assert.ok(!/fin non observée|non renseigné/.test(read(f)), `${f} cites a French label the UI never shows`)
+  }
+})
+
+test('the theme is documented in Settings, not in the top bar (#179)', () => {
+  for (const f of ['README.md', 'docs/reading-the-ui.md']) {
+    assert.ok(!/\*\*Theme\*\* selector in the top bar/.test(read(f)), `${f} places the Theme selector in the top bar`)
+    assert.ok(/\bSettings\b/.test(read(f)), `${f} should mention Settings`)
+  }
+})
+
 // #178: the docs only cite entry points that exist, and the repository URL and Node floor agree everywhere.
 test('no doc cites `npx agent-lens-app` while the package is not published (#178)', () => {
   for (const file of ['README.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/relay-sources.md']) {
@@ -260,4 +303,18 @@ test('the launch security page states the guards and caps of the code (#229)', (
     `${LAUNCH_CAPS.wallClockMs / 60_000}-minute`, `${LAUNCH_CAPS.outputBufferBytes / 1024} KB`, `$${LAUNCH_CAPS.budgetUsdDefault}`, `$${LAUNCH_CAPS.budgetUsdMax}`,
   ]) assert.ok(doc.includes(needle), `docs/launch-security.md should mention ${needle}`)
   assert.ok(read('README.md').includes('(docs/launch-security.md)'), 'README should link docs/launch-security.md')
+})
+
+test('the launch docs describe the button, the pasted token and the same-origin limit (#229)', () => {
+  for (const file of ['docs/launch-security.md', 'docs/node-inspector.md']) {
+    const doc = read(file)
+    assert.ok(!/no button or dialog yet|no button yet/i.test(doc), `${file} still says there is no button`)
+    assert.ok(doc.includes("Lancer un agent sur l'issue #N"), `${file} names the button`)
+    assert.match(doc, /same origin/i, `${file} states the same-origin limit`)
+    assert.match(doc, /preflight/i, `${file} explains why (CORS preflight)`)
+  }
+  const sec = read('docs/launch-security.md')
+  for (const needle of ['Jeton du relais', 'localStorage', 'cleared when the dialog closes', 'Annuler', 'Arrêter', 'worktree']) {
+    assert.ok(sec.includes(needle), `docs/launch-security.md should mention ${needle}`)
+  }
 })
