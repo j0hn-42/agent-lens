@@ -246,3 +246,14 @@ test('Ctrl+K works while typing in a text field', () => {
   fireEvent.keyDown(r.getByRole('textbox', { name: 'Some field' }), { key: 'k', ctrlKey: true })
   assert.deepEqual(calls, ['palette'])
 })
+
+test('session and agent names carry data-sensitive, fixed commands do not (presentation mode masks them) (#245)', () => {
+  const r = render(<Host />)
+  const sensitiveText = (opt: HTMLElement) => Array.from(opt.querySelectorAll('[data-sensitive]')).map(n => n.textContent).join('')
+  const sessionOption = r.getByRole('option', { name: /^payments-api/ })
+  assert.match(sensitiveText(sessionOption), /payments-api/)
+  assert.match(sensitiveText(sessionOption), /feat\/refund/)
+  assert.match(sensitiveText(r.getByRole('option', { name: /^main-agent/ })), /main-agent/)
+  assert.equal(r.getByRole('option', { name: /Toggle Files panel/ }).querySelector('[data-sensitive]'), null)
+  assert.equal(r.getByRole('option', { name: /^All sessions/ }).querySelector('[data-sensitive]'), null)
+})

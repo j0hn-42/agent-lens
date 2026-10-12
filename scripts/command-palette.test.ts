@@ -168,3 +168,11 @@ test('the status line reports the real count, and says when nothing matches', ()
   const all = searchPalette(items, '', 3)
   assert.match(paletteStatus(all), /^\d+ results? shown, \d+ more: keep typing to narrow$/)
 })
+
+test('names of sessions and agents are sensitive (presentation mode blurs them), fixed commands are not (#243, #245)', () => {
+  const items = buildPaletteItems(source({ sessions: [session('a')], agents: [{ id: 'k', name: 'n', sessionId: 's' }] }))
+  for (const i of items) {
+    const expected = i.group === 'Agents' || (i.group === 'Sessions' && i.id !== `session:${ALL_SESSIONS_ID}`)
+    assert.equal(i.sensitive, expected, i.id)
+  }
+})
