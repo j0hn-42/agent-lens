@@ -121,3 +121,14 @@ Les particules (point violet d'envoi de tâche, point vert de retour) sont dans 
 | cartes de découverte : fichier, motif, résultat, code | les quatre cartes de découverte |
 
 Gardez la légende ouverte pour les reconnaître plus tard.
+
+## Visite d'une vraie session
+
+La visite guidée ne sert pas qu'à la démo. Sur une session réelle (ou sur les autres démos), le bouton **Tour this session**, à côté de **Legend**, démarre une visite de ce qui est à l'écran à cet instant :
+
+- les étapes sont construites au démarrage à partir des symboles que le canevas prouve présents (agents, états, outils, liens, équipes, contexte, découvertes...). Aucune étape ne parle d'un symbole absent ; sans symbole à l'écran, le bouton n'est pas proposé ;
+- une étape désigne un vrai agent (un anneau le suit) ou la section de légende correspondante, qui s'ouvre sans modifier la préférence enregistrée ;
+- la scène n'est ni mise en pause ni rejouée : la visite reste en direct. Quand ce qu'une étape explique a quitté la scène, la carte l'écrit (« This is no longer on screen ») ;
+- mêmes contrôles que la visite de la démo : **Previous**, **Next**, **Go to step**, **Exit tour**, `←` `→` et `Échap` dans la carte ; le focus revient au bouton d'origine.
+
+La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui.md).

@@ -3,12 +3,13 @@ import type { LegendEntryId } from './legend-entries'
 export type TourTarget =
   | { kind: 'dom'; id: string }
   | { kind: 'agent'; name: string }
+  /** A real agent, by its key (`<session>:<name>`): names are not unique in a live session */
+  | { kind: 'agent-key'; key: string }
   | { kind: 'none' }
 
-export interface GuidedStep {
+/** A step of a tour: what it points at and says. The demo adds a scenario time, a live session has none. */
+export interface TourStep {
   id: string
-  /** Scenario time to seek to (web/lib/guided-scenario.ts) */
-  time: number
   target: TourTarget
   /** Opens the graph legend while this step is shown (without touching the saved preference) */
   opensLegend?: boolean
@@ -16,6 +17,11 @@ export interface GuidedStep {
   body: string
   /** Legend entries this step explains (every entry must be covered, scripts/guided-steps.test.ts) */
   covers: readonly LegendEntryId[]
+}
+
+export interface GuidedStep extends TourStep {
+  /** Scenario time to seek to (web/lib/guided-scenario.ts) */
+  time: number
 }
 
 /** Entries no event can produce in a demo: explained in words only, and the text must say so. */
