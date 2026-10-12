@@ -1,22 +1,28 @@
 // Characterization of the helpers that web/lib exposes twice (#222): tab navigation, focus ring, m:ss time.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { nextTabIndex as chromeNextTabIndex, FOCUS_RING as CHROME_RING } from '../web/lib/chrome-utils'
-import { nextTabIndex as feedNextTabIndex, FOCUS_RING as FEED_RING, formatElapsed } from '../web/lib/feed-utils'
+import { FOCUS_RING as CHROME_RING } from '../web/lib/chrome-utils'
+import { nextTabIndex } from '../web/lib/tab-nav'
+import { FOCUS_RING as FEED_RING, formatElapsed } from '../web/lib/feed-utils'
 import { formatDuration } from '../web/lib/utils'
 import { formatLinkTime } from '../web/components/agent-visualizer/canvas/link-panel-model'
 
-test('characterization: chrome nextTabIndex is horizontal only, feed nextTabIndex also handles up/down', () => {
-  assert.equal(chromeNextTabIndex(0, 'ArrowLeft', 3), 2)
-  assert.equal(chromeNextTabIndex(2, 'ArrowRight', 3), 0)
-  assert.equal(chromeNextTabIndex(1, 'Home', 3), 0)
-  assert.equal(chromeNextTabIndex(1, 'End', 3), 2)
-  assert.equal(chromeNextTabIndex(1, 'ArrowDown', 3), null)
-  assert.equal(chromeNextTabIndex(0, 'ArrowRight', 0), null)
-  assert.equal(feedNextTabIndex('ArrowLeft', 0, 3), 2)
-  assert.equal(feedNextTabIndex('ArrowDown', 2, 3), 0)
-  assert.equal(feedNextTabIndex('ArrowUp', 0, 3), 2)
-  assert.equal(feedNextTabIndex('Enter', 0, 3), null)
+test('nextTabIndex: one signature (current, key, count, orientation), horizontal by default', () => {
+  assert.equal(nextTabIndex(0, 'ArrowLeft', 3), 2)
+  assert.equal(nextTabIndex(2, 'ArrowRight', 3), 0)
+  assert.equal(nextTabIndex(1, 'Home', 3), 0)
+  assert.equal(nextTabIndex(1, 'End', 3), 2)
+  assert.equal(nextTabIndex(1, 'ArrowDown', 3), null)
+  assert.equal(nextTabIndex(1, 'a', 3), null)
+  assert.equal(nextTabIndex(0, 'ArrowRight', 0), null)
+  assert.equal(nextTabIndex(0, 'Home', 0, 'both'), null)
+})
+
+test("nextTabIndex: 'both' orientation also handles Up/Down and wraps", () => {
+  assert.equal(nextTabIndex(2, 'ArrowDown', 3, 'both'), 0)
+  assert.equal(nextTabIndex(0, 'ArrowUp', 3, 'both'), 2)
+  assert.equal(nextTabIndex(0, 'ArrowLeft', 3, 'both'), 2)
+  assert.equal(nextTabIndex(0, 'Enter', 3, 'both'), null)
 })
 
 test('characterization: the two focus rings differ by offset and token', () => {

@@ -139,18 +139,6 @@ export function resolvePendingFocus(
   return { focusId: sessionIds.includes(pending.focusId) ? pending.focusId : null, keep: null }
 }
 
-/** Roving-tabindex arrow navigation: returns the index to focus, or null when the key is not ours. */
-export function nextTabIndex(current: number, key: string, count: number): number | null {
-  if (count <= 0) return null
-  switch (key) {
-    case 'ArrowRight': return (current + 1) % count
-    case 'ArrowLeft': return (current - 1 + count) % count
-    case 'Home': return 0
-    case 'End': return count - 1
-    default: return null
-  }
-}
-
 // ─── Scrubber ────────────────────────────────────────────────────────────────
 
 /** New scrubber position for a keydown, or null when the key is not handled. Result is clamped to [0, total]. */

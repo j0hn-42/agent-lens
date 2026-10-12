@@ -13,13 +13,14 @@ import type { ConversationMessage, AgentLink } from '@/hooks/simulation/types'
 import { useVirtualList } from '@/hooks/use-virtual-list'
 import { usePanelRegistration } from '@/hooks/use-panel-registry'
 import {
-  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState, nextTabIndex,
+  stateLabel, truncateWithMarker, formatElapsed, trackUnread, emptyUnreadState, type UnreadState,
   markUnread, activeTabIndexOf, EMPTY_MESSAGES, EMPTY_SEARCH, FOCUS_RING,
   FEED_MESSAGE_TYPES, TOOL_MESSAGE_TYPES, COMM_LABELS, commKindOf, directionText, agentNameOf, teamColorOf,
   hasMultipleSessions, isAgentDone, buildFeedMessages, filterByTab, filterByPair, filterBySearch, latestFeedMessage,
   droppedMarkerFor, agentIdsWithMessages, FEED_TOP, tabBorderStyle, pickerAgentIds, pairFromShiftClick,
   pairOfMessage, tabForSelection, teamChipGroups, COLLAPSED_TEXT_MAX, type FeedMessage,
 } from '@/lib/feed-utils'
+import { nextTabIndex } from '@/lib/tab-nav'
 import { usePairFilter, setPair, pickPair, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { formatDroppedMessages } from '@/lib/chrome-utils'
@@ -228,7 +229,7 @@ export function ConversationPanel({
   }
 
   const onTabKeyDown = (e: React.KeyboardEvent) => {
-    const next = nextTabIndex(e.key, activeTabIndex, tabKeys.length)
+    const next = nextTabIndex(activeTabIndex, e.key, tabKeys.length, 'both')
     if (next === null) return
     e.preventDefault()
     clearPair()
