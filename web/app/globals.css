@@ -205,3 +205,11 @@ html[data-theme="contrast"] :focus-visible {
     color: GrayText;
   }
 }
+
+/* Presentation mode (#245): free text marked data-sensitive (prompts, paths, tool arguments, messages, session and
+   team names) is blurred and cannot be selected or copied from the screen while masking is in force. */
+[data-presentation-mask] [data-sensitive] {
+  filter: blur(7px);
+  user-select: none;
+  -webkit-user-select: none;
+}

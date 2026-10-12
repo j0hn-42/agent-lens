@@ -402,7 +402,7 @@ export function ConversationPanel({
       zIndex={Z.sidePanel}
       width={rect?.w ?? dock.rightWidth}
       labelledBy={titleId}
-      attrs={dockAttrs('conversation', 'right', dock)}
+      attrs={{ ...dockAttrs('conversation', 'right', dock), 'data-sensitive': '' }}
       style={{ height: rect?.h, display: dock.hidden ? 'none' : undefined }}
     >
       <DockResizer label="Resize conversation panel" controls={dockPanelDomId('conversation')} />

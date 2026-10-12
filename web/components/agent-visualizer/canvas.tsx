@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { COLORS } from '@/lib/colors'
 import type { HitTarget, Cluster } from './canvas/index'
 import { graphKeyboardHelp } from '@/lib/shortcuts'
@@ -20,12 +20,17 @@ import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
 import { useTourBridge } from './guided-tour-context'
 
+type PresentationFlags = { follow: boolean; mask: boolean }
+const NO_PRESENTATION: PresentationFlags = { follow: false, mask: false }
+
 export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
   } = props
+  const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
+  presentationRef.current = presentation ?? NO_PRESENTATION
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const simTimeRef = useRef(0)
@@ -89,9 +94,9 @@ export function AgentCanvas(props: CanvasProps) {
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey,
+    clustersRef, getInsets, scopeKey, presentationRef,
   })
-  const { canvasToScreenRef: tourCanvasToScreenRef } = useTourBridge()
+  const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
 
   // ─── Cluster selection (halo label click or outline button): zoom to the cluster, tell the app ───
@@ -119,10 +124,11 @@ export function AgentCanvas(props: CanvasProps) {
   drawPropsRef.current.isDragging = isDragging
 
   // ─── Accessible mirror, state effects, draw loop ────────────────────────
-  const { a11yModel, communications, linkMessages, bubbleLayerRef, heldBubbleKeysRef } = useCanvasA11yMirror({
+  const { a11yModel, communications, linkMessages, legendPresence, legendShown, bubbleLayerRef, heldBubbleKeysRef } = useCanvasA11yMirror({
     simulationRef, mainCanvasRef, drawPropsRef, hideInactiveRef, hasFocusRef, focusedNodeRef,
     collapseMemoryRef, collapseViewRef, linksPropRef, teamsRef, sessionsRef, sessionLinksRef, onLinkClickRef,
   })
+  useEffect(() => { reportPresence?.(legendPresence) }, [legendPresence, reportPresence])
   const { effectsRef, announcements, detectStateChanges } = useCanvasStateEffects({
     simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef,
   })
@@ -131,7 +137,7 @@ export function AgentCanvas(props: CanvasProps) {
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
-    reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
+    presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
     updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
   })
 
@@ -228,6 +234,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={tooltipRef}
         aria-hidden="true"
+        data-sensitive=""
         className="pointer-events-none absolute left-0 top-0 z-10 max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
         style={{
           visibility: 'hidden',
@@ -248,6 +255,7 @@ export function AgentCanvas(props: CanvasProps) {
 
       <CanvasControls
         teams={a11yModel.teams}
+        present={legendShown}
         zoomBy={zoomBy}
         doZoomToFit={doZoomToFit}
         animationsPaused={prefs.animationsPaused}

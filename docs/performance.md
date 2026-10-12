@@ -7,7 +7,7 @@ Why the canvas stays quiet when nothing moves, what it skips, and how to measure
 - **Idle drawing.** The draw loop keeps requesting animation frames, but a frame is drawn only when it can look different from the last one.
   - Every frame the loop computes a cheap fingerprint of the scene (agent and tool card positions, states, opacity, counts, camera, canvas size, selection, hover, focus, toggles, React re-renders). A new fingerprint draws at once.
   - A **calm** scene (no thinking / tool-calling / waiting agent, no running tool, no particle, no effect) is redrawn at most **10 times a second**.
-  - Under **reduced motion** (OS preference or the "Pause animations" toggle) the scene is redrawn on change, and otherwise every **250 ms** so clocks and expiries stay true.
+  - Under **reduced motion** (OS preference or the "Freeze motion" toggle) the scene is redrawn on change, and otherwise every **250 ms** so clocks and expiries stay true.
   - Any pointer, wheel, key or focus event brings the loop back to full rate for one second, so hover and clicks answer immediately.
   - A scene with an active agent keeps its full frame rate: its pulses and comets are real animation, not a state to freeze.
 - **Viewport culling.** The agent, tool card, edge and particle passes skip what lies outside the visible area plus a margin (96 screen px, and a per-element extent for labels, glows and trails). Zoomed on one cluster of a large fleet, the other clusters cost nothing.

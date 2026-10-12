@@ -148,10 +148,12 @@ interface DetailPopupProps {
   onClose: () => void
   /** id of the heading element (PanelHeader titleId) labelling the dialog */
   titleId: string
+  /** Free text of the session: blurred in presentation mode (#245) */
+  sensitive?: boolean
   children: ReactNode
 }
 
-export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children }: DetailPopupProps) {
+export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children, sensitive }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { env } = useDockSnapshot()
   // Between the top bar and the control bar, inside the viewport (never over either bar)
@@ -168,6 +170,7 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
       tabIndex={-1}
       onKeyDown={dialogEscapeHandler(onClose)}
       {...stopPropagationHandlers}
+      data-sensitive={sensitive ? '' : undefined}
       className="outline-none"
       style={{ position: 'absolute', left: placed.left, top: placed.top, width: placed.width, zIndex: Z.detailCard }}
     >

@@ -11,6 +11,7 @@ import type {
 } from '../../lib/agent-types'
 import type { SessionProjects } from './fleet-layout'
 import type { UnattributedUsage } from '../../lib/attribution'
+import type { CompactionInfo } from '../../lib/compaction'
 import { emptyWasteLedger, type WasteLedger } from '../../lib/waste'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
@@ -77,7 +78,7 @@ export function nextMsgId(): string { return `msg-${_msgIdCounter++}` }
 export interface ConversationMessage {
   id: string
   /** 'dispatch' / 'return' carry the full subagent prompt / report between two agents; 'message' is a teammate message */
-  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return' | 'message'
+  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return' | 'message' | 'compaction'
   content: string
   timestamp: number
   toolName?: string
@@ -92,6 +93,8 @@ export interface ConversationMessage {
   isError?: boolean
   /** Characters dropped from `content` by the ingestion cap (MAX_TEXT_LEN); absent when nothing was cut */
   cutChars?: number
+  /** 'compaction' rows: the provable fields of the context_compacted event (#232) */
+  compaction?: CompactionInfo
 }
 
 export type LinkKind = 'spawn' | 'teammate'

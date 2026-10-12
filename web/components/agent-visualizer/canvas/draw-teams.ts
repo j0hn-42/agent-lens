@@ -1,4 +1,5 @@
 import { SCENE } from '@/lib/colors'
+import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
 import { type Cluster, type PhaseLabel, clusterLabelLines, haloAlphas } from './cluster-model'
@@ -32,7 +33,7 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
 
     if (lod.labels) {
       const anchor = haloLabelAnchor(h)
-      const text = `${h.name} (${h.memberIds.length})`
+      const text = `${opts.maskText ? maskText(h.name) : h.name} (${h.memberIds.length})`
       ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
       const w = ctx.measureText(text).width + 14
       const hgt = 20
@@ -102,7 +103,7 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
     ctx.stroke()
     ctx.setLineDash([])
     ctx.fillStyle = SCENE.textPrimary
-    ctx.fillText(l.text, l.x, l.y - hgt / 2 + 1)
+    ctx.fillText(opts.maskText ? maskText(l.text) : l.text, l.x, l.y - hgt / 2 + 1)
   }
   ctx.restore()
 }
@@ -114,14 +115,14 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
  */
 export function drawClusterLabels(
   ctx: CanvasRenderingContext2D, clusters: Cluster[], plan: OverlayPlan | undefined, selectedKey?: string | null,
-  hoveredKey?: string | null,
+  hoveredKey?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   if (!plan) return
   for (const c of clusters) {
     const place = plan.get(planKey.cluster(c.key))
     if (!place || !place.rect || place.hidden) continue
     const { x, y, w, h } = place.rect
-    const lines = clusterLabelLines(c)
+    const lines = clusterLabelLines(opts.maskText ? maskedClusterLabelSource(c) : c)
     const emphasised = c.key === selectedKey || c.key === hoveredKey
     ctx.save()
     ctx.beginPath()

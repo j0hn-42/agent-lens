@@ -69,7 +69,7 @@ const TEXT_TOKENS = [
   'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText',
   'costText', 'costTextDim',
-  'roleAssistantText', 'roleThinkingText', 'roleUserText',
+  'roleAssistantText', 'roleThinkingText', 'roleUserText', 'roleCompactionText',
 ] as const
 
 // Tokens used for control borders, tracks and graphical objects (WCAG 1.4.11, 3:1)
@@ -139,6 +139,7 @@ const TINTED: Array<[string, keyof typeof COLORS, Array<keyof typeof COLORS>]> =
   ['assistant role', 'roleAssistantBgSelected', ['roleAssistantText']],
   ['thinking role', 'roleThinkingBgSelected', ['roleThinkingText']],
   ['user role', 'roleUserBgSelected', ['roleUserText']],
+  ['compaction row', 'roleCompactionBgSelected', ['roleCompactionText']],
 ]
 
 for (const [name, bgToken, tokens] of TINTED) {

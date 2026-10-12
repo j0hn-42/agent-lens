@@ -372,7 +372,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
       zIndex={Z.sidePanel}
       width={dockRect?.w}
       className="motion-reduce:transition-none"
-      attrs={dockAttrs('timeline', 'bottom', dock, visible)}
+      attrs={{ ...dockAttrs('timeline', 'bottom', dock, visible), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
       <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>

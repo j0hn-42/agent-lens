@@ -8,7 +8,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
 - **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)).
-- **Session scope** (top bar, standalone app and dev relay): this workspace, one project, or all workspaces. The sentence next to the selector is what the relay reports it scans ("Scanning this workspace only (name)", "Scanning all workspaces"), not what you asked: the selector only moves once the relay confirmed. On a single workspace an empty Sessions list says that the scope is limited and how to widen it. A discovery ceiling that was hit (more than 200 project folders, more than 500 transcripts in a folder, a transcript too large, the watch limit) is written next to the selector as "at least N": it is a partial view, not an absence. Choosing a project narrows the Sessions list and the All view to it and leaves the relay scope as it is. Changing the scope reloads the view (a notice says so). See [relay-sources.md](relay-sources.md).
+- **Session scope** (top bar, standalone app and dev relay): this workspace, one project, or all workspaces. The sentence next to the selector is what the relay reports it scans ("Scanning this workspace only (name)"; nothing is written on all workspaces), not what you asked: the selector only moves once the relay confirmed. On a single workspace an empty Sessions list says that the scope is limited and how to widen it. A discovery ceiling that was hit (more than 500 transcripts in a folder, a transcript too large, the watch limit) is written next to the selector as "at least N": it is a partial view, not an absence. Choosing a project narrows the Sessions list and the All view to it and leaves the relay scope as it is. Changing the scope reloads the view (a notice says so). See [relay-sources.md](relay-sources.md).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
 - **Session export**: the ⤓ button of a session row saves it as a standalone HTML replay. The file states its own limits: events dropped before the export ("Incomplete history"), the number of secrets redacted (best effort), stream times, and agent states taken only from lifecycle events (otherwise "unknown"). See [session-export.md](session-export.md).
 - **File conflicts**: two or more agents (of one session or of several) that modified the same file. A red dash-dot line with a diamond in its middle joins two such agents on the canvas, in every view where both are drawn (one line per pair, whatever the number of files). The Files panel lists the conflicts first (file and every agent with its number of edits) and tags the file row with the word "conflict"; with the editor available (VS Code), Enter on a conflict opens the file. The graph outline (screen readers) has a "File conflicts" list with the same sentences, an agent hidden from the canvas being named "not on screen". Only proof counts:
@@ -16,13 +16,40 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
   - the path must be absolute (normalised: separators, `.` and `..`, Windows drive letter). A relative path names a file only in a working directory that is not known, so two relative paths are never compared;
   - the edits are not required to overlap in time: a conflict says that two agents wrote the same file, not that they did so at the same moment. Edits made by other runtimes (for example Codex patches) are not recognised yet.
 - **Review (pause) and switching session**: Review pauses the scene; events that arrive meanwhile wait in a queue, and Resume live reports how many. If you switch session while reviewing, the queue of the session you leave is not dropped: the position it had reached is kept with that session, so the events received while paused (and those received during the switch itself) are replayed when you come back. The view you switch to is live, so the review ends with a short notice ("Review ended: session changed") and the bar shows the live controls again; it never shows Review over a scene that is playing.
-- **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. The panel already lists active sessions first, most recent activity first, and groups them by project.
+- **Renaming a session**: in the Sessions panel, the pencil button (or F2 on a row) gives a session a name of your own. Enter saves, Escape cancels, an empty name restores the original. The name lives only in this browser (local storage); it is never sent to the relay or written to a transcript. In the Sessions panel a renamed session keeps its original label in the tooltip and for screen readers; elsewhere (canvas, top bar) only your name is shown. If the session leaves the list while you type, the edit is dropped. The panel lists active sessions first, most recent activity first, and groups them by project.
+- **Command palette**: Ctrl+K (Cmd+K on a Mac) opens a search over four groups: *Actions* (play / pause, zoom to fit, full screen, hex grid, mute, the shortcuts dialog, settings), *Panels* (each panel, same names as the top bar), *Sessions* (including "All sessions") and *Agents* (the agents the Sessions panel lists, so finished agents hidden by "Hide inactive agents" are not offered). Type to filter (every word must match), Up / Down to move, Enter to run, Escape to close; focus returns to where it was. It is a modifier combination, so it works even with single-key shortcuts turned off, and from a text field, but not from inside another dialog. Only recorded facts are shown next to a name:
+  - a session: runtime, project, branch, "current view", and "finished" only when the session list says it completed (or "imported - not live" / "indexed - not observed", as in the Sessions panel). It is never called active or running: nothing the palette reads proves that;
+  - an agent: its role (Main, Subagent, Teammate) and its session, never its state, which may be older than the screen;
+  - a shortcut next to a command is shown only while it works (none for single-key shortcuts when they are off).
 
-The graph legend (bottom left of the canvas) explains every colour, shape and line.
+  Each group shows at most 8 matches, and the status line below the list says how many more there are ("keep typing to narrow") instead of pretending the list is complete. Session and agent names (and their details) carry `data-sensitive`, so presentation mode blurs them like in the other panels. Agents of another session are offered only while the view contains them: select that session (or "All sessions") first.
+- **Folder prefix of session tabs**: the folder prefix appears when the sessions you have open come from two or more folders, a tab reads "folder / name" (the Sessions button in the top bar, and the sessions of a team in the Sessions panel) so two sessions called "fix login" can be told apart. The folder is the repository's folder name, proven by the git common dir (worktrees of one repository share it). Limits: a session outside git, or one under "Imported transcripts", gets no prefix, because no folder is proven; with a single folder nothing is added; under a project heading of the Sessions panel the prefix is not repeated, the heading already names the folder; a name that already starts with the folder is left as is. The prefix is display only: it is never written into the name you chose, and the canvas halos keep showing the session name and workspace as before.
+
+The graph legend (bottom left of the canvas) explains the colours, shapes and lines that are on screen.
+
+### The legend lists what is on screen
+
+The legend does not list symbols the canvas does not draw (#244). A row appears only when the scene proves it, and a section with no row has no heading:
+
+- an agent state, shape or runtime logo: at least one drawn agent has it (a hidden, folded or filtered-out agent proves nothing). A teammate ring, its working / idle / done mark and the orchestrator crown follow the same rule; a team row needs a team with two members on screen;
+- a tool card line, a discovery card by type, a context part (non-zero for a drawn agent): the card or the part exists;
+- a parent line: solid when the events confirm the link, dashed when they do not; a dispatch or return dot, a file conflict line, a "+N" or green badge on a folded branch, a session halo: drawn right now;
+- a message link style: a link with at least one message in that state (in flight, recent, error, quiet); a bubble: a message bubble exists.
+
+The sentence under the title says how many symbols are listed ("N symbols on screen") or that nothing is on screen yet. **Show all symbols** (a toggle button, Tab then Enter or Space) lists the complete reference, on screen or not; the choice is not saved. A row whose symbol just left the scene (a message in flight, a particle, a tool card) stays listed for 10 seconds so the list does not jump under you. The guided demo keeps the complete legend, because its steps describe symbols the demo never draws.
+
+### Tour this session
+
+With at least one symbol on screen, a **Tour this session** button sits beside **Legend**. It starts a guided tour of the real scene (it is not shown in the guided demo, which has its own **Guided tour**):
+
+- the steps are built when you start it from the symbols the canvas proves are on screen: your agents (main, sub-agent, runtime), each agent state present, tool calls, finished agents, who started whom, folded branches, file conflicts, teams, sessions, links, context parts and discoveries. A step for something that is not on screen does not exist, and no step talks about a symbol that is absent;
+- a step points at a real agent (a ring follows it) or, for a symbol that no single agent shows (a link, a context part), at the matching legend section, which opens without changing your saved preference. The card names the agent it points at;
+- the tour never pauses or seeks the scene: it stays live, and events keep arriving. A step is a snapshot: when what it explains has left the scene, the card says "This is no longer on screen" instead of going on as if;
+- the card is the one of the guided demo: Previous, Next, **Go to step**, **Exit tour**, the arrow keys and Escape (inside the card only), and the focus returns to the button that opened it.
 
 ### See the legend in action
 
-The guided tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
+The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
 
 - **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
 - **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
@@ -88,6 +115,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
 | **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
+| **COMPACTED** (Conversation row) | The runtime compacted the agent's context at that moment. The trigger and the size before are shown only when the transcript records them; "Cost not reported" always, since no transcript gives the cost of a compaction. See [Context compactions](#context-compactions). |
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
@@ -139,6 +167,17 @@ The used part of the gauge is a reading; the total is a window Agent Lens must *
 
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
 
+## Context compactions
+
+When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
+
+- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record. Nothing else is read as a compaction.
+- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex).
+- **Size before.** The context size before the compaction, *reported by the runtime* (`preTokens`, a positive whole number); otherwise *Size before not reported*. It is never estimated.
+- **Cost not reported.** The summary call that performs the compaction has no usage in the transcript, so no cost is ever shown for it.
+- **The gauge after it.** The local estimate restarts from the system prompt plus the compaction summary, then grows again. For Codex, the last total reported before the compaction is dropped (it measured the old context); the gauge shows the estimate until Codex reports a new total.
+- **Limits.** A compaction written before Agent Lens attached to the session resets the estimate but is not listed. A boundary seen twice (same `uuid`) is listed once. A subagent's compaction is listed for that subagent and does not touch the session estimate. There is no before/after diff yet: the size after is only an estimate.
+
 ## Project folders
 
 Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
@@ -162,6 +201,18 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
 Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex and Copilot sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+
+## Presentation mode
+
+For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.
+
+- **Subtitles of transitions**: a caption at the bottom of the canvas for each state change of an agent, for example "Main agent: Thinking -> Calling tool Read". Only proof counts: a subtitle is written when this page saw the change happen live. Nothing is said about the state that was already there when the mode started, and nothing about replayed history, imported transcripts or an agent never heard from live. A caption stays 7 seconds; when several changes arrive together, the most recent one is shown. It is for the audience: it is not a live region, so a screen reader is not interrupted.
+- **Mask sensitive data** (on by default): free text is hidden, never replaced by a plausible value.
+  - On the canvas, tool-call arguments and results, message bubbles, discovery cards, link messages, particle labels, agent names, session and team names (halo labels, the cost panel) are drawn as bullets of the same length. Counts, costs, states, tool names and context gauges stay, because they come from the events and carry no prompt or path.
+  - In the panels, Conversation, Files, Context, Timeline, the link panel, the tool and discovery popups, the Sessions list, the selected-session label in the top bar, the agent name in its card and the canvas hover tooltip are blurred and cannot be selected.
+  - Subtitles name an agent by its role ("Main agent", "Sub-agent", "Teammate") instead of its name or prompt.
+  - Not covered: the text read by screen readers (the graph outline, announcements), the browser tab title, notifications, and anything you copy from a panel before starting the mode. Masking is a screen filter for the audience, not a privacy boundary; check a scene before you share it.
+- **Follow the active agent**: the camera centres on the agent that worked last (thinking, calling a tool or waiting for a permission, seen live), keeping your zoom. With no such agent it stays where it is. Panning or zooming yourself pauses the follow until another agent takes over; the automatic fit is off while the option is on.
 
 ## Notifications
 
@@ -197,9 +248,19 @@ The **Health** section of the inspector gives the verdict of the selected agent,
 
 Limits, on purpose: only what the events prove is counted, so a loop can be missed (calls without input data, another tool between two identical calls, an edit followed by a read of another file) but is not invented. A tool that polls on purpose (the same `Bash` status command three times) is reported as a repeat: read the evidence before acting. Only sessions whose events are in the current view have a verdict.
 
+## Canvas controls (bottom right)
+
+- **Zoom**: three icon buttons, **Zoom in**, **Zoom out** and **Fit to view**. Their tooltips give the graph keys (`+`, `-`, `0`, see the shortcuts dialog).
+- **View**: one button that opens a small panel (Enter or Space opens it, Tab moves into it, Escape or a click outside closes it and Escape returns the focus to the button). The panel holds:
+  - **Freeze motion**: stops the ambient animation. Locked on, with a tooltip saying why, when your system asks for reduced motion.
+  - the per-layer motion toggles (see below);
+  - **Pin cards**: never auto-hides bubbles, tool cards and discoveries;
+  - **Hide unanswered calls after**: how long a running tool call with no observed end is waited for before it is treated as expired (1 to 30 min, default 5 min). Expired is neither a success nor a failure.
+- These settings were called *Fit*, *Pause animations*, *Keep cards visible* and *Expire unanswered calls after* before. Their behaviour is unchanged. Every label, accessible name and tooltip of these controls comes from the message catalog, in English and in French (*Tout afficher*, *Figer les animations*, *Garder les cartes affichées*, *Masquer les appels sans réponse après*, *Affichage*, *Zoom avant*, *Zoom arrière*), and the block carries `lang`.
+
 ## Motion by layer
 
-Besides the global **Pause animations** button (and your system's reduced-motion setting), the canvas controls hold one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
+Besides the global **Freeze motion** setting (and your system's reduced-motion setting), the **View** panel of the canvas controls holds one toggle per layer. A pressed "Calm ..." toggle turns off the ambient motion of that layer only; the state it shows (colours, rings, labels) stays.
 
 | Layer | Calms |
 | --- | --- |
@@ -208,7 +269,7 @@ Besides the global **Pause animations** button (and your system's reduced-motion
 | Agents | breathing, scanline, rings, tool-call pulses |
 | Effects | message particles and trails, spawn / completion flashes, bloom |
 
-With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Pause animations is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
+With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Freeze motion is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
 
 ## Language
 
@@ -216,10 +277,10 @@ Settings > Appearance > **Language** (a native select, so it works with the keyb
 
 The interface is translated step by step, so for now the language covers only:
 
-- the canvas controls (zoom, fit, Pause animations, the per-layer toggles, Keep cards visible, call expiry);
+- the canvas controls (the Zoom group, the View button and its panel: Freeze motion, the per-layer toggles, Pin cards, Hide unanswered calls after);
 - the Settings dialog (appearance, sound, sessions, notifications, keyboard).
 
-Everything else (top bar, panels, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
+Everything else (top bar, panels, command palette, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
 
 To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. To add a language, extend `LOCALES` and fill the table.
 

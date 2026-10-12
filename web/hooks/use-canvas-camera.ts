@@ -1,11 +1,12 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import {
-  computeFitBounds, fitToView, fitInsets, circleBounds, clusterSetSignature, shouldResumeAutoFit, contentStamp,
+  computeFitBounds, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
   type Transform, type Insets, type AutoFitState,
 } from '@/components/agent-visualizer/canvas/camera-fit'
 import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
 import { CAMERA } from '@/lib/canvas-constants'
+import { INITIAL_FOLLOW, pickFollowAgent, stepFollow, followTransform, type FollowState } from '@/lib/presentation'
 
 export type { Transform }
 
@@ -35,6 +36,8 @@ interface CameraOptions {
   getInsets?: () => Insets
   /** Identity of the selected tab/scope; a change refits the camera (see classifyContentChange) */
   scopeKey?: string
+  /** Presentation mode (#245): when `follow` is set the camera centres on the agent that worked last instead of fitting the content */
+  presentationRef?: MutableRefObject<{ follow: boolean; mask: boolean }>
 }
 
 export function useCanvasCamera({
@@ -48,6 +51,7 @@ export function useCanvasCamera({
   clustersRef,
   getInsets,
   scopeKey,
+  presentationRef,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
@@ -61,6 +65,7 @@ export function useCanvasCamera({
   const fitFrameRef = useRef(0)
   // Frames the auto-fit still has to refresh its target after the last change (see isCameraBusy)
   const fitSettleRef = useRef(0)
+  const followStateRef = useRef<FollowState>(INITIAL_FOLLOW)
   const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
 
   // Initialize transform centered on first agents
@@ -122,7 +127,7 @@ export function useCanvasCamera({
 
   // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
   // once the user panned/zoomed manually the camera stays where they put it
-  // (an explicit "Fit" or the fit trigger re-enables it).
+  // (an explicit "Fit to view" or the fit trigger re-enables it).
   useEffect(() => {
     targetTransformRef.current = null
   }, [selectedAgentId])
@@ -218,7 +223,7 @@ export function useCanvasCamera({
     }
 
     // Auto-fit rule (see classifyContentChange): a manual pan / zoom is respected when the content
-    // changes; auto-fit resumes only on the first content, a tab / scope change and the Fit button.
+    // changes; auto-fit resumes only on the first content, a tab / scope change and the "Fit to view" button.
     // The content set is fingerprinted without allocation every frame; the signature (sorted keys and
     // sessions) is built only when that fingerprint changes.
     const { agents, dimensions } = drawPropsRef.current
@@ -245,9 +250,28 @@ export function useCanvasCamera({
       autoFitStateRef.current = next
     }
 
+    // Presentation follow (#245): while on, the camera centres on the agent that worked last and the auto-fit is
+    // off. A manual pan or zoom (it sets userHasNavigatedRef) suspends following until another agent takes over.
+    const followOn = presentationRef?.current.follow === true
+    if (followOn) {
+      const manual = userHasNavigatedRef.current
+      userHasNavigatedRef.current = false
+      const picked = pickFollowAgent(agents.values())
+      const step = stepFollow(followStateRef.current, picked?.id ?? null, manual)
+      followStateRef.current = step.state
+      if (manual) targetTransformRef.current = null
+      if (step.track && picked && !isDragging) {
+        const want = followTransform(picked, transformRef.current, dimensions, getInsets?.() ?? NO_INSETS)
+        const cur = targetTransformRef.current ?? transformRef.current
+        if (Math.abs(want.x - cur.x) > 1 || Math.abs(want.y - cur.y) > 1) targetTransformRef.current = want
+      }
+    } else {
+      followStateRef.current = INITIAL_FOLLOW
+    }
+
     // Auto-fit: the fit is recomputed when the content set, the canvas size or the insets change, and
     // every few frames while the simulation moves the nodes; the lerp below runs every frame.
-    if (!userHasNavigatedRef.current && !isDragging && !pauseAutoFit) {
+    if (!followOn && !userHasNavigatedRef.current && !isDragging && !pauseAutoFit) {
       const ins = getInsets?.()
       const k = lastFitKeyRef.current
       const keyChanged = k.w !== dimensions.width || k.h !== dimensions.height
@@ -278,13 +302,13 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets])
+  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets, presentationRef])
 
   /** Is the camera still going somewhere (lerp to a target, pan inertia, auto-fit refreshing its target)? The draw loop then keeps its frame rate. */
   const isCameraBusy = useCallback(() => {
     return targetTransformRef.current !== null || panVelocityRef.current.active
-      || (!userHasNavigatedRef.current && fitSettleRef.current > 0)
-  }, [])
+      || (!userHasNavigatedRef.current && fitSettleRef.current > 0 && !presentationRef?.current.follow)
+  }, [presentationRef])
 
   return {
     transformRef,

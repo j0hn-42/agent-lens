@@ -14,7 +14,7 @@ On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en 
 
 - Fenêtre d'au moins 1280 × 800, thème au choix.
 - Désactivez **Hide inactive agents** (bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les sessions finies : c'est une fonctionnalité à montrer, voir l'acte 7.
-- Pour l'acte 4, réglez **Expire unanswered calls after** (bas à droite) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
+- Pour l'acte 4, ouvrez **View** (**Affichage** en français, bas à droite) et réglez **Hide unanswered calls after** (**Masquer les appels sans réponse après**) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
 - Le tour ne se rejoue pas tout seul : rechargez la page pour recommencer. Le mode **Review** (barre du bas) permet de remonter la timeline et de survoler un instant précis.
 
 ## Les trois sessions
@@ -121,3 +121,14 @@ Les particules (point violet d'envoi de tâche, point vert de retour) sont dans 
 | cartes de découverte : fichier, motif, résultat, code | les quatre cartes de découverte |
 
 Gardez la légende ouverte pour les reconnaître plus tard.
+
+## Visite d'une vraie session
+
+La visite guidée ne sert pas qu'à la démo. Sur une session réelle (ou sur les autres démos), le bouton **Tour this session**, à côté de **Legend**, démarre une visite de ce qui est à l'écran à cet instant :
+
+- les étapes sont construites au démarrage à partir des symboles que le canevas prouve présents (agents, états, outils, liens, équipes, contexte, découvertes...). Aucune étape ne parle d'un symbole absent ; sans symbole à l'écran, le bouton n'est pas proposé ;
+- une étape désigne un vrai agent (un anneau le suit) ou la section de légende correspondante, qui s'ouvre sans modifier la préférence enregistrée ;
+- la scène n'est ni mise en pause ni rejouée : la visite reste en direct. Quand ce qu'une étape explique a quitté la scène, la carte l'écrit (« This is no longer on screen ») ;
+- mêmes contrôles que la visite de la démo : **Previous**, **Next**, **Go to step**, **Exit tour**, `←` `→` et `Échap` dans la carte ; le focus revient au bouton d'origine.
+
+La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui.md).

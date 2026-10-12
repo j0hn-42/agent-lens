@@ -1,4 +1,4 @@
-// Per-layer motion (#247). The global reduced motion (OS preference or "Pause animations") calms every
+// Per-layer motion (#247). The global reduced motion (OS preference or "Freeze motion") calms every
 // layer; on top of it each canvas layer can be calmed on its own. Pure data: no React, no path aliases.
 
 /** Canvas layers whose ambient motion can be calmed, in draw order. */

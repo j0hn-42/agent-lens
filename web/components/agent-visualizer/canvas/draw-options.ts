@@ -5,7 +5,7 @@ import type { ViewRect } from './view-cull'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
-  /** Reduced motion (OS preference or the "Pause animations" toggle): no ambient/decorative motion. */
+  /** Reduced motion (OS preference or the "Freeze motion" toggle): no ambient/decorative motion. */
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number
@@ -27,6 +27,8 @@ export interface DrawOpts {
   view?: ViewRect
   /** Teams, to tell the lead of a team ('LEAD') from the main agent of a session ('MAIN') */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
+  /** Presentation mode (#245): free text (names, arguments, results, messages) is drawn as bullets; numbers, states and tool names are kept */
+  maskText?: boolean
 }
 
 export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }

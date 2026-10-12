@@ -319,7 +319,7 @@ export interface AutoFitState {
  * changes. Auto-fit resumes only on
  *   - the first content after an empty canvas ("first"),
  *   - a tab / scope change: a session left the view, or several sessions appeared at once ("scope"),
- *   - the explicit Fit button / keyboard fit (handled by the camera hook, not here).
+ *   - the explicit "Fit to view" button / keyboard fit (handled by the camera hook, not here).
  * Not resuming: one new session appearing live, a team cluster forming, agents spawning, a canvas resize.
  */
 export type ContentChange = 'none' | 'first' | 'scope' | 'growth'

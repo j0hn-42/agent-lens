@@ -104,6 +104,13 @@ test('legacy markers and credits are untouched (#136)', () => {
   assert.equal(JSON.parse(read('extension/package.json')).publisher, 'jobailla')
 })
 
+test('the reading guide explains the folder prefix of session tabs and its limits (#246)', () => {
+  const guide = read('docs/reading-the-ui.md')
+  for (const term of ['folder prefix', 'git common dir', 'Imported transcripts', 'project heading', 'F2']) {
+    assert.ok(guide.includes(term), `guide should mention "${term}"`)
+  }
+})
+
 test('the reading guide explains repeated reads and calls, with their limits (#234)', () => {
   const guide = read('docs/reading-the-ui.md')
   assert.match(guide, /## Repeated reads and calls/)
