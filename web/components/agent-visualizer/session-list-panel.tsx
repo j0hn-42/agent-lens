@@ -530,6 +530,7 @@ export function SessionListPanel({
               <option value="codex">Codex</option>
               <option value="copilot">GitHub Copilot</option>
               <option value="pi">Pi</option>
+              <option value="gemini">Gemini CLI</option>
             </select>
           )}
           {(branches.length > 0 || filter.branch !== null) && (

@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { COLORS, SCENE, getDiscoveryTypeColor } from '@/lib/colors'
 import { STATE_LABEL_SHORT, STATE_LABEL_LONG, LEGEND_OPEN_KEY } from '@/lib/canvas-constants'
 import type { AgentState } from '@/lib/agent-types'
-import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX } from './canvas/draw-misc'
+import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX } from './canvas/draw-misc'
 import type { A11yTeamItem } from './canvas/a11y-model'
 import { memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
@@ -203,6 +203,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
             <Row id="rt-codex" icon={<svg width="20" height="20" viewBox="0 0 24 24"><path d={OPENAI_LOGO_D} fill={SCENE.holoBase} /></svg>}>Knot logo: Codex</Row>
             <Row id="rt-copilot" icon={<svg width="20" height="20" viewBox={`0 0 ${COPILOT_MARK_VIEWBOX} ${COPILOT_MARK_VIEWBOX}`}><path d={COPILOT_MARK_PATH} fill={SCENE.holoBase} /></svg>}>Visor logo: GitHub Copilot</Row>
             <Row id="rt-pi" icon={<svg width="20" height="20" viewBox={`0 0 ${PI_MARK_VIEWBOX} ${PI_MARK_VIEWBOX}`}><path d={PI_MARK_PATH} fill={SCENE.holoBase} /></svg>}>Pi letter: Pi</Row>
+            <Row id="rt-gemini" icon={<svg width="20" height="20" viewBox={`0 0 ${GEMINI_MARK_VIEWBOX} ${GEMINI_MARK_VIEWBOX}`}><path d={GEMINI_MARK_PATH} fill={SCENE.holoBase} /></svg>}>Four-point star: Gemini CLI</Row>
           </Section>
 
           </ShownContext.Provider>

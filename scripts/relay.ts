@@ -19,6 +19,7 @@ import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
 import { PiSessionWatcher } from '../extension/src/pi-session-watcher'
+import { GeminiSessionWatcher } from '../extension/src/gemini-session-watcher'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
@@ -787,7 +788,7 @@ export interface Relay {
   debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
-export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'auto'
+export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'auto'
 
 export interface RelayOptions {
   workspace: string
@@ -849,9 +850,9 @@ async function defaultHooksProbe(workspace: string): Promise<boolean> {
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
-  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'auto') return explicit
+  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'gemini' || explicit === 'auto') return explicit
   const raw = process.env.AGENT_LENS_RUNTIME
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
 }
 
 export async function createRelay(options: RelayOptions): Promise<Relay> {
@@ -925,7 +926,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const wantCodex = mode === 'codex' || mode === 'auto'
   const wantCopilot = mode === 'copilot' || mode === 'auto'
   const wantPi = mode === 'pi' || mode === 'auto'
-  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter(Boolean).join(', ')})`)
+  const wantGemini = mode === 'gemini' || mode === 'auto'
+  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(', ')})`)
 
   let hookServer: HookServer | null = null
   let scanTicker: SharedTicker | null = null
@@ -1057,6 +1059,19 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     piWatcher.start()
   }
 
+  // ─── Gemini CLI runtime ───────────────────────────────────────────────────
+  // Watch Gemini CLI sessions (~/.gemini/tmp/<project>/chats/session-*.jsonl, #238), matched to the
+  // workspace by the project hash of the first record. No-op if the directory doesn't exist.
+  let geminiWatcher: GeminiSessionWatcher | null = null
+  if (wantGemini) {
+    geminiWatcher = new GeminiSessionWatcher(workspace)
+    geminiWatcher.onEvent((event) => broadcastEvent(event))
+    geminiWatcher.onSessionLifecycle((lifecycle) => {
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+    })
+    geminiWatcher.start()
+  }
+
   const telemetry = options.telemetry
   const sessionStart = Date.now()
   let relayDisposed = false
@@ -1098,10 +1113,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (codexWatcher) list.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
     if (copilotWatcher) list.push(...copilotWatcher.getActiveSessions())
     if (piWatcher) list.push(...piWatcher.getActiveSessions())
+    if (geminiWatcher) list.push(...geminiWatcher.getActiveSessions())
     return { sessions: list, agents: agentTracker }
   })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
-  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter((r): r is string => typeof r === 'string')
+  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter((r): r is string => typeof r === 'string')
 
   // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
@@ -1136,6 +1152,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
       if (piWatcher) sessionCount += piWatcher.getActiveSessions().length
+      if (geminiWatcher) sessionCount += geminiWatcher.getActiveSessions().length
       return { sessionCount, hooksConfigured, disable1MContext }
     },
     base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
@@ -1273,6 +1290,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (codexWatcher) sessionList.push(...codexWatcher.getActiveSessions().map(s => ({ ...s, runtime: 'codex' })))
       if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
       if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
+      if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
       // Indexed sessions complete the list; a session that is also watched live keeps its live entry
       const indexed = readIndex()
       if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
@@ -1338,7 +1356,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       webhooks?.dispose()
       webhooks = null
       const models = [...observedModels].sort().join(',').slice(0, 128)
-      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi'].filter(Boolean).join(',')
+      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(',')
       telemetry?.emit({
         ...baseEvent(),
         event_type: 'session_end',
@@ -1365,6 +1383,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       codexWatcher?.dispose()
       copilotWatcher?.dispose()
       piWatcher?.dispose()
+      geminiWatcher?.dispose()
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) unwatchSession(id)
       eventBuffer.clear()

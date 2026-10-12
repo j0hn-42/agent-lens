@@ -113,6 +113,7 @@ export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; 
   if (runtime === 'codex') return { short: 'CX', label: 'Codex' }
   if (runtime === 'copilot') return { short: 'GC', label: 'GitHub Copilot' }
   if (runtime === 'pi') return { short: 'PI', label: 'Pi' }
+  if (runtime === 'gemini') return { short: 'GM', label: 'Gemini CLI' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
 }
@@ -221,7 +222,7 @@ export function formatDroppedMessages(dropped: number): string | null {
 }
 
 /** Minimal agent shape needed to label it with its session. */
-interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' }
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' }
 
 /**
  * Attach the human-readable session label (and the session runtime when the agent has none) to each
@@ -387,7 +388,7 @@ export function emptyStateChecklist(opts: {
             : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
             : 'only the current workspace is watched',
         },
-    { id: 'runtime', label: 'Claude Code, Codex, Copilot or Pi session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
   if (opts.hooksConfigured !== undefined) {
     items.push({
@@ -480,7 +481,7 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
 
 export interface CanvasSessionMeta {
   label: string
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   workspace?: string
   projectId?: string
   projectName?: string

@@ -7,7 +7,7 @@ import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
 import { alphaHex, formatTokens, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokenUsage, usageFromAgent, qualify } from '../../../lib/usage'
-import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX } from './draw-misc'
+import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -101,6 +101,27 @@ function getPiMarkPath() {
   return _piMarkPath
 }
 
+/** Gemini mark: a four-point star, drawn as a path so it needs no asset (#238).
+ *  Same footprint as the Claude spark. Geometry is shared with the legend (GEMINI_MARK_PATH). */
+export function drawGeminiMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+  ctx.save()
+  ctx.translate(cx, cy)
+  const scale = (r * AGENT_DRAW.sparkScale) / GEMINI_MARK_VIEWBOX
+  ctx.scale(scale, scale)
+  ctx.translate(-GEMINI_MARK_VIEWBOX / 2, -GEMINI_MARK_VIEWBOX / 2)
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 6 / scale
+  ctx.fill(getGeminiMarkPath())
+  ctx.restore()
+}
+
+let _geminiMarkPath: Path2D | null = null
+function getGeminiMarkPath() {
+  if (!_geminiMarkPath) _geminiMarkPath = new Path2D(GEMINI_MARK_PATH)
+  return _geminiMarkPath
+}
+
 /** Pick the brand logo for the agent's runtime. Defaults to Claude. */
 export function drawAgentBrand(
   ctx: CanvasRenderingContext2D,
@@ -110,6 +131,7 @@ export function drawAgentBrand(
   if (runtime === 'codex') drawOpenAILogo(ctx, cx, cy, r, color)
   else if (runtime === 'copilot') drawCopilotMark(ctx, cx, cy, r, color)
   else if (runtime === 'pi') drawPiMark(ctx, cx, cy, r, color)
+  else if (runtime === 'gemini') drawGeminiMark(ctx, cx, cy, r, color)
   else drawClaudeSpark(ctx, cx, cy, r, color)
 }
 

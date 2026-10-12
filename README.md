@@ -2,7 +2,7 @@
 
 > Agent Lens is based on [Agent Flow](https://github.com/patoles/agent-flow) by Simon Patole (Apache License 2.0). See [Origin and credits](#origin-and-credits).
 
-Real-time visualization of Claude Code, Codex, GitHub Copilot and Pi agent orchestration. Watch your agents think, branch, and coordinate as they work. 
+Real-time visualization of Claude Code, Codex, GitHub Copilot, Pi and Gemini CLI agent orchestration. Watch your agents think, branch, and coordinate as they work. 
 
 ## Why Agent Lens?
 
@@ -18,9 +18,10 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 ## Features
 
 - **Live agent visualization**: Watch agent execution as an interactive node graph with real-time tool calls, branching, and return flows
-- **Claude Code + Codex + GitHub Copilot + Pi**: Auto-detects sessions from all runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
+- **Claude Code + Codex + GitHub Copilot + Pi + Gemini CLI**: Auto-detects sessions from all runtimes concurrently and shows them side-by-side, or restrict to one via the `agentVisualizer.runtime` setting
 - **Claude Code hooks**: Lightweight HTTP hook server receives events directly from Claude Code for zero-latency streaming
 - **Copilot session tailing**: Reads local `~/.copilot/session-state/<id>/events.jsonl` (respects `COPILOT_HOME`), matched to the workspace through `workspace.yaml`, and surfaces messages, tool calls and sub-agent activity. Cloud-hosted Copilot agent sessions are not covered
+- **Gemini CLI session tailing**: Reads `~/.gemini/tmp/<project>/chats/session-<timestamp>-<id>.jsonl` (respects `GEMINI_CLI_HOME`), matched to the workspace through the `projectHash` of the first record (the sha256 of the project root), and surfaces prompts, replies, thoughts and tool calls. Sub-agent chat files are not read, so no sub-agent is drawn; tokens and cost are not read yet (see [Reading the UI](docs/reading-the-ui.md#gemini-cli-sessions))
 - **Pi session tailing**: Reads `~/.pi/agent/sessions/--<path>--/<timestamp>_<id>.jsonl` (respects `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`), matched to the workspace through the `cwd` of the session header, and surfaces prompts, replies, thinking, tool calls and compactions. Pi has no sub-agents; tokens and cost are not read yet (see [Reading the UI](docs/reading-the-ui.md#pi-sessions))
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
 - **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree), sorted by recent activity, renamable (F2) and prefixed by folder when several folders are open
@@ -71,20 +72,20 @@ Use `cursor` or `windsurf` instead of `code` for those editors (or **Extensions:
 Then:
 
 1. Open the Command Palette (`Cmd+Shift+P`) and run **Agent Lens: Open Agent Lens**
-2. Start a Claude Code, Codex, Copilot or Pi session in your workspace. Agent Lens will auto-detect it
+2. Start a Claude Code, Codex, Copilot, Pi or Gemini CLI session in your workspace. Agent Lens will auto-detect it
 
 Agent Lens automatically configures Claude Code hooks the first time you open the panel. To manually reconfigure, run **Agent Lens: Configure Claude Code Hooks** from the Command Palette.
 
 ### Runtime selection
 
-By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) local GitHub Copilot (`~/.copilot/session-state/`) and Pi (`~/.pi/agent/sessions/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-lens-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) local GitHub Copilot (`~/.copilot/session-state/`) Pi (`~/.pi/agent/sessions/`) and Gemini CLI (`~/.gemini/tmp/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-lens-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
 
 To restrict to one runtime:
 
-- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` / `"copilot"` / `"pi"` in your settings
-- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex`, `copilot` or `pi` (defaults to watching all)
+- **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` / `"copilot"` / `"pi"` / `"gemini"` in your settings
+- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex`, `copilot`, `pi` or `gemini` (defaults to watching all)
 
-For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`; for Pi, `PI_CODING_AGENT_DIR` (sessions under `<dir>/sessions`) or `PI_CODING_AGENT_SESSION_DIR` (session files directly in it), the variables Pi itself reads.
+For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`; for Pi, `PI_CODING_AGENT_DIR` (sessions under `<dir>/sessions`) or `PI_CODING_AGENT_SESSION_DIR` (session files directly in it), the variables Pi itself reads; for Gemini CLI, `GEMINI_CLI_HOME` (sessions under `<dir>/.gemini/tmp`), the variable Gemini CLI itself reads.
 
 ### Scope: this workspace, a project, or all workspaces
 
@@ -93,7 +94,7 @@ By default the relay only discovers the Claude Code sessions of the workspace it
 - `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
 - The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
 - A project choice narrows the Sessions list and the **All** view of the canvas to that project; it does not change what the relay scans.
-- Codex, Copilot and Pi sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
+- Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
 
 See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guards.
 
@@ -133,7 +134,7 @@ Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, 
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, `"copilot"`, or `"pi"` |
+| `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, `"copilot"`, `"pi"`, or `"gemini"` |
 | `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
 | `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
 | `agentVisualizer.allowControl` | `false` | Let the panel answer Claude Code permission requests; see [operator control](docs/operator-control.md). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
