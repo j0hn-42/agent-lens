@@ -53,6 +53,7 @@ import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { useToasts } from "@/hooks/use-toasts"
 import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
+import { PermissionRequests } from "./permission-requests"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { SettingsDialog } from "./settings-dialog"
 import { CommandPalette } from "./command-palette"
@@ -697,6 +698,11 @@ export function AgentVisualizer() {
   // Halo titles (session label, runtime, workspace, status) come from the session list
   const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
   const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
+  // Permission requests (#240) name their session with the label of the list when it has one
+  const permissionSessionLabel = useCallback(
+    (id: string) => bridge.sessions.find(s => s.id === id)?.label,
+    [bridge.sessions],
+  )
   const allViewSessionIds = bridge.allViewSessionIds
   const shownSessionCount = detectedSessions(bridge.sessions).filter(s => !allViewSessionIds || allViewSessionIds.has(s.id)).length
   // A halo label click selects its session / team tab (kept in refs: the canvas holds the latest callback)
@@ -1217,6 +1223,8 @@ export function AgentVisualizer() {
         onPause={setToastsPaused}
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
+      {/* Operator decisions (#240): renders nothing outside VS Code */}
+      <PermissionRequests sessionLabel={permissionSessionLabel} />
       </main>
 
       <SettingsDialog
