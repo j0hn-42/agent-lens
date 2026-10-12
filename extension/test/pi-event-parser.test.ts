@@ -165,6 +165,17 @@ describe('PiEventParser', () => {
     assert.equal(events.filter(e => e.type === 'model_detected').length, 0)
   })
 
+  it('refuses an entry id or tool call id longer than the id cap', () => {
+    const long = 'x'.repeat(200)
+    const { events } = runLines([
+      header(),
+      userLine(long, 'hidden'),
+      JSON.stringify({ type: 'message', id: 'ok1', parentId: null, timestamp: 't', message: { role: 'assistant', content: [{ type: 'toolCall', id: long, name: 'bash', arguments: { command: 'true' } }], model: 'm', timestamp: 1 } }),
+    ])
+    assert.ok(!events.some(e => e.type === 'message' && e.payload.content === 'hidden'))
+    assert.equal(events.filter(e => e.type === 'tool_call_start').length, 0)
+  })
+
   it('caps the remembered entry ids and pending tool calls', () => {
     const lines = [header()]
     for (let i = 0; i < 6000; i++) {

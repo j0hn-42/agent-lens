@@ -16,7 +16,7 @@ import type { SessionLifecycleEvent } from '../src/session-runtime'
 const uuid = (n: number) => `0192f0a1-7c2e-7000-8000-${String(n).padStart(12, '0')}`
 const fileName = (n: number) => `2026-10-12T09-00-00-000Z_${uuid(n)}.jsonl`
 const header = (cwd: string, over: Record<string, unknown> = {}) =>
-  JSON.stringify({ type: 'session', version: 3, id: 'x', timestamp: '2026-10-12T09:00:00.000Z', cwd, ...over }) + '\n'
+  JSON.stringify({ type: 'session', version: 3, id: 'x', timestamp: '2026-01-05T09:00:00.000Z', cwd, ...over }) + '\n'
 const user = (id: string, content: string) =>
   JSON.stringify({ type: 'message', id, parentId: null, timestamp: '2026-10-12T09:00:01.000Z', message: { role: 'user', content, timestamp: 1 } }) + '\n'
 
@@ -42,7 +42,8 @@ describe('piSessionsRoot', () => {
 describe('piSessionIdFromFile', () => {
   it('takes the id after the timestamp, and refuses an unsafe one', () => {
     assert.equal(piSessionIdFromFile(fileName(1)), uuid(1))
-    assert.equal(piSessionIdFromFile('2026-10-12T09-00-00-000Z_my.custom_id.jsonl'), 'my.custom_id')
+    assert.equal(piSessionIdFromFile('2026-10-12T09-00-00-000Z_my-custom_id.jsonl'), 'my-custom_id')
+    assert.equal(piSessionIdFromFile('2026_my.dotted.jsonl'), null, 'the observations id pattern refuses dots')
     assert.equal(piSessionIdFromFile('notes.txt'), null)
     assert.equal(piSessionIdFromFile('2026_-bad-.jsonl'), null)
     assert.equal(piSessionIdFromFile(`2026_${'a'.repeat(200)}.jsonl`), null)
@@ -57,7 +58,15 @@ describe('readPiSessionHeader', () => {
   it('reads the cwd of a session header', () => {
     const f = path.join(dir, 'a.jsonl')
     fs.writeFileSync(f, header('/w/app') + user('u1', 'hi'))
-    assert.deepEqual(readPiSessionHeader(f), { cwd: '/w/app', final: true })
+    assert.deepEqual(readPiSessionHeader(f), { cwd: '/w/app', final: true, startMs: Date.parse('2026-01-05T09:00:00.000Z') })
+  })
+
+  it('refuses a relative cwd, or one with control or bidi characters', () => {
+    const f = path.join(dir, 'a.jsonl')
+    for (const cwd of ['relative/dir', '/w/a\u0007b', '/w/\u202eevil']) {
+      fs.writeFileSync(f, header(cwd))
+      assert.equal(readPiSessionHeader(f).cwd, null, cwd)
+    }
   })
 
   it('returns no cwd when the first line is not a session header', () => {
@@ -219,6 +228,43 @@ describe('PiSessionWatcher', () => {
       await new Promise(r => setTimeout(r, 100))
     }
     assert.ok(events.some(e => e.type === 'message' && e.payload.content === 'On it.'), 'the appended line is delivered once complete')
+  })
+
+  it('starts the session at the header timestamp', () => {
+    addSession(1, ws)
+    watcher = new PiSessionWatcher(ws)
+    watcher.start()
+    assert.equal(watcher.getActiveSessions()[0].startTime, Date.parse('2026-01-05T09:00:00.000Z'))
+  })
+
+  it('does not follow a symbolic link to a session file', () => {
+    const real = addSession(1, ws)
+    const dir = path.dirname(real)
+    fs.renameSync(real, path.join(agentDir, 'outside.jsonl'))
+    fs.symlinkSync(path.join(agentDir, 'outside.jsonl'), path.join(dir, fileName(2)))
+    watcher = new PiSessionWatcher(ws)
+    watcher.start()
+    assert.equal(watcher.getActiveSessions().length, 0)
+  })
+
+  it('watches at most 25 sessions', () => {
+    for (let n = 1; n <= 30; n++) addSession(n, ws)
+    watcher = new PiSessionWatcher(ws)
+    watcher.start()
+    assert.equal(watcher.getActiveSessions().length, 25)
+  })
+
+  it('survives a listener that throws: no uncaught exception, the session stays watched', async () => {
+    const file = addSession(1, ws)
+    watcher = new PiSessionWatcher(ws)
+    watcher.start()
+    let calls = 0
+    watcher.onEvent(() => { calls++; throw new Error('listener boom') })
+    fs.appendFileSync(file, user('u9', 'trigger'))
+    const deadline = Date.now() + 5000
+    while (calls === 0 && Date.now() < deadline) await new Promise(r => setTimeout(r, 100))
+    assert.ok(calls > 0, 'the listener was called')
+    assert.equal(watcher.isSessionActive(uuid(1)), true)
   })
 
   it('picks up a session file created after start', async () => {

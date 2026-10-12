@@ -22,7 +22,7 @@
 
 import type { AgentEvent } from './protocol'
 import {
-  ORCHESTRATOR_NAME, MESSAGE_MAX, PREVIEW_MAX, RESULT_MAX,
+  ORCHESTRATOR_NAME, MESSAGE_MAX, NORM_ID_MAX, PREVIEW_MAX, RESULT_MAX,
 } from './constants'
 import {
   summarizeInput, summarizeResult, extractInputData, extractFilePath,
@@ -108,6 +108,12 @@ function str(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined
 }
 
+/** An identifier kept in bounded state: refused (undefined) past NORM_ID_MAX characters. */
+function idStr(v: unknown): string | undefined {
+  const s = str(v)
+  return s && s.length <= NORM_ID_MAX ? s : undefined
+}
+
 /** Adds to a bounded set (oldest evicted); false when already present. */
 function remember(set: Set<string>, value: string): boolean {
   if (set.has(value)) return false
@@ -181,7 +187,8 @@ export class PiEventParser {
       if (record.type === 'session') return this.handleHeader(record, state)
       // No header yet: the version is unknown, so nothing read here can be trusted
       if (state.version === null) return
-      const id = str(record.id)
+      if (str(record.id) && !idStr(record.id)) { this.normalizer.noteMalformed(); return }
+      const id = idStr(record.id)
       if (id && !remember(state.seenEntryIds, id)) { this.normalizer.stats.duplicateEvents++; return }
       this.dispatch(record, state)
     } catch {
@@ -292,12 +299,12 @@ export class PiEventParser {
   // ─── Tools ───────────────────────────────────────────────────────────────
 
   private handleToolCall(block: Record<string, unknown>, state: PiEventState): void {
-    const callId = str(block.id)
+    const callId = idStr(block.id)
     if (!callId) return
     // A call id seen twice is a replay of the same call, not a second call
     if (state.pendingToolCalls.has(callId)) { this.normalizer.stats.duplicateEvents++; return }
 
-    const name = str(block.name) ?? 'unknown'
+    const name = str(block.name)?.slice(0, NORM_ID_MAX) ?? 'unknown'
     const args = isRecord(block.arguments) ? block.arguments : {}
     const view = summarizerView(name, args)
     const argsSummary = summarizeInput(view.tool, view.input)
@@ -306,7 +313,7 @@ export class PiEventParser {
       const oldest = state.pendingToolCalls.keys().next().value
       if (oldest !== undefined) state.pendingToolCalls.delete(oldest)
     }
-    state.pendingToolCalls.set(callId, { name, filePath: extractFilePath(view.input) })
+    state.pendingToolCalls.set(callId, { name, filePath: extractFilePath(view.input)?.slice(0, 4096) })
 
     this.delegate.emit({
       time: this.delegate.elapsed(),
@@ -323,7 +330,7 @@ export class PiEventParser {
   }
 
   private handleToolResult(message: Record<string, unknown>, state: PiEventState): void {
-    const callId = str(message.toolCallId)
+    const callId = idStr(message.toolCallId)
     if (!callId) return
     const pending = state.pendingToolCalls.get(callId)
     if (!pending) return
