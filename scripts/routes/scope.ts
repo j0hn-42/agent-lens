@@ -34,13 +34,13 @@ export function parseScopeBody(text: string): RelayScope | null {
   return scope === 'workspace' || scope === 'all' ? scope : null
 }
 
-type BodyResult = { ok: true; text: string } | { ok: false; code: 413 | 408 | 400 }
+export type BodyResult = { ok: true; text: string } | { ok: false; code: 413 | 408 | 400 }
 
 /** Lit le corps avec un plafond d'octets et un délai ; au-delà, on coupe sans tout lire. */
-function readBody(req: http.IncomingMessage): Promise<BodyResult> {
+export function readLimitedBody(req: http.IncomingMessage, maxBytes: number, timeoutMs: number): Promise<BodyResult> {
   return new Promise(resolve => {
     const declared = Number(req.headers['content-length'])
-    if (Number.isFinite(declared) && declared > RELAY_SCOPE_BODY_MAX_BYTES) return resolve({ ok: false, code: 413 })
+    if (Number.isFinite(declared) && declared > maxBytes) return resolve({ ok: false, code: 413 })
     const chunks: Buffer[] = []
     let size = 0
     let settled = false
@@ -54,7 +54,7 @@ function readBody(req: http.IncomingMessage): Promise<BodyResult> {
     }
     const onData = (chunk: Buffer) => {
       size += chunk.length
-      if (size > RELAY_SCOPE_BODY_MAX_BYTES) return done({ ok: false, code: 413 })
+      if (size > maxBytes) return done({ ok: false, code: 413 })
       chunks.push(chunk)
     }
     timer = setTimeout(() => done({ ok: false, code: 408 }), RELAY_SCOPE_BODY_TIMEOUT_MS)
@@ -68,7 +68,7 @@ function readBody(req: http.IncomingMessage): Promise<BodyResult> {
 export function createScopeRoute(deps: ScopeRouteDeps): RouteHandler {
   return guardedRoute({ limiter: deps.limiter, methods: ['POST'], rejectCrossOrigin: true }, async (req, res) => {
     if (!isJsonContentType(req.headers['content-type'])) return sendPlain(res, 415, 'Content-Type must be application/json')
-    const body = await readBody(req)
+    const body = await readLimitedBody(req, RELAY_SCOPE_BODY_MAX_BYTES, RELAY_SCOPE_BODY_TIMEOUT_MS)
     if (res.destroyed) return
     if (!body.ok) {
       const text = body.code === 413 ? 'Payload too large' : body.code === 408 ? 'Request timeout' : 'Bad request'

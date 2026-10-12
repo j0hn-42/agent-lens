@@ -192,6 +192,12 @@ export function isScopePath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/scope' } catch { return false }
 }
 
+/** True for `/launch` and `/launch/<id>/stop` (#229): the routes that start and stop an agent process. <id> is 16 lower-case hex digits. */
+export function isLaunchPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return /^\/launch(?:\/[0-9a-f]{16}\/stop)?$/.test(new URL(url, 'http://localhost').pathname) } catch { return false }
+}
+
 export interface DiscoveredSession { sessionId: string; filePath: string; dirPath: string; mtimeMs: number; size: number }
 
 export interface DiscoveryOptions {
