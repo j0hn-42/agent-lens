@@ -15,8 +15,8 @@ All values describe the machine that runs the relay, sampled every 2 seconds.
 | Row | Source |
 |---|---|
 | **CPU** | Delta between two readings of `os.cpus()` (share of non-idle time), aggregate and per core. The first sample has no delta, so CPU is not available until the second one. |
-| **Memory** | Linux: `MemTotal - MemAvailable` from `/proc/meminfo` (the cache is not counted as used). Other platforms: `os.totalmem() - os.freemem()`. Linux without `MemAvailable`: not available. |
-| **Swap** | `SwapTotal` and `SwapFree` from `/proc/meminfo`. A swap of size 0 reads "No swap", not 0 %. |
+| **Memory** | Linux: `MemTotal - MemAvailable` from `/proc/meminfo` (the cache is not counted as used). Windows: `os.totalmem() - os.freemem()` (free memory there is the available physical memory). macOS: not available, because the free pages Node reports exclude the cache and would make a healthy Mac read 90-99 % used. Linux without `MemAvailable`: not available. |
+| **Swap** | `SwapTotal` and `SwapFree` from `/proc/meminfo`. A swap of size 0 reads "No swap", not 0 %. Outside Linux (only `/proc/meminfo` is read): not available. |
 | **Disk** | `fs.statfs` on the relay's working directory (used = blocks - blocks available to the user). |
 | **Load 1 / 5 / 15** | `os.loadavg()`. Not available on Windows. |
 | **Uptime** | `os.uptime()`. |
@@ -38,7 +38,7 @@ The percentage is floored, so "85 %" is always Warm or worse and "95 %" always C
 
 ## History
 
-Each row has a sparkline of the last 60 points (about 2 minutes), with a text summary (current value and recent maximum). The history lives in the page's memory only: the relay keeps none, nothing is written to disk, and it is cleared when the connection to the relay is lost. A client that connects (or reconnects) shows its first value after about 2 seconds. A **Per-core detail** section, collapsed by default, lists each core.
+Each row has a sparkline of the last 60 points (about 2 minutes), with a text summary (current value and recent maximum). The history lives in the page's memory only: the relay keeps none, nothing is written to disk, and it is cleared when the connection to the relay is lost. A client that connects (or reconnects) shows its first value after about 2 seconds. A **Per-core detail** section, collapsed by default, lists each logical CPU ("256+ logical CPUs" when the list reaches the 256 cap).
 
 ## Limits
 

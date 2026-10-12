@@ -46,7 +46,7 @@ interface SystemSample {
 ```
 
 - **CPU** : delta entre deux lectures de `os.cpus()` (somme des temps, part inactive). Le premier échantillon n'a pas de delta : `total` et `perCore` valent `null`.
-- **RAM** : `MemAvailable` de `/proc/meminfo` quand il existe (`used = total - available`). Sinon `os.totalmem() - os.freemem()` seulement hors Linux. Sous Linux, `os.freemem()` compte le cache comme utilisé et fausserait le chiffre.
+- **RAM** : `MemAvailable` de `/proc/meminfo` quand il existe (`used = total - available`). Sinon `os.totalmem() - os.freemem()` sous Windows seulement (mémoire physique disponible) ; sous macOS `null`, car la mémoire libre exclut le cache et ferait lire 90-99 % sur une machine saine. Sous Linux, `os.freemem()` compte le cache comme utilisé et fausserait le chiffre.
 - **Swap** : `SwapTotal` et `SwapFree` de `/proc/meminfo`, `null` sans `/proc`. Un swap de taille 0 vaut `{ total: 0, used: 0 }` (affiché « aucun swap »).
 - **Disque** : `fs.statfs` sur le dossier de travail du relay. `null` en cas d'erreur.
 - **Charge** : `os.loadavg()`. Sous Windows elle vaut toujours `[0,0,0]` : on renvoie `null` si `process.platform === 'win32'`.
@@ -82,7 +82,7 @@ interface SystemSample {
 
 - Chaque jauge : `role="meter"` avec `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, nom accessible. Quand la valeur est `null`, **aucun** `role="meter"` n'est rendu (ARIA exige `aria-valuenow`) : le texte « Not available » le remplace.
 - Le pourcentage affiché est arrondi vers le bas, pour rester cohérent avec la gravité (85 % affiché est toujours Warm ou pire, 95 % toujours Critical).
-- Les mises à jour toutes les 2 s ne sont **pas** annoncées. Une annonce polie (`chrome-announcer`) uniquement au **changement de gravité** (normal → chaud → critique).
+- Les mises à jour toutes les 2 s ne sont **pas** annoncées. Une annonce polie (région `role="status"` propre au panneau) uniquement au **changement de gravité** (normal → chaud → critique).
 - La gravité est dite en **texte et icône**, jamais par la couleur seule. Couleurs issues de nouveaux tokens dans `web/lib/theme-tokens.json`, puis `pnpm run gen:themes` (jamais `themes.css` à la main).
 - Sparklines décoratives (`aria-hidden`) avec un résumé textuel (valeur courante, max récent).
 - `prefers-reduced-motion` : aucune transition de barre ni d'animation.
@@ -95,7 +95,7 @@ interface SystemSample {
 - `scripts/panel-layout.test.ts` : propriétés existantes étendues à `'system'`.
 - Tests du modèle web : buffer circulaire, `summarise`, seuils aux bornes.
 - `pnpm run test:a11y` : axe et clavier pour le panneau. `web test:e2e` seulement si le CSS ou le rendu le demande.
-- `scripts/data-honesty.test.ts` et la doc : un test vérifie qu'aucun `0` n'est rendu pour une métrique `null`.
+- `web/tests-a11y/system-panel.test.tsx` et la doc : un test vérifie qu'aucun `0` n'est rendu pour une métrique `null`.
 
 ## 8. Documentation
 
@@ -104,7 +104,7 @@ interface SystemSample {
 
 ## 9. Livraison
 
-- **Aucune issue n'existe** pour ce travail. Avant le code : créer l'issue dans `j0hn-42/agent-lens` avec `agent:frontend-engineer`, un label de type et un `severity:*`. Les rôles `backend-engineer` (relay) et `a11y-engineer` (revue) y sont associés.
+- L'issue #357 existe pour ce travail (`j0hn-42/agent-lens`, avec `agent:frontend-engineer`, un label de type et un `severity:*`. Les rôles `backend-engineer` (relay) et `a11y-engineer` (revue) y sont associés.
 - Branche `feat/...` depuis `develop`, PR vers `develop`, commits d'une étape logique chacun, test d'abord, référence `(#n)`.
 - Ordre des étapes : 1) `system-stats.ts` et ses tests, 2) relay et ses tests, 3) modèle web, 4) layout et panneau, 5) tokens de thème, 6) docs.
 
