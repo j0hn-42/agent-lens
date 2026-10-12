@@ -36,6 +36,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: '$', display: '$', description: `Toggle ${PANEL_NAMES.cost} overlay`, group: 'Panels', singleKey: true },
   { key: 'F', display: 'Shift+F', description: 'Zoom to fit all agents', group: 'View', singleKey: true },
   { key: 'z', display: 'Z', description: 'Toggle full screen (hides the top bar and playback controls)', group: 'View', singleKey: true },
+  { key: 'v', display: 'V', description: 'Toggle presentation mode (subtitles of transitions, masked sensitive data, camera follows the active agent)', group: 'View', singleKey: true },
   { key: 'g', display: 'G', description: 'Toggle hex grid', group: 'View', singleKey: true },
   { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
   { key: 'Escape', display: 'Esc', description: 'Close the most recently opened panel, then clear the selection', group: 'General', singleKey: false },

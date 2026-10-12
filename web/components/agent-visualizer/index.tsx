@@ -53,6 +53,8 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { SettingsDialog } from "./settings-dialog"
+import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
+import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
 import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
@@ -486,6 +488,26 @@ export function AgentVisualizer() {
     else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
   }, [immersive])
 
+  // Presentation mode (#245): options persist, the mode does not. Escape stops it once nothing else is open.
+  const presentation = usePresentationMode()
+  const presentationOn = presentation.active
+  const presentationMasked = presentationOn && presentation.options.mask
+  usePresentationMaskAttribute(presentationMasked)
+  const presentationSubtitle = usePresentationSubtitle(agents, { enabled: presentationOn && presentation.options.subtitles, mask: presentation.options.mask })
+  const wasPresentingRef = useRef(false)
+  const [presentationNote, setPresentationNote] = useState<string | null>(null)
+  useEffect(() => {
+    if (presentationOn === wasPresentingRef.current) return
+    wasPresentingRef.current = presentationOn
+    setPresentationNote(presentationOn ? 'Presentation mode on' : 'Presentation mode off')
+  }, [presentationOn])
+  const stopPresentation = presentation.stop
+  const closeTopPanelOrImmersiveOrPresentation = useCallback((): boolean => {
+    if (closeTopPanelOrImmersive()) return true
+    if (presentationOn) { stopPresentation(); return true }
+    return false
+  }, [closeTopPanelOrImmersive, presentationOn, stopPresentation])
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -499,7 +521,8 @@ export function AgentVisualizer() {
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     toggleFullscreen,
-    closeTopPanel: closeTopPanelOrImmersive,
+    togglePresentation: presentation.toggle,
+    closeTopPanel: closeTopPanelOrImmersiveOrPresentation,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
@@ -507,7 +530,7 @@ export function AgentVisualizer() {
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersive, toggleFullscreen, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation, toggleFullscreen, presentation.toggle, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -800,7 +823,7 @@ export function AgentVisualizer() {
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
-        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote}
+        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
@@ -855,6 +878,9 @@ export function AgentVisualizer() {
         onToggleNotify={toggleNotify}
       />
       </div>
+
+      {presentationOn && <PresentationBadge onStop={presentation.stop} />}
+      <PresentationSubtitle text={presentationSubtitle} />
 
       {immersive && (
         <button
@@ -930,6 +956,7 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
         hideInactive={hideInactiveShown}
+        presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -1142,6 +1169,7 @@ export function AgentVisualizer() {
         singleKeyEnabled={singleKeyShortcuts}
         onSingleKeyEnabledChange={updateSingleKeyShortcuts}
         onOpenShortcuts={openShortcuts}
+        presentation={{ active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption }}
         notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
       />
 

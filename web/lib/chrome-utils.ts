@@ -337,6 +337,8 @@ export function buildAnnouncement(opts: {
   unobservedSessions?: number
   /** 'Full screen on' / 'Full screen off' after a change (#196) */
   fullscreenNote?: string | null
+  /** 'Presentation mode on' / 'Presentation mode off' after a change (#245) */
+  presentationNote?: string | null
 }): string {
   const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
   if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
@@ -346,6 +348,7 @@ export function buildAnnouncement(opts: {
     parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
   }
   if (opts.fullscreenNote) parts.push(opts.fullscreenNote)
+  if (opts.presentationNote) parts.push(opts.presentationNote)
   return parts.join('. ')
 }
 

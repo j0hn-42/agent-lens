@@ -20,12 +20,17 @@ import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
 import { useTourBridge } from './guided-tour-context'
 
+type PresentationFlags = { follow: boolean; mask: boolean }
+const NO_PRESENTATION: PresentationFlags = { follow: false, mask: false }
+
 export function AgentCanvas(props: CanvasProps) {
   const {
     simulationRef, selectedAgentId, hoveredAgentId, zoomToFitTrigger,
     onAgentClick, onToolCallClick, onDiscoveryClick,
-    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey,
+    links: linksProp, teams, onLinkClick, selectedLinkId, sessions, sessionLinks, onClusterSelect, scopeKey, presentation,
   } = props
+  const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
+  presentationRef.current = presentation ?? NO_PRESENTATION
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const simTimeRef = useRef(0)
@@ -89,7 +94,7 @@ export function AgentCanvas(props: CanvasProps) {
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey,
+    clustersRef, getInsets, scopeKey, presentationRef,
   })
   const { canvasToScreenRef: tourCanvasToScreenRef } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
@@ -131,7 +136,7 @@ export function AgentCanvas(props: CanvasProps) {
     hideInactiveRef, collapseMemoryRef, collapseViewRef, focusedNodeRef, hasFocusRef, hoverTargetRef, tooltipTargetRef,
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
-    reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
+    presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
     updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
   })
 
@@ -228,6 +233,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={tooltipRef}
         aria-hidden="true"
+        data-sensitive=""
         className="pointer-events-none absolute left-0 top-0 z-10 max-w-[min(20rem,calc(100vw-24px))] rounded-md px-2 py-1 font-mono text-xs"
         style={{
           visibility: 'hidden',
