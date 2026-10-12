@@ -175,6 +175,11 @@ describe('observations tool', () => {
     assert.equal(out.sessions[0].provenance, 'imported')
   })
 
+  it('keeps a Pi session (#238)', () => {
+    const out = projectObservations(obs([obsSession({ runtime: 'pi' })]))
+    assert.equal(out?.sessions[0].runtime, 'pi')
+  })
+
   it('cleans agent names again (control characters, paths, length)', () => {
     const out = projectObservations(obs([obsSession({ agents: [{ name: 'a\u0007b', state: 'active' }, { name: '/home/me/x', state: 'complete' }] })]))
     assert.deepEqual(out?.sessions[0].agents, [{ name: 'a b', state: 'active' }, { name: 'agent', state: 'complete' }])

@@ -351,7 +351,8 @@ export class SessionNormalizer {
     this.trailingTimer = setTimeout(() => {
       this.trailingTimer = null
       const event = this.statsEvent(true)
-      if (event) this.onTrailing?.(event)
+      // Called from a timer: a throwing listener must not end the relay process (#206, #238)
+      if (event) { try { this.onTrailing?.(event) } catch { /* the stats event is informative only */ } }
     }, wait)
     this.trailingTimer.unref?.()
   }
