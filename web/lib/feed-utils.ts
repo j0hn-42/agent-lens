@@ -7,6 +7,7 @@ export { STATE_LABELS, getStateLabel as stateLabel } from './state-labels'
 import type { ConversationMessage, AgentLink } from '../hooks/simulation/types'
 import type { TeamSummary } from './agent-types'
 import { formatDroppedMessages } from './chrome-utils'
+import { formatDuration } from './utils'
 import { teamOfAgent, keyOfTeam } from '../hooks/simulation/team-key'
 import { findTeam } from '../hooks/simulation/team-key'
 import { emptyState, emptyMatch, groupHeading, memberNoun, normalizeGroupKind, type GroupKind } from './ui-glossary'
@@ -28,13 +29,10 @@ export function truncateWithMarker(text: string, max: number): { text: string; h
   return { text: text.slice(0, max), hidden, marker: `… (+${hidden} chars)` }
 }
 
-/** Format simulation seconds as m:ss and an ISO-8601 duration for <time dateTime>. */
+/** Format simulation seconds like the control bar (formatDuration) and as an ISO-8601 duration for <time dateTime>. */
 export function formatElapsed(seconds: number): { label: string; iso: string } {
   const s = Number.isFinite(seconds) && seconds > 0 ? seconds : 0
-  const whole = Math.floor(s)
-  const m = Math.floor(whole / 60)
-  const rem = String(whole % 60).padStart(2, '0')
-  return { label: `${m}:${rem}`, iso: `PT${s.toFixed(1)}S` }
+  return { label: formatDuration(s), iso: `PT${s.toFixed(1)}S` }
 }
 
 /**
