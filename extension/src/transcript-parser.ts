@@ -38,6 +38,7 @@ import {
 } from './team-links'
 import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
+import { asyncLaunchOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
 
 const log = createLogger('TranscriptParser')
 
@@ -140,6 +141,11 @@ function isRealModel(model: unknown): model is string {
   return typeof model === 'string' && model.trim() !== '' && !/^<.*>$/.test(model.trim())
 }
 
+/** A <task-notification> Claude Code queued for the model: `{ type: 'queue-operation', operation: 'enqueue', content }` (#239). */
+function isQueuedNotification(parsed: Record<string, unknown>): boolean {
+  return parsed.type === 'queue-operation' && parsed.operation === 'enqueue' && typeof parsed.content === 'string'
+}
+
 /** Claude Code's compaction marker: `{ type: 'system', subtype: 'compact_boundary', compactMetadata }` (#232). */
 function isCompactBoundary(parsed: Record<string, unknown>): boolean {
   return parsed.type === 'system' && parsed.subtype === 'compact_boundary'
@@ -194,6 +200,9 @@ export class TranscriptParser {
 
   /** tool_use ids of Agent calls that spawned a teammate: their (immediate) result must not complete the node */
   private teammateSpawnIds = new Set<string>()
+
+  /** Background subagents launched and not yet finished (#239): only their <task-notification> finishes them. */
+  private backgroundLaunches = new BackgroundLaunches()
 
   /** Per-session input normalizers (bounded, oldest evicted): every emitted event goes through one. */
   private normalizers = new Map<string, SessionNormalizer>()
@@ -331,6 +340,39 @@ export class TranscriptParser {
     }
   }
 
+  /**
+   * Finish the background subagents a <task-notification> proves finished (#239): known terminal status,
+   * launch seen in this session. Each launch is finished once, whatever the number of copies of the notice.
+   */
+  private finishBackgroundSubagents(text: string, sessionId?: string): void {
+    for (const n of parseTaskNotifications(text)) {
+      const launch = this.backgroundLaunches.take(n, sessionId ?? '')
+      if (!launch) continue
+      this.subagentChildNames.delete(launch.toolUseId)
+      this.inlineSubagentState.delete(launch.toolUseId)
+      const durationS = n.durationMs !== undefined
+        ? Math.round(n.durationMs / 100) / 10
+        : launch.startTime !== undefined ? Math.round((Date.now() - launch.startTime) / 100) / 10 : undefined
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'subagent_return',
+        payload: {
+          child: launch.childName,
+          parent: launch.parent,
+          summary: n.report.slice(0, MESSAGE_MAX),
+          toolUseId: launch.toolUseId,
+          isError: n.terminalStatus !== 'completed',
+          ...(durationS !== undefined ? { durationS } : {}),
+        },
+      }, sessionId)
+      this.delegate.emit({
+        time: this.delegate.elapsed(sessionId),
+        type: 'agent_complete',
+        payload: { name: launch.childName },
+      }, sessionId)
+    }
+  }
+
   /** Subagent registry for a session (created on demand). */
   getSubagentRegistry(sessionId?: string): SubagentRegistry {
     const key = sessionId ?? ''
@@ -352,8 +394,10 @@ export class TranscriptParser {
       this.leadAliases.delete(sessionId)
       this.normalizers.get(sessionId)?.dispose()
       this.normalizers.delete(sessionId)
+      this.backgroundLaunches.clearSession(sessionId)
     }
     for (const toolUseId of pendingToolUseIds) {
+      this.backgroundLaunches.delete(toolUseId)
       this.inlineSubagentState.delete(toolUseId)
       this.subagentChildNames.delete(toolUseId)
       this.teammateSpawnIds.delete(toolUseId)
@@ -404,6 +448,12 @@ export class TranscriptParser {
     // Session name written by Claude Code (/rename, auto title): preferred over the first prompt
     if (sessionId && this.applySessionTitle(parsed, sessionId)) return
 
+    // A notification absorbed mid-turn is only logged as a queued operation (#239)
+    if (isQueuedNotification(parsed)) {
+      this.finishBackgroundSubagents(parsed.content as string, sessionId)
+      return
+    }
+
     // Only process actual conversation entries (user/assistant turns)
     if (parsed.type !== 'user' && parsed.type !== 'assistant') {
       return
@@ -448,6 +498,7 @@ export class TranscriptParser {
     if (typeof msg.content === 'string' && msg.content.trim()) {
       if (role === 'user' || role === 'human') {
         const text = msg.content.trim()
+        this.finishBackgroundSubagents(text, sessionId)
         this.handleTeamNotifications(text, agentName, entry.uuid, seenMsgs, sessionId)
         // Skip system-injected context (continuation summaries, IDE context, etc.)
         if (!this.isSystemInjectedContent(text)) {
@@ -544,7 +595,10 @@ export class TranscriptParser {
   ): void {
     const text = safeText(block)
     if (!text) return
-    if (emitRole === 'user') this.handleTeamNotifications(text, agentName, entryUuid, seenMsgs, sessionId)
+    if (emitRole === 'user') {
+      this.finishBackgroundSubagents(text, sessionId)
+      this.handleTeamNotifications(text, agentName, entryUuid, seenMsgs, sessionId)
+    }
     // Skip system/IDE context injected into user turns
     if (emitRole === 'user' && this.isSystemInjectedContent(text)) return
 
@@ -746,8 +800,19 @@ export class TranscriptParser {
       this.inlineSubagentState.delete(block.tool_use_id)
     }
 
+    // A background launch receipt is not a finish (#239): the subagent keeps running until its notification
+    const asyncLaunch = isSubagentTool && !spawnedTeammate ? asyncLaunchOf(toolUseResult) : null
+    if (asyncLaunch) {
+      const childName = this.subagentChildNames.get(block.tool_use_id) || pending.args.slice(0, CHILD_NAME_MAX) || 'subagent'
+      this.backgroundLaunches.register({
+        toolUseId: block.tool_use_id, childName, parent: agentName, sessionId: sessionId ?? '',
+        ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
+        startTime: pending.startTime,
+      })
+    }
+
     // If it was a subagent call completing, emit subagent return
-    if (isSubagentTool && !spawnedTeammate) {
+    if (isSubagentTool && !spawnedTeammate && !asyncLaunch) {
       const childName = this.subagentChildNames.get(block.tool_use_id) || pending?.args?.slice(0, CHILD_NAME_MAX) || 'subagent'
       // Clean up inline subagent tracking state
       this.subagentChildNames.delete(block.tool_use_id)
@@ -862,6 +927,10 @@ export class TranscriptParser {
           const parsedEntry = norm.parseLine(line)
           if (!parsedEntry) { continue }
           this.setSessionTitle(session, parsedEntry)
+          if (isQueuedNotification(parsedEntry)) {
+            this.forgetNotifiedLaunches(parsedEntry.content as string, session.sessionId)
+            continue
+          }
           if (isCompactBoundary(parsedEntry)) {
             // An earlier compaction: what preceded it is no longer in the context; it is not listed (#232)
             resetContextEstimate(session)
@@ -904,12 +973,24 @@ export class TranscriptParser {
               } else if (block.type === 'tool_result') {
                 const resultBlock = coerceToolResultBlock(block)
                 if (!resultBlock) { norm.noteMalformed(); continue }
+                // A background subagent launched in the history stays open until its notification (#239)
+                const launched = session.pendingToolCalls.get(resultBlock.tool_use_id)
+                const asyncLaunch = launched && (launched.name === 'Agent' || launched.name === 'Task')
+                  && !this.teammateSpawnIds.has(resultBlock.tool_use_id) ? asyncLaunchOf(parsedEntry.toolUseResult) : null
+                const childName = this.subagentChildNames.get(resultBlock.tool_use_id)
+                if (asyncLaunch && childName) {
+                  this.backgroundLaunches.register({
+                    toolUseId: resultBlock.tool_use_id, childName, parent: ORCHESTRATOR_NAME, sessionId: session.sessionId,
+                    ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
+                  })
+                }
                 // Clear matched pending tool call
                 session.pendingToolCalls.delete(resultBlock.tool_use_id)
                 // Accumulate tool result tokens
                 session.contextBreakdown.toolResults += estimateTokensFromContent(resultBlock.content)
               } else if (block.type === 'text' && 'text' in block) {
                 const text = safeText(block)
+                if (text && isUser) this.forgetNotifiedLaunches(text, session.sessionId)
                 if (text) {
                   const emitRole = isUser ? 'user' : 'assistant'
                   const hashKey = entry.uuid ? `${emitRole}:${entry.uuid}` : `${emitRole}:${text.slice(0, HASH_PREFIX_MAX)}`
@@ -930,6 +1011,7 @@ export class TranscriptParser {
           } else if (entry.type === 'user' && typeof entry.message.content === 'string') {
             const text = entry.message.content.trim()
             if (text) {
+              this.forgetNotifiedLaunches(text, session.sessionId)
               const hashKey = entry.uuid ? `user:${entry.uuid}` : `user:${text.slice(0, HASH_PREFIX_MAX)}`
               session.seenMessageHashes.add(hashKey)
               session.contextBreakdown.userMessages += estimateTokensFromText(text)
@@ -955,6 +1037,11 @@ export class TranscriptParser {
       session.fileTail = ''
       return []
     }
+  }
+
+  /** Pre-scan: a launch already notified as finished in the history is no longer open (nothing is emitted). */
+  private forgetNotifiedLaunches(text: string, sessionId: string): void {
+    for (const n of parseTaskNotifications(text)) this.backgroundLaunches.take(n, sessionId)
   }
 
   /** Emit message events for pre-existing transcript entries (catch-up on session detection).
