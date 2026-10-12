@@ -660,6 +660,7 @@ export function ConversationPanel({
 function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
   if (type === 'assistant' && runtime === 'codex') return 'CODEX'
   if (type === 'assistant' && runtime === 'copilot') return 'COPILOT'
+  if (type === 'assistant' && runtime === 'pi') return 'PI'
   return (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label
 }
 

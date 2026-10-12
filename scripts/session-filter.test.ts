@@ -82,3 +82,11 @@ test('filter: a Copilot session is selected by the Copilot runtime filter only',
   assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'copilot' }))), ['assist'])
   assert.deepEqual(ids(filterSessionList(withCopilot, f({ runtime: 'claude' }))), ['fix-login', 'plain'])
 })
+
+test('filter: a Pi session is listed as a runtime option and selected by the Pi filter only (#238)', () => {
+  const withPi = [...list, s('assist', { runtime: 'copilot' }), s('pi-run', { runtime: 'pi' })]
+  assert.deepEqual(runtimeOptions(withPi), ['claude', 'codex', 'copilot', 'pi'])
+  assert.deepEqual(ids(filterSessionList(withPi, f({ runtime: 'pi' }))), ['pi-run'])
+  assert.deepEqual(ids(filterSessionList(withPi, f({ runtime: 'claude' }))), ['fix-login', 'plain'])
+  assert.equal(sanitizePref('sessionFilterRuntime', 'pi'), 'pi')
+})

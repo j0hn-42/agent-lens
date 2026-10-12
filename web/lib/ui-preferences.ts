@@ -40,7 +40,7 @@ export interface UiPrefs {
   /** Session list filter (#125): projectId to keep (null = all projects) */
   sessionFilterProject: string | null
   /** Session list filter (#125): runtime to keep (null = both) */
-  sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | null
+  sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | 'pi' | null
   /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
   sessionFilterBranch: string | null
   /** Discovery scope last chosen (#291): re-applied to the relay when it differs; null = never chosen, the relay's own start-up scope stands */
@@ -72,7 +72,7 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   const fallback = DEFAULT_UI_PREFS[key]
   switch (key) {
     case 'sessionFilterRuntime':
-      return (value === 'claude' || value === 'codex' || value === 'copilot' ? value : null) as UiPrefs[K]
+      return (value === 'claude' || value === 'codex' || value === 'copilot' || value === 'pi' ? value : null) as UiPrefs[K]
     case 'relayScope':
       return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
     case 'sessionFilterBranch':
