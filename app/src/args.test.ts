@@ -18,6 +18,12 @@ describe('parseArgs', () => {
     assert.deepEqual(a.imports, ['/tmp/a.jsonl', '/tmp/cloud'])
     assert.equal(a.open, false)
   })
+  it('collects every --webhook URL, in order, and defaults to none (#236)', () => {
+    assert.deepEqual(parseArgs([]).webhooks, [])
+    const a = parseArgs(['--webhook', 'https://a.example.com/h', '--no-open', '--webhook', 'http://127.0.0.1:9/h'])
+    assert.deepEqual(a.webhooks, ['https://a.example.com/h', 'http://127.0.0.1:9/h'])
+    assert.deepEqual(parseArgs(['--webhook']).webhooks, [])
+  })
   it('ignores a trailing --import without a path', () => {
     assert.deepEqual(parseArgs(['--import']).imports, [])
   })

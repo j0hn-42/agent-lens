@@ -7,6 +7,7 @@ export function parseArgs(argv: string[]) {
   let verbose = false
   let allWorkspaces = false
   const imports: string[] = []
+  const webhooks: string[] = []
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -19,6 +20,9 @@ export function parseArgs(argv: string[]) {
       open = false
     } else if (arg === '--import' && argv[i + 1]) {
       imports.push(argv[i + 1])
+      i++
+    } else if (arg === '--webhook' && argv[i + 1]) {
+      webhooks.push(argv[i + 1])
       i++
     } else if (arg === '--all-workspaces') {
       allWorkspaces = true
@@ -40,6 +44,10 @@ Options:
                        <session id>.jsonl file or a folder of them. Read once,
                        listed as imported, never live. Repeatable
                        (env: AGENT_LENS_IMPORT, paths separated by '${process.platform === 'win32' ? ';' : ':'}')
+  --webhook <url>      Notify this URL when a live agent completes, asks for a permission
+                       or fails (https, or http to loopback). Repeatable, 4 at most
+                       (env: AGENT_LENS_WEBHOOKS, URLs separated by commas; prefer the
+                       variable, a flag is visible in the process list). See docs/headless.md
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)
@@ -47,5 +55,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports }
+  return { port, open, verbose, allWorkspaces, imports, webhooks }
 }

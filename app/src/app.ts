@@ -34,5 +34,6 @@ if (isCliCommand(command)) {
     verbose: args.verbose,
     allWorkspaces: args.allWorkspaces,
     imports: args.imports,
+    webhooks: args.webhooks,
   })
 }
