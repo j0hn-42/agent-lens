@@ -44,7 +44,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
   const warning = toolEndWarning(tool)
 
   return (
-    <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId}>
+    <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId} sensitive>
       <PanelHeader onClose={onClose} titleId={titleId}>
         <span className="text-[11px]" style={{ color: stateColor }} aria-hidden="true">
           {stateIcon}

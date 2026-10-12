@@ -15,6 +15,8 @@ type InitCallback = () => void
 type EventCallback = (event: AgentEvent) => void
 type StatusCallback = (status: ConnectionStatus, source: string) => void
 type ConfigCallback = (config: Partial<{ mode: string; autoPlay: boolean; showMockData: boolean; disable1MContext: boolean; hooksConfigured: boolean }>) => void
+/** The relay changed what it scans (#291): `allWorkspaces` is its new scope, to be confirmed with GET /status */
+type RelayScopeCallback = (allWorkspaces: boolean) => void
 type SessionCallback = (type: 'list' | 'started' | 'ended' | 'updated' | 'reset', data: SessionInfo[] | SessionInfo | string | { sessionId: string; label: string }) => void
 
 class VSCodeBridge {
@@ -27,6 +29,7 @@ class VSCodeBridge {
   private statusListeners: StatusCallback[] = []
   private configListeners: ConfigCallback[] = []
   private sessionListeners: SessionCallback[] = []
+  private relayScopeListeners: RelayScopeCallback[] = []
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -120,6 +123,11 @@ class VSCodeBridge {
         }
         break
 
+      case 'relay-scope':
+        if (typeof data.allWorkspaces !== 'boolean') break
+        for (const cb of this.relayScopeListeners) cb(data.allWorkspaces)
+        break
+
       case 'session-updated':
         if (typeof data.sessionId !== 'string' || typeof data.label !== 'string') break
         for (const cb of this.sessionListeners) {
@@ -168,6 +176,10 @@ class VSCodeBridge {
     return this.subscribe(this.sessionListeners, callback)
   }
 
+  onRelayScope(callback: RelayScopeCallback): () => void {
+    return this.subscribe(this.relayScopeListeners, callback)
+  }
+
   // ─── Send commands to extension ──────────────────────────────────────────
 
   openFile(filePath: string, line?: number): void {
@@ -205,6 +217,7 @@ class VSCodeBridge {
     this.statusListeners = []
     this.configListeners = []
     this.sessionListeners = []
+    this.relayScopeListeners = []
   }
 }
 

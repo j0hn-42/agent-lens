@@ -8,7 +8,9 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
 - **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md).
+- **Session scope** (top bar, standalone app and dev relay): this workspace, one project, or all workspaces. The sentence next to the selector is what the relay reports it scans ("Scanning this workspace only (name)", "Scanning all workspaces"), not what you asked: the selector only moves once the relay confirmed. On a single workspace an empty Sessions list says that the scope is limited and how to widen it. A discovery ceiling that was hit (more than 200 project folders, more than 500 transcripts in a folder, a transcript too large, the watch limit) is written next to the selector as "at least N": it is a partial view, not an absence. Choosing a project narrows the Sessions list and the All view to it and leaves the relay scope as it is. Changing the scope reloads the view (a notice says so). See [relay-sources.md](relay-sources.md).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
+- **Session export**: the ⤓ button of a session row saves it as a standalone HTML replay. The file states its own limits: events dropped before the export ("Incomplete history"), the number of secrets redacted (best effort), stream times, and agent states taken only from lifecycle events (otherwise "unknown"). See [session-export.md](session-export.md).
 - **File conflicts**: two or more agents (of one session or of several) that modified the same file. A red dash-dot line with a diamond in its middle joins two such agents on the canvas, in every view where both are drawn (one line per pair, whatever the number of files). The Files panel lists the conflicts first (file and every agent with its number of edits) and tags the file row with the word "conflict"; with the editor available (VS Code), Enter on a conflict opens the file. The graph outline (screen readers) has a "File conflicts" list with the same sentences, an agent hidden from the canvas being named "not on screen". Only proof counts:
   - an edit is an `Edit`, `Write`, `MultiEdit` or `NotebookEdit` call whose success was observed. A failed or cancelled edit, or one whose end was never seen, proves no write and makes no conflict; a read never does;
   - the path must be absolute (normalised: separators, `.` and `..`, Windows drive letter). A relative path names a file only in a working directory that is not known, so two relative paths are never compared;
@@ -107,6 +109,25 @@ The **Files** panel opens with a "Repeated reads and calls" section, computed fr
 
 Only Read, Glob and Bash/`exec_command` are compared, because their input summary keeps every argument. Grep and the other tools are never compared: their summary drops options, so two equal summaries would not prove two equal calls. Edits made through Bash (for example `sed -i`) or outside the agent are not seen, so a re-read after one can be listed. Each row is a button that opens the file only when the path is absolute and the host can open files (VS Code); otherwise it is plain text.
 
+## Delegation report
+
+When the selected agent has sub-agents, its inspector ends with a **Delegation report** (#233): one entry per direct sub-agent (a grandchild is in the report of its own parent; Agent Team teammates are not delegations and are not listed), in the order they started. The sub-agent name is a button: Enter or a click opens that sub-agent's own inspector. The list of files read is a disclosure (Enter or Space opens it).
+
+| Column | You see | It means |
+| --- | --- | --- |
+| **Tokens** | `12k`, **at least X**, **estimated**, **not reported** | The sub-agent's own token counter, qualified as everywhere else. |
+| **Files read** | **N files** | Distinct files whose `Read` by this sub-agent was observed to succeed. The disclosure lists them (20 at most, then "+N more"). |
+| | **N not confirmed** | Files whose `Read` started but was never seen to succeed (failed, cancelled, still running or end not observed). They are not counted as read. |
+| | **none observed** | No `Read` by this sub-agent was received. It is not shown as "0 files": reads through other tools (Bash `cat`, Grep) are not seen. |
+| **Duration** | **m:ss (reported)** | The duration the runtime reported with the return, for a return received live. |
+| | **not reported** | A return was received without a duration, or it came from a history replay or an imported transcript: there the duration was measured when the line was parsed, not while the sub-agent ran, so it is dropped. |
+| | **no return observed** | No return of this sub-agent was received; no duration is computed from the clock. |
+| **Result** | the start of the report | The first 280 characters of what the sub-agent returned to its parent, with "…" and "(full report in Conversation)" when cut. |
+| | **Error: ...** | The return was flagged as an error. |
+| | **No return observed yet** / **Finished, no return observed** | No return was received, whether or not the sub-agent is known to have finished. |
+
+A sub-agent whose link to its parent is not proven by the events (dashed on the canvas) reads **parent link not verified**. When the hooks see a sub-agent stop without its report, the result is the stop notice they relay (for example "general-purpose complete"), not a report.
+
 ## Context window (the "/ 1M" next to the gauge)
 
 The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
@@ -121,6 +142,18 @@ A window cannot be smaller than what was used. When a reading is above the assum
 ## Project folders
 
 Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
+
+## Presentation mode
+
+For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.
+
+- **Subtitles of transitions**: a caption at the bottom of the canvas for each state change of an agent, for example "Main agent: Thinking -> Calling tool Read". Only proof counts: a subtitle is written when this page saw the change happen live. Nothing is said about the state that was already there when the mode started, and nothing about replayed history, imported transcripts or an agent never heard from live. A caption stays 7 seconds; when several changes arrive together, the most recent one is shown. It is for the audience: it is not a live region, so a screen reader is not interrupted.
+- **Mask sensitive data** (on by default): free text is hidden, never replaced by a plausible value.
+  - On the canvas, tool-call arguments and results, message bubbles, discovery cards, link messages, particle labels, agent names, session and team names (halo labels, the cost panel) are drawn as bullets of the same length. Counts, costs, states, tool names and context gauges stay, because they come from the events and carry no prompt or path.
+  - In the panels, Conversation, Files, Context, Timeline, the link panel, the tool and discovery popups, the Sessions list, the selected-session label in the top bar, the agent name in its card and the canvas hover tooltip are blurred and cannot be selected.
+  - Subtitles name an agent by its role ("Main agent", "Sub-agent", "Teammate") instead of its name or prompt.
+  - Not covered: the text read by screen readers (the graph outline, announcements), the browser tab title, notifications, and anything you copy from a panel before starting the mode. Masking is a screen filter for the audience, not a privacy boundary; check a scene before you share it.
+- **Follow the active agent**: the camera centres on the agent that worked last (thinking, calling a tool or waiting for a permission, seen live), keeping your zoom. With no such agent it stays where it is. Panning or zooming yourself pauses the follow until another agent takes over; the automatic fit is off while the option is on.
 
 ## Notifications
 
@@ -164,7 +197,7 @@ Limits, on purpose: only what the events prove is counted, so a loop can be miss
   - the per-layer motion toggles (see below);
   - **Pin cards**: never auto-hides bubbles, tool cards and discoveries;
   - **Hide unanswered calls after**: how long a running tool call with no observed end is waited for before it is treated as expired (1 to 30 min, default 5 min). Expired is neither a success nor a failure.
-- These settings were called *Fit*, *Pause animations*, *Keep cards visible* and *Expire unanswered calls after* before. Their behaviour is unchanged.
+- These settings were called *Fit*, *Pause animations*, *Keep cards visible* and *Expire unanswered calls after* before. Their behaviour is unchanged. Every label, accessible name and tooltip of these controls comes from the message catalog, in English and in French (*Tout afficher*, *Figer les animations*, *Garder les cartes affichées*, *Masquer les appels sans réponse après*, *Affichage*, *Zoom avant*, *Zoom arrière*), and the block carries `lang`.
 
 ## Motion by layer
 
@@ -179,6 +212,19 @@ Besides the global **Freeze motion** setting (and your system's reduced-motion s
 
 With all four pressed the canvas behaves as under reduced motion. When your system asks for reduced motion, or Freeze motion is on, every toggle is pressed and locked. The choice is kept in your browser. The labels of these controls come from a message catalog (`web/lib/messages.ts`) with French first; the language follows the stored choice, then the browser language, then English.
 
+## Language
+
+Settings > Appearance > **Language** (a native select, so it works with the keyboard and screen readers) offers *Automatic (browser language)*, *Français* and *English*. The choice applies at once, is kept in this browser only (local storage, never sent to the relay) and "Automatic" forgets it. Each language is written in its own language, and `lang` is set on the translated blocks so a screen reader pronounces them correctly.
+
+The interface is translated step by step, so for now the language covers only:
+
+- the canvas controls (the Zoom group, the View button and its panel: Freeze motion, the per-layer toggles, Pin cards, Hide unanswered calls after);
+- the Settings dialog (appearance, sound, sessions, notifications, keyboard).
+
+Everything else (top bar, panels, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
+
+To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. To add a language, extend `LOCALES` and fill the table.
+
 ## The `observations` action
 
 Claude can read what Agent Lens observes through the typed action `observations` (`GET /observations` on the loopback relay). The output is whitelisted field by field and reports its own limits (`truncated`, `agentsTruncated`, `omittedSessions`). See [state-share.md](state-share.md).
@@ -188,3 +234,4 @@ Claude can read what Agent Lens observes through the typed action `observations`
 - [node-inspector.md](node-inspector.md): model, cost attribution, issue and PR links.
 - [relay-sources.md](relay-sources.md): how hooks and JSONL transcripts are reconciled, and the local server.
 - [state-share.md](state-share.md): validated snapshots and observations.
+- [session-export.md](session-export.md): the standalone HTML replay of a session.

@@ -43,6 +43,8 @@ export interface UiPrefs {
   sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | null
   /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
   sessionFilterBranch: string | null
+  /** Discovery scope last chosen (#291): re-applied to the relay when it differs; null = never chosen, the relay's own start-up scope stands */
+  relayScope: 'workspace' | 'all' | null
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -59,6 +61,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   sessionFilterProject: null,
   sessionFilterRuntime: null,
   sessionFilterBranch: null,
+  relayScope: null,
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -70,6 +73,8 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   switch (key) {
     case 'sessionFilterRuntime':
       return (value === 'claude' || value === 'codex' || value === 'copilot' ? value : null) as UiPrefs[K]
+    case 'relayScope':
+      return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
     case 'sessionFilterBranch':
     case 'sessionFilterProject':
     case 'lastSelectedSessionId': {

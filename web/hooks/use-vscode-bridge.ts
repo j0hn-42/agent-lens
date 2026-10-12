@@ -6,19 +6,23 @@ import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAlias
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, SHOW_FINISHED_STORAGE_KEY,
+  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject, SHOW_FINISHED_STORAGE_KEY,
 } from '@/hooks/simulation/session-visibility'
 import { vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice } from '@/lib/vscode-bridge'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
+import { applyRelayScope, fetchRelayScopeState, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
+  bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
   relaySessionId?: string | null
+  /** Project the 'All' view is narrowed to (#291); null = every project. A project nobody belongs to any more is ignored. */
+  projectScope?: string | null
 }
 
 interface BridgeHookResult {
@@ -48,6 +52,10 @@ interface BridgeHookResult {
   flushSessionEvents: (sessionId: string, fromIndex?: number) => void
   /** Get the current event count for a session (for save/restore) */
   getSessionEventCount: (sessionId: string) => number
+  /** Buffered events of a real session for an export (#237), with how many were dropped before them */
+  getSessionEvents: (sessionId: string) => { events: SimulationEvent[]; droppedBefore: number }
+  /** Events of a real session still in memory (0 for 'All', a team or an unknown session) */
+  getBufferedEventCount: (sessionId: string) => number
   /** Ref to the currently selected session ID — updated synchronously, not via React state */
   selectedSessionIdRef: React.RefObject<string | null>
   /** True while the 'All' tab (union of every session) is selected */
@@ -83,6 +91,14 @@ interface BridgeHookResult {
   relayPort: string
   /** Origin of the relay HTTP API ('' = same origin) when a relay feeds this view, else null (extension / demo) */
   relayOrigin: string | null
+  /** What the relay says it scans (GET /status); null = no relay, or its answer cannot be proven (#291) */
+  relayScope: RelayScopeState | null
+  /** A change of scope is being applied */
+  relayScopePending: boolean
+  /** Why the last change of scope failed (the shown scope is still the scanned one) */
+  relayScopeError: string | null
+  /** Ask the relay to change its scope; the view reloads once it confirmed. Resolves false when it did not. */
+  setRelayScope: (scope: RelayScope) => Promise<boolean>
   /** True after the relay SSE connection failed and until it reconnects */
   relayUnreachable: boolean
   /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
@@ -191,6 +207,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const lastEventAtRef = useRef<Map<string, number>>(new Map())
   /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
   const visibleRef = useRef<ReadonlySet<string> | null>(null)
+  const projectScopeRef = useRef<string | null>(options?.projectScope ?? null)
   const [visibility, setVisibility] = useState<{ key: string; ids: ReadonlySet<string> | null; finished: number }>({ key: '*', ids: null, finished: 0 })
   /** Whether an event of `sessionId` belongs to the selected view (session, All, or team pseudo selection) */
   const matchesSelection = useCallback((selected: string | null, sessionId: string | undefined): boolean =>
@@ -223,6 +240,9 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     })
     finished = finishedSessionIds(sessionsRef.current, active).length
     if (!showFinishedRef.current) next = active
+    // A project scope narrows the view to that project's sessions (#291), whatever their activity
+    const restricted = restrictToProject(next, sessionsRef.current, projectScopeRef.current)
+    next = restricted === null ? null : new Set(restricted)
     const key = visibilityKey(next)
     const prevKey = visibilityKey(visibleRef.current)
     visibleRef.current = next
@@ -253,6 +273,13 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   }, [recomputeVisible])
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
   const [relayUnreachable, setRelayUnreachable] = useState(false)
+  const [relayScope, setRelayScopeState] = useState<RelayScopeState | null>(null)
+  const [relayScopePending, setRelayScopePending] = useState(false)
+  const [relayScopeError, setRelayScopeError] = useState<string | null>(null)
+  /** Bumped to open a new relay connection (and replay) after the scope changed */
+  const [connectionGeneration, setConnectionGeneration] = useState(0)
+  /** Scope the current view was built for: a change reloads the view once, whoever announced it first */
+  const syncedScopeRef = useRef<RelayScope | null>(null)
   const [notice, setNotice] = useState<BridgeNotice | null>(null)
   const noticeIdRef = useRef(0)
   const relayPort = process.env.NEXT_PUBLIC_RELAY_PORT || ''
@@ -270,6 +297,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
     sessionId: options?.relaySessionId ?? null,
+    generation: connectionGeneration,
     onMessage: data => vscodeBridge?.dispatch(data),
     onParseError: () => {
       // Surface malformed relay payloads without spamming: at most one notice per interval
@@ -314,6 +342,62 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .catch(() => {})
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayPort])
+
+  // Scope of the discovery (#291): what the relay REPORTS it scans, read from GET /status; never what was asked
+  const relayOrigin = relayEnabled ? (relayPort ? `http://127.0.0.1:${relayPort}` : '') : null
+  const relayOriginRef = useRef(relayOrigin)
+  relayOriginRef.current = relayOrigin
+  const refreshRelayScope = useCallback(async (signal?: AbortSignal) => {
+    const origin = relayOriginRef.current
+    if (origin === null) return
+    const state = await fetchRelayScopeState(origin, signal)
+    if (signal?.aborted) return
+    setRelayScopeState(state)
+    if (state && syncedScopeRef.current === null) syncedScopeRef.current = state.scope
+  }, [])
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') return
+    const ctl = new AbortController()
+    void refreshRelayScope(ctl.signal)
+    return () => ctl.abort()
+  }, [relayEnabled, source.status, refreshRelayScope])
+  useEffect(() => { if (!relayEnabled) { setRelayScopeState(null); syncedScopeRef.current = null } }, [relayEnabled])
+
+  /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
+  const syncToScope = useCallback((scope: RelayScope) => {
+    if (syncedScopeRef.current === scope) { void refreshRelayScope(); return }
+    syncedScopeRef.current = scope
+    vscodeBridge?.dispatch({ type: 'reset', reason: 'scope-changed' })
+    setConnectionGeneration(g => g + 1)
+    void refreshRelayScope()
+  }, [refreshRelayScope])
+  useEffect(() => {
+    if (!relayEnabled || !vscodeBridge) return
+    return vscodeBridge.onRelayScope(all => syncToScope(all ? 'all' : 'workspace'))
+  }, [relayEnabled, syncToScope])
+
+  const setRelayScope = useCallback(async (scope: RelayScope): Promise<boolean> => {
+    const origin = relayOriginRef.current
+    if (origin === null) return false
+    setRelayScopePending(true)
+    setRelayScopeError(null)
+    const result = await applyRelayScope(origin, scope)
+    setRelayScopePending(false)
+    if (!result.ok) {
+      setRelayScopeError(result.reason)
+      void refreshRelayScope() // whatever happened, show what the relay really scans
+      return false
+    }
+    syncToScope(scope)
+    return true
+  }, [refreshRelayScope, syncToScope])
+
+  // The project scope is an input of the 'All' view: re-evaluate when it changes
+  const projectScope = options?.projectScope ?? null
+  useEffect(() => {
+    projectScopeRef.current = projectScope
+    recomputeVisible()
+  }, [projectScope, recomputeVisible])
 
   // Without a relay to wait for: unless the VS Code init message arrives, we are offline.
   useEffect(() => {
@@ -425,7 +509,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (type === 'reset') {
         // Panel was reopened — clear all stale state (and tell the user, non-blocking)
         // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
-        if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
+        if (data === 'scope-changed') pushNotice('reset', 'Scope changed: the session view was reloaded')
+        else if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
         updateSessions(() => [])
         setSelectedSessionId(null)
         selectedSessionIdRef.current = null
@@ -595,6 +680,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return outgoing && outgoing.id === sessionId ? outgoing.cursor : currentEventCount(sessionId)
   }, [currentEventCount])
 
+  const getSessionEvents = useCallback((sessionId: string) => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return { events: [], droppedBefore: 0 }
+    return sessionExportSlice(sessionBuffersRef.current, sessionId)
+  }, [])
+  const getBufferedEventCount = useCallback((sessionId: string): number => {
+    if (sessionId === ALL_SESSIONS_ID || parseTeamSelection(sessionId) !== null) return 0
+    return bufferedEventCount(sessionBuffersRef.current, sessionId)
+  }, [])
+
   const dismissedSessionsRef = useRef<Map<string, SessionInfo>>(new Map())
 
   const removeSession = useCallback((sessionId: string) => {
@@ -643,6 +737,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     selectSession,
     flushSessionEvents,
     getSessionEventCount,
+    getSessionEvents,
+    getBufferedEventCount,
     isAllSelected: selectedSessionId === ALL_SESSIONS_ID,
     teams: teamView.teams,
     teamWorking: teamView.working,
@@ -659,7 +755,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     restoreSession,
     loadDemo,
     relayPort,
-    relayOrigin: relayEnabled ? (relayPort ? `http://127.0.0.1:${relayPort}` : '') : null,
+    relayOrigin,
+    relayScope,
+    relayScopePending,
+    relayScopeError,
+    setRelayScope,
     relayUnreachable,
     connectionDetail: relayEnabled ? source.detail : null,
     reconnectAttempt: relayEnabled ? source.attempt : 0,

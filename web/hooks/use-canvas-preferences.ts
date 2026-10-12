@@ -6,7 +6,7 @@ import {
   DEFAULT_CALM_LAYERS, MOTION_LAYERS_STORAGE_KEY, allLayersCalm, parseCalmLayers, serializeCalmLayers, toggleCalmLayer,
   type CalmLayers, type MotionLayer,
 } from '@/lib/motion-layers'
-import { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, resolveLocale, type Locale } from '@/lib/messages'
+import { useLocale } from '@/lib/locale'
 
 function readStoredFlag(key: string): boolean {
   try { return window.localStorage.getItem(key) === '1' } catch { return false }
@@ -26,7 +26,7 @@ export function useCanvasPreferences() {
   const [neverHide, setNeverHide] = useState(false)
   const [toolExpiryS, setToolExpiryState] = useState<number>(TOOL_EXPIRY_CHOICES_S[2])
   const [calmLayers, setCalmLayers] = useState<CalmLayers>(DEFAULT_CALM_LAYERS)
-  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE)
+  const { locale } = useLocale()
   const reducedMotionRef = useRef(false)
   // All four layers calm is the same as reduced motion: the clock freezes and the gate slows down
   reducedMotionRef.current = osReducedMotion || animationsPaused || allLayersCalm(calmLayers)
@@ -45,9 +45,6 @@ export function useCanvasPreferences() {
     setNeverHide(readStoredFlag(NEVER_HIDE_KEY))
     setToolExpiryState(loadToolExpiryS())
     try { setCalmLayers(parseCalmLayers(window.localStorage.getItem(MOTION_LAYERS_STORAGE_KEY))) } catch { /* storage unavailable */ }
-    let storedLocale: string | null = null
-    try { storedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY) } catch { /* storage unavailable */ }
-    setLocale(resolveLocale(storedLocale, window.navigator.languages ?? [window.navigator.language]))
     if (typeof window.matchMedia !== 'function') return
     const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
     setOsReducedMotion(mql.matches)

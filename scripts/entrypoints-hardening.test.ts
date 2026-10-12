@@ -145,6 +145,32 @@ for (const entry of ENTRIES) {
       }
     })
 
+    it('POST /scope is wired behind the guards in the real server (#291): JSON only, same site only, strict body', async () => {
+      const post = (headers: http.OutgoingHttpHeaders, body: string) => new Promise<Reply>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port: a.port, method: 'POST', path: '/scope', agent: false, headers: { 'User-Agent': `scope-${Math.random()}`, ...headers } }, res => {
+          let out = ''
+          res.setEncoding('utf8')
+          res.on('data', c => { out += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }))
+        })
+        req.on('error', reject)
+        req.end(body)
+      })
+      const json = { 'Content-Type': 'application/json' }
+      const ok = await post(json, '{"scope":"workspace"}')
+      assert.equal(ok.status, 200, ok.body)
+      assertStrictHeaders(ok.headers, CSP_API, 'POST /scope')
+      assert.deepEqual(JSON.parse(ok.body), { scope: 'workspace', allWorkspaces: false })
+      assert.equal((await post(json, '{"scope":"nowhere"}')).status, 400)
+      assert.equal((await post({}, '{"scope":"all"}')).status, 415)
+      assert.equal((await post({ ...json, Origin: 'https://evil.example' }, '{"scope":"all"}')).status, 403)
+      assert.equal((await post({ ...json, 'Sec-Fetch-Site': 'cross-site' }, '{"scope":"all"}')).status, 403)
+      assert.equal((await post({ ...json, Host: 'evil.example' }, '{"scope":"all"}')).status, 403)
+      assert.equal(JSON.parse((await request(a.port, 'GET', '/status')).body).allWorkspaces, false, 'refused requests changed nothing')
+      assert.equal((await request(a.port, 'POST', '/status')).status, 405)
+      assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
+    })
+
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')

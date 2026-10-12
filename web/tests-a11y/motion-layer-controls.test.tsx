@@ -40,11 +40,10 @@ test('when the system reduces motion every toggle is pressed, locked, and says w
   }
 })
 
-test('the lock reason names the button by its current label, in both locales', () => {
-  for (const l of ['fr', 'en'] as const) {
-    assert.match(MESSAGES[l]['motion.lockedByPause'], /Freeze motion/)
-    assert.doesNotMatch(MESSAGES[l]['motion.lockedByPause'], /Pause animations/)
-  }
+test('the lock reason names the button by its current label, in each locale', () => {
+  assert.match(MESSAGES.en['motion.lockedByPause'], new RegExp(MESSAGES.en['controls.pause']))
+  assert.match(MESSAGES.fr['motion.lockedByPause'], new RegExp(MESSAGES.fr['controls.pause']))
+  assert.doesNotMatch(MESSAGES.en['motion.lockedByPause'], /Pause animations/)
 })
 
 test('when Freeze motion is on every toggle is pressed and locked, with its own reason', () => {

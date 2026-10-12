@@ -7,6 +7,7 @@ import { toolCardExpanded } from '@/lib/tool-lifecycle'
 import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
 import { boxInView } from './view-cull'
+import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 /** Glow and error halo around a card (world units) */
@@ -39,7 +40,7 @@ export function drawToolCalls(
     const mcp = tool.mcp
     const displayName = mcp ? mcp.tool : tool.toolName
     const accent = mcp ? SCENE.mcp : SCENE.tool
-    const toolLabel = `${displayName}: ${tool.args}`
+    const toolLabel = `${displayName}: ${opts.maskText ? maskText(tool.args) : tool.args}`
     const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12)
     const textWidth = Math.min(measureTextCached(ctx, label) + 12, TOOL_MAX_CARD_W)
     const cardW = Math.max(60, textWidth)
@@ -148,7 +149,7 @@ export function drawToolCalls(
       ctx.fillText(truncateText(ctx, `${displayName}: FAILED`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
       ctx.fillStyle = SCENE.error + 'aa'
-      ctx.fillText(truncateText(ctx, tool.errorMessage || tool.result || '', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, opts.maskText ? maskText(tool.errorMessage || tool.result || '') : (tool.errorMessage || tool.result || ''), cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else if (isUnresolved) {
       ctx.fillStyle = SCENE.textMuted
       const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'

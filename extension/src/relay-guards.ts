@@ -180,6 +180,12 @@ export function isTruthyFlag(value: string | undefined): boolean {
   return value !== undefined && /^(1|true|yes|on)$/i.test(value.trim())
 }
 
+/** True when the request path (query ignored) is exactly /scope: the run-time scope of the relay (#291). */
+export function isScopePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/scope' } catch { return false }
+}
+
 export interface DiscoveredSession { sessionId: string; filePath: string; dirPath: string; mtimeMs: number; size: number }
 
 export interface DiscoveryOptions {
@@ -189,6 +195,9 @@ export interface DiscoveryOptions {
   maxFileBytes?: number
   /** Fichiers écartés (au-delà du plafond, trop gros, non réguliers) : pas de lstat avant COLD_RESCAN_CYCLES cycles */
   cold?: ColdScan
+  /** Appelé pour chaque transcript écarté par un plafond (taille, nombre par dossier), pour l'afficher et non le taire (#291).
+   *  Pas rappelé pour un fichier déjà mis au froid : l'appelant garde sa propre liste. */
+  onSkipped?: (reason: 'sizeLimit' | 'fileLimit', f: { sessionId: string; filePath: string }) => void
 }
 
 /** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
@@ -197,22 +206,28 @@ export function createColdScan(): ColdScan { return { cycle: 0, until: new Map()
 
 /**
  * Safe lookup of Claude Code project directories under `root`.
- * Only real directories (symlinks are skipped) are returned, capped at `maxDirs`.
- * With `encodedWorkspace` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
+ * Only real directories (symlinks are skipped) are returned, at most `maxDirs`, the first ones BY NAME so the
+ * cut does not depend on the order the file system lists them in. `report.truncated` says whether another
+ * eligible directory was left out (#291): the cap is shown, not silent.
+ * With `match` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
  */
 export function listProjectDirs(
   root: string,
   match: ((name: string) => boolean) | null,
   maxDirs = RELAY_MAX_PROJECT_DIRS,
+  report?: { truncated: boolean },
 ): string[] {
   const out: string[] = []
+  if (report) { report.truncated = false }
   let entries: fs.Dirent[]
   try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    if (out.length >= maxDirs) { break }
-    if (!e.isDirectory() || e.isSymbolicLink()) { continue }
-    if (match && !match(e.name)) { continue }
-    out.push(path.join(root, e.name))
+  const names = entries
+    .filter(e => e.isDirectory() && !e.isSymbolicLink() && (!match || match(e.name)))
+    .map(e => e.name)
+    .sort()
+  for (const name of names) {
+    if (out.length >= maxDirs) { if (report) { report.truncated = true } break }
+    out.push(path.join(root, name))
   }
   return out
 }
@@ -240,6 +255,7 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
       if (cold && (cold.until.get(filePath) ?? 0) > cold.cycle) { continue }
       try {
         const st = fs.lstatSync(filePath)
+        if (st.isFile() && st.size > maxBytes) opts.onSkipped?.('sizeLimit', { sessionId, filePath })
         if (!st.isFile() || st.size > maxBytes) { cold?.until.set(filePath, cold.cycle + COLD_RESCAN_CYCLES); continue }
         found.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
       } catch { /* vanished */ }
@@ -247,7 +263,10 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
     found.sort((a, b) => b.mtimeMs - a.mtimeMs)
     for (const f of found.slice(0, maxFiles)) { out.push(f) }
     // Au-delà du plafond : écartés et mis au froid, pas de lstat à chaque cycle
-    if (cold) { for (const f of found.slice(maxFiles)) { cold.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES) } }
+    for (const f of found.slice(maxFiles)) {
+      opts.onSkipped?.('fileLimit', f)
+      cold?.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES)
+    }
   }
   return out
 }

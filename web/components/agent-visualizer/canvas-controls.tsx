@@ -5,7 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { CAMERA, TOOL_EXPIRY_CHOICES_S } from '@/lib/canvas-constants'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
-import type { Locale } from '@/lib/messages'
+import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
@@ -83,6 +83,7 @@ export function CanvasControls({
   onToggleAnimationsPaused, onToggleNeverHide, onChangeToolExpiry,
 }: CanvasControlsProps) {
   const { controlBarH } = useDockSnapshot().env
+  const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<HTMLButtonElement>(null)
@@ -119,17 +120,18 @@ export function CanvasControls({
 
   return (
     <div
+      lang={locale}
       className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
       <GraphLegend teams={teams} />
       <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         <div className="flex items-center gap-2">
-          <div role="group" aria-label="Zoom" className="flex gap-1">
+          <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
             <button
               type="button"
-              aria-label="Zoom in"
-              title="Zoom in (+)"
+              aria-label={t('controls.zoomIn')}
+              title={`${t('controls.zoomIn')} (+)`}
               onClick={() => zoomBy(CAMERA.keyboardZoomStep)}
               className={CONTROL_BUTTON_CLASS}
               style={BUTTON_STYLE}
@@ -138,8 +140,8 @@ export function CanvasControls({
             </button>
             <button
               type="button"
-              aria-label="Zoom out"
-              title="Zoom out (-)"
+              aria-label={t('controls.zoomOut')}
+              title={`${t('controls.zoomOut')} (-)`}
               onClick={() => zoomBy(1 / CAMERA.keyboardZoomStep)}
               className={CONTROL_BUTTON_CLASS}
               style={BUTTON_STYLE}
@@ -148,8 +150,8 @@ export function CanvasControls({
             </button>
             <button
               type="button"
-              aria-label="Fit to view"
-              title="Fit to view (0)"
+              aria-label={t('controls.fit')}
+              title={`${t('controls.fit')} (0)`}
               onClick={doZoomToFit}
               className={CONTROL_BUTTON_CLASS}
               style={BUTTON_STYLE}
@@ -167,32 +169,32 @@ export function CanvasControls({
             className={CONTROL_BUTTON_CLASS}
             style={{ ...BUTTON_STYLE, background: open ? COLORS.toggleActive : COLORS.panelBg }}
           >
-            View
+            {t('controls.view')}
           </button>
         </div>
         {open && (
           <div
             id={panelId}
             role="dialog"
-            aria-label="View settings"
+            aria-label={t('controls.viewSettings')}
             className="flex max-w-full flex-col items-stretch gap-1 rounded-md p-2"
             style={{ ...BUTTON_STYLE }}
           >
             <PanelToggle
               pressed={animationsPaused || pausedBySystem}
               disabled={pausedBySystem}
-              title={pausedBySystem ? 'Animations are reduced by your system settings' : undefined}
+              title={pausedBySystem ? t('motion.lockedBySystem') : undefined}
               onClick={onToggleAnimationsPaused}
             >
-              Freeze motion
+              {t('controls.pause')}
             </PanelToggle>
             <MotionLayerControls locale={locale} calm={calmLayers} lock={pausedBySystem ? 'system' : animationsPaused ? 'pause' : null} onToggle={onToggleCalmLayer} />
-            <PanelToggle pressed={neverHide} onClick={onToggleNeverHide}>Pin cards</PanelToggle>
+            <PanelToggle pressed={neverHide} onClick={onToggleNeverHide}>{t('controls.keepCards')}</PanelToggle>
             <label className={`${CONTROL_BUTTON_CLASS} flex-wrap justify-between gap-1`} style={BUTTON_STYLE}>
-              Hide unanswered calls after
+              {t('controls.expireAfter')}
               <select value={toolExpiryS} onChange={onChangeToolExpiry} className="bg-transparent font-mono text-[11px]" style={{ color: COLORS.textPrimary }}>
                 {TOOL_EXPIRY_CHOICES_S.map(n => (
-                  <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? `${n / 60} min` : `${n} s`}</option>
+                  <option key={n} value={n} style={{ color: COLORS.textPrimary, background: 'var(--lens-surface)' }}>{n >= 60 ? t('controls.minutes', { n: n / 60 }) : t('controls.seconds', { n })}</option>
                 ))}
               </select>
             </label>

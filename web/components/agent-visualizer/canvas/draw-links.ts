@@ -1,6 +1,7 @@
 import type { Agent } from '@/lib/agent-types'
 import { SCENE } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
+import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import {
   type ResolvedLink, type LinkState, linkCurve, curvePoint, curveTangent,
@@ -198,7 +199,7 @@ export function drawEdgeBubbles(
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     for (let i = 0; i < b.lines.length; i++) {
-      ctx.fillText(b.lines[i], rect.x + EDGE_BUBBLE.padding, rect.y + EDGE_BUBBLE.padding + i * EDGE_BUBBLE.lineHeight)
+      ctx.fillText(opts.maskText ? maskText(b.lines[i]) : b.lines[i], rect.x + EDGE_BUBBLE.padding, rect.y + EDGE_BUBBLE.padding + i * EDGE_BUBBLE.lineHeight)
     }
     ctx.restore()
   }

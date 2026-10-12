@@ -41,5 +41,7 @@ export interface CanvasProps {
    * A cluster label (or its outline entry) was activated: the canvas has already zoomed to the cluster;
    * the app can also select the session / team (e.g. its session tab).
    */
+  /** Presentation mode (#245): `follow` = the camera follows the agent that worked last; `mask` = free text is drawn as bullets. Absent = both off */
+  presentation?: { follow: boolean; mask: boolean }
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

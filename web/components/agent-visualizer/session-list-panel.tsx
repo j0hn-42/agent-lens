@@ -62,6 +62,10 @@ interface SessionListPanelProps {
   onCloseSession: (id: string) => void
   /** Give a session a name of your own (#246); an empty name restores the original label. Absent = no rename control. */
   onRenameSession?: (id: string, name: string) => void
+  /** Save a session as a standalone HTML replay (#237). Absent (demo) = no export control. */
+  onExportSession?: (id: string) => void
+  /** True when the session has events in memory to export; the button is drawn only then */
+  canExportSession?: (id: string) => boolean
   /** Agents of the current view (the selected session, team or all sessions) */
   agents: ReadonlyMap<string, SessionListAgent>
   selectedAgentId: string | null
@@ -87,6 +91,8 @@ interface SessionListPanelProps {
   filterRuntime?: RuntimeFilter | null
   filterBranch?: string | null
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
+  /** Why an empty list may be incomplete (#291): shown with the empty state when the scope is a single workspace */
+  scopeHint?: string | null
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -247,9 +253,9 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
-  onSelectSession, onCloseSession, onRenameSession, agents, selectedAgentId, onSelectAgent,
+  onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
@@ -545,7 +551,7 @@ export function SessionListPanel({
           )}
           {filtering && (
             <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
-              Filter applies to this list only; the canvas still shows every session of the view.
+              Filter applies to this list only; the canvas still shows every session of the view, except that the project also narrows the All view.
             </p>
           )}
         </div>
@@ -558,9 +564,10 @@ export function SessionListPanel({
           {shownSessionCount === 0 && (
             <div className="text-[11px] py-2 text-center" style={{ color: COLORS.textMuted }}>
               {filtering && sessions.length > 0 ? emptyMatch('sessions') : activeOnly && sessions.length > 0 ? 'No active session' : 'No session yet'}
+              {scopeHint && !filtering && <span className="block mt-1">{scopeHint}</span>}
             </div>
           )}
-          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents">
+          <ul className="list-none p-0 m-0 space-y-0.5" aria-label="Sessions and agents" data-sensitive="">
             {rows.map(row => {
               const selected = row.id === selectedSessionId
               const rowLook = `w-full min-h-6 rounded px-2 py-1 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`
@@ -726,6 +733,18 @@ export function SessionListPanel({
                         style={{ color: COLORS.textMuted }}
                       >
                         <span aria-hidden="true">✎</span>
+                      </button>
+                    )}
+                    {onExportSession && renaming !== session.id && canExportSession?.(session.id) && (
+                      <button
+                        type="button"
+                        aria-label={`Export session ${session.label} as an HTML replay`}
+                        title="Export as a standalone HTML replay (secrets redacted, best effort)"
+                        onClick={() => onExportSession(session.id)}
+                        className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
+                        style={{ color: COLORS.textMuted }}
+                      >
+                        <span aria-hidden="true">⤓</span>
                       </button>
                     )}
                     <button

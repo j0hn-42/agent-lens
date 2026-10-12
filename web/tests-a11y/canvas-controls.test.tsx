@@ -159,3 +159,17 @@ test('the panel follows View in the DOM so Tab goes into it; focus leaving the b
   fireEvent.blur(pin, { relatedTarget: outside })
   assert.ok(view.queryByRole('dialog') === null)
 })
+
+test('in French the labels, names and tooltips come from the catalog', () => {
+  const { view, viewButton: _v } = setup({ locale: 'fr' })
+  assert.ok(view.getByRole('group', { name: 'Zoom' }))
+  assert.equal(view.getByRole('button', { name: 'Zoom avant' }).getAttribute('title'), 'Zoom avant (+)')
+  assert.equal(view.getByRole('button', { name: 'Zoom arrière' }).getAttribute('title'), 'Zoom arrière (-)')
+  assert.equal(view.getByRole('button', { name: 'Tout afficher' }).getAttribute('title'), 'Tout afficher (0)')
+  fireEvent.click(view.getByRole('button', { name: 'Affichage' }))
+  assert.ok(view.getByRole('dialog', { name: 'Réglages d’affichage' }))
+  assert.ok(view.getByRole('button', { name: 'Figer les animations' }))
+  assert.ok(view.getByRole('button', { name: 'Garder les cartes affichées' }))
+  assert.ok(view.getByRole('combobox', { name: /^Masquer les appels sans réponse après/ }))
+  assert.equal(view.getByRole('button', { name: 'Affichage' }).closest('[lang]')?.getAttribute('lang'), 'fr')
+})

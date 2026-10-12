@@ -20,6 +20,7 @@ import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { LinkPanel } from "./link-panel"
 import { SessionListPanel } from "./session-list-panel"
+import { planScopeChoice, scopeEmptyHint, type ScopeChoice } from "@/lib/relay-scope"
 import { ProjectContextPanel } from "./project-context-panel"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
@@ -52,6 +53,8 @@ import { useFocusReturn } from "@/hooks/use-focus-return"
 import { ToastRegion } from "./toast-region"
 import { ShortcutsDialog } from "./shortcuts-dialog"
 import { SettingsDialog } from "./settings-dialog"
+import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
+import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
 import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
@@ -60,10 +63,13 @@ import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { deriveDelegationReport } from "@/lib/delegation-report"
 import { summarizeAttention, withForeignAttention } from "@/lib/attention"
 import { assessHealth, detectLoops } from "@/lib/loop-detection"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 import { useNotificationRules } from "@/hooks/use-notification-rules"
+import { buildSessionExport, renderReplayHtml, sessionExportFileName } from "@/lib/session-export"
+import { downloadText } from "@/lib/comms-export"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
 
@@ -83,7 +89,12 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
 }
 
 export function AgentVisualizer() {
-  const bridge = useVSCodeBridge()
+  // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
+  // Speed is deliberately not persisted; the Sessions panel is not in the schema.
+  const uiPrefs = useUiPreferences()
+  const { prefs, setPref, getPrefs } = uiPrefs
+  // The project filter is also the project scope of the All view (#291)
+  const bridge = useVSCodeBridge({ projectScope: prefs.sessionFilterProject })
   // A theme switch re-renders the whole tree so every COLORS-based inline style repaints
   useThemeVersion()
 
@@ -191,10 +202,6 @@ export function AgentVisualizer() {
     pushToast({ message: n.message, durationMs: n.kind === 'relay-down' ? 8000 : 5000 })
   }, [bridge.notice, pushToast])
 
-  // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
-  // Speed is deliberately not persisted; the Sessions panel is not in the schema.
-  const uiPrefs = useUiPreferences()
-  const { prefs, setPref, getPrefs } = uiPrefs
   const [showStats, setShowStats] = usePersistedFlag('showStats', uiPrefs)
   const [showHexGrid, setShowHexGrid] = usePersistedFlag('showHexGrid', uiPrefs)
   const [showCostOverlay, setShowCostOverlay] = usePersistedFlag('showCostOverlay', uiPrefs)
@@ -481,6 +488,26 @@ export function AgentVisualizer() {
     else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
   }, [immersive])
 
+  // Presentation mode (#245): options persist, the mode does not. Escape stops it once nothing else is open.
+  const presentation = usePresentationMode()
+  const presentationOn = presentation.active
+  const presentationMasked = presentationOn && presentation.options.mask
+  usePresentationMaskAttribute(presentationMasked)
+  const presentationSubtitle = usePresentationSubtitle(agents, { enabled: presentationOn && presentation.options.subtitles, mask: presentation.options.mask })
+  const wasPresentingRef = useRef(false)
+  const [presentationNote, setPresentationNote] = useState<string | null>(null)
+  useEffect(() => {
+    if (presentationOn === wasPresentingRef.current) return
+    wasPresentingRef.current = presentationOn
+    setPresentationNote(presentationOn ? 'Presentation mode on' : 'Presentation mode off')
+  }, [presentationOn])
+  const stopPresentation = presentation.stop
+  const closeTopPanelOrImmersiveOrPresentation = useCallback((): boolean => {
+    if (closeTopPanelOrImmersive()) return true
+    if (presentationOn) { stopPresentation(); return true }
+    return false
+  }, [closeTopPanelOrImmersive, presentationOn, stopPresentation])
+
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
     togglePlayPause: handlePlayPause,
@@ -494,7 +521,8 @@ export function AgentVisualizer() {
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     toggleFullscreen,
-    closeTopPanel: closeTopPanelOrImmersive,
+    togglePresentation: presentation.toggle,
+    closeTopPanel: closeTopPanelOrImmersiveOrPresentation,
     clearSelection: () => { selection.clearAllSelections() },
     toggleMute: handleToggleMute,
     setSpeed: setSpeedInReview,
@@ -502,7 +530,7 @@ export function AgentVisualizer() {
     undoLast,
     canUndo: hasUndoToast,
     singleKeyEnabled: singleKeyShortcuts,
-  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersive, toggleFullscreen, singleKeyShortcuts])
+  }), [openShortcuts, undoLast, hasUndoToast, handlePlayPause, selection.clearAllSelections, setSpeedInReview, handleToggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation, toggleFullscreen, presentation.toggle, singleKeyShortcuts])
 
   useKeyboardShortcuts(keyboardActions)
 
@@ -552,6 +580,12 @@ export function AgentVisualizer() {
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
   inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
   const selectedGone = !!selection.selectedAgentId && !selectedAgent
+  // Delegation report of the selected agent (#233): its direct sub-agents, each value proven or said unknown
+  const selectedAgentId = selectedAgent?.id
+  const delegation = useMemo(
+    () => selectedAgentId ? deriveDelegationReport(selectedAgentId, agents, fileAttention, edges) : [],
+    [selectedAgentId, agents, fileAttention, edges],
+  )
 
   // "Why this tool?": derived only from the owner's own history (see lib/tool-reasoning)
   const toolData = selection.selectedToolData
@@ -630,6 +664,27 @@ export function AgentVisualizer() {
     bridge.bridgeOpenFile(filePath, line)
   }, [bridge])
 
+  // Session export (#237): only real sessions with events in memory; the demo has no export
+  const canExportSession = useCallback((id: string) => !bridge.useMockData && bridge.getBufferedEventCount(id) > 0,
+    [bridge.useMockData, bridge.getBufferedEventCount])
+  const handleExportSession = useCallback((id: string) => {
+    const session = bridge.sessions.find(s => s.id === id)
+    const { events, droppedBefore } = bridge.getSessionEvents(id)
+    if (!session || events.length === 0) {
+      pushToast({ message: 'Nothing to export: no event of this session is in memory', durationMs: 5000 })
+      return
+    }
+    const exp = buildSessionExport({ sessionId: id, label: session.label, events, droppedBefore })
+    const saved = downloadText(sessionExportFileName(exp), renderReplayHtml(exp), 'text/html')
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+    const lost = droppedBefore > 0 ? `, ${plural(droppedBefore, 'earlier event')} already dropped` : ''
+    pushToast({
+      message: saved
+        ? `Exported ${plural(exp.eventCount, 'event')} as an HTML replay${lost}; ${plural(exp.redactions.total, 'secret')} redacted (best effort)`
+        : 'Export failed: this view cannot save files',
+      durationMs: 6000,
+    })
+  }, [bridge.sessions, bridge.getSessionEvents, pushToast])
   // Halo titles (session label, runtime, workspace, status) come from the session list
   const sessionMeta = useMemo(() => buildSessionMeta(bridge.sessions), [bridge.sessions])
   const sessionLinks = useMemo(() => deriveSessionLinks(bridge.sessions), [bridge.sessions])
@@ -710,7 +765,30 @@ export function AgentVisualizer() {
     sessionCount: detectedSessions(bridge.sessions).length,
     hooksConfigured: bridge.hooksConfigured,
     isVSCode: bridge.isVSCode,
+    scope: bridge.relayScope?.scope,
   })
+
+  // Scope selector (#291). The shown scope is the relay's own report; a choice becomes the remembered one only once the relay applied it.
+  const { relayScope, setRelayScope } = bridge
+  const chooseScope = useCallback((choice: ScopeChoice) => {
+    const plan = planScopeChoice(choice, relayScope?.scope ?? 'workspace')
+    setPref('sessionFilterProject', plan.projectId)
+    if (choice.kind === 'project') return
+    if (relayScope && plan.relayScope === relayScope.scope) { setPref('relayScope', plan.relayScope); return }
+    void setRelayScope(plan.relayScope).then(ok => { if (ok) setPref('relayScope', plan.relayScope) })
+  }, [relayScope, setRelayScope, setPref])
+  const scopeProps = useMemo(() => ({
+    state: relayScope, sessions: bridge.sessions, projectId: prefs.sessionFilterProject,
+    pending: bridge.relayScopePending, error: bridge.relayScopeError, onChoose: chooseScope,
+  }), [relayScope, bridge.sessions, prefs.sessionFilterProject, bridge.relayScopePending, bridge.relayScopeError, chooseScope])
+  // A scope chosen earlier is asked of the relay once per page load, when it reports another one
+  const scopeRestoredRef = useRef(false)
+  useEffect(() => {
+    if (scopeRestoredRef.current || !relayScope) return
+    scopeRestoredRef.current = true
+    const wanted = getPrefs().relayScope
+    if (wanted && wanted !== relayScope.scope) void setRelayScope(wanted)
+  }, [relayScope, setRelayScope, getPrefs])
 
   const handleSeek = (time: number) => {
     seekingRef.current = true
@@ -745,7 +823,7 @@ export function AgentVisualizer() {
       {/* Polite live region: connection, session, review mode and empty state changes */}
       <ChromeAnnouncer
         connection={connection} sessionLabel={selectedSessionLabel} isReviewing={isReviewing} isEmpty={isEmpty}
-        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote}
+        sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
@@ -771,6 +849,7 @@ export function AgentVisualizer() {
         onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode}
         connectionStatus={bridge.connectionStatus}
+        scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         isDemo={bridge.useMockData}
         activeAgentCount={activeAgentCount}
         staleAgentCount={staleAgentCount}
@@ -799,6 +878,9 @@ export function AgentVisualizer() {
         onToggleNotify={toggleNotify}
       />
       </div>
+
+      {presentationOn && <PresentationBadge onStop={presentation.stop} />}
+      <PresentationSubtitle text={presentationSubtitle} />
 
       {immersive && (
         <button
@@ -874,6 +956,7 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
         hideInactive={hideInactiveShown}
+        presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
       />
 
       {/* Conversation: collapsed pill (top-left) or open panel (right dock), filtered to the selected agent */}
@@ -897,6 +980,8 @@ export function AgentVisualizer() {
             toolErrors={selectedAgent.toolErrors}
             health={health.byAgent.get(selectedAgent.id) ?? detectLoops([], droppedMessages.get(selectedAgent.id) ?? 0)}
             sessionHealth={health.bySession.get(selectedAgent.sessionId)}
+            delegation={delegation}
+            onSelectAgent={selection.handleAgentClick}
             relayOrigin={bridge.relayOrigin}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
@@ -1009,6 +1094,8 @@ export function AgentVisualizer() {
           onSelectSession={bridge.selectSession}
           onCloseSession={handleCloseSession}
           onRenameSession={bridge.renameSession}
+          onExportSession={bridge.useMockData ? undefined : handleExportSession}
+          canExportSession={canExportSession}
           agents={listAgents}
           selectedAgentId={selection.selectedAgentId}
           onSelectAgent={selection.handleAgentClick}
@@ -1019,6 +1106,7 @@ export function AgentVisualizer() {
           filterProject={prefs.sessionFilterProject}
           filterRuntime={prefs.sessionFilterRuntime}
           filterBranch={prefs.sessionFilterBranch}
+          scopeHint={scopeEmptyHint(relayScope)}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)
@@ -1081,6 +1169,7 @@ export function AgentVisualizer() {
         singleKeyEnabled={singleKeyShortcuts}
         onSingleKeyEnabledChange={updateSingleKeyShortcuts}
         onOpenShortcuts={openShortcuts}
+        presentation={{ active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption }}
         notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
       />
 
