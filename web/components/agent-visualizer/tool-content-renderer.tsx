@@ -3,7 +3,8 @@
 import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
-import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
+import { truncateWithMarker, truncateLines } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind } from '@/lib/action-summary'
 import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
 
@@ -72,7 +73,7 @@ function ClampedText({ text, max }: { text: string; max: number }) {
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`ml-1.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING}`}
+          className={`ml-1.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? 'Show less' : 'Show all'}
@@ -89,7 +90,7 @@ function ShowAllToggle({ visible, showAll, onToggle }: { visible: boolean; showA
       type="button"
       aria-expanded={showAll}
       onClick={onToggle}
-      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING}`}
+      className={`mt-0.5 min-h-6 px-1 rounded text-[11px] underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.textMuted }}
     >
       {showAll ? 'Show less' : 'Show all'}
@@ -114,7 +115,7 @@ function FilePath({ path: filePath }: { path: string }) {
       onClick={() => openFile(filePath)}
       title={filePath}
       aria-label={`Open ${filePath}`}
-      className={`block max-w-full min-h-6 mb-1 text-left text-[11px] truncate rounded hover:underline ${FOCUS_RING}`}
+      className={`block max-w-full min-h-6 mb-1 text-left text-[11px] truncate rounded hover:underline ${FOCUS_RING_INSET}`}
       style={{ color: COLORS.filePathActive }}
     >
       {short}

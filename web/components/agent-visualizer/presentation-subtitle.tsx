@@ -2,7 +2,7 @@
 
 import { Z } from '@/lib/agent-types'
 import { SCENE } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 /**
  * Caption of the latest transition (presentation mode). It is for the audience: a status role without a live

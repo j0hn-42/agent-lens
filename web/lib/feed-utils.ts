@@ -103,10 +103,6 @@ export function activeTabIndexOf(keys: readonly string[], active: string): numbe
   return Math.max(0, keys.indexOf(active))
 }
 
-/** Visible keyboard focus ring (inset so it is not clipped by scroll containers). */
-export const FOCUS_RING =
-  'focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--lens-focus-ring)]'
-
 /** Top offset of the Conversation pill: just under the top bar, which wraps onto several rows on narrow windows. */
 export const FEED_TOP = 'calc(var(--topbar-h, 48px) + 8px)'
 

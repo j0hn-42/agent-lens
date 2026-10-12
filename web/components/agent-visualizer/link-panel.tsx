@@ -10,6 +10,7 @@ import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-mo
 import { GlassCard } from './glass-card'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
 interface LinkPanelProps {
@@ -97,8 +98,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   }
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 
-  const buttonClass = 'inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-[11px] font-mono '
-    + 'hover:bg-[var(--lens-hover-10)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
+  const buttonClass = `inline-flex min-h-6 min-w-6 items-center justify-center rounded px-2 text-[11px] font-mono hover:bg-[var(--lens-hover-10)] ${FOCUS_RING}`
 
   return (
     <div
@@ -171,7 +171,7 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
         ) : (
           <ol
             ref={listRef}
-            className="m-0 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
+            className={`m-0 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto p-0 ${FOCUS_RING}`}
             aria-label="Messages, oldest first"
           >
             {model.entries.map(entry => {

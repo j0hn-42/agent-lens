@@ -112,7 +112,6 @@ test('le focus reste >= 3:1 sur les surfaces du thème ET sur la scène sombre, 
     const t = TOKENS[id]
     for (const bg of [t.void, t.surface, t['surface-raised']]) assert.ok(ratio(t.focus, bg) >= 3, `${id}: focus sur ${bg}`)
     assert.ok(ratio(t.focus, SCENE.void) >= 3, `${id}: focus sur la scène`)
-    assert.ok(ratio(extraVars(id)['--lens-focus-ring'].startsWith('#') ? extraVars(id)['--lens-focus-ring'] : t.focus, SCENE.void) >= 3, `${id}: anneau sur la scène`)
   }
 })
 

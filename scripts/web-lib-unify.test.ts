@@ -1,9 +1,11 @@
-// Characterization of the helpers that web/lib exposes twice (#222): tab navigation, focus ring, m:ss time.
+// The helpers web/lib used to expose twice (#222): tab navigation, focus ring, m:ss time. One source each.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FOCUS_RING as CHROME_RING } from '../web/lib/chrome-utils'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { FOCUS_RING, FOCUS_RING_INSET } from '../web/lib/focus-ring'
 import { nextTabIndex } from '../web/lib/tab-nav'
-import { FOCUS_RING as FEED_RING, formatElapsed } from '../web/lib/feed-utils'
+import { formatElapsed } from '../web/lib/feed-utils'
 import { formatDuration } from '../web/lib/utils'
 import { buildLinkPanelModel } from '../web/components/agent-visualizer/canvas/link-panel-model'
 
@@ -33,11 +35,35 @@ test("nextTabIndex: 'both' orientation also handles Up/Down and wraps", () => {
   assert.equal(nextTabIndex(0, 'Enter', 3, 'both'), null)
 })
 
-test('characterization: the two focus rings differ by offset and token', () => {
-  assert.match(CHROME_RING, /outline-offset-2/)
-  assert.match(CHROME_RING, /var\(--lens-focus\)/)
-  assert.match(FEED_RING, /outline-offset-\[-2px\]/)
-  assert.match(FEED_RING, /var\(--lens-focus-ring\)/)
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+    const full = join(dir, e.name)
+    if (e.isDirectory()) return e.name === 'node_modules' || e.name === '.next' ? [] : sourceFiles(full)
+    return /\.(ts|tsx|css)$/.test(e.name) ? [full] : []
+  })
+}
+const root = join(__dirname, '..')
+const webSources = ['web/components', 'web/lib', 'web/app'].flatMap(d => sourceFiles(join(root, d)))
+
+test('focus ring: one source, one theme token, an explicit inset variant', () => {
+  assert.match(FOCUS_RING, /outline-offset-2/)
+  assert.match(FOCUS_RING, /var\(--lens-focus\)/)
+  assert.match(FOCUS_RING_INSET, /-outline-offset-2/)
+  assert.match(FOCUS_RING_INSET, /var\(--lens-focus\)/)
+  assert.notEqual(FOCUS_RING, FOCUS_RING_INSET)
+})
+
+test('focus ring: no component spells the ring inline and --lens-focus-ring is gone', () => {
+  // The canvas draws white outlines on the scene: not a control ring.
+  const allowed = new Set(['web/lib/focus-ring.ts', 'web/components/agent-visualizer/canvas.tsx'])
+  for (const file of webSources) {
+    const rel = relative(root, file)
+    const text = readFileSync(file, 'utf8')
+    assert.doesNotMatch(text, /--lens-focus-ring/, `${rel}: --lens-focus-ring was merged into --lens-focus`)
+    if (allowed.has(rel)) continue
+    const inline = text.split('\n').filter(l => /(?<![\w-])focus-visible:(outline-offset|-outline-offset|outline-\[)/.test(l))
+    assert.deepEqual(inline, [], `${rel}: use FOCUS_RING / FOCUS_RING_INSET from lib/focus-ring`)
+  }
 })
 
 test('simulation time: 59 s, 3599 s and 3600 s read the same in the control bar, the conversation and the Link panel', () => {

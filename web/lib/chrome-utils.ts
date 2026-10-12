@@ -9,10 +9,6 @@ import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
-/** Shared visible keyboard-focus style for every interactive control in the chrome. */
-export const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
-
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
 export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
