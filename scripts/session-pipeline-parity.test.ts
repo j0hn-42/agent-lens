@@ -103,3 +103,13 @@ describe('one transcript through the extension and through the relay', () => {
     assert.deepEqual(fromRelay.map(comparable), fromExtension.map(comparable))
   })
 })
+
+describe('relay.ts does not reimplement SessionWatcher (#218)', () => {
+  it('declares no function named like a private method of SessionWatcher', () => {
+    const relaySource = fs.readFileSync(path.join(__dirname, 'relay.ts'), 'utf8')
+    const methods = ['elapsed', 'emitContextUpdate', 'resetInactivityTimer', 'watchSession', 'readNewLines', 'scanForActiveSessions', 'unwatchSession']
+    for (const name of methods) {
+      assert.equal(new RegExp(`^(async )?function ${name}\\b`, 'm').test(relaySource), false, `relay.ts declares ${name}()`)
+    }
+  })
+})
