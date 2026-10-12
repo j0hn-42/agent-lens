@@ -28,6 +28,7 @@ import {
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
+  RELAY_SCOPE_RATE_BURST, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -52,6 +53,7 @@ import { createIssueLinksRoute } from './routes/issue-links'
 import { createStatusRoute, type StatusSnapshot } from './routes/status'
 import { createContextRoute } from './routes/context'
 import { createObservationsRoute } from './routes/observations'
+import { createScopeRoute, type RelayScope } from './routes/scope'
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -98,7 +100,9 @@ let maxSessionFileBytes = RELAY_MAX_SESSION_FILE_BYTES
  * the session was found, or transcript grown past the size cap. Distinct ids, bounded.
  */
 const SKIPPED_SESSIONS_MAX = 1000
-const skippedSessions = { watchLimit: new Set<string>(), sizeLimit: new Set<string>() }
+const skippedSessions = { watchLimit: new Set<string>(), sizeLimit: new Set<string>(), fileLimit: new Set<string>() }
+/** More project folders than RELAY_MAX_PROJECT_DIRS exist in the scanned scope: the others are not scanned (#291) */
+let projectDirsCapped = false
 
 /** Records a skipped session; true the first time it is recorded for that reason. */
 function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): boolean {
@@ -503,6 +507,7 @@ function importSession(sessionId: string, filePath: string, importedAt: number) 
 function watchSession(sessionId: string, filePath: string) {
   skippedSessions.watchLimit.delete(sessionId)
   skippedSessions.sizeLimit.delete(sessionId)
+  skippedSessions.fileLimit.delete(sessionId)
   const session = newWatchedSession(sessionId, filePath)
   sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
@@ -601,6 +606,40 @@ function watchProjectDirsForWake(dirs: string[]) {
   }
 }
 
+/** The scope narrowed (or a folder vanished): wake-up watchers of folders no longer scanned are closed, none is left behind. */
+function releaseWakeWatchersOutside(scanned: string[]) {
+  const inScope = new Set(scanned)
+  for (const [dir, w] of [...projectDirWakeWatchers]) {
+    if (inScope.has(dir)) continue
+    try { w.close() } catch {}
+    projectDirWakeWatchers.delete(dir)
+  }
+  for (const [file, slot] of [...subagentWakeWatchers]) {
+    if (inScope.has(path.dirname(file))) continue
+    try { slot.w.close() } catch {}
+    subagentWakeWatchers.delete(file)
+  }
+}
+
+/**
+ * Narrowing to the workspace: the sessions of other project folders stop being followed, their clients are told
+ * (session-ended), and their buffered events are dropped so a later connection does not replay a scope that is gone.
+ */
+function dropSessionsOutsideWorkspace(workspace: string) {
+  let resolved = workspace
+  try { resolved = fs.realpathSync(resolved) } catch {}
+  const inWorkspace = projectDirMatcher(resolved)
+  for (const [id, s] of [...sessions]) {
+    // Imported transcripts are not discovered by the scan: the scope never removes them
+    if (importedSessions.has(id) || inWorkspace(path.basename(path.dirname(s.filePath)))) continue
+    const announced = s.sessionDetected
+    const label = s.label
+    unwatchSession(id)
+    eventBuffer.delete(id)
+    if (announced) broadcastSessionLifecycle('ended', id, label)
+  }
+}
+
 function watchIdleSubagentsDir(f: { sessionId: string; filePath: string; dirPath: string; mtimeMs: number }) {
   if (subagentWakeWatchers.has(f.filePath)) return
   const subagentsDir = path.join(f.dirPath, f.sessionId, 'subagents')
@@ -633,15 +672,20 @@ function scanForActiveSessions(workspace: string, allWorkspaces = false) {
     // Case-folded on Windows, cut-and-hashed names matched by prefix (#249)
     match = projectDirMatcher(resolved)
   }
-  // --all-workspaces: every real (non-symlink) project dir directly under ~/.claude/projects
-  const dirsToScan = listProjectDirs(CLAUDE_DIR, match)
+  // All workspaces: every real (non-symlink) project dir directly under ~/.claude/projects, the first RELAY_MAX_PROJECT_DIRS by name
+  const dirReport = { truncated: false }
+  const dirsToScan = listProjectDirs(CLAUDE_DIR, match, RELAY_MAX_PROJECT_DIRS, dirReport)
+  projectDirsCapped = dirReport.truncated
 
   coldScan.cycle++
+  releaseWakeWatchersOutside(dirsToScan)
   watchProjectDirsForWake(dirsToScan)
   const candidates = findActiveSessions({
     dirs: dirsToScan, maxFileBytes: maxSessionFileBytes, cold: coldScan, activeAgeS: ACTIVE_SESSION_AGE_S,
     skip: (id) => sessions.has(id),
     onIdle: watchIdleSubagentsDir,
+    // A ceiling is a visible fact (GET /status), not a silent cut (#291)
+    onSkipped: (reason, f) => { if (!sessions.has(f.sessionId)) noteSkipped(reason, f.sessionId) },
   })
 
   // Newest first so the bounded watcher budget goes to the most recent sessions
@@ -703,10 +747,15 @@ export interface Relay {
   handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /issue-links?role=<role>: open PRs/issues labelled agent:<role> through gh (loopback only, rate-limited, cached) */
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
+  handleScope: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** Change what the scan covers without a restart (#291): 'workspace' = this workspace only, 'all' = every project folder.
+   *  Returns the scope now in force. The flag / env var only gave the initial value. */
+  setScope: (scope: RelayScope) => { scope: RelayScope; allWorkspaces: boolean }
   /** Clean up all resources */
   dispose: () => void
-  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions */
-  debugState: () => { sseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number }
+  /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
+  debugState: () => { sseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'auto'
@@ -720,7 +769,8 @@ export interface RelayOptions {
    *  dev relay and `npx agent-lens-app` have a way to opt out of one runtime. */
   runtime?: RelayRuntimeMode
   /** Also discover Claude sessions from other workspaces (every project dir under
-   *  ~/.claude/projects). Defaults to the AGENT_LENS_ALL_WORKSPACES env var (1/true). */
+   *  ~/.claude/projects). Defaults to the AGENT_LENS_ALL_WORKSPACES env var (1/true).
+   *  Only the INITIAL scope: it can be changed at run time (setScope / POST /scope, #291). */
   allWorkspaces?: boolean
   /** Reads whether the hooks are configured for the workspace (GET /status). Injectable for tests;
    *  defaults to the settings-file check. Concurrent /status requests share ONE call. */
@@ -802,7 +852,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     return indexed ? withIndexedFacts(info, indexed.sessions.find(s => s.id === info.id)) : info
   }
 
-  const allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
+  let allWorkspaces = options.allWorkspaces ?? isTruthyFlag(process.env.AGENT_LENS_ALL_WORKSPACES)
 
   // Imported transcripts (#294): read before the scan, so a live session never takes their id first
   const importPaths = options.imports ?? parseImportPaths(process.env.AGENT_LENS_IMPORT)
@@ -1001,7 +1051,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // Routes HTTP : chacune dans scripts/routes/, derrière les mêmes gardes (guardedRoute)
   const handleIssueLinks = createIssueLinksRoute({
     limiter: issueLinksLimiter,
-    allWorkspaces,
+    allWorkspaces: () => allWorkspaces,
     cwdOf: sessionId => (importedSessions.has(sessionId) ? undefined : sessionCwd.get(sessionId)) ?? readIndex()?.sessions.find(s => s.id === sessionId)?.cwd,
     probe: issueLinksProbe,
     workProbe: sessionWorkProbe,
@@ -1017,12 +1067,15 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const session of sessions.values()) if (session.sessionDetected) sessionCount++
       if (codexWatcher) sessionCount += codexWatcher.getActiveSessions().length
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
-      return {
-        sessionCount, hooksConfigured, disable1MContext,
-        skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size },
-      }
+      return { sessionCount, hooksConfigured, disable1MContext }
     },
-    base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList, allWorkspaces },
+    base: { relayVersion: agentFlowVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
+    // Read when answering: the scope and the ceilings are those of the scan that really ran
+    live: () => ({
+      allWorkspaces,
+      skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size, fileLimit: skippedSessions.fileLimit.size },
+      discovery: { projectDirsCapped, maxProjectDirs: RELAY_MAX_PROJECT_DIRS, maxFilesPerDir: RELAY_MAX_FILES_PER_DIR },
+    }),
     readIndex,
   })
   const handleContext = createContextRoute({
@@ -1032,7 +1085,33 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   })
   const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
 
+  // Scope at run time (#291). One entry point (setScope), used by POST /scope, so the state shown by GET /status is the one the scan uses.
+  const setScope = (scope: RelayScope): { scope: RelayScope; allWorkspaces: boolean } => {
+    const wide = scope === 'all'
+    if (wide !== allWorkspaces) {
+      allWorkspaces = wide
+      if (!wide) dropSessionsOutsideWorkspace(workspace)
+      // What the previous scope found or cut is not true of the new one: forget it, the scan below recounts
+      coldScan.until.clear()
+      for (const set of Object.values(skippedSessions)) set.clear()
+      projectDirsCapped = false
+      indexCache = null
+      teamWatcher?.setWorkspaces(wide ? null : [workspace])
+      if (wantClaude) {
+        scanForActiveSessions(workspace, allWorkspaces)
+        teamWatcher?.scan()
+      }
+      // Clients (other tabs included) reload their view: sessions of the left scope must not linger
+      broadcast(JSON.stringify({ type: 'relay-scope', allWorkspaces }))
+    }
+    return { scope: allWorkspaces ? 'all' : 'workspace', allWorkspaces }
+  }
+  const scopeLimiter = new KeyedRateLimiter(RELAY_SCOPE_RATE_BURST, RELAY_SCOPE_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const handleScope = createScopeRoute({ limiter: scopeLimiter, apply: setScope })
+
   return {
+    handleScope,
+    setScope,
     handleIssueLinks,
     handleStatus,
     handleContext,
@@ -1159,6 +1238,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       scanRuns: scanCoalescer.runs,
       statusRuns: statusComputations,
       dedupSessions: reconciler.rememberedSessions,
+      watchedSessions: sessions.size - importedSessions.size,
+      wakeWatchers: projectDirWakeWatchers.size + subagentWakeWatchers.size,
     }),
 
     dispose() {

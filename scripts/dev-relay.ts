@@ -6,7 +6,7 @@
 import * as http from 'http'
 import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { isDevWebOrigin, parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, observationsRoute } from '../extension/src/relay-guards'
+import { isDevWebOrigin, parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 
@@ -34,7 +34,7 @@ async function main() {
       res.setHeader('Access-Control-Allow-Origin', origin)
       res.setHeader('Vary', 'Origin')
     }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS, POST')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
     // Security headers, GET/HEAD/OPTIONS only (405), session parameter validation (400)
@@ -51,6 +51,11 @@ async function main() {
 
     if (isContextPath(req.url)) {
       return relay.handleContext(req, res)
+    }
+
+    // Run-time scope (#291): the only POST; JSON body, same-site only, rate-limited
+    if (isScopePath(req.url)) {
+      return relay.handleScope(req, res)
     }
 
     if (observationsRoute(req.url)) {
