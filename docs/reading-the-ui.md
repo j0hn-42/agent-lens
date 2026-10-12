@@ -125,6 +125,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | "end not observed" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
 | "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
 | "waiting for permission for N min" | The last event of the agent was a permission request, and nothing answered it for more than 5 minutes. This is told apart from a plain silence because the agent itself said it was waiting for you. |
+| **From history** / "history received" + a time (agent card) | The agent's status was read from a replayed history (the transcript read when the relay attached a session, or the replay after a reload or a session switch), not seen happening. The time is when this page received that history, not when the agent did anything. It is never shown as **Live**, never reported as silent, and becomes *last known state* after 15 minutes; the next live event of the agent makes it live again. |
 | **at least X** ("at least") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
 | **estimated** ("estimated") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
@@ -138,7 +139,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
-A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
+A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. The relay marks every event it read from a transcript history (`replayed`), and so does the page for the events it replays itself. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
 ## Repeated reads and calls
 
