@@ -73,6 +73,8 @@ A failed call also gets a **Causal chain of this failure**, an ordered list from
 
 ## What the action cards show
 
+On the canvas, a tool card carries a small shape on its left that says what kind of action it is, so you do not have to read the label: a page (Read), a page with a plus (Write), a magnifier (Grep, Glob), a pencil (Edit, MultiEdit), a prompt chevron and cursor (Bash), a node on a line (a Bash command that runs `git`) and a rounded square with a node (a Bash command that runs `gh`). The shape comes from the tool name and, for Bash, from the command line. MCP tools keep the generic card. While the call runs, the magnifier sweeps, the cursor blinks and the git node breathes; with reduced motion (OS setting or Freeze motion) the glyphs are still.
+
 Some tool calls have their own card content in the popup and the transcript. Every figure comes from the call's own input; when the input does not carry it, nothing is shown.
 
 - **Edit / MultiEdit**: a `+N -M` summary (lines of `new_string` and `old_string`, summed over the blocks for MultiEdit, with the block count). The sign and a spoken equivalent ("2 lines added, 3 lines removed") carry the meaning, not the color. A MultiEdit whose blocks are incomplete shows no summary.

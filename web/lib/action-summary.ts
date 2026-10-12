@@ -43,6 +43,19 @@ export function editStats(toolName: string, input: Record<string, unknown>): Edi
   return null
 }
 
+export type ToolGlyph = 'read' | 'search' | 'write' | 'edit' | 'shell' | 'git' | 'gh'
+
+const GLYPH_BY_TOOL: Record<string, ToolGlyph> = {
+  Read: 'read', Grep: 'search', Glob: 'search', Write: 'write', Edit: 'edit', MultiEdit: 'edit',
+}
+
+/** Shape drawn on a tool card. Bash takes the git / gh shape only when its command line runs one. MCP and unknown tools: none. */
+export function toolGlyph(toolName: string, input?: Record<string, unknown>): ToolGlyph | null {
+  if (toolName !== 'Bash') return GLYPH_BY_TOOL[toolName] ?? null
+  const command = typeof input?.command === 'string' ? input.command : ''
+  return shellCommands(command)[0]?.tool ?? 'shell'
+}
+
 /** Lines of the content a Write call carries (null when the input has none). */
 export function writeStats(input: Record<string, unknown>): { lines: number } | null {
   return typeof input.content === 'string' ? { lines: lineCount(input.content) } : null

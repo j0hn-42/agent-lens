@@ -2,6 +2,8 @@ import { ToolCallNode } from '@/lib/agent-types'
 import { SCENE, withAlpha } from '@/lib/colors'
 import { TOOL_MAX_CARD_W, TOOL_DRAW, MCP_DRAW, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
+import { toolGlyph } from '@/lib/action-summary'
+import { drawToolGlyph, GLYPH_SLOT } from './draw-tool-glyph'
 import { measureTextCached, setToolCardSize } from './render-cache'
 import { toolCardExpanded } from '@/lib/tool-lifecycle'
 import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
@@ -41,8 +43,11 @@ export function drawToolCalls(
     const displayName = mcp ? mcp.tool : tool.toolName
     const accent = mcp ? SCENE.mcp : SCENE.tool
     const toolLabel = `${displayName}: ${opts.maskText ? maskText(tool.args) : tool.args}`
-    const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12)
-    const textWidth = Math.min(measureTextCached(ctx, label) + 12, TOOL_MAX_CARD_W)
+    const glyph = mcp ? null : toolGlyph(tool.toolName, tool.inputData)
+    const slot = glyph ? GLYPH_SLOT : 0
+    const textX = tool.x + slot / 2
+    const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12 - slot)
+    const textWidth = Math.min(measureTextCached(ctx, label) + 12 + slot, TOOL_MAX_CARD_W)
     const cardW = Math.max(60, textWidth)
     const cardH = toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
     const cardX = tool.x - cardW / 2
@@ -132,40 +137,46 @@ export function drawToolCalls(
       ctx.restore()
     }
 
+    // Action glyph on the left of the card: a shape, so it stays readable at any zoom
+    if (glyph) {
+      const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : SCENE.return
+      drawToolGlyph(ctx, glyph, cardX + GLYPH_SLOT / 2 + 1, tool.y, 11, glyphColor, time, isRunning, reducedMotion)
+    }
+
     if (!showText) { ctx.restore(); continue }
 
     // The MCP badge left a smaller font on the context: measure with the font the card text is drawn in
     ctx.font = `${TOOL_DRAW.fontSize}px monospace`
-    const truncatedLabel = truncateText(ctx, toolLabel, cardW - 8)
+    const truncatedLabel = truncateText(ctx, toolLabel, cardW - 8 - slot)
 
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
     if (isRunning) {
       ctx.fillStyle = accent
-      ctx.fillText(truncatedLabel, tool.x, tool.y)
+      ctx.fillText(truncatedLabel, textX, tool.y)
     } else if (isError) {
       ctx.fillStyle = SCENE.error
-      ctx.fillText(truncateText(ctx, `${displayName}: FAILED`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
+      ctx.fillText(truncateText(ctx, `${displayName}: FAILED`, cardW - 8 - slot), textX, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
       ctx.fillStyle = SCENE.error + 'aa'
-      ctx.fillText(truncateText(ctx, opts.maskText ? maskText(tool.errorMessage || tool.result || '') : (tool.errorMessage || tool.result || ''), cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, opts.maskText ? maskText(tool.errorMessage || tool.result || '') : (tool.errorMessage || tool.result || ''), cardW - 8 - slot), textX, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else if (isUnresolved) {
       ctx.fillStyle = SCENE.textMuted
       const verdict = tool.state === 'expired' ? 'expired' : 'cancelled'
-      ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8), tool.x, tool.y - TOOL_DRAW.twoLineOffset)
+      ctx.fillText(truncateText(ctx, `${tool.toolName}: ${verdict}`, cardW - 8 - slot), textX, tool.y - TOOL_DRAW.twoLineOffset)
       ctx.font = `${TOOL_DRAW.errorFontSize}px monospace`
-      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? END_NOT_OBSERVED : 'interrupted', cardW - 8), tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+      ctx.fillText(truncateText(ctx, tool.state === 'expired' ? END_NOT_OBSERVED : 'interrupted', cardW - 8 - slot), textX, tool.y + TOOL_DRAW.twoLineOffset + 2)
     } else {
       // Completed card: show action + file path (most useful info at a glance)
       ctx.fillStyle = mcp ? SCENE.mcp : SCENE.return
-      ctx.fillText(truncatedLabel, tool.x, tool.y - TOOL_DRAW.twoLineOffset)
+      ctx.fillText(truncatedLabel, textX, tool.y - TOOL_DRAW.twoLineOffset)
       if (tool.tokenCost) {
         // Token cost as dim text below; an estimate is tagged, never shown as an exact figure
         ctx.fillStyle = SCENE.tool + '90'
         ctx.font = `${TOOL_DRAW.tokenFontSize}px monospace`
         const tag = tool.tokenSource === 'estimated' ? ` ${USAGE_LABELS.estimated}` : ''
-        ctx.fillText(`${tool.tokenCost} tok${tag}`, tool.x, tool.y + TOOL_DRAW.twoLineOffset + 2)
+        ctx.fillText(`${tool.tokenCost} tok${tag}`, textX, tool.y + TOOL_DRAW.twoLineOffset + 2)
       }
     }
 
