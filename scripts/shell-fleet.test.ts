@@ -1,12 +1,9 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 import {
-  sessionTabIds, tabStopId, resolvePendingFocus, formatAllSummary, formatTruncatedHistory,
+  formatAllSummary, formatTruncatedHistory,
   formatDroppedMessages, labelAgentsWithSession, blurFlagAction, toastSettleTarget, pickRestoreTarget,
-  undoShortcutAvailable,
 } from '../web/lib/chrome-utils'
-import { nextTabIndex } from '../web/lib/tab-nav'
 import { createPanelRegistry } from '../web/hooks/use-panel-registry'
 import { shouldHandleShortcut } from '../web/hooks/use-keyboard-shortcuts'
 import { SHORTCUTS, parseSingleKeyPreference } from '../web/lib/shortcuts'
@@ -39,13 +36,6 @@ test('undo key fires from buttons and tabs while an undo toast is visible', () =
   assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, { undoAvailable: false }), false)
 })
 
-test('undo is announced and reachable only with the preference on and an actionable toast', () => {
-  assert.equal(undoShortcutAvailable(true, [{ onAction: () => {} }]), true)
-  assert.equal(undoShortcutAvailable(true, [{}, { onAction: undefined }]), false)
-  assert.equal(undoShortcutAvailable(false, [{ onAction: () => {} }]), false)
-  assert.equal(undoShortcutAvailable(true, []), false)
-})
-
 // ─── Single-key preference (#4) ──────────────────────────────────────────────
 
 test('every single-key entry of the shortcuts table is gated by the preference, the others are not', () => {
@@ -63,18 +53,6 @@ test('the single-key preference is read from storage: only an explicit false dis
 })
 
 // ─── All tab ─────────────────────────────────────────────────────────────────
-
-test('the All tab comes first and owns the tab stop when nothing else is selected', () => {
-  const ids = sessionTabIds([{ id: 'a' }, { id: 'b' }])
-  assert.deepEqual(ids, [ALL_SESSIONS_ID, 'a', 'b'])
-  assert.equal(tabStopId(ids, 'b'), 'b')
-  assert.equal(tabStopId(ids, ALL_SESSIONS_ID), ALL_SESSIONS_ID)
-  assert.equal(tabStopId(ids, 'gone'), ALL_SESSIONS_ID)
-  assert.equal(tabStopId(ids, null), ALL_SESSIONS_ID)
-  // arrows wrap through the All tab
-  assert.equal(nextTabIndex(0, 'ArrowLeft', ids.length), 2)
-  assert.equal(nextTabIndex(2, 'ArrowRight', ids.length), 0)
-})
 
 test('All mode summary and truncation markers', () => {
   assert.equal(formatAllSummary(3, 12, 1.234), '3 sessions - 12 agents - $1.23')
@@ -104,19 +82,6 @@ test('agents get their session label and the session runtime unless they carry t
 })
 
 // ─── Focus management ────────────────────────────────────────────────────────
-
-test('pending tab focus only moves once the closed tab is gone', () => {
-  const pending = { closedId: 'b', focusId: 'c' }
-  assert.deepEqual(resolvePendingFocus(null, ['a']), { focusId: null, keep: null })
-  assert.deepEqual(resolvePendingFocus(pending, ['a', 'b', 'c']), { focusId: null, keep: pending }, 'no-op close keeps waiting')
-  assert.deepEqual(resolvePendingFocus(pending, ['a', 'c']), { focusId: 'c', keep: null })
-  assert.deepEqual(resolvePendingFocus(pending, ['a']), { focusId: null, keep: null })
-  assert.deepEqual(
-    resolvePendingFocus({ closedId: 'a', focusId: ALL_SESSIONS_ID }, [ALL_SESSIONS_ID]),
-    { focusId: ALL_SESSIONS_ID, keep: null },
-    'the All tab catches focus when the last session closes',
-  )
-})
 
 test('control bar focus flag survives a mode swap but not a click on empty space', () => {
   assert.equal(blurFlagAction(true, false), 'keep')

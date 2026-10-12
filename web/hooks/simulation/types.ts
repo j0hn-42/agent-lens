@@ -180,7 +180,6 @@ export function cutCharsOf(v: unknown, max = MAX_TEXT_LEN): number {
 export function cutField(cut: number): { cutChars?: number } {
   return cut > 0 ? { cutChars: cut } : {}
 }
-export function asNumber(v: unknown, fallback = 0): number { return typeof v === 'number' ? v : fallback }
 export function asBoolean(v: unknown, fallback = false): boolean { return typeof v === 'boolean' ? v : fallback }
 
 // ── Truncation length constants ──────────────────────────────────────

@@ -25,18 +25,6 @@ export function isValue(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0
 }
 
-/** Sums values where null/undefined/invalid mean "absent": an absent part makes the total partial, never 0. */
-export function sumUsage(values: Iterable<number | null | undefined>, estimated = false): UsageTotal {
-  let sum = 0
-  let known = 0
-  let missing = 0
-  for (const v of values) {
-    if (isValue(v)) { sum += v; known++ } else missing++
-  }
-  if (known === 0) return unavailable()
-  return { value: sum, status: missing > 0 ? 'partial' : 'available', estimated }
-}
-
 /** Adds up already-qualified totals (e.g. one per agent). */
 export function combineUsage(parts: Iterable<UsageTotal>): UsageTotal {
   let sum = 0

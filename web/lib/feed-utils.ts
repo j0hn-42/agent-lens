@@ -35,27 +35,6 @@ export function formatElapsed(seconds: number): { label: string; iso: string } {
   return { label: formatDuration(s), iso: `PT${s.toFixed(1)}S` }
 }
 
-/**
- * Which agents received new text messages since the last call.
- * `prevLens` holds raw conversation lengths per agent; returns the next lengths.
- */
-export function agentsWithNewText(
-  prevLens: ReadonlyMap<string, number>,
-  conversations: ReadonlyMap<string, readonly { type: string }[]>,
-  textTypes: ReadonlySet<string>,
-): { increased: string[]; nextLens: Map<string, number> } {
-  const increased: string[] = []
-  const nextLens = new Map<string, number>()
-  for (const [agentId, msgs] of conversations) {
-    const prev = prevLens.get(agentId) ?? 0
-    nextLens.set(agentId, msgs.length)
-    for (let i = prev; i < msgs.length; i++) {
-      if (textTypes.has(msgs[i].type)) { increased.push(agentId); break }
-    }
-  }
-  return { increased, nextLens }
-}
-
 /** Lists below this size are rendered in full (no windowing). */
 export const VIRTUALIZE_THRESHOLD = 200
 
@@ -369,24 +348,6 @@ export function agentIdsWithMessages(
   })
 }
 
-export interface TeamGroup<T> { team: string | null; items: T[] }
-
-/** Group items under their team heading (teams first by name, then those without a team). */
-export function groupByTeam<T extends { teamName?: string }>(items: readonly T[]): TeamGroup<T>[] {
-  const byTeam = new Map<string, T[]>()
-  const rest: T[] = []
-  for (const it of items) {
-    if (it.teamName) {
-      const list = byTeam.get(it.teamName) ?? []
-      list.push(it)
-      byTeam.set(it.teamName, list)
-    } else rest.push(it)
-  }
-  const groups: TeamGroup<T>[] = [...byTeam.keys()].sort().map(t => ({ team: t, items: byTeam.get(t)! }))
-  if (rest.length) groups.push({ team: null, items: rest })
-  return groups
-}
-
 export interface TeamChipGroup<T> {
   /** Map key of the team (unique per lead session and name), or the plain name when the team is unknown */
   key: string
@@ -446,31 +407,6 @@ export function pairFromShiftClick(anchor: string | null | undefined, key: strin
 export function pairOfMessage(m: Pick<ConversationMessage, 'type' | 'from' | 'to'>): [string, string] | null {
   if (!COMM_MESSAGE_TYPES.has(m.type) || !m.from || !m.to || m.from === m.to) return null
   return [m.from, m.to]
-}
-
-/**
- * Per-agent message lists used for unread tracking: conversations plus the link messages each agent
- * sent or received (teammate messages often live only on links).
- */
-export function unreadSources(
-  conversations: ReadonlyMap<string, readonly { type: string }[]>,
-  links?: ReadonlyMap<string, Pick<AgentLink, 'from' | 'to' | 'messages'>>,
-): Map<string, { type: string }[]> {
-  const out = new Map<string, { type: string }[]>()
-  for (const [id, msgs] of conversations) out.set(id, msgs.slice())
-  if (links) {
-    for (const link of links.values()) {
-      for (const m of link.messages) {
-        for (const id of new Set([m.from ?? link.from, m.to ?? link.to])) {
-          if (!id) continue
-          const list = out.get(id) ?? []
-          list.push(m)
-          out.set(id, list)
-        }
-      }
-    }
-  }
-  return out
 }
 
 // ─── Unread tracking (per source, never by position across merged lists) ─────

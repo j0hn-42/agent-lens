@@ -68,12 +68,6 @@ export function messageMatchesPair(m: { type: string; from?: string; to?: string
   return (m.from === p.a && m.to === p.b) || (m.from === p.b && m.to === p.a)
 }
 
-/** Keep only the communications exchanged between the pair. Incomplete pair: nothing is filtered. */
-export function applyPair<T extends { type: string; from?: string; to?: string }>(items: readonly T[], p: PairState): T[] {
-  if (!isPairComplete(p)) return items.slice()
-  return items.filter(m => messageMatchesPair(m, p))
-}
-
 /** Chip text, e.g. 'orchestrator <-> audit-ux' (rendered with a real double arrow). */
 export function pairChipLabel(p: PairState, nameOf: (key: string) => string): string {
   const first = p.a !== '' ? nameOf(p.a) : '...'
