@@ -201,7 +201,12 @@ test('the catch-up is cut into frame slices and ends with the same state as even
   assert.deepStrictEqual(comparable(state), comparable(expected))
 })
 
-test('perf: 10 000 events on 300 agents in under 500 ms in total, no frame over 50 ms', () => {
+// The budgets are wall-clock: strict on a developer machine, but a shared 2-vCPU CI runner measured 0.9 to 1.2 s
+// for the 0.33 s this takes locally (#210). CI gets a 4x allowance; the sliced-catch-up checks above are what
+// prove the work is cut into frames, so this test only guards against an order-of-magnitude regression there.
+const PERF_FACTOR = process.env.CI ? 4 : 1
+
+test('perf: 10 000 events on 300 agents in under 500 ms in total, no frame over 50 ms (x4 allowance on CI)', () => {
   const events = burstEvents(10_000, 300)
   // Warm-up (JIT) on another batch, so the measure is the steady cost
   processEventBatch(burstEvents(2000, 50), createEmptyState(), makeCtx(), { advanceClock: true, receivedAt: RECEIVED_AT })
@@ -219,12 +224,12 @@ test('perf: 10 000 events on 300 agents in under 500 ms in total, no frame over 
   const total = frames.reduce((a, b) => a + b, 0)
   const worst = Math.max(...frames)
   assert.equal(state.agents.size, 300)
-  assert.ok(total < 500, `total ${total.toFixed(0)} ms`)
-  assert.ok(worst < 50, `worst frame ${worst.toFixed(1)} ms`)
+  assert.ok(total < 500 * PERF_FACTOR, `total ${total.toFixed(0)} ms`)
+  assert.ok(worst < 50 * PERF_FACTOR, `worst frame ${worst.toFixed(1)} ms`)
 
   // The whole burst in one batch (seek) also stays under the budget
   const t0 = performance.now()
   processEventBatch(events, createEmptyState(), makeCtx(), { advanceClock: true })
   const oneBatch = performance.now() - t0
-  assert.ok(oneBatch < 500, `one batch ${oneBatch.toFixed(0)} ms`)
+  assert.ok(oneBatch < 500 * PERF_FACTOR, `one batch ${oneBatch.toFixed(0)} ms`)
 })
