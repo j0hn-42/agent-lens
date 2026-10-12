@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
-  formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
+  formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
   agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
@@ -144,4 +144,12 @@ test('empty-state checklist states the scope the relay really scans (#291)', () 
   assert.equal(all?.detail, undefined)
   // Scope unknown (extension, old relay): the previous wording, no claim
   assert.equal(emptyStateChecklist({ status: 'connected', sessionCount: 0 }).find(i => i.id === 'workspace')?.label, 'Workspace watched')
+})
+
+test('the playback badge uses the same word as the top bar and only pulses while activity is watched (#367)', () => {
+  for (const status of ['watching', 'connected', 'connecting', 'disconnected'] as const) {
+    assert.equal(liveBadge(status, false).label, connectionDisplay(status, false).label)
+  }
+  assert.equal(liveBadge('connected', false).live, false)
+  assert.equal(liveBadge('watching', false).live, true)
 })

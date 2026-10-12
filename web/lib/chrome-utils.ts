@@ -276,14 +276,14 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): Co
 }
 
 /**
- * Badge of the playback bar. Follows the real connection: LIVE (pulsing) only while the relay is
- * connected or watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ * Badge of the playback bar. Follows the real connection with the top bar's wording: LIVE (pulsing) only while the relay is
+ * watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
  */
 export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
   if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
-  if (status === 'connected' || status === 'watching') return { label: 'LIVE', live: true, tone: 'ok' }
   const d = connectionDisplay(status, false)
-  return { label: d.label, live: false, tone: d.tone }
+  // Same word as the top bar; it pulses only while activity is actually watched (a bare connection proves less)
+  return { label: d.label, live: status === 'watching', tone: d.tone }
 }
 
 /** Text for the sr-only polite live region. Only state changes alter it. */
