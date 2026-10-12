@@ -29,6 +29,8 @@ export interface PaletteItem {
   shortcut?: string
   /** Extra search terms (never displayed) */
   keywords: readonly string[]
+  /** Free text taken from a session or an agent: presentation mode blurs it (data-sensitive) */
+  sensitive: boolean
   /** True when running the item moves focus by itself (a panel opening, an agent card): the palette then leaves focus alone */
   movesFocus: boolean
   run: () => void
@@ -105,7 +107,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   const items: PaletteItem[] = []
   const { actions: act } = src
   const action = (id: string, label: string, run: () => void, key: string | undefined, keywords: string[] = [], movesFocus = false) => {
-    items.push({ id: `action:${id}`, group: 'Actions', label, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined, keywords, movesFocus, run })
+    items.push({ id: `action:${id}`, group: 'Actions', label, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined, keywords, movesFocus, sensitive: false, run })
   }
   action('play', 'Play / pause', act.togglePlayPause, ' ', ['resume', 'review', 'live'])
   action('fit', 'Zoom to fit all agents', act.zoomToFit, 'F', ['view', 'center'])
@@ -118,7 +120,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   const panel = (id: PalettePanel, label: string, key: string | undefined, keywords: string[] = []) => {
     items.push({
       id: `panel:${id}`, group: 'Panels', label, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined,
-      keywords, movesFocus: true, run: () => src.togglePanel(id),
+      keywords, movesFocus: true, sensitive: false, run: () => src.togglePanel(id),
     })
   }
   panel('sessions', 'Toggle Sessions list', 'l', ['agents'])
@@ -132,7 +134,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   items.push({
     id: `session:${ALL_SESSIONS_ID}`, group: 'Sessions', label: 'All sessions', keywords: ['union', 'fleet'],
     detail: src.selectedSessionId === ALL_SESSIONS_ID ? 'current view' : undefined,
-    movesFocus: false, run: () => src.selectSession(ALL_SESSIONS_ID),
+    movesFocus: false, sensitive: false, run: () => src.selectSession(ALL_SESSIONS_ID),
   })
   for (const s of src.sessions) {
     const label = cleanLine(s.label, MAX_LABEL) || cleanLine(s.id, MAX_LABEL)
@@ -141,7 +143,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
     items.push({
       id: `session:${s.id}`, group: 'Sessions', label, detail: detail || undefined,
       keywords: [cleanLine(s.workspace, 200), cleanLine(s.cwd, 200), cleanLine(s.teamName), cleanLine(s.memberName)].filter(Boolean),
-      movesFocus: false, run: () => src.selectSession(s.id),
+      movesFocus: false, sensitive: true, run: () => src.selectSession(s.id),
     })
   }
 
@@ -150,7 +152,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
     if (!label) continue
     items.push({
       id: `agent:${a.id}`, group: 'Agents', label, detail: agentDetail(a) || undefined,
-      keywords: [], movesFocus: true, run: () => src.selectAgent(a.id),
+      keywords: [], movesFocus: true, sensitive: true, run: () => src.selectAgent(a.id),
     })
   }
   return items

@@ -218,7 +218,7 @@ function ShortcutHost({ singleKey }: { singleKey: boolean }) {
     toggleTimeline: noop, toggleHexGrid: noop, toggleStats: noop, toggleContext: noop,
     toggleCostOverlay: noop, zoomToFit: noop, toggleFullscreen: noop, closeTopPanel: () => false,
     clearSelection: noop, toggleMute: noop, setSpeed: noop, openShortcuts: noop, undoLast: () => false,
-    openPalette: rec('palette'), singleKeyEnabled: singleKey,
+    togglePresentation: noop, openPalette: rec('palette'), singleKeyEnabled: singleKey,
   })
   return <input aria-label="Some field" />
 }

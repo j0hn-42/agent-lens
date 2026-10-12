@@ -22,7 +22,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
   - an agent: its role (Main, Subagent, Teammate) and its session, never its state, which may be older than the screen;
   - a shortcut next to a command is shown only while it works (none for single-key shortcuts when they are off).
 
-  Each group shows at most 8 matches, and the status line below the list says how many more there are ("keep typing to narrow") instead of pretending the list is complete. Agents of another session are offered only while the view contains them: select that session (or "All sessions") first.
+  Each group shows at most 8 matches, and the status line below the list says how many more there are ("keep typing to narrow") instead of pretending the list is complete. Session and agent names (and their details) carry `data-sensitive`, so presentation mode blurs them like in the other panels. Agents of another session are offered only while the view contains them: select that session (or "All sessions") first.
 - **Folder prefix of session tabs**: the folder prefix appears when the sessions you have open come from two or more folders, a tab reads "folder / name" (the Sessions button in the top bar, and the sessions of a team in the Sessions panel) so two sessions called "fix login" can be told apart. The folder is the repository's folder name, proven by the git common dir (worktrees of one repository share it). Limits: a session outside git, or one under "Imported transcripts", gets no prefix, because no folder is proven; with a single folder nothing is added; under a project heading of the Sessions panel the prefix is not repeated, the heading already names the folder; a name that already starts with the folder is left as is. The prefix is display only: it is never written into the name you chose, and the canvas halos keep showing the session name and workspace as before.
 
 The graph legend (bottom left of the canvas) explains the colours, shapes and lines that are on screen.
@@ -238,7 +238,7 @@ The interface is translated step by step, so for now the language covers only:
 - the canvas controls (zoom, fit, Pause animations, the per-layer toggles, Keep cards visible, call expiry);
 - the Settings dialog (appearance, sound, sessions, notifications, keyboard).
 
-Everything else (top bar, panels, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
+Everything else (top bar, panels, command palette, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
 
 To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. To add a language, extend `LOCALES` and fill the table.
 
