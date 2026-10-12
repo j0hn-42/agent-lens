@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { COLORS, themed } from '@/lib/colors'
 import { ToolContentRenderer } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
-import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
+import { truncateWithMarker, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { CheckIcon, GearIcon } from './feed-icons'
 import { extraVars } from '@/lib/theme-tokens'
 import { currentThemeId } from '@/lib/theme-dom'
@@ -68,7 +69,7 @@ function TruncatedText({ text, limit, query, color, ansi }: { text: string; limi
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING}`}
+          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? 'Show less' : `Show all (+${t.hidden} chars)`}

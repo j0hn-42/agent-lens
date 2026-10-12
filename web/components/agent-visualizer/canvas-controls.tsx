@@ -6,13 +6,14 @@ import { CAMERA, TOOL_EXPIRY_CHOICES_S } from '@/lib/canvas-constants'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
 
 const CONTROL_BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)] disabled:opacity-60'
+  + `${FOCUS_RING} disabled:opacity-60`
 
 interface CanvasControlsProps {
   /** Teams of the accessible model (legend) */

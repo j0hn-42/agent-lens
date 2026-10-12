@@ -2,7 +2,7 @@
 
 import { useId } from 'react'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { copyText } from '@/lib/comms-export'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
 import { hasControlChars } from '@/lib/control-chars'
@@ -49,7 +49,7 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
               type="button"
               onClick={() => { void copy() }}
               aria-label="Copy resume command"
-              className={`shrink-0 text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+              className={`shrink-0 text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
               style={{ color: COLORS.textMuted }}
             >
               Copy
@@ -66,7 +66,7 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
             type="button"
             onClick={openTerminal}
             aria-label="Go to terminal: open a terminal in the session directory"
-            className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`}
+            className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING_INSET}`}
             style={{ color: COLORS.textMuted }}
           >
             Go to terminal

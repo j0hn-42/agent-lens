@@ -18,7 +18,7 @@ import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-cl
 import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
 import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
 import { tokensText, filesReadText, durationText, resultText, type DelegationRow } from '@/lib/delegation-report'
 
 interface AgentDetailCardProps {
@@ -284,7 +284,7 @@ export function AgentDetailCard({
                     href={link.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block truncate underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus-strong)]"
+                    className={`block truncate underline ${FOCUS_RING_STRONG}`}
                     style={{ color: COLORS.textPrimary }}
                     title={issueLinkLabel(link)}
                   >
