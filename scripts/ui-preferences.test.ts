@@ -363,3 +363,83 @@ test('session memory, reload: the value persisted by one visit is what the next 
   const visit3 = run(stored, [{ sessions: [A, B], selectedId: 'a' }, { sessions: [A, B], selectedId: 'b' }, { sessions: [A, B], selectedId: '__all__' }])
   assert.equal(visit3.persists.filter(p => p !== undefined).pop(), null)
 })
+
+// --- hideInactive / singleKeyShortcuts (#219): defaults, validation, migration of the legacy keys ----
+
+const LEGACY_HIDE = 'agent-lens:hide-inactive-agents'
+const LEGACY_SINGLE = 'agent-lens:single-key-shortcuts'
+
+test('defaults: hideInactive and singleKeyShortcuts are on', () => {
+  assert.equal(DEFAULT_UI_PREFS.hideInactive, true)
+  assert.equal(DEFAULT_UI_PREFS.singleKeyShortcuts, true)
+})
+
+test('sanitizePref: non-boolean values of hideInactive / singleKeyShortcuts fall back to the default', () => {
+  for (const key of ['hideInactive', 'singleKeyShortcuts'] as const) {
+    for (const bad of ['false', 'true', 0, 1, null, undefined, {}, []]) assert.equal(sanitizePref(key, bad), true, `${key} <- ${JSON.stringify(bad)}`)
+    assert.equal(sanitizePref(key, false), false)
+    assert.equal(sanitizePref(key, true), true)
+  }
+})
+
+test('migration: legacy keys set to "false" give false when the blob lacks the fields', () => {
+  const m = memStorage()
+  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'false')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ showStats: true }))
+  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+  assert.equal(p.hideInactive, false)
+  assert.equal(p.singleKeyShortcuts, false)
+  assert.equal(p.showStats, true)
+})
+
+test('migration: no blob at all still reads the legacy keys; only "false" disables', () => {
+  const m = memStorage()
+  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'true')
+  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+  assert.equal(p.hideInactive, false)
+  assert.equal(p.singleKeyShortcuts, true)
+  m.data.set(LEGACY_HIDE, 'garbage')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, true)
+})
+
+test('migration: a value already in the blob wins over the legacy key', () => {
+  const m = memStorage()
+  m.data.set(LEGACY_HIDE, 'false'); m.data.set(LEGACY_SINGLE, 'false')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ hideInactive: true, singleKeyShortcuts: true }))
+  const p = createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot()
+  assert.equal(p.hideInactive, true)
+  assert.equal(p.singleKeyShortcuts, true)
+})
+
+test('migration: the migrated value is persisted in the blob by the next write', () => {
+  const m = memStorage(); const s = manualSchedule()
+  m.data.set(LEGACY_HIDE, 'false')
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('showStats', true); s.tick()
+  assert.equal(parsePrefs(m.writes[0]).hideInactive, false)
+  m.data.set(LEGACY_HIDE, 'true') // now ignored
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, false)
+})
+
+test('migration: reset forgets the legacy keys too', () => {
+  const m = memStorage(); const s = manualSchedule()
+  m.data.set(LEGACY_HIDE, 'false')
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  assert.equal(store.getSnapshot().hideInactive, false)
+  store.reset(); s.tick()
+  assert.equal(m.data.has(LEGACY_HIDE), false)
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().hideInactive, true)
+})
+
+test('migration: unavailable storage does not throw', () => {
+  const broken: StorageLike = {
+    getItem() { throw new Error('denied') }, setItem() { throw new Error('denied') }, removeItem() { throw new Error('denied') },
+  }
+  // the legacy keys cannot be read (the blob can): the migration is skipped, nothing throws
+  const m = memStorage()
+  const legacyDenied: StorageLike = { ...m.storage, getItem: k => { if (k.startsWith('agent-lens:') && k !== UI_PREFS_STORAGE_KEY) throw new Error('denied'); return m.storage.getItem(k) } }
+  const store = createPrefsStore({ storage: legacyDenied, schedule: manualSchedule().schedule })
+  assert.deepEqual(store.getSnapshot(), { ...D })
+  const safe = createPrefsStore({ storage: createSafeStorage(() => broken), schedule: manualSchedule().schedule })
+  assert.deepEqual(safe.getSnapshot(), { ...D })
+})
