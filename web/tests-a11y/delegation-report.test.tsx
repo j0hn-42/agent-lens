@@ -23,7 +23,7 @@ const returned: DelegationRow = {
   agentId: 's1:scout', name: 'scout', subagentType: 'Explore', linkVerified: true,
   tokens: { value: 1_200, status: 'available', estimated: false },
   filesRead: ['/repo/src/a.ts', '/repo/src/b.ts'], filesReadCount: 2, readsNotConfirmed: 1,
-  duration: { kind: 'reported', seconds: 42 },
+  duration: { kind: 'measured', seconds: 42 },
   result: { kind: 'returned', excerpt: 'Found the payment module', truncated: false },
 }
 const running: DelegationRow = {
@@ -58,7 +58,7 @@ test('each entry states tokens, files read, duration and result in words', () =>
   const a = first.textContent ?? ''
   assert.match(a, /Tokens\s*1\.2k/)
   assert.match(a, /Files read\s*2 files, 1 not confirmed/)
-  assert.match(a, /Duration\s*0:42 \(reported\)/)
+  assert.match(a, /Duration\s*0:42 \(measured\)/)
   assert.match(a, /Result\s*Found the payment module/)
   const b = second.textContent ?? ''
   assert.match(b, /Tokens\s*not reported/)

@@ -154,9 +154,9 @@ test('files read: the list is bounded and keeps the full count', () => {
   assert.equal(filesReadText(row), `${FILES_LISTED + 5} files`)
 })
 
-test('duration: reported by the runtime, else "not reported"; without a return it is not known', () => {
+test('duration: measured live (#365), else "not reported"; without a return it is not known', () => {
   const live = run([main, spawn('scout', 't1'), ret('scout', 't1', { durationS: 75 })])
-  assert.equal(durationText(report(live)[0].duration), '1:15 (reported)')
+  assert.equal(durationText(report(live)[0].duration), '1:15 (measured)')
   const noDuration = run([main, spawn('scout', 't1'), ret('scout', 't1')])
   assert.equal(durationText(report(noDuration)[0].duration), 'not reported')
   const replayed = run([main, spawn('scout', 't1'), { ...ret('scout', 't1', { durationS: 75 }), replayed: true }])
@@ -200,7 +200,7 @@ test('the inspector of the shell receives the report of the selected agent and c
 test('the reading guide documents the delegation report and what each column proves', () => {
   const guide = fs.readFileSync(path.resolve(__dirname, '..', 'docs/reading-the-ui.md'), 'utf8')
   assert.match(guide, /## Delegation report/)
-  for (const term of ['not confirmed', 'no return observed', '(reported)', 'not reported']) {
+  for (const term of ['not confirmed', 'no return observed', '(measured)', 'not reported']) {
     assert.ok(guide.includes(term), `guide should explain "${term}"`)
   }
 })
