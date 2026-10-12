@@ -9,6 +9,7 @@ export const PANEL_NAMES = {
   cost: 'Cost',
   context: 'Context',
   stats: 'Stats',
+  system: 'System',
 } as const
 
 export type PanelKey = keyof typeof PANEL_NAMES

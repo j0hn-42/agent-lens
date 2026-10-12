@@ -29,6 +29,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [docs/reading-the-ui.md](docs/reading-the-ui.md)), and the conversation (one panel for messages, tool calls and per-agent views)
 - **Repeated reads and calls**: the Files panel lists files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui.md))
 - **Delegation report**: the inspector of an agent lists each of its sub-agents with its tokens, the files it was seen to read, the duration the runtime reported and the start of its returned report; unknown values say so (see [Reading the UI](docs/reading-the-ui.md#delegation-report))
+- **System panel**: CPU, memory, swap, disk and load of the machine that runs the relay, with a 2-minute history and no invented value (see [docs/system-stats.md](docs/system-stats.md))
 - **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
 - **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
 - **Comms**: message links between agents, with the latest message on the link and a panel to read the exchange

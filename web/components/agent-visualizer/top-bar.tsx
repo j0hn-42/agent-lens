@@ -31,6 +31,7 @@ export const PANEL_BUTTON_IDS = {
   timeline: 'topbar-toggle-timeline',
   context: 'topbar-toggle-context',
   stats: 'topbar-toggle-stats',
+  system: 'topbar-toggle-system',
 } as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
@@ -200,11 +201,13 @@ export interface TopBarProps {
   showCostOverlay: boolean
   /** Project context panel open (optional: absent = closed) */
   showContext?: boolean
+  /** System (machine health) panel open (optional: absent = closed) */
+  showSystem?: boolean
   showTimeline: boolean
   /** Stats overlay open */
   showStats: boolean
   isMuted: boolean
-  onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context') => void
+  onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context' | 'system') => void
   onToggleTimeline: () => void
   onToggleStats: () => void
   onToggleMute: () => void
@@ -232,7 +235,7 @@ export const TopBar = memo(function TopBar({
   hideInactive = false, onToggleHideInactive,
   isVSCode, connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
-  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
+  showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
@@ -361,14 +364,16 @@ export const TopBar = memo(function TopBar({
         </span>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
-          {/* Mutually exclusive panel group */}
-          <div role="group" aria-label="Side panels" className="flex items-center gap-1 px-1 py-0.5 rounded" style={{
+          {/* Side panels: Files, Conversation, Context and Cost are mutually exclusive; System opens beside them */}
+          {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
+          <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.system} active={showSystem} pressed={showSystem} onClick={() => onTogglePanel('system')} ariaLabel={openPanelLabel('system', 'Y')} title={`${PANEL_NAMES.system}: CPU, memory, disk (Y)`} shortcut="y" style={{ background: showSystem ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.system}</ToggleButton>
             {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}

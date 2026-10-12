@@ -144,6 +144,19 @@ export interface LaunchView {
   outputDroppedBytes: number
 }
 
+/** Mirror of scripts/system-stats.ts SystemSample (SSE `system-stats`, #357). */
+export interface SystemUsage { total: number; used: number }
+export interface SystemSample {
+  ts: number
+  cpu: { total: number | null; perCore: (number | null)[] }
+  mem: SystemUsage | null
+  swap: SystemUsage | null
+  disk: SystemUsage | null
+  load: [number, number, number] | null
+  uptime: number | null
+  platformNote: string | null
+}
+
 // ─── Runtime validation (messages are untrusted: relay, hooks and window.postMessage) ───
 
 const CONNECTION_STATUSES: readonly string[] = ['connected', 'disconnected', 'watching', 'connecting']

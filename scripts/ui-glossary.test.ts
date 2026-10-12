@@ -16,7 +16,7 @@ const msg = (id: string, type: ConversationMessage['type'], timestamp: number, c
   ({ id, type, timestamp, content, ...extra })
 
 test('the glossary fixes the panel names and the agent hierarchy', () => {
-  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats' })
+  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats', system: 'System' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
 })

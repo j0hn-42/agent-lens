@@ -13,7 +13,7 @@ export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents'] as con
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number]
 
 /** Panels the palette can toggle (the Sessions list included). */
-export type PalettePanel = 'sessions' | 'files' | 'conversation' | 'timeline' | 'context' | 'stats' | 'cost'
+export type PalettePanel = 'sessions' | 'files' | 'conversation' | 'timeline' | 'context' | 'system' | 'stats' | 'cost'
 
 /** Longest label shown for an untrusted name (session label, agent name). */
 const MAX_LABEL = 80
@@ -128,6 +128,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   panel('conversation', `Toggle ${PANEL_NAMES.conversation} panel`, 'c', ['messages', 'chat'])
   panel('timeline', `Toggle ${PANEL_NAMES.timeline} panel`, 't', ['events'])
   panel('context', `Toggle ${PANEL_NAMES.context} panel`, 'p', ['claude.md', 'memory', 'issues'])
+  panel('system', `Toggle ${PANEL_NAMES.system} panel`, 'y', ['cpu', 'memory', 'ram', 'swap', 'disk', 'load', 'machine'])
   panel('stats', `Toggle ${PANEL_NAMES.stats} panel`, 's', ['statistics'])
   panel('cost', `Toggle ${PANEL_NAMES.cost} overlay`, '$', ['tokens', 'spend'])
 

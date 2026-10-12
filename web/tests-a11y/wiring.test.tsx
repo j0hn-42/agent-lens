@@ -104,7 +104,7 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
   const rec = (name: string) => () => { props.calls.push(name) }
   useKeyboardShortcuts({
     togglePlayPause: rec('play'), toggleFilePanel: rec('files'), toggleSessionList: rec('sessions'), toggleConversation: rec('conversation'),
-    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'),
+    toggleTimeline: rec('timeline'), toggleHexGrid: rec('hex'), toggleStats: rec('stats'), toggleContext: rec('context'), toggleSystem: rec('system'),
     toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'), togglePresentation: rec('presentation'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
@@ -156,6 +156,14 @@ test('P toggles the Context panel and S the Stats panel (#124)', () => {
   fireEvent.keyDown(document.body, { key: 'p' })
   fireEvent.keyDown(document.body, { key: 'S' })
   assert.deepEqual(calls, ['context', 'stats'])
+})
+
+test('Y toggles the System panel', () => {
+  const calls: string[] = []
+  render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'y' })
+  fireEvent.keyDown(document.body, { key: 'Y' })
+  assert.deepEqual(calls, ['system', 'system'])
 })
 
 test('V toggles presentation mode, and is inert when single-key shortcuts are off (#245)', () => {

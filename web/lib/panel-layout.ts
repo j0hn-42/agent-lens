@@ -5,7 +5,8 @@
  * bar, panels owned by other modules) and publishes one layout to every docked panel:
  *
  *   - right dock : "link" (stacked on top) then "files" | "conversation" (width = resizable, default 380)
- *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column
+ *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column,
+ *                  then "system" (machine health) in the same column, right below the card
  *   - bottom dock: "timeline", centred above the control bar, narrowed by whatever sits beside it
  *   - popups     : clamped to the viewport, between the top bar and the control bar
  *
@@ -19,7 +20,7 @@
 export interface Rect { x: number; y: number; w: number; h: number }
 export interface Viewport { w: number; h: number }
 
-export type PanelId = 'detail' | 'link' | 'files' | 'conversation' | 'timeline'
+export type PanelId = 'detail' | 'system' | 'link' | 'files' | 'conversation' | 'timeline'
 
 /** Below this viewport width panels become full-width sheets (one at a time). */
 export const SHEET_BREAKPOINT = 900
@@ -36,6 +37,7 @@ export const TOPBAR_FALLBACK_H = 60
 
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
 export const DETAIL_SIZE = { w: 240, h: 240, minH: 120 } as const
+const SYSTEM_H = 280
 export const LINK_H = 300
 export const MIN_MAIN_H = 160
 export const TIMELINE_SIZE = { maxW: 700, minW: 280, heights: [360, 280, 200] as readonly number[] }
@@ -104,7 +106,7 @@ export function leftPanelWidthBounds(
 ): { min: number; max: number } {
   if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
   const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
-  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.w + DOCK_GAP : 0)
   const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
   // Never wider than the room, even when the room is smaller than the usual minimum
   return { min: Math.min(RIGHT_DOCK.min, max), max }
@@ -238,6 +240,24 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     }
     if (!placed) return null
     rects.detail = placed
+    blockers.push(placed)
+  }
+
+  // Left dock, second slot: System, in the card's column (below it), or at the top of the column when the
+  // card is closed.
+  if (isOpen('system')) {
+    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
+    const card = rects.detail
+    const leftArea: Rect = card
+      ? { x: card.x, y: area.y, w, h: area.h }
+      : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
+    let placed: Rect | null = null
+    for (const h of [SYSTEM_H, DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
+      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
+      if (placed) break
+    }
+    if (!placed) return null
+    rects.system = placed
     blockers.push(placed)
   }
 

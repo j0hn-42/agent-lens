@@ -50,6 +50,7 @@ import { fetchSessionWork, type SessionWork } from '../extension/src/session-wor
 import { EventReconciler, type EventSource } from '../extension/src/event-source-priority'
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
+import { nodeIo, sampleSystem, type CpuCounters } from './system-stats'
 import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
 import { createStatusRoute, type StatusSnapshot } from './routes/status'
@@ -62,6 +63,9 @@ import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './
 import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
 import { createFileJournal } from './launch-journal'
 import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
+
+/** Period of the machine health sample (#357) */
+const SYSTEM_INTERVAL_MS = 2_000
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -662,7 +666,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'auto'
@@ -693,6 +697,8 @@ export interface RelayOptions {
   sessionIndex?: RelaySessionIndexOptions
   /** Period of the SSE keep-alive (ms). Injectable for tests; defaults to RELAY_SSE_HEARTBEAT_MS. */
   sseHeartbeatMs?: number
+  /** Period of the machine health sample (ms). Injectable for tests; defaults to SYSTEM_INTERVAL_MS. */
+  systemIntervalMs?: number
   /** Transcript size past which a Claude session is not (or no longer) watched. Injectable for tests;
    *  defaults to RELAY_MAX_SESSION_FILE_BYTES. */
   maxSessionFileBytes?: number
@@ -853,6 +859,15 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     // A client still receiving its replay gets data anyway, and a held beat would only arrive late
     for (const res of [...sseClients]) if (!replayHeld.has(res)) writeToClient(res, HEARTBEAT_PAYLOAD)
   }, options.sseHeartbeatMs ?? RELAY_SSE_HEARTBEAT_MS)
+  // System panel (#357): one shared sampler for the LOCAL clients; nothing runs without one, and nothing
+  // machine-related goes through broadcast() (a tunnel Host never receives it, #241).
+  let cpuCounters: CpuCounters[] | null = null
+  const systemIo = nodeIo()
+  const systemTicker = new SharedTicker(() => {
+    const { sample, counters } = sampleSystem(cpuCounters, systemIo)
+    cpuCounters = counters
+    broadcastLocal(JSON.stringify({ type: 'system-stats', sample }))
+  }, options.systemIntervalMs ?? SYSTEM_INTERVAL_MS)
   const scanCoalescer = new KeyedCoalescer<void>()
   const statusCoalescer = new KeyedCoalescer<StatusSnapshot>()
   let statusComputations = 0
@@ -1213,6 +1228,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       log(`[sse] Client connected (${sseClients.size} total)`)
       // First client starts the shared scan timer; the last one leaving stops it
       const releaseTicker = scanTicker?.acquire()
+      const releaseSystem = hostClass !== 'allowed' ? systemTicker.acquire() : undefined
       const releaseHeartbeat = heartbeatTicker.acquire()
 
       // Clean up on every way a connection can end; idempotent.
@@ -1221,6 +1237,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (closed) return
         closed = true
         releaseTicker?.()
+        if (releaseSystem) {
+          releaseSystem()
+          // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
+          if (!systemTicker.active) cpuCounters = null
+        }
         releaseHeartbeat()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
@@ -1292,6 +1313,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       sseClients: sseClients.size,
       remoteSseClients: remoteSseCount(),
       scanTimerActive: scanTicker?.active ?? false,
+      systemTimerActive: systemTicker.active,
       heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
       statusRuns: statusComputations,
@@ -1313,6 +1335,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       launchSnapshot = null
       launchKillAll = null
       heartbeatTicker.stop()
+      systemTicker.stop()
+      cpuCounters = null
       observations.dispose()
       webhooks?.dispose()
       webhooks = null

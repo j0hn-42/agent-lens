@@ -45,7 +45,7 @@ test('every panel the app has is reachable, under its glossary name', () => {
   const panels = items.filter(i => i.group === 'Panels').map(i => i.label)
   assert.deepEqual(panels, [
     'Toggle Sessions list', 'Toggle Files panel', 'Toggle Conversation panel', 'Toggle Timeline panel',
-    'Toggle Context panel', 'Toggle Stats panel', 'Toggle Cost overlay',
+    'Toggle Context panel', 'Toggle System panel', 'Toggle Stats panel', 'Toggle Cost overlay',
   ])
 })
 
@@ -58,6 +58,15 @@ test('items run the handler they stand for', () => {
   byLabel(items, 'session s1').run()
   byLabel(items, 'main').run()
   assert.deepEqual(calls, ['panel:files', 'play', 'settings', 'session:s1', 'agent:k1'])
+})
+
+test('the System entry toggles the System panel under its Y shortcut', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source())
+  const system = byLabel(items, 'Toggle System panel')
+  assert.equal(system.shortcut, 'Y')
+  system.run()
+  assert.deepEqual(calls, ['panel:system'])
 })
 
 test('shortcuts are shown only while they work', () => {
