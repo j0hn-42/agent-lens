@@ -2,14 +2,14 @@
 
 Agent Lens can be read without the canvas (#236). All of it is a thin layer over data the local relay already serves over HTTP, so it follows the same rule as the UI: nothing is shown that cannot be proven ([Reading the UI](reading-the-ui.md)). An unreachable relay is an error, never "0 sessions".
 
-The relay must be running (`npx agent-lens-app`, or `pnpm run dev`). The commands find it on the default port; use `--port <n>` or `AGENT_LENS_PORT` if you started it elsewhere.
+The relay must be running (the standalone app after `pnpm run build:app`, see the README, or `pnpm run dev`). The commands find it on the default port; use `--port <n>` or `AGENT_LENS_PORT` if you started it elsewhere.
 
 ## Commands
 
 ```bash
-npx agent-lens-app ps                 # JSON: what the relay observes
-npx agent-lens-app tail               # NDJSON: live events
-npx agent-lens-app statusline         # one line of text
+node app/dist/app.js ps                 # JSON: what the relay observes
+node app/dist/app.js tail               # NDJSON: live events
+node app/dist/app.js statusline         # one line of text
 ```
 
 Exit codes: `0` ok, `1` relay unreachable, answering an error, or stream broken (the reason is on stderr, stdout stays empty), `2` bad option.
@@ -60,8 +60,8 @@ curl -fsS --max-time 1 http://127.0.0.1:3001/statusline || echo "lens off"
 The relay can notify a URL when a **live** agent finishes, asks for a permission or fails.
 
 ```bash
-AGENT_LENS_WEBHOOKS='https://hooks.example.com/lens' npx agent-lens-app
-# or: npx agent-lens-app --webhook https://hooks.example.com/lens   (repeatable)
+AGENT_LENS_WEBHOOKS='https://hooks.example.com/lens' node app/dist/app.js
+# or: node app/dist/app.js --webhook https://hooks.example.com/lens   (repeatable)
 AGENT_LENS_WEBHOOK_EVENTS=agent_complete,error    # optional, default: agent_complete,permission_requested,error
 ```
 
