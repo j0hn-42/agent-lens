@@ -4,9 +4,10 @@
  * pour qu'une nouvelle route ne puisse pas en oublier un.
  */
 import * as http from 'http'
-import { isLoopbackAddress, isLoopbackHostHeader, type KeyedRateLimiter } from '../../extension/src/hook-guards'
+import { isLoopbackAddress, type KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { statusRateKey, isCrossOriginRequest } from '../../extension/src/relay-guards'
 import { applySecurityHeaders } from '../server-hardening'
+import { classifyHost, isRemoteCrossOrigin, remoteRateKey } from '../remote-access'
 
 export type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
 
@@ -17,6 +18,9 @@ export interface GuardOptions {
   methods?: readonly string[]
   /** Refuse aussi (403) les requêtes d'un autre site (Origin / Sec-Fetch-Site) : pour les routes qui lancent un processus. */
   rejectCrossOrigin?: boolean
+  /** Noms d'hôte de tunnel acceptés en plus du loopback (--allow-host, #241). Réservé aux routes en lecture seule ;
+   *  pour ces hôtes, seule l'origine https://<hôte> est acceptée. Absent : loopback seul. */
+  allowedHosts?: readonly string[]
 }
 
 export function sendPlain(res: http.ServerResponse, code: number, text: string, extra: http.OutgoingHttpHeaders = {}): void {
@@ -42,16 +46,21 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
   const allow = methods.join(', ')
   return (req, res) => {
     applySecurityHeaders(res, 'api')
-    if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+    const hostClass = classifyHost(req.headers.host, options.allowedHosts ?? [])
+    if (!isLoopbackAddress(req.socket.remoteAddress) || hostClass === 'foreign') {
       return sendPlain(res, 403, 'Forbidden')
     }
-    if (options.rejectCrossOrigin && isCrossOriginRequest(req.headers, req.headers.host)) {
+    if (hostClass === 'allowed' && isRemoteCrossOrigin(req.headers, req.headers.host ?? '')) {
+      return sendPlain(res, 403, 'Forbidden')
+    }
+    if (hostClass === 'loopback' && options.rejectCrossOrigin && isCrossOriginRequest(req.headers, req.headers.host)) {
       return sendPlain(res, 403, 'Forbidden')
     }
     if (!req.method || !methods.includes(req.method)) {
       return sendPlain(res, 405, 'Method not allowed', { Allow: allow })
     }
-    if (!options.limiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+    const rateKey = hostClass === 'allowed' ? remoteRateKey(req.headers.host ?? '') : statusRateKey(req.socket.remoteAddress, req.headers)
+    if (!options.limiter.allow(rateKey)) {
       return sendPlain(res, 429, 'Too many requests', { 'Retry-After': '1' })
     }
     return handler(req, res)

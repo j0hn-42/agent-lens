@@ -274,6 +274,10 @@ export const SUBAGENT_TRANSCRIPT_MAX_QUEUE = 16
 
 /** Max simultaneous SSE clients on the relay (extra clients get 503) */
 export const RELAY_MAX_SSE_CLIENTS = 32
+/** Of those, max SSE clients reaching the relay through an allowed tunnel Host (--allow-host, #241); extra ones get 503 */
+export const RELAY_MAX_REMOTE_SSE_CLIENTS = 4
+/** Max names accepted by --allow-host (#241): an explicit, short list */
+export const RELAY_MAX_ALLOWED_HOSTS = 4
 /** The relay writes a keep-alive to every SSE client this often (ms); the web client mirrors it (a test compares them) */
 export const RELAY_SSE_HEARTBEAT_MS = 15_000
 /** Drop an SSE client whose unsent backlog (res.writableLength) exceeds this many bytes */

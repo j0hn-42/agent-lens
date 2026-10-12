@@ -224,6 +224,41 @@ for (const entry of ENTRIES) {
   })
 }
 
+describe('app entry point: remote access is refused at startup (#241)', () => {
+  /** Runs the app until it exits; resolves with its exit code and output (rejects if it starts listening). */
+  function runToExit(args: string[]): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolve, reject) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, AGENT_LENS_PORT: '0' }
+      delete childEnv.FORCE_COLOR
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', VSCODE_ALIAS, 'app/src/app.ts', '--no-open', ...args], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      children.push(child)
+      let out = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`did not exit:\n${out}`)) }, STARTUP_TIMEOUT_MS)
+      const onData = (c: Buffer) => {
+        out += c.toString()
+        if (ENTRIES[1].listening.test(out)) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error(`started listening:\n${out}`)) }
+      }
+      child.stdout!.on('data', onData)
+      child.stderr!.on('data', onData)
+      child.once('exit', code => { clearTimeout(timer); resolve({ code, out }) })
+    })
+  }
+
+  it('--allow-host stops the start while token authentication is not shipped', async () => {
+    const r = await runToExit(['--allow-host', 'box.tail1234.ts.net'])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /--allow-host/)
+    assert.match(r.out, /token/i)
+  })
+
+  it('an invalid --allow-host and a non-loopback --host stop the start', async () => {
+    assert.equal((await runToExit(['--allow-host', '*.ts.net'])).code, 2)
+    const host = await runToExit(['--host', '0.0.0.0'])
+    assert.equal(host.code, 2, host.out)
+    assert.match(host.out, /loopback/i)
+  })
+})
+
 describe('app entry point: --port 0', () => {
   it('binds an ephemeral port without the environment variable', async () => {
     const app = ENTRIES[1]

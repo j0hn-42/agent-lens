@@ -13,6 +13,7 @@ import { parseArgs } from './args'
 import { isCliCommand, runCli } from '../../scripts/headless-cli'
 import { ensureSetup } from '../../scripts/setup'
 import { startServer } from './server'
+import { remoteStartupError } from '../../scripts/remote-access'
 
 const command = process.argv[2]
 if (isCliCommand(command)) {
@@ -20,6 +21,13 @@ if (isCliCommand(command)) {
   void runCli(command, process.argv.slice(3), process, process.env).then(code => process.exit(code))
 } else {
   const args = parseArgs(process.argv.slice(2))
+
+  // Remote access (#241): fail closed before any setup or listening
+  const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host })
+  if (remoteError) {
+    console.error(`Agent Lens: ${remoteError}`)
+    process.exit(2)
+  }
 
   console.log('Agent Lens\n')
 

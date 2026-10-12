@@ -7,7 +7,8 @@ import * as os from 'os'
 import * as path from 'path'
 import { exec, execFile } from 'child_process'
 
-import { createRelay } from '../../scripts/relay'
+import { createRelay, type Relay } from '../../scripts/relay'
+import { gateRemoteRequest, parseAllowedHosts } from '../../scripts/remote-access'
 import { createTelemetryClient } from '../../scripts/telemetry'
 import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
@@ -28,22 +29,24 @@ interface ServerOptions {
   webhooks?: string[]
 }
 
-export async function startServer(options: ServerOptions): Promise<{ port: number; close: () => void }> {
-  const { port, openBrowser, workspace } = options
+type AppRelay = Pick<Relay, 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleObservations' | 'handleIssueLinks'>
 
-  const configDir = path.join(os.homedir(), '.agent-lens')
-  const telemetry = createTelemetryClient({
-    logDir: path.join(configDir, 'telemetry'),
-    installIdPath: path.join(configDir, 'installation-id'),
-  })
-  await telemetry.init()
-
-  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}) })
-
-  const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (req, res) => {
+/**
+ * Request handler of the standalone app. `allowedHosts` (#241) are tunnel Host names accepted besides loopback;
+ * they reach only the read-only surface (gateRemoteRequest). startServer passes none until token authentication
+ * ships: --allow-host is refused at startup (remoteStartupError), so today only the tests pass a list.
+ */
+export function createAppRequestHandler(relay: AppRelay, opts: { allowedHosts: readonly string[] }): http.RequestListener {
+  // Same validation as createRelay, so the gate and the relay's own guards cannot disagree (fail closed)
+  const parsed = parseAllowedHosts(opts.allowedHosts)
+  if (parsed.errors.length > 0) throw new Error(`allowedHosts: ${parsed.errors.join('; ')}`)
+  const allowedHosts = parsed.hosts
+  return (req, res) => {
+    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || observationsRoute(req.url) !== null
+    // Loopback peer, Host loopback or allowed (static files included: DNS rebinding), read-only surface for a tunnel
+    if (gateRemoteRequest(req, res, allowedHosts, isApi ? 'api' : 'static')) return
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
     // GET/HEAD/OPTIONS only (405), session parameter validation (400)
-    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url)
     if (guardRequest(req, res, { kind: isApi ? 'api' : 'static' })) return
 
     // SSE endpoint
@@ -52,7 +55,7 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
       return relay.handleSSE(req, res)
     }
 
-    // Status snapshot for the empty-state checklist (loopback only, rate-limited)
+    // Status snapshot for the empty-state checklist (loopback or allowed tunnel Host, rate-limited)
     if (isStatusPath(req.url)) {
       return relay.handleStatus(req, res)
     }
@@ -84,7 +87,22 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
 
     // Static files (UI): GET/HEAD (other methods were answered 405 above)
     return serveStatic(req, res)
+  }
+}
+
+export async function startServer(options: ServerOptions): Promise<{ port: number; close: () => void }> {
+  const { port, openBrowser, workspace } = options
+
+  const configDir = path.join(os.homedir(), '.agent-lens')
+  const telemetry = createTelemetryClient({
+    logDir: path.join(configDir, 'telemetry'),
+    installIdPath: path.join(configDir, 'installation-id'),
   })
+  await telemetry.init()
+
+  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}) })
+
+  const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay, { allowedHosts: [] }))
 
   server.maxConnections = 256
   server.headersTimeout = 10_000

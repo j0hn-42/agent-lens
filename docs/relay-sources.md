@@ -89,6 +89,7 @@ streaming from a remote agent and provider connectors are tracks 2 and 3 of #294
 - Dev relay CORS (#201): only the dev web server origin (`http://localhost:3000` or `127.0.0.1:3000`) gets
   `Access-Control-Allow-Origin`. If Next.js falls back to another port, set `AGENT_LENS_WEB_PORT` (comma
   list, at most 5 ports). Other local ports are refused, and so are their cross-origin requests.
+- The standalone app refuses (`403`) a non-loopback `Host` on every path, the static files included (#241); the API routes already did.
 - `?session=` / `?sessionId=` are validated (`400`).
 - One in-flight refresh per key (`KeyedCoalescer`): 50 concurrent `GET /status` share one computation.
 - One shared scan interval for all SSE clients (`SharedTicker`), stopped when the last client leaves.
@@ -96,6 +97,29 @@ streaming from a remote agent and provider connectors are tracks 2 and 3 of #294
   existed at startup) or by the scan that runs when the next client connects. That scan runs before the
   client joins the broadcast, so the client receives the session once (session list + replay).
 - The earlier limits (SSE client cap, replay caps, `/status` rate limit) are unchanged.
+
+## Remote access: guards only (#241, step 1)
+
+Watching agents from a phone or another machine is not available yet. This step only puts the guards in place; the standalone app **refuses to start** with the new options (exit code 2, the reason on stderr):
+
+- `--allow-host <name>` is refused until token authentication ships (step 2 of #241). The event stream carries prompts, tool outputs and file contents: without a token, anyone who reaches the tunnel would read them.
+- `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a tunnel (SSH `-L`, Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS.
+
+What the guards will enforce once the token exists (tested now through the app's request handler):
+
+| Request | Answer |
+| --- | --- |
+| `Host` loopback (`127.0.0.1`, `localhost`, `[::1]`, any port) | unchanged |
+| `Host` exactly a `--allow-host` name (case-insensitive; with the port only if one was given) | read-only surface: `GET`/`HEAD` on `/events`, `/status` and the static app |
+| same, on `/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope` or any other method | `403` |
+| same, with an `Origin` other than `https://<name>` (the dev origins included) or a `Sec-Fetch-Site` other than `same-origin` / `none` | `403` |
+| two `Host` headers | `403` |
+| any other `Host` (suffix or prefix look-alikes, trailing dot, other port), static files included | `403` (DNS rebinding) |
+| more than 4 SSE streams through allowed names (`RELAY_MAX_REMOTE_SSE_CLIENTS`) | `503` + `Retry-After`; local tabs are not counted against it |
+
+`--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL, credentials or default port (`:80`, `:443`, which browsers leave out of `Host`); at most 4 names. The peer must still be loopback: a tunnel's is. So every client of a tunnel shares one rate-limit bucket per name (its `User-Agent` is ignored). The total SSE cap, the rate limits and the strict headers are unchanged.
+
+The tunnel must forward the `Host` header unchanged (SSH `-L` does, it does not touch HTTP). A tunnel that rewrites `Host` to `127.0.0.1` makes remote requests look local: they would reach the full loopback surface. Step 2 (token) has to close this before `--allow-host` is enabled.
 
 ## Scope of the discovery (#291)
 
