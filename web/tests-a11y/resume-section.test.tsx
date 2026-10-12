@@ -129,7 +129,7 @@ test('without a VS Code bridge there is no terminal button', () => {
 test('inside VS Code a named button asks for a terminal of this session and says only that it asked', () => {
   const asked: string[] = []
   const r = show(session(), { onOpenTerminal: (id: string) => { asked.push(id) } })
-  const btn = r.getByRole('button', { name: 'Open a terminal in the session directory' })
+  const btn = r.getByRole('button', { name: 'Go to terminal: open a terminal in the session directory' })
   assert.equal(btn.tagName, 'BUTTON')
   assert.equal(btn.getAttribute('type'), 'button')
   btn.focus()
@@ -141,12 +141,21 @@ test('inside VS Code a named button asks for a terminal of this session and says
   assert.ok(document.activeElement === btn, 'focus stays on the button')
 })
 
+test('the terminal button name contains its visible text (WCAG 2.5.3 Label in Name)', () => {
+  const r = show(session(), { onOpenTerminal: () => {} })
+  const btn = r.getByRole('button', { name: /terminal/i })
+  const visible = (btn.textContent ?? '').trim()
+  assert.ok(visible.length > 0)
+  assert.ok((btn.getAttribute('aria-label') ?? '').toLowerCase().includes(visible.toLowerCase()), 'the accessible name starts from the visible label')
+  assert.ok((btn.getAttribute('aria-label') ?? '').toLowerCase().startsWith(visible.toLowerCase()))
+})
+
 test('the terminal button needs a known directory, also for a session that cannot be resumed', () => {
   const noCwd = show(session({ cwd: undefined }), { onOpenTerminal: () => {} })
   assert.equal(noCwd.queryByRole('button', { name: /terminal/i }), null)
   cleanup()
   const codex = show(session({ runtime: 'codex' }), { onOpenTerminal: () => {} })
-  assert.ok(codex.getByRole('button', { name: 'Open a terminal in the session directory' }))
+  assert.ok(codex.getByRole('button', { name: 'Go to terminal: open a terminal in the session directory' }))
   assert.equal(codex.queryByRole('button', { name: /resume command/i }), null)
   cleanup()
   const imported = show(session({ imported: true }), { onOpenTerminal: () => {} })

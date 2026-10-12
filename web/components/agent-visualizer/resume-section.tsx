@@ -65,7 +65,7 @@ export function ResumeSection({ session, onOpenTerminal }: { session: ResumableS
           <button
             type="button"
             onClick={openTerminal}
-            aria-label="Open a terminal in the session directory"
+            aria-label="Go to terminal: open a terminal in the session directory"
             className={`text-[11px] font-mono px-1.5 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`}
             style={{ color: COLORS.textMuted }}
           >
