@@ -221,7 +221,9 @@ function uiSources(): string {
 test('Honest values: every quoted label exists in the UI (#179)', () => {
   const doc = read('docs/reading-the-ui.md')
   const section = doc.slice(doc.indexOf('## Honest values'), doc.indexOf('## The `observations` action'))
-  const labels = [...section.matchAll(/"([^"]+)"/g)].map(m => m[1])
+  // Only the "You see" cell (first column) quotes UI labels; labels with a placeholder (X, N) are templates.
+  const seen = section.split('\n').filter(l => l.startsWith('|')).map(l => l.split('|')[1] ?? '').join('\n')
+  const labels = [...seen.matchAll(/"([^"]+)"/g)].map(m => m[1]).filter(l => !/\b[XN]\b|\.\.\./.test(l))
   const sources = uiSources()
   for (const label of labels) {
     assert.ok(sources.includes(label.toLowerCase()), `"${label}" is quoted in Honest values but absent from web/lib, web/components and web/hooks`)
