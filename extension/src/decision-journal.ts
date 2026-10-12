@@ -17,7 +17,7 @@ const log = createLogger('DecisionJournal')
 export type DecisionAction = 'approve' | 'deny' | 'redirect'
 /** sent = the decision was handed to Claude Code (not proof it was applied); the others are requests that got none */
 export type DecisionOutcome =
-  | 'sent' | 'expired' | 'answered-elsewhere' | 'surface-closed' | 'shutdown'
+  | 'sent' | 'expired' | 'answered-elsewhere' | 'surface-closed' | 'shutdown' | 'disabled'
   | 'rejected-replay' | 'rejected-mismatch'
 
 export interface DecisionRecord {

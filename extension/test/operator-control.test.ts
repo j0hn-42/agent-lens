@@ -43,6 +43,30 @@ describe('OperatorControl', () => {
     assert.equal(sent.length, 0)
   })
 
+  it('the setting turned off while requests wait ends them at once (long TTL) and tells the panel', async () => {
+    const { panel, sent } = fakePanel()
+    const { control, state, journal } = setup({ panel, ttlMs: 5000 })
+    control.handlePanelMessage(panel, { type: 'permission-surface', ready: true })
+    const r = ask(control)
+    state.allowed = false
+    control.settingChanged()
+    assert.equal(await r.decision, null)
+    assert.equal(control.gate.pending().length, 0)
+    assert.equal(control.discoveryToken(), undefined)
+    assert.ok(sent.some(m => m.type === 'permission-closed' && m.outcome === 'disabled'))
+    assert.match(journal(), /"outcome":"disabled"/)
+  })
+
+  it('the setting changed but still on: waiting requests stay', () => {
+    const { panel } = fakePanel()
+    const { control } = setup({ panel, ttlMs: 5000 })
+    control.handlePanelMessage(panel, { type: 'permission-surface', ready: true })
+    ask(control)
+    control.settingChanged()
+    assert.equal(control.gate.pending().length, 1)
+    control.dispose()
+  })
+
   it('holds nothing when the setting is off, whatever the panel says', async () => {
     const { panel, sent } = fakePanel()
     const { control } = setup({ panel, allowed: false })

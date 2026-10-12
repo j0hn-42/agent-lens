@@ -9,7 +9,7 @@ Scope, on purpose: the VS Code extension only. The standalone relay and the brow
 Two things are needed, and both are explicit:
 
 1. Run **Agent Lens: Install the Permission Hook (operator control)**. It adds one `PermissionRequest` hook to your global Claude Code `settings.json` (timeout 60 s) and installs `~/.claude/agent-lens/permission-hook.js`. The observation hooks are not touched, and re-running **Configure Claude Code Hooks** keeps this one. **Remove the Permission Hook** takes it out again; uninstalling the extension removes it too.
-2. Turn on `agentVisualizer.allowControl` (default `false`). It is machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` cannot switch it on. It is read at each request, so turning it off needs no reload.
+2. Turn on `agentVisualizer.allowControl` (default `false`). It is machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` cannot switch it on. It is read at each request, and turning it off ends the requests already waiting at once (journalled `disabled`), so it needs no reload.
 
 ## What Claude Code is told
 
@@ -37,6 +37,7 @@ There is no decision, and Claude Code asks as usual, when any of these holds:
 | The token is missing or wrong, the request has an `Origin` header (a browser), or the Host is not loopback | Refused (403); the hook prints nothing. |
 | You do not answer within 55 s | The extension answers first, with no decision, journalled `expired` (the hook's own deadline is 59.5 s). |
 | You answer in the terminal first, or the hook is killed | The connection closes, the request is dropped, journalled `answered-elsewhere`. |
+| `agentVisualizer.allowControl` is turned off while requests wait | They end at once with no decision, journalled `disabled`; a decision that arrives after the switch is refused (`disabled`) and ends its request too. |
 | The panel is closed, or says it can no longer answer | Waiting requests end with no decision, journalled `surface-closed`. |
 | More than 16 requests wait at once | The extra ones get no decision. |
 | The decision cannot be written to the journal | It is not sent. |
@@ -65,7 +66,7 @@ The `PermissionRequest` hook input has **no `tool_use_id`**. Agent Lens fills it
 | `decision` | `approve`, `deny`, `redirect`, or `none` when no decision was given. |
 | `inputSha256` | SHA-256 of the tool input, **not the input**: the journal holds no command, path or secret. |
 | `messageChars` | Length of a redirect message, never its text. |
-| `outcome` | `sent`, `expired`, `answered-elsewhere`, `surface-closed`, `shutdown`, `rejected-replay`, `rejected-mismatch`. |
+| `outcome` | `sent`, `expired`, `answered-elsewhere`, `surface-closed`, `shutdown`, `disabled`, `rejected-replay`, `rejected-mismatch`. |
 | `entrySha256` | SHA-256 of the line without this field, so an edited line can be noticed (it does not make the file tamper-proof). |
 
 `sent` means the decision was handed to Claude Code. It is **not** proof that it was applied: that can only be seen later (a `PostToolUse` for the call, or the refusal), and Agent Lens does not claim it here. On Windows the 0600 mode is not enforced by the file system; use the profile's permissions. Uninstalling the extension deletes the whole `~/.claude/agent-lens/` folder, the journal included.

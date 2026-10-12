@@ -185,12 +185,31 @@ describe('decide', () => {
     assert.equal((await r.decision)?.behavior, 'deny')
   })
 
-  it('turned off while a request waits: the decision is refused and the request ends without one', async () => {
-    const { gate, state, shown } = setup({ ttlMs: 30 })
+  it('turned off while a request waits: the decision is refused and the request ends at once, journalled disabled', async () => {
+    // A long TTL: the request must end because of the switch, not because it expired
+    const { gate, state, shown, records, closed } = setup({ ttlMs: 5000 })
     const r = ask(gate)
     state.enabled = false
     assert.deepEqual(gate.decide({ sessionId: 's1', toolUseId: 'toolu_1', nonce: shown[0].nonce, action: 'approve' }), { ok: false, reason: 'disabled' })
     assert.equal(await r.decision, null)
+    assert.equal(gate.pending().length, 0)
+    assert.equal(records.at(-1)?.outcome, 'disabled')
+    assert.equal(records.at(-1)?.decision, 'none')
+    assert.equal(closed.at(-1)?.outcome, 'disabled')
+    assert.equal(records.some(x => x.outcome === 'sent'), false)
+  })
+
+  it('cancelAll("disabled") ends every waiting request at once without a decision', async () => {
+    const { gate, state, records, closed } = setup({ ttlMs: 5000 })
+    const a = ask(gate, { toolUseId: 'a' })
+    const b = ask(gate, { toolUseId: 'b' })
+    state.enabled = false
+    gate.cancelAll('disabled')
+    assert.equal(await a.decision, null)
+    assert.equal(await b.decision, null)
+    assert.equal(gate.pending().length, 0)
+    assert.deepEqual(records.map(x => x.outcome), ['disabled', 'disabled'])
+    assert.deepEqual(closed.map(x => x.outcome), ['disabled', 'disabled'])
   })
 
   it('a decision that cannot be journalled is not sent', async () => {

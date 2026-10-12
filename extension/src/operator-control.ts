@@ -56,6 +56,11 @@ export class OperatorControl {
     return this.opts.allowed() ? this.token : undefined
   }
 
+  /** The `allowControl` setting changed: when it is now off, what waits ends at once with no decision (not at the TTL) */
+  settingChanged(): void {
+    if (!this.opts.allowed()) this.gate.cancelAll('disabled')
+  }
+
   /** Handles `permission-surface` and `permission-decision` from a panel; other messages are not its business. */
   handlePanelMessage(panel: ControlPanel, raw: unknown): void {
     if (!raw || typeof raw !== 'object') return

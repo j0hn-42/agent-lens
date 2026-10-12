@@ -80,7 +80,10 @@ export async function startClaudeRuntime(
       writeDiscoveryFile(hookPort, workspace, control.discoveryToken())
       // The token is published only while the setting is on: follow the setting without a reload
       context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-        if (e.affectsConfiguration('agentVisualizer.allowControl')) { writeDiscoveryFile(hookPort, workspace, control.discoveryToken()) }
+        if (e.affectsConfiguration('agentVisualizer.allowControl')) {
+          writeDiscoveryFile(hookPort, workspace, control.discoveryToken())
+          control.settingChanged() // requests already held end now, not at the 55 s expiry
+        }
       }))
       void purgeStaleDiscoveryFiles().catch(err => log.debug('Discovery purge failed:', err))
       migrateLegacyHooks()

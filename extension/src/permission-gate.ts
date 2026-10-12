@@ -186,7 +186,11 @@ export class PermissionGate {
       return { ok: false, reason: 'closed' }
     }
     const { view } = pending
-    if (!this.opts.enabled()) return { ok: false, reason: 'disabled' }
+    if (!this.opts.enabled()) {
+      // Turned off while waiting: end the request now instead of keeping Claude Code waiting until the TTL
+      this.close(view.nonce, 'disabled')
+      return { ok: false, reason: 'disabled' }
+    }
     if (msg.sessionId !== view.sessionId || msg.toolUseId !== view.toolUseId) {
       this.journal({ sessionId: view.sessionId, toolUseId: view.toolUseId, toolName: view.toolName, inputSha256: view.inputSha256 }, msg.action, 'rejected-mismatch')
       return { ok: false, reason: 'mismatch' }
@@ -213,8 +217,8 @@ export class PermissionGate {
     return { ok: true }
   }
 
-  /** The panel went away: nobody can answer, so the waiting requests end without a decision */
-  cancelAll(outcome: 'surface-closed' | 'shutdown'): void {
+  /** The panel went away, or control was turned off: nobody can answer, so the waiting requests end without a decision */
+  cancelAll(outcome: 'surface-closed' | 'shutdown' | 'disabled'): void {
     for (const nonce of [...this.pendingByNonce.keys()]) this.close(nonce, outcome)
   }
 
