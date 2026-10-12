@@ -7,7 +7,7 @@
  *   3. Serves the visualizer UI and streams events via SSE
  *   4. Opens the browser automatically
  *
- * Usage: npx agent-lens-app [--port <number>] [--no-open]
+ * Usage: node app/dist/app.js [--port <number>] [--no-open]
  */
 import { parseArgs } from './args'
 import { isCliCommand, runCli } from '../../scripts/headless-cli'

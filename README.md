@@ -56,6 +56,18 @@ pnpm run dev        # start the web app + event relay
 
 Open http://localhost:3000 and start a Claude Code session in another terminal — events will stream to the browser in real-time.
 
+### Standalone app (built from source)
+
+There is no `agent-lens-app` package on npm to run with `npx`. Build the app from the checkout and run it with Node:
+
+```bash
+pnpm i
+pnpm run build:app            # writes app/dist/app.js and app/dist/webview/
+node app/dist/app.js          # serves the UI and the relay, then opens the browser
+```
+
+Options: `--port <n>` (default 3001, `0` = ephemeral port), `--no-open` (do not open the browser), `--all-workspaces` (discover the Claude sessions of every workspace from the start). Run `node app/dist/app.js --help` for the full list.
+
 ### VS Code Extension
 
 Build the `.vsix` from source and install it:
@@ -78,18 +90,18 @@ Agent Lens automatically configures Claude Code hooks the first time you open th
 
 ### Runtime selection
 
-By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) local GitHub Copilot (`~/.copilot/session-state/`) Pi (`~/.pi/agent/sessions/`) and Gemini CLI (`~/.gemini/tmp/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `npx agent-lens-app`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
+By default Agent Lens watches Claude Code (`~/.claude/projects/`), Codex (`~/.codex/sessions/`) local GitHub Copilot (`~/.copilot/session-state/`) Pi (`~/.pi/agent/sessions/`) and Gemini CLI (`~/.gemini/tmp/`) concurrently in all three entry points (VS Code extension, `pnpm run dev`, `node app/dist/app.js`). Sessions are shown side-by-side and tagged by runtime. If you only use one, the other is a harmless no-op — no visible effect, no user action needed.
 
 To restrict to one runtime:
 
 - **VS Code extension:** set `agentVisualizer.runtime` to `"auto"` / `"claude"` / `"codex"` / `"copilot"` / `"pi"` / `"gemini"` in your settings
-- **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex`, `copilot`, `pi` or `gemini` (defaults to watching all)
+- **`pnpm run dev` and `node app/dist/app.js`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex`, `copilot`, `pi` or `gemini` (defaults to watching all)
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`; for Pi, `PI_CODING_AGENT_DIR` (sessions under `<dir>/sessions`) or `PI_CODING_AGENT_SESSION_DIR` (session files directly in it), the variables Pi itself reads; for Gemini CLI, `GEMINI_CLI_HOME` (sessions under `<dir>/.gemini/tmp`), the variable Gemini CLI itself reads.
 
 ### Scope: this workspace, a project, or all workspaces
 
-By default the relay only discovers the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and `npx agent-lens-app` the top bar has a **Session scope** selector (a native select, keyboard operable): **This workspace**, **All workspaces**, or **Project: <name>** (one of the projects in the list). The choice is applied to the running relay, with no restart, and remembered in the browser; the line next to the selector always says what is really scanned ("Scanning this workspace only (name)"; nothing is written on all workspaces), taken from the relay's own `GET /status`, and an empty list on a single workspace says so and how to widen it.
+By default the relay only discovers the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and the standalone app (`node app/dist/app.js`) the top bar has a **Session scope** selector (a native select, keyboard operable): **This workspace**, **All workspaces**, or **Project: <name>** (one of the projects in the list). The choice is applied to the running relay, with no restart, and remembered in the browser; the line next to the selector always says what is really scanned ("Scanning this workspace only (name)"; nothing is written on all workspaces), taken from the relay's own `GET /status`, and an empty list on a single workspace says so and how to widen it.
 
 - `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
 - The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
@@ -102,7 +114,7 @@ See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guar
 
 Hooks and JSONL transcripts are reconciled (no duplicate events), and the local server is loopback-only and hardened (`AGENT_LENS_PORT=0` or `--port 0` picks an ephemeral port). See [docs/relay-sources.md](docs/relay-sources.md).
 
-Sessions of a cloud agent leave nothing on this machine. Fetch their JSONL transcript and import it with `npx agent-lens-app --import <file-or-folder>` (or `AGENT_LENS_IMPORT`): it is read once, listed as *imported - not live*, and never shown as running. See [Imported transcripts](docs/relay-sources.md#imported-transcripts-294).
+Sessions of a cloud agent leave nothing on this machine. Fetch their JSONL transcript and import it with `node app/dist/app.js --import <file-or-folder>` (or `AGENT_LENS_IMPORT`): it is read once, listed as *imported - not live*, and never shown as running. See [Imported transcripts](docs/relay-sources.md#imported-transcripts-294).
 
 ### JSONL Event Log
 

@@ -45,8 +45,8 @@ A session that runs on a cloud agent writes nothing on this machine, so the rela
 fetch its JSONL transcript (downloaded, synced or copied into a folder), the relay can **import** it:
 
 ```bash
-npx agent-lens-app --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
-npx agent-lens-app --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
+node app/dist/app.js --import ~/Downloads/cloud-sessions          # a folder: every *.jsonl directly inside
+node app/dist/app.js --import ./<session-id>.jsonl --import ./other # one file; the flag repeats
 AGENT_LENS_IMPORT="/path/a.jsonl:/path/folder" pnpm run dev      # same list from the environment (';' on Windows)
 pnpm run dev:relay -- --import /path/folder                     # dev relay only
 ```
