@@ -1,6 +1,6 @@
 # Operator control (VS Code, off by default)
 
-Agent Lens can pass your decision on a Claude Code permission request back to Claude Code (#240). This page describes the **decision channel** of the VS Code extension: the optional hook, the setting, the checks and the journal. The approve, deny and redirect buttons that use it are a separate step: until the panel sends `permission-surface` (see [Protocol](#protocol-for-the-panel)), nothing is ever held and Claude Code behaves exactly as without Agent Lens.
+Agent Lens can pass your decision on a Claude Code permission request back to Claude Code (#240). This page describes the **decision channel** of the VS Code extension: the optional hook, the setting, the checks and the journal. The Agent Lens panel in VS Code uses it to show **Approve** and **Deny** buttons (see [The panel](#the-panel)); **Redirect** is not offered yet. Until the panel sends `permission-surface` (see [Protocol](#protocol-for-the-panel)), nothing is ever held and Claude Code behaves exactly as without Agent Lens.
 
 Scope, on purpose: the VS Code extension only. The standalone relay and the browser app have no control channel and no HTTP route to decide: a web page cannot answer a permission request.
 
@@ -72,9 +72,19 @@ The `PermissionRequest` hook input has **no `tool_use_id`**. Agent Lens fills it
 
 `sent` means the decision was handed to Claude Code. It is **not** proof that it was applied: that can only be seen later (a `PostToolUse` for the call, or the refusal), and Agent Lens does not claim it here. On Windows the 0600 mode is not enforced by the file system; use the profile's permissions. Uninstalling the extension deletes the whole `~/.claude/agent-lens/` folder, the journal included.
 
+## The panel
+
+Inside VS Code, the Agent Lens panel declares its decision surface when it opens and withdraws it when it closes or unloads. Each request the extension holds is shown at the top right of the canvas with:
+
+- the tool, the session (its label when the session list has one, and its full id), the tool call id (or "not identified" when it is `null`) and the deadline (`expiresAt`, wall-clock time);
+- the whole input as JSON text. Control and invisible characters (bidi overrides, zero-width marks) are written as their `\uXXXX` escapes, so the command cannot read differently from what runs. A cut input says it is truncated and gives the SHA-256 of the whole input;
+- two buttons, **Approve** and **Deny**. Their accessible names repeat the tool, what it acts on and the session ("Approve Bash: npm test, session fix-login"). There is no keyboard shortcut for them and nothing takes the focus: news (a decision sent, a request that expired, was answered elsewhere, or ended because control was turned off or the panel closed, a decision the extension refused) is announced in a polite live region.
+
+A click sends one `permission-decision`. The request then reads "Decision sent", never "applied": `sent` only means the extension handed the decision to Claude Code (see [The journal](#the-journal)). A request that ends without a decision disappears from the panel. **Redirect** (a deny with your text) is not in the panel yet. The browser app and the standalone relay show nothing of this.
+
 ## Protocol for the panel
 
-For the approve, deny and redirect UI (next steps). Messages from the page to the extension:
+Messages from the page to the extension:
 
 - `{ type: 'permission-surface', ready: boolean }`: the page can show and answer requests. Sent with `ready: false` when it no longer can, which ends what waits with no decision. Requests already waiting are sent when it becomes `true`.
 - `{ type: 'permission-decision', sessionId, toolUseId, nonce, action: 'approve' | 'deny' | 'redirect', message? }`.

@@ -240,3 +240,91 @@ export function pickAutoSelectSession(sessions: ReadonlyArray<SessionInfo>): str
 export function isConnectionStatus(v: unknown): v is ConnectionStatus {
   return typeof v === 'string' && CONNECTION_STATUSES.includes(v)
 }
+
+// ─── Operator decisions (#240) ───────────────────────────────────────────────
+// Mirrors PermissionRequestMessage and the permission-* messages of extension/src/protocol.ts.
+
+/** A waiting PermissionRequest, as the extension shows it to a panel that declared a decision surface */
+export interface PermissionRequestMessage {
+  sessionId: string
+  /** null when the hook input does not name the call and no single open call of the session matches */
+  toolUseId: string | null
+  nonce: string
+  toolName: string
+  /** Tool input as JSON text with sorted keys, cut at 64 KiB */
+  inputPreview: string
+  inputTruncated: boolean
+  /** SHA-256 of the whole input */
+  inputSha256: string
+  requestedAt: number
+  expiresAt: number
+}
+
+/** How a request ended (extension decision-journal.ts); `sent` = handed to Claude Code, not proof it was applied */
+export type PermissionCloseOutcome = 'sent' | 'expired' | 'answered-elsewhere' | 'surface-closed' | 'shutdown' | 'disabled' | 'journal-failed'
+
+/** `outcome` is a PermissionCloseOutcome; kept as text so a value added later is still relayed */
+export interface PermissionClosedMessage { nonce: string; sessionId: string; toolUseId: string | null; outcome: string }
+export interface PermissionResultMessage { nonce: string | null; ok: boolean; reason?: string }
+
+/** What the page answers; a redirect (with its text) is not offered yet */
+export interface PermissionDecision {
+  sessionId: string
+  toolUseId: string | null
+  nonce: string
+  action: 'approve' | 'deny'
+}
+
+const NONCE_RE = /^[0-9a-f]{32}$/
+const SHA256_RE = /^[0-9a-f]{64}$/
+const CONTROL_PROBE = new RegExp(CONTROL_ALL.source)
+/** The extension cuts the preview at 64 Ki characters; a longer one did not come from it */
+const PERMISSION_PREVIEW_MAX = 64 * 1024
+const MAX_TOOL_NAME_LEN = 256
+const MAX_CODE_LEN = 64
+
+const isNonce = (v: unknown): v is string => typeof v === 'string' && NONCE_RE.test(v)
+const isId = (v: unknown, max = MAX_SESSION_ID_LEN): v is string =>
+  typeof v === 'string' && v.length > 0 && v.length <= max && !CONTROL_PROBE.test(v)
+const isTime = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
+
+/**
+ * The input as it may be shown: every invisible or control character is written as its JSON escape (\uXXXX),
+ * so a bidi override or a zero-width character in a command cannot make it read differently from what runs.
+ * The text stays valid JSON for the same value.
+ */
+export function visibleInput(text: string): string {
+  return text.replace(CONTROL_ALL, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
+}
+
+/** A permission-request payload from the extension, field by field; null when any field is not what it sends */
+export function parsePermissionRequest(v: unknown): PermissionRequestMessage | null {
+  if (!v || typeof v !== 'object') return null
+  const r = v as Record<string, unknown>
+  if (!isId(r.sessionId) || !isNonce(r.nonce) || !isId(r.toolName, MAX_TOOL_NAME_LEN)) return null
+  if (r.toolUseId !== null && !isId(r.toolUseId)) return null
+  if (typeof r.inputPreview !== 'string' || r.inputPreview.length > PERMISSION_PREVIEW_MAX) return null
+  if (typeof r.inputTruncated !== 'boolean' || typeof r.inputSha256 !== 'string' || !SHA256_RE.test(r.inputSha256)) return null
+  if (!isTime(r.requestedAt) || !isTime(r.expiresAt)) return null
+  return {
+    sessionId: r.sessionId, toolUseId: r.toolUseId as string | null, nonce: r.nonce, toolName: r.toolName,
+    inputPreview: r.inputPreview, inputTruncated: r.inputTruncated, inputSha256: r.inputSha256,
+    requestedAt: r.requestedAt, expiresAt: r.expiresAt,
+  }
+}
+
+export function parsePermissionClosed(v: unknown): PermissionClosedMessage | null {
+  if (!v || typeof v !== 'object') return null
+  const r = v as Record<string, unknown>
+  if (!isNonce(r.nonce) || !isId(r.sessionId) || (r.toolUseId !== null && !isId(r.toolUseId)) || !isId(r.outcome, MAX_CODE_LEN)) return null
+  return { nonce: r.nonce, sessionId: r.sessionId, toolUseId: r.toolUseId as string | null, outcome: r.outcome }
+}
+
+export function parsePermissionResult(v: unknown): PermissionResultMessage | null {
+  if (!v || typeof v !== 'object') return null
+  const r = v as Record<string, unknown>
+  if ((r.nonce !== null && !isNonce(r.nonce)) || typeof r.ok !== 'boolean') return null
+  if (r.reason !== undefined && !isId(r.reason, MAX_CODE_LEN)) return null
+  const nonce = r.nonce as string | null
+  return r.reason === undefined ? { nonce, ok: r.ok } : { nonce, ok: r.ok, reason: r.reason }
+}

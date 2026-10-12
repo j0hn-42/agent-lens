@@ -269,6 +269,19 @@ Inside the VS Code extension the RESUME block also has a **Go to terminal** butt
 - The button is offered for every runtime that reports a directory (Codex, Copilot and Pi included), not only for Claude Code, and never for an imported transcript. It does not exist in the browser app: a page cannot open a terminal.
 - The status line says "Asked VS Code to open a terminal ...": that the request was sent is all Agent Lens can prove. Whether the terminal opened is shown by VS Code itself.
 
+### Permission requests (VS Code only)
+
+With operator control on ([operator-control.md](operator-control.md)), a permission request Claude Code is waiting on appears at the top right of the canvas with the tool, the session, the whole input and its deadline, and two buttons: **Approve** and **Deny**.
+
+| You see | It means |
+| --- | --- |
+| "Sending the decision…" | Your click left the page; the extension has not answered yet. |
+| "Decision sent: approve" (or deny) | The extension handed your decision to Claude Code. **Sent is not applied**: whether the tool ran (or the refusal reached Claude) only shows later in the transcript, and Agent Lens does not claim it here. |
+| "Decision sent from another panel" | A decision for this request was handed to Claude Code, not from this page. |
+| The request disappears, with an announcement | It ended without a decision: the deadline passed, Claude Code stopped waiting (answered in the terminal, call interrupted), control was turned off or the panel could no longer decide. Claude Code then shows its usual prompt. |
+| "Input truncated" | Only the first 64 KiB of the input are shown; the SHA-256 given is the one of the whole input. |
+| `\u202e` and other escapes in the input | An invisible character of the real input, shown as its escape instead of being applied to the text. |
+
 ## Presentation mode
 
 For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.
