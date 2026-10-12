@@ -1,7 +1,7 @@
 'use client'
 
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { useSessionWork } from '@/hooks/use-session-work'
 import { checksLabel, isSessionBranch, sortPrsByBranch, type ChecksState } from '@/lib/session-work'
 import { issueLinkLabel } from '@/lib/issue-links'
@@ -32,7 +32,7 @@ const Heading = ({ children }: { children: React.ReactNode }) => (
   <h3 className="m-0 text-[11px] font-mono font-semibold tracking-wider" style={{ color: COLORS.panelLabel }}>{children}</h3>
 )
 
-const ANCHOR_CLASS = `underline break-words rounded ${FOCUS_RING}`
+const ANCHOR_CLASS = `underline break-words rounded ${FOCUS_RING_INSET}`
 
 export function SessionWorkSection({ relayOrigin, sessionId, sessionBranch, active }: SessionWorkSectionProps) {
   const state = useSessionWork(relayOrigin, sessionId, active)

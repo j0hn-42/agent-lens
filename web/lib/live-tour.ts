@@ -58,13 +58,14 @@ export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
   'rt-codex': 'The knot logo: the agent runs on Codex.',
   'rt-copilot': 'The visor logo: the agent runs on GitHub Copilot.',
   'rt-pi': 'The pi letter: the agent runs on the Pi coding agent.',
+  'rt-gemini': 'The four-point star: the agent runs on Gemini CLI.',
 }
 
 interface Group { id: string; title: string; entries: readonly LegendEntryId[] }
 
 /** Every legend entry belongs to exactly one group; a group is a step when at least one of its entries is on screen. */
 const GROUPS: readonly Group[] = [
-  { id: 'agents', title: 'Your agents', entries: ['shape-main', 'orchestrator', 'shape-sub', 'rt-claude', 'rt-codex', 'rt-copilot', 'rt-pi'] },
+  { id: 'agents', title: 'Your agents', entries: ['shape-main', 'orchestrator', 'shape-sub', 'rt-claude', 'rt-codex', 'rt-copilot', 'rt-pi', 'rt-gemini'] },
   { id: 'state-thinking', title: 'An agent is thinking', entries: ['state-thinking'] },
   { id: 'state-tool_calling', title: 'An agent is calling a tool', entries: ['state-tool_calling'] },
   { id: 'state-waiting_permission', title: 'An agent is waiting for you', entries: ['state-waiting_permission'] },

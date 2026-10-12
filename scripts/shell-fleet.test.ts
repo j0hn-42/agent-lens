@@ -2,10 +2,11 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 import {
-  nextTabIndex, sessionTabIds, tabStopId, resolvePendingFocus, formatAllSummary, formatTruncatedHistory,
+  sessionTabIds, tabStopId, resolvePendingFocus, formatAllSummary, formatTruncatedHistory,
   formatDroppedMessages, labelAgentsWithSession, blurFlagAction, toastSettleTarget, pickRestoreTarget,
   undoShortcutAvailable,
 } from '../web/lib/chrome-utils'
+import { nextTabIndex } from '../web/lib/tab-nav'
 import { createPanelRegistry } from '../web/hooks/use-panel-registry'
 import { shouldHandleShortcut } from '../web/hooks/use-keyboard-shortcuts'
 import { SHORTCUTS, parseSingleKeyPreference } from '../web/lib/shortcuts'

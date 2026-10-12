@@ -27,6 +27,7 @@ import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
 import { PairFilterChip } from './pair-filter-chip'
 import { usePairFilter, clearPair } from '@/lib/pair-filter-store'
 import { isPairComplete } from '@/lib/pair-filter'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 interface TimelinePanelProps {
   visible: boolean
@@ -280,8 +281,6 @@ function drawTimeline(
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
-
-const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--lens-focus-ring)]'
 
 export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)

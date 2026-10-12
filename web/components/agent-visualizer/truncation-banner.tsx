@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { truncationHeadline, truncationTotal, type NormalizationStats } from '@/lib/event-normalize'
 
 /**

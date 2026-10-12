@@ -6,7 +6,8 @@ import { COLORS } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
 import { formatDuration, pluralize } from '@/lib/utils'
 import type { ConnectionStatus } from '@/lib/bridge-types'
-import { FOCUS_RING, blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 interface ControlBarProps {
   isPlaying: boolean

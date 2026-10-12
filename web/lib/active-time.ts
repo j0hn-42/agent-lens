@@ -6,6 +6,7 @@
  *   createChrono       a live counter driven by a monotonic clock, immune to wall-clock jumps
  */
 import type { Freshness } from '../hooks/simulation/freshness'
+import { formatDuration } from './utils'
 
 /** A sampling tracker never bridges a hole longer than this (ms): the time in between is unknown */
 export const SAMPLE_GAP_MAX_MS = 15_000
@@ -130,11 +131,7 @@ export function createChrono(opts: { startedAt: number; wallNow: number; monoton
 
 /** "1:05", "1:02:05"; a trailing "+" when the value hit the cap. */
 export function formatActiveSince(ms: number, capped = false): string {
-  const total = Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const ss = (total % 60).toString().padStart(2, '0')
-  const text = h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${ss}` : `${m}:${ss}`
+  const text = formatDuration(ms / 1000)
   return capped ? `${text}+` : text
 }
 

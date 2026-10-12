@@ -16,7 +16,7 @@ import {
 } from '../web/components/agent-visualizer/canvas/a11y-model'
 import { detectTeamChanges, createTeamPrev } from '../web/components/agent-visualizer/canvas/team-changes'
 import {
-  buildLinkPanelModel, cleanMessageText, formatLinkTime, isLongMessage, LINK_MESSAGE_MAX_CHARS,
+  buildLinkPanelModel, cleanMessageText, isLongMessage, LINK_MESSAGE_MAX_CHARS,
 } from '../web/components/agent-visualizer/canvas/link-panel-model'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -379,13 +379,10 @@ test('link panel infers the sender of a return that lacks a from field', () => {
   assert.equal(model.entries[0].arrow, '←')
 })
 
-test('message text helpers: cap, keep newlines, format time, detect long messages', () => {
+test('message text helpers: cap, keep newlines, detect long messages', () => {
   assert.equal(cleanMessageText('a\r\nb\u0007c\td'), 'a\nb c\td')
   assert.equal(cleanMessageText('y'.repeat(LINK_MESSAGE_MAX_CHARS + 50)).length, LINK_MESSAGE_MAX_CHARS)
   assert.equal(cleanMessageText(undefined), '')
-  assert.equal(formatLinkTime(0), '0:00')
-  assert.equal(formatLinkTime(65.9), '1:05')
-  assert.equal(formatLinkTime(NaN), '0:00')
   assert.equal(isLongMessage('short'), false)
   assert.equal(isLongMessage('1\n2\n3\n4\n5\n6\n7'), true)
 })
