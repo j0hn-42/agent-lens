@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
+import { RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
 
 const root = path.resolve(__dirname, '..')
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
@@ -137,4 +138,14 @@ test('the reading guide explains the capabilities of a session and their proof (
     assert.ok(guide.includes(term), `guide should mention "${term}"`)
   }
   assert.ok(read('README.md').includes('capabilities'), 'README mentions the capabilities view')
+})
+
+test('the remote access guards are documented as refused at startup, with their read-only surface (#241)', () => {
+  const doc = read('docs/relay-sources.md')
+  assert.match(doc, /## Remote access: guards only \(#241, step 1\)/)
+  for (const term of ['--allow-host', '--host', 'refuses to start', 'token', '/events', '/status', '/context', '/issue-links', '/observations', 'POST /scope', 'DNS rebinding', 'RELAY_MAX_REMOTE_SSE_CLIENTS']) {
+    assert.ok(doc.includes(term), `docs/relay-sources.md should mention "${term}"`)
+  }
+  assert.ok(doc.includes(`more than ${RELAY_MAX_REMOTE_SSE_CLIENTS} SSE streams`), 'remote SSE cap matches the constant')
+  assert.ok(doc.includes(`at most ${RELAY_MAX_ALLOWED_HOSTS} names`), 'allow list cap matches the constant')
 })
