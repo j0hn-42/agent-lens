@@ -279,7 +279,7 @@ With operator control on ([operator-control.md](operator-control.md)), a permiss
 | "Decision sent from another panel" | A decision for this request was handed to Claude Code, not from this page. |
 | The request disappears, with an announcement | It ended without a decision: the deadline passed, Claude Code stopped waiting (answered in the terminal, call interrupted), control was turned off or the panel could no longer decide. Claude Code then shows its usual prompt. |
 | "Input truncated" | Only the first 64 KiB of the input are shown; the SHA-256 given is the one of the whole input. |
-| `‮` and other escapes in the input | An invisible character of the real input, shown as its escape instead of being applied to the text. |
+| `\u202e` and other escapes in the input | An invisible character of the real input, shown as its escape instead of being applied to the text. |
 
 ## Presentation mode
 

@@ -195,6 +195,23 @@ test('focus inside a request that closes stays in the panel instead of falling t
   assert.ok(r.container.contains(document.activeElement), 'focus kept in the panel')
 })
 
+test('leaving the panel on a non focusable area never brings the focus back to Approuver', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  const approve = r.getByRole('button', { name: /^Approuver Bash/ })
+  approve.focus()
+  assert.equal(document.activeElement, approve)
+  // click on a non focusable area: focusout with relatedTarget null, the focus goes to the body
+  ;(document.activeElement as HTMLElement).blur()
+  assert.equal(document.activeElement, document.body)
+  r.rerender(<PermissionRequests sessionLabel={(id: string) => labels(id)} />)
+  await post({ type: 'permission-request', request: request({ nonce: NONCE2, toolUseId: 'toolu_02' }) })
+  assert.equal(document.activeElement, document.body, 'no focus taken back after the user left')
+  posted = []
+  fireEvent.keyDown(document.body, { key: 'Enter' })
+  assert.deepEqual(decisions(), [], 'nothing decided')
+})
+
 test('invisible characters of the input are shown as escapes, never interpreted', async () => {
   const r = render(<PermissionRequests sessionLabel={labels} />)
   await post({ type: 'permission-request', request: request({ inputPreview: '{"command":"rm -rf /tmp/x‮#"}' }) })

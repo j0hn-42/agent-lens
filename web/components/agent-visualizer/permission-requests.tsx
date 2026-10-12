@@ -59,8 +59,11 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
       focusRef.current = { inside: true, nonce: row?.dataset.nonce ?? null }
     }
     const onOut = (e: FocusEvent) => {
+      // Leaving for outside the panel, or for nowhere (click on a non focusable area): the user left. Only a focused
+      // element removed from the page by a re-render keeps the focus claim, so it can be restored.
       const to = e.relatedTarget as Node | null
-      if (to && !el.contains(to)) focusRef.current = { inside: false, nonce: null }
+      if (to && el.contains(to)) return
+      if ((e.target as Node).isConnected) focusRef.current = { inside: false, nonce: null }
     }
     el.addEventListener('focusin', onIn)
     el.addEventListener('focusout', onOut)
