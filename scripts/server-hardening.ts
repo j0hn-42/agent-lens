@@ -3,7 +3,7 @@
  * (app/src/server.ts) and the relay itself (scripts/relay.ts). Issue #68.
  *
  *  - loopback-only listening with an optional EPHEMERAL port (port 0 -> the OS picks, the chosen port is returned)
- *  - GET / HEAD / OPTIONS only (405 + Allow otherwise), plus POST on SERVER_POST_PATHS (/scope, #291)
+ *  - GET / HEAD / OPTIONS only (405 + Allow otherwise), plus POST on SERVER_POST_PATHS (/scope, #291) and on /launch routes (#229, answered 404 unless enabled)
  *  - strict headers on every response (CSP, no-store, nosniff, no-referrer)
  *  - session id query parameter validation (400)
  *  - KeyedCoalescer: ONE in-flight refresh per key (concurrent callers share it)
@@ -16,7 +16,7 @@ import type { AddressInfo } from 'net'
 import {
   CSP_API, CSP_STATIC_APP, ENV_AGENT_LENS_PORT, EPHEMERAL_PORT, LOOPBACK_HOST, SERVER_ALLOWED_METHODS, SERVER_POST_PATHS,
 } from '../extension/src/constants'
-import { isValidSessionId } from '../extension/src/relay-guards'
+import { isValidSessionId, isLaunchPath } from '../extension/src/relay-guards'
 
 // ─── Headers ─────────────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ export function guardRequest(req: http.IncomingMessage, res: http.ServerResponse
   applySecurityHeaders(res, opts.kind)
   const method = req.method ?? ''
   // POST only on the listed paths (#291); that route applies its own guards, any other path stays 405
-  const postAllowed = method === 'POST' && (SERVER_POST_PATHS as readonly string[]).includes(pathOf(req.url))
+  const postAllowed = method === 'POST' && ((SERVER_POST_PATHS as readonly string[]).includes(pathOf(req.url)) || isLaunchPath(req.url))
   if (!postAllowed && !(SERVER_ALLOWED_METHODS as readonly string[]).includes(method)) {
     plain(res, 405, 'Method not allowed', { Allow: ALLOW })
     return true

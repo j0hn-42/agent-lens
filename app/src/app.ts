@@ -14,6 +14,7 @@ import { isCliCommand, runCli } from '../../scripts/headless-cli'
 import { ensureSetup } from '../../scripts/setup'
 import { startServer } from './server'
 import { remoteStartupError } from '../../scripts/remote-access'
+import { launchStartupError } from '../../scripts/routes/launch'
 
 const command = process.argv[2]
 if (isCliCommand(command)) {
@@ -26,6 +27,13 @@ if (isCliCommand(command)) {
   const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host })
   if (remoteError) {
     console.error(`Agent Lens: ${remoteError}`)
+    process.exit(2)
+  }
+
+  // Launching agents (#229): fail closed too
+  const launchError = launchStartupError({ allowLaunch: args.allowLaunch, repos: args.launchRepos })
+  if (launchError) {
+    console.error(`Agent Lens: ${launchError}`)
     process.exit(2)
   }
 
@@ -43,5 +51,6 @@ if (isCliCommand(command)) {
     allWorkspaces: args.allWorkspaces,
     imports: args.imports,
     webhooks: args.webhooks,
+    ...(args.allowLaunch ? { launchRepos: args.launchRepos } : {}),
   })
 }
