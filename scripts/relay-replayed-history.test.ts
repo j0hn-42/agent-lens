@@ -31,7 +31,7 @@ async function waitFor(cond: () => boolean, ms = 15_000): Promise<boolean> {
 }
 
 type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
-type Ev = { type: string; replayed?: boolean; payload: Record<string, unknown> }
+type Ev = { type: string; replayed?: boolean; sessionId?: string; payload: Record<string, unknown> }
 let relay: Relay
 let server: http.Server
 let port = 0
@@ -105,5 +105,23 @@ describe('relay: events read from a transcript history are marked replayed', () 
     assert.ok(await waitFor(() => have().length > catchUp.length), 'the appended line arrives')
     const after = have().slice(catchUp.length)
     for (const e of after) assert.equal(e.replayed, undefined, `${e.type} read from the tail is live`)
+  })
+
+  it('the sub-agent and teammate files already there at attach are history too', async () => {
+    const c = await connectSSE()
+    const sid = '36136136-1361-4361-8361-361361361362'
+    const subDir = path.join(projectDir, sid, 'subagents')
+    fs.mkdirSync(subDir, { recursive: true })
+    fs.writeFileSync(path.join(subDir, 'agent-tm1.meta.json'), JSON.stringify({ taskKind: 'in_process_teammate', teamName: 'crew', name: 'scout' }))
+    fs.writeFileSync(path.join(subDir, 'agent-tm1.jsonl'), line({
+      type: 'assistant', timestamp: new Date(Date.now() - 40 * 60_000).toISOString(),
+      message: { role: 'assistant', id: 'msg_tm', content: [{ type: 'text', text: 'Scouting the repo' }] },
+    }))
+    fs.writeFileSync(path.join(projectDir, `${sid}.jsonl`),
+      line({ type: 'user', cwd: realWs, timestamp: new Date().toISOString(), message: { role: 'user', content: 'Start the crew' } }))
+    const mine = () => liveEvents(c.text()).filter(e => e.sessionId === sid)
+    const teammateSpawn = () => mine().find(e => e.type === 'agent_spawn' && e.payload.kind === 'teammate')
+    assert.ok(await waitFor(() => teammateSpawn() !== undefined), `the teammate is announced: ${mine().map(e => e.type).join(',')}`)
+    for (const e of mine()) assert.equal(e.replayed, true, `${e.type} (${String(e.payload.name ?? '')}) read at attach is marked replayed`)
   })
 })
