@@ -256,6 +256,9 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     const host = await runToExit(['--host', '0.0.0.0'])
     assert.equal(host.code, 2, host.out)
     assert.match(host.out, /loopback/i)
+    // A security flag typed without its value must not be ignored
+    assert.equal((await runToExit(['--host'])).code, 2)
+    assert.equal((await runToExit(['--allow-host'])).code, 2)
   })
 })
 
