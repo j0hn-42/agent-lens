@@ -173,6 +173,22 @@ test('per-core detail is closed by default and opens from its native button', ()
   assert.equal(core.getAttribute('aria-valuenow'), '40')
 })
 
+test('per-core label counts logical CPUs and flags the cap', () => {
+  const { getByRole, unmount } = render(<SystemPanel visible samples={[sample()]} onClose={noop} />)
+  assert.match(getByRole('button', { name: /Per-core detail/ }).textContent ?? '', /\(2 logical CPUs\)/)
+  unmount()
+  const many = sample({ cpu: { total: 0.2, perCore: Array.from({ length: 256 }, () => 0.2) } })
+  const r = render(<SystemPanel visible samples={[many]} onClose={noop} />)
+  assert.match(r.getByRole('button', { name: /Per-core detail/ }).textContent ?? '', /\(256\+ logical CPUs\)/)
+})
+
+test('per-core toggle uses the inset focus ring (class only: the clipping itself is not testable in jsdom)', () => {
+  const { getByRole } = render(<SystemPanel visible samples={[sample()]} onClose={noop} />)
+  const cls = getByRole('button', { name: /Per-core detail/ }).className
+  assert.ok(cls.includes('-outline-offset-2'), cls)
+  assert.ok(!cls.includes(' focus-visible:outline-offset-2'), cls)
+})
+
 test('a null core has no meter, its row says Not available', () => {
   const { container, getByRole } = render(<SystemPanel visible samples={[sample({ cpu: { total: 0.2, perCore: [0.2, null] } })]} onClose={noop} />)
   fireEvent.click(getByRole('button', { name: /Per-core detail/ }))
@@ -217,6 +233,7 @@ test('colours come from theme tokens only (no hard-coded hex)', () => {
 test('the displayed percent never overstates and always agrees with the severity next to it', () => {
   const cases: Array<[number, string, string]> = [
     [0.8496, '84', 'Normal'], [0.85, '85', 'Warm'], [0.9496, '94', 'Warm'], [0.95, '95', 'Critical'], [0.29, '29', 'Normal'],
+    [0.85 - 5e-12, '84', 'Normal'], [0.95 - 5e-12, '94', 'Warm'],
   ]
   for (const [share, shown, level] of cases) {
     const { container, unmount } = render(<SystemPanel visible samples={[memAt(share, 1)]} onClose={noop} />)

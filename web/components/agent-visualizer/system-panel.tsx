@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { PANEL_NAMES } from '@/lib/ui-glossary'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
@@ -45,7 +45,17 @@ const severityColor = (s: Severity) =>
  * computed on the raw share (85 % shown is always Warm or worse, 95 % always Critical). The epsilon keeps
  * 0.29 * 100 = 28.999999999999996 at 29.
  */
-const percent = (r: number) => Math.floor(r * 100 + 1e-9)
+const percent = (r: number) => {
+  const shown = Math.floor(r * 100 + 1e-9)
+  // The epsilon can lift a share just below a threshold onto it: cap by the severity of the raw share.
+  const level = severity(r)
+  if (level === 'critical') return shown
+  if (level === 'warm') return Math.min(shown, 94)
+  return Math.min(shown, 84)
+}
+
+/** web/lib/system-stats.ts caps the parsed per-core list at this length: reaching it means "at least". */
+const MAX_CORES_SHOWN = 256
 
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
 function formatBytes(bytes: number): string {
@@ -193,10 +203,10 @@ function CoreDetail({ cores }: { cores: readonly (number | null)[] }) {
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen(o => !o)}
-        className={`w-full text-left text-[11px] font-mono min-h-6 px-1 rounded ${FOCUS_RING}`}
+        className={`w-full text-left text-[11px] font-mono min-h-6 px-1 rounded ${FOCUS_RING_INSET}`}
         style={{ color: COLORS.textMuted }}
       >
-        <span aria-hidden="true">{open ? '▾' : '▸'} </span>Per-core detail ({cores.length} cores)
+        <span aria-hidden="true">{open ? '▾' : '▸'} </span>Per-core detail ({cores.length >= MAX_CORES_SHOWN ? `${MAX_CORES_SHOWN}+ logical CPUs` : `${cores.length} logical CPU${cores.length === 1 ? '' : 's'}`})
       </button>
       <CollapsibleSection open={open}>
         <div id={id} className="flex flex-col gap-1 pt-1">
