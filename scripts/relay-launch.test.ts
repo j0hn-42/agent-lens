@@ -118,7 +118,7 @@ describe('relay launch (#229)', () => {
     relay = await createRelay({
       workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL],
       launch: {
-        repos: [REPO], token: TOKEN, maxConcurrent: 2, onToken: t => { tokenSeen = t },
+        repos: [REPO], token: TOKEN, maxConcurrent: 2, rate: { burst: 1000, perSecond: 1000 }, onToken: t => { tokenSeen = t },
         journal: { append: e => { journal.push(e); return true } },
         spawn: () => { const c = new FakeChild(++pid); children.push(c); return c as never },
         killGroup: (p, s) => { kills.push([p, s]) },

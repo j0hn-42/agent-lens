@@ -868,6 +868,8 @@ export interface RelayLaunchOptions {
   /** Journal file (default `~/.agent-lens/launch-journal.jsonl`) */
   journalPath?: string
   // Injectable for tests
+  /** Request budget of POST /launch (default RELAY_LAUNCH_RATE_BURST / RELAY_LAUNCH_RATE_PER_S) */
+  rate?: { burst: number; perSecond: number }
   journal?: Journal
   spawn?: SpawnFn
   killGroup?: KillGroupFn
@@ -1201,7 +1203,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     launchSnapshot = () => supervisor.list()
     launchKillAll = () => supervisor.dispose()
     handleLaunch = createLaunchRoute({
-      limiter: new KeyedRateLimiter(RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS),
+      limiter: new KeyedRateLimiter(opts.rate?.burst ?? RELAY_LAUNCH_RATE_BURST, opts.rate?.perSecond ?? RELAY_LAUNCH_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS),
       token, allowlist: launchAllowlist, supervisor,
       workspaceOrigin: opts.workspaceOrigin ?? (() => repoUrlOf(workspace)),
       lookupIssue: opts.lookupIssue ?? (cmd => defaultExec(cmd.file, cmd.args, { cwd: workspace })),
