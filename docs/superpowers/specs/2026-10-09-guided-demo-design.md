@@ -27,7 +27,7 @@ Ajouter une 2ᵉ démo, pédagogique, pilotée par l'utilisateur. Chaque étape 
 - `web/lib/tour-scenario.ts` : modèle d'écriture d'un scénario (helpers `at()` et `tool()`, événements triés).
 - `web/hooks/use-agent-simulation.ts` expose `play`, `pause`, `restart` et `seekToTime(t)`. `seekToTime` rejoue le scénario depuis zéro jusqu'à `t` : on peut donc avancer et reculer à coût borné, sans modifier le lecteur.
 - `web/components/agent-visualizer/graph-legend.tsx` : légende en DOM, 8 sections (états, formes, liens et particules, équipes, liens de messages, contexte, découvertes, runtime). Ouverture mémorisée sous `agent-viz-legend-open`.
-- Briques UI réutilisables : `GlassCard`, `shared-ui.tsx`, `use-focus-return`, `lib/clamp-popup-position.ts`, `use-ui-preferences`.
+- Briques UI réutilisables : `GlassCard`, `shared-ui.tsx`, `use-focus-return`, `use-ui-preferences`.
 - Il n'existe aucun mécanisme de visite guidée : il est créé ici.
 
 ## 3. Conception
@@ -63,7 +63,7 @@ Parcours provisoire : bienvenue ; agents et états ; formes ; liens et particule
 ### 3.3 Interface
 
 - **`GuidedTourCard`** (`guided-tour-card.tsx`), style `GlassCard` : titre, texte, indicateur « Step N / M », Précédent, Suivant, Quitter, liste des étapes. `role="dialog"` **sans** piège de focus : la page reste explorable (zoom, clic sur un agent). Zone `aria-live="polite"` pour annoncer l'étape. À la fermeture, le focus retourne à l'élément précédent (`use-focus-return`).
-- **Surbrillance** : anneau DOM positionné sur la cible, via `clamp-popup-position`. Les panneaux et la légende sont ciblés par `data-tour-target`. Les agents du canevas le sont par conversion coordonnées monde vers écran. Le canevas n'est pas modifié.
+- **Surbrillance** : anneau DOM positionné sur la cible. Les panneaux et la légende sont ciblés par `data-tour-target`. Les agents du canevas le sont par conversion coordonnées monde vers écran. Le canevas n'est pas modifié.
 - **Légende** : une étape ciblant une section ouvre le panneau via l'état existant, **sans** persister `agent-viz-legend-open`, pour ne pas modifier la préférence de l'utilisateur.
 - **Points d'entrée** : `?scenario=guided` (démarre directement la visite), `pnpm run dev:demo:guided`, et un bouton « Guided tour » visible uniquement en mode démo.
 - **Composition** : montage dans `index.tsx` ; le bouton d'entrée est voisin de la légende (`canvas-controls.tsx`).

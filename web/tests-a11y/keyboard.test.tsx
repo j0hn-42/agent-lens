@@ -5,7 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 
 import { shouldHandleShortcut } from '@/hooks/use-keyboard-shortcuts'
-import { nextTabIndex, scrubberKeyTarget } from '@/lib/chrome-utils'
+import { scrubberKeyTarget } from '@/lib/chrome-utils'
 import { nextMenuIndex } from '@/lib/menu-nav'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { showAllSessions } from './sessions-filter-helpers'
@@ -57,15 +57,6 @@ test('modifier combos are never captured (WCAG 2.1.4)', () => {
 test('single-key shortcuts can be disabled by preference, Escape stays available', () => {
   assert.equal(shouldHandleShortcut(keyEvent('t', document.body), false), false)
   assert.equal(shouldHandleShortcut(keyEvent('Escape', document.body), false), true)
-})
-
-test('tab keyboard model: arrows wrap, Home/End jump, other keys are ignored', () => {
-  assert.equal(nextTabIndex(0, 'ArrowLeft', 3), 2)
-  assert.equal(nextTabIndex(2, 'ArrowRight', 3), 0)
-  assert.equal(nextTabIndex(1, 'Home', 3), 0)
-  assert.equal(nextTabIndex(1, 'End', 3), 2)
-  assert.equal(nextTabIndex(1, 'Enter', 3), null)
-  assert.equal(nextTabIndex(0, 'ArrowRight', 0), null)
 })
 
 test('menu keyboard model: arrows wrap, other keys are ignored', () => {

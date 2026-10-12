@@ -47,11 +47,6 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   imported: SESSION_IMPORTED_TEXT,
 }
 
-/** Ids of the tabs in order: the 'All' tab first, then one per session. */
-export function sessionTabIds(sessions: ReadonlyArray<Pick<SessionInfo, 'id'>>): string[] {
-  return [ALL_SESSIONS_ID, ...sessions.map(s => s.id)]
-}
-
 export interface TabItem {
   /** Selection id: ALL_SESSIONS_ID, a session id or a team pseudo selection ('team:<name>') */
   id: string
@@ -115,40 +110,6 @@ export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; 
   if (runtime === 'pi') return { short: 'PI', label: 'Pi' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
-}
-
-/** Which tab owns the roving tabindex: the selected one, else the first ('All'). */
-export function tabStopId(tabIds: readonly string[], selectedId: string | null): string | undefined {
-  return selectedId !== null && tabIds.includes(selectedId) ? selectedId : tabIds[0]
-}
-
-/** Focus still owed to a neighbouring tab after a close: remembers which tab was closed. */
-export interface PendingTabFocus { closedId: string; focusId: string }
-
-/**
- * Decide what to do with a pending focus move once the session list changed.
- * - the closed tab is gone: focus the neighbour (if it still exists) and clear;
- * - the closed tab is still listed (the close was a no-op or is still in flight): keep waiting.
- */
-export function resolvePendingFocus(
-  pending: PendingTabFocus | null,
-  sessionIds: readonly string[],
-): { focusId: string | null; keep: PendingTabFocus | null } {
-  if (!pending) return { focusId: null, keep: null }
-  if (sessionIds.includes(pending.closedId)) return { focusId: null, keep: pending }
-  return { focusId: sessionIds.includes(pending.focusId) ? pending.focusId : null, keep: null }
-}
-
-/** Roving-tabindex arrow navigation: returns the index to focus, or null when the key is not ours. */
-export function nextTabIndex(current: number, key: string, count: number): number | null {
-  if (count <= 0) return null
-  switch (key) {
-    case 'ArrowRight': return (current + 1) % count
-    case 'ArrowLeft': return (current - 1 + count) % count
-    case 'Home': return 0
-    case 'End': return count - 1
-    default: return null
-  }
 }
 
 // ─── Scrubber ────────────────────────────────────────────────────────────────
@@ -440,11 +401,6 @@ export function shouldRestoreFocus(active: unknown, panel: ContainsLike | null, 
 
 /** Key that runs the action (Undo) of the newest toast. Subject to the single-key shortcut preference. */
 export const UNDO_SHORTCUT_KEY = 'u'
-
-/** True when a keyboard U can run an Undo: the preference is on and some visible toast has an action. */
-export function undoShortcutAvailable(singleKeyEnabled: boolean, toasts: ReadonlyArray<{ onAction?: unknown }>): boolean {
-  return singleKeyEnabled && toasts.some(t => typeof t.onAction === 'function')
-}
 
 /** Time left on a toast timer after it ran from `startedAt` until `now` (never negative). */
 export function toastRemaining(remainingMs: number, startedAt: number, now: number): number {

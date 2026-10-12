@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
-  sessionStatusKind, nextTabIndex, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
+  sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
   agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
@@ -11,15 +11,6 @@ test('session status: unseen activity beats active, selected tab never shows new
   assert.equal(sessionStatusKind({ status: 'active' }, true, false), 'new-activity')
   assert.equal(sessionStatusKind({ status: 'active' }, true, true), 'active')
   assert.equal(sessionStatusKind({ status: 'completed' }, false, false), 'completed')
-})
-
-test('tab arrow navigation wraps and supports Home/End', () => {
-  assert.equal(nextTabIndex(2, 'ArrowRight', 3), 0)
-  assert.equal(nextTabIndex(0, 'ArrowLeft', 3), 2)
-  assert.equal(nextTabIndex(1, 'Home', 3), 0)
-  assert.equal(nextTabIndex(1, 'End', 3), 2)
-  assert.equal(nextTabIndex(1, 'a', 3), null)
-  assert.equal(nextTabIndex(0, 'ArrowRight', 0), null)
 })
 
 test('scrubber keyboard steps are clamped', () => {
