@@ -53,3 +53,5 @@ returned. Limits are reported, not hidden: `truncated` (more than 25 sessions), 
 50 agents), `omittedSessions` (ids that are not plain identifiers).
 
 Shutdown: `relay.dispose()` disposes the action (idempotent); afterwards the endpoint answers 503.
+
+Claude Code can call it as an MCP tool through the `agent-lens` MCP server: see [mcp-server.md](mcp-server.md).
