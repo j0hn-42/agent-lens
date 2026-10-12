@@ -87,6 +87,7 @@ Some tool calls have their own card content in the popup and the transcript. Eve
 - **Task / Agent**: the sub-agent type and the short description.
 - **NotebookEdit**: the notebook, the cell and the edit mode, when the call states them.
 - **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A second row lists Python, test, docker and package-manager calls (`python analyse.py`, `pnpm test`, `docker compose up`, `pnpm install`). A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
+- **Result pills** (tool popup and Conversation panel): once a call is seen to succeed, a pill shows what its own output proves. For a Bash command line that runs `gh`, a link **PR #N** or **issue #N** (opens in a new tab), when the output has exactly one line that is a plain `https://github.com/<owner>/<repo>/pull|issues/<n>` URL (`gh pr create` and `gh issue create` print it). A sub-path or an anchor (`/files`, `#issuecomment-…`), two different URLs, a failed call, or a URL on the last line of an output cut at the 200-character capture limit give no link. For Grep and Glob, **N files** when the output starts with the tool's own `Found N files` header; lines are never counted, because a cut output proves nothing.
 
 ## Themes
 

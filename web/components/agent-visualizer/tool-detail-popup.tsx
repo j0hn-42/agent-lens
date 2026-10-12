@@ -4,10 +4,10 @@ import { useId } from 'react'
 import { POPUP, type ToolCallState, type ToolCallNode } from '@/lib/agent-types'
 import { COLORS, themed } from '@/lib/colors'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
-import { isShellTool } from '@/lib/action-summary'
+import { isShellTool, type ResultPill } from '@/lib/action-summary'
 import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
 import { USAGE_LABELS } from '@/lib/usage'
-import { ToolContentRenderer } from './tool-content-renderer'
+import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
 import { ToolWhySection, type ToolWhy } from './tool-why'
 import { AnsiText } from './transcript-message'
@@ -24,6 +24,7 @@ interface ToolDetailPopupProps {
     tokenSource?: ToolCallNode['tokenSource']
     endObserved?: boolean
     inputData?: Record<string, unknown>
+    resultPill?: ResultPill
   }
   /** Reasoning observed before the call and, for a failure, its causal chain (absent = nothing to show) */
   why?: ToolWhy
@@ -79,6 +80,9 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
           {warning}
         </div>
       )}
+
+      {/* What the output proves: set at ingestion only for a call whose success was observed */}
+      {tool.state === 'complete' && tool.endObserved !== false && <ResultPillView pill={tool.resultPill} />}
 
       {/* Result */}
       {tool.result && (
