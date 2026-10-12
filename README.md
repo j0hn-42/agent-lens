@@ -35,6 +35,7 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand, and the session's capabilities (instruction files, skills grouped by plugin, MCP servers) as its transcript recorded them
 - **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in the top bar (the theme applies to the interface only; the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui.md#themes)
 - **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Operator control (VS Code, off by default)**: an optional `PermissionRequest` hook and a decision channel let the panel answer Claude Code permission requests. Fails closed (no answer means Claude Code asks as usual), one decision per request, journalled in a 0600 file without the tool input. See [docs/operator-control.md](docs/operator-control.md)
 - **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
 - **Headless use**: `ps`, `tail` and `statusline` commands, a one-line `/statusline` endpoint for tmux or zellij, and webhooks on live agent events (explicit destinations, fixed body, bounded). See [docs/headless.md](docs/headless.md)
 - **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
@@ -118,6 +119,8 @@ You can also point Agent Lens at a JSONL event log file:
 | `Agent Lens: Open Agent Lens to Side` | Open in a side editor column |
 | `Agent Lens: Connect to Running Agent` | Manually connect to an agent session |
 | `Agent Lens: Configure Claude Code Hooks` | Set up Claude Code hooks for live streaming |
+| `Agent Lens: Install the Permission Hook (operator control)` | Install the optional PermissionRequest hook of the [operator control](docs/operator-control.md) |
+| `Agent Lens: Remove the Permission Hook (operator control)` | Remove that hook; the observation hooks stay |
 
 ## Keyboard Shortcut
 
@@ -134,6 +137,7 @@ Inside the app, `Ctrl+K` (`Cmd+K` on a Mac) opens the command palette: actions, 
 | `agentVisualizer.runtime` | `"auto"` | Which agent runtime(s) to watch: `"auto"` (all), `"claude"`, `"codex"`, `"copilot"`, `"pi"`, or `"gemini"` |
 | `agentVisualizer.devServerPort` | `0` | Development server port (0 = production mode). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
 | `agentVisualizer.eventLogPath` | `""` | Path to a JSONL event log file to watch |
+| `agentVisualizer.allowControl` | `false` | Let the panel answer Claude Code permission requests; see [operator control](docs/operator-control.md). Machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` is ignored |
 | `agentVisualizer.autoOpen` | `false` | Auto-open when an agent session starts |
 
 ## Requirements

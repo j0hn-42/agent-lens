@@ -83,6 +83,30 @@ test('every CI command is listed in CONTRIBUTING (#135)', () => {
   for (const run of runs) assert.ok(c.includes(run), `CONTRIBUTING should list the CI command: ${run}`)
 })
 
+test('CI runs on push and pull requests to main and develop, and stays callable (#182)', () => {
+  const ci = read('.github/workflows/ci.yml')
+  const branchesOf = (event: string): string[] => {
+    const block = ci.match(new RegExp(`^  ${event}:\\s*\\n\\s+branches:\\s*(\\[[^\\]]*\\]|(?:\\n\\s+- .+)+)`, 'm'))
+    assert.ok(block, `ci.yml declares branches under ${event}`)
+    return block[1].match(/[\w./-]+/g) ?? []
+  }
+  for (const event of ['push', 'pull_request'])
+    for (const branch of ['main', 'develop'])
+      assert.ok(branchesOf(event).includes(branch), `${event} runs on ${branch}`)
+  assert.match(ci, /workflow_call:/)
+  assert.match(ci, /^permissions:\s*\n\s+contents: read/m, 'ci.yml limits the token to read-only')
+  const c = read('CONTRIBUTING.md')
+  // The required check names are the job ids: renaming one would make the documented contexts[] unsatisfiable.
+  for (const job of ['test', 'e2e-a11y']) {
+    assert.match(ci, new RegExp(`^  ${job}:`, 'm'), `ci.yml defines the job ${job}`)
+    assert.ok(c.includes(`'contexts[]=${job}'`), `CONTRIBUTING requires the check ${job}`)
+    assert.ok(c.includes(`"${job}"`), `the PUT example requires the check ${job}`)
+  }
+  assert.ok(!/to `main` only/.test(c), 'CONTRIBUTING no longer says the CI is main-only')
+  assert.ok(c.includes('required_status_checks'), 'CONTRIBUTING gives the required-checks command')
+  assert.ok(c.includes('required_conversation_resolution'), 'the PUT example repeats the existing protection settings')
+})
+
 test('the PR template points to CONTRIBUTING and lists lint:a11y and e2e (#135)', () => {
   const t = read('.github/pull_request_template.md')
   assert.match(t, /CONTRIBUTING\.md/)
@@ -149,6 +173,13 @@ test('the remote access guards are documented as refused at startup, with their 
   }
   assert.ok(doc.includes(`more than ${RELAY_MAX_REMOTE_SSE_CLIENTS} SSE streams`), 'remote SSE cap matches the constant')
   assert.ok(doc.includes(`at most ${RELAY_MAX_ALLOWED_HOSTS} names`), 'allow list cap matches the constant')
+  // SSH -L browses http://localhost:<port>: its Host is loopback, so --allow-host does not cover it
+  assert.match(doc, /SSH `-L` tunnel is not[\s\S]*`Host: localhost[\s\S]*full loopback surface/i, 'SSH -L is documented as a loopback Host with the full surface')
+  assert.match(doc, /`--allow-host` only covers named tunnels/)
+  assert.match(doc, /token[^.]*(even|also)[^.]*loopback `Host`/i, 'step 2 must also cover a loopback Host reached remotely')
+  for (const f of ['app/src/args.ts', 'scripts/remote-access.ts']) {
+    assert.ok(!/SSH -L or Tailscale/.test(read(f)) && !/\(SSH -L, Tailscale serve\)/.test(read(f)), `${f} does not present SSH -L as covered by --allow-host`)
+  }
 })
 
 test('the launch policy is documented as not yet enabled, with the code constants (#229)', () => {

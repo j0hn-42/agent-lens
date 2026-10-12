@@ -28,6 +28,8 @@ interface ProjectContextPanelProps {
   sessionBranch?: string
   /** The selected session as listed (#240): its resume command is built from it, with no request */
   session?: ResumableSession
+  /** Set only inside VS Code (#240): asks the extension for a terminal in the session's directory */
+  onOpenTerminal?: (sessionId: string) => void
   onClose: () => void
 }
 
@@ -96,7 +98,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
   )
 }
 
-export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, session, onClose }: ProjectContextPanelProps) {
+export function ProjectContextPanel({ visible, sessionId, unavailableReason, fetchContext, relayOrigin, sessionBranch, session, onOpenTerminal, onClose }: ProjectContextPanelProps) {
   // Loads only while the panel is open, for one selected session, when the relay can be reached
   const canLoad = !unavailableReason && sessionId !== null
   const { state, refresh } = useProjectContext(fetchContext, sessionId, visible && canLoad)
@@ -131,7 +133,7 @@ export function ProjectContextPanel({ visible, sessionId, unavailableReason, fet
 
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
           {/* Needs no relay: shown in VS Code as well, for the single selected session */}
-          {sessionId !== null && session?.id === sessionId && <ResumeSection session={session} />}
+          {sessionId !== null && session?.id === sessionId && <ResumeSection session={session} onOpenTerminal={onOpenTerminal} />}
 
           {unavailableReason ? <Note>{unavailableReason}</Note>
             : sessionId === null ? <Note>Select a single session to see its project context.</Note>

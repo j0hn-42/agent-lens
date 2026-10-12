@@ -4,6 +4,7 @@ import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { waitForStableLayout } from './stable-layout'
 
 let browser: Browser
 let server: DemoServer
@@ -64,7 +65,7 @@ test('workflow demo: with every member shown, both phases form separate groups o
   try {
     await page.getByRole('button', { name: /Hide inactive agents/ }).click()
     await page.waitForFunction(() => document.querySelector('[role="group"][aria-label="Phase Plan"]') !== null)
-    await page.waitForTimeout(3000) // layout settled
+    await waitForStableLayout(page)
     await page.screenshot({ path: 'test-results/phase-groups.png' })
     const groups = await phaseGroups(page)
     assert.ok(groups.includes('Phase Plan') && groups.includes('Phase Build'))

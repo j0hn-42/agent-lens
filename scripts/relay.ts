@@ -58,7 +58,7 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
-import { classifyHost, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
+import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -780,6 +780,8 @@ export interface Relay {
   setScope: (scope: RelayScope) => { scope: RelayScope; allWorkspaces: boolean }
   /** Counters of the webhooks (#236): sent, failed, dropped; null when no destination is configured */
   webhookStats: () => WebhookStats | null
+  /** The validated tunnel Host allow list (#241): the one list the app gate and the relay guards both use */
+  readonly allowedHosts: readonly string[]
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
@@ -1204,11 +1206,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     handleContext,
     handleObservations,
     handleStatusLine,
+    allowedHosts,
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
       // Loopback peer only; Host loopback or EXACTLY an allowed tunnel name (#241), anything else is DNS rebinding
-      const hostClass = classifyHost(req.headers.host, allowedHosts)
+      const hostClass = requestHostClass(req, allowedHosts)
       if (!isLoopbackAddress(req.socket.remoteAddress) || hostClass === 'foreign') {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')

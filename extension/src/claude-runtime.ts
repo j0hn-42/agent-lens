@@ -14,14 +14,17 @@
  */
 
 import * as vscode from 'vscode'
+import * as path from 'path'
 import { HookServer } from './hook-server'
+import { OperatorControl, setOperatorControl } from './operator-control'
+import { discoveryDir } from './claude-config-dir'
 import { SessionWatcher } from './session-watcher'
 import { VisualizerPanel } from './webview-provider'
 import { AgentEvent } from './protocol'
 import {
   ORCHESTRATOR_NAME, HOOK_SERVER_NOT_STARTED,
 } from './constants'
-import { migrateLegacyHooks } from './hooks-config'
+import { migrateLegacyHooks, refreshControlHookScript } from './hooks-config'
 import {
   writeDiscoveryFile, removeDiscoveryFile, ensureHookScript,
 } from './discovery'
@@ -44,7 +47,15 @@ export async function startClaudeRuntime(
   context: vscode.ExtensionContext,
 ): Promise<AgentRuntime> {
   // ─── Hook server ───────────────────────────────────────────────────────────
-  const hookServer = new HookServer()
+  // Operator control (#240): off unless agentVisualizer.allowControl is on. The setting is machine-scoped, so a
+  // repository's .vscode/settings.json cannot turn it on. Read at each use: no reload needed to switch it off.
+  const control = new OperatorControl({
+    allowed: () => vscode.workspace.getConfiguration('agentVisualizer').get<boolean>('allowControl', false) === true,
+    getPanel: () => VisualizerPanel.getCurrent(),
+    journalFile: path.join(discoveryDir(), 'decisions.jsonl'),
+  })
+  setOperatorControl(control)
+  const hookServer = new HookServer(undefined, undefined, { gate: control.gate, token: control.token })
   context.subscriptions.push(hookServer)
 
   let hookPort: number
@@ -66,7 +77,15 @@ export async function startClaudeRuntime(
     // The hook script reads this at invocation time — no port in settings.json.
     if (workspace) {
       ensureHookScript()
-      writeDiscoveryFile(hookPort, workspace)
+      refreshControlHookScript()
+      writeDiscoveryFile(hookPort, workspace, control.discoveryToken())
+      // The token is published only while the setting is on: follow the setting without a reload
+      context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+        if (e.affectsConfiguration('agentVisualizer.allowControl')) {
+          writeDiscoveryFile(hookPort, workspace, control.discoveryToken())
+          control.settingChanged() // requests already held end now, not at the 55 s expiry
+        }
+      }))
       void purgeStaleDiscoveryFiles().catch(err => log.debug('Discovery purge failed:', err))
       migrateLegacyHooks()
     }
@@ -141,6 +160,8 @@ export async function startClaudeRuntime(
     // gracefully via PID checks. This avoids breaking multi-window setups and
     // means hooks survive VS Code restarts without reconfiguration.
     if (workspace) { removeDiscoveryFile(workspace) }
+    setOperatorControl(undefined)
+    control.dispose()
     wiring.dispose()
     hookServer.dispose()
     watcher.dispose()

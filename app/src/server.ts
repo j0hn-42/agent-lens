@@ -8,7 +8,7 @@ import * as path from 'path'
 import { exec, execFile } from 'child_process'
 
 import { createRelay, type Relay } from '../../scripts/relay'
-import { gateRemoteRequest, parseAllowedHosts } from '../../scripts/remote-access'
+import { gateRemoteRequest } from '../../scripts/remote-access'
 import { createTelemetryClient } from '../../scripts/telemetry'
 import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
@@ -29,18 +29,16 @@ interface ServerOptions {
   webhooks?: string[]
 }
 
-type AppRelay = Pick<Relay, 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleObservations' | 'handleIssueLinks'>
+type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleObservations' | 'handleIssueLinks'>
 
 /**
- * Request handler of the standalone app. `allowedHosts` (#241) are tunnel Host names accepted besides loopback;
- * they reach only the read-only surface (gateRemoteRequest). startServer passes none until token authentication
- * ships: --allow-host is refused at startup (remoteStartupError), so today only the tests pass a list.
+ * Request handler of the standalone app. The tunnel Host names accepted besides loopback (#241) are read from the
+ * relay (`relay.allowedHosts`, validated by createRelay): the gate and the relay's own guards share one list and
+ * cannot disagree. They reach only the read-only surface (gateRemoteRequest). startServer creates the relay
+ * without any until token authentication ships: --allow-host is refused at startup (remoteStartupError).
  */
-export function createAppRequestHandler(relay: AppRelay, opts: { allowedHosts: readonly string[] }): http.RequestListener {
-  // Same validation as createRelay, so the gate and the relay's own guards cannot disagree (fail closed)
-  const parsed = parseAllowedHosts(opts.allowedHosts)
-  if (parsed.errors.length > 0) throw new Error(`allowedHosts: ${parsed.errors.join('; ')}`)
-  const allowedHosts = parsed.hosts
+export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
+  const allowedHosts = relay.allowedHosts
   return (req, res) => {
     const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || observationsRoute(req.url) !== null
     // Loopback peer, Host loopback or allowed (static files included: DNS rebinding), read-only surface for a tunnel
@@ -102,7 +100,7 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
 
   const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}) })
 
-  const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay, { allowedHosts: [] }))
+  const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay))
 
   server.maxConnections = 256
   server.headersTimeout = 10_000

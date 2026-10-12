@@ -260,6 +260,14 @@ The command is offered only when it can be shown to be right. Otherwise the bloc
 | "the working directory ... is unknown or not an absolute POSIX path" | No cwd was reported, or it is not a single-line absolute POSIX path (a Windows path, a relative path, a line break or a control character). |
 | "the session id is not one Claude Code can take" | The id fails the relay's check (letters, digits, `.`, `_`, `:`, `-`, 128 characters at most) or starts with `-`, which `claude` would read as an option. |
 
+### Go to terminal (VS Code only)
+
+Inside the VS Code extension the RESUME block also has a **Go to terminal** button (#240). It asks VS Code to open an integrated terminal whose working directory is the one the extension recorded for the selected session. Nothing is typed or run in that terminal: you choose what to run, for example by pasting the resume command.
+
+- The page sends the session id only, never a path. The extension looks the session up itself, and refuses when it does not know the session, when its directory is unknown, is not an absolute single-line path, or no longer exists (a warning says which).
+- The button is offered for every runtime that reports a directory (Codex, Copilot and Pi included), not only for Claude Code, and never for an imported transcript. It does not exist in the browser app: a page cannot open a terminal.
+- The status line says "Asked VS Code to open a terminal ...": that the request was sent is all Agent Lens can prove. Whether the terminal opened is shown by VS Code itself.
+
 ## Presentation mode
 
 For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.

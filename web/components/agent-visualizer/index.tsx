@@ -1187,6 +1187,7 @@ export function AgentVisualizer() {
           relayOrigin={contextOrigin}
           sessionBranch={bridge.sessions.find(s => s.id === bridge.selectedSessionId)?.branch}
           session={bridge.sessions.find(s => s.id === bridge.selectedSessionId)}
+          onOpenTerminal={bridge.isVSCode ? bridge.bridgeOpenTerminal : undefined}
           onClose={() => setShowContext(false)}
         />
       </div>
