@@ -109,7 +109,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
         visible={true}
         style={{ minWidth: 160 }}
       >
-        <div role="menu" aria-label="Context menu" className="py-1" onKeyDown={onKeyDown}>
+        {/* Roving tabindex: items carry the tab stop; -1 makes the menu focusable without adding one */}
+        <div role="menu" aria-label="Context menu" tabIndex={-1} className="py-1 outline-none" onKeyDown={onKeyDown}>
           {items.map((item, i) => {
             if (item.separator) {
               return <div key={i} role="separator" className="my-1 h-px" style={{ background: COLORS.holoBg10 }} />

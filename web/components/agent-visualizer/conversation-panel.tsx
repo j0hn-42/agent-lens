@@ -508,9 +508,11 @@ export function ConversationPanel({
               role="tablist"
               aria-label={CONVERSATION_LABELS.tablist}
               aria-orientation="horizontal"
+              // Roving tabindex: the active tab is the only tab stop; -1 lets the list own the arrow keys without adding one
+              tabIndex={-1}
               onKeyDown={onTabKeyDown}
               onScroll={updateTabOverflow}
-              className="flex gap-1 px-2 pb-1.5 overflow-x-auto"
+              className="flex gap-1 px-2 pb-1.5 overflow-x-auto outline-none"
               style={{ scrollbarWidth: 'thin', scrollbarColor: `${COLORS.scrollbarThumb} transparent` }}
             >
               {tabKeys.map((key, i) => {

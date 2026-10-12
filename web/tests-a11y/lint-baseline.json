@@ -36,18 +36,6 @@
     "issue": 258
   },
   {
-    "file": "components/agent-visualizer/conversation-panel.tsx",
-    "rule": "jsx-a11y/interactive-supports-focus",
-    "count": 1,
-    "issue": 258
-  },
-  {
-    "file": "components/agent-visualizer/glass-context-menu.tsx",
-    "rule": "jsx-a11y/interactive-supports-focus",
-    "count": 1,
-    "issue": 258
-  },
-  {
     "file": "components/agent-visualizer/graph-a11y-list.tsx",
     "rule": "jsx-a11y/no-noninteractive-element-interactions",
     "count": 1,
