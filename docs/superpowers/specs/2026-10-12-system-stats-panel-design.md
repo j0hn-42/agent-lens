@@ -1,7 +1,7 @@
 # Panneau de santé machine : spécification de conception
 
 Date : 2026-10-12
-Statut : proposition, design validé en conversation, en attente de relecture de cette spec. Aucun code de production n'est écrit avant cette relecture. Le ticket GitHub reste à créer (voir la section 9).
+Statut : implémenté sur la branche `feat/357-system-stats-panel` (ticket #357). Cette spec a été mise à jour pour refléter ce qui a été construit.
 
 ## 1. Contexte et objectif
 
@@ -40,7 +40,7 @@ interface SystemSample {
   swap: { total: number; used: number } | null
   disk: { total: number; used: number } | null
   load: [number, number, number] | null         // os.loadavg()
-  uptime: number                                // s
+  uptime: number | null                         // s
   platformNote: string | null
 }
 ```
@@ -55,7 +55,7 @@ interface SystemSample {
 
 ## 4. Relay
 
-- Un seul `setInterval` de **2 s**, démarré à la première connexion SSE et arrêté à la dernière (même logique que l'intervalle partagé de #68). Aucun coût sans client.
+- Un seul minuteur de **2 s**, un `SharedTicker` (le même que le heartbeat et le scan, #68), démarré au premier client SSE **local** et arrêté au dernier. Aucun coût sans client, et un client de tunnel ne le démarre pas. L'option de relay `systemIntervalMs` (inconditionnelle, utilisée par les tests) règle la période.
 - Il envoie `JSON.stringify({ type: 'system-stats', sample })` avec **`broadcastLocal`**. Un client distant (tunnel) ne reçoit jamais les infos de la machine.
 - Pas d'historique ni de rejeu côté relay : un nouveau client reçoit son premier point au tick suivant. Le premier échantillon d'un cycle de vie du timer a `cpu: null`.
 - Le type d'événement est ajouté aux types de messages partagés (`web/lib/bridge-types.ts`) et à la validation côté client.
@@ -70,15 +70,18 @@ interface SystemSample {
 
 ## 6. UI : `system-panel.tsx`
 
-- Nouvel id `'system'` dans `PanelId` (`panel-layout.ts`), placé dans le **dock gauche** sous la carte de détail. Les propriétés du layout (pas de chevauchement, mode `sheet` sous `SHEET_BREAKPOINT`) restent vraies.
-- Ouverture : bouton dans la barre du haut et raccourci clavier (touche à choisir à l'implémentation sans conflit avec `web/lib/shortcuts.ts`, listé dans le dialogue des raccourcis). Fermeture : bouton visible et `Échap`.
-- Contenu : jauges **CPU**, **RAM**, **swap**, **disque** (valeur en % et en octets, barre), charge 1/5/15, uptime, `platformNote`, et une sparkline par métrique sur la fenêtre de 2 min.
+- Le panneau s'appelle **System** (« Stats » existe déjà). Nouvel id `'system'` dans `PanelId` (`panel-layout.ts`), placé dans le **dock gauche** sous la carte de détail. Il est **non exclusif** : l'ouvrir ne ferme pas les autres panneaux. Les propriétés du layout (pas de chevauchement, mode `sheet` sous `SHEET_BREAKPOINT`) restent vraies.
+- Ouverture : bouton **System** dans la barre du haut, entrée dans la palette de commandes et raccourci **`Y`** (touche à une seule lettre, soumise à la préférence des raccourcis à une touche, listé dans le dialogue des raccourcis). Fermeture : bouton visible et `Échap`, avec retour du focus à l'élément d'origine.
+- Indisponible dans VS Code et en démo : le panneau le dit à la place des jauges. Le buffer est vidé quand la source SSE n'est pas connectée.
+- La barre du haut passe à la ligne (`flex-wrap`) pour rester utilisable à 320 px avec le bouton System (WCAG, reflow).
+- Contenu : jauges **CPU**, **RAM**, **swap**, **disque** (valeur en % arrondie vers le bas et en octets, barre), charge 1/5/15, uptime, `platformNote`, et une sparkline par métrique sur la fenêtre de 2 min.
 - Détail par cœur dans une `collapsible-section`, **fermée par défaut**.
 - Avant le premier point ou si la source est absente : « en attente de mesure » ; métrique `null` : « non disponible ».
 
 ### Accessibilité (WCAG 2.1 AA, obligatoire)
 
-- Chaque jauge : `role="meter"` avec `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, nom accessible ; sans `aria-valuenow` quand la valeur est `null` (texte « non disponible » à la place).
+- Chaque jauge : `role="meter"` avec `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, nom accessible. Quand la valeur est `null`, **aucun** `role="meter"` n'est rendu (ARIA exige `aria-valuenow`) : le texte « Not available » le remplace.
+- Le pourcentage affiché est arrondi vers le bas, pour rester cohérent avec la gravité (85 % affiché est toujours Warm ou pire, 95 % toujours Critical).
 - Les mises à jour toutes les 2 s ne sont **pas** annoncées. Une annonce polie (`chrome-announcer`) uniquement au **changement de gravité** (normal → chaud → critique).
 - La gravité est dite en **texte et icône**, jamais par la couleur seule. Couleurs issues de nouveaux tokens dans `web/lib/theme-tokens.json`, puis `pnpm run gen:themes` (jamais `themes.css` à la main).
 - Sparklines décoratives (`aria-hidden`) avec un résumé textuel (valeur courante, max récent).
@@ -107,6 +110,6 @@ interface SystemSample {
 
 ## 10. Questions ouvertes
 
-1. Touche du raccourci clavier (à choisir à l'implémentation, sans conflit).
+1. ~~Touche du raccourci clavier~~ : résolue, **`Y`**.
 2. Seuils 85 % / 95 % : valeurs par défaut raisonnables, ajustables.
 3. Faut-il une option pour désactiver l'échantillonnage ? Non en V1 : il ne tourne que s'il y a un client.
