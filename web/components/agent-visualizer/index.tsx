@@ -60,8 +60,7 @@ import { buildPaletteItems } from "@/lib/command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { HIDE_INACTIVE_STORAGE_KEY, listedAgents, parseHideInactive } from "@/lib/inactive-agents"
-import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from "@/lib/shortcuts"
+import { listedAgents } from "@/lib/inactive-agents"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
@@ -115,15 +114,9 @@ export function AgentVisualizer() {
 
   const sessionProjects = useMemo(() => buildSessionProjects(bridge.sessions), [bridge.sessions])
 
-  // 'Hide inactive agents': on by default, persisted in localStorage
-  const [hideInactive, setHideInactive] = useState(true)
-  useEffect(() => {
-    try { setHideInactive(parseHideInactive(localStorage.getItem(HIDE_INACTIVE_STORAGE_KEY))) } catch { /* storage unavailable */ }
-  }, [])
-  const updateHideInactive = useCallback((hide: boolean) => {
-    setHideInactive(hide)
-    try { localStorage.setItem(HIDE_INACTIVE_STORAGE_KEY, String(hide)) } catch { /* storage unavailable */ }
-  }, [])
+  // 'Hide inactive agents': on by default, persisted with the other UI preferences
+  const hideInactive = prefs.hideInactive
+  const updateHideInactive = useCallback((hide: boolean) => setPref('hideInactive', hide), [setPref])
   // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
   // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
   const [tourShowsInactive, setTourShowsInactive] = useState(false)
@@ -464,18 +457,9 @@ export function AgentVisualizer() {
     if (!closeTopPanel()) clearAgent()
   }, [closeTopPanel, clearAgent])
 
-  // "Enable single-key shortcuts" preference (WCAG 2.1.4), persisted in localStorage
-  const [singleKeyShortcuts, setSingleKeyShortcuts] = useState(true)
-  useEffect(() => {
-    try {
-      if (!parseSingleKeyPreference(localStorage.getItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY))) setSingleKeyShortcuts(false)
-    } catch { /* storage unavailable */ }
-  }, [])
-  const updateSingleKeyShortcuts = useCallback((enabled: boolean) => {
-    setSingleKeyShortcuts(enabled)
-    try { localStorage.setItem(SINGLE_KEY_SHORTCUTS_STORAGE_KEY, String(enabled)) } catch { /* storage unavailable */ }
-  }, [])
-
+  // "Enable single-key shortcuts" preference (WCAG 2.1.4), persisted with the other UI preferences
+  const singleKeyShortcuts = prefs.singleKeyShortcuts
+  const updateSingleKeyShortcuts = useCallback((enabled: boolean) => setPref('singleKeyShortcuts', enabled), [setPref])
 
   const { immersive, toggle: toggleFullscreen } = useFullscreen()
   // Escape closes panels first; with none open it leaves a chrome-only immersive mode (no Fullscreen API: nothing else would)
