@@ -221,6 +221,16 @@ for (const entry of ENTRIES) {
       assert.equal(code, 0, `clean exit on SIGTERM:\n${b.output()}`)
       assert.equal(await accepts('127.0.0.1', b.port), false, 'the port is released')
     })
+
+    it('runs the cleanup (relay.dispose, which kills launched agents) on SIGHUP, SIGINT and SIGTERM alike (#229)', async () => {
+      // Without a SIGHUP handler Node dies without cleanup (exit code null): a detached launched agent would be left running
+      for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
+        const r = await start(entry)
+        r.child.kill(signal)
+        const code = await Promise.race([r.exited, new Promise<'timeout'>(res => setTimeout(() => res('timeout'), EXIT_TIMEOUT_MS))])
+        assert.equal(code, 0, `${signal}: clean exit through cleanup():\n${r.output()}`)
+      }
+    })
   })
 }
 

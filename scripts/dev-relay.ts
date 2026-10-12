@@ -97,13 +97,20 @@ async function main() {
   console.log(`\nSSE relay on http://127.0.0.1:${port}/events`)
   console.log('Ready! Events will appear in the web app.')
 
+  // Idempotent: repeated signals (Ctrl+C spam, SIGTERM then SIGHUP) must not dispose twice
+  let shuttingDown = false
   function cleanup() {
+    if (shuttingDown) return
+    shuttingDown = true
     server.close()
     relay.dispose()
     process.exit(0)
   }
   process.on('SIGINT', cleanup)
   process.on('SIGTERM', cleanup)
+  // The terminal closing (tab, SSH, tmux pane) sends SIGHUP: without a handler Node dies before relay.dispose(), and a
+  // launched agent (detached, no controlling terminal) would keep running with no wall-clock cap (#229)
+  process.on('SIGHUP', cleanup)
 }
 
 main().catch(e => {
