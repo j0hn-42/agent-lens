@@ -161,6 +161,8 @@ When the selected agent has sub-agents, its inspector ends with a **Delegation r
 | | **Error: ...** | The return was flagged as an error. |
 | | **No return observed yet** / **Finished, no return observed** | No return was received, whether or not the sub-agent is known to have finished. |
 
+A sub-agent launched in the background (Claude Code's default, and always with `isolation: "worktree"`) is not finished by its launch: the tool result its parent gets right away only says it started. It stays running until Claude Code's task notification for it says `completed` (a return) or `failed`, `killed`, `stopped` or `cancelled` (an error), with the duration that notification reports. A notification without a status (an agent restarted after Claude Code exited) or with an unknown status finishes nothing.
+
 A sub-agent whose link to its parent is not proven by the events (dashed on the canvas) reads **parent link not verified**. When the hooks see a sub-agent stop without its report, the result is the stop notice they relay (for example "general-purpose complete"), not a report.
 
 ## Context window (the "/ 1M" next to the gauge)
