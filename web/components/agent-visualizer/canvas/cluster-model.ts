@@ -313,11 +313,6 @@ export function clusterLabelAnchor(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { x: nu
   return { x: c.cx, y: c.cy - c.r }
 }
 
-/** Camera target (world centre and radius) that frames the cluster. */
-export function clusterBounds(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { cx: number; cy: number; r: number } {
-  return { cx: c.cx, cy: c.cy, r: c.r }
-}
-
 /** Label of one phase of a workflow on the canvas (#146) */
 export interface PhaseLabel {
   /** Cluster the phase belongs to */

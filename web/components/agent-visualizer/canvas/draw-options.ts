@@ -1,4 +1,4 @@
-import { LOD, MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
+import { LOD } from '../../../lib/canvas-constants'
 import type { TeamSummary } from '../../../lib/agent-types'
 import type { OverlayPlan } from './label-placement'
 import type { ViewRect } from './view-cull'
@@ -43,11 +43,6 @@ export interface LevelOfDetail {
 /** Pure level-of-detail rule: hide text that would fall below a readable size. */
 export function lodForZoom(zoom: number): LevelOfDetail {
   return { labels: zoom >= LOD.labelMinZoom, details: zoom >= LOD.detailMinZoom }
-}
-
-/** Is an element drawn at this opacity visible enough to be interactive? */
-export function isInteractiveOpacity(opacity: number): boolean {
-  return opacity >= MIN_VISIBLE_OPACITY
 }
 
 export interface FlashLimiter {

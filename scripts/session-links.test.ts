@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import type { SessionInfo } from '../web/lib/bridge-types'
 import { isSessionInfo, pickAutoSelectSession } from '../web/lib/bridge-types'
-import { deriveSessionLinks, MAX_LINK_SESSIONS, describeSessionLink } from '../web/lib/session-links'
+import { deriveSessionLinks, MAX_LINK_SESSIONS } from '../web/lib/session-links'
 
 const s = (id: string, extra: Partial<SessionInfo> = {}): SessionInfo => ({
   id, label: id, status: 'active', startTime: 100, lastActivityTime: 100, ...extra,
@@ -90,12 +90,6 @@ test('bounded: only the most recent sessions are considered', () => {
   assert.deepEqual(deriveSessionLinks(list), [], 's0 is the oldest and is purged, so nobody links to it')
   const fresh = deriveSessionLinks(list.map(x => (x.id === 's0' ? { ...x, lastActivityTime: 1e9 } : x)))
   assert.equal(fresh.length, MAX_LINK_SESSIONS - 1)
-})
-
-test('describeSessionLink words the relation with the labels', () => {
-  const sessions = [s('p', { label: 'Main' }), s('c', { label: 'Fix' })]
-  assert.equal(describeSessionLink({ parentId: 'p', childId: 'c', kind: 'worktree' }, sessions), 'Fix appears to run in a worktree of Main')
-  assert.equal(describeSessionLink({ parentId: 'p', childId: 'c', kind: 'task' }, sessions), 'Fix was launched by Main')
 })
 
 test('sanitizeSessionInfo cleans and caps the declared parent id', async () => {

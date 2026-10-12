@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { COLORS, ROLE_COLORS } from '../web/lib/colors'
 import {
-  truncateWithMarker, formatElapsed, agentsWithNewText, nextTabIndex, stateLabel, STATE_LABELS,
+  truncateWithMarker, formatElapsed, nextTabIndex, stateLabel, STATE_LABELS,
 } from '../web/lib/feed-utils'
 
 // ─── Pure helpers ───────────────────────────────────────────────────────────
@@ -22,26 +22,6 @@ test('formatElapsed produces m:ss and an ISO duration', () => {
   assert.deepEqual(formatElapsed(75.4), { label: '1:15', iso: 'PT75.4S' })
   assert.equal(formatElapsed(-3).label, '0:00')
   assert.equal(formatElapsed(NaN).iso, 'PT0.0S')
-})
-
-test('agentsWithNewText only reports agents whose text count increased', () => {
-  const types = new Set(['assistant', 'user', 'thinking'])
-  const conv = new Map([
-    ['a', [{ type: 'assistant' }, { type: 'tool_call' }]],
-    ['b', [{ type: 'assistant' }]],
-    ['c', [{ type: 'assistant' }]],
-  ])
-  const first = agentsWithNewText(new Map(), conv, types)
-  assert.deepEqual(first.increased.sort(), ['a', 'b', 'c'])
-
-  // a gets only a tool call, b gets text, c unchanged
-  const conv2 = new Map([
-    ['a', [...conv.get('a')!, { type: 'tool_result' }]],
-    ['b', [...conv.get('b')!, { type: 'thinking' }]],
-    ['c', conv.get('c')!],
-  ])
-  const second = agentsWithNewText(first.nextLens, conv2, types)
-  assert.deepEqual(second.increased, ['b'])
 })
 
 test('nextTabIndex wraps and supports Home/End', () => {
