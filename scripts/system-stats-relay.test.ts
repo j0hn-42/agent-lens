@@ -104,12 +104,25 @@ describe('relay system-stats (#357)', () => {
     assert.equal(await waitFor(() => relay.debugState().systemTimerActive === false), true)
   })
 
-  it('a tunnel Host never receives system-stats and never starts the timer', async () => {
+  it('a tunnel Host never receives system-stats, even while a local client does, and never holds the timer', async () => {
+    const local = await openSse()
     const remote = await openSse({ Host: TUNNEL })
     assert.equal(await waitFor(() => relay.debugState().remoteSseClients === 1), true, 'the tunnel client is really connected')
-    await sleep(150)
+    assert.equal(await waitFor(() => local.messages.filter(m => m.type === 'system-stats').length >= 2), true, 'the local client is being fed')
     assert.equal(remote.messages.some(m => m.type === 'system-stats'), false)
+    remote.close()
+    assert.equal(await waitFor(() => relay.debugState().remoteSseClients === 0), true)
+    assert.equal(relay.debugState().systemTimerActive, true, 'the local client still holds the timer')
+    local.close()
+    assert.equal(await waitFor(() => relay.debugState().systemTimerActive === false), true)
+  })
+
+  it('a tunnel Host alone does not start the timer', async () => {
+    const remote = await openSse({ Host: TUNNEL })
+    assert.equal(await waitFor(() => relay.debugState().remoteSseClients === 1), true)
+    await sleep(100)
     assert.equal(relay.debugState().systemTimerActive, false)
+    assert.equal(remote.messages.some(m => m.type === 'system-stats'), false)
     remote.close()
   })
 })

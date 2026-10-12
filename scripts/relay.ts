@@ -51,9 +51,6 @@ import { EventReconciler, type EventSource } from '../extension/src/event-source
 import { parseImportPaths, resolveImportedTranscripts, transcriptTimeRange } from '../extension/src/imported-transcripts'
 import { applySecurityHeaders, KeyedCoalescer, SharedTicker } from './server-hardening'
 import { nodeIo, sampleSystem, type CpuCounters } from './system-stats'
-
-/** Period of the machine health sample (#357) */
-const SYSTEM_INTERVAL_MS = 2_000
 import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
 import { createStatusRoute, type StatusSnapshot } from './routes/status'
@@ -66,6 +63,9 @@ import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './
 import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
 import { createFileJournal } from './launch-journal'
 import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
+
+/** Period of the machine health sample (#357) */
+const SYSTEM_INTERVAL_MS = 2_000
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -1237,9 +1237,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (closed) return
         closed = true
         releaseTicker?.()
-        releaseSystem?.()
-        // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
-        if (!systemTicker.active) cpuCounters = null
+        if (releaseSystem) {
+          releaseSystem()
+          // Timer stopped: the next sample starts a new CPU interval, so it carries no CPU figure
+          if (!systemTicker.active) cpuCounters = null
+        }
         releaseHeartbeat()
         sseClients.delete(res)
         clientSessionFilter.delete(res)
