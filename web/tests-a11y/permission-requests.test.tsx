@@ -10,7 +10,8 @@ import axe from 'axe-core'
 
 import { vscodeBridge } from '@/lib/vscode-bridge'
 import { setLocaleChoice } from '@/lib/locale'
-import { PermissionRequests, formatPermissionTime } from '@/components/agent-visualizer/permission-requests'
+import { PermissionRequests } from '@/components/agent-visualizer/permission-requests'
+import { formatPermissionTime } from '@/lib/permission-requests'
 
 const NONCE = '0123456789abcdef0123456789abcdef'
 const NONCE2 = 'fedcba9876543210fedcba9876543210'

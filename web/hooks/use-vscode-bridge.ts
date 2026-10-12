@@ -806,10 +806,10 @@ export type PermissionEvent =
   | { kind: 'decide'; nonce: string; action: PermissionDecision['action'] }
   | { kind: 'dismiss'; nonce: string }
 
-export const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
+const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
 
 /** Sent rows kept on screen (oldest dropped); waiting rows are never dropped here, the extension ends them */
-export const MAX_SENT_PERMISSION_ROWS = 5
+const MAX_SENT_PERMISSION_ROWS = 5
 
 /** Refusals after which the request still waits for a decision; any other refusal means it is gone */
 const STILL_WAITING_REASONS = new Set(['mismatch', 'message-required'])
@@ -823,7 +823,7 @@ type NoticeBody =
  * What the panel shows of the waiting requests. Only the extension's messages move a row to `sent` or remove it:
  * a click only makes it `sending`. Nothing here ever says a decision was applied (docs/reading-the-ui.md).
  */
-export function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionState {
+function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionState {
   const find = (nonce: string | null) => (nonce === null ? undefined : s.rows.find(r => r.request.nonce === nonce))
   const announce = (n: NoticeBody) => ({ notice: { ...n, id: s.nextId } as PermissionNotice, nextId: s.nextId + 1 })
   const withRow = (nonce: string, next: PermissionRow | null): PermissionRow[] => {

@@ -6,13 +6,10 @@ import { COLORS } from '@/lib/colors'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { CONTROL_ALL } from '@/lib/control-chars'
 import { visibleInput, type PermissionRequestMessage } from '@/lib/bridge-types'
+import { formatPermissionTime, inputSummary } from '@/lib/permission-requests'
 import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
-
-/** Fields of a tool input that name what the call acts on, first found wins (for the button names only) */
-const SUMMARY_FIELDS = ['command', 'file_path', 'notebook_path', 'path', 'pattern', 'url'] as const
-const SUMMARY_MAX = 60
 
 const CLOSED_KEYS: Record<string, MessageKey> = {
   expired: 'permission.closed.expired',
@@ -30,26 +27,6 @@ const ERROR_KEYS: Record<string, MessageKey> = {
   disabled: 'permission.error.disabled',
   'no-surface': 'permission.error.no-surface',
   'journal-failed': 'permission.error.journal-failed',
-}
-
-/** Wall-clock time of a deadline, in the interface language */
-export function formatPermissionTime(ms: number, locale: string): string {
-  return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(ms)
-}
-
-/** One line naming what the call acts on (`npm test`, a path), read from a whole input only; '' when there is none */
-export function inputSummary(r: PermissionRequestMessage): string {
-  if (r.inputTruncated) return ''
-  let input: unknown
-  try { input = JSON.parse(r.inputPreview) } catch { return '' }
-  if (!input || typeof input !== 'object') return ''
-  for (const key of SUMMARY_FIELDS) {
-    const v = (input as Record<string, unknown>)[key]
-    if (typeof v !== 'string') continue
-    const line = v.replace(CONTROL_ALL, ' ').replace(/\s+/g, ' ').trim()
-    if (line) return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line
-  }
-  return ''
 }
 
 interface PermissionRequestsProps {
