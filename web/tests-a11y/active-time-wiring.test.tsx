@@ -183,12 +183,13 @@ test('end of turn (#107): the orchestrator is paused, the reading time after it 
   assert.equal(byName(view, 'alpha').activeMs, closed, 'the reading pause adds nothing')
 })
 
-test('an agent_idle without turnEnd keeps the agent working (permission answered: back to thinking)', () => {
+test('an agent_idle without turnEnd keeps the agent working (permission answered: the call still runs)', () => {
   const view = mount()
   send(view, [spawn('alpha')])
   send(view, [toolStart('alpha', 1)])
   send(view, [{ sessionId: 's1', time: 2, type: 'agent_idle', payload: { name: 'alpha' } }])
-  assert.equal(byName(view, 'alpha').state, 'thinking')
+  // Never a thinking nobody observed (#362): the call it asked permission for is still running
+  assert.equal(byName(view, 'alpha').state, 'tool_calling')
   assert.ok(byName(view, 'alpha').activeSince !== undefined)
 })
 
