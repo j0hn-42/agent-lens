@@ -10,6 +10,15 @@ on:
     branches: [main, develop]
   workflow_call:
 
+# Les jobs lisent le code et téléversent un artefact : aucun droit d'écriture sur le dépôt n'est nécessaire.
+permissions:
+  contents: read
+
+# Les poussées successives sur une PR n'empilent pas de runs ; les push sur main/develop et les appels de release.yml ne sont jamais annulés.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest

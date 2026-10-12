@@ -85,10 +85,23 @@ test('every CI command is listed in CONTRIBUTING (#135)', () => {
 
 test('CI runs on push and pull requests to main and develop, and stays callable (#182)', () => {
   const ci = read('.github/workflows/ci.yml')
-  assert.match(ci, /push:\s*\n\s+branches: \[main, develop\]/)
-  assert.match(ci, /pull_request:\s*\n\s+branches: \[main, develop\]/)
+  const branchesOf = (event: string): string[] => {
+    const block = ci.match(new RegExp(`^  ${event}:\\s*\\n\\s+branches:\\s*(\\[[^\\]]*\\]|(?:\\n\\s+- .+)+)`, 'm'))
+    assert.ok(block, `ci.yml declares branches under ${event}`)
+    return block[1].match(/[\w./-]+/g) ?? []
+  }
+  for (const event of ['push', 'pull_request'])
+    for (const branch of ['main', 'develop'])
+      assert.ok(branchesOf(event).includes(branch), `${event} runs on ${branch}`)
   assert.match(ci, /workflow_call:/)
+  assert.match(ci, /^permissions:\s*\n\s+contents: read/m, 'ci.yml limits the token to read-only')
   const c = read('CONTRIBUTING.md')
+  // The required check names are the job ids: renaming one would make the documented contexts[] unsatisfiable.
+  for (const job of ['test', 'e2e-a11y']) {
+    assert.match(ci, new RegExp(`^  ${job}:`, 'm'), `ci.yml defines the job ${job}`)
+    assert.ok(c.includes(`'contexts[]=${job}'`), `CONTRIBUTING requires the check ${job}`)
+    assert.ok(c.includes(`"${job}"`), `the PUT example requires the check ${job}`)
+  }
   assert.ok(!/to `main` only/.test(c), 'CONTRIBUTING no longer says the CI is main-only')
   assert.ok(c.includes('required_status_checks'), 'CONTRIBUTING gives the required-checks command')
   assert.ok(c.includes('required_conversation_resolution'), 'the PUT example repeats the existing protection settings')

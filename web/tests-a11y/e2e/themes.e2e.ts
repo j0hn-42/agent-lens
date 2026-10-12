@@ -128,15 +128,23 @@ test('a stored non-default theme hydrates without a mismatch and paints with its
     await page.goto(`${server.url}?theme=catppuccin-frappe`)
     await (await themeSelect(page)).waitFor()
     // A COLORS-based inline style (the select border) uses the Frappe overlay1 control border, not the default's.
-    // Wait for that observable state instead of sleeping; the select only opens once the page is hydrated.
+    // Wait for observable states instead of sleeping. First proof of hydration: React attaches its fiber to
+    // the select only once it has hydrated (the combobox may already be present in the server HTML).
     const select = await themeSelect(page)
+    const handle = await select.elementHandle()
+    await page.waitForFunction(
+      el => Object.keys(el as Element).some(k => k.startsWith('__reactFiber$')),
+      handle, { timeout: 15_000 },
+    )
+    // Then the palette: a COLORS-based inline style (the select border) uses the Frappe overlay1 control border.
     await page.waitForFunction(
       el => getComputedStyle(el as Element).borderTopColor === 'rgb(131, 139, 167)',
-      await select.elementHandle(), { timeout: 15_000 },
-    )
+      handle, { timeout: 15_000 },
+    ).catch(async () => {
+      const border = await select.evaluate(el => getComputedStyle(el).borderTopColor)
+      assert.fail(`the select border should use the Frappe palette rgb(131, 139, 167), got ${border}`)
+    })
     assert.deepEqual(errors.filter(e => /hydrat/i.test(e)), [])
-    const border = await select.evaluate(el => getComputedStyle(el).borderTopColor)
-    assert.equal(border, 'rgb(131, 139, 167)')
   } finally {
     await context.close()
   }
