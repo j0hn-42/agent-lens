@@ -100,9 +100,9 @@ function baseName(p: string): string {
   return parts[parts.length - 1] ?? p
 }
 
-/** One line stating what is scanned right now. */
-export function scopeSummary(state: RelayScopeState): string {
-  return state.scope === 'all' ? 'Scanning all workspaces' : `Scanning this workspace only (${baseName(state.workspace)})`
+/** One line stating the limit in force. null on all workspaces: nothing is limited, the selector says it. */
+export function scopeSummary(state: RelayScopeState): string | null {
+  return state.scope === 'all' ? null : `Scanning this workspace only (${baseName(state.workspace)})`
 }
 
 /** Shown where a list would otherwise be silently empty: the limit, and the way out. null when nothing is limited or unknown. */
@@ -118,7 +118,6 @@ export function scopeNotices(state: RelayScopeState): string[] {
   const d = state.discovery
   if (!d) return []
   const out: string[] = []
-  if (d.projectDirsCapped) out.push(`Only the first ${d.maxProjectDirs} project folders are scanned; the others are not.`)
   const { fileLimit, sizeLimit, watchLimit } = d.skipped
   if (fileLimit > 0) out.push(`At least ${fileLimit} older ${plural(fileLimit, 'transcript is', 'transcripts are')} not followed: more than ${d.maxFilesPerDir} in one folder.`)
   if (sizeLimit > 0) out.push(`At least ${sizeLimit} ${plural(sizeLimit, 'transcript is', 'transcripts are')} too large to follow.`)

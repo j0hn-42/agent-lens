@@ -52,7 +52,7 @@ test('the scope is always written out, never only a colour or a tooltip', () => 
   assert.match(ws.container.textContent ?? '', /Scanning this workspace only \(alpha\)/)
   ws.unmount()
   const all = render(<ScopeSelector {...base} state={state({ allWorkspaces: true })} />)
-  assert.match(all.container.textContent ?? '', /Scanning all workspaces/)
+  assert.doesNotMatch(all.container.textContent ?? '', /Scanning/)
   assert.equal((all.getByRole('combobox', { name: 'Session scope' }) as HTMLSelectElement).value, 'all')
 })
 
@@ -92,7 +92,7 @@ test('the ceilings that were hit are listed in a polite live region; none, no no
   })} />)
   const region = hit.container.querySelector('[data-scope-notices]') as HTMLElement
   assert.equal(region.getAttribute('role'), 'status')
-  assert.match(region.textContent ?? '', /first 200 project folders/)
+  assert.doesNotMatch(region.textContent ?? '', /project folders/)
   assert.match(region.textContent ?? '', /at least 4/i)
 })
 

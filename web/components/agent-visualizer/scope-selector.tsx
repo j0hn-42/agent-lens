@@ -30,6 +30,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
   // A project that no session belongs to any more is not offered, so it is not shown as selected either
   const known = projectId !== null && projectOptions(sessions).some(p => p.projectId === projectId)
   const value = scopeValue(state.scope, known ? projectId : null)
+  const summary = scopeSummary(state)
   const notices = scopeNotices(state)
   const live = [...(error ? [error] : []), ...notices]
   return (
@@ -47,7 +48,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
           <option key={o.value} value={o.value} style={{ background: COLORS.surface, color: COLORS.ink }}>{o.label}</option>
         ))}
       </select>
-      <span style={{ color: COLORS.textMuted }}>{scopeSummary(state)}</span>
+      {summary && <span style={{ color: COLORS.textMuted }}>{summary}</span>}
       <span role="status" data-scope-notices className="min-w-0" style={{ color: error ? COLORS.error : COLORS.textMuted }}>
         {live.join(' ')}
       </span>
