@@ -378,3 +378,35 @@ test('buildGraphLabel counts a stale idle agent as last known, like the top bar 
   const staleIdle = { state: 'idle' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
   assert.match(buildGraphLabel([staleIdle], 0, now), /1 last known state/)
 })
+
+// ─── #379: actionable states are never swallowed by the bulk summary ───
+import { isUrgentTransition } from '../web/components/agent-visualizer/canvas/a11y-model'
+
+test('a burst of 10 transitions keeps the permission request and the failures out of the summary', () => {
+  const burst: any[] = []
+  for (let i = 0; i < 7; i++) burst.push({ kind: 'agent_spawn', id: `s${i}`, name: `n${i}` })
+  burst.push({ kind: 'agent_waiting_permission', id: 'p', name: 'Planner' })
+  burst.push({ kind: 'agent_error', id: 'e', name: 'Builder' })
+  burst.push({ kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder' })
+  const q = enqueueAnnouncements(createAnnouncementQueue(), burst)
+  const urgent = q.items.filter(i => i.urgent).map(i => i.text)
+  assert.deepEqual(urgent, ['Agent Planner is waiting for permission', 'Agent Builder failed', 'Tool Bash failed for agent Builder'])
+  const polite = q.items.filter(i => !i.urgent).map(i => i.text)
+  assert.deepEqual(polite, ['7 agent graph updates'], 'only the non-actionable ones are summarised')
+})
+
+test('tool_error names the agent, and its session in the All view', () => {
+  const t: any = { kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder', session: 'api' }
+  assert.equal(describeTransition(t), 'Tool Bash failed for agent Builder')
+  assert.equal(describeTransition(t, { multiSession: true }), 'Tool Bash failed for agent Builder in session api')
+  assert.equal(isUrgentTransition(t), true)
+  assert.equal(isUrgentTransition({ kind: 'agent_spawn', id: 'a', name: 'X' }), false)
+})
+
+test('several message_sent in one batch collapse into one provable count', () => {
+  const m = (i: number): any => ({ kind: 'message_sent', id: `m${i}`, name: 'Lead', from: 'Lead', to: `A${i}` })
+  const one = enqueueAnnouncements(createAnnouncementQueue(), [m(1)])
+  assert.deepEqual(one.items.map(i => i.text), ['Lead sent a message to A1'])
+  const many = enqueueAnnouncements(createAnnouncementQueue(), [m(1), m(2), m(3)])
+  assert.deepEqual(many.items.map(i => i.text), ['3 messages sent between agents'])
+})

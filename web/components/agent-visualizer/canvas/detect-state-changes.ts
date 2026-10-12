@@ -17,7 +17,7 @@ export type StateTransition =
   | { kind: 'agent_waiting_permission'; id: string; name: string; session?: string }
   | { kind: 'tool_start'; id: string; name: string }
   | { kind: 'tool_complete'; id: string; name: string }
-  | { kind: 'tool_error'; id: string; name: string }
+  | { kind: 'tool_error'; id: string; name: string; agent?: string; session?: string }
   /** A teammate changed activity ('working' | 'idle' | 'done') */
   | { kind: 'agent_activity'; id: string; name: string; activity: string }
   /** A new message travelled on a link */
@@ -124,7 +124,8 @@ export function detectStateChanges(
 
     // Tool errored
     if (oldState === 'running' && tool.state === 'error') {
-      transitions.push({ kind: 'tool_error', id, name: tool.toolName })
+      const owner = agents.get(tool.agentId)
+      transitions.push({ kind: 'tool_error', id, name: tool.toolName, agent: owner?.name, session: owner ? sessionOf(owner) : undefined })
     }
   }
 
