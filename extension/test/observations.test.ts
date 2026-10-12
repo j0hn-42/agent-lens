@@ -93,6 +93,11 @@ describe('buildObservations whitelist', () => {
     assert.deepEqual(out.sessions.map(s => [s.id, s.runtime]), [['a', 'copilot']])
   })
 
+  it('reports a Pi session as pi, not unknown (#238)', () => {
+    const out = buildObservations({ sessions: [session('a', { runtime: 'pi' })], agents: tracker() }, {}, NOW)
+    assert.deepEqual(out.sessions.map(s => [s.id, s.runtime]), [['a', 'pi']])
+  })
+
   it('an empty relay yields an empty, valid answer', () => {
     assert.deepEqual(buildObservations({ sessions: [], agents: tracker() }, {}, NOW),
       { schema: 1, generatedAt: NOW, sessions: [], truncated: false, omittedSessions: 0 })
