@@ -73,9 +73,13 @@ function GearIcon() {
   )
 }
 
+/** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
+const CONTEXT_UNAVAILABLE_IN_VSCODE = 'Context: project CLAUDE.md, memory and issues come from the standalone relay, not available in VS Code'
+const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
+
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -94,6 +98,8 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   hasDialog?: boolean
   /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
   keepsInspector?: boolean
+  /** id of an element describing the button (read after its name) */
+  describedBy?: string
 }) {
   return (
     <button
@@ -102,6 +108,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       onClick={onClick}
       aria-pressed={pressed}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
@@ -222,7 +229,7 @@ export const TopBar = memo(function TopBar({
   showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
-  connectionStatus, isDemo = false,
+  isVSCode, connectionStatus, isDemo = false,
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
@@ -360,7 +367,8 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={`${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
