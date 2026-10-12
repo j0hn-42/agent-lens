@@ -1,6 +1,6 @@
 import type { SystemSample, SystemUsage } from './bridge-types'
 
-export const SYSTEM_HISTORY = 60
+const SYSTEM_HISTORY = 60
 const MAX_CORES = 256
 const MAX_NOTE = 200
 
@@ -39,8 +39,8 @@ export function pushSample(buffer: readonly SystemSample[], sample: SystemSample
 }
 
 export type Severity = 'normal' | 'warm' | 'critical' | 'unknown'
-export const WARM_AT = 0.85
-export const CRITICAL_AT = 0.95
+const WARM_AT = 0.85
+const CRITICAL_AT = 0.95
 
 export function severity(r: number | null): Severity {
   if (r === null) return 'unknown'

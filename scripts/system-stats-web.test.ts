@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseSystemSample, pushSample, severity, ratio, summarise, SYSTEM_HISTORY } from '../web/lib/system-stats'
+import { parseSystemSample, pushSample, severity, ratio, summarise } from '../web/lib/system-stats'
+
+/** web/lib/system-stats.ts keeps 60 samples (2 min at one sample every 2 s) */
+const SYSTEM_HISTORY = 60
 
 const base = { ts: 1, cpu: { total: 0.5, perCore: [0.5] }, mem: { total: 100, used: 50 }, swap: null, disk: null, load: [1, 1, 1], uptime: 5, platformNote: null }
 
