@@ -3,7 +3,8 @@
 //   pnpm --dir web run lint:a11y             fail on new violations and on fixed-but-still-listed ones
 //   pnpm --dir web run lint:a11y -- --write  rewrite lint-baseline.json from the current results
 //
-// eslint.config.mjs enables the strict preset with no per-file overrides, so a new
+// eslint.config.mjs enables the strict preset (one narrow, commented exception for the graph
+// surface of canvas.tsx, #258), so a new
 // violation anywhere (including in a file that already has other violations) fails here.
 import fs from 'node:fs'
 import path from 'node:path'
