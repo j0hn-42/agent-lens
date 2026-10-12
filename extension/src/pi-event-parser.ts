@@ -34,6 +34,12 @@ import { SessionNormalizer } from './event-normalize'
 /** Highest session format version this parser was checked against (pi CURRENT_SESSION_VERSION). */
 export const PI_SESSION_VERSION_MAX = 3
 
+/** True for a header `version` this parser knows: absent (v1) or an integer from 1 to the max. */
+export function isSupportedPiVersion(raw: unknown): boolean {
+  const version = raw === undefined ? 1 : raw
+  return typeof version === 'number' && Number.isInteger(version) && version >= 1 && version <= PI_SESSION_VERSION_MAX
+}
+
 // ─── State ─────────────────────────────────────────────────────────────────
 
 interface PendingPiToolCall {
@@ -187,15 +193,14 @@ export class PiEventParser {
   private handleHeader(record: Record<string, unknown>, state: PiEventState): void {
     if (state.version !== null) return
     const raw = record.version
-    const version = raw === undefined ? 1 : raw
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1 || version > PI_SESSION_VERSION_MAX) {
+    if (!isSupportedPiVersion(raw)) {
       state.unsupported = true
       this.delegate.warn?.(
         `Pi session format version ${String(raw).slice(0, 16)} is not supported (known: 1 to ${PI_SESSION_VERSION_MAX}): session not shown.`,
       )
       return
     }
-    state.version = version
+    state.version = raw === undefined ? 1 : raw as number
     state.sessionId = str(record.id) ?? null
     state.cwd = str(record.cwd) ?? null
   }
