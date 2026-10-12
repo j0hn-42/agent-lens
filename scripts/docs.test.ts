@@ -205,8 +205,8 @@ test('the launch policy is documented as not yet enabled, with the code constant
   ]) assert.ok(section.includes(needle), `section should mention ${needle}`)
 })
 
-test('no jobailla/agent-lens repository reference remains outside the CHANGELOG (#224)', () => {
-  // The repository was renamed j0hn-42/agent-lens: the old name only lives on through a GitHub redirect.
+test('no old jobailla repository reference remains outside the CHANGELOG (#224)', () => {
+  // The repository was renamed j0hn-42/agent-lens: the old owner name only lives on through a GitHub redirect.
   // `publisher: "jobailla"` is a different identifier and is kept on purpose.
   const old = ['jobailla', 'agent-lens'].join('/')
   const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' })
