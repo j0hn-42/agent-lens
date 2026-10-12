@@ -75,6 +75,7 @@ export function useKeyboardShortcuts(actions: {
   toggleHexGrid: () => void
   toggleStats: () => void
   toggleContext: () => void
+  toggleSystem: () => void
   toggleCostOverlay: () => void
   zoomToFit: () => void
   /** Enter / leave immersive full screen (`Z`) */
@@ -154,6 +155,10 @@ export function useKeyboardShortcuts(actions: {
         case 's':
         case 'S':
           a.toggleStats()
+          break
+        case 'y':
+        case 'Y':
+          a.toggleSystem()
           break
         case '$':
           a.toggleCostOverlay()

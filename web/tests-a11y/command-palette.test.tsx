@@ -215,7 +215,7 @@ function ShortcutHost({ singleKey }: { singleKey: boolean }) {
   const noop = () => {}
   useKeyboardShortcuts({
     togglePlayPause: noop, toggleFilePanel: noop, toggleSessionList: noop, toggleConversation: noop,
-    toggleTimeline: noop, toggleHexGrid: noop, toggleStats: noop, toggleContext: noop,
+    toggleTimeline: noop, toggleHexGrid: noop, toggleStats: noop, toggleContext: noop, toggleSystem: noop,
     toggleCostOverlay: noop, zoomToFit: noop, toggleFullscreen: noop, closeTopPanel: () => false,
     clearSelection: noop, toggleMute: noop, setSpeed: noop, openShortcuts: noop, undoLast: () => false,
     togglePresentation: noop, openPalette: rec('palette'), singleKeyEnabled: singleKey,

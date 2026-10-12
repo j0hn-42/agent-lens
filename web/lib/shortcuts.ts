@@ -33,6 +33,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 't', display: 'T', description: `Toggle ${PANEL_NAMES.timeline} panel`, group: 'Panels', singleKey: true },
   { key: 'p', display: 'P', description: `Toggle ${PANEL_NAMES.context} panel (project CLAUDE.md, memory, issues)`, group: 'Panels', singleKey: true },
   { key: 's', display: 'S', description: `Toggle ${PANEL_NAMES.stats} panel`, group: 'Panels', singleKey: true },
+  { key: 'y', display: 'Y', description: `Toggle ${PANEL_NAMES.system} panel (CPU, memory, disk)`, group: 'Panels', singleKey: true },
   { key: '$', display: '$', description: `Toggle ${PANEL_NAMES.cost} overlay`, group: 'Panels', singleKey: true },
   { key: 'F', display: 'Shift+F', description: 'Zoom to fit all agents', group: 'View', singleKey: true },
   { key: 'z', display: 'Z', description: 'Toggle full screen (hides the top bar and playback controls)', group: 'View', singleKey: true },

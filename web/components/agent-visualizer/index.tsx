@@ -76,7 +76,7 @@ import { useNotificationRules } from "@/hooks/use-notification-rules"
 import { buildSessionExport, renderReplayHtml, sessionExportFileName } from "@/lib/session-export"
 import { downloadText } from "@/lib/comms-export"
 
-type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context'
+type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
 
 type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
 
@@ -212,6 +212,7 @@ export function AgentVisualizer() {
   const [showSessions, setShowSessions] = useState(false)
   const [showConversation, setShowConversation] = usePersistedFlag('showConversation', uiPrefs)
   const [showContext, setShowContext] = useState(false)
+  const [showSystem, setShowSystem] = useState(false)
 
   // Relay origin for on-demand reads ('' = same origin, standalone app)
   const contextOrigin = bridge.relayPort ? `http://127.0.0.1:${bridge.relayPort}` : ''
@@ -423,14 +424,14 @@ export function AgentVisualizer() {
   useEffect(() => {
     const open: Record<PanelId, boolean> = {
       files: showFileAttention, conversation: showConversation, cost: showCostOverlay,
-      timeline: showTimeline, stats: showStats, sessions: showSessions, context: showContext,
+      timeline: showTimeline, stats: showStats, sessions: showSessions, context: showContext, system: showSystem,
     }
     const stack = panelStackRef.current.filter(id => open[id])
     for (const id of Object.keys(open) as PanelId[]) {
       if (open[id] && !stack.includes(id)) stack.push(id)
     }
     panelStackRef.current = stack
-  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions, showContext])
+  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions, showContext, showSystem])
 
   // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
   const panelRegistry = useMemo(() => createPanelRegistry(), [])
@@ -446,6 +447,7 @@ export function AgentVisualizer() {
     else if (top === 'timeline') setShowTimeline(false)
     else if (top === 'sessions') setShowSessions(false)
     else if (top === 'context') setShowContext(false)
+    else if (top === 'system') setShowSystem(false)
     else setShowStats(false)
     return true
   }, [panelRegistry, setShowFileAttention, setShowConversation, setShowCostOverlay, setShowTimeline, setShowStats])
@@ -511,6 +513,7 @@ export function AgentVisualizer() {
     toggleHexGrid: () => { setShowHexGrid(prev => !prev) },
     toggleStats: () => { setShowStats(prev => !prev) },
     toggleContext: () => toggleExclusivePanel('context'),
+    toggleSystem: () => { setShowSystem(prev => !prev) },
     toggleCostOverlay: () => toggleExclusivePanel('cost'),
     zoomToFit: () => { setZoomToFitTrigger(n => n + 1) },
     toggleFullscreen,
@@ -914,12 +917,13 @@ export function AgentVisualizer() {
         showFileAttention={showFileAttention}
         showConversation={showConversation}
         showContext={showContext}
+        showSystem={showSystem}
         showCostOverlay={showCostOverlay}
         showTimeline={showTimeline}
         isMuted={isMuted}
         showStats={showStats}
         onToggleStats={() => setShowStats(prev => !prev)}
-        onTogglePanel={toggleExclusivePanel}
+        onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute}
         onOpenShortcuts={openShortcuts}
