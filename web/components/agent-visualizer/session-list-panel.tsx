@@ -30,6 +30,7 @@ import { summarizeAttention, sessionAttentionText, type AttentionSummary } from 
 import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
 import { emptyMatch } from '@/lib/ui-glossary'
 import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
+import { folderPrefixedLabel } from '@/lib/session-tabs'
 import { FreshnessAnnouncer } from './freshness-announcer'
 import { INSPECTOR_KEEP_ATTR, DockResizer, PanelHeader, SlidingPanel, useDockSnapshot } from './shared-ui'
 import { clampLeftPanelWidth, leftPanelWidthBounds } from '@/lib/panel-layout'
@@ -368,6 +369,9 @@ export function SessionListPanel({
     setDraft(sessions.find(s => s.id === id)?.label ?? '')
     setRenaming(id)
   }
+  // The session left the list while its name was being edited: drop the edit, it must not come back with the id
+  const renamingGone = renaming !== null && !sessions.some(s => s.id === renaming)
+  useEffect(() => { if (renamingGone) setRenaming(null) }, [renamingGone])
   const endRename = (save: boolean, refocusRow = true) => {
     const id = renaming
     if (id === null) return
@@ -633,6 +637,8 @@ export function SessionListPanel({
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const isCollapsed = collapsed.has(session.id)
+              // Under a project heading the folder is already named; a team member has no heading (#246)
+              const tabName = row.teamName ? folderPrefixedLabel(session, sessions) : session.label
               const hasAgents = row.roots.length > 0
               return (
                 <li key={row.id} className={row.teamName || hasProjectHeadings ? 'pl-3' : undefined}>
@@ -690,7 +696,7 @@ export function SessionListPanel({
                           ,{' '}
                         </span>
                         {badge && <span className="sr-only">{badge.label} session, </span>}
-                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? `${session.label} (renamed; original: ${session.originalLabel})` : session.label}>{session.label}</span>
+                        <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? `${tabName} (renamed; original: ${session.originalLabel})` : tabName}>{tabName}</span>
                         {session.originalLabel && <span className="sr-only">, renamed, original name {session.originalLabel}</span>}
                       </span>
                       <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
