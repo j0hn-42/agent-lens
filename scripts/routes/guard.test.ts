@@ -5,6 +5,7 @@
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import * as net from 'node:net'
 import { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { guardedRoute, sendJson } from './guard'
 
@@ -68,6 +69,23 @@ describe('guardedRoute', () => {
       { Host: 'evil.example' },
     ]) assert.equal((await request('GET', headers, '/remote')).status, 403, JSON.stringify(headers))
     assert.equal(calls, before + 2)
+  })
+
+  it('allowedHosts (#241) : deux en-têtes Host = 403 sans appeler le handler, même si le premier est autorisé ou loopback', async () => {
+    const before = calls
+    for (const hosts of ['Host: box.tail1234.ts.net\r\nHost: evil.example', 'Host: 127.0.0.1\r\nHost: evil.example']) {
+      for (const target of ['/remote', '/guarded']) {
+        const reply = await new Promise<string>((resolve, reject) => {
+          const s = net.connect({ host: '127.0.0.1', port }, () => s.end(`GET ${target} HTTP/1.1\r\n${hosts}\r\nConnection: close\r\n\r\n`))
+          let out = ''
+          s.on('data', c => { out += c.toString() })
+          s.on('end', () => resolve(out))
+          s.on('error', reject)
+        })
+        assert.match(reply, /^HTTP\/1\.1 403 /, `${target} ${hosts}`)
+      }
+    }
+    assert.equal(calls, before)
   })
 
   it('405 avec Allow pour une autre méthode', async () => {

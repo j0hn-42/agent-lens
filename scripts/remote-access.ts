@@ -1,9 +1,11 @@
 /**
  * Remote access guards, step 1 of #241.
  *
- * v1 is "tunnel only": the relay never listens outside 127.0.0.1. A tunnel (SSH -L, Tailscale serve) forwards
- * to it, so its peer is loopback and the only thing that changes is the Host header, which names the tunnel.
- * `--allow-host <name>` adds such a name to an explicit list (no wildcard, no suffix match: DNS rebinding).
+ * v1 is "tunnel only": the relay never listens outside 127.0.0.1. A tunnel that exposes a name (Tailscale serve)
+ * forwards to it, so its peer is loopback and the only thing that changes is the Host header, which names the
+ * tunnel. `--allow-host <name>` adds such a name to an explicit list (no wildcard, no suffix match: DNS rebinding).
+ * An SSH -L tunnel is NOT covered: the remote browser opens http://localhost:<port>, its Host is loopback and it
+ * gets the loopback surface. Step 2 (token) has to cover that case too.
  * A request whose Host is on the list only reaches a strict read-only surface (/events, /status, the static
  * app); /context, /issue-links, /observations, /statusline and POST /scope stay loopback only.
  *
@@ -69,6 +71,15 @@ export function classifyHost(host: string | undefined, allowed: readonly string[
   return allowed.includes(host.toLowerCase()) ? 'allowed' : 'foreign'
 }
 
+/**
+ * Host class of a request. Two Host headers are foreign whatever the first one says: Node keeps the first, a
+ * proxy in front may have used the last. Every entry point (app gate, relay guards) goes through this one.
+ */
+export function requestHostClass(req: Pick<http.IncomingMessage, 'headers' | 'headersDistinct'>, allowed: readonly string[]): HostClass {
+  if ((req.headersDistinct?.host?.length ?? 0) > 1) return 'foreign'
+  return classifyHost(req.headers.host, allowed)
+}
+
 /** Static files the app serves: one path segment ending in .js / .css / .html (see app/src/static.ts), or the root. */
 const STATIC_PATH = /^\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\.(?:js|css|html))?$/
 
@@ -103,10 +114,8 @@ export function remoteRateKey(host: string): string {
  */
 export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerResponse, allowed: readonly string[], kind: ResponseKind): boolean {
   const host = req.headers.host
-  const cls = classifyHost(host, allowed)
-  // Two Host headers: Node keeps the first, a proxy in front may have used the last one
-  const refused = (req.headersDistinct?.host?.length ?? 0) > 1
-    || !isLoopbackAddress(req.socket.remoteAddress)
+  const cls = requestHostClass(req, allowed)
+  const refused = !isLoopbackAddress(req.socket.remoteAddress)
     || cls === 'foreign'
     || (cls === 'allowed' && (!isRemoteReadOnlyRoute(req.method, req.url) || isRemoteCrossOrigin(req.headers, host ?? '')))
   if (!refused) return false
@@ -119,8 +128,8 @@ export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerRes
 /** Why the start must stop (exit code 2), or null. v1 never listens outside loopback and needs the token for --allow-host. */
 export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string }): string | null {
   if (opts.host !== undefined && !['127.0.0.1', 'localhost'].includes(opts.host.trim().toLowerCase())) {
-    return `--host ${echo(opts.host)}: Agent Lens only listens on loopback (127.0.0.1). For remote access, forward a tunnel `
-      + '(SSH -L, Tailscale serve) to it and name the tunnel with --allow-host (#241).'
+    return `--host ${echo(opts.host)}: Agent Lens only listens on loopback (127.0.0.1). For remote access, forward a named tunnel `
+      + '(Tailscale serve) to it and name it with --allow-host (#241).'
   }
   if (opts.allowHosts.length === 0) return null
   const { hosts, errors } = parseAllowedHosts(opts.allowHosts)

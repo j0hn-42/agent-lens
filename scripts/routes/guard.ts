@@ -7,7 +7,7 @@ import * as http from 'http'
 import { isLoopbackAddress, type KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { statusRateKey, isCrossOriginRequest } from '../../extension/src/relay-guards'
 import { applySecurityHeaders } from '../server-hardening'
-import { classifyHost, isRemoteCrossOrigin, remoteRateKey } from '../remote-access'
+import { requestHostClass, isRemoteCrossOrigin, remoteRateKey } from '../remote-access'
 
 export type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
 
@@ -46,7 +46,7 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
   const allow = methods.join(', ')
   return (req, res) => {
     applySecurityHeaders(res, 'api')
-    const hostClass = classifyHost(req.headers.host, options.allowedHosts ?? [])
+    const hostClass = requestHostClass(req, options.allowedHosts ?? [])
     if (!isLoopbackAddress(req.socket.remoteAddress) || hostClass === 'foreign') {
       return sendPlain(res, 403, 'Forbidden')
     }
