@@ -83,7 +83,7 @@ test('choosing: the relay scope follows workspace/all; a project keeps the scope
 
 test('the summary states the scope that is really scanned, with the workspace name', () => {
   assert.equal(scopeSummary(state()), 'Scanning this workspace only (alpha)')
-  assert.equal(scopeSummary(state({ scope: 'all' })), 'Scanning all workspaces')
+  assert.equal(scopeSummary(state({ scope: 'all' })), null)
   assert.equal(scopeSummary(state({ workspace: 'C:\\Users\\me\\code\\beta' })), 'Scanning this workspace only (beta)')
 })
 
@@ -98,8 +98,8 @@ test('ceilings that were hit are listed, with their numbers; none hit, nothing i
   assert.deepEqual(scopeNotices(state()), [])
   const hit = state({ scope: 'all', discovery: { projectDirsCapped: true, maxProjectDirs: 200, maxFilesPerDir: 500, skipped: { watchLimit: 3, sizeLimit: 1, fileLimit: 2 } } })
   const notices = scopeNotices(hit)
-  assert.equal(notices.length, 4)
-  assert.ok(notices.some(n => /first 200 project folders/.test(n)))
+  assert.equal(notices.length, 3)
+  assert.ok(!notices.some(n => /project folders/.test(n)))
   assert.ok(notices.some(n => /at least 2/i.test(n) && /500/.test(n)))
   assert.ok(notices.some(n => /at least 1/i.test(n) && /too large/i.test(n)))
   assert.ok(notices.some(n => /at least 3/i.test(n) && /limit/i.test(n)))

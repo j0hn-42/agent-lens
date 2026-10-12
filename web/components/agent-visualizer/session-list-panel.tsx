@@ -775,9 +775,6 @@ export function SessionListPanel({
               )
             })}
           </ul>
-          <p className="mt-2 mb-0 text-[11px]" style={{ color: COLORS.textDim }}>
-            Agents are listed for the sessions of the current view. Select a session to see its agents.
-          </p>
         </div>
       </div>
     </SlidingPanel>
