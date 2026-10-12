@@ -62,7 +62,7 @@ import { buildPaletteItems } from "@/lib/command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { listedAgents } from "@/lib/inactive-agents"
+import { listedAgents, emptiedByHidingCount, hiddenDoneText } from "@/lib/inactive-agents"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
@@ -763,6 +763,8 @@ export function AgentVisualizer() {
   const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
   // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
   const listAgents = useMemo(() => listedAgents(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
+  // Every agent finished and hidden: the canvas would be blank without a word (#369)
+  const blankByHidingCount = useMemo(() => emptiedByHidingCount(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -994,6 +996,24 @@ export function AgentVisualizer() {
             <div className="mt-2 text-xs" style={{ color: SCENE.textMuted }}>
               <LearnMoreLink palette={SCENE} />
             </div>
+          </div>
+        </div>
+      )}
+
+      {blankByHidingCount > 0 && !isEmpty && (
+        <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none" data-testid="hidden-finished-notice">
+          <div className="text-center text-xs pointer-events-auto" style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: SCENE.textMuted }}>
+            <span>{hiddenDoneText(blankByHidingCount)}</span>
+            <span aria-hidden="true"> · </span>
+            <button
+              type="button"
+              onClick={() => updateHideInactive(false)}
+              aria-label="Show finished agents"
+              className={`min-h-6 min-w-6 px-2 py-1 rounded font-semibold ${FOCUS_RING}`}
+              style={{ background: SCENE.holoBg10, border: `1px solid ${SCENE.controlBorder}`, color: SCENE.textPrimary }}
+            >
+              Show
+            </button>
           </div>
         </div>
       )}
