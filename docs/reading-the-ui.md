@@ -180,7 +180,7 @@ A sub-agent whose link to its parent is not proven by the events (dashed on the 
 The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
 
 1. **Reported by the runtime** (Codex sends `model_context_window`): shown as is, even when the usage is above it.
-2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `npx agent-lens-app` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
+2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `node app/dist/app.js` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
 3. **A `[1m]` suffix** in the model id: 1M.
 4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
 

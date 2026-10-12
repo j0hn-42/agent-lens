@@ -248,6 +248,37 @@ test('the theme is documented in Settings, not in the top bar (#179)', () => {
   }
 })
 
+// #178: the docs only cite entry points that exist, and the repository URL and Node floor agree everywhere.
+test('no doc cites `npx agent-lens-app` while the package is not published (#178)', () => {
+  for (const file of ['README.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/relay-sources.md']) {
+    assert.ok(!read(file).includes('npx agent-lens-app'), `${file} cites npx agent-lens-app, which is not published`)
+  }
+})
+
+test('README documents the real standalone command and its options (#178)', () => {
+  const readme = read('README.md')
+  assert.ok(readme.includes('pnpm run build:app'), 'README should document pnpm run build:app')
+  assert.ok(readme.includes('node app/dist/app.js'), 'README should document node app/dist/app.js')
+  for (const flag of ['--port', '--no-open', '--all-workspaces']) {
+    assert.ok(readme.includes(flag), `README should document ${flag}`)
+  }
+})
+
+test('one repository URL in README, CONTRIBUTING and both package.json (#178)', () => {
+  const url = 'https://github.com/j0hn-42/agent-lens'
+  for (const pkg of ['app/package.json', 'extension/package.json']) {
+    assert.equal(JSON.parse(read(pkg)).repository.url, url, `${pkg} repository.url`)
+  }
+  assert.ok(read('README.md').includes(`${url}.git`), 'README clone URL')
+  assert.ok(read('CONTRIBUTING.md').includes(`(${url})`), 'CONTRIBUTING repository link')
+})
+
+test('the minimum Node version of the README matches engines.node (#178)', () => {
+  const m = read('README.md').match(/Node\.js\]\([^)]*\) (\d+)\+/)
+  assert.ok(m, 'README states a minimum Node version')
+  assert.equal(JSON.parse(read('app/package.json')).engines.node, `>=${m![1]}`)
+})
+
 test('the launch security page states the guards and caps of the code (#229)', () => {
   const doc = read('docs/launch-security.md')
   for (const needle of [
