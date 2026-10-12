@@ -38,12 +38,6 @@ export const THEME_LABELS: Record<ThemeId, string> = {
 /** Themes that stored values of earlier versions (and the removed `paper`) resolve to. Mirrored by the bootstrap script. */
 export const LEGACY_THEME_IDS: readonly string[] = ['dark', 'light', 'paper']
 
-/** Theme a stored or URL value resolves to: a known id as is, a legacy value (dark, light, paper) -> the default, else null. */
-export function resolveThemeValue(value: unknown): ThemeId | null {
-  if (isThemeId(value)) return value
-  return typeof value === 'string' && LEGACY_THEME_IDS.includes(value) ? DEFAULT_THEME : null
-}
-
 export function isThemeId(value: unknown): value is ThemeId {
   return typeof value === 'string' && (THEME_IDS as readonly string[]).includes(value)
 }

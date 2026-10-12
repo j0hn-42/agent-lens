@@ -239,11 +239,6 @@ export function dockAttrs(id: PanelId, edge: 'left' | 'right' | 'bottom', placem
   }
 }
 
-export function useRightDockWidth(): [number, (w: number) => void] {
-  const { layout } = useDockSnapshot()
-  return [layout.rightWidth, (w: number) => dockStore.setRightWidth(w)]
-}
-
 // Listeners told when the USER resized the right dock (drag or keyboard), so the width can be persisted
 // without persisting widths that were only clamped by a narrow viewport.
 const userResizeListeners = new Set<(width: number) => void>()

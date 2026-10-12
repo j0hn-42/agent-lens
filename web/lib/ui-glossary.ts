@@ -23,9 +23,6 @@ export const HIERARCHY_TERMS = {
   teammate: 'Teammate',
 } as const
 
-/** The hierarchy as a sentence fragment, for help text. */
-export const HIERARCHY_TEXT = `${HIERARCHY_TERMS.session} > ${HIERARCHY_TERMS.agent} (${HIERARCHY_TERMS.main} / ${HIERARCHY_TERMS.lead}) > ${HIERARCHY_TERMS.subagent} / ${HIERARCHY_TERMS.teammate}`
-
 /** The one empty-state wording of the app: "No <things> yet". */
 export function emptyState(things: string): string {
   return `No ${things} yet`

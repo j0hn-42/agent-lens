@@ -8,9 +8,10 @@ import * as path from 'path'
 import { exec, execFile } from 'child_process'
 
 import { createRelay, type Relay } from '../../scripts/relay'
+import { launchTokenNotice } from '../../scripts/routes/launch'
 import { gateRemoteRequest } from '../../scripts/remote-access'
 import { createTelemetryClient } from '../../scripts/telemetry'
-import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
+import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isLaunchPath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
 import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
@@ -27,9 +28,11 @@ interface ServerOptions {
   imports?: string[]
   /** --webhook URLs (#236); empty falls back to AGENT_LENS_WEBHOOKS */
   webhooks?: string[]
+  /** --launch-repo (#229); present only with --allow-launch */
+  launchRepos?: string[]
 }
 
-type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleObservations' | 'handleIssueLinks'>
+type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleLaunch' | 'handleObservations' | 'handleIssueLinks'>
 
 /**
  * Request handler of the standalone app. The tunnel Host names accepted besides loopback (#241) are read from the
@@ -40,7 +43,7 @@ type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'han
 export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
   const allowedHosts = relay.allowedHosts
   return (req, res) => {
-    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || observationsRoute(req.url) !== null
+    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || isLaunchPath(req.url) || observationsRoute(req.url) !== null
     // Loopback peer, Host loopback or allowed (static files included: DNS rebinding), read-only surface for a tunnel
     if (gateRemoteRequest(req, res, allowedHosts, isApi ? 'api' : 'static')) return
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
@@ -73,6 +76,11 @@ export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
       return relay.handleScope(req, res)
     }
 
+    // Launch / stop an agent (#229): 404 unless --allow-launch; loopback, token, caps (never reached through a tunnel Host)
+    if (isLaunchPath(req.url)) {
+      return relay.handleLaunch(req, res)
+    }
+
     // Typed "observations" action for Claude (whitelisted projection, loopback only, rate-limited)
     if (observationsRoute(req.url)) {
       return relay.handleObservations(req, res)
@@ -98,7 +106,9 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
   })
   await telemetry.init()
 
-  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}) })
+  const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}),
+    ...(options.launchRepos ? { launch: { repos: options.launchRepos, onToken: token => console.log(`${launchTokenNotice(token, options.launchRepos ?? [])}\n`) } } : {}),
+  })
 
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay))
 
