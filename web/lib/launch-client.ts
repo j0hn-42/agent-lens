@@ -13,7 +13,7 @@ export type { LaunchState, LaunchView }
 /** Wall clock of one run, in minutes (LAUNCH_CAPS.wallClockMs; scripts/launch-client.test.ts compares them) */
 export const LAUNCH_WALL_CLOCK_MIN = 60
 /** Launches remembered by the view (the relay keeps the last 20 finished plus the running ones) */
-export const LAUNCHES_KEPT = 50
+const LAUNCHES_KEPT = 50
 
 export interface LaunchRequestBody { repo: string; issue: number; role: string }
 
@@ -42,7 +42,7 @@ const STOP_REASONS = new Set(['stop', 'expired', 'relay-stopped'])
 const bearer = (token: string) => `Bearer ${token.trim()}`
 
 /** POST /launch. Only `repo`, `issue` and `role` are copied into the body; the token goes in a header, never in the URL. */
-export function buildLaunchRequest(origin: string, req: LaunchRequestBody, token: string): BuiltRequest {
+function buildLaunchRequest(origin: string, req: LaunchRequestBody, token: string): BuiltRequest {
   return {
     url: `${origin}/launch`,
     init: {
@@ -56,7 +56,7 @@ export function buildLaunchRequest(origin: string, req: LaunchRequestBody, token
 }
 
 /** POST /launch/<id>/stop; null when `id` is not an id the relay draws (16 hex digits). */
-export function buildStopRequest(origin: string, id: string, token: string): BuiltRequest | null {
+function buildStopRequest(origin: string, id: string, token: string): BuiltRequest | null {
   if (!ID_RE.test(id)) return null
   return {
     url: `${origin}/launch/${id}/stop`,
@@ -72,7 +72,7 @@ const LAUNCH_ERRORS: Record<number, MessageKey> = {
 const STOP_ERRORS: Record<number, MessageKey> = { 404: 'launch.err.stop.404', 409: 'launch.err.stop.409' }
 
 /** Fixed sentence for an HTTP refusal (message catalog). Takes the status only: the body of the answer is never shown. */
-export function launchErrorMessage(status: number, kind: 'launch' | 'stop' = 'launch', locale: Locale = DEFAULT_LOCALE): string {
+function launchErrorMessage(status: number, kind: 'launch' | 'stop' = 'launch', locale: Locale = DEFAULT_LOCALE): string {
   const key = (kind === 'stop' ? STOP_ERRORS[status] : undefined) ?? LAUNCH_ERRORS[status]
   return key ? translate(locale, key) : translate(locale, 'launch.err.other', { code: Number.isInteger(status) ? status : '?' })
 }
@@ -117,7 +117,7 @@ const safeCode = (v: unknown): string | undefined => {
 }
 
 /** A view of the relay, field by field; anything malformed in a required field refuses the whole view. */
-export function parseLaunchView(v: unknown): LaunchView | null {
+function parseLaunchView(v: unknown): LaunchView | null {
   if (!isRecord(v)) return null
   const { id, repo, issue, role, worktree, sessionId, state, requestedAt } = v
   if (typeof id !== 'string' || !ID_RE.test(id)) return null
