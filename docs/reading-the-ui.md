@@ -87,10 +87,11 @@ Some tool calls have their own card content in the popup and the transcript. Eve
 - **Task / Agent**: the sub-agent type and the short description.
 - **NotebookEdit**: the notebook, the cell and the edit mode, when the call states them.
 - **Bash**: when the command runs `git` or `gh`, a pill names each subcommand as written (`git commit`, `gh pr create`), read from the command line itself. A second row lists Python, test, docker and package-manager calls (`python analyse.py`, `pnpm test`, `docker compose up`, `pnpm install`). A pill says the command was issued, not that it succeeded: the outcome is the tool's state. No exit code or duration is shown, because the events do not carry them.
+- **Result pills** (tool popup and Conversation panel): once a call is seen to succeed, a pill shows what its own output proves. For a Bash command line that runs `gh`, a link **PR #N** or **issue #N** (opens in a new tab), when the output has exactly one line that is a plain `https://github.com/<owner>/<repo>/pull|issues/<n>` URL (`gh pr create` and `gh issue create` print it). A sub-path or an anchor (`/files`, `#issuecomment-…`), two different URLs, a failed call, or a URL on the last line of an output cut at the 200-character capture limit give no link. For Grep and Glob, **N files** when the output starts with the tool's own `Found N files` header; lines are never counted, because a cut output proves nothing.
 
 ## Themes
 
-The **Theme** selector in the top bar (View controls) offers nine themes, all dark:
+The **Theme** selector in **Settings** (the gear button in the top bar) offers nine themes, all dark:
 
 | Theme | Pick it for | Look |
 |---|---|---|
@@ -120,13 +121,13 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Observed** | Agent Lens received events for it. |
 | **Not observed** / "listed - activity not observed" | The session or agent is known (for example listed on disk) but no event was ever received. No state or activity is invented for it. |
 | "Not observed yet" (agent card) | The agent was announced but nothing has been seen from it. |
-| "fin non observée" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
+| "end not observed" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
 | "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
 | "waiting for permission for N min" | The last event of the agent was a permission request, and nothing answered it for more than 5 minutes. This is told apart from a plain silence because the agent itself said it was waiting for you. |
-| **at least X** ("au moins") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
-| **estimated** ("estimé") | The token count was computed locally, not reported by the runtime. |
+| **at least X** ("at least") | The total is partial: some part is absent, so the real value is X or more. It is never shown as a complete number. |
+| **estimated** ("estimated") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
-| **non renseigné** | The value is unavailable. It is not shown as 0. |
+| "not reported" | The value is unavailable. It is not shown as 0. |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **conflict** (Files panel, canvas line) | Two or more agents each made at least one edit of the same absolute file that was observed to succeed. An edit not seen to succeed is never counted. |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |

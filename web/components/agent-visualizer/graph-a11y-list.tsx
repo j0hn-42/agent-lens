@@ -175,7 +175,10 @@ export function GraphA11yList({
         {announcements.map(a => <p key={a.id}>{a.text}</p>)}
       </div>
 
-      <section aria-label="Agent graph outline" className="sr-only" onKeyDown={handleKeyDown}>
+      {/* Arrow-key boundary of the outline (keys from its buttons bubble here): presentational and
+          box-less, so the named section carries no handler */}
+      <div role="presentation" style={{ display: 'contents' }} onKeyDown={handleKeyDown}>
+      <section aria-label="Agent graph outline" className="sr-only">
         <h2>Agent graph outline</h2>
         <p>Use arrow keys to move between items and Enter to open details.</p>
         {model.agents.length === 0 ? (
@@ -309,6 +312,7 @@ export function GraphA11yList({
           </>
         )}
       </section>
+      </div>
     </>
   )
 }

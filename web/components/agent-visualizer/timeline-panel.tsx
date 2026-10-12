@@ -336,7 +336,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
     if (!ctx) return
 
     // Use the scroll container's clientWidth (excludes scrollbar) for a snug fit
-    const scrollContainer = canvas.parentElement
+    const scrollContainer = scrollRef.current
     const width = scrollContainer?.clientWidth ?? canvas.clientWidth
     const dpr = window.devicePixelRatio || 1
     canvas.width = width * dpr
@@ -417,18 +417,19 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
           className={`min-h-0 overflow-auto ${FOCUS_RING}`}
           style={{ maxHeight: 300 }}
         >
-          <canvas
-            ref={canvasRef}
-            role="img"
-            aria-label={ariaLabel}
-            title={hoveredName}
-            hidden={tableView}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
-            style={{ display: tableView ? 'none' : 'block' }}
-          >
-            {ariaLabel}. Open the table view for the list of agents, states, start and end times.
-          </canvas>
+          {/* The image role sits on a wrapper: the canvas keeps its pointer handlers (hover names) without
+              being turned into a non-interactive element. The table view is the full text alternative. */}
+          <div role="img" aria-label={ariaLabel} hidden={tableView} style={{ display: tableView ? 'none' : 'block' }}>
+            <canvas
+              ref={canvasRef}
+              title={hoveredName}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={() => { setHoveredName(undefined); setActiveArrowId(undefined) }}
+              style={{ display: 'block' }}
+            >
+              {ariaLabel}. Open the table view for the list of agents, states, start and end times.
+            </canvas>
+          </div>
 
           <table
             id={tableId}

@@ -67,6 +67,37 @@ test('clear history: Escape closes the confirmation and focus returns to the Cle
   assert.equal(document.activeElement, getByRole('button', { name: 'Clear history' }))
 })
 
+test('live/review swap: focus held in the bar moves to the primary control of the new bar (#258)', async () => {
+  const props = {
+    isPlaying: false, speed: 1, currentTime: 5, totalDuration: 10,
+    onPlayPause: noop, onRestart: noop, onSpeedChange: noop, onResumeLive: noop, timelineEvents: [],
+  }
+  const r = render(<ControlBar {...props} isReviewing />)
+  const live = r.container.querySelector<HTMLElement>('[data-primary-control]')
+  assert.ok(live, 'the review bar has a primary control')
+  await act(async () => { live!.focus() })
+  await act(async () => { r.rerender(<ControlBar {...props} isReviewing={false} />) })
+  const next = r.container.querySelector<HTMLElement>('[data-primary-control]')
+  assert.ok(next, 'the live bar has a primary control')
+  assert.equal(document.activeElement, next, 'focus is carried over instead of dropping to <body>')
+})
+
+test('clear history: Escape pressed on the focused Confirm button cancels without reaching the global shortcuts (#258)', async () => {
+  const { getByRole, queryByRole } = reviewBar()
+  await act(async () => { fireEvent.click(getByRole('button', { name: 'Clear history' })) })
+  const seen: string[] = []
+  const spy = (e: KeyboardEvent) => { seen.push(e.key) }
+  window.addEventListener('keydown', spy)
+  try {
+    await act(async () => { fireEvent.keyDown(getByRole('button', { name: 'Confirm clear' }), { key: 'Escape' }) })
+  } finally {
+    window.removeEventListener('keydown', spy)
+  }
+  assert.equal(queryByRole('group', { name: 'Confirm clearing history' }), null)
+  assert.equal(document.activeElement, getByRole('button', { name: 'Clear history' }))
+  assert.deepEqual(seen, [], 'one Escape closes one layer')
+})
+
 // ─── Global shortcuts: real hook, real window listener ──────────────────────
 
 function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boolean }) {

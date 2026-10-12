@@ -159,6 +159,7 @@ test('proven session links reach the canvas: a child session drawn with the dott
   await mountWith([SA, info('sb', 'child-run')], spawns)
   const baseline = dots()
   cleanup()
+  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive agents' choice of the first one is not carried over
   calls.length = 0
 
   await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)

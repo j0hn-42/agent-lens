@@ -141,8 +141,10 @@ export function ControlBar(props: ControlBarProps) {
   }, [isReviewing])
 
   return (
+    // Focus observer only (carries focus over a live/review swap): presentational, box-less
     <div
       ref={wrapperRef}
+      role="presentation"
       style={{ display: 'contents' }}
       onFocus={() => { hadFocusRef.current = true }}
       onBlur={(e) => {
@@ -439,12 +441,18 @@ function ReviewControlBar({
 
         {/* Clear history (destructive: two-step confirmation) */}
         {isReviewing && (confirmingClear ? (
+          // Escape boundary of the confirmation (keys from its buttons bubble here): presentational and
+          // box-less, so the named group carries no handler
+          <span
+            role="presentation"
+            style={{ display: 'contents' }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelClear() } }}
+          >
           <span
             ref={confirmGroupRef}
             role="group"
             aria-label="Confirm clearing history"
             className="flex items-center gap-1 shrink-0"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelClear() } }}
           >
             <button
               ref={confirmBtnRef}
@@ -463,6 +471,7 @@ function ReviewControlBar({
             >
               Cancel
             </button>
+          </span>
           </span>
         ) : (
           <button
