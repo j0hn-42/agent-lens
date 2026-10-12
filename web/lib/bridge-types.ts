@@ -111,6 +111,39 @@ export interface BridgeNotice {
   message: string
 }
 
+/** State of an agent launch (#229), mirror of extension/src/protocol.ts: each value is set only once observed by the relay */
+export type LaunchState = 'requested' | 'started' | 'session' | 'exited' | 'stopped' | 'expired' | 'failed'
+
+/** What the relay tells local clients about a launch (SSE `launch` / `launch-list`, GET /status `launch`); mirror of extension/src/protocol.ts */
+export interface LaunchView {
+  id: string
+  repo: string
+  issue: number
+  role: string
+  /** `--worktree` name, also the branch name */
+  worktree: string
+  /** The --session-id chosen by the relay: the key that proves launch <-> session */
+  sessionId: string
+  state: LaunchState
+  /** Present once the spawn was observed */
+  pid?: number
+  requestedAt: number
+  startedAt?: number
+  sessionSeenAt?: number
+  /** A stop was asked for (or the deadline came); the end is only known from the exit */
+  stopRequestedAt?: number
+  stopReason?: 'stop' | 'expired' | 'relay-stopped'
+  endedAt?: number
+  exitCode?: number
+  signal?: string
+  /** Bounded code: ENOENT, EACCES..., 'spawn-error', 'exit-before-start' */
+  failure?: string
+  /** Absolute path of the worktree, only when it exists after the end (the work is kept there) */
+  worktreePath?: string
+  outputBytes: number
+  outputDroppedBytes: number
+}
+
 // ─── Runtime validation (messages are untrusted: relay, hooks and window.postMessage) ───
 
 const CONNECTION_STATUSES: readonly string[] = ['connected', 'disconnected', 'watching', 'connecting']
