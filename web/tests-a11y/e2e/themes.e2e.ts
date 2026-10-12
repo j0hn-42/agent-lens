@@ -127,10 +127,15 @@ test('a stored non-default theme hydrates without a mismatch and paints with its
   try {
     await page.goto(`${server.url}?theme=catppuccin-frappe`)
     await (await themeSelect(page)).waitFor()
-    await page.waitForTimeout(1500)
+    // A COLORS-based inline style (the select border) uses the Frappe overlay1 control border, not the default's.
+    // Wait for that observable state instead of sleeping; the select only opens once the page is hydrated.
+    const select = await themeSelect(page)
+    await page.waitForFunction(
+      el => getComputedStyle(el as Element).borderTopColor === 'rgb(131, 139, 167)',
+      await select.elementHandle(), { timeout: 15_000 },
+    )
     assert.deepEqual(errors.filter(e => /hydrat/i.test(e)), [])
-    // A COLORS-based inline style (the select border) uses the Frappe overlay1 control border, not the default's
-    const border = await (await themeSelect(page)).evaluate(el => getComputedStyle(el).borderTopColor)
+    const border = await select.evaluate(el => getComputedStyle(el).borderTopColor)
     assert.equal(border, 'rgb(131, 139, 167)')
   } finally {
     await context.close()
