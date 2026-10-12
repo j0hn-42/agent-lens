@@ -76,7 +76,7 @@ let verbose = false
 let sessionEventCount = 0
 /** Webhooks (#236): null without destinations. Only live events of watched Claude sessions are notified. */
 let webhooks: WebhookDispatcher | null = null
-/** > 0 while a transcript history is read: its events are replayed, not live, and never notified */
+/** > 0 while a transcript history is read: its events are replayed, not live (the reconciler marks them `replayed`, #361), and never notified */
 let historyDepth = 0
 function withHistory<T>(load: () => T): T {
   historyDepth++

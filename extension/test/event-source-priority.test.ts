@@ -185,6 +185,25 @@ describe('EventReconciler overlap', () => {
     assert.equal(out.length, 4)
   })
 
+  it('marks the transcript events read during a history load as replayed, never the live ones (#361)', () => {
+    const { r, out } = harness()
+    r.withHistory(() => {
+      r.submit(ev('tool_call_start', { toolUseId: 'old' }), { source: 'jsonl' })
+      r.submit(ev('tool_call_start', { toolUseId: 'hooked' }), { source: 'hook' }) // pushed live by Claude Code
+    })
+    r.submit(ev('tool_call_start', { toolUseId: 'tail' }), { source: 'jsonl' }) // new line of the followed file
+    assert.deepEqual(out.map(e => [e.payload.toolUseId, e.replayed]), [['old', true], ['hooked', undefined], ['tail', undefined]])
+  })
+
+  it('an early flush of a history hold (maxHeld) is still replayed history', () => {
+    const out: AgentEvent[] = []
+    const r = new EventReconciler({ deliver: e => out.push(e), maxHeld: 2 })
+    r.withHistory(() => {
+      for (let i = 0; i < 3; i++) r.submit(ev('message', { n: i }), { source: 'jsonl' })
+    })
+    assert.deepEqual(out.map(e => e.replayed), [true, true, true])
+  })
+
   it('bounds the remembered ids per session (oldest forgotten)', () => {
     const out: AgentEvent[] = []
     const r = new EventReconciler({ deliver: e => out.push(e), maxPerSession: 2 })

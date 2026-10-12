@@ -137,6 +137,8 @@ export interface AgentEvent {
   sessionId?: string
   /** Event of an imported transcript (#294): read from a file, never seen live */
   imported?: boolean
+  /** Event read from a transcript history (attach catch-up, import), not seen live: its wall-clock timing is unknown (#361) */
+  replayed?: boolean
 }
 
 export interface SessionInfo {
