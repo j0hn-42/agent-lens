@@ -1,7 +1,7 @@
 {
   "name": "agent-lens",
   "displayName": "Agent Lens",
-  "description": "Real-time visualization of Claude Code, Codex and GitHub Copilot agent orchestration",
+  "description": "Real-time visualization of Claude Code, Codex, GitHub Copilot and Pi agent orchestration",
   "version": "0.10.0",
   "publisher": "jobailla",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
     "vscode": "^1.85.0"
   },
   "categories": ["Visualization", "Other"],
-  "keywords": ["llm", "agent", "claude", "codex", "copilot", "ai", "visualization", "orchestration"],
+  "keywords": ["llm", "agent", "claude", "codex", "copilot", "pi", "ai", "visualization", "orchestration"],
   "activationEvents": [
     "onWebviewPanel:agentVisualizer"
   ],

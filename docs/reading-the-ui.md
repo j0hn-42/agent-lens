@@ -180,12 +180,23 @@ A window cannot be smaller than what was used. When a reading is above the assum
 
 When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
 
-- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record. Nothing else is read as a compaction.
-- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex).
+- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record; Pi writes a `compaction` entry (`tokensBefore`). Nothing else is read as a compaction.
+- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex and Pi).
 - **Size before.** The context size before the compaction, *reported by the runtime* (`preTokens`, a positive whole number); otherwise *Size before not reported*. It is never estimated.
 - **Cost not reported.** The summary call that performs the compaction has no usage in the transcript, so no cost is ever shown for it.
 - **The gauge after it.** The local estimate restarts from the system prompt plus the compaction summary, then grows again. For Codex, the last total reported before the compaction is dropped (it measured the old context); the gauge shows the estimate until Codex reports a new total.
 - **Limits.** A compaction written before Agent Lens attached to the session resets the estimate but is not listed. A boundary seen twice (same `uuid`) is listed once. A subagent's compaction is listed for that subagent and does not touch the session estimate. There is no before/after diff yet: the size after is only an estimate.
+
+## Pi sessions
+
+Pi coding agent sessions (#238) are read from their session files (`~/.pi/agent/sessions/--<path>--/<timestamp>_<id>.jsonl`, format of pi's `docs/session-format.md`, versions 1 to 3). What is shown, and what is not:
+
+- **Shown.** The prompts, the assistant text and readable thinking, each tool call paired with its result by `toolCallId` (failed when the result says `isError`), compactions with their *Size before* (`tokensBefore`), and the session name given with `/name` as the session label.
+- **Model.** The model named by each assistant message: the model that answered. A `model_change` entry is a selection (possibly a virtual model) and is not shown on its own.
+- **Not shown.** Tokens and cost (the file records them, they are not read yet, so the gauge stays on the local estimate), system prompt updates, direct shell runs (`!command`), extension entries.
+- **No sub-agents.** Pi documents none: every event belongs to the main agent and no child is ever drawn.
+- **Unknown format.** A session whose header announces a version other than 1 to 3 is neither listed nor read, and the extension log says so once.
+- **Branches.** Pi keeps abandoned branches (`/tree`) in the same file; they are shown in the order they were written, without the tree.
 
 ## Project folders
 
@@ -209,7 +220,7 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "The session transcript could not be read" | Missing, a symbolic link, outside the Claude projects folder, or a read error: the capabilities are unknown, never shown as empty lists. |
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
-Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex and Copilot sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot and Pi sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
 
 ## Presentation mode
 
