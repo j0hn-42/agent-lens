@@ -9,8 +9,10 @@ export interface StatusSnapshot {
   sessionCount: number
   hooksConfigured: boolean
   disable1MContext: boolean
-  skippedSessions: RelayStatus['skippedSessions']
 }
+
+/** Ce qui change avec la portée (#291) : lu au moment de répondre, jamais figé dans un calcul partagé en vol. */
+export type StatusLive = Pick<RelayStatus, 'allWorkspaces' | 'discovery' | 'skippedSessions'>
 
 export interface StatusRouteDeps {
   limiter: KeyedRateLimiter
@@ -19,7 +21,9 @@ export interface StatusRouteDeps {
   /** Calcule l'instantané (appelé au plus une fois à la fois). */
   computeSnapshot: () => Promise<StatusSnapshot>
   /** Champs fixes du statut. */
-  base: Pick<RelayStatus, 'relayVersion' | 'workspace' | 'runtimes' | 'allWorkspaces'>
+  base: Pick<RelayStatus, 'relayVersion' | 'workspace' | 'runtimes'>
+  /** Portée et plafonds de découverte tels qu'ils sont à cet instant. */
+  live: () => StatusLive
   readIndex: () => SessionIndexResult | null
 }
 
@@ -33,6 +37,7 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       return
     }
     if (res.destroyed || res.headersSent) return
+    const live = deps.live()
     const status: RelayStatus = {
       relayVersion: deps.base.relayVersion,
       workspace: deps.base.workspace,
@@ -40,8 +45,9 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       hooksConfigured: snapshot.hooksConfigured,
       disable1MContext: snapshot.disable1MContext,
       sessionCount: snapshot.sessionCount,
-      skippedSessions: snapshot.skippedSessions,
-      allWorkspaces: deps.base.allWorkspaces,
+      skippedSessions: live.skippedSessions,
+      allWorkspaces: live.allWorkspaces,
+      discovery: live.discovery,
     }
     const indexed = deps.readIndex()
     if (indexed) {

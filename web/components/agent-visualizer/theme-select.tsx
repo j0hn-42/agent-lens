@@ -3,6 +3,7 @@
 import { COLORS } from "@/lib/colors"
 import { FOCUS_RING } from "@/lib/chrome-utils"
 import { useTheme } from "@/lib/theme"
+import { useT } from "@/lib/locale"
 import { THEME_IDS, THEME_LABELS, isThemeId } from "@/lib/theme-tokens"
 
 /**
@@ -11,11 +12,12 @@ import { THEME_IDS, THEME_LABELS, isThemeId } from "@/lib/theme-tokens"
  */
 export function ThemeSelect({ id }: { id?: string } = {}) {
   const [theme, setTheme] = useTheme()
+  const t = useT()
   return (
     <select
       id={id}
-      aria-label="Theme"
-      title="Theme: Catppuccin, midnight, graphite, neon, ember, Anthropic or high contrast"
+      aria-label={t('settings.theme')}
+      title={t('settings.theme.title')}
       value={theme}
       onChange={e => { if (isThemeId(e.target.value)) setTheme(e.target.value) }}
       className={`min-h-6 px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer ${FOCUS_RING}`}

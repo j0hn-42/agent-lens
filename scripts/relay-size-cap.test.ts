@@ -103,6 +103,6 @@ describe('relay: a session that grows past the size cap', () => {
     } finally { warn.mock.restore() }
 
     const status = JSON.parse((await get('/status')).body)
-    assert.deepEqual(status.skippedSessions, { watchLimit: 0, sizeLimit: 1 })
+    assert.deepEqual(status.skippedSessions, { watchLimit: 0, sizeLimit: 1, fileLimit: 0 })
   })
 })

@@ -16,6 +16,7 @@ import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
+import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
 
 /** DOM id of the Enter full screen button: focus returns here on exit (#196) */
 export const FULLSCREEN_BUTTON_ID = 'topbar-enter-fullscreen'
@@ -212,6 +213,8 @@ export interface TopBarProps {
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
+  /** Scope of the session discovery (#291): shown permanently when a relay reports its scope */
+  scope?: ScopeSelectorProps
 }
 
 export const TopBar = memo(function TopBar({
@@ -223,7 +226,7 @@ export const TopBar = memo(function TopBar({
   activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
-  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
+  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
@@ -270,6 +273,8 @@ export const TopBar = memo(function TopBar({
           </>
         )}
       </ToggleButton>
+
+      {scope && <ScopeSelector {...scope} />}
 
       {/* Spacer pushes info to the right */}
       <div className="flex-1" />
