@@ -56,6 +56,7 @@ const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],
+  ['resume command / issue chip', 'holoBg05', ['assistantText']],
   ['diff removed', 'diffRemovedBg', ['diffRemoved']],
   ['diff added', 'diffAddedBg', ['diffAdded']],
   ['assistant role', 'roleAssistantBgSelected', ['roleAssistantText']],

@@ -213,7 +213,7 @@ Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are n
 
 ## Resuming a session
 
-The Context panel starts with a **RESUME** block (#240): the command `cd '<cwd>' && claude --resume <session id>`, shown as text, and a **Copy** button that puts it on the clipboard. Paste it in a terminal to reopen the session in Claude Code. Nothing is run from Agent Lens and no request is made: the command is built in the page from the session list, so it works in VS Code as well. The result of the copy is announced ("Resume command copied" or "Copy failed: select the command and copy it by hand"); a failed copy is never reported as a success.
+The Context panel starts with a **RESUME** block (#240): the command `cd '<cwd>' && claude --resume <session id>`, shown as text, and a **Copy** button that puts it on the clipboard. Paste it in a terminal on the machine where the session ran to reopen it in Claude Code. Nothing is run from Agent Lens and no request is made: the command is built in the page from the session list, so it works in VS Code as well. The result of the copy is announced ("Resume command copied" or "Copy failed: select the command and copy it by hand"); a failed copy is never reported as a success.
 
 The working directory is quoted for a POSIX shell (bash, zsh, sh): every character between the single quotes is literal, and an apostrophe in the path is written `'\''`. Spaces, `$`, backquotes, `;` or `&` in a path are not interpreted.
 
@@ -223,7 +223,7 @@ The command is offered only when it can be shown to be right. Otherwise the bloc
 | --- | --- |
 | "only Claude Code sessions can be resumed" | The session comes from Codex or Copilot, or its runtime is unknown. |
 | "an imported transcript comes from another machine" | The session was imported: its directory is not a local one. |
-| "the working directory ... is unknown or not an absolute path" | No cwd was reported, or it is not a single-line absolute POSIX path (a Windows path, a relative path, a line break or a control character). |
+| "the working directory ... is unknown or not an absolute POSIX path" | No cwd was reported, or it is not a single-line absolute POSIX path (a Windows path, a relative path, a line break or a control character). |
 | "the session id is not one Claude Code can take" | The id fails the relay's check (letters, digits, `.`, `_`, `:`, `-`, 128 characters at most) or starts with `-`, which `claude` would read as an option. |
 
 ## Presentation mode

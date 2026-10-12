@@ -20,7 +20,7 @@ export function ResumeSection({ session }: { session: ResumableSession }) {
   const copy = async () => {
     if (!result.ok) return
     notify(await copyText(result.command)
-      ? 'Resume command copied. Paste it in a terminal to reopen this session in Claude Code.'
+      ? 'Resume command copied. Paste it in a terminal on the machine where the session ran.'
       : 'Copy failed: select the command and copy it by hand')
   }
 
@@ -44,7 +44,7 @@ export function ResumeSection({ session }: { session: ResumableSession }) {
               Copy
             </button>
           </div>
-          <p className="text-[11px] font-mono m-0" style={{ color: COLORS.textMuted }}>Paste it in a terminal. Nothing is run from here.</p>
+          <p className="text-[11px] font-mono m-0" style={{ color: COLORS.textMuted }}>Paste it in a terminal on the machine where the session ran. Nothing is run from here.</p>
         </>
       ) : (
         <p className="text-[11px] font-mono py-1 m-0" style={{ color: COLORS.textMuted }}>{RESUME_UNAVAILABLE_TEXT[result.reason]}</p>

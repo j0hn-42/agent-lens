@@ -33,7 +33,7 @@ export const RESUME_UNAVAILABLE_TEXT: Record<ResumeUnavailableReason, string> = 
   'invalid-id': 'No resume command: the session id is not one Claude Code can take.',
   runtime: 'No resume command: only Claude Code sessions can be resumed with claude --resume.',
   imported: 'No resume command: an imported transcript comes from another machine.',
-  cwd: 'No resume command: the working directory of this session is unknown or not an absolute path.',
+  cwd: 'No resume command: the working directory of this session is unknown or not an absolute POSIX path.',
 }
 
 export function resumeCommand(session: ResumableSession): ResumeCommandResult {
