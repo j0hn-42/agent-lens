@@ -27,6 +27,7 @@ export function parseArgs(argv: string[]) {
     } else if (arg === '--help' || arg === '-h') {
       console.log(`
 Usage: agent-lens [options]
+       agent-lens ps | tail | statusline [--port <n>]   (headless, see docs/headless.md)
 
 Options:
   -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT}; 0 = ephemeral,

@@ -10,22 +10,29 @@
  * Usage: npx agent-lens-app [--port <number>] [--no-open]
  */
 import { parseArgs } from './args'
+import { isCliCommand, runCli } from '../../scripts/headless-cli'
 import { ensureSetup } from '../../scripts/setup'
 import { startServer } from './server'
 
-const args = parseArgs(process.argv.slice(2))
+const command = process.argv[2]
+if (isCliCommand(command)) {
+  // Headless commands (#236): clients of an already running relay, no server, no hooks setup
+  void runCli(command, process.argv.slice(3), process, process.env).then(code => process.exit(code))
+} else {
+  const args = parseArgs(process.argv.slice(2))
 
-console.log('Agent Lens\n')
+  console.log('Agent Lens\n')
 
-// Ensure hooks are configured
-ensureSetup()
+  // Ensure hooks are configured
+  ensureSetup()
 
-// Start the server
-startServer({
-  port: args.port,
-  openBrowser: args.open,
-  workspace: process.cwd(),
-  verbose: args.verbose,
-  allWorkspaces: args.allWorkspaces,
-  imports: args.imports,
-})
+  // Start the server
+  startServer({
+    port: args.port,
+    openBrowser: args.open,
+    workspace: process.cwd(),
+    verbose: args.verbose,
+    allWorkspaces: args.allWorkspaces,
+    imports: args.imports,
+  })
+}
