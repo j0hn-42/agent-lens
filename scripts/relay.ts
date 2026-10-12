@@ -52,7 +52,9 @@ import type { TelemetryClient } from './telemetry'
 import { createIssueLinksRoute } from './routes/issue-links'
 import { createStatusRoute, type StatusSnapshot } from './routes/status'
 import { createContextRoute } from './routes/context'
+import { createStatusLineRoute } from './routes/statusline'
 import { createObservationsRoute } from './routes/observations'
+import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
 
 const DISCOVERY_DIR = discoveryDir()
@@ -745,6 +747,8 @@ export interface Relay {
   handleContext: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /observations and /observations/schema: the typed action Claude can query (loopback only, rate-limited) */
   handleObservations: (req: http.IncomingMessage, res: http.ServerResponse) => void
+  /** Handle GET /statusline: one line of text for a tmux / zellij bar, derived from the observations (#236) */
+  handleStatusLine: (req: http.IncomingMessage, res: http.ServerResponse) => void
   /** Handle GET /issue-links?role=<role>: open PRs/issues labelled agent:<role> through gh (loopback only, rate-limited, cached) */
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
@@ -1085,6 +1089,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     transcriptOf: sessionId => importedSessions.has(sessionId) ? undefined : sessions.get(sessionId)?.filePath,
   })
   const handleObservations = createObservationsRoute({ limiter: observationsLimiter, observations })
+  const handleStatusLine = createStatusLineRoute({ limiter: observationsLimiter, observe: () => observations.run({ includeAgents: true }) })
 
   // Scope at run time (#291). One entry point (setScope), used by POST /scope, so the state shown by GET /status is the one the scan uses.
   const setScope = (scope: RelayScope): { scope: RelayScope; allWorkspaces: boolean } => {
@@ -1117,6 +1122,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     handleStatus,
     handleContext,
     handleObservations,
+    handleStatusLine,
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')

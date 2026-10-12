@@ -9,7 +9,7 @@ import { exec, execFile } from 'child_process'
 
 import { createRelay } from '../../scripts/relay'
 import { createTelemetryClient } from '../../scripts/telemetry'
-import { parseSessionParam, isStatusPath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
+import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
 import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
@@ -41,7 +41,7 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, (req, res) => {
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
     // GET/HEAD/OPTIONS only (405), session parameter validation (400)
-    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url)
+    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url)
     if (guardRequest(req, res, { kind: isApi ? 'api' : 'static' })) return
 
     // SSE endpoint
@@ -53,6 +53,11 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
     // Status snapshot for the empty-state checklist (loopback only, rate-limited)
     if (isStatusPath(req.url)) {
       return relay.handleStatus(req, res)
+    }
+
+    // One-line status for a tmux / zellij bar (#236)
+    if (isStatusLinePath(req.url)) {
+      return relay.handleStatusLine(req, res)
     }
 
     // Project context (CLAUDE.md, memory) of a session, on demand (#64)
