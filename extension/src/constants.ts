@@ -21,6 +21,9 @@ export const CODEX_MAX_WATCHED_SESSIONS = 25
 /** Plafond de sessions Copilot suivies en même temps (même logique que Codex) */
 export const COPILOT_MAX_WATCHED_SESSIONS = 25
 
+/** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
+export const PI_MAX_WATCHED_SESSIONS = 25
+
 /** Un transcript ancien sans sous-agent actif n'est réexaminé (stat) que tous les N scans (soit N x SCAN_INTERVAL_MS) ;
  *  une écriture sur son fichier est vue tout de suite par le watcher de dossier. */
 export const COLD_RESCAN_CYCLES = 30

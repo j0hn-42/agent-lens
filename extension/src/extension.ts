@@ -5,6 +5,7 @@ import { WebviewToExtensionMessage } from './protocol'
 import { startClaudeRuntime } from './claude-runtime'
 import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
+import { startPiRuntime } from './pi-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
@@ -19,7 +20,7 @@ let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
   const raw = vscode.workspace.getConfiguration('agentVisualizer').get<string>('runtime', 'auto')
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' ? raw : 'auto'
 }
 
 interface StartRuntimesResult {
@@ -48,6 +49,11 @@ async function startRuntimes(
     try { runtimes.push(startCopilotRuntime(context)) }
     catch (err) { log.error('Copilot runtime failed to start:', err); failures.push('copilot') }
   }
+  if (mode === 'pi' || mode === 'auto') {
+    log.info('Starting Pi runtime...')
+    try { runtimes.push(startPiRuntime(context)) }
+    catch (err) { log.error('Pi runtime failed to start:', err); failures.push('pi') }
+  }
   return { runtimes, failures }
 }
 
@@ -72,7 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
 
-  // Open the panel on the first detected session (Claude, Codex or Copilot) when autoOpen is on.
+  // Open the panel on the first detected session (Claude, Codex, Copilot or Pi) when autoOpen is on.
   // Read at event time, so toggling the setting needs no reload.
   for (const r of runtimes) {
     context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
@@ -162,7 +168,7 @@ function applyEventLogPath(context: vscode.ExtensionContext): void {
 }
 
 /** Only prompt for Claude hook setup if a Claude runtime is active —
- *  otherwise a Codex- or Copilot-only user would see an irrelevant prompt. */
+ *  otherwise a Codex-, Copilot- or Pi-only user would see an irrelevant prompt. */
 function promptHookSetupIfNeededForClaude(context: vscode.ExtensionContext): void {
   if (runtimes.some(r => r.mode === 'claude')) {
     promptHookSetupIfNeeded(context)

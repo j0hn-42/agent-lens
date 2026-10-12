@@ -7,7 +7,7 @@ Principle (epic #73): never display a state or a number that cannot be proven. W
 - **Fleet / All**: the All view draws every watched session on one canvas. Each session is a dotted halo (its label gives runtime, workspace, status and cost; click it to zoom to the cluster). Sessions of the same project are grouped together.
 - **Workflows and Teams**: a dashed halo groups agents. A *Team* is a Claude Code Agent Team; a *Workflow* is one run of the Workflow tool. The hierarchy is Session > Workflow or Team > Agent.
 - **Comms**: message links between agents. Long dashes mean a message in flight, a solid line a recent one, a dotted red line an error. The badge is the message count; click a link (or its latest-message bubble) to read it in the link panel.
-- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)).
+- **Context**: the project context of a session (`CLAUDE.md`, the memory index and the issue numbers they cite). It is loaded only when the panel opens or you refresh it, and a failure is shown as a failure. Below it, with the standalone relay, a table lists the open pull requests of the session's repository by branch with the state of their checks (the PR of the session's own branch reads "(this session)"), and the open issues no agent holds. "no checks reported" is not "passing", and "At least N ... shown" means the list is partial. See [node-inspector.md](node-inspector.md). A **CAPABILITIES** block lists the instruction files, skills and MCP servers of the session (see [Skills, plugins and memory](#skills-plugins-and-memory)). At the top, a **RESUME** block gives the command that reopens the session from a terminal (see [Resuming a session](#resuming-a-session)).
 - **Session scope** (top bar, standalone app and dev relay): this workspace, one project, or all workspaces. The sentence next to the selector is what the relay reports it scans ("Scanning this workspace only (name)"; nothing is written on all workspaces), not what you asked: the selector only moves once the relay confirmed. On a single workspace an empty Sessions list says that the scope is limited and how to widen it. A discovery ceiling that was hit (more than 500 transcripts in a folder, a transcript too large, the watch limit) is written next to the selector as "at least N": it is a partial view, not an absence. Choosing a project narrows the Sessions list and the All view to it and leaves the relay scope as it is. Changing the scope reloads the view (a notice says so). See [relay-sources.md](relay-sources.md).
 - **Sessions, Timeline, Files, Conversation**: the panels listed in the README.
 - **Session export**: the ⤓ button of a session row saves it as a standalone HTML replay. The file states its own limits: events dropped before the export ("Incomplete history"), the number of secrets redacted (best effort), stream times, and agent states taken only from lifecycle events (otherwise "unknown"). See [session-export.md](session-export.md).
@@ -180,12 +180,23 @@ A window cannot be smaller than what was used. When a reading is above the assum
 
 When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
 
-- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record. Nothing else is read as a compaction.
-- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex).
+- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record; Pi writes a `compaction` entry (`tokensBefore`). Nothing else is read as a compaction.
+- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex and Pi).
 - **Size before.** The context size before the compaction, *reported by the runtime* (`preTokens`, a positive whole number); otherwise *Size before not reported*. It is never estimated.
 - **Cost not reported.** The summary call that performs the compaction has no usage in the transcript, so no cost is ever shown for it.
 - **The gauge after it.** The local estimate restarts from the system prompt plus the compaction summary, then grows again. For Codex, the last total reported before the compaction is dropped (it measured the old context); the gauge shows the estimate until Codex reports a new total.
 - **Limits.** A compaction written before Agent Lens attached to the session resets the estimate but is not listed. A boundary seen twice (same `uuid`) is listed once. A subagent's compaction is listed for that subagent and does not touch the session estimate. There is no before/after diff yet: the size after is only an estimate.
+
+## Pi sessions
+
+Pi coding agent sessions (#238) are read from their session files (`~/.pi/agent/sessions/--<path>--/<timestamp>_<id>.jsonl`, format of pi's `docs/session-format.md`, versions 1 to 3). What is shown, and what is not:
+
+- **Shown.** The prompts, the assistant text and readable thinking, each tool call paired with its result by `toolCallId` (failed when the result says `isError`), compactions with their *Size before* (`tokensBefore`), and the session name given with `/name` as the session label.
+- **Model.** The model named by each assistant message: the model that answered. A `model_change` entry is a selection (possibly a virtual model) and is not shown on its own.
+- **Not shown.** Tokens and cost (the file records them, they are not read yet, so the gauge stays on the local estimate), system prompt updates, direct shell runs (`!command`), extension entries.
+- **No sub-agents.** Pi documents none: every event belongs to the main agent and no child is ever drawn.
+- **Unknown format.** A session whose header announces a version other than 1 to 3 is neither listed nor read, and the extension log says so once. A session whose id holds a dot (possible with `--session-id`), whose header has no absolute `cwd`, or whose file is a symbolic link is not listed either.
+- **Branches.** Pi keeps abandoned branches (`/tree`) in the same file; they are shown in the order they were written, without the tree.
 
 ## Project folders
 
@@ -209,7 +220,22 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "The session transcript could not be read" | Missing, a symbolic link, outside the Claude projects folder, or a read error: the capabilities are unknown, never shown as empty lists. |
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
-Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex and Copilot sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot and Pi sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+
+## Resuming a session
+
+The Context panel starts with a **RESUME** block (#240): the command `cd '<cwd>' && claude --resume <session id>`, shown as text, and a **Copy** button that puts it on the clipboard. Paste it in a terminal on the machine where the session ran to reopen it in Claude Code. Nothing is run from Agent Lens and no request is made: the command is built in the page from the session list, so it works in VS Code as well. The result of the copy is announced ("Resume command copied" or "Copy failed: select the command and copy it by hand"); a failed copy is never reported as a success.
+
+The working directory is quoted for a POSIX shell (bash, zsh, sh): every character between the single quotes is literal, and an apostrophe in the path is written `'\''`. Spaces, `$`, backquotes, `;` or `&` in a path are not interpreted.
+
+The command is offered only when it can be shown to be right. Otherwise the block says why, and there is no Copy button:
+
+| You see | It means |
+| --- | --- |
+| "only Claude Code sessions can be resumed" | The session comes from Codex or Copilot, or its runtime is unknown. |
+| "an imported transcript comes from another machine" | The session was imported: its directory is not a local one. |
+| "the working directory ... is unknown or not an absolute POSIX path" | No cwd was reported, or it is not a single-line absolute POSIX path (a Windows path, a relative path, a line break or a control character). |
+| "the session id is not one Claude Code can take" | The id fails the relay's check (letters, digits, `.`, `_`, `:`, `-`, 128 characters at most) or starts with `-`, which `claude` would read as an option. |
 
 ## Presentation mode
 

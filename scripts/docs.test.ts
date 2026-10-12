@@ -4,6 +4,7 @@ import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
 import { RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
+import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
 
 const root = path.resolve(__dirname, '..')
 const read = (f: string) => fs.readFileSync(path.join(root, f), 'utf8')
@@ -148,4 +149,26 @@ test('the remote access guards are documented as refused at startup, with their 
   }
   assert.ok(doc.includes(`more than ${RELAY_MAX_REMOTE_SSE_CLIENTS} SSE streams`), 'remote SSE cap matches the constant')
   assert.ok(doc.includes(`at most ${RELAY_MAX_ALLOWED_HOSTS} names`), 'allow list cap matches the constant')
+})
+
+test('the launch policy is documented as not yet enabled, with the code constants (#229)', () => {
+  const doc = read('docs/node-inspector.md')
+  const start = doc.indexOf('## Launch an agent on an issue (#229)')
+  assert.ok(start >= 0, 'docs/node-inspector.md should have the launch section')
+  const section = doc.slice(start).split(/\n## /)[0]
+  assert.match(section, /not yet enabled/i)
+  assert.ok(section.includes(`--permission-mode ${LAUNCH_PERMISSION_MODE}`))
+  for (const tool of [...LAUNCH_ALLOWED_TOOLS, ...LAUNCH_DISALLOWED_TOOLS.filter(t => !/^(Edit|Write)\(/.test(t))]) {
+    assert.ok(section.includes(`\`${tool}\``), `section should list ${tool}`)
+  }
+  for (const t of LAUNCH_DISALLOWED_TOOLS) {
+    const path = /^(?:Edit|Write)\((.*)\)$/.exec(t)?.[1]
+    if (path) assert.ok(section.includes(`\`${path}\``), `section should list the protected path ${path}`)
+  }
+  const caps = LAUNCH_CAPS
+  for (const needle of [
+    '--setting-sources project', '--strict-mcp-config', 'not a sandbox', '`Bash(gh issue view <n> --repo <owner>/<name>)`',
+    `$${caps.budgetUsdDefault}`, `$${caps.budgetUsdMax}`, `${caps.wallClockMs / 60_000} min`, `${caps.outputBufferBytes / 1024} KB`,
+    'OWNER', 'MEMBER', 'COLLABORATOR', 'bypassPermissions',
+  ]) assert.ok(section.includes(needle), `section should mention ${needle}`)
 })

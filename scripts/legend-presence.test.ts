@@ -32,6 +32,12 @@ test('runtime defaults to Claude only when the agent does not say otherwise', ()
   assert.ok(!has(p, 'rt-claude'), 'no Claude agent on screen')
 })
 
+test('a Pi agent proves the Pi entry, never the Claude one (#238)', () => {
+  const p = derive({ agents: [agent({ id: 'k:p', isMain: true, runtime: 'pi' })] })
+  assert.ok(has(p, 'rt-pi'))
+  assert.ok(!has(p, 'rt-claude'))
+})
+
 test('every agent state maps to its own entry', () => {
   for (const state of ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete'] as const) {
     const p = derive({ agents: [agent({ id: 'k:a', state })] })
