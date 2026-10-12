@@ -1,7 +1,7 @@
 // scripts/system-stats.test.ts
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sampleSystem, type SystemIo } from './system-stats'
+import { sampleSystem, nodeIo, type SystemIo } from './system-stats'
 
 const KB = 1024
 const meminfo = (o: Record<string, number>) => Object.entries(o).map(([k, v]) => `${k}:   ${v} kB`).join('\n')
@@ -58,8 +58,15 @@ test('Linux sans MemAvailable : mem null (os.freemem compte le cache comme utili
   assert.equal(sampleSystem(null, io).sample.mem, null)
 })
 
-test('hors Linux : os.totalmem - os.freemem', () => {
+test('macOS : mem null (la mémoire libre exclut le cache, rien de prouvable)', () => {
   const io = fakeIo({ platform: 'darwin', readText: () => null })
+  const { sample } = sampleSystem(null, io)
+  assert.equal(sample.mem, null)
+  assert.equal(sample.swap, null)
+})
+
+test('Windows : os.totalmem - os.freemem', () => {
+  const io = fakeIo({ platform: 'win32', readText: () => null })
   const { sample } = sampleSystem(null, io)
   assert.deepEqual(sample.mem, { total: 8 * 1024 * KB, used: 7 * 1024 * KB })
   assert.equal(sample.swap, null)
@@ -93,4 +100,37 @@ test('une lecture qui lève ne casse pas les autres métriques', () => {
   assert.equal(sample.disk, null)
   assert.equal(sample.mem, null)
   assert.equal(sample.uptime, 42)
+})
+
+const tick = () => new Promise(r => setImmediate(r))
+const stat = { blocks: 1000, bsize: 4096, bavail: 250 }
+
+test('nodeIo : un statfs qui ne répond jamais ne bloque pas, une seule requête en vol', async () => {
+  let calls = 0
+  const io = nodeIo({ statfs: () => { calls++; return new Promise(() => {}) } })
+  for (let i = 0; i < 4; i++) {
+    assert.equal(sampleSystem(null, io).sample.disk, null)
+    await tick()
+  }
+  assert.equal(calls, 1)
+})
+
+test('nodeIo : la valeur résolue apparaît à un échantillon ultérieur, un rejet la remet à null', async () => {
+  let mode: 'ok' | 'fail' = 'ok'
+  const io = nodeIo({ statfs: async () => { if (mode === 'fail') throw new Error('EIO'); return stat } })
+  assert.equal(sampleSystem(null, io).sample.disk, null)
+  await tick(); await tick()
+  assert.deepEqual(sampleSystem(null, io).sample.disk, { total: 1000 * 4096, used: 750 * 4096 })
+  await tick(); await tick() // the refresh started by the previous sample settles
+  mode = 'fail'
+  sampleSystem(null, io) // lance un rafraîchissement qui échoue
+  await tick(); await tick()
+  assert.equal(sampleSystem(null, io).sample.disk, null)
+})
+
+test('nodeIo : /proc/version lu une seule fois', () => {
+  let reads = 0
+  const io = nodeIo({ readText: (p) => { if (p === '/proc/version') reads++; return null } })
+  for (let i = 0; i < 3; i++) sampleSystem(null, io)
+  assert.equal(reads, 1)
 })

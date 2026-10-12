@@ -35,7 +35,28 @@ export interface SystemIo {
   cwd: string
 }
 
-export function nodeIo(): SystemIo {
+type StatfsResult = { blocks: number; bsize: number; bavail: number }
+
+/** Test seams: the async statfs and the text reader can be replaced. */
+export interface NodeIoOverrides {
+  statfs?: (path: string) => Promise<StatfsResult>
+  readText?: (path: string) => string | null
+}
+
+const realStatfs = async (p: string): Promise<StatfsResult> => {
+  const s = await fs.promises.statfs(p)
+  return { blocks: Number(s.blocks), bsize: Number(s.bsize), bavail: Number(s.bavail) }
+}
+
+export function nodeIo(over: NodeIoOverrides = {}): SystemIo {
+  const read = over.readText ?? ((p: string) => { try { return fs.readFileSync(p, 'utf8') } catch { return null } })
+  const asyncStatfs = over.statfs ?? realStatfs
+  // /proc/version never changes while the relay runs: read it once.
+  let version: { text: string | null } | undefined
+  // The disk is read in the background (a hung network mount must not freeze the relay event loop), one request
+  // in flight at most; the sampler gets the last known figure, null before the first result and after a failure.
+  let diskCache: StatfsResult | null = null
+  let inFlight = false
   return {
     now: () => Date.now(),
     cpus: () => os.cpus(),
@@ -44,9 +65,19 @@ export function nodeIo(): SystemIo {
     totalmem: () => os.totalmem(),
     freemem: () => os.freemem(),
     platform: process.platform,
-    readText: (p) => { try { return fs.readFileSync(p, 'utf8') } catch { return null } },
+    readText: (p) => {
+      if (p !== '/proc/version') return read(p)
+      return (version ??= { text: read(p) }).text
+    },
     statfs: (p) => {
-      try { const s = fs.statfsSync(p); return { blocks: Number(s.blocks), bsize: Number(s.bsize), bavail: Number(s.bavail) } } catch { return null }
+      if (!inFlight) {
+        inFlight = true
+        asyncStatfs(p).then(
+          (r) => { diskCache = r; inFlight = false },
+          () => { diskCache = null; inFlight = false },
+        )
+      }
+      return diskCache
     },
     cwd: process.cwd(),
   }
@@ -97,6 +128,8 @@ export function sampleSystem(prev: CpuCounters[] | null, io: SystemIo): { sample
       if (!info || info.MemTotal === undefined || info.MemAvailable === undefined) return null
       return { total: info.MemTotal, used: info.MemTotal - info.MemAvailable }
     }
+    // macOS: libuv's free memory excludes inactive/purgeable/cache pages, so "used" would read 90-99 %: not provable.
+    if (io.platform === 'darwin') return null
     const t = io.totalmem()
     return { total: t, used: t - io.freemem() }
   })

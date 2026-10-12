@@ -97,6 +97,10 @@ describe('relay system-stats (#357)', () => {
   })
 
   it('after the timer stopped and restarted, the first sample has no CPU figure (counters reset)', async () => {
+    const warm = await openSse()
+    await warm.waitFor(m => m.type === 'system-stats')
+    warm.close()
+    assert.equal(await waitFor(() => relay.debugState().systemTimerActive === false), true)
     const client = await openSse()
     const first = await client.waitFor(m => m.type === 'system-stats')
     assert.equal(first.sample.cpu.total, null)
@@ -124,5 +128,18 @@ describe('relay system-stats (#357)', () => {
     assert.equal(relay.debugState().systemTimerActive, false)
     assert.equal(remote.messages.some(m => m.type === 'system-stats'), false)
     remote.close()
+  })
+
+  it('dispose() with a local client still connected stops the timer for good', async () => {
+    const client = await openSse()
+    await client.waitFor(m => m.type === 'system-stats')
+    assert.equal(relay.debugState().systemTimerActive, true)
+    relay.dispose()
+    assert.equal(relay.debugState().systemTimerActive, false)
+    const count = client.messages.filter(m => m.type === 'system-stats').length
+    await sleep(100)
+    assert.equal(client.messages.filter(m => m.type === 'system-stats').length, count)
+    assert.equal(relay.debugState().systemTimerActive, false)
+    client.close()
   })
 })
