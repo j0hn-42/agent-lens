@@ -67,20 +67,76 @@ export function readRange(input: Record<string, unknown>): { from: number; to: n
   return { from, to: limit == null ? null : from + limit - 1 }
 }
 
-/** Progress of a TodoWrite list, counted from the list the call carries. Null when it is not a usable list. */
-export function todoProgress(input: Record<string, unknown>): { done: number; active: number; total: number } | null {
-  const todos = input.todos
-  if (!Array.isArray(todos) || todos.length === 0) return null
-  let done = 0
-  let active = 0
-  for (const t of todos) {
+/** Tools of other runtimes (Codex, Copilot) mapped to the Claude Code tool they correspond to. */
+const TOOL_ALIASES: Record<string, string> = {
+  bash: 'Bash', powershell: 'Bash', shell: 'Bash', exec_command: 'Bash',
+  view: 'Read', edit: 'Edit', str_replace_editor: 'Edit', str_replace: 'Edit', create: 'Write',
+  grep: 'Grep', glob: 'Glob', web_fetch: 'WebFetch', web_search_call: 'WebSearch', task: 'Task', update_plan: 'TodoWrite',
+}
+
+/** The name a tool is drawn under: itself, or the Claude Code tool another runtime's name stands for. */
+export function canonicalTool(toolName: string): string {
+  return TOOL_ALIASES[toolName] ?? toolName
+}
+
+export function isShellTool(toolName: string): boolean {
+  return canonicalTool(toolName) === 'Bash'
+}
+
+export interface TodoItem {
+  content: string
+  status: string
+}
+
+/** The items of a TodoWrite list (`todos`) or a Codex plan (`plan`). Null when the call carries no usable list. */
+export function todoItems(input: Record<string, unknown>): TodoItem[] | null {
+  const list = Array.isArray(input.todos) ? input.todos : input.plan
+  if (!Array.isArray(list) || list.length === 0) return null
+  const items: TodoItem[] = []
+  for (const t of list) {
     if (!t || typeof t !== 'object') return null
-    const { content, status } = t as Record<string, unknown>
-    if (typeof content !== 'string' || typeof status !== 'string') return null
-    if (status === 'completed') done++
-    else if (status === 'in_progress') active++
+    const r = t as Record<string, unknown>
+    const content = Array.isArray(input.todos) ? r.content : r.step
+    if (typeof content !== 'string' || typeof r.status !== 'string') return null
+    items.push({ content, status: r.status })
   }
-  return { done, active, total: todos.length }
+  return items
+}
+
+/** Progress of a TodoWrite list or Codex plan, counted from the list the call carries. Null when it is not a usable list. */
+export function todoProgress(input: Record<string, unknown>): { done: number; active: number; total: number } | null {
+  const items = todoItems(input)
+  if (!items) return null
+  return {
+    done: items.filter(t => t.status === 'completed').length,
+    active: items.filter(t => t.status === 'in_progress').length,
+    total: items.length,
+  }
+}
+
+/** Characters of an apply_patch body kept on the event (`EDIT_CONTENT_MAX` in extension/src/constants.ts): a body that long may be cut. */
+export const PATCH_CAPTURE_LIMIT = 500
+
+export interface PatchFile {
+  op: 'add' | 'update' | 'delete'
+  path: string
+}
+
+/** Files and line counts of a Codex apply_patch body. Null when it has no file header or may have been cut. */
+export function patchStats(input: Record<string, unknown>): { files: PatchFile[]; added: number; removed: number } | null {
+  const patch = input.patch
+  if (typeof patch !== 'string' || patch.length >= PATCH_CAPTURE_LIMIT) return null
+  const files: PatchFile[] = []
+  let added = 0
+  let removed = 0
+  for (const line of patch.split('\n')) {
+    const header = /^\*\*\* (Add|Update|Delete) File:\s*(.+)$/.exec(line)
+    if (header) files.push({ op: header[1].toLowerCase() as PatchFile['op'], path: header[2].trim() })
+    else if (line.startsWith('***')) continue
+    else if (line.startsWith('+')) added++
+    else if (line.startsWith('-')) removed++
+  }
+  return files.length ? { files, added, removed } : null
 }
 
 /** Host of an http(s) URL; null for anything else. */
@@ -254,10 +310,12 @@ export type ToolGlyph =
 const GLYPH_BY_TOOL: Record<string, ToolGlyph> = {
   Read: 'read', Grep: 'search', Glob: 'search', Write: 'write', Edit: 'edit', MultiEdit: 'edit',
   TodoWrite: 'todo', WebSearch: 'web', WebFetch: 'web', AskUserQuestion: 'ask', Task: 'task', Agent: 'task', NotebookEdit: 'notebook',
+  apply_patch: 'edit',
 }
 
 /** Shape drawn on a tool card. Bash takes the shape of the first git / gh / Python / test / docker / package call its command line runs. MCP and unknown tools: none. */
-export function toolGlyph(toolName: string, input?: Record<string, unknown>): ToolGlyph | null {
+export function toolGlyph(rawName: string, input?: Record<string, unknown>): ToolGlyph | null {
+  const toolName = canonicalTool(rawName)
   if (toolName !== 'Bash') return GLYPH_BY_TOOL[toolName] ?? null
   // Drawn every frame: parse a given input object once
   const cached = input && BASH_GLYPHS.get(input)

@@ -112,6 +112,52 @@ test('Bash: Python, test, docker and package commands get their own list', () =>
   assert.deepEqual(items, ['pnpm install', 'python analyse.py', 'pnpm test'])
 })
 
+test('Codex shell and exec_command: same card as Bash, with the pills', () => {
+  for (const name of ['shell', 'exec_command']) {
+    const { getByRole } = show(name, { command: 'git add -A && pnpm test' })
+    assert.equal(getByRole('list', { name: 'Version control commands' }).querySelectorAll('li').length, 1, name)
+    assert.equal(getByRole('list', { name: 'Tooling commands' }).querySelectorAll('li').length, 1, name)
+    cleanup()
+  }
+})
+
+test('Codex update_plan: same progress line and list as TodoWrite', () => {
+  const { getByRole } = show('update_plan', { plan: [{ step: 'a', status: 'completed' }, { step: 'b', status: 'pending' }] })
+  assert.match(getByRole('group', { name: 'Todo progress' }).textContent ?? '', /1 of 2 done/)
+  assert.equal(getByRole('list', { name: 'Todo list' }).querySelectorAll('li').length, 2)
+})
+
+test('Copilot grep / glob / view: same content as Grep / Glob / Read', () => {
+  const grep = show('grep', { pattern: 'catch|error', path: '/repo/src' })
+  assert.ok(grep.getByText('catch|error'))
+  cleanup()
+  const read = show('view', { file_path: '/a.ts', offset: 5, limit: 10 })
+  assert.ok(read.getByText('lines 5–14'))
+})
+
+test('apply_patch: files, operation and +N -M from the patch text', () => {
+  const patch = '*** Begin Patch\n*** Update File: docs/a.md\n-old\n+new\n+newer\n*** Add File: docs/b.md\n+x\n*** End Patch'
+  const { getByRole, container } = show('apply_patch', { patch })
+  const summary = getByRole('group', { name: 'Edit summary' })
+  assert.match(summary.textContent ?? '', /\+3/)
+  assert.match(summary.textContent ?? '', /-1/)
+  const files = Array.from(getByRole('list', { name: 'Patched files' }).querySelectorAll('li')).map(li => li.textContent?.replace(/\s+/g, ' ').trim())
+  assert.deepEqual(files, ['update docs/a.md', 'add docs/b.md'])
+  assert.match(container.textContent ?? '', /\+newer/)
+})
+
+test('apply_patch cut by the capture limit: files shown, no figure invented, truncation said', () => {
+  const patch = ('*** Update File: docs/a.md\n' + '+line\n'.repeat(200)).slice(0, 500)
+  const { queryByRole, getByText } = show('apply_patch', { patch })
+  assert.equal(queryByRole('group', { name: 'Edit summary' }), null)
+  assert.ok(getByText('Patch cut at 500 characters: line counts not shown'))
+})
+
+test('apply_patch without patch text: no card content', () => {
+  const { queryByRole } = show('apply_patch', { path: 'docs/a.md' })
+  assert.equal(queryByRole('list', { name: 'Patched files' }), null)
+})
+
 test('the new cards have no axe violation', async () => {
   for (const [name, input] of [
     ['Edit', { file_path: '/a.ts', old_string: 'a', new_string: 'b' }],

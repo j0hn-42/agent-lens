@@ -4,7 +4,7 @@ import { createContext, useContext, useState } from 'react'
 import { COLORS } from '@/lib/colors'
 import { truncatePath } from '@/lib/utils'
 import { truncateWithMarker, truncateLines, FOCUS_RING } from '@/lib/feed-utils'
-import { editStats, shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind } from '@/lib/action-summary'
+import { canonicalTool, patchStats, PATCH_CAPTURE_LIMIT, todoItems, editStats,shellCommands, toolingCommands, writeStats, readRange, todoProgress, urlHost, notebookCell, type EditStats, type ToolingKind } from '@/lib/action-summary'
 import { SearchIcon, GlobeIcon, CheckIcon, GitIcon, GhIcon, PythonIcon, TestIcon, DockerIcon, PackageIcon } from './feed-icons'
 
 // Context for file-open callback — provided by parent components
@@ -24,7 +24,9 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
     return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
 
-  switch (toolName) {
+  switch (canonicalTool(toolName)) {
+    case 'apply_patch':
+      return <PatchContent data={inputData} compact={compact} />
     case 'Edit':
       return <EditContent data={inputData} compact={compact} />
     case 'MultiEdit':
@@ -182,6 +184,52 @@ function EditContent({ data, compact }: { data: Record<string, unknown>; compact
   )
 }
 
+/** Codex apply_patch: the raw patch text. Figures are counted only from a patch that was not cut. */
+function PatchContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+  const [showAll, setShowAll] = useState(false)
+  const patch = typeof data.patch === 'string' ? data.patch : ''
+  const stats = patchStats(data)
+  if (!patch) return null
+  const cut = patch.length >= PATCH_CAPTURE_LIMIT
+  const body = truncateLines(patch.split('\n').filter(l => !/^\*\*\* (Begin|End) Patch/.test(l)).join('\n'), showAll ? Infinity : (compact ? 4 : 8))
+  const files = stats?.files ?? []
+
+  return (
+    <div>
+      {files.length > 0 && (
+        <ul aria-label="Patched files" className="mb-1 list-none p-0 m-0 text-[11px] font-mono">
+          {files.map(f => (
+            <li key={`${f.op} ${f.path}`} title={f.path} className="truncate" style={{ color: COLORS.filePathInactive }}>
+              <span style={{ color: COLORS.contentDim }}>{f.op}</span>{' '}{f.path}
+            </li>
+          ))}
+        </ul>
+      )}
+      {stats && <EditSummary stats={{ added: stats.added, removed: stats.removed, blocks: null }} />}
+      {cut && <div className="mb-1 text-[11px]" style={{ color: COLORS.contentDim }}>Patch cut at {PATCH_CAPTURE_LIMIT} characters: line counts not shown</div>}
+      <div className="rounded overflow-hidden text-xs font-mono leading-snug" style={{ background: COLORS.codeBlockBg }}>
+        {body.lines.map((line, i) => {
+          const added = line.startsWith('+')
+          const removed = line.startsWith('-')
+          return (
+            <div
+              key={i}
+              className="px-1.5 py-px whitespace-pre-wrap break-words"
+              style={added ? { color: COLORS.diffAdded, background: COLORS.diffAddedBg } : removed ? { color: COLORS.diffRemoved, background: COLORS.diffRemovedBg } : { color: COLORS.contentDim }}
+            >
+              {added && <span className="sr-only">Added: </span>}
+              {removed && <span className="sr-only">Removed: </span>}
+              {line || ' '}
+            </div>
+          )
+        })}
+        {body.hidden > 0 && <div className="px-1.5 py-px" style={{ color: COLORS.contentDim }}>… (+{body.hidden} lines)</div>}
+      </div>
+      <ShowAllToggle visible={body.hidden > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
+    </div>
+  )
+}
+
 function MultiEditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
@@ -209,16 +257,6 @@ function MultiEditContent({ data, compact }: { data: Record<string, unknown>; co
   )
 }
 
-interface TodoItem {
-  content: string
-  status: string
-  activeForm?: string
-}
-
-function isTodoArray(v: unknown): v is TodoItem[] {
-  return Array.isArray(v) && v.every(t => t && typeof t === 'object' && 'content' in t)
-}
-
 const TODO_STATUS_TEXT: Record<string, string> = {
   completed: 'Completed',
   in_progress: 'In progress',
@@ -226,8 +264,8 @@ const TODO_STATUS_TEXT: Record<string, string> = {
 }
 
 function TodoContent({ data }: { data: Record<string, unknown> }) {
-  if (!isTodoArray(data.todos)) return null
-  const todos = data.todos
+  const todos = todoItems(data)
+  if (!todos) return null
   const progress = todoProgress(data)
 
   return (

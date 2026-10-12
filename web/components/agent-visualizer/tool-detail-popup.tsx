@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { POPUP, type ToolCallState, type ToolCallNode } from '@/lib/agent-types'
 import { COLORS, themed } from '@/lib/colors'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
+import { isShellTool } from '@/lib/action-summary'
 import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
 import { USAGE_LABELS } from '@/lib/usage'
 import { ToolContentRenderer } from './tool-content-renderer'
@@ -93,7 +94,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
           }}
         >
           <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
-          {tool.toolName === 'Bash' ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
+          {isShellTool(tool.toolName) ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}
 
