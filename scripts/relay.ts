@@ -56,7 +56,7 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
-import { classifyHost, isRemoteCrossOrigin, parseAllowedHosts } from './remote-access'
+import { classifyHost, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -1189,7 +1189,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Forbidden')
         return
       }
-      if (!sseLimiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+      // Through a tunnel the peer is always 127.0.0.1: one bucket per tunnel name, not per client-chosen User-Agent
+      const rateKey = hostClass === 'allowed' ? remoteRateKey(req.headers.host ?? '') : statusRateKey(req.socket.remoteAddress, req.headers)
+      if (!sseLimiter.allow(rateKey)) {
         res.writeHead(429, { 'Content-Type': 'text/plain', 'Retry-After': '1' })
         res.end('Too many requests')
         return

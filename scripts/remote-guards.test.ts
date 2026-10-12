@@ -8,11 +8,12 @@ import '../extension/test/helpers/alias-vscode'
 import { describe, it, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
+import * as net from 'node:net'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { listenLoopback } from './server-hardening'
-import { CSP_API, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
+import { CSP_API, RELAY_MAX_REMOTE_SSE_CLIENTS, RELAY_SSE_RATE_BURST } from '../extension/src/constants'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-remote-'))
 process.env.HOME = fakeHome
@@ -133,5 +134,45 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     open[firstRemote].destroy()
     await new Promise(r => setTimeout(r, 100))
     assert.equal((await request('GET', '/events', { Host: TUNNEL }, undefined, true)).status, 200)
+  })
+
+  it('HEAD /events opens no stream; OPTIONS, path tricks and absolute-form targets are refused; uppercase Host is the same name', async () => {
+    const before = relay.debugState().sseClients
+    const head = await request('HEAD', '/events', { Host: TUNNEL })
+    assert.equal(head.status, 200)
+    assert.equal(relay.debugState().sseClients, before)
+    assert.equal((await request('OPTIONS', '/events', { Host: TUNNEL })).status, 403)
+    for (const p of ['//events', '/events/', '/%65vents', '/index.js/../context', 'http://localhost/context', '/./status', '/status/']) {
+      assert.equal((await request('GET', p, { Host: TUNNEL })).status, 403, p)
+    }
+    assert.equal((await request('GET', '/status', { Host: TUNNEL.toUpperCase() })).status, 200)
+  })
+
+  it('refuses a request carrying two Host headers', async () => {
+    const reply = await new Promise<string>((resolve, reject) => {
+      const s = net.connect({ host: '127.0.0.1', port }, () => s.end(`GET /status HTTP/1.1\r\nHost: ${TUNNEL}\r\nHost: evil.example\r\nConnection: close\r\n\r\n`))
+      let out = ''
+      s.on('data', c => { out += c.toString() })
+      s.on('end', () => resolve(out))
+      s.on('error', reject)
+    })
+    assert.match(reply, /^HTTP\/1\.1 (400|403)/)
+  })
+
+  it('the request handler validates its own allow list (fail closed)', async () => {
+    const { createAppRequestHandler } = await import('../app/src/server')
+    assert.throws(() => createAppRequestHandler(relay, { allowedHosts: ['*.ts.net'] }), /allowedHosts/)
+  })
+
+  it('rate-limits remote clients by tunnel name, whatever their User-Agent (the tunnel peer is always 127.0.0.1)', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < RELAY_SSE_RATE_BURST + 5; i++) {
+      const r = await request('GET', '/events', { Host: TUNNEL, 'User-Agent': `ua-${i}` }, undefined, true)
+      statuses.push(r.status)
+      open.pop()?.destroy()
+      if (r.status === 429) break
+    }
+    assert.ok(statuses.includes(429), statuses.join(','))
+    assert.equal((await request('GET', '/events', {}, undefined, true)).status, 200, 'local clients keep their own bucket')
   })
 })

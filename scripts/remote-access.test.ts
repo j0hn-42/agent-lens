@@ -8,7 +8,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, REMOTE_AUTH_AVAILABLE,
+  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
 } from './remote-access'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 
@@ -28,6 +28,10 @@ describe('parseAllowedHosts', () => {
       assert.deepEqual(r.hosts, [], `accepted ${JSON.stringify(bad)}`)
       assert.equal(r.errors.length, 1, `no error for ${JSON.stringify(bad)}`)
     }
+  })
+
+  it('refuses the default ports 80 and 443: browsers leave them out of Host, so they would never match', () => {
+    for (const bad of ['box.ts.net:443', 'box.ts.net:80']) assert.deepEqual(parseAllowedHosts([bad]).hosts, [], bad)
   })
 
   it(`caps the list at ${RELAY_MAX_ALLOWED_HOSTS} names`, () => {
@@ -102,8 +106,20 @@ describe('isRemoteCrossOrigin (an allowed Host only accepts its own https origin
     for (const headers of [
       { origin: `http://${host}` }, { origin: 'https://evil.example' }, { origin: `https://${host}.evil.example` },
       { origin: 'http://localhost:3000' }, { origin: 'null' }, { origin: [`https://${host}`, 'https://evil.example'] },
-      { 'sec-fetch-site': 'cross-site' },
+      { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'same-site' },
     ]) assert.equal(isRemoteCrossOrigin(headers, host), true, JSON.stringify(headers))
+  })
+  it('accepts Sec-Fetch-Site none (typed URL) and same-origin only', () => {
+    assert.equal(isRemoteCrossOrigin({ 'sec-fetch-site': 'none' }, host), false)
+    assert.equal(isRemoteCrossOrigin({ 'sec-fetch-site': 'same-site', origin: `https://${host}` }, host), true)
+  })
+})
+
+describe('remoteRateKey (a tunnel peer is always 127.0.0.1: the client must not pick its own bucket)', () => {
+  it('ignores User-Agent and Origin for an allowed Host', () => {
+    const a = remoteRateKey('BOX.tail1234.ts.net')
+    assert.equal(a, remoteRateKey('box.tail1234.ts.net'))
+    assert.match(a, /^remote\|/)
   })
 })
 

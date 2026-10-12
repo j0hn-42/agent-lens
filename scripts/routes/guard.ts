@@ -7,7 +7,7 @@ import * as http from 'http'
 import { isLoopbackAddress, type KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { statusRateKey, isCrossOriginRequest } from '../../extension/src/relay-guards'
 import { applySecurityHeaders } from '../server-hardening'
-import { classifyHost, isRemoteCrossOrigin } from '../remote-access'
+import { classifyHost, isRemoteCrossOrigin, remoteRateKey } from '../remote-access'
 
 export type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
 
@@ -59,7 +59,8 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
     if (!req.method || !methods.includes(req.method)) {
       return sendPlain(res, 405, 'Method not allowed', { Allow: allow })
     }
-    if (!options.limiter.allow(statusRateKey(req.socket.remoteAddress, req.headers))) {
+    const rateKey = hostClass === 'allowed' ? remoteRateKey(req.headers.host ?? '') : statusRateKey(req.socket.remoteAddress, req.headers)
+    if (!options.limiter.allow(rateKey)) {
       return sendPlain(res, 429, 'Too many requests', { 'Retry-After': '1' })
     }
     return handler(req, res)

@@ -8,7 +8,7 @@ import * as path from 'path'
 import { exec, execFile } from 'child_process'
 
 import { createRelay, type Relay } from '../../scripts/relay'
-import { gateRemoteRequest } from '../../scripts/remote-access'
+import { gateRemoteRequest, parseAllowedHosts } from '../../scripts/remote-access'
 import { createTelemetryClient } from '../../scripts/telemetry'
 import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
@@ -37,10 +37,14 @@ type AppRelay = Pick<Relay, 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 
  * ships: --allow-host is refused at startup (remoteStartupError), so today only the tests pass a list.
  */
 export function createAppRequestHandler(relay: AppRelay, opts: { allowedHosts: readonly string[] }): http.RequestListener {
+  // Same validation as createRelay, so the gate and the relay's own guards cannot disagree (fail closed)
+  const parsed = parseAllowedHosts(opts.allowedHosts)
+  if (parsed.errors.length > 0) throw new Error(`allowedHosts: ${parsed.errors.join('; ')}`)
+  const allowedHosts = parsed.hosts
   return (req, res) => {
     const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || observationsRoute(req.url) !== null
     // Loopback peer, Host loopback or allowed (static files included: DNS rebinding), read-only surface for a tunnel
-    if (gateRemoteRequest(req, res, opts.allowedHosts, isApi ? 'api' : 'static')) return
+    if (gateRemoteRequest(req, res, allowedHosts, isApi ? 'api' : 'static')) return
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
     // GET/HEAD/OPTIONS only (405), session parameter validation (400)
     if (guardRequest(req, res, { kind: isApi ? 'api' : 'static' })) return

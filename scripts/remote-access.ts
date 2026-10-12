@@ -35,6 +35,8 @@ function parseOne(raw: string): { host: string } | { error: string } {
   if (!m) return { error: `${echo(raw)} is not a host name with an optional port` }
   const [, name, port] = m
   if (port !== undefined && (Number(port) < 1 || Number(port) > 65535 || port.startsWith('0'))) return { error: `${echo(raw)}: invalid port` }
+  // Browsers leave the default port out of Host: such an entry would never match
+  if (port === '80' || port === '443') return { error: `${echo(raw)}: leave out the default port ${port}` }
   if (!name || name.length > MAX_NAME_LENGTH) return { error: `${echo(raw)} is not a host name` }
   const labels = name.split('.')
   if (!labels.every(l => LABEL.test(l))) return { error: `${echo(raw)} is not a host name (no wildcard, IP literal, trailing dot or URL)` }
@@ -80,10 +82,19 @@ export function isRemoteReadOnlyRoute(method: string | undefined, url: string | 
 
 /** For an allowed Host: any Origin other than https://<that host> is another site (the dev origins included). */
 export function isRemoteCrossOrigin(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[] }, host: string): boolean {
+  // A sibling subdomain is same-site: its no-cors requests could hold remote SSE slots. Only same-origin or a typed URL.
+  const site = headers['sec-fetch-site']
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') return true
   const origin = headers.origin
-  if (origin === undefined) return headers['sec-fetch-site'] === 'cross-site'
+  if (origin === undefined) return false
   if (typeof origin !== 'string') return true
   return origin.toLowerCase() !== `https://${host.toLowerCase()}`
+}
+
+/** Rate-limit key for an allowed Host: the tunnel peer is always 127.0.0.1, so User-Agent / Origin (chosen by the
+ *  client) must not mint new buckets. All clients of one tunnel name share one bucket. */
+export function remoteRateKey(host: string): string {
+  return `remote|${host.toLowerCase()}`
 }
 
 /**
@@ -93,7 +104,9 @@ export function isRemoteCrossOrigin(headers: { origin?: string | string[]; 'sec-
 export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerResponse, allowed: readonly string[], kind: ResponseKind): boolean {
   const host = req.headers.host
   const cls = classifyHost(host, allowed)
-  const refused = !isLoopbackAddress(req.socket.remoteAddress)
+  // Two Host headers: Node keeps the first, a proxy in front may have used the last one
+  const refused = (req.headersDistinct?.host?.length ?? 0) > 1
+    || !isLoopbackAddress(req.socket.remoteAddress)
     || cls === 'foreign'
     || (cls === 'allowed' && (!isRemoteReadOnlyRoute(req.method, req.url) || isRemoteCrossOrigin(req.headers, host ?? '')))
   if (!refused) return false

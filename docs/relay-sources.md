@@ -112,11 +112,14 @@ What the guards will enforce once the token exists (tested now through the app's
 | `Host` loopback (`127.0.0.1`, `localhost`, `[::1]`, any port) | unchanged |
 | `Host` exactly a `--allow-host` name (case-insensitive; with the port only if one was given) | read-only surface: `GET`/`HEAD` on `/events`, `/status` and the static app |
 | same, on `/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope` or any other method | `403` |
-| same, with an `Origin` other than `https://<name>` (the dev origins included) or `Sec-Fetch-Site: cross-site` | `403` |
+| same, with an `Origin` other than `https://<name>` (the dev origins included) or a `Sec-Fetch-Site` other than `same-origin` / `none` | `403` |
+| two `Host` headers | `403` |
 | any other `Host` (suffix or prefix look-alikes, trailing dot, other port), static files included | `403` (DNS rebinding) |
 | more than 4 SSE streams through allowed names (`RELAY_MAX_REMOTE_SSE_CLIENTS`) | `503` + `Retry-After`; local tabs are not counted against it |
 
-`--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL or credentials; at most 4 names. The peer must still be loopback: a tunnel's is. The total SSE cap, the rate limits and the strict headers are unchanged.
+`--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL, credentials or default port (`:80`, `:443`, which browsers leave out of `Host`); at most 4 names. The peer must still be loopback: a tunnel's is. So every client of a tunnel shares one rate-limit bucket per name (its `User-Agent` is ignored). The total SSE cap, the rate limits and the strict headers are unchanged.
+
+The tunnel must forward the `Host` header unchanged (SSH `-L` does, it does not touch HTTP). A tunnel that rewrites `Host` to `127.0.0.1` makes remote requests look local: they would reach the full loopback surface. Step 2 (token) has to close this before `--allow-host` is enabled.
 
 ## Scope of the discovery (#291)
 
