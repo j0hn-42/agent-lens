@@ -9,6 +9,7 @@ import { startPiRuntime } from './pi-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
+import { parseOpenTerminalMessage, openSessionTerminal, OPEN_TERMINAL_FAILURE_TEXT } from './open-terminal'
 import type { AgentRuntime, AgentRuntimeMode } from './session-runtime'
 
 const log = createLogger('Extension')
@@ -250,6 +251,14 @@ function wirePanel(panel: VisualizerPanel): void {
       case 'open-file':
         handleOpenFile(message.filePath, message.line)
         break
+
+      case 'open-terminal': {
+        const req = parseOpenTerminalMessage(message)
+        if (!req) break
+        const result = openSessionTerminal(req.sessionId, collectActiveSessions(), { window: vscode.window })
+        if (!result.ok) vscode.window.showWarningMessage(OPEN_TERMINAL_FAILURE_TEXT[result.reason])
+        break
+      }
 
       case 'log': {
         const webviewLog = createLogger('Webview')

@@ -228,6 +228,8 @@ export type WebviewToExtensionMessage =
   | { type: 'request-connect' }
   | { type: 'request-disconnect' }
   | { type: 'open-file'; filePath: string; line?: number }
+  /** Open a terminal in the working directory of a session (#240): the webview names the session, never a directory */
+  | { type: 'open-terminal'; sessionId: string }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
   /** Native notification asked for by a rule of the webview (#225); validated by parseNotifyMessage */
   | { type: 'notify'; trigger: string; title: string; body: string }
