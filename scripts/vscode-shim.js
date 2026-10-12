@@ -21,6 +21,7 @@ module.exports = {
   workspace: {
     workspaceFolders: [{ uri: { fsPath: process.cwd() } }],
     getConfiguration: () => ({ get: () => undefined }),
+    onDidChangeConfiguration: () => ({ dispose() {} }),
   },
   window: {
     showInformationMessage: () => {},

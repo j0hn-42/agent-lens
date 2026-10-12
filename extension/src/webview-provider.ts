@@ -34,6 +34,11 @@ export class VisualizerPanel implements vscode.Disposable {
   private _ready = false
 
   readonly onCommand = this._onCommand.event
+  private readonly _onDisposed = new vscode.EventEmitter<void>()
+  /** Fires when the panel is closed */
+  readonly onDisposed = this._onDisposed.event
+  /** The page declared it can show and answer permission requests (operator control, #240); false until it says so */
+  controlSurface = false
 
   /** Returns true if wirePanel has already been called on this instance */
   get isWired(): boolean { return this._wired }
@@ -65,6 +70,7 @@ export class VisualizerPanel implements vscode.Disposable {
     this.panel.onDidDispose(
       () => {
         VisualizerPanel.instance = undefined
+        this._onDisposed.fire()
         this.dispose()
       },
       undefined,
@@ -261,5 +267,6 @@ export class VisualizerPanel implements vscode.Disposable {
     }
     this.disposables.length = 0
     this._onCommand.dispose()
+    this._onDisposed.dispose()
   }
 }

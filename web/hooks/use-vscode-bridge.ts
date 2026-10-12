@@ -40,6 +40,7 @@ interface BridgeHookResult {
   hooksConfigured: boolean | undefined
   /** Open a file in the VS Code editor */
   bridgeOpenFile: (filePath: string, line?: number) => void
+  bridgeOpenTerminal: (sessionId: string) => void
   /** Known sessions from the extension (label replaced by the user's own name when renamed, #246) */
   sessions: SessionInfo[]
   /** Give a session a name of your own (kept in this browser); an empty name restores the original label */
@@ -721,6 +722,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     vscodeBridge?.openFile(filePath, line)
   }, [])
 
+  const bridgeOpenTerminal = useCallback((sessionId: string) => {
+    vscodeBridge?.openTerminal(sessionId)
+  }, [])
+
   return {
     isVSCode,
     connectionStatus,
@@ -730,6 +735,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     disable1MContext,
     hooksConfigured,
     bridgeOpenFile,
+    bridgeOpenTerminal,
     sessions: displaySessions,
     renameSession,
     selectedSessionId,

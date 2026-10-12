@@ -20,6 +20,8 @@ const path = require('path')
 const crypto = require('crypto')
 
 const HOOK_COMMAND_MARKER = 'agent-lens/hook.js'
+/** Optional PermissionRequest hook of the operator control (#240): ours, but not the observation hook. */
+const CONTROL_HOOK_COMMAND_MARKER = 'agent-lens/permission-hook.js'
 /** Hooks installed under the project's former name. */
 const LEGACY_HOOK_COMMAND_MARKER = 'agent-flow/hook.js'
 const SETTINGS_FILE_MAX_BYTES = 1024 * 1024
@@ -28,11 +30,12 @@ const SETTINGS_PATHS_FILE = 'settings-paths.txt'
 
 // ─── Detection ──────────────────────────────────────────────────────────────
 
-/** 'current' for an Agent Lens hook, 'legacy' for an agent-flow one, null otherwise. Never throws. */
+/** 'current' for an Agent Lens hook, 'legacy' for an agent-flow one, 'control' for the permission hook, null otherwise. Never throws. */
 function hookKind(hook) {
   if (!hook || typeof hook !== 'object' || typeof hook.command !== 'string') return null
   // Normalize backslashes so Windows paths (C:\Users\...\agent-lens\hook.js) match the marker.
   const command = hook.command.replace(/\\/g, '/')
+  if (command.includes(CONTROL_HOOK_COMMAND_MARKER)) return 'control'
   if (command.includes(HOOK_COMMAND_MARKER)) return 'current'
   if (command.includes(LEGACY_HOOK_COMMAND_MARKER)) return 'legacy'
   return null
@@ -85,27 +88,30 @@ function settingsHaveLegacyHooks(settings) {
  * Remove Agent Lens hooks (current and legacy) from one event's entries. The user's sibling hooks
  * in the same entry are kept; an entry is dropped only when nothing of the user's is left (#199).
  */
-function stripEntries(entries) {
+function stripEntries(entries, removes = kind => kind !== null) {
   let changed = false
   const kept = []
   for (const entry of entries) {
     const hooks = entryHooks(entry)
-    if (!hooks || !hooks.some(h => hookKind(h) !== null)) { kept.push(entry); continue }
+    if (!hooks || !hooks.some(h => removes(hookKind(h)))) { kept.push(entry); continue }
     changed = true
-    const others = hooks.filter(h => hookKind(h) === null)
+    const others = hooks.filter(h => !removes(hookKind(h)))
     if (others.length > 0) kept.push({ ...entry, hooks: others })
   }
   return { kept, changed }
 }
 
-/** Remove every Agent Lens hook from `settings`; empty events and an empty hooks section are deleted. */
-function removeAgentLensHooks(settings) {
+/**
+ * Remove every Agent Lens hook from `settings` (the control hook included, unless `removes` says otherwise);
+ * empty events and an empty hooks section are deleted.
+ */
+function removeAgentLensHooks(settings, removes = kind => kind !== null) {
   const hooks = hooksSection(settings)
   if (!hooks) return false
   let changed = false
   for (const [event, entries] of Object.entries(hooks)) {
     if (!Array.isArray(entries)) continue
-    const result = stripEntries(entries)
+    const result = stripEntries(entries, removes)
     if (!result.changed) continue
     changed = true
     if (result.kept.length === 0) delete hooks[event]
@@ -115,15 +121,38 @@ function removeAgentLensHooks(settings) {
   return changed
 }
 
-/** Merge Agent Lens hooks into `settings`: user hooks are kept, previous Agent Lens hooks (any event) replaced. */
+/** Merge Agent Lens hooks into `settings`: user hooks and the optional control hook are kept, previous observation hooks (any event) replaced. */
 function applyAgentLensHooks(settings, hooksConfig) {
   const existing = hooksSection(settings)
   const hooks = existing || {}
-  if (existing) removeAgentLensHooks({ hooks })
+  if (existing) removeAgentLensHooks({ hooks }, kind => kind === 'current' || kind === 'legacy')
   for (const [event, entries] of Object.entries(hooksConfig)) {
     const current = Array.isArray(hooks[event]) ? hooks[event] : []
     hooks[event] = [...current, ...entries]
   }
+  settings.hooks = hooks
+}
+
+// ─── Operator control hook (#240) ───────────────────────────────────────────
+
+/** True when the settings hold the PermissionRequest hook of the operator control. */
+function settingsHaveControlHook(settings) {
+  const hooks = hooksSection(settings)
+  const entries = hooks && hooks.PermissionRequest
+  return Array.isArray(entries) && entries.some(e => { const h = entryHooks(e); return !!h && h.some(x => hookKind(x) === 'control') })
+}
+
+/** Remove the control hook from `settings` (user hooks, including their own PermissionRequest hooks, stay). */
+function removeControlHook(settings) {
+  return removeAgentLensHooks(settings, kind => kind === 'control')
+}
+
+/** Put `entry` in PermissionRequest, replacing a previous control hook. Other hooks of the event are kept. */
+function applyControlHook(settings, entry) {
+  removeControlHook(settings)
+  const hooks = hooksSection(settings) || {}
+  const current = Array.isArray(hooks.PermissionRequest) ? hooks.PermissionRequest : []
+  hooks.PermissionRequest = [...current, JSON.parse(JSON.stringify(entry))]
   settings.hooks = hooks
 }
 
@@ -140,7 +169,7 @@ function migrateLegacyHooks(settings, entry) {
     if (!Array.isArray(entries)) continue
     const hasLegacy = entries.some(e => { const h = entryHooks(e); return !!h && h.some(x => hookKind(x) === 'legacy') })
     if (!hasLegacy) continue
-    hooks[event] = [...stripEntries(entries).kept, JSON.parse(JSON.stringify(entry))]
+    hooks[event] = [...stripEntries(entries, kind => kind === 'current' || kind === 'legacy').kept, JSON.parse(JSON.stringify(entry))]
     changed = true
   }
   return changed
@@ -270,6 +299,7 @@ function recordSettingsPath(discoveryDir, settingsPath) {
 module.exports = {
   HOOK_COMMAND_MARKER,
   LEGACY_HOOK_COMMAND_MARKER,
+  CONTROL_HOOK_COMMAND_MARKER,
   SETTINGS_FILE_MAX_BYTES,
   SETTINGS_PATHS_FILE,
   hookKind,
@@ -280,6 +310,9 @@ module.exports = {
   removeAgentLensHooks,
   applyAgentLensHooks,
   migrateLegacyHooks,
+  settingsHaveControlHook,
+  applyControlHook,
+  removeControlHook,
   claudeConfigDir,
   SettingsUnreadableError,
   readSettingsStrict,
