@@ -9,7 +9,7 @@ import {
   HOOK_MAX_HEADER_BYTES, HOOK_MAX_CONNECTIONS, HOOK_MAX_REQUESTS_PER_SOCKET, HOOK_REQUEST_TIMEOUT_MS,
   HOOK_RATE_IP_BURST, HOOK_RATE_IP_PER_S, HOOK_RATE_SESSION_BURST, HOOK_RATE_SESSION_PER_S,
   HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, TEAM_MAX_LINKS_PER_SESSION,
-  HTTP_CONNECTIONS_CHECK_INTERVAL_MS, HOOK_CONTROL_TOKEN_HEADER,
+  HTTP_CONNECTIONS_CHECK_INTERVAL_MS, HOOK_CONTROL_TOKEN_HEADER, HOOK_CONTROL_CHALLENGE_HEADER, HOOK_CONTROL_PROOF_HEADER,
   SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE, SUBAGENT_TRANSCRIPT_TIMEOUT_MS,
   generateSubagentFallbackName,
   resolveSubagentChildName,
@@ -25,7 +25,7 @@ import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
 import { SessionNormalizer, CountersRegistry, sharedCounters } from './event-normalize'
 import { isSafeId } from './hook-guards'
-import { PermissionGate, sha256Json } from './permission-gate'
+import { PermissionGate, sha256Json, decisionProof } from './permission-gate'
 
 const log = createLogger('HookServer')
 
@@ -220,7 +220,7 @@ export class HookServer implements vscode.Disposable {
       }
       if (checked.payload.hook_event_name === 'PermissionRequest') {
         try {
-          this.handlePermissionRequest(req, res, checked.payload as HookPayload)
+          this.handlePermissionRequest(req, res, checked.payload as HookPayload, Buffer.concat(chunks))
         } catch (e) {
           // Anything unexpected is "no decision": Claude Code asks as usual
           log.error('PermissionRequest handler failed:', e)
@@ -246,11 +246,14 @@ export class HookServer implements vscode.Disposable {
    * answers 200 with no body, which Claude Code reads as "no decision" and shows its own prompt. A wrong or missing
    * token is refused with 403, which the hook script also treats as "no decision".
    */
-  private handlePermissionRequest(req: http.IncomingMessage, res: http.ServerResponse, payload: HookPayload): void {
+  private handlePermissionRequest(req: http.IncomingMessage, res: http.ServerResponse, payload: HookPayload, rawBody: Buffer): void {
     const noDecision = () => { if (!res.writableEnded && !res.destroyed) { res.writeHead(200); res.end() } }
     const control = this.control
     if (!control || !control.gate.active) { return noDecision() }
     if (!tokenMatches(req.headers[HOOK_CONTROL_TOKEN_HEADER], control.token)) { return this.reject(req, res, 403, 'Forbidden') }
+    // Without the hook's challenge the answer could not be proven to it (it would print nothing): do not hold the request
+    const challenge = req.headers[HOOK_CONTROL_CHALLENGE_HEADER]
+    if (typeof challenge !== 'string' || !/^[0-9a-f]{32}$/.test(challenge)) { return noDecision() }
     if (typeof payload.tool_name !== 'string' || payload.tool_name === '' || !payload.tool_input) { return noDecision() }
 
     const handle = control.gate.request({
@@ -266,7 +269,10 @@ export class HookServer implements vscode.Disposable {
       answered = true
       if (res.writableEnded || res.destroyed) { return }
       if (!decision) { return noDecision() }
-      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        [HOOK_CONTROL_PROOF_HEADER]: decisionProof(control.token, challenge, rawBody, decision),
+      })
       res.end(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }))
     })
   }

@@ -11,6 +11,7 @@ import * as net from 'node:net'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { spawn } from 'node:child_process'
+import { createHash, createHmac } from 'node:crypto'
 import { PERMISSION_HOOK_TIMEOUT_S, HOOK_SAFETY_MARGIN_MS } from '../src/constants'
 
 // discovery.ts fixes its folder from the home directory when it is loaded: point it at a throwaway one first
@@ -63,6 +64,20 @@ function run(input: unknown, env: Record<string, string> = {}): Promise<{ code: 
   })
 }
 
+/** The answer proof, computed here from the documented formula (not from src): HMAC-SHA256(token, challenge \n sha256(body) \n decision) */
+function proofFor(seen: Seen, decision: { behavior: string; message?: string }, token = TOKEN): string {
+  const challenge = String(seen.headers['x-agent-lens-challenge'])
+  const bodySha = createHash('sha256').update(seen.body).digest('hex')
+  return createHmac('sha256', token).update(`${challenge}\n${bodySha}\n${JSON.stringify(decision)}`).digest('hex')
+}
+
+/** Answers like a genuine instance: the decision plus the proof the hook asks for */
+function answer(res: http.ServerResponse, seen: Seen, body: unknown): void {
+  const d = (body as { hookSpecificOutput?: { decision?: { behavior: string; message?: string } } }).hookSpecificOutput?.decision
+  res.writeHead(200, { 'Content-Type': 'application/json', ...(d ? { 'X-Agent-Lens-Proof': proofFor(seen, d) } : {}) })
+  res.end(JSON.stringify(body))
+}
+
 const payload = () => ({ session_id: 's1', hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' }, cwd: ws })
 
 describe('permission-hook.js', () => {
@@ -84,7 +99,7 @@ describe('permission-hook.js', () => {
 
   it('forwards the event with the token and prints the decision it gets back', async () => {
     fresh()
-    const srv = await startServer((_q, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(ALLOW)) })
+    const srv = await startServer((_q, res, seen) => answer(res, seen, ALLOW))
     try {
       writeDiscovery(srv.port)
       const out = await run(payload())
@@ -98,12 +113,67 @@ describe('permission-hook.js', () => {
 
   it('prints a deny with its message, and nothing else from the answer', async () => {
     fresh()
-    const answer = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'use pnpm', updatedInput: { command: 'rm -rf /' }, interrupt: true } }, continue: false }
-    const srv = await startServer((_q, res) => { res.writeHead(200); res.end(JSON.stringify(answer)) })
+    const extra = { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'use pnpm', updatedInput: { command: 'rm -rf /' }, interrupt: true } }, continue: false }
+    const srv = await startServer((_q, res, seen) => {
+      res.writeHead(200, { 'X-Agent-Lens-Proof': proofFor(seen, { behavior: 'deny', message: 'use pnpm' }) })
+      res.end(JSON.stringify(extra))
+    })
     try {
       writeDiscovery(srv.port)
       const out = await run(payload())
       assert.deepEqual(JSON.parse(out.stdout), { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'use pnpm' } } })
+    } finally { await srv.close() }
+  })
+
+  it('sends a fresh random challenge with each request', async () => {
+    fresh()
+    const srv = await startServer((_q, res, seen) => answer(res, seen, ALLOW))
+    try {
+      writeDiscovery(srv.port)
+      await run(payload())
+      await run(payload())
+      const [a, b] = srv.seen.map(s => String(s.headers['x-agent-lens-challenge']))
+      assert.match(a, /^[0-9a-f]{32}$/)
+      assert.match(b, /^[0-9a-f]{32}$/)
+      assert.notEqual(a, b)
+    } finally { await srv.close() }
+  })
+
+  // The hook proves itself to the server with the token; the server must prove itself to the hook, or whoever listens
+  // on the port of a stale discovery file (VS Code crashed, pid reused) could approve any tool call.
+  it('prints nothing when an allow comes without a valid proof that the answering process knows the token', async () => {
+    const denyMsg = { behavior: 'deny', message: 'use pnpm' }
+    const cases: Array<[string, (seen: Seen) => Record<string, string>, unknown]> = [
+      ['no proof', () => ({}), ALLOW],
+      ['empty proof', () => ({ 'X-Agent-Lens-Proof': '' }), ALLOW],
+      ['garbage proof', () => ({ 'X-Agent-Lens-Proof': 'zz' }), ALLOW],
+      ['wrong length proof', () => ({ 'X-Agent-Lens-Proof': '00' }), ALLOW],
+      ['proof made with another token', s => ({ 'X-Agent-Lens-Proof': proofFor(s, { behavior: 'allow' }, 'b'.repeat(64)) }), ALLOW],
+      ['proof of another decision', s => ({ 'X-Agent-Lens-Proof': proofFor(s, denyMsg) }), ALLOW],
+      ['proof of a replayed challenge', s => ({ 'X-Agent-Lens-Proof': proofFor({ ...s, headers: { ...s.headers, 'x-agent-lens-challenge': 'c'.repeat(32) } }, { behavior: 'allow' }) }), ALLOW],
+      ['proof of another request body', s => ({ 'X-Agent-Lens-Proof': proofFor({ ...s, body: s.body + ' ' }, { behavior: 'allow' }) }), ALLOW],
+      ['proof of the allow, message changed', s => ({ 'X-Agent-Lens-Proof': proofFor(s, denyMsg) }),
+        { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'other' } } }],
+    ]
+    for (const [name, headers, body] of cases) {
+      fresh()
+      const srv = await startServer((_q, res, seen) => { res.writeHead(200, headers(seen)); res.end(JSON.stringify(body)) })
+      try {
+        writeDiscovery(srv.port)
+        const out = await run(payload())
+        assert.deepEqual({ code: out.code, stdout: out.stdout }, { code: 0, stdout: '' }, name)
+        assert.equal(srv.seen.length, 1, `${name}: the hook did contact it`)
+      } finally { await srv.close() }
+    }
+  })
+
+  it('prints nothing for a fake server that was never given the token and answers allow to anything', async () => {
+    fresh()
+    const srv = await startServer((_q, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(ALLOW)) })
+    try {
+      writeDiscovery(srv.port)
+      const out = await run(payload())
+      assert.deepEqual({ code: out.code, stdout: out.stdout }, { code: 0, stdout: '' })
     } finally { await srv.close() }
   })
 
@@ -162,7 +232,7 @@ describe('permission-hook.js', () => {
 
   it('falls back to the next instance when the best one is stale, and stops at the first that answers', async () => {
     fresh()
-    const live = await startServer((_q, res) => { res.writeHead(200); res.end(JSON.stringify(ALLOW)) })
+    const live = await startServer((_q, res, seen) => answer(res, seen, ALLOW))
     const dead = await startServer(() => {})
     const deadPort = dead.port
     await dead.close()

@@ -10,6 +10,7 @@ import * as http from 'node:http'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { createHash, createHmac } from 'node:crypto'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-perm-home-'))
 process.env.HOME = fakeHome
@@ -27,23 +28,34 @@ let sha256Json: typeof import('../src/permission-gate').sha256Json
 
 const TOKEN = 't'.repeat(64)
 const HEADER = 'x-agent-lens-token'
+const CHALLENGE_HEADER = 'x-agent-lens-challenge'
+const PROOF_HEADER = 'x-agent-lens-proof'
+const CHALLENGE = '0123456789abcdef0123456789abcdef'
 
-interface Reply { status: number; body: string }
+interface Reply { status: number; body: string; proof?: string }
 function post(port: number, payload: unknown, headers: http.OutgoingHttpHeaders = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify(payload)
     const req = http.request({
       host: '127.0.0.1', port, method: 'POST', path: '/', agent: false,
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...headers },
+      // A hook that holds the token also sends a challenge; requests without the token header never need one
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...(headers[HEADER] ? { [CHALLENGE_HEADER]: CHALLENGE } : {}), ...headers },
     }, res => {
       let data = ''
       res.on('data', c => { data += c })
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }))
+      res.on('end', () => {
+        const proof = res.headers[PROOF_HEADER]
+        resolve({ status: res.statusCode ?? 0, body: data, ...(typeof proof === 'string' ? { proof } : {}) })
+      })
     })
     req.on('error', reject)
     req.end(body)
   })
 }
+
+/** What the hook script recomputes, written out here from the documented formula */
+const expectedProof = (payload: unknown, decision: { behavior: string; message?: string }) =>
+  createHmac('sha256', TOKEN).update(`${CHALLENGE}\n${createHash('sha256').update(JSON.stringify(payload)).digest('hex')}\n${JSON.stringify(decision)}`).digest('hex')
 
 const waitFor = async (cond: () => boolean, ms = 3000) => {
   const end = Date.now() + ms
@@ -122,7 +134,9 @@ describe('HookServer PermissionRequest', () => {
       assert.equal(shown[0].toolName, 'Bash')
       assert.equal(shown[0].inputSha256, sha256Json({ command: 'npm test' }))
       assert.deepEqual(gate.decide({ sessionId: 's1', toolUseId: null, nonce: shown[0].nonce, action: 'approve' }), { ok: true })
-      assert.deepEqual(await reply, { status: 200, body: ALLOW })
+      const r = await reply
+      assert.deepEqual({ status: r.status, body: r.body }, { status: 200, body: ALLOW })
+      assert.equal(r.proof, expectedProof(permReq(), { behavior: 'allow' }), 'the answer is proven to the hook')
       assert.equal(records.at(-1)?.outcome, 'sent')
     } finally { server.dispose() }
   })
@@ -136,6 +150,18 @@ describe('HookServer PermissionRequest', () => {
       const r = await reply
       assert.equal(r.status, 200)
       assert.deepEqual(JSON.parse(r.body), { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny', message: 'use pnpm' } } })
+      assert.equal(r.proof, expectedProof(permReq(), { behavior: 'deny', message: 'use pnpm' }))
+    } finally { server.dispose() }
+  })
+
+  it('a request without a valid challenge is not held: an empty 200 with no proof', async () => {
+    const { server, port, shown } = await setup()
+    try {
+      for (const challenge of ['', 'short', 'Z'.repeat(32), `${CHALLENGE}0`]) {
+        const r = await post(port, permReq(), { [HEADER]: TOKEN, [CHALLENGE_HEADER]: challenge })
+        assert.deepEqual(r, { status: 200, body: '' }, challenge)
+      }
+      assert.equal(shown.length, 0)
     } finally { server.dispose() }
   })
 
@@ -158,7 +184,7 @@ describe('HookServer PermissionRequest', () => {
   it('the hook gives up (answered in the terminal): the request is closed and journalled', async () => {
     const { server, port, gate, shown, records } = await setup()
     try {
-      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/', agent: false, headers: { 'Content-Type': 'application/json', [HEADER]: TOKEN } })
+      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/', agent: false, headers: { 'Content-Type': 'application/json', [HEADER]: TOKEN, [CHALLENGE_HEADER]: CHALLENGE } })
       req.on('error', () => {})
       req.end(JSON.stringify(permReq()))
       await waitFor(() => shown.length === 1)
@@ -194,7 +220,7 @@ describe('HookServer PermissionRequest', () => {
         req.on('error', reject)
         req.end(body)
       })
-      assert.deepEqual(await send(raw('PermissionRequest'), { [HEADER]: TOKEN }), { status: 200, body: '' })
+      assert.deepEqual(await send(raw('PermissionRequest'), { [HEADER]: TOKEN, [CHALLENGE_HEADER]: CHALLENGE }), { status: 200, body: '' })
       assert.equal(shown.length, 0)
       assert.equal((await send(raw('PreToolUse'), {})).status, 200)
       assert.ok(events.some(e => e.type === 'tool_call_start'), 'the observation event is still emitted')

@@ -16,7 +16,7 @@ import * as crypto from 'crypto'
 import { execSync } from 'child_process'
 import {
   HOOK_TIMEOUT_S, HOOK_SAFETY_MARGIN_MS, HOOK_FORWARD_TIMEOUT_MS, WORKSPACE_HASH_LENGTH,
-  PERMISSION_HOOK_TIMEOUT_S, PERMISSION_MESSAGE_MAX, HOOK_CONTROL_TOKEN_HEADER,
+  PERMISSION_HOOK_TIMEOUT_S, PERMISSION_MESSAGE_MAX, HOOK_CONTROL_TOKEN_HEADER, HOOK_CONTROL_CHALLENGE_HEADER, HOOK_CONTROL_PROOF_HEADER,
 } from './constants'
 import { discoveryDir } from './claude-config-dir'
 import { createLogger } from './logger'
@@ -189,6 +189,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const os = require('os');
+const crypto = require('crypto');
 
 // Hard safety deadline — guarantees exit well before Claude Code's
 // ${HOOK_TIMEOUT_S}s kill timeout (500ms margin). Prevents ANY hanging scenario
@@ -315,6 +316,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const os = require('os');
+const crypto = require('crypto');
 
 // Hard deadline before the kill timeout of ${PERMISSION_HOOK_TIMEOUT_S}s. The environment can only shorten it (tests).
 const DEADLINE_MS = Math.min(${deadlineMs}, Number(process.env.AGENT_LENS_PERMISSION_DEADLINE_MS) || ${deadlineMs});
@@ -334,6 +336,17 @@ function normPath(p) {
 function isAlive(pid) {
   if (IS_WIN) return true;
   try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+/**
+ * True when the answer carries the proof that its sender knows the token: HMAC-SHA256(token, challenge, sha256(body),
+ * decision), compared in constant time. A process that only listens on the port of a stale discovery file cannot make it.
+ */
+function proven(token, challenge, body, decision, header) {
+  if (typeof header !== 'string' || !/^[0-9a-f]{64}$/.test(header)) return false;
+  const bodySha = crypto.createHash('sha256').update(body).digest('hex');
+  const expected = crypto.createHmac('sha256', token).update(challenge + '\\n' + bodySha + '\\n' + JSON.stringify(decision)).digest();
+  return crypto.timingSafeEqual(expected, Buffer.from(header, 'hex'));
 }
 
 /** The decision to print, rebuilt from the answer, or null when the answer is not exactly a decision. */
@@ -379,9 +392,10 @@ process.stdin.on('end', () => {
     if (i >= candidates.length) process.exit(0);
     const { d, file } = candidates[i];
     const body = Buffer.from(input);
+    const challenge = crypto.randomBytes(16).toString('hex');
     const req = http.request({
       hostname: '127.0.0.1', port: d.port, method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': body.length, '${HOOK_CONTROL_TOKEN_HEADER}': d.token },
+      headers: { 'Content-Type': 'application/json', 'Content-Length': body.length, '${HOOK_CONTROL_TOKEN_HEADER}': d.token, '${HOOK_CONTROL_CHALLENGE_HEADER}': challenge },
     }, res => {
       let text = '';
       let size = 0;
@@ -389,7 +403,7 @@ process.stdin.on('end', () => {
       res.on('data', c => { size += c.length; if (size <= MAX_ANSWER_BYTES) text += c; });
       res.on('end', () => {
         const decision = res.statusCode === 200 && size <= MAX_ANSWER_BYTES ? decisionOf(text) : null;
-        if (decision) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }), () => process.exit(0));
+        if (decision && proven(d.token, challenge, body, decision, res.headers['${HOOK_CONTROL_PROOF_HEADER}'])) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }), () => process.exit(0));
         else process.exit(0);
       });
     });

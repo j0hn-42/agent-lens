@@ -11,7 +11,7 @@
  * no tool_use_id (Claude Code hooks reference): the id is filled in by the caller only when a single open PreToolUse
  * call of that session matches the tool and its exact input, else it is null, and only a decision naming null matches.
  */
-import { createHash, randomBytes } from 'crypto'
+import { createHash, createHmac, randomBytes } from 'crypto'
 import {
   PERMISSION_REQUEST_TTL_MS, PERMISSION_MAX_PENDING, PERMISSION_INPUT_PREVIEW_MAX, PERMISSION_MESSAGE_MAX,
   PERMISSION_RECENT_CLOSED_MAX,
@@ -41,6 +41,19 @@ export function sha256Json(value: unknown): string {
 
 /** What Claude Code is told: the shape of the PermissionRequest decision the hook script prints */
 export type HookDecision = { behavior: 'allow' } | { behavior: 'deny'; message: string }
+
+/**
+ * Proof that an answer comes from the instance that holds the token (#240). The hook script proves itself to the
+ * server with the token; this is the other direction: HMAC-SHA256, keyed by the token, over the hook's random
+ * challenge, the SHA-256 of the request body and the decision exactly as the hook prints it. permission-hook.js
+ * recomputes it and prints nothing if it differs, so a process that merely listens on the port of a stale discovery
+ * file cannot make the hook print an allow.
+ */
+export function decisionProof(token: string, challenge: string, requestBody: Buffer | string, decision: HookDecision): string {
+  const bodySha = createHash('sha256').update(requestBody).digest('hex')
+  const text = JSON.stringify(decision.behavior === 'deny' ? { behavior: 'deny', message: decision.message } : { behavior: 'allow' })
+  return createHmac('sha256', token).update(`${challenge}\n${bodySha}\n${text}`).digest('hex')
+}
 
 /** What the panel is shown about a waiting request */
 export interface PermissionRequestView {

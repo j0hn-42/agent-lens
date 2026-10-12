@@ -80,6 +80,12 @@ export const HOOK_FORWARD_TIMEOUT_MS = 1000
 /** Header carrying the discovery-file token on a PermissionRequest hook request (lower case, as Node reads it) */
 export const HOOK_CONTROL_TOKEN_HEADER = 'x-agent-lens-token'
 
+/** Header with the random challenge the hook script sends, so the answer cannot be replayed or forged without the token */
+export const HOOK_CONTROL_CHALLENGE_HEADER = 'x-agent-lens-challenge'
+
+/** Header with the proof (HMAC-SHA256 keyed by the token) that the answer comes from the instance that holds the token */
+export const HOOK_CONTROL_PROOF_HEADER = 'x-agent-lens-proof'
+
 /** Timeout written to settings.json for the optional PermissionRequest hook (seconds): the hook waits for a decision. */
 export const PERMISSION_HOOK_TIMEOUT_S = 60
 
