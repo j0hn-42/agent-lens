@@ -97,6 +97,8 @@ export interface Agent {
   task?: string
   spawnTime: number
   completeTime?: number
+  /** What the sub-agent returned to its parent (subagent_return, #233); absent = no return observed */
+  delegationReturn?: DelegationReturn
   /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set), replayed 'history', or an
@@ -110,6 +112,19 @@ export interface Agent {
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
   messageBubbles: MessageBubble[]
+}
+
+/** A sub-agent's observed return (#233): an excerpt of its report, and a duration only when measured live */
+export interface DelegationReturn {
+  /** Start of the report, at most REPORT_EXCERPT_LEN characters */
+  excerpt: string
+  /** True when the report was longer than the excerpt (the full text is in the Conversation) */
+  truncated: boolean
+  isError: boolean
+  /** Seconds reported by the runtime for a live return; never kept for a replayed or imported one */
+  durationS?: number
+  /** Simulation time of the return */
+  time: number
 }
 
 export interface MessageBubble {
@@ -180,6 +195,17 @@ export interface FileAttention {
   agents: string[]      // which agents touched this file
   /** Edit / Write calls per agent, with how many were observed to succeed (#227) */
   editors?: FileEditor[]
+  /** Read calls per agent, with how many were observed to succeed (#233) */
+  readers?: FileReader[]
+}
+
+export interface FileReader {
+  /** Agent key (`<session>:<agent>`) */
+  agent: string
+  /** Read calls started */
+  started: number
+  /** Read calls whose end was observed as a success */
+  succeeded: number
 }
 
 export interface FileEditor {

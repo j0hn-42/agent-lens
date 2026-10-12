@@ -119,7 +119,7 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'message':           handleMessage(event.payload, currentTime, state, sid); break
     case 'context_update':    handleContextUpdate(event.payload, state, sid); break
     case 'subagent_dispatch': handleSubagentDispatch(event.payload, currentTime, state, sid); break
-    case 'subagent_return':   handleSubagentReturn(event.payload, currentTime, state, sid); break
+    case 'subagent_return':   handleSubagentReturn(event.payload, currentTime, state, sid, { replayed: event.replayed === true || event.imported === true }); break
     case 'agent_link':        handleAgentLink(event.payload, currentTime, state, sid); break
     case 'message_sent':      handleMessageSent(event.payload, currentTime, state, sid); break
     case 'team_info':         handleTeamInfo(event.payload, state, ctx); break

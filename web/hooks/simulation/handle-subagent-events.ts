@@ -5,6 +5,7 @@ import { idString, resolveChildLocalId, findAgentByToolUseId } from './agent-key
 import { demoteEdge, namesAgent, type UnverifiedReason } from './edge-validation'
 import { addLinkMessage } from './handle-link-events'
 import { appendBoundedConversation } from './archive'
+import { makeDelegationReturn } from '../../lib/delegation-report'
 
 function optString(v: unknown): string | undefined {
   const s = cappedString(v)
@@ -87,6 +88,8 @@ export function handleSubagentReturn(
   currentTime: number,
   state: MutableEventState,
   sessionId: string = DEFAULT_SESSION_ID,
+  /** Replayed or imported event: its duration was measured at parse time, not while the sub-agent ran */
+  opts: { replayed?: boolean } = {},
 ): void {
   const { parentKey, childKey, toolUseId } = resolveParties(payload, state, sessionId)
   checkAgainstKnownChild(payload, state, sessionId, parentKey, toolUseId, 'return-mismatch')
@@ -94,6 +97,15 @@ export function handleSubagentReturn(
   const summary = cappedString(payload.summary)
   const isError = asBoolean(payload.isError)
   const cut = cutField(cutCharsOf(payload.summary))
+
+  // Delegation report (#233): the return is kept on the sub-agent, which outlives the conversation's bounds
+  const child = state.agents.get(childKey)
+  if (child) {
+    state.agents.set(childKey, {
+      ...child,
+      delegationReturn: makeDelegationReturn(summary, cutCharsOf(payload.summary), isError, payload.durationS, currentTime, !opts.replayed),
+    })
+  }
 
   // Full report goes into both conversations (parent receives it, child produced it)
   for (const owner of new Set([parentKey, childKey])) {

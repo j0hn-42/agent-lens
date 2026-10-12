@@ -108,6 +108,25 @@ The **Files** panel opens with a "Repeated reads and calls" section, computed fr
 
 Only Read, Glob and Bash/`exec_command` are compared, because their input summary keeps every argument. Grep and the other tools are never compared: their summary drops options, so two equal summaries would not prove two equal calls. Edits made through Bash (for example `sed -i`) or outside the agent are not seen, so a re-read after one can be listed. Each row is a button that opens the file only when the path is absolute and the host can open files (VS Code); otherwise it is plain text.
 
+## Delegation report
+
+When the selected agent has sub-agents, its inspector ends with a **Delegation report** (#233): one entry per direct sub-agent (a grandchild is in the report of its own parent; Agent Team teammates are not delegations and are not listed), in the order they started. The sub-agent name is a button: Enter or a click opens that sub-agent's own inspector. The list of files read is a disclosure (Enter or Space opens it).
+
+| Column | You see | It means |
+| --- | --- | --- |
+| **Tokens** | `12k`, **at least X**, **estimated**, **not reported** | The sub-agent's own token counter, qualified as everywhere else. |
+| **Files read** | **N files** | Distinct files whose `Read` by this sub-agent was observed to succeed. The disclosure lists them (20 at most, then "+N more"). |
+| | **N not confirmed** | Files whose `Read` started but was never seen to succeed (failed, cancelled, still running or end not observed). They are not counted as read. |
+| | **none observed** | No `Read` by this sub-agent was received. It is not shown as "0 files": reads through other tools (Bash `cat`, Grep) are not seen. |
+| **Duration** | **m:ss (reported)** | The duration the runtime reported with the return, for a return received live. |
+| | **not reported** | A return was received without a duration, or it came from a history replay or an imported transcript: there the duration was measured when the line was parsed, not while the sub-agent ran, so it is dropped. |
+| | **no return observed** | No return of this sub-agent was received; no duration is computed from the clock. |
+| **Result** | the start of the report | The first 280 characters of what the sub-agent returned to its parent, with "…" and "(full report in Conversation)" when cut. |
+| | **Error: ...** | The return was flagged as an error. |
+| | **No return observed yet** / **Finished, no return observed** | No return was received, whether or not the sub-agent is known to have finished. |
+
+A sub-agent whose link to its parent is not proven by the events (dashed on the canvas) reads **parent link not verified**. When the hooks see a sub-agent stop without its report, the result is the stop notice they relay (for example "general-purpose complete"), not a report.
+
 ## Context window (the "/ 1M" next to the gauge)
 
 The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:

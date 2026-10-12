@@ -61,6 +61,7 @@ import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
 import { FOCUS_RING, UNDO_SHORTCUT_KEY, buildSessionMeta, buildSessionProjects, clusterSelectionTarget, buildAnnouncement, labelAgentsWithSession, createLabelledSimulationRef, connectionDisplay, emptyStateChecklist, formatMissedEvents, agentActivityCounts } from "@/lib/chrome-utils"
 import { deriveSessionLinks } from "@/lib/session-links"
+import { deriveDelegationReport } from "@/lib/delegation-report"
 import { summarizeAttention, withForeignAttention } from "@/lib/attention"
 import { assessHealth, detectLoops } from "@/lib/loop-detection"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
@@ -554,6 +555,12 @@ export function AgentVisualizer() {
   const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
   inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
   const selectedGone = !!selection.selectedAgentId && !selectedAgent
+  // Delegation report of the selected agent (#233): its direct sub-agents, each value proven or said unknown
+  const selectedAgentId = selectedAgent?.id
+  const delegation = useMemo(
+    () => selectedAgentId ? deriveDelegationReport(selectedAgentId, agents, fileAttention, edges) : [],
+    [selectedAgentId, agents, fileAttention, edges],
+  )
 
   // "Why this tool?": derived only from the owner's own history (see lib/tool-reasoning)
   const toolData = selection.selectedToolData
@@ -923,6 +930,8 @@ export function AgentVisualizer() {
             toolErrors={selectedAgent.toolErrors}
             health={health.byAgent.get(selectedAgent.id) ?? detectLoops([], droppedMessages.get(selectedAgent.id) ?? 0)}
             sessionHealth={health.bySession.get(selectedAgent.sessionId)}
+            delegation={delegation}
+            onSelectAgent={selection.handleAgentClick}
             relayOrigin={bridge.relayOrigin}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
