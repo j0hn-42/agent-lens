@@ -24,12 +24,14 @@ interface Metric {
   pick: (s: SystemSample) => number | null
   /** Memory-like metrics also show their bytes */
   usage?: (s: SystemSample) => SystemUsage | null
+  /** Only swap may have a size of 0 by design ("No swap"); a memory or disk of size 0 is unmeasured */
+  zeroMeansNone?: boolean
 }
 
 const METRICS: readonly Metric[] = [
   { label: 'CPU', pick: s => s.cpu.total },
   { label: 'Memory', pick: s => ratio(s.mem), usage: s => s.mem },
-  { label: 'Swap', pick: s => ratio(s.swap), usage: s => s.swap },
+  { label: 'Swap', pick: s => ratio(s.swap), usage: s => s.swap, zeroMeansNone: true },
   { label: 'Disk', pick: s => ratio(s.disk), usage: s => s.disk },
 ]
 
@@ -38,7 +40,12 @@ const SEVERITY_TEXT: Record<Severity, string> = { normal: 'Normal', warm: 'Warm'
 const severityColor = (s: Severity) =>
   s === 'critical' ? COLORS.systemCritical : s === 'warm' ? COLORS.systemWarm : s === 'normal' ? COLORS.ok : COLORS.textMuted
 
-const percent = (r: number) => Math.round(r * 100)
+/**
+ * Whole percent shown, read and announced: the floor, so it never overstates and always agrees with the severity
+ * computed on the raw share (85 % shown is always Warm or worse, 95 % always Critical). The epsilon keeps
+ * 0.29 * 100 = 28.999999999999996 at 29.
+ */
+const percent = (r: number) => Math.floor(r * 100 + 1e-9)
 
 const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
 function formatBytes(bytes: number): string {
@@ -62,7 +69,8 @@ function windowText(samples: readonly SystemSample[]): string | null {
   if (samples.length < 2) return null
   const seconds = (samples[samples.length - 1].ts - samples[0].ts) / 1000
   if (!(seconds > 0)) return null
-  return seconds >= 60 ? `${Math.round(seconds / 60)} min` : `${Math.round(seconds)} s`
+  // Floor, never overstating the window; seconds below 2 min so 90 s does not read as 1 or 2 min
+  return seconds >= 120 ? `${Math.floor(seconds / 60)} min` : `${Math.floor(seconds)} s`
 }
 
 function summaryText(samples: readonly SystemSample[], pick: (s: SystemSample) => number | null): string | null {
@@ -142,7 +150,7 @@ function Sparkline({ samples, pick }: { samples: readonly SystemSample[]; pick: 
 function MetricRow({ metric, samples }: { metric: Metric; samples: readonly SystemSample[] }) {
   const last = samples[samples.length - 1]
   const use = metric.usage?.(last) ?? null
-  if (use && use.total === 0) {
+  if (metric.zeroMeansNone && use && use.total === 0) {
     return (
       <div data-metric={metric.label} className="py-1.5 flex items-baseline justify-between gap-2 text-[11px] font-mono">
         <span style={{ color: COLORS.textPrimary }}>{metric.label}</span>
@@ -221,8 +229,13 @@ function useSeverityAnnouncement(samples: readonly SystemSample[], visible: bool
   const [message, setMessage] = useState('')
   const last = samples.length ? samples[samples.length - 1] : null
   useEffect(() => {
-    // An empty buffer is a new connection: its first readings are baselines again
-    if (!last) { previous.current.clear(); return }
+    // A closed panel keeps no message: reopened later, the region must not hold a severity that has since changed.
+    // With the region emptied on close and on disconnect, two announcements in a row always differ while it is open
+    // (a metric announced critical has to be announced as something else before it can be critical again), so the
+    // same words never fail to reach the screen reader for want of a DOM change.
+    if (!visible) setMessage('')
+    // An empty buffer is a new connection: no message, and its first readings are baselines again
+    if (!last) { previous.current.clear(); setMessage(''); return }
     const changes: string[] = []
     for (const m of METRICS) {
       const value = m.pick(last)

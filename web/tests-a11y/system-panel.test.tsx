@@ -214,6 +214,86 @@ test('colours come from theme tokens only (no hard-coded hex)', () => {
   assert.doesNotMatch(src, /#[0-9a-fA-F]{3,8}\b/)
 })
 
+test('the displayed percent never overstates and always agrees with the severity next to it', () => {
+  const cases: Array<[number, string, string]> = [
+    [0.8496, '84', 'Normal'], [0.85, '85', 'Warm'], [0.9496, '94', 'Warm'], [0.95, '95', 'Critical'], [0.29, '29', 'Normal'],
+  ]
+  for (const [share, shown, level] of cases) {
+    const { container, unmount } = render(<SystemPanel visible samples={[memAt(share, 1)]} onClose={noop} />)
+    const m = meter(container, 'Memory')!
+    assert.equal(m.getAttribute('aria-valuenow'), shown, `${share}: aria-valuenow`)
+    assert.equal(m.getAttribute('aria-valuetext'), `${shown} %, ${level}`, `${share}: valuetext`)
+    const text = row(container, 'Memory')!.textContent ?? ''
+    assert.match(text, new RegExp(`^Memory${shown} %`), `${share}: shown value`)
+    assert.match(text, new RegExp(level), `${share}: severity text`)
+    unmount()
+  }
+})
+
+test('the announced percent is the displayed one (0.9496 is warm at 94 %)', () => {
+  const { container, rerender } = render(<SystemPanel visible samples={[memAt(0.1, 0)]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[memAt(0.1, 0), memAt(0.9496, 2000)]} onClose={noop} />)
+  assert.equal(container.querySelector('[data-system-announcer]')!.textContent, 'Memory is warm, 94 %')
+})
+
+test('a Memory or Disk of size 0 is Not available, never "No swap"; a Swap of size 0 is No swap', () => {
+  const { container } = render(<SystemPanel visible samples={[sample({ mem: { total: 0, used: 0 }, disk: { total: 0, used: 0 }, swap: { total: 0, used: 0 } })]} onClose={noop} />)
+  for (const name of ['Memory', 'Disk']) {
+    const text = row(container, name)!.textContent ?? ''
+    assert.match(text, /Not available/, name)
+    assert.doesNotMatch(text, /No swap/, name)
+    assert.equal(meter(container, name), null, `${name}: no meter`)
+  }
+  assert.match(row(container, 'Swap')!.textContent ?? '', /No swap/)
+})
+
+test('the summary never overstates the window: 90 s reads 90 s, not 2 min', () => {
+  const samples = [sample({}, 0), sample({}, 90_000)]
+  const { container } = render(<SystemPanel visible samples={samples} onClose={noop} />)
+  const text = row(container, 'CPU')!.textContent ?? ''
+  assert.match(text, /over the last 90 s/)
+  assert.doesNotMatch(text, /2 min/)
+})
+
+test('closing the panel drops the announcement: reopened after a change made while closed, the region is empty', () => {
+  const s0 = memAt(0.1, 0), s1 = memAt(0.97, 2000), s2 = memAt(0.5, 4000)
+  const { container, rerender } = render(<SystemPanel visible samples={[s0]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[s0, s1]} onClose={noop} />)
+  assert.equal(container.querySelector('[data-system-announcer]')!.textContent, 'Memory is critical, 97 %')
+  rerender(<SystemPanel visible={false} samples={[s0, s1]} onClose={noop} />)
+  rerender(<SystemPanel visible={false} samples={[s0, s1, s2]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[s0, s1, s2]} onClose={noop} />)
+  assert.equal(container.querySelector('[data-system-announcer]')!.textContent, '', 'no stale critical message')
+})
+
+test('an empty buffer (disconnect) clears the announcement', () => {
+  const s0 = memAt(0.1, 0), s1 = memAt(0.97, 2000)
+  const { container, rerender } = render(<SystemPanel visible samples={[s0]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[s0, s1]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[]} onClose={noop} />)
+  assert.equal(container.querySelector('[data-system-announcer]')!.textContent, '')
+})
+
+test('the same critical text is announced again after a recovery made while the panel was closed', async () => {
+  const s0 = memAt(0.1, 0), s1 = memAt(0.97, 2000), s2 = memAt(0.5, 4000), s3 = memAt(0.97, 6000)
+  const { container, rerender } = render(<SystemPanel visible samples={[s0]} onClose={noop} />)
+  const live = () => container.querySelector<HTMLElement>('[data-system-announcer]')!
+  const announced: string[] = []
+  const watch = () => new MutationObserver(() => { if (live().textContent) announced.push(live().textContent!) })
+  let obs = watch(); obs.observe(live(), { childList: true, characterData: true, subtree: true })
+  rerender(<SystemPanel visible samples={[s0, s1]} onClose={noop} />)
+  await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+  obs.disconnect()
+  rerender(<SystemPanel visible={false} samples={[s0, s1]} onClose={noop} />)
+  rerender(<SystemPanel visible={false} samples={[s0, s1, s2]} onClose={noop} />)
+  rerender(<SystemPanel visible samples={[s0, s1, s2]} onClose={noop} />)
+  obs = watch(); obs.observe(live(), { childList: true, characterData: true, subtree: true })
+  rerender(<SystemPanel visible samples={[s0, s1, s2, s3]} onClose={noop} />)
+  await act(async () => { await new Promise(r => setTimeout(r, 50)) })
+  obs.disconnect()
+  assert.deepEqual(announced, ['Memory is critical, 97 %', 'Memory is critical, 97 %'])
+})
+
 test('a polite announcement fires only when a severity changes', () => {
   const samples: SystemSample[] = []
   const { container, rerender } = render(<SystemPanel visible samples={[]} onClose={noop} />)
