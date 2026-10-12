@@ -121,6 +121,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | --- | --- |
 | **Observed** | Agent Lens received events for it. |
 | **Not observed** / "listed - activity not observed" | The session or agent is known (for example listed on disk) but no event was ever received. No state or activity is invented for it. |
+| **Thinking** (agent state, Timeline "Thinking..." block) | A thinking block of the agent was observed, and nothing has happened since. A context reading, a prompt, an answer or the end of a tool call never puts an agent in *Thinking*. After a tool call ends (and no other call of the agent still runs), the agent is **Idle** until its next event: what it does in between is not observed, so it is not counted as active time either. |
 | "Not observed yet" (agent card) | The agent was announced but nothing has been seen from it. |
 | "end not observed" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
 | "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
