@@ -3,6 +3,7 @@
 
 import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
+import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
@@ -163,6 +164,8 @@ export interface ToolCallNode {
   /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
   toolUseId?: string
   errorMessage?: string // error description when state === 'error'
+  /** Set only once the call is seen to succeed: what its own output proves (gh link, Grep / Glob count, #317) */
+  resultPill?: ResultPill
   x: number
   y: number
   startTime: number

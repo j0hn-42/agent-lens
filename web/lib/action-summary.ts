@@ -305,7 +305,7 @@ export function toolingCommands(command: string): ToolingCommand[] {
 }
 
 /** Characters of a tool result kept on the event (`RESULT_MAX` in extension/src/constants.ts): a result that long may be cut. */
-export const RESULT_CAPTURE_LIMIT = 200
+const RESULT_CAPTURE_LIMIT = 200
 
 /** Prefix the hook server puts on the result of a failed call */
 const FAILED_PREFIX = '[FAILED]'
@@ -346,18 +346,8 @@ export function searchResultCount(toolName: string, result: string): number | nu
   return m ? Number(m[1]) : null
 }
 
+/** What a successful call's own output proves: the gh link of a shell call, or the file count of Grep / Glob. */
 export type ResultPill = { kind: 'link'; link: GhResultLink } | { kind: 'count'; files: number }
-
-/** The pill a call's result proves: the gh link of a shell call, or the file count of Grep / Glob. */
-export function resultPill(toolName: string, input: Record<string, unknown> | undefined, result: string): ResultPill | null {
-  if (isShellTool(toolName)) {
-    const command = typeof input?.command === 'string' ? input.command : ''
-    const link = command ? ghResultLink(command, result) : null
-    return link && { kind: 'link', link }
-  }
-  const files = searchResultCount(toolName, result)
-  return files == null ? null : { kind: 'count', files }
-}
 
 export type ToolGlyph =
   | 'read' | 'search' | 'write' | 'edit' | 'shell' | 'git' | 'gh'

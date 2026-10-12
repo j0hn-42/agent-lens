@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { editStats, shellCommands, writeStats, readRange, ghResultLink, searchResultCount, resultPill, RESULT_CAPTURE_LIMIT } from '../web/lib/action-summary'
+import { editStats, shellCommands, writeStats, readRange, ghResultLink, searchResultCount } from '../web/lib/action-summary'
 
 test('writeStats: line count of the content, null when absent', () => {
   assert.deepEqual(writeStats({ file_path: '/a', content: 'a\nb\nc' }), { lines: 3 })
@@ -121,19 +121,20 @@ test('ghResultLink: two different URLs are ambiguous, the same one repeated is n
   assert.equal(ghResultLink('gh pr view 1', 'https://github.com/o/r/pull/1\nhttps://github.com/o/r/pull/1\n')?.number, 1)
 })
 
-test('ghResultLink: a URL that may have been cut by the capture limit is not trusted', () => {
+test('ghResultLink: a URL on the last line of a result cut at RESULT_MAX is not trusted', () => {
+  // The limit is read from the extension, so the web side cannot drift from what the events really keep
+  const src = readFileSync(join(__dirname, '..', 'extension/src/constants.ts'), 'utf8')
+  const limit = Number(/export const RESULT_MAX = (\d+)/.exec(src)?.[1])
+  assert.ok(limit > 0)
   const url = 'https://github.com/o/r/pull/4'
-  const head = 'x'.repeat(RESULT_CAPTURE_LIMIT - url.length - 1) + '\n'
+  const head = 'x'.repeat(limit - url.length - 1) + '\n'
   const cut = head + url
-  assert.equal(cut.length, RESULT_CAPTURE_LIMIT)
+  assert.equal(cut.length, limit)
   assert.equal(ghResultLink('gh pr create', cut), null)
   // The same line closed by a newline is whole
   assert.equal(ghResultLink('gh pr create', head.slice(1) + url + '\n')?.number, 4)
-})
-
-test('RESULT_CAPTURE_LIMIT mirrors RESULT_MAX of the extension', () => {
-  const src = readFileSync(join(__dirname, '..', 'extension/src/constants.ts'), 'utf8')
-  assert.equal(Number(/export const RESULT_MAX = (\d+)/.exec(src)?.[1]), RESULT_CAPTURE_LIMIT)
+  // A shorter result was not cut
+  assert.equal(ghResultLink('gh pr create', head.slice(1) + url)?.number, 4)
 })
 
 test('searchResultCount: the count Grep / Glob report, never a line count', () => {
@@ -147,12 +148,4 @@ test('searchResultCount: the count Grep / Glob report, never a line count', () =
   assert.equal(searchResultCount('Grep', '[FAILED] Found 2 files'), null)
   assert.equal(searchResultCount('Bash', 'Found 2 files'), null)
   assert.equal(searchResultCount('Read', 'Found 2 files'), null)
-})
-
-test('resultPill: shell calls give the gh link, Grep / Glob the count, others nothing', () => {
-  assert.deepEqual(resultPill('Bash', { command: 'gh pr create' }, PR_OUT), { kind: 'link', link: { kind: 'pr', number: 42, url: 'https://github.com/o/r/pull/42' } })
-  assert.deepEqual(resultPill('Glob', { pattern: '**/*.ts' }, 'Found 2 files\n/a\n/b'), { kind: 'count', files: 2 })
-  assert.equal(resultPill('Bash', {}, PR_OUT), null)
-  assert.equal(resultPill('Bash', undefined, PR_OUT), null)
-  assert.equal(resultPill('Read', { file_path: '/a' }, PR_OUT), null)
 })
