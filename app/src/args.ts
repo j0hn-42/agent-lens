@@ -8,6 +8,8 @@ export function parseArgs(argv: string[]) {
   let allWorkspaces = false
   const imports: string[] = []
   const webhooks: string[] = []
+  const allowHosts: string[] = []
+  let host: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -23,6 +25,13 @@ export function parseArgs(argv: string[]) {
       i++
     } else if (arg === '--webhook' && argv[i + 1]) {
       webhooks.push(argv[i + 1])
+      i++
+    } else if (arg === '--allow-host' && argv[i + 1]) {
+      allowHosts.push(argv[i + 1])
+      i++
+    } else if (arg === '--host' && argv[i + 1]) {
+      // Kept so that the start refuses it (#241): an unknown flag would be silently ignored
+      host = argv[i + 1]
       i++
     } else if (arg === '--all-workspaces') {
       allWorkspaces = true
@@ -48,6 +57,12 @@ Options:
                        or fails (https, or http to loopback). Repeatable, 4 at most
                        (env: AGENT_LENS_WEBHOOKS, URLs separated by commas; prefer the
                        variable, a flag is visible in the process list). See docs/headless.md
+  --allow-host <name>  Accept requests whose Host is exactly <name> (a tunnel such as
+                       SSH -L or Tailscale serve; the server stays on 127.0.0.1).
+                       Read-only surface only. Refused at startup until token
+                       authentication ships (#241). See docs/relay-sources.md
+  --host <address>     Only loopback (127.0.0.1) is accepted: there is no listening
+                       outside loopback, use a tunnel and --allow-host
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)
@@ -55,5 +70,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host }
 }

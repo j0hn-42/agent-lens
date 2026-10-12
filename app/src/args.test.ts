@@ -27,4 +27,14 @@ describe('parseArgs', () => {
   it('ignores a trailing --import without a path', () => {
     assert.deepEqual(parseArgs(['--import']).imports, [])
   })
+  it('collects every --allow-host name, in order, and defaults to none (#241)', () => {
+    assert.deepEqual(parseArgs([]).allowHosts, [])
+    const a = parseArgs(['--allow-host', 'box.ts.net', '--no-open', '--allow-host', 'lens.example.com:8443'])
+    assert.deepEqual(a.allowHosts, ['box.ts.net', 'lens.example.com:8443'])
+    assert.deepEqual(parseArgs(['--allow-host']).allowHosts, [])
+  })
+  it('keeps --host so that the start can refuse it instead of silently ignoring it (#241)', () => {
+    assert.equal(parseArgs([]).host, undefined)
+    assert.equal(parseArgs(['--host', '0.0.0.0']).host, '0.0.0.0')
+  })
 })
