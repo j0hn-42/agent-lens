@@ -379,7 +379,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // no CORS preflight, which a request with Authorization and a JSON body needs, so the dev server (:3000) and the
   // VS Code webview never offer it. Read on each connection: `launch` is absent unless --allow-launch.
   useEffect(() => {
-    if (!relayEnabled || source.status !== 'connected' || relayOrigin !== '') { setLaunchMax(null); return }
+    if (!relayEnabled || source.status !== 'connected' || relayOrigin !== '') { setLaunchMax(null); setLaunches(prev => (prev.size > 0 ? new Map() : prev)); return }
     const ctl = new AbortController()
     fetch('/status', { signal: ctl.signal, cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(r => (r.ok ? r.json() : null))
@@ -387,9 +387,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         if (ctl.signal.aborted) return
         const status = parseLaunchStatus(j)
         setLaunchMax(status ? status.maxConcurrent : null)
-        if (status && status.launches.length > 0) setLaunches(prev => reduceLaunches(prev, { type: 'launch-list', launches: status.launches }))
+        // The status is a snapshot that is authoritative, an empty one included: a relay restarted under us knows no launch
+        setLaunches(prev => (status ? reduceLaunches(prev, { type: 'launch-list', launches: status.launches }) : prev.size > 0 ? new Map() : prev))
       })
-      .catch(() => { if (!ctl.signal.aborted) setLaunchMax(null) })
+      .catch(() => { if (!ctl.signal.aborted) { setLaunchMax(null); setLaunches(prev => (prev.size > 0 ? new Map() : prev)) } })
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayOrigin])
   const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])

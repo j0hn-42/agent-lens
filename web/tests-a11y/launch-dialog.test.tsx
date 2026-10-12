@@ -108,6 +108,23 @@ test('the dialog opens as a labelled modal, focus on "Annuler", Tab is trapped, 
   assert.equal(document.activeElement, v.getByRole('button', { name: "Lancer un agent sur l'issue #7" }), 'focus back on the button')
 })
 
+test('the dialog does not reopen by itself when the launch surface goes away and comes back (WCAG 3.2)', async () => {
+  const on = { maxConcurrent: 1, launches: new Map<string, LaunchView>() }
+  const role = `launch-role-${++roleSeq}`
+  const el = (launch: typeof on | null) => <AgentDetailCard agent={agent(role)} toolErrors={0} onClose={() => {}} freshnessClock={clock} relayOrigin="" launch={launch} />
+  const v = render(el(on))
+  await flush()
+  await act(async () => { fireEvent.click(v.getByRole('button', { name: "Lancer un agent sur l'issue #7" })) })
+  assert.ok(within(document.body).getByTestId('launch-dialog'), 'open')
+  v.rerender(el(null)) // the relay link dropped: the hook sets launch to null
+  await flush()
+  assert.equal(within(document.body).queryByTestId('launch-dialog'), null, 'unmounted during the outage')
+  v.rerender(el({ maxConcurrent: 1, launches: new Map() })) // reconnected
+  await flush()
+  assert.equal(within(document.body).queryByTestId('launch-dialog'), null, 'not reopened without a click')
+  assert.ok(v.getByRole('button', { name: "Lancer un agent sur l'issue #7" }), 'the button is back')
+})
+
 test('the dialog shows repository, issue, role, escaped title, command and caps as text', async () => {
   const { v, role } = await showCard({ maxConcurrent: 2, launches: new Map() })
   await act(async () => { fireEvent.click(v.getByRole('button', { name: "Lancer un agent sur l'issue #7" })) })

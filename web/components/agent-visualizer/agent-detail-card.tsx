@@ -128,6 +128,9 @@ export function AgentDetailCard({
   const { links: issueLinks, status: issueLinksStatus } = useIssueLinks(relayOrigin, role, agent.sessionId)
   /** Issue whose launch dialog is open (null: closed) */
   const [launchTarget, setLaunchTarget] = useState<{ link: IssueLink; repo: string } | null>(null)
+  // The launch surface going away (relay link dropped) closes the dialog for good: when it comes back, nobody asked for it
+  const launchAvailable = launch !== null
+  useEffect(() => { if (!launchAvailable) setLaunchTarget(null) }, [launchAvailable])
   const teamName = safeLabel(agent.teamName)
   const teamColor = safeTeamColor(agent.teamColor)
 

@@ -166,17 +166,24 @@ function capped(map: Map<string, LaunchView>): Map<string, LaunchView> {
   return map
 }
 
-/** Merges one `launch` or `launch-list` message into the map (a new map when something changed, else `prev`). */
+/**
+ * `launch`: merges one view into the map by id. `launch-list` (and the snapshot of GET /status): what the relay
+ * lists now, which replaces the map, an empty list included: a launch the relay no longer knows has no proof left.
+ * A new map when something changed, else `prev`.
+ */
 export function reduceLaunches(prev: ReadonlyMap<string, LaunchView>, msg: unknown): ReadonlyMap<string, LaunchView> {
   if (!isRecord(msg)) return prev
-  const views = msg.type === 'launch' ? [parseLaunchView(msg.launch)]
-    : msg.type === 'launch-list' && Array.isArray(msg.launches) ? msg.launches.slice(0, LAUNCHES_KEPT).map(parseLaunchView)
-    : []
-  const valid = views.filter((l): l is LaunchView => l !== null)
-  if (valid.length === 0) return prev
-  const next = new Map(prev)
-  for (const l of valid) next.set(l.id, l)
-  return capped(next)
+  if (msg.type === 'launch') {
+    const one = parseLaunchView(msg.launch)
+    if (!one) return prev
+    const next = new Map(prev)
+    next.set(one.id, one)
+    return capped(next)
+  }
+  if (msg.type !== 'launch-list' || !Array.isArray(msg.launches)) return prev
+  const valid = msg.launches.slice(0, LAUNCHES_KEPT).map(parseLaunchView).filter((l): l is LaunchView => l !== null)
+  if (valid.length === 0 && msg.launches.length > 0) return prev // nothing readable: nothing proven either way
+  return capped(new Map(valid.map(l => [l.id, l] as const)))
 }
 
 export function isLaunchEnded(l: LaunchView): boolean {

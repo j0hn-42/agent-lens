@@ -130,20 +130,31 @@ test('parseLaunchStatus reads status.launch; absent means launching is off', () 
   assert.equal(parseLaunchStatus({ launch: { maxConcurrent: 'x', launches: [] } }), null)
 })
 
-test('the reducer merges `launch` and `launch-list` into a Map by id', () => {
+test('the reducer merges `launch` into a Map by id', () => {
   let m: ReadonlyMap<string, LaunchView> = new Map()
   m = reduceLaunches(m, { type: 'launch', launch: view() })
   assert.equal(m.size, 1)
   m = reduceLaunches(m, { type: 'launch', launch: view({ state: 'started', pid: 9, startedAt: 2 }) })
   assert.equal(m.size, 1)
   assert.equal(m.get('0123456789abcdef')!.pid, 9)
-  m = reduceLaunches(m, { type: 'launch-list', launches: [view({ id: 'fedcba9876543210', issue: 8 }), { junk: 1 }] })
+  m = reduceLaunches(m, { type: 'launch', launch: view({ id: 'fedcba9876543210', issue: 8 }) })
   assert.equal(m.size, 2)
   const same = reduceLaunches(m, { type: 'other' })
   assert.equal(same, m, 'another message leaves the map as is')
   const bad = reduceLaunches(m, { type: 'launch', launch: { id: 'nope' } })
   assert.equal(bad, m, 'a malformed launch changes nothing')
   assert.ok(isLaunchMessage({ type: 'launch' }) && isLaunchMessage({ type: 'launch-list' }) && !isLaunchMessage({ type: 'agent-event' }))
+})
+
+test('`launch-list` is a snapshot that replaces the map, an empty one included; a list of junk proves nothing and changes nothing', () => {
+  const a = view(), b = view({ id: 'fedcba9876543210', issue: 8 })
+  const m: ReadonlyMap<string, LaunchView> = reduceLaunches(new Map(), { type: 'launch-list', launches: [a, b] })
+  assert.equal(m.size, 2)
+  const swapped = reduceLaunches(m, { type: 'launch-list', launches: [b, { junk: 1 }] })
+  assert.deepEqual([...swapped.keys()], [b.id], 'what the relay no longer lists is dropped')
+  assert.equal(reduceLaunches(m, { type: 'launch-list', launches: [] }).size, 0, 'an empty snapshot empties the map')
+  assert.equal(reduceLaunches(m, { type: 'launch-list', launches: [{ junk: 1 }] }), m, 'unreadable list: nothing is proven, nothing changes')
+  assert.equal(reduceLaunches(m, { type: 'launch-list' }), m, 'no list at all')
 })
 
 test('the reducer stays bounded: the oldest requests are dropped first', () => {

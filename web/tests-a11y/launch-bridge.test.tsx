@@ -103,3 +103,35 @@ test('a window message cannot make up a launch', async () => {
   await act(async () => { vscodeBridge!.dispatch({ type: 'launch', launch: view() }) })
   assert.equal(result.current.launch?.launches.size, 0)
 })
+
+test('reconnecting to a relay that knows no launch empties the list (an empty status is a snapshot too)', async () => {
+  env.NEXT_PUBLIC_RELAY_PORT = ''
+  statusBody = { launch: { maxConcurrent: 1, launches: [view({ state: 'started', pid: 42 })] } }
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await flush()
+  assert.equal(result.current.launch?.launches.size, 1)
+  // The relay restarted: its child was killed without an end event, and the new relay lists nothing
+  statusBody = { launch: { maxConcurrent: 1, launches: [] } }
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    await act(async () => FakeES.last.onerror?.({}))
+    assert.equal((result.current as { launch: unknown }).launch, null, 'no launch surface while the link is down')
+    await act(async () => { mock.timers.tick(10_000) })
+  } finally { mock.timers.reset() }
+  assert.equal(FakeES.all.length, 2, 'the page reconnects')
+  await act(async () => FakeES.last.open())
+  await flush()
+  assert.equal((result.current as typeof result.current).launch?.launches.size, 0, 'no "Démarré (pid 42)" without proof')
+})
+
+test('an SSE `launch-list` replaces what was known', async () => {
+  env.NEXT_PUBLIC_RELAY_PORT = ''
+  statusBody = { launch: { maxConcurrent: 1, launches: [view(), view({ id: 'fedcba9876543210', issue: 8 })] } }
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await flush()
+  assert.equal(result.current.launch?.launches.size, 2)
+  await act(async () => FakeES.last.send({ type: 'launch-list', launches: [view({ id: 'fedcba9876543210', issue: 8 })] }))
+  assert.deepEqual([...(result.current.launch?.launches.keys() ?? [])], ['fedcba9876543210'])
+})
