@@ -5,7 +5,7 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, act, waitFor } from '@testing-library/react'
 
 import { AgentCanvas } from '@/components/agent-visualizer/canvas'
 import { createEmptyState } from '@/hooks/simulation/types'
@@ -89,8 +89,8 @@ test('a focused bubble is held through selection: it outlives its expiry and goe
   assert.equal(b.style.opacity, '')
   assert.equal(document.activeElement, b)
   b.blur()
-  await tick()
-  assert.equal(buttons().length, 0, 'released on blur, the expired bubble disappears')
+  // the DOM layer follows the draw loop: wait for it instead of assuming one fixed delay is enough
+  await waitFor(() => assert.equal(buttons().length, 0, 'released on blur, the expired bubble disappears'))
 })
 
 test('a hovered bubble is held too, and removing it clears the hold', async () => {
@@ -103,8 +103,7 @@ test('a hovered bubble is held too, and removing it clears the hold', async () =
   await tick()
   assert.equal(buttons().length, 1, 'held by hover')
   fireEvent.pointerOut(b)
-  await tick()
-  assert.equal(buttons().length, 0)
+  await waitFor(() => assert.equal(buttons().length, 0))
 })
 
 test('an expired bubble that nobody holds has no button', async () => {

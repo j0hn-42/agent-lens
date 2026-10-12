@@ -59,7 +59,10 @@ describe('fail closed: no decision unless everything is in place', () => {
   it('expiry: no decision, journalled as expired, and the nonce is closed', async () => {
     const { gate, records, shown, closed } = setup({ ttlMs: 20 })
     const r = ask(gate)
-    assert.equal(await r.decision, null)
+    // The gate's TTL timer is unref'd on purpose (a pending request must not keep the extension host alive), so
+    // nothing else holds the event loop while we wait for it; Node 22's runner then reports the test as unfinished.
+    const keepAlive = setTimeout(() => {}, 5000)
+    try { assert.equal(await r.decision, null) } finally { clearTimeout(keepAlive) }
     assert.equal(records.at(-1)?.outcome, 'expired')
     assert.equal(records.at(-1)?.decision, 'none')
     assert.deepEqual(closed.map(c => c.outcome), ['expired'])
