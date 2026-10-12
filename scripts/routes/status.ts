@@ -25,10 +25,12 @@ export interface StatusRouteDeps {
   /** Portée et plafonds de découverte tels qu'ils sont à cet instant. */
   live: () => StatusLive
   readIndex: () => SessionIndexResult | null
+  /** Hôtes de tunnel acceptés (--allow-host, #241) : /status fait partie de la surface distante en lecture seule. */
+  allowedHosts?: readonly string[]
 }
 
 export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
-  return guardedRoute({ limiter: deps.limiter, rejectCrossOrigin: true }, async (req, res) => {
+  return guardedRoute({ limiter: deps.limiter, rejectCrossOrigin: true, allowedHosts: deps.allowedHosts }, async (req, res) => {
     let snapshot: StatusSnapshot
     try {
       snapshot = await deps.coalescer.run('status', deps.computeSnapshot)

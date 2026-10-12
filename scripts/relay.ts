@@ -23,7 +23,7 @@ import {
   INACTIVITY_TIMEOUT_MS, SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, POLL_FALLBACK_MS,
   SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME,
   HOOK_SERVER_NOT_STARTED, WORKSPACE_HASH_LENGTH,
-  RELAY_MAX_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
+  RELAY_MAX_SSE_CLIENTS, RELAY_MAX_REMOTE_SSE_CLIENTS, RELAY_SSE_HEARTBEAT_MS, RELAY_MAX_WATCHED_SESSIONS, RELAY_MAX_SESSION_FILE_BYTES, RELAY_MAX_IMPORTED_SESSIONS,
   RELAY_STATUS_RATE_BURST, RELAY_STATUS_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS, RELAY_SSE_RATE_BURST, RELAY_SSE_RATE_PER_S,
   RELAY_ISSUE_LINKS_RATE_BURST, RELAY_ISSUE_LINKS_RATE_PER_S, RELAY_ISSUE_LINKS_CACHE_TTL_MS, RELAY_ISSUE_LINKS_CACHE_MAX_ROLES,
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
@@ -39,7 +39,7 @@ import {
   parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
   listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
-import { isLoopbackAddress, isLoopbackHostHeader, KeyedRateLimiter } from '../extension/src/hook-guards'
+import { isLoopbackAddress, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { isHooksConfigured, isDisable1MContext } from '../extension/src/claude-settings'
 import { projectDirMatcher, encodeProjectDirName, PROJECT_DIR_NAME_MAX } from '../extension/src/project-dir'
 import { createObservationsAction, AgentStateTracker } from '../extension/src/observations'
@@ -56,6 +56,7 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
+import { classifyHost, isRemoteCrossOrigin, parseAllowedHosts } from './remote-access'
 
 const DISCOVERY_DIR = discoveryDir()
 const CLAUDE_DIR = claudeProjectsDir()
@@ -129,6 +130,14 @@ function noteSkipped(reason: keyof typeof skippedSessions, sessionId: string): b
 // ─── SSE client management ──────────────────────────────────────────────────
 
 const sseClients = new Set<http.ServerResponse>()
+/** Clients that came through an allowed tunnel Host (#241): counted among sseClients, capped separately. */
+const remoteSseClients = new WeakSet<http.ServerResponse>()
+
+function remoteSseCount(): number {
+  let n = 0
+  for (const res of sseClients) if (remoteSseClients.has(res)) n++
+  return n
+}
 
 /** Drop a client: remove it from the set and destroy its connection (frees its buffers/listeners). */
 function dropClient(res: http.ServerResponse) {
@@ -772,7 +781,7 @@ export interface Relay {
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
-  debugState: () => { sseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
+  debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
 export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'auto'
@@ -813,6 +822,10 @@ export interface RelayOptions {
   /** Webhooks (#236): explicit destinations only. Defaults to AGENT_LENS_WEBHOOKS (URLs separated by commas) and
    *  AGENT_LENS_WEBHOOK_EVENTS. `post` is injectable for tests. */
   webhooks?: { destinations: string[]; events?: WebhookEventType[]; post?: (url: string, body: string) => Promise<number> }
+  /** Tunnel Host names accepted besides loopback (--allow-host, #241). They only reach GET /events and GET /status,
+   *  with their own https origin and RELAY_MAX_REMOTE_SSE_CLIENTS streams; the other routes stay loopback only.
+   *  An invalid value makes createRelay throw (fail closed). Default: none. */
+  allowedHosts?: string[]
 }
 
 export interface RelaySessionIndexOptions {
@@ -847,6 +860,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   if (relayCreated) {
     throw new Error('createRelay() can only be called once per process')
   }
+  // Tunnel Host names (#241): validated here too, so that no caller can pass a wildcard or an IP (fail closed)
+  const remoteHosts = parseAllowedHosts(options.allowedHosts ?? [])
+  if (remoteHosts.errors.length > 0) throw new Error(`allowedHosts: ${remoteHosts.errors.join('; ')}`)
+  const allowedHosts: readonly string[] = remoteHosts.hosts
   relayCreated = true
   maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
@@ -1109,6 +1126,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       discovery: { projectDirsCapped, maxProjectDirs: RELAY_MAX_PROJECT_DIRS, maxFilesPerDir: RELAY_MAX_FILES_PER_DIR },
     }),
     readIndex,
+    allowedHosts,
   })
   const handleContext = createContextRoute({
     limiter: contextLimiter,
@@ -1154,14 +1172,19 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
-      // Loopback only: reject non-local peers and foreign Host headers (DNS rebinding)
-      if (!isLoopbackAddress(req.socket.remoteAddress) || !isLoopbackHostHeader(req.headers.host)) {
+      // Loopback peer only; Host loopback or EXACTLY an allowed tunnel name (#241), anything else is DNS rebinding
+      const hostClass = classifyHost(req.headers.host, allowedHosts)
+      if (!isLoopbackAddress(req.socket.remoteAddress) || hostClass === 'foreign') {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')
         return
       }
-      // Another site (Origin / Sec-Fetch-Site) must not hold SSE slots or trigger a scan and a replay (#200)
-      if (isCrossOriginRequest(req.headers, req.headers.host)) {
+      // Another site (Origin / Sec-Fetch-Site) must not hold SSE slots or trigger a scan and a replay (#200);
+      // through a tunnel, only the tunnel's own https origin
+      const crossOrigin = hostClass === 'allowed'
+        ? isRemoteCrossOrigin(req.headers, req.headers.host ?? '')
+        : isCrossOriginRequest(req.headers, req.headers.host)
+      if (crossOrigin) {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')
         return
@@ -1177,11 +1200,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Invalid session parameter')
         return
       }
-      if (sseClients.size >= RELAY_MAX_SSE_CLIENTS) {
+      if (sseClients.size >= RELAY_MAX_SSE_CLIENTS || (hostClass === 'allowed' && remoteSseCount() >= RELAY_MAX_REMOTE_SSE_CLIENTS)) {
         res.writeHead(503, { 'Content-Type': 'text/plain', 'Retry-After': '5' })
         res.end('Too many clients')
         return
       }
+      if (hostClass === 'allowed') remoteSseClients.add(res)
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1268,6 +1292,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
 
     debugState: () => ({
       sseClients: sseClients.size,
+      remoteSseClients: remoteSseCount(),
       scanTimerActive: scanTicker?.active ?? false,
       heartbeatTimerActive: heartbeatTicker.active,
       scanRuns: scanCoalescer.runs,
