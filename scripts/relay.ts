@@ -10,8 +10,8 @@ import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEntry } from '../extension/src/protocol'
-import { ClaudeSessionPipeline } from '../extension/src/claude-session-pipeline'
-import { safeWatch, readLinesChunked, runGuarded } from '../extension/src/fs-utils'
+import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude-session-pipeline'
+import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { projectTags, branchTag } from '../extension/src/project-identity'
@@ -290,7 +290,7 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
   return {
     id: session.sessionId, label: session.label,
     status: session.sessionCompleted ? 'completed' : 'active',
-    startTime: session.sessionStartTime, lastActivityTime: session.lastActivityTime,
+    ...listedStartTimes(session), lastActivityTime: session.lastActivityTime,
     runtime: 'claude',
     ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
     ...(workspace ? { workspace } : {}),
@@ -318,12 +318,14 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
       broadcast(JSON.stringify({ type: 'session-started', session: enrichSession(toSessionInfo(live)) }), sessionId)
       return
     }
+    // A watched session keeps its own last activity (the file's mtime at attach, now on a resume): announcing it
+    // is not activity (#365)
     const base: SessionInfo = live
       ? toSessionInfo(live)
       : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
     broadcast(JSON.stringify({
       type: 'session-started',
-      session: enrichSession({ ...base, label, status: 'active', lastActivityTime: Date.now() } as SessionInfo),
+      session: enrichSession({ ...base, label, status: 'active' } as SessionInfo),
     }), sessionId)
   } else if (type === 'ended') {
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
@@ -472,9 +474,12 @@ function trackSession(sessionId: string, filePath: string) {
   skippedSessions.watchLimit.delete(sessionId)
   skippedSessions.sizeLimit.delete(sessionId)
   skippedSessions.fileLimit.delete(sessionId)
-  const session = pipeline.newSession(sessionId, filePath)
-  sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
+  // Times from the file (#365): last written, and the start it records; never the moment the relay attached
+  const session = pipeline.newSession(sessionId, filePath, {
+    lastActivityTime: newestSessionMtime(filePath, sessionId), recordedStartTime: header.startMs,
+  })
+  sessions.set(sessionId, session)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
   pipeline.attach(session)

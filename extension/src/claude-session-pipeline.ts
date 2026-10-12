@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AgentEvent, WatchedSession } from './protocol'
+import type { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { INACTIVITY_TIMEOUT_MS, POLL_FALLBACK_MS, SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME } from './constants'
 import { TranscriptParser } from './transcript-parser'
 import { safeWatch, readTrackedLines } from './fs-utils'
@@ -32,6 +32,17 @@ export interface ClaudeSessionHost {
   maxFileBytes?(): number
   onOversize?(sessionId: string): void
   log?(message: string): void
+}
+
+/**
+ * Start fields of a listed Claude session (#365). `startTime` stays when watching began, the origin of the event
+ * times; the start the transcript records is given apart, and its absence is said (`startTimeWatched`), so a
+ * duration is never presented as the session's age when it only counts since the relay or extension attached.
+ */
+export function listedStartTimes(session: Pick<WatchedSession, 'sessionStartTime' | 'recordedStartTime'>): Pick<SessionInfo, 'startTime' | 'recordedStartTime' | 'startTimeWatched'> {
+  return session.recordedStartTime !== undefined
+    ? { startTime: session.sessionStartTime, recordedStartTime: session.recordedStartTime }
+    : { startTime: session.sessionStartTime, startTimeWatched: true }
 }
 
 export class ClaudeSessionPipeline {
@@ -81,16 +92,22 @@ export class ClaudeSessionPipeline {
     }, sessionId)
   }
 
-  newSession(sessionId: string, filePath: string, lastActivityTime = Date.now()): WatchedSession {
+  /**
+   * A new tracked session. `lastActivityTime` is when the transcript was last written (its mtime, #365) and
+   * `recordedStartTime` the start it records (left out when it records none).
+   */
+  newSession(sessionId: string, filePath: string, times: { lastActivityTime?: number; recordedStartTime?: number } = {}): WatchedSession {
+    const now = Date.now()
     return {
       sessionId, filePath,
       fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
-      sessionStartTime: Date.now(),
+      sessionStartTime: now,
+      ...(times.recordedStartTime !== undefined && Number.isFinite(times.recordedStartTime) ? { recordedStartTime: times.recordedStartTime } : {}),
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
       seenMessageHashes: new Set(),
       sessionDetected: false, sessionCompleted: false,
-      lastActivityTime,
+      lastActivityTime: times.lastActivityTime ?? now,
       inactivityTimer: null,
       subagentWatchers: new Map(),
       spawnedSubagents: new Set(),
@@ -159,8 +176,9 @@ export class ClaudeSessionPipeline {
 
     session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
     scanSubagentsDir(this.delegate, this.parser, sessionId)
-    // The session completes if no new content arrives
-    this.resetInactivityTimer(sessionId)
+    // The session completes if no new content arrives. Attaching is not activity: the last activity stays
+    // when the transcript was last written (#365).
+    this.resetInactivityTimer(sessionId, false)
     this.host.log?.(`Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
   }
 
@@ -184,14 +202,17 @@ export class ClaudeSessionPipeline {
     this.resetInactivityTimer(sessionId)
   }
 
-  /** Mark the session active; when no new content arrives for INACTIVITY_TIMEOUT_MS, emit agent_complete */
-  resetInactivityTimer(sessionId: string): void {
+  /**
+   * Mark the session active; when no new content arrives for INACTIVITY_TIMEOUT_MS, emit agent_complete.
+   * `observedActivity` false (attach) arms the timer without claiming that something happened now.
+   */
+  resetInactivityTimer(sessionId: string, observedActivity = true): void {
     const session = this.host.sessions.get(sessionId)
     if (!session) return
     if (this.host.isLive && !this.host.isLive(sessionId)) return
 
     const wasCompleted = session.sessionCompleted
-    session.lastActivityTime = Date.now()
+    if (observedActivity) session.lastActivityTime = Date.now()
     session.sessionCompleted = false
 
     // A completed session that gets new content: re-announce the orchestrator so the clients accept its events again

@@ -8,8 +8,8 @@ import {
   SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, RELAY_MAX_FILES_PER_DIR, COLD_RESCAN_CYCLES, ORCHESTRATOR_NAME,
 } from './constants'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
-import { ClaudeSessionPipeline } from './claude-session-pipeline'
-import { safeWatch, foldPathCase, listSubagentTranscripts } from './fs-utils'
+import { ClaudeSessionPipeline, listedStartTimes } from './claude-session-pipeline'
+import { safeWatch, foldPathCase, listSubagentTranscripts, newestSessionMtime } from './fs-utils'
 import { encodeProjectDirName, PROJECT_DIR_NAME_MAX } from './project-dir'
 import { scanSubagentsDir, markTeammatesDone, replayTeammates } from './subagent-watcher'
 import { TeamWatcher, readSessionHeader } from './team-watcher'
@@ -153,7 +153,7 @@ export class SessionWatcher implements AgentSessionWatcher {
         id: s.sessionId,
         label: s.label,
         status: s.sessionCompleted ? 'completed' as const : 'active' as const,
-        startTime: s.sessionStartTime,
+        ...listedStartTimes(s),
         lastActivityTime: s.lastActivityTime,
         runtime: 'claude',
         ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
@@ -517,32 +517,17 @@ export class SessionWatcher implements AgentSessionWatcher {
   }
 
   private watchSession(sessionId: string, filePath: string): void {
-    const session = this.pipeline.newSession(sessionId, filePath, this.newestMtime(filePath, sessionId))
-    this.sessions.set(sessionId, session)
     const header = readSessionHeader(filePath)
+    const session = this.pipeline.newSession(sessionId, filePath, {
+      lastActivityTime: newestSessionMtime(filePath, sessionId), recordedStartTime: header.startMs,
+    })
+    this.sessions.set(sessionId, session)
     if (header.cwd) this.sessionCwd.set(sessionId, header.cwd)
     if (header.branch) this.sessionBranch.set(sessionId, header.branch)
     this.pipeline.attach(session)
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
-
-  /** Get the newest mtime across a session's main JSONL and its subagent files. */
-  private newestMtime(filePath: string, sessionId: string): number {
-    let newest: number
-    try { newest = fs.statSync(filePath).mtimeMs } catch { return Date.now() }
-    const subDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-    try {
-      if (fs.existsSync(subDir)) {
-        for (const f of fs.readdirSync(subDir)) {
-          if (!f.endsWith('.jsonl')) continue
-          const mt = fs.statSync(path.join(subDir, f)).mtimeMs
-          if (mt > newest) newest = mt
-        }
-      }
-    } catch { /* expected if subagents dir doesn't exist yet */ }
-    return newest
-  }
 
   private elapsed(sessionId?: string): number {
     return this.pipeline.elapsed(sessionId)

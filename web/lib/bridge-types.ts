@@ -32,6 +32,10 @@ export interface SessionInfo {
   lastActivityTime: number
   /** True when lastActivityTime only stands for the start: usable to sort, never to display */
   lastActivityUnknown?: boolean
+  /** Start of the session as its transcript records it; `startTime` stays the origin of the event times */
+  recordedStartTime?: number
+  /** True when no start is recorded and `startTime` is only when watching began: a duration from it is a lower bound */
+  startTimeWatched?: boolean
   /** Agent runtime of the session, when the extension reports it */
   runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   /** Workspace name/path of the session, when known */
@@ -181,6 +185,8 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && typeof v.startTime === 'number'
     && typeof v.lastActivityTime === 'number'
     && (v.lastActivityUnknown === undefined || typeof v.lastActivityUnknown === 'boolean')
+    && (v.recordedStartTime === undefined || (typeof v.recordedStartTime === 'number' && Number.isFinite(v.recordedStartTime)))
+    && (v.startTimeWatched === undefined || typeof v.startTimeWatched === 'boolean')
     && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot' || v.runtime === 'pi' || v.runtime === 'gemini')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')

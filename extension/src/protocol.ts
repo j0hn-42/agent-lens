@@ -147,6 +147,10 @@ export interface SessionInfo {
   lastActivityTime: number
   /** True when lastActivityTime only stands for the start: usable to sort, never to display */
   lastActivityUnknown?: boolean
+  /** Start of the session as its transcript records it; `startTime` stays the origin of the event times */
+  recordedStartTime?: number
+  /** True when no start is recorded and `startTime` is only when watching began: a duration from it is a lower bound */
+  startTimeWatched?: boolean
   /** Agent Team the session belongs to (lead or tmux member), when known */
   teamName?: string
   /** Team member name when the session is a separate teammate session (or the lead's name) */
@@ -436,7 +440,10 @@ export interface WatchedSession {
   fileSize: number
   /** Fragment de ligne non terminée de la lecture précédente (voir readTrackedLines) */
   fileTail: string
+  /** When watching began: the origin of the event times (`time`, seconds), not the start of the session */
   sessionStartTime: number
+  /** Start of the session as its transcript records it (first timestamped entry); absent when none is recorded */
+  recordedStartTime?: number
   pendingToolCalls: Map<string, PendingToolCall>
   seenToolUseIds: Set<string>
   seenMessageHashes: Set<string>
