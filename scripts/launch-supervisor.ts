@@ -173,6 +173,8 @@ interface Record_ {
 }
 
 export interface LaunchSupervisor {
+  /** The simultaneous-launch cap actually applied */
+  readonly maxConcurrent: number
   /** Why a start would be refused right now, or null (cheap pre-check; `start` checks again) */
   check(req: LaunchRequest): StartRefusal | null
   start(req: LaunchRequest, command: LaunchCommand): StartResult
@@ -311,7 +313,11 @@ export function createLaunchSupervisor(deps: SupervisorDeps): LaunchSupervisor {
   function onError(r: Record_, err: Error) {
     if (!isActive(r)) return
     const code = (err as { code?: unknown })?.code
-    finish(r, 'failed', { failure: typeof code === 'string' && FAILURE_CODE_RE.test(code) ? code : 'spawn-error' })
+    const safe = typeof code === 'string' && FAILURE_CODE_RE.test(code) ? code : undefined
+    // After the spawn, an 'error' is Node reporting that a signal could not be delivered (e.g. EPERM): the process may
+    // still be running, so "failed" would be unproven. Keep the slot and the kill timer; the exit event settles the state.
+    if (r.view.startedAt !== undefined) return note(r, { event: 'signal-failed', pid: r.view.pid, reason: safe ?? 'error' })
+    finish(r, 'failed', { failure: safe ?? 'spawn-error' })
   }
 
   function feed(r: Record_, src: DataSource | null | undefined) {
@@ -321,6 +327,7 @@ export function createLaunchSupervisor(deps: SupervisorDeps): LaunchSupervisor {
   }
 
   return {
+    maxConcurrent,
     check,
 
     start(req, command) {

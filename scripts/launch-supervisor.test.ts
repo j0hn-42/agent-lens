@@ -26,8 +26,14 @@ class FakeChild extends EventEmitter {
   stdout = new EventEmitter()
   stderr = new EventEmitter()
   killed: string[] = []
+  /** When set, kill() fails the way Node does: it emits 'error' on the child */
+  killErrorCode: string | undefined
   constructor(pid?: number) { super(); this.pid = pid }
-  kill(signal?: string) { this.killed.push(signal ?? 'SIGTERM'); return true }
+  kill(signal?: string) {
+    this.killed.push(signal ?? 'SIGTERM')
+    if (this.killErrorCode) { this.emit('error', Object.assign(new Error('kill failed'), { code: this.killErrorCode })); return false }
+    return true
+  }
 }
 
 function fakeClock() {
@@ -268,6 +274,34 @@ describe('stop and expiry', () => {
     s.sup.stop(l.id)
     assert.deepEqual(s.children[0].killed, ['SIGTERM'])
     assert.equal(s.journal.some(e => e.event === 'signal-failed'), true)
+  })
+
+  it('an error event after the spawn (kill failed with EPERM) does not end the run: the exit event settles it', () => {
+    const s = setup({ killGroup: () => { throw Object.assign(new Error('x'), { code: 'EPERM' }) } })
+    const l = started(s)
+    s.children[0].emit('spawn')
+    s.children[0].killErrorCode = 'EPERM'
+    s.sup.stop(l.id)
+    assert.equal(s.sup.get(l.id)?.state, 'started', 'not "failed": the process may still be running')
+    assert.equal(s.journal.some(e => e.event === 'signal-failed'), true)
+    // The slot is still taken: a second launch on the same issue and one past the cap are refused
+    assert.equal(s.sup.check(req()), 'issue-active')
+    assert.equal(s.sup.check(req(230)), 'concurrent')
+    // The SIGKILL retry still goes out after the grace period
+    const before = s.children[0].killed.length
+    s.clock.advance(KILL_GRACE_MS)
+    assert.equal(s.children[0].killed.length, before + 1)
+    assert.equal(s.children[0].killed.at(-1), 'SIGKILL')
+    s.children[0].emit('exit', null, 'SIGKILL')
+    assert.equal(s.sup.get(l.id)?.state, 'stopped')
+    assert.equal(s.sup.check(req()), null)
+  })
+
+  it('an error event before the spawn is still a failure', () => {
+    const s = setup()
+    const l = started(s)
+    s.children[0].emit('error', Object.assign(new Error('x'), { code: 'ENOENT' }))
+    assert.equal(s.sup.get(l.id)?.state, 'failed')
   })
 
   it('the wall clock (60 min) stops the run and the final state is "expired"', () => {
