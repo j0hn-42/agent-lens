@@ -61,6 +61,17 @@ test('in VS Code the Context button exposes why the panel is unavailable', () =>
   assert.match(document.getElementById(described)!.textContent ?? '', /standalone relay.*not available in VS Code/i)
 })
 
+// #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the
+// toolbar around it instead of pushing Files and Context out of the screen (e2e reflow-320 measures the real layout).
+test('the side panel group wraps on a narrow viewport and keeps every toggle in it', () => {
+  render(<TopBar {...props} />)
+  const group = document.querySelector<HTMLElement>('[role="group"][aria-label="Side panels"]')!
+  assert.match(group.className, /\bflex-wrap\b/)
+  for (const panel of ['files', 'conversation', 'context', 'system', 'cost'] as const) {
+    assert.ok(group.contains(document.getElementById(PANEL_BUTTON_IDS[panel])), `${panel} toggle stays in the group`)
+  }
+})
+
 test('outside VS Code the Context button has no unavailability note', () => {
   render(<TopBar {...props} />)
   const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
