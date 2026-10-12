@@ -154,8 +154,10 @@ export function pickerAgentIds(withMessages: readonly string[], pair: { a: strin
 export const TEXT_MESSAGE_TYPES: ReadonlySet<string> = new Set(['assistant', 'user', 'thinking'])
 /** Message types that describe a communication between two agents. */
 export const COMM_MESSAGE_TYPES: ReadonlySet<string> = new Set(['dispatch', 'return', 'message'])
+/** Events of the session itself, shown as a row of the agent they happened to (context compaction, #232). */
+export const SYSTEM_MESSAGE_TYPES: ReadonlySet<string> = new Set(['compaction'])
 /** Everything the Conversation panel lists without tool activity (also what the unread tracking and the pill follow). */
-export const FEED_MESSAGE_TYPES: ReadonlySet<string> = new Set([...TEXT_MESSAGE_TYPES, ...COMM_MESSAGE_TYPES])
+export const FEED_MESSAGE_TYPES: ReadonlySet<string> = new Set([...TEXT_MESSAGE_TYPES, ...COMM_MESSAGE_TYPES, ...SYSTEM_MESSAGE_TYPES])
 /** Tool activity, listed in the Conversation panel when "Tool calls" is on. */
 export const TOOL_MESSAGE_TYPES: ReadonlySet<string> = new Set(['tool_call', 'tool_result'])
 

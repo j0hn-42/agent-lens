@@ -140,6 +140,35 @@ function isRealModel(model: unknown): model is string {
   return typeof model === 'string' && model.trim() !== '' && !/^<.*>$/.test(model.trim())
 }
 
+/** Claude Code's compaction marker: `{ type: 'system', subtype: 'compact_boundary', compactMetadata }` (#232). */
+function isCompactBoundary(parsed: Record<string, unknown>): boolean {
+  return parsed.type === 'system' && parsed.subtype === 'compact_boundary'
+}
+
+/** The fields of compactMetadata that can be proven: a known trigger, a positive whole size. Anything else is absent. */
+export function readCompactMetadata(meta: unknown): { trigger?: 'auto' | 'manual'; preTokens?: number } {
+  if (!isRecord(meta) || Array.isArray(meta)) return {}
+  const trigger = meta.trigger === 'auto' || meta.trigger === 'manual' ? meta.trigger : undefined
+  const pre = meta.preTokens
+  const preTokens = typeof pre === 'number' && Number.isSafeInteger(pre) && pre > 0 ? pre : undefined
+  return { ...(trigger ? { trigger } : {}), ...(preTokens !== undefined ? { preTokens } : {}) }
+}
+
+/** Dedup key of a compaction boundary; null without a uuid (nothing proves two such lines are the same). */
+function compactKey(uuid: unknown): string | null {
+  const id = ostr(uuid, NORM_ID_MAX)
+  return id ? `compact:${id}` : null
+}
+
+/** After a compaction the model only keeps the system prompt and the summary: the estimate restarts from there. */
+function resetContextEstimate(session: WatchedSession): void {
+  const bd = session.contextBreakdown
+  bd.userMessages = 0
+  bd.toolResults = 0
+  bd.reasoning = 0
+  bd.subagentResults = 0
+}
+
 export class TranscriptParser {
   /** Per-subagent dedup state for inline progress events, keyed by parentToolUseID */
   private inlineSubagentState = new Map<string, {
@@ -367,6 +396,11 @@ export class TranscriptParser {
       return
     }
 
+    if (isCompactBoundary(parsed)) {
+      this.handleCompactBoundary(parsed, agentName, ctxPending, sessionId, ctxSeenMessages)
+      return
+    }
+
     // Session name written by Claude Code (/rename, auto title): preferred over the first prompt
     if (sessionId && this.applySessionTitle(parsed, sessionId)) return
 
@@ -428,6 +462,13 @@ export class TranscriptParser {
               payload: { agent: agentName, role: 'user', content: text.slice(0, MESSAGE_MAX) },
             }, sessionId)
           }
+        } else if (session && parsed.isCompactSummary === true && ctxPending === session.pendingToolCalls) {
+          // The compaction summary is not a prompt, but it is what the context now holds (#232)
+          const hash = entry.uuid ? `summary:${entry.uuid}` : `summary:${text.slice(0, HASH_PREFIX_MAX)}`
+          if (!seenMsgs?.has(hash)) {
+            seenMsgs?.add(hash)
+            session.contextBreakdown.userMessages += estimateTokensFromText(text)
+          }
         }
       }
       if (session) { this.delegate.emitContextUpdate(agentName, session, sessionId) }
@@ -459,6 +500,36 @@ export class TranscriptParser {
     }
 
     if (session) { this.delegate.emitContextUpdate(agentName, session, sessionId) }
+  }
+
+  /**
+   * A compaction boundary (#232): report it once (dedup by uuid) with what compactMetadata proves. On the
+   * session's own transcript the local estimate restarts from the system prompt; a subagent's boundary is
+   * reported for that subagent and leaves the session estimate alone.
+   */
+  private handleCompactBoundary(
+    parsed: Record<string, unknown>,
+    agentName: string,
+    ctxPending: Map<string, PendingToolCall>,
+    sessionId?: string,
+    ctxSeenMessages?: Set<string>,
+  ): void {
+    const session = sessionId ? this.delegate.getSession(sessionId) : undefined
+    const seen = ctxSeenMessages ?? session?.seenMessageHashes
+    const key = compactKey(parsed.uuid)
+    if (key && seen) {
+      if (seen.has(key)) return
+      seen.add(key)
+    }
+    this.delegate.emit({
+      time: this.delegate.elapsed(sessionId),
+      type: 'context_compacted',
+      payload: { agent: agentName, ...readCompactMetadata(parsed.compactMetadata) },
+    }, sessionId)
+    if (session && ctxPending === session.pendingToolCalls) {
+      resetContextEstimate(session)
+      this.delegate.emitContextUpdate(agentName, session, sessionId)
+    }
   }
 
   /** Process a text block — dedup, track tokens, emit message event */
@@ -791,6 +862,13 @@ export class TranscriptParser {
           const parsedEntry = norm.parseLine(line)
           if (!parsedEntry) { continue }
           this.setSessionTitle(session, parsedEntry)
+          if (isCompactBoundary(parsedEntry)) {
+            // An earlier compaction: what preceded it is no longer in the context; it is not listed (#232)
+            resetContextEstimate(session)
+            const key = compactKey(parsedEntry.uuid)
+            if (key) session.seenMessageHashes.add(key)
+            continue
+          }
           const entry = toTranscriptEntry(parsedEntry)
           if (!entry) {
             // Same rule as the live path: a turn without a message object is malformed

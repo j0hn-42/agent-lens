@@ -109,6 +109,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
 | **Loop observed** / "No loop in the observed part" | The loop verdict (see [Loops and health verdict](#loops-and-health-verdict)). It never says "healthy": at best "No loop observed" over the calls it lists. |
+| **COMPACTED** (Conversation row) | The runtime compacted the agent's context at that moment. The trigger and the size before are shown only when the transcript records them; "Cost not reported" always, since no transcript gives the cost of a compaction. See [Context compactions](#context-compactions). |
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
@@ -159,6 +160,17 @@ The used part of the gauge is a reading; the total is a window Agent Lens must *
 4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
 
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
+
+## Context compactions
+
+When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
+
+- **Source.** Claude Code writes a `compact_boundary` system record in the transcript (`compactMetadata.trigger` and `compactMetadata.preTokens`); Codex writes a `compacted` record. Nothing else is read as a compaction.
+- **Trigger.** *automatic* or *manual, /compact*, only when Claude Code records `auto` or `manual`; otherwise *trigger not reported* (always the case for Codex).
+- **Size before.** The context size before the compaction, *reported by the runtime* (`preTokens`, a positive whole number); otherwise *Size before not reported*. It is never estimated.
+- **Cost not reported.** The summary call that performs the compaction has no usage in the transcript, so no cost is ever shown for it.
+- **The gauge after it.** The local estimate restarts from the system prompt plus the compaction summary, then grows again. For Codex, the last total reported before the compaction is dropped (it measured the old context); the gauge shows the estimate until Codex reports a new total.
+- **Limits.** A compaction written before Agent Lens attached to the session resets the estimate but is not listed. A boundary seen twice (same `uuid`) is listed once. A subagent's compaction is listed for that subagent and does not touch the session estimate. There is no before/after diff yet: the size after is only an estimate.
 
 ## Project folders
 
