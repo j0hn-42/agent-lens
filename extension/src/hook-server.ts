@@ -219,7 +219,13 @@ export class HookServer implements vscode.Disposable {
         return this.reject(req, res, 429, 'Too Many Requests', { 'Retry-After': '1' })
       }
       if (checked.payload.hook_event_name === 'PermissionRequest') {
-        this.handlePermissionRequest(req, res, checked.payload as HookPayload)
+        try {
+          this.handlePermissionRequest(req, res, checked.payload as HookPayload)
+        } catch (e) {
+          // Anything unexpected is "no decision": Claude Code asks as usual
+          log.error('PermissionRequest handler failed:', e)
+          if (!res.headersSent) { res.writeHead(200); res.end() }
+        }
         return
       }
       try {
@@ -269,7 +275,8 @@ export class HookServer implements vscode.Disposable {
   private matchOpenCall(sessionId: string, toolName: string, toolInput: Record<string, unknown>): string | null {
     const open = this.sessionState.get(sessionId)?.openCalls
     if (!open || open.size === 0) { return null }
-    const hash = sha256Json(toolInput)
+    let hash: string
+    try { hash = sha256Json(toolInput) } catch { return null }
     const matches = [...open].filter(([, c]) => c.tool === toolName && c.inputSha256 === hash)
     return matches.length === 1 ? matches[0][0] : null
   }
@@ -411,9 +418,11 @@ export class HookServer implements vscode.Disposable {
 
     // Operator control on: remember the call, so a PermissionRequest for it can name its tool_use_id
     if (this.control?.gate.active && payload.tool_use_id && payload.tool_input) {
-      this.setBounded(this.getOrCreateSession(payload.session_id).openCalls, payload.tool_use_id, {
-        tool: toolName, inputSha256: sha256Json(payload.tool_input),
-      })
+      try {
+        this.setBounded(this.getOrCreateSession(payload.session_id).openCalls, payload.tool_use_id, {
+          tool: toolName, inputSha256: sha256Json(payload.tool_input),
+        })
+      } catch { /* input too deep to hash: the call is just not matchable, the event still goes out */ }
     }
 
     // Remember Agent/Task dispatches so SubagentStart/Stop can be correlated

@@ -23,11 +23,13 @@ import { createLogger } from './logger'
 const log = createLogger('PermissionGate')
 
 /** JSON with object keys sorted at every level: the same input always gives the same text, and the same hash. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(v => canonicalJson(v === undefined ? null : v)).join(',')}]`
+export function canonicalJson(value: unknown, depth = 0): string {
+  // A hostile input nested thousands of levels deep must fail cleanly, not overflow the stack
+  if (depth > CANONICAL_MAX_DEPTH) throw new RangeError('tool input nested too deeply')
+  if (Array.isArray(value)) return `[${value.map(v => canonicalJson(v === undefined ? null : v, depth + 1)).join(',')}]`
   if (value && typeof value === 'object') {
     const o = value as Record<string, unknown>
-    const parts = Object.keys(o).sort().filter(k => o[k] !== undefined).map(k => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    const parts = Object.keys(o).sort().filter(k => o[k] !== undefined).map(k => `${JSON.stringify(k)}:${canonicalJson(o[k], depth + 1)}`)
     return `{${parts.join(',')}}`
   }
   return JSON.stringify(value) ?? 'null'
@@ -87,6 +89,7 @@ interface Pending {
 
 interface Closed { sessionId: string; toolUseId: string | null; toolName: string; inputSha256: string }
 
+const CANONICAL_MAX_DEPTH = 64
 const NONCE_RE = /^[0-9a-f]{32}$/
 const ID_RE = /^[A-Za-z0-9._:@-]{1,128}$/
 
@@ -130,7 +133,13 @@ export class PermissionGate {
       return none
     }
     const nonce = randomBytes(16).toString('hex')
-    const inputText = canonicalJson(input.toolInput)
+    let inputText: string
+    try {
+      inputText = canonicalJson(input.toolInput)
+    } catch (err) {
+      log.warn('Permission request not held:', err)
+      return none
+    }
     const requestedAt = Date.now()
     const view: PermissionRequestView = {
       sessionId: input.sessionId,

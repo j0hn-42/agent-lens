@@ -178,6 +178,29 @@ describe('HookServer PermissionRequest', () => {
     } finally { server.dispose() }
   })
 
+  it('a tool input nested far too deep gets no decision and breaks nothing, PreToolUse included', async () => {
+    const { server, port, shown } = await setup({ ttlMs: 20 })
+    const events: Array<{ type: string }> = []
+    server.onEvent(e => events.push(e as never))
+    try {
+      const deep = '['.repeat(5000) + ']'.repeat(5000)
+      const raw = (event: string) => `{"session_id":"s1","hook_event_name":"${event}","tool_name":"Bash","tool_use_id":"toolu_deep","tool_input":{"x":${deep}}}`
+      const send = (body: string, headers: http.OutgoingHttpHeaders) => new Promise<Reply>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/', agent: false, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), ...headers } }, res => {
+          let data = ''
+          res.on('data', c => { data += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }))
+        })
+        req.on('error', reject)
+        req.end(body)
+      })
+      assert.deepEqual(await send(raw('PermissionRequest'), { [HEADER]: TOKEN }), { status: 200, body: '' })
+      assert.equal(shown.length, 0)
+      assert.equal((await send(raw('PreToolUse'), {})).status, 200)
+      assert.ok(events.some(e => e.type === 'tool_call_start'), 'the observation event is still emitted')
+    } finally { server.dispose() }
+  })
+
   it('does not feed the observation stream: no event is emitted for a permission request', async () => {
     const { server, port, shown } = await setup({ ttlMs: 20 })
     const events: unknown[] = []
