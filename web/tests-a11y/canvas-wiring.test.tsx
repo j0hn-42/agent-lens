@@ -227,3 +227,65 @@ test('session links between two session halos are drawn dashed in the All view',
   await tick()
   assert.ok(count('worktree') > baseline.worktree, 'a worktree link is drawn with the dashed 8:5 pattern')
 })
+
+// ─── Keyboard target of the graph (#258): the jsx-a11y fixes must not change it ─────────────
+
+const tooltipTitle = (container: HTMLElement) =>
+  container.querySelector<HTMLElement>('[data-agent-canvas-root] > [aria-hidden="true"][data-sensitive] .font-semibold')?.textContent ?? null
+
+test('graph surface: a single tab stop with a name; keyboard focus shows the focused node, leaving hides it', async () => {
+  const outside = document.createElement('button')
+  document.body.appendChild(outside)
+  const { container } = mount(branchSim())
+  await tick()
+  const surface = graphSurface(container)
+  assert.ok(surface, 'the graph surface is focusable (tabindex 0)')
+  assert.ok(surface.getAttribute('aria-label'), 'and named')
+  assert.equal(surface.getAttribute('aria-describedby'), 'graph-keyboard-help')
+  assert.equal(tooltipTitle(container), null, 'no focus, no focus tooltip')
+  // The outline focus becomes the canvas focused node (jsdom has no :focus-visible heuristics)
+  await act(async () => { outlineButton(container, /^lead,/)!.focus() })
+  await tick(20)
+  assert.match(tooltipTitle(container) ?? '', /lead/, 'focus inside the graph shows the focused node')
+  await act(async () => { outside.focus() })
+  await tick(20)
+  assert.equal(tooltipTitle(container), null, 'focus leaving the graph hides the focus tooltip')
+  await act(async () => { surface.focus() })
+  await tick(20)
+  assert.equal(document.activeElement, surface)
+  assert.match(tooltipTitle(container) ?? '', /lead/, 'focus back on the surface shows it again')
+})
+
+test('graph surface: arrows, Enter, + / - / 0 are handled on the surface; other keys are left alone', async () => {
+  const clicked: Array<string | null> = []
+  const { container } = mount(branchSim(), { onAgentClick: (id: string | null) => { clicked.push(id) } })
+  await tick()
+  const surface = graphSurface(container)
+  fireEvent.focus(outlineButton(container, /^lead,/)!)
+  await tick(20)
+  for (const key of ['ArrowDown', 'ArrowUp', '+', '-', '0']) {
+    assert.equal(fireEvent.keyDown(surface, { key }), false, `${key} is consumed by the graph`)
+  }
+  assert.equal(fireEvent.keyDown(surface, { key: 'x' }), true, 'an unmapped key is not consumed')
+  assert.equal(fireEvent.keyDown(surface, { key: '+', ctrlKey: true }), true, 'Ctrl + stays the browser zoom')
+  fireEvent.focus(outlineButton(container, /^lead,/)!)
+  await tick(20)
+  assert.equal(fireEvent.keyDown(surface, { key: 'Enter' }), false)
+  assert.deepEqual(clicked, ['lead'], 'Enter opens the focused agent')
+})
+
+test('graph outline: Down, Up, Home and End move focus between the outline buttons', async () => {
+  const { container } = mount(branchSim())
+  await tick()
+  const nodes = () => Array.from(container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] button[data-graph-node]'))
+  assert.ok(nodes().length >= 2)
+  nodes()[0].focus()
+  fireEvent.keyDown(nodes()[0], { key: 'ArrowDown' })
+  assert.equal(document.activeElement, nodes()[1])
+  fireEvent.keyDown(nodes()[1], { key: 'ArrowUp' })
+  assert.equal(document.activeElement, nodes()[0])
+  fireEvent.keyDown(nodes()[0], { key: 'End' })
+  assert.equal(document.activeElement, nodes()[nodes().length - 1])
+  fireEvent.keyDown(document.activeElement!, { key: 'Home' })
+  assert.equal(document.activeElement, nodes()[0])
+})
