@@ -8,7 +8,7 @@ Scope, on purpose: the VS Code extension only. The standalone relay and the brow
 
 Two things are needed, and both are explicit:
 
-1. Run **Agent Lens: Install the Permission Hook (operator control)**. It adds one `PermissionRequest` hook to your global Claude Code `settings.json` (timeout 60 s) and installs `~/.claude/agent-lens/permission-hook.js`. The observation hooks are not touched, and re-running **Configure Claude Code Hooks** keeps this one. **Remove the Permission Hook** takes it out again; uninstalling the extension removes it too.
+1. Run **Agent Lens: Install the Permission Hook (operator control)**. It adds one `PermissionRequest` hook to your global Claude Code `settings.json` (timeout 60 s) and installs `~/.claude/agent-lens/permission-hook.js`. The observation hooks are not touched, and re-running **Configure Claude Code Hooks** keeps this one. The script is refreshed at each start of the extension while the hook is installed, so an update reaches it without reinstalling. **Remove the Permission Hook** takes it out again; uninstalling the extension removes it too.
 2. Turn on `agentVisualizer.allowControl` (default `false`). It is machine-scoped: set it in your User Settings, a workspace `.vscode/settings.json` cannot switch it on. It is read at each request, and turning it off ends the requests already waiting at once (journalled `disabled`), so it needs no reload.
 
 ## What Claude Code is told
@@ -41,7 +41,7 @@ There is no decision, and Claude Code asks as usual, when any of these holds:
 | The panel is closed, or says it can no longer answer | Waiting requests end with no decision, journalled `surface-closed`. |
 | More than 16 requests wait at once | The extra ones get no decision. |
 | The decision cannot be written to the journal | It is not sent. |
-| The answer of the instance is not exactly a decision | `permission-hook.js` prints nothing. It rebuilds the output field by field and never produces an `allow` by itself. |
+| The answer of the instance is not exactly a decision, or comes without a valid proof that its sender knows the token | `permission-hook.js` prints nothing. It rebuilds the output field by field and never produces an `allow` by itself. |
 
 ## What a decision is bound to
 
@@ -53,6 +53,7 @@ The `PermissionRequest` hook input has **no `tool_use_id`**. Agent Lens fills it
 
 - A token of 32 random bytes is made at each start. It lives in memory and in the discovery file `~/.claude/agent-lens/<hash>-<pid>.json`, which is now written owner-only (0600) — and only while `allowControl` is on.
 - `permission-hook.js` presents it in the `X-Agent-Lens-Token` header; the hook server compares it in constant time. Another local process of the **same user** can read the file and is not stopped by this (same trust boundary as `~/.claude/settings.json`); other users cannot.
+- The answer is authenticated the other way too. The hook sends a random challenge (`X-Agent-Lens-Challenge`, 16 bytes) with each request; the instance answers a decision with `X-Agent-Lens-Proof`, an HMAC-SHA256 keyed by the token over the challenge, the SHA-256 of the request body and the decision. `permission-hook.js` recomputes it and compares in constant time before it prints anything. A process that merely listens on the port of a leftover discovery file (VS Code crashed, the pid was reused) does not know the token: whatever it answers, including an `allow`, is not printed. A request without a valid challenge is not held.
 - The hook server stays on 127.0.0.1, checks the Host header (DNS rebinding) and refuses any request with an `Origin` header (browsers).
 - The panel talks to the extension through VS Code `postMessage` only.
 

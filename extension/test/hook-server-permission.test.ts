@@ -165,6 +165,23 @@ describe('HookServer PermissionRequest', () => {
     } finally { server.dispose() }
   })
 
+  it('a decision taken after the HTTP request timeout still reaches the hook (the held response is not cut)', async () => {
+    const { HOOK_REQUEST_TIMEOUT_MS, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } = await import('../src/constants')
+    const { server, port, gate, shown, records } = await setup({ ttlMs: HOOK_REQUEST_TIMEOUT_MS + 20_000 })
+    try {
+      const reply = post(port, permReq(), { [HEADER]: TOKEN })
+      await waitFor(() => shown.length === 1)
+      // Past requestTimeout/headersTimeout and at least two sweeps of the connection check
+      await new Promise(r => setTimeout(r, HOOK_REQUEST_TIMEOUT_MS + 2 * HTTP_CONNECTIONS_CHECK_INTERVAL_MS))
+      assert.equal(gate.pending().length, 1, 'the request is still held: the socket was not closed under it')
+      assert.deepEqual(gate.decide({ sessionId: 's1', toolUseId: null, nonce: shown[0].nonce, action: 'approve' }), { ok: true })
+      const r = await reply
+      assert.deepEqual({ status: r.status, body: r.body }, { status: 200, body: ALLOW })
+      assert.equal(records.at(-1)?.outcome, 'sent')
+      assert.equal(records.some(x => x.outcome === 'answered-elsewhere'), false)
+    } finally { server.dispose() }
+  })
+
   it('no decision before the expiry: an empty 200, so Claude Code asks as usual', async () => {
     const { server, port, records } = await setup({ ttlMs: 30 })
     try {
