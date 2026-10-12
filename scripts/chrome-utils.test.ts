@@ -141,3 +141,16 @@ test('agent counts: without stale agents the text is unchanged; agents never hea
   assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
   assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
 })
+
+test('empty-state checklist states the scope the relay really scans (#291)', () => {
+  const ws = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'workspace' }).find(i => i.id === 'workspace')
+  assert.equal(ws?.label, 'Workspace watched')
+  assert.match(ws?.detail ?? '', /this workspace only/i)
+  assert.match(ws?.detail ?? '', /All workspaces/)
+  const all = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'all' }).find(i => i.id === 'workspace')
+  assert.equal(all?.label, 'All workspaces watched')
+  assert.equal(all?.ok, true)
+  assert.equal(all?.detail, undefined)
+  // Scope unknown (extension, old relay): the previous wording, no claim
+  assert.equal(emptyStateChecklist({ status: 'connected', sessionCount: 0 }).find(i => i.id === 'workspace')?.label, 'Workspace watched')
+})

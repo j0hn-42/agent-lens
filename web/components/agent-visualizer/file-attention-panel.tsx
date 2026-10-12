@@ -46,7 +46,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', right: 12 }}
       zIndex={Z.sidePanel}
       width={rect?.w ?? 380}
-      attrs={dockAttrs('files', 'right', dock)}
+      attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />

@@ -109,6 +109,18 @@ describe('methods', () => {
     }
   })
 
+  it('POST passes the method guard on /scope only (#291), every other path stays 405', async () => {
+    const { port } = await start(routed('api'))
+    assert.equal((await request(port, 'POST', '/scope')).status, 200)
+    assert.equal((await request(port, 'POST', '/scope?x=1')).status, 200)
+    for (const p of ['/scope/', '/scopes', '/scope/x', '/status', '/events', '/', '/%73cope/..']) {
+      const r = await request(port, 'POST', p)
+      assert.equal(r.status, 405, `POST ${p}`)
+      assert.equal(r.headers.allow, 'GET, HEAD, OPTIONS')
+    }
+    for (const m of ['PUT', 'DELETE', 'PATCH']) assert.equal((await request(port, m, '/scope')).status, 405, `${m} /scope`)
+  })
+
   it('GET and HEAD pass, OPTIONS gets 204', async () => {
     const { port } = await start(routed('api'))
     assert.equal((await request(port, 'GET', '/x')).status, 200)

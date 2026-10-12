@@ -22,16 +22,18 @@ Claude Code is powerful, but its execution is a black box — you see the final 
 - **Claude Code hooks**: Lightweight HTTP hook server receives events directly from Claude Code for zero-latency streaming
 - **Copilot session tailing**: Reads local `~/.copilot/session-state/<id>/events.jsonl` (respects `COPILOT_HOME`), matched to the workspace through `workspace.yaml`, and surfaces messages, tool calls and sub-agent activity. Cloud-hosted Copilot agent sessions are not covered
 - **Codex rollout tailing**: Reads `~/.codex/sessions/**/rollout-*.jsonl` (respects `CODEX_HOME`) and surfaces tool calls, reasoning, and authoritative token counts from Codex's own event stream
-- **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree)
+- **Multi-session support**: Track multiple concurrent agent sessions from a Sessions panel (sessions, agents and sub-agents as a tree), sorted by recent activity, renamable (F2) and prefixed by folder when several folders are open
 - **Interactive canvas**: Pan, zoom, click agents and tool calls to inspect details
 - **Timeline, Files & Conversation panels**: Review the full execution timeline, file attention heatmap (with the file conflicts: files that several agents edited, see [docs/reading-the-ui.md](docs/reading-the-ui.md)), and the conversation (one panel for messages, tool calls and per-agent views)
 - **Repeated reads and calls**: the Files panel lists files an agent read again with no edit seen in between, and identical calls repeated, with the tokens the repeats cost when they were reported (see [Reading the UI](docs/reading-the-ui.md))
+- **Delegation report**: the inspector of an agent lists each of its sub-agents with its tokens, the files it was seen to read, the duration the runtime reported and the start of its returned report; unknown values say so (see [Reading the UI](docs/reading-the-ui.md#delegation-report))
 - **Fleet / All view**: see every watched session on one canvas, with the sessions of a same project grouped together
 - **Workflows and Teams**: agents of a Claude Code Agent Team or of a Workflow tool run are grouped in a labelled halo
 - **Comms**: message links between agents, with the latest message on the link and a panel to read the exchange
 - **Context panel**: the `CLAUDE.md` files and memory index a session works with, loaded on demand
 - **Nine dark themes**: Catppuccin Macchiato (default) with Mocha and Frappé, Midnight (calm indigo), Graphite (neutral), Neon (the original cyan look), Ember (warm, low blue light), Anthropic (warm neutrals and orange, inspired by the public Anthropic colours, not an official theme) and High contrast (pure black, white text, yellow accent, for low vision), chosen with the **Theme** selector in the top bar (the theme applies to the interface only; the canvas and the page background keep the neon colours). See [Reading the UI](docs/reading-the-ui.md#themes)
 - **Honest values**: nothing is shown that cannot be proven. Unknown states read "Not observed", partial totals read "at least X", local token counts are marked "estimated", costs that cannot be tied to one agent are "unattributed". See [Reading the UI](docs/reading-the-ui.md)
+- **Session export and HTML replay**: save a session as one offline HTML file with a keyboard scrubber, secrets redacted before writing (best effort). See [docs/session-export.md](docs/session-export.md)
 - **Typed `observations` action**: Claude can read what Agent Lens observes through a whitelisted, size-bounded endpoint (see [docs/state-share.md](docs/state-share.md))
 - **JSONL log file support**: Point at any JSONL event log to replay or watch agent activity
 
@@ -79,6 +81,17 @@ To restrict to one runtime:
 - **`pnpm run dev` and `npx agent-lens-app`:** set the `AGENT_LENS_RUNTIME` environment variable to `claude`, `codex` or `copilot` (defaults to watching all)
 
 For non-default Codex installs, set the `CODEX_HOME` environment variable; for Copilot, `COPILOT_HOME`.
+
+### Scope: this workspace, a project, or all workspaces
+
+By default the relay only discovers the Claude Code sessions of the workspace it was started in. In `pnpm run dev` and `npx agent-lens-app` the top bar has a **Session scope** selector (a native select, keyboard operable): **This workspace**, **All workspaces**, or **Project: <name>** (one of the projects in the list). The choice is applied to the running relay, with no restart, and remembered in the browser; the line next to the selector always says what is really scanned ("Scanning this workspace only (name)" / "Scanning all workspaces"), taken from the relay's own `GET /status`, and an empty list on a single workspace says so and how to widen it.
+
+- `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
+- The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
+- A project choice narrows the Sessions list and the **All** view of the canvas to that project; it does not change what the relay scans.
+- Codex and Copilot sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
+
+See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guards.
 
 ### Event sources and the local server
 
@@ -142,7 +155,7 @@ Other scripts:
 |--------|-------------|
 | `pnpm run dev:demo` | Start with the demo tour: every feature on mock data (script: [docs/demo.md](docs/demo.md)) |
 | `pnpm run dev:demo:classic` | Start with the previous, single-session demo data |
-| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)) |
+| `pnpm run dev:demo:guided` | Start the step-by-step guided tour of the graph legend (13 steps, [docs/demo.md](docs/demo.md)). On a real session, **Tour this session** (beside **Legend**) explains only the symbols on screen ([docs/reading-the-ui.md](docs/reading-the-ui.md)) |
 | `pnpm run dev:relay` | Run the event relay server standalone |
 | `pnpm run dev:extension` | Watch-build the extension |
 | `pnpm run build:all` | Production build (webview + extension) |
@@ -161,6 +174,7 @@ Contributing (branches, labels, the checks to run before a PR): see [CONTRIBUTIN
 - [Canvas performance](docs/performance.md): idle drawing, viewport culling and how to measure them with `?perf`
 - [Event sources](docs/relay-sources.md): hooks and JSONL reconciliation, the local server
 - [Sharing state](docs/state-share.md): snapshots and the `observations` action
+- [Session export](docs/session-export.md): the standalone HTML replay, what it contains and how secrets are redacted
 - [Demo tour](docs/demo.md): the presenter script that shows every feature on mock data
 
 ## Releasing

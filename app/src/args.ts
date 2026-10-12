@@ -32,8 +32,9 @@ Options:
   -p, --port <number>  Port for the server (default: ${DEFAULT_RELAY_PORT}; 0 = ephemeral,
                        env: AGENT_LENS_PORT=0)
   --no-open            Don't open the browser automatically
-  --all-workspaces     Also discover Claude sessions from other workspaces
-                       (env: AGENT_LENS_ALL_WORKSPACES=1)
+  --all-workspaces     Start by discovering Claude sessions from every workspace
+                       (env: AGENT_LENS_ALL_WORKSPACES=1); the scope selector
+                       in the UI changes it later without a restart
   --import <path>      Read a session transcript fetched from a cloud agent: a
                        <session id>.jsonl file or a folder of them. Read once,
                        listed as imported, never live. Repeatable

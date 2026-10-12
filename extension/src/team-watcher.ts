@@ -331,7 +331,7 @@ export class TeamWatcher {
   private readonly debounceMs: number
   private readonly teamsDir: string
 
-  constructor(private readonly opts: TeamWatcherOptions) {
+  constructor(private opts: TeamWatcherOptions) {
     this.intervalMs = opts.intervalMs ?? TEAM_SCAN_INTERVAL_MS
     this.debounceMs = opts.debounceMs ?? TEAM_INFO_DEBOUNCE_MS
     this.teamsDir = opts.teamsDir
@@ -372,6 +372,11 @@ export class TeamWatcher {
       if (!this.isWatched(t.cfg.leadSessionId)) continue
       this.fire(t)
     }
+  }
+
+  /** Changes the workspace roots served (null = all) at run time (#291); the next scan() drops the teams no longer relevant. */
+  setWorkspaces(workspaces: string[] | null): void {
+    this.opts = { ...this.opts, workspaces }
   }
 
   private isWatched(sessionId: string): boolean {

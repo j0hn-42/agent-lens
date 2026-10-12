@@ -200,9 +200,13 @@ export interface RelayStatus {
   /** CLAUDE_CODE_DISABLE_1M_CONTEXT=1 in the relay's environment or Claude Code settings (#249); false when Claude Code is not watched */
   disable1MContext: boolean
   sessionCount: number
-  /** Claude sessions not followed (#208): watch limit reached when found, transcript past the size cap */
-  skippedSessions: { watchLimit: number; sizeLimit: number }
+  /** Claude sessions not followed (#208, #291): watch limit reached when found, transcript past the size cap (at discovery
+   *  or after growing), transcript past the per-folder cap. Distinct sessions of the current scope, bounded: read as "at least". */
+  skippedSessions: { watchLimit: number; sizeLimit: number; fileLimit: number }
+  /** What the scan covers RIGHT NOW (#291): false = the workspace folder only, true = every project folder. Changed by POST /scope. */
   allWorkspaces: boolean
+  /** Discovery ceilings (#291): `projectDirsCapped` = more project folders exist than maxProjectDirs, the others are not scanned */
+  discovery: { projectDirsCapped: boolean; maxProjectDirs: number; maxFilesPerDir: number }
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
 }

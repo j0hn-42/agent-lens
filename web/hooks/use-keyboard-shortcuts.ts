@@ -79,6 +79,8 @@ export function useKeyboardShortcuts(actions: {
   zoomToFit: () => void
   /** Enter / leave immersive full screen (`Z`) */
   toggleFullscreen: () => void
+  /** Start / stop presentation mode (`V`) */
+  togglePresentation: () => void
   /** Close the most recently opened panel; returns true if one was closed. */
   closeTopPanel: () => boolean
   clearSelection: () => void
@@ -125,6 +127,10 @@ export function useKeyboardShortcuts(actions: {
         case 'z':
         case 'Z':
           a.toggleFullscreen()
+          break
+        case 'v':
+        case 'V':
+          a.togglePresentation()
           break
         case 't':
         case 'T':

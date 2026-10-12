@@ -7,7 +7,7 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode, FileAttention, FileEditor } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
 
@@ -27,6 +27,16 @@ function withEditor(file: FileAttention, agent: string, change: (e: FileEditor) 
   if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
   else next[i] = change(editors[i])
   return { ...file, editors: next }
+}
+
+/** Copy of the file entry with one reader changed (created when absent). */
+function withReader(file: FileAttention, agent: string, change: (r: FileReader) => FileReader): FileAttention {
+  const readers = file.readers ?? []
+  const i = readers.findIndex(r => r.agent === agent)
+  const next = readers.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(readers[i])
+  return { ...file, readers: next }
 }
 
 /**
@@ -143,8 +153,10 @@ export function handleToolCallStart(
         let updated: FileAttention = prev
           ? { ...prev, agents: [...prev.agents] }
           : { path: filePath, reads: 0, edits: 0, totalTokens: 0, lastAccessed: currentTime, agents: [] as string[] }
-        if (toolName === 'Read') updated.reads++
-        else {
+        if (toolName === 'Read') {
+          updated.reads++
+          updated = withReader(updated, agentName, r => ({ ...r, started: r.started + 1 }))
+        } else {
           updated.edits++
           updated = withEditor(updated, agentName, e => ({ ...e, started: e.started + 1 }))
         }
@@ -214,6 +226,12 @@ export function handleToolCallEnd(
           const filePath = extractFilePath(tc.inputData, tc.args)
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withEditor(file, agentName, e => ({ ...e, succeeded: e.succeeded + 1, lastEditTime: currentTime })))
+        }
+        // A file counts as read by the agent only once its Read was observed to succeed (#233)
+        if (toolState === 'complete' && tc.toolName === 'Read') {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
         }
         state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
 

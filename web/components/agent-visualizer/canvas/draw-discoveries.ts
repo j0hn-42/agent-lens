@@ -2,6 +2,7 @@ import { Agent, Discovery } from '@/lib/agent-types'
 import { SCENE, getDiscoveryTypeColor } from '@/lib/colors'
 import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
+import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>) {
@@ -70,12 +71,12 @@ export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Disc
     ctx.font = 'bold 11px monospace'
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.fillText(truncateText(ctx, disc.label, cardW - 10), cardX + 6, cardY + 3)
+    ctx.fillText(truncateText(ctx, opts.maskText ? maskText(disc.label) : disc.label, cardW - 10), cardX + 6, cardY + 3)
 
     ctx.fillStyle = SCENE.textMuted
     ctx.font = '11px monospace'
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(truncateText(ctx, lines[i], cardW - 10), cardX + 6, cardY + 17 + i * 14)
+      ctx.fillText(truncateText(ctx, opts.maskText ? maskText(lines[i]) : lines[i], cardW - 10), cardX + 6, cardY + 17 + i * 14)
     }
 
     ctx.restore()

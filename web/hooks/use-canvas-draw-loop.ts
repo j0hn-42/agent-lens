@@ -66,6 +66,8 @@ interface DrawLoopDeps {
   teamsRef: MutableRefObject<Map<string, TeamSummary> | undefined>
   sessionsRef: MutableRefObject<ReadonlyMap<string, SessionMeta> | undefined>
   sessionLinksRef: MutableRefObject<ReadonlyArray<SessionLink> | undefined>
+  /** Presentation mode (#245): masked text */
+  presentationRef: MutableRefObject<{ follow: boolean; mask: boolean }>
   // Motion preferences
   reducedMotionRef: MutableRefObject<boolean>
   animationsPausedRef: MutableRefObject<boolean>
@@ -200,7 +202,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         p.selectedAgentId, p.hoveredAgentId, p.selectedToolCallId, p.selectedDiscoveryId, p.selectedLinkId,
         p.showStats, p.showHexGrid, !!p.showCostOverlay, !!p.isDragging, !!p.pauseAutoFit,
         hover?.type, hover?.id, focused?.type, focused?.id, deps.selectedClusterKeyRef.current,
-        deps.hideInactiveRef.current, deps.neverHideRef.current, reducedMotion, s.isPlaying,
+        deps.hideInactiveRef.current, deps.neverHideRef.current, reducedMotion, s.isPlaying, deps.presentationRef.current.mask,
         MOTION_LAYERS.map(l => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, l) ? '1' : '0').join(''),
       ],
     })
@@ -267,6 +269,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.teams = deps.teamsRef.current
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
+      opts.maskText = deps.presentationRef.current.mask
       // Elements outside the viewport (with a margin) are not drawn; ?perf=full turns this off for baseline measurements
       opts.view = PERF_BASELINE ? undefined : viewRectFor(transform, w, h)
 
@@ -422,7 +425,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ctx.restore()
 
       // Cluster labels live in screen space: readable at any zoom, placed without overlap
-      drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey)
+      drawClusterLabels(ctx, clusters, opts.plan, activeClusterKey, hoveredClusterKey, opts)
 
       // Focusable buttons over the edge bubbles, at the places the overlay plan chose
       if (deps.bubbleLayerRef.current) {
@@ -441,7 +444,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         syncBubbleButtons(deps.bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed) }
+      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed, deps.presentationRef.current.mask) }
       if (bloomRef.current && !calmOf('effects')) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders

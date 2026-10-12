@@ -23,8 +23,8 @@ export function ringRect(
     const r = query(target.id)?.getBoundingClientRect()
     return r ? { left: r.left, top: r.top, width: r.width, height: r.height } : null
   }
-  if (target.kind === 'agent' && toScreen) {
-    const agent = [...agents.values()].find(a => a.name === target.name)
+  if ((target.kind === 'agent' || target.kind === 'agent-key') && toScreen) {
+    const agent = target.kind === 'agent-key' ? agents.get(target.key) : [...agents.values()].find(a => a.name === target.name)
     if (!agent) return null
     const p = toScreen(agent.x, agent.y)
     return { left: p.x - AGENT_RING_RADIUS, top: p.y - AGENT_RING_RADIUS, width: AGENT_RING_RADIUS * 2, height: AGENT_RING_RADIUS * 2 }

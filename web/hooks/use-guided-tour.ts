@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { GuidedStep } from '@/lib/guided-steps'
+import type { TourStep } from '@/lib/guided-steps'
 import { INACTIVE_TOUR, startTour, nextStep, prevStep, goToStep, exitTour, type TourState } from '@/lib/guided-tour-nav'
 
 interface Options {
-  steps: readonly GuidedStep[]
+  steps: readonly TourStep[]
   /** Pauses the scenario and seeks to a time (the seek of the playback bar) */
   seek: (time: number) => void
   play: () => void
@@ -13,9 +13,10 @@ export function useGuidedTour({ steps, seek, play }: Options) {
   const [state, setState] = useState<TourState>(INACTIVE_TOUR)
   const step = state.active ? steps[state.index] ?? null : null
 
-  // Each step change: pause and replay the scenario up to the step time
+  // Each step change of the demo: pause and replay the scenario up to the step time.
+  // A step without a time (tour of a real session) leaves the live scene alone.
   useEffect(() => {
-    if (step) seek(step.time)
+    if (step && 'time' in step && typeof step.time === 'number') seek(step.time)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seek is a fresh closure each render; only the step must re-trigger
   }, [step])
 
