@@ -77,6 +77,9 @@ export const HOOK_FORWARD_TIMEOUT_MS = 1000
 
 // ─── Operator control (#240) ─────────────────────────────────────────────────
 
+/** Header carrying the discovery-file token on a PermissionRequest hook request (lower case, as Node reads it) */
+export const HOOK_CONTROL_TOKEN_HEADER = 'x-agent-lens-token'
+
 /** Timeout written to settings.json for the optional PermissionRequest hook (seconds): the hook waits for a decision. */
 export const PERMISSION_HOOK_TIMEOUT_S = 60
 

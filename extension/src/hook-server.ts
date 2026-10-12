@@ -1,4 +1,5 @@
 import * as http from 'http'
+import { createHash, timingSafeEqual } from 'crypto'
 import * as vscode from 'vscode'
 import { AgentEvent, NormalizationStats, emitSubagentSpawn } from './protocol'
 import {
@@ -8,7 +9,7 @@ import {
   HOOK_MAX_HEADER_BYTES, HOOK_MAX_CONNECTIONS, HOOK_MAX_REQUESTS_PER_SOCKET, HOOK_REQUEST_TIMEOUT_MS,
   HOOK_RATE_IP_BURST, HOOK_RATE_IP_PER_S, HOOK_RATE_SESSION_BURST, HOOK_RATE_SESSION_PER_S,
   HOOK_MAX_SESSIONS, HOOK_MAX_TRACKED_PER_SESSION, TEAM_MAX_LINKS_PER_SESSION,
-  HTTP_CONNECTIONS_CHECK_INTERVAL_MS,
+  HTTP_CONNECTIONS_CHECK_INTERVAL_MS, HOOK_CONTROL_TOKEN_HEADER,
   SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE, SUBAGENT_TRANSCRIPT_TIMEOUT_MS,
   generateSubagentFallbackName,
   resolveSubagentChildName,
@@ -24,6 +25,7 @@ import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
 import { SessionNormalizer, CountersRegistry, sharedCounters } from './event-normalize'
 import { isSafeId } from './hook-guards'
+import { PermissionGate, sha256Json } from './permission-gate'
 
 const log = createLogger('HookServer')
 
@@ -77,6 +79,14 @@ interface HookSessionState {
   agentDispatch: Map<string, { toolUseId?: string; startTime: number }>
   /** linkIds already emitted as agent_link (bounded by TEAM_MAX_LINKS_PER_SESSION) */
   links: Set<string>
+  /** tool_use_id → tool and input hash of calls seen in PreToolUse and not ended; kept only while the operator control is on */
+  openCalls: Map<string, { tool: string; inputSha256: string }>
+}
+
+/** The optional operator control (#240): the gate the PermissionRequest hooks are held in, and the token they must present */
+export interface HookServerControl {
+  gate: PermissionGate
+  token: string
 }
 
 export class HookServer implements vscode.Disposable {
@@ -99,7 +109,7 @@ export class HookServer implements vscode.Disposable {
   readonly onEvent = this._onEvent.event
 
   /** `counters` is shared with the transcript parser: one counter object per session, merged totals. */
-  constructor(port?: number, private readonly counters: CountersRegistry = sharedCounters) {
+  constructor(port?: number, private readonly counters: CountersRegistry = sharedCounters, private readonly control?: HookServerControl) {
     this.port = port ?? 0
   }
 
@@ -208,6 +218,10 @@ export class HookServer implements vscode.Disposable {
       if (!this.sessionLimiter.allow(checked.payload.session_id)) {
         return this.reject(req, res, 429, 'Too Many Requests', { 'Retry-After': '1' })
       }
+      if (checked.payload.hook_event_name === 'PermissionRequest') {
+        this.handlePermissionRequest(req, res, checked.payload as HookPayload)
+        return
+      }
       try {
         this.handleHook(checked.payload as HookPayload)
       } catch (e) {
@@ -218,6 +232,46 @@ export class HookServer implements vscode.Disposable {
       res.writeHead(200)
       res.end()
     })
+  }
+
+  /**
+   * PermissionRequest (#240): the response is held until the operator decides in Agent Lens. Everything else
+   * (control not configured or off, no panel able to decide, expiry, a request left unanswered, a malformed request)
+   * answers 200 with no body, which Claude Code reads as "no decision" and shows its own prompt. A wrong or missing
+   * token is refused with 403, which the hook script also treats as "no decision".
+   */
+  private handlePermissionRequest(req: http.IncomingMessage, res: http.ServerResponse, payload: HookPayload): void {
+    const noDecision = () => { if (!res.writableEnded && !res.destroyed) { res.writeHead(200); res.end() } }
+    const control = this.control
+    if (!control || !control.gate.active) { return noDecision() }
+    if (!tokenMatches(req.headers[HOOK_CONTROL_TOKEN_HEADER], control.token)) { return this.reject(req, res, 403, 'Forbidden') }
+    if (typeof payload.tool_name !== 'string' || payload.tool_name === '' || !payload.tool_input) { return noDecision() }
+
+    const handle = control.gate.request({
+      sessionId: payload.session_id,
+      toolName: payload.tool_name,
+      toolInput: payload.tool_input,
+      toolUseId: this.matchOpenCall(payload.session_id, payload.tool_name, payload.tool_input),
+    })
+    let answered = false
+    // The connection closes before an answer: the hook was killed or Claude Code got an answer elsewhere (the terminal)
+    res.on('close', () => { if (!answered) { handle.abort('answered-elsewhere') } })
+    void handle.decision.then(decision => {
+      answered = true
+      if (res.writableEnded || res.destroyed) { return }
+      if (!decision) { return noDecision() }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } }))
+    })
+  }
+
+  /** The tool_use_id of the one open PreToolUse call of the session with this tool and this exact input; null otherwise. */
+  private matchOpenCall(sessionId: string, toolName: string, toolInput: Record<string, unknown>): string | null {
+    const open = this.sessionState.get(sessionId)?.openCalls
+    if (!open || open.size === 0) { return null }
+    const hash = sha256Json(toolInput)
+    const matches = [...open].filter(([, c]) => c.tool === toolName && c.inputSha256 === hash)
+    return matches.length === 1 ? matches[0][0] : null
   }
 
   /** Normalization counters of a session (or of the requests no session could be found for). */
@@ -276,7 +330,7 @@ export class HookServer implements vscode.Disposable {
         const oldest = this.sessionState.keys().next().value
         if (oldest !== undefined) { this.sessionState.delete(oldest) }
       }
-      state = { startTime: Date.now(), agentNames: new Map(), dispatches: new Map(), agentDispatch: new Map(), links: new Set() }
+      state = { startTime: Date.now(), agentNames: new Map(), dispatches: new Map(), agentDispatch: new Map(), links: new Set(), openCalls: new Map() }
       this.sessionState.set(sessionId, state)
     }
     return state
@@ -355,6 +409,13 @@ export class HookServer implements vscode.Disposable {
       this.handleSessionStart(payload)
     }
 
+    // Operator control on: remember the call, so a PermissionRequest for it can name its tool_use_id
+    if (this.control?.gate.active && payload.tool_use_id && payload.tool_input) {
+      this.setBounded(this.getOrCreateSession(payload.session_id).openCalls, payload.tool_use_id, {
+        tool: toolName, inputSha256: sha256Json(payload.tool_input),
+      })
+    }
+
     // Remember Agent/Task dispatches so SubagentStart/Stop can be correlated
     if ((toolName === 'Task' || toolName === 'Agent') && payload.tool_use_id && payload.tool_input) {
       this.setBounded(this.getOrCreateSession(payload.session_id).dispatches, payload.tool_use_id, {
@@ -412,6 +473,7 @@ export class HookServer implements vscode.Disposable {
     const agentName = this.resolveAgentName(payload)
     const toolName = payload.tool_name || 'unknown'
     const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
+    if (payload.tool_use_id) { this.sessionState.get(payload.session_id)?.openCalls.delete(payload.tool_use_id) }
     const result = payload.tool_response ? summarizeResult(payload.tool_response, isSubagentTool ? MESSAGE_MAX : RESULT_MAX) : ''
     const tokenCost = estimateTokenCost(toolName, result)
     if (isSubagentTool && payload.tool_use_id) {
@@ -437,6 +499,7 @@ export class HookServer implements vscode.Disposable {
   }
 
   private handlePostToolUseFailure(payload: HookPayload): void {
+    if (payload.tool_use_id) { this.sessionState.get(payload.session_id)?.openCalls.delete(payload.tool_use_id) }
     const agentName = this.resolveAgentName(payload)
     const toolName = payload.tool_name || 'unknown'
 
@@ -600,6 +663,8 @@ export class HookServer implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true
+    // Held PermissionRequest responses end with no decision, or the server could not close
+    this.control?.gate.cancelAll('shutdown')
     if (this.server) {
       this.server.close()
       this.server = null
@@ -609,4 +674,12 @@ export class HookServer implements vscode.Disposable {
     this.normalizers.clear()
     this._onEvent.dispose()
   }
+}
+
+/** Constant-time comparison of the token header with the expected token (digests, so lengths do not leak). */
+function tokenMatches(header: string | string[] | undefined, expected: string): boolean {
+  if (typeof header !== 'string' || header === '' || expected === '') { return false }
+  const a = createHash('sha256').update(header).digest()
+  const b = createHash('sha256').update(expected).digest()
+  return timingSafeEqual(a, b)
 }
