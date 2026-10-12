@@ -57,7 +57,7 @@ export function readLimitedBody(req: http.IncomingMessage, maxBytes: number, tim
       if (size > maxBytes) return done({ ok: false, code: 413 })
       chunks.push(chunk)
     }
-    timer = setTimeout(() => done({ ok: false, code: 408 }), RELAY_SCOPE_BODY_TIMEOUT_MS)
+    timer = setTimeout(() => done({ ok: false, code: 408 }), timeoutMs)
     req.on('data', onData)
     req.on('end', () => done({ ok: true, text: Buffer.concat(chunks).toString('utf8') }))
     req.on('error', () => done({ ok: false, code: 400 }))

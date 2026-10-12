@@ -90,6 +90,8 @@ export interface LaunchRouteDeps {
   newSessionId?: () => string
   /** `--max-budget-usd`; the policy default when absent */
   budgetUsd?: number
+  /** Body read timeout (default RELAY_LAUNCH_BODY_TIMEOUT_MS); injectable for tests */
+  bodyTimeoutMs?: number
 }
 
 const REFUSAL_STATUS: Record<LaunchRefusal | StartRefusal | 'issue-lookup' | 'origin-lookup', number> = {
@@ -131,7 +133,7 @@ export function createLaunchRoute(deps: LaunchRouteDeps): RouteHandler {
 
   async function launch(req: http.IncomingMessage, res: http.ServerResponse) {
     if (!isJsonContentType(req.headers['content-type'])) return sendPlain(res, 415, 'Content-Type must be application/json')
-    const body = await readLimitedBody(req, RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_BODY_TIMEOUT_MS)
+    const body = await readLimitedBody(req, RELAY_LAUNCH_BODY_MAX_BYTES, deps.bodyTimeoutMs ?? RELAY_LAUNCH_BODY_TIMEOUT_MS)
     if (res.destroyed) return
     if (!body.ok) {
       const text = body.code === 413 ? 'Payload too large' : body.code === 408 ? 'Request timeout' : 'Bad request'
@@ -177,7 +179,7 @@ export function createLaunchRoute(deps: LaunchRouteDeps): RouteHandler {
     reply(res, 202, { launch: out.launch })
   }
 
-  return guardedRoute({ limiter: deps.limiter, methods: ['POST'], rejectCrossOrigin: true }, async (req, res) => {
+  return guardedRoute({ limiter: deps.limiter, methods: ['POST'], rejectCrossOrigin: true, rateKey: req => req.socket.remoteAddress ?? 'unknown' }, async (req, res) => {
     let pathname = ''
     try { pathname = new URL(req.url ?? '', 'http://localhost').pathname } catch { /* 404 below */ }
     const stopId = STOP_PATH_RE.exec(pathname)?.[1]

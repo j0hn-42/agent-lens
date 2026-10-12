@@ -47,6 +47,7 @@ let issueAnswer: () => Promise<string>
 let lookups: string[][]
 let ua = 0
 let mode: 'enabled' | 'disabled' = 'enabled'
+let bodyTimeoutMs: number | undefined
 
 function build(limiter = new KeyedRateLimiter(1000, 1000, 16)) {
   journal = []; spawned = []; children = []; kills = []; lookups = []
@@ -60,7 +61,7 @@ function build(limiter = new KeyedRateLimiter(1000, 1000, 16)) {
     env: { PATH: '/bin' },
   })
   enabled = createLaunchRoute({
-    limiter, token: TOKEN, allowlist: new Set([REPO.toLowerCase()]), supervisor: sup, newSessionId: () => UUID,
+    limiter, token: TOKEN, ...(bodyTimeoutMs !== undefined ? { bodyTimeoutMs } : {}), allowlist: new Set([REPO.toLowerCase()]), supervisor: sup, newSessionId: () => UUID,
     workspaceOrigin: async () => ORIGIN,
     lookupIssue: async cmd => { lookups.push([cmd.file, ...cmd.args]); return issueAnswer() },
   })
@@ -92,7 +93,7 @@ before(async () => {
   port = (server.address() as { port: number }).port
 })
 after(() => { server.close() })
-beforeEach(() => { mode = 'enabled'; build() })
+beforeEach(() => { mode = 'enabled'; bodyTimeoutMs = undefined; build() })
 
 describe('disabled by default', () => {
   it('answers 404 to everything, with or without token, and starts nothing', async () => {
@@ -159,7 +160,34 @@ describe('guards', () => {
   })
 })
 
+describe('own limiter key', () => {
+  it('is the peer address only: changing User-Agent (client chosen) does not get a fresh budget', async () => {
+    build(new KeyedRateLimiter(3, 0.0001, 16))
+    for (let i = 0; i < 3; i++) assert.notEqual((await post(GOOD)).status, 429, `request ${i + 1}`)
+    // `post` sends a different User-Agent each time
+    assert.equal((await post(GOOD)).status, 429)
+    assert.equal((await post(GOOD, { headers: { Origin: `http://127.0.0.1:${port}` } })).status, 429, 'nor does a same-origin Origin')
+    assert.equal(spawned.length <= 1, true)
+  })
+})
+
 describe('body', () => {
+  it('408 when the body is too slow, using the timeout given to the route', async () => {
+    bodyTimeoutMs = 80
+    build()
+    const status = await new Promise<number>((resolve, reject) => {
+      const r = http.request({
+        host: '127.0.0.1', port, path: '/launch', method: 'POST', agent: false,
+        headers: { 'User-Agent': `slow-${++ua}`, Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json', 'Content-Length': 100 },
+      }, res => { res.resume(); resolve(res.statusCode ?? 0); r.destroy() })
+      r.on('error', e => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(e) })
+      r.write('{"repo":')
+      setTimeout(() => reject(new Error('no 408 within 1.5 s')), 1500).unref()
+    })
+    assert.equal(status, 408)
+    assert.equal(spawned.length, 0)
+  })
+
   it('415 unless the Content-Type is exactly JSON', async () => {
     for (const ct of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data', 'application/jsonx', 'application/json; charset=latin1', 'application/json, text/plain']) {
       assert.equal((await post(GOOD, { headers: { 'Content-Type': ct } })).status, 415, ct)

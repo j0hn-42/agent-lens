@@ -21,6 +21,9 @@ export interface GuardOptions {
   /** Noms d'hôte de tunnel acceptés en plus du loopback (--allow-host, #241). Réservé aux routes en lecture seule ;
    *  pour ces hôtes, seule l'origine https://<hôte> est acceptée. Absent : loopback seul. */
   allowedHosts?: readonly string[]
+  /** Limiter key for loopback callers (default: peer + Origin + User-Agent). Routes that start a process use the peer
+   *  address alone: Origin and User-Agent are chosen by the client, so keying on them lets a caller reset its own budget. */
+  rateKey?: (req: http.IncomingMessage) => string
 }
 
 export function sendPlain(res: http.ServerResponse, code: number, text: string, extra: http.OutgoingHttpHeaders = {}): void {
@@ -59,7 +62,9 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
     if (!req.method || !methods.includes(req.method)) {
       return sendPlain(res, 405, 'Method not allowed', { Allow: allow })
     }
-    const rateKey = hostClass === 'allowed' ? remoteRateKey(req.headers.host ?? '') : statusRateKey(req.socket.remoteAddress, req.headers)
+    const rateKey = hostClass === 'allowed'
+      ? remoteRateKey(req.headers.host ?? '')
+      : options.rateKey ? options.rateKey(req) : statusRateKey(req.socket.remoteAddress, req.headers)
     if (!options.limiter.allow(rateKey)) {
       return sendPlain(res, 429, 'Too many requests', { 'Retry-After': '1' })
     }
