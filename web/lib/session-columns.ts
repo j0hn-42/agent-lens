@@ -111,7 +111,7 @@ export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
   if (watched) {
-    const label = s.status === 'active' ? `watched for ${text}` : `at least ${text} long`
+    const label = s.status === 'active' ? `watched for ${text}, at least that long` : `at least ${text} long`
     return { text: `≥${text}`, label: `${label}, ${SESSION_START_UNRECORDED_TEXT}`, empty: false }
   }
   return { text, label: `${text} ${s.status === 'active' ? 'since start' : 'long'}`, empty: false }
