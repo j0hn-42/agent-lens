@@ -66,7 +66,7 @@ export function detectTeamChanges(
         }
         const from = nameOf(m.from ?? link.from)
         const to = nameOf(m.to ?? link.to)
-        transitions.push({ kind: 'message_sent', id: `${id}#${m.id}`, name: from, from, to })
+        transitions.push({ kind: 'message_sent', id: `${id}#${m.id}`, name: from, from, to, link: id, newOnLink: count - before })
       }
     }
   }

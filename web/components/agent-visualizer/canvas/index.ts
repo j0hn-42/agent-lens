@@ -14,7 +14,7 @@ export { findAgentAt, findToolCallAt, findBubbleAgentAt, findDiscoveryAt, findEd
 export type { HitTarget } from './hit-detection'
 export { DEFAULT_DRAW_OPTS, lodForZoom, createFlashLimiter } from './draw-options'
 export type { DrawOpts } from './draw-options'
-export { buildA11yModel, updateToolHistory, updateCommHistory, pushAnnouncements, enqueueAnnouncements, createAnnouncementQueue } from './a11y-model'
+export { buildA11yModel, updateToolHistory, updateCommHistory, enqueueAnnouncements, createAnnouncementQueue } from './a11y-model'
 export { a11yRecorder, resetRecorder } from './a11y-recorder'
 export type { AnnouncementItem, AnnouncementQueue, A11yModel, ToolHistoryEntry, CommEntry } from './a11y-model'
 export { detectStateChanges } from './detect-state-changes'

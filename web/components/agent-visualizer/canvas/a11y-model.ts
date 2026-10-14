@@ -478,13 +478,15 @@ export function describeTransition(t: StateTransition, opts: { multiSession?: bo
   switch (t.kind) {
     case 'agent_spawn': return `${who(t.name, t.session)} started`
     case 'agent_complete': return `${who(t.name, t.session)} completed`
-    case 'agent_error': return `${who(t.name, t.session)} failed`
-    case 'agent_waiting_permission': return `${who(t.name, t.session)} is waiting for permission`
+    // A state that comes from a history is a last known state, never told as happening now.
+    case 'agent_error': return t.live ? `${who(t.name, t.session)} failed` : `${who(t.name, t.session)}, last known state: failed`
+    case 'agent_waiting_permission':
+      return t.live ? `${who(t.name, t.session)} is waiting for permission` : `${who(t.name, t.session)}, last known state: waiting for permission`
     case 'tool_error': {
       // Name the agent (and its session in the All view) when the transition carries them.
-      if (!t.agent) return `Tool ${t.name} failed`
-      const session = opts.multiSession && t.session ? ` in session ${cleanText(t.session, 60)}` : ''
-      return `Tool ${t.name} failed for agent ${cleanText(t.agent, 60)}${session}`
+      const session = t.agent && opts.multiSession && t.session ? ` in session ${cleanText(t.session, 60)}` : ''
+      const owner = t.agent ? ` for agent ${cleanText(t.agent, 60)}${session}` : ''
+      return t.live ? `Tool ${t.name} failed${owner}` : `Tool ${t.name}${owner}, last known state: failed`
     }
     case 'agent_activity': return `${t.name} is ${t.activity}`
     case 'message_sent': return `${t.from} sent a message to ${t.to}`
@@ -496,48 +498,66 @@ export function describeTransition(t: StateTransition, opts: { multiSession?: bo
 /** More non-actionable transitions than this in one pass (e.g. a session just loaded) collapse into one summary. */
 export const ANNOUNCE_BULK_THRESHOLD = 4
 
-/** Actionable states: never summarised, and announced in the assertive region. */
-function isUrgentTransition(t: StateTransition): boolean {
-  return t.kind === 'agent_error' || t.kind === 'agent_waiting_permission' || t.kind === 'tool_error'
+/** Most actionable sentences read out in one pass; the rest is counted, exactly. */
+const ANNOUNCE_ACTIONABLE_MAX = 3
+
+/** Live failures and permission requests: never summarised. Only the first two kinds are assertive. */
+function isActionable(t: StateTransition): boolean {
+  return (t.kind === 'agent_error' || t.kind === 'agent_waiting_permission' || t.kind === 'tool_error') && t.live
+}
+
+/** Assertive: the agent is blocked or lost. A failed tool call is told politely (the agent often recovers). */
+function isUrgent(t: StateTransition): boolean {
+  return t.kind === 'agent_error' || t.kind === 'agent_waiting_permission'
 }
 
 interface PreparedAnnouncement { text: string, urgent: boolean }
 
+/** Dedupe key: the id of an event when it has a unique one, else its sentence. */
+function dedupeKey(t: StateTransition, text: string): string {
+  if (t.kind === 'tool_error' || t.kind === 'message_sent' || (t.kind.startsWith('agent_') && t.kind !== 'agent_activity')) return `${t.kind}|${t.id}`
+  return `text|${text}`
+}
+
 /**
- * Turn one batch of transitions into announcements. Actionable states keep their own sentence;
- * the rest collapse into a count above the threshold, and several message_sent into a message count.
+ * Turn one batch of transitions into announcements. Live actionable states keep their own sentence
+ * (at most ANNOUNCE_ACTIONABLE_MAX, then an exact remainder); states read from a history are last
+ * known states and are neither urgent nor spared by the summary. The other changes collapse into
+ * a count above the threshold, and messages are counted apart (their own unit).
  */
-function prepareAnnouncements(transitions: StateTransition[], opts: { multiSession?: boolean } = {}, dedupe = false): PreparedAnnouncement[] {
-  const urgent: PreparedAnnouncement[] = []
+function prepareAnnouncements(transitions: StateTransition[], opts: { multiSession?: boolean } = {}): PreparedAnnouncement[] {
+  const actionable: { text: string, urgent: boolean }[] = []
   const calm: string[] = []
-  let messages = 0
+  const messageLinks = new Map<string, { ids: Set<string>, reported: number }>()
   let firstMessage = ''
   const seen = new Set<string>()
   for (const t of transitions) {
     const text = describeTransition(t, opts)
     if (!text) continue
-    if (dedupe) {
-      // Agent transitions dedupe on (agent id, kind): same-named agents of other sessions stay distinct.
-      const key = t.kind.startsWith('agent_') && t.kind !== 'agent_activity' ? `${t.kind}|${t.id}` : `text|${text}`
-      if (seen.has(key)) continue
-      seen.add(key)
-    }
-    if (isUrgentTransition(t)) urgent.push({ text, urgent: true })
-    else if (t.kind === 'message_sent') { if (messages++ === 0) firstMessage = text }
-    else calm.push(text)
+    const key = dedupeKey(t, text)
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (isActionable(t)) actionable.push({ text, urgent: isUrgent(t) })
+    else if (t.kind === 'message_sent') {
+      if (!firstMessage) firstMessage = text
+      const link = messageLinks.get(t.link ?? t.id) ?? { ids: new Set<string>(), reported: 0 }
+      link.ids.add(t.id)
+      link.reported = Math.max(link.reported, t.newOnLink ?? 0)
+      messageLinks.set(t.link ?? t.id, link)
+    } else calm.push(text)
   }
-  if (messages === 1) calm.push(firstMessage)
-  else if (messages > 1) calm.push(`${messages} messages sent between agents`)
+  const shown = actionable.slice(0, ANNOUNCE_ACTIONABLE_MAX)
+  const hidden = actionable.slice(ANNOUNCE_ACTIONABLE_MAX)
+  const out: PreparedAnnouncement[] = shown.map(a => ({ ...a }))
+  if (hidden.length > 0) out.push({ text: `and ${hidden.length} more failures or permission requests`, urgent: hidden.some(h => h.urgent) })
   const polite = calm.length > ANNOUNCE_BULK_THRESHOLD ? [`${calm.length} agent graph updates`] : calm
-  return [...urgent, ...polite.map(text => ({ text, urgent: false }))]
-}
-
-/** Append announcements, keeping only the last `max` (older ones would be read late and out of context). */
-export function pushAnnouncements(current: string[], transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX): string[] {
-  const added = prepareAnnouncements(transitions).map(a => a.text)
-  if (added.length === 0) return current
-  const next = [...current, ...added]
-  return next.length > max ? next.slice(next.length - max) : next
+  for (const text of polite) out.push({ text, urgent: false })
+  // The count is what the links report as new, never fewer than the distinct messages seen.
+  let messages = 0
+  for (const l of messageLinks.values()) messages += Math.max(l.ids.size, l.reported)
+  if (messages === 1) out.push({ text: firstMessage, urgent: false })
+  else if (messages > 1) out.push({ text: `${messages} messages sent between agents`, urgent: false })
+  return out
 }
 
 // ─── Append-only announcement queue (stable ids => stable React keys) ───────
@@ -567,11 +587,11 @@ export function createAnnouncementQueue(): AnnouncementQueue {
 export function enqueueAnnouncements(
   queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
 ): AnnouncementQueue {
-  const added = prepareAnnouncements(transitions, opts, true)
+  const added = prepareAnnouncements(transitions, opts)
   if (added.length === 0) return queue
   let nextId = queue.nextId
   const items = [...queue.items, ...added.map(a => ({ id: nextId++, text: a.text, ...(a.urgent ? { urgent: true as const } : {}) }))]
-  // The window never drops what this very batch added: an actionable state must reach the live region.
+  // The window never drops what this very batch added (bounded: at most 3 + 1 + 4 + 1 sentences): an actionable state must reach the live region.
   const keep = Math.max(max, added.length)
   return { items: items.length > keep ? items.slice(items.length - keep) : items, nextId }
 }

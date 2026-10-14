@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   buildGraphLabel, buildA11yModel, updateToolHistory, updateCommHistory,
-  describeTransition, pushAnnouncements, ANNOUNCE_BULK_THRESHOLD,
+  describeTransition, ANNOUNCE_BULK_THRESHOLD,
 } from '../web/components/agent-visualizer/canvas/a11y-model'
 import { keyToAction, stepFocus, buildNodeOrder, locateNode } from '../web/components/agent-visualizer/canvas/keyboard-nav'
 import {
@@ -96,22 +96,16 @@ test('communication history records labelled dispatch/return particles once', ()
 
 test('transitions become short announcements, bulk updates collapse', () => {
   assert.equal(describeTransition({ kind: 'agent_spawn', id: 'a', name: 'X' }), 'Agent X started')
-  assert.equal(describeTransition({ kind: 'agent_waiting_permission', id: 'a', name: 'X' }), 'Agent X is waiting for permission')
-  assert.equal(describeTransition({ kind: 'agent_error', id: 'a', name: 'X' }), 'Agent X failed')
+  assert.equal(describeTransition({ kind: 'agent_waiting_permission', id: 'a', name: 'X', live: true }), 'Agent X is waiting for permission')
+  assert.equal(describeTransition({ kind: 'agent_error', id: 'a', name: 'X', live: true }), 'Agent X failed')
   assert.equal(describeTransition({ kind: 'agent_complete', id: 'a', name: 'X' }), 'Agent X completed')
-  assert.equal(describeTransition({ kind: 'tool_error', id: 't', name: 'Bash' }), 'Tool Bash failed')
+  assert.equal(describeTransition({ kind: 'tool_error', id: 't', name: 'Bash', live: true }), 'Tool Bash failed')
   assert.equal(describeTransition({ kind: 'tool_start', id: 't', name: 'Bash' }), null)
 
-  const same: string[] = []
-  assert.equal(pushAnnouncements(same, [{ kind: 'tool_start', id: 't', name: 'Bash' }]), same, 'unchanged array when nothing to announce')
-
   const many = Array.from({ length: ANNOUNCE_BULK_THRESHOLD + 1 }, (_, i) => ({ kind: 'agent_spawn' as const, id: `a${i}`, name: `n${i}` }))
-  assert.deepEqual(pushAnnouncements([], many), [`${many.length} agent graph updates`])
-
-  let log: string[] = []
-  for (let i = 0; i < 5; i++) log = pushAnnouncements(log, [{ kind: 'agent_error', id: `a${i}`, name: `n${i}` }])
-  assert.equal(log.length, 3)
-  assert.equal(log[2], 'Agent n4 failed')
+  assert.deepEqual(enqueueAnnouncements(createAnnouncementQueue(), many).items.map(i => i.text), [`${many.length} agent graph updates`])
+  const none = createAnnouncementQueue()
+  assert.equal(enqueueAnnouncements(none, [{ kind: 'tool_start', id: 't', name: 'Bash' }]), none, 'same queue when nothing to announce')
 })
 
 // ─── #2 keyboard ────────────────────────────────────────────────────────────
@@ -259,7 +253,7 @@ test('announcement queue keeps stable ids when the window slides', () => {
   let q = createAnnouncementQueue()
   const ids: number[][] = []
   for (let i = 0; i < 6; i++) {
-    q = enqueueAnnouncements(q, [{ kind: 'agent_error', id: `a${i}`, name: `n${i}` }])
+    q = enqueueAnnouncements(q, [{ kind: 'agent_error', id: `a${i}`, name: `n${i}`, live: true }])
     ids.push(q.items.map(x => x.id))
   }
   assert.deepEqual(ids[2], [1, 2, 3])
@@ -273,7 +267,7 @@ test('announcement queue dedupes within a batch and returns same queue when empt
   const same = enqueueAnnouncements(q, [{ kind: 'tool_start', id: 't', name: 'Bash' }])
   assert.equal(same, q)
   const dup = enqueueAnnouncements(q, [
-    { kind: 'agent_error', id: 'a', name: 'X' }, { kind: 'agent_error', id: 'a', name: 'X' },
+    { kind: 'agent_error', id: 'a', name: 'X', live: true }, { kind: 'agent_error', id: 'a', name: 'X', live: true },
   ])
   assert.equal(dup.items.length, 1)
 })
@@ -282,8 +276,8 @@ test('announcement queue dedupes within a batch and returns same queue when empt
 
 test('vue multi-session : deux agents homonymes de sessions différentes donnent deux annonces nommant leur session', () => {
   const q = enqueueAnnouncements(createAnnouncementQueue(), [
-    { kind: 'agent_waiting_permission', id: 's1:orchestrator', name: 'orchestrator', session: 'api-refactor' },
-    { kind: 'agent_waiting_permission', id: 's2:orchestrator', name: 'orchestrator', session: 'docs-site' },
+    { kind: 'agent_waiting_permission', id: 's1:orchestrator', name: 'orchestrator', session: 'api-refactor', live: true },
+    { kind: 'agent_waiting_permission', id: 's2:orchestrator', name: 'orchestrator', session: 'docs-site', live: true },
   ], undefined, { multiSession: true })
   assert.deepEqual(q.items.map(i => i.text), [
     'Agent orchestrator in session api-refactor is waiting for permission',
@@ -292,7 +286,7 @@ test('vue multi-session : deux agents homonymes de sessions différentes donnent
 })
 
 test('vue d\'une seule session : texte inchangé, sans libellé de session', () => {
-  const t = { kind: 'agent_error', id: 's1:a', name: 'X', session: 'api-refactor' } as const
+  const t = { kind: 'agent_error', id: 's1:a', name: 'X', session: 'api-refactor', live: true } as const
   assert.equal(describeTransition(t), 'Agent X failed')
   const q = enqueueAnnouncements(createAnnouncementQueue(), [t], undefined, { multiSession: false })
   assert.equal(q.items[0].text, 'Agent X failed')
@@ -384,27 +378,83 @@ test('buildGraphLabel counts a stale idle agent as last known, like the top bar 
 test('a burst of 10 transitions keeps the permission request and the failures out of the summary', () => {
   const burst: any[] = []
   for (let i = 0; i < 7; i++) burst.push({ kind: 'agent_spawn', id: `s${i}`, name: `n${i}` })
-  burst.push({ kind: 'agent_waiting_permission', id: 'p', name: 'Planner' })
-  burst.push({ kind: 'agent_error', id: 'e', name: 'Builder' })
-  burst.push({ kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder' })
+  burst.push({ kind: 'agent_waiting_permission', id: 'p', name: 'Planner', live: true })
+  burst.push({ kind: 'agent_error', id: 'e', name: 'Builder', live: true })
+  burst.push({ kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder', live: true })
   const q = enqueueAnnouncements(createAnnouncementQueue(), burst)
   const urgent = q.items.filter(i => i.urgent).map(i => i.text)
-  assert.deepEqual(urgent, ['Agent Planner is waiting for permission', 'Agent Builder failed', 'Tool Bash failed for agent Builder'])
+  assert.deepEqual(urgent, ['Agent Planner is waiting for permission', 'Agent Builder failed'])
   const polite = q.items.filter(i => !i.urgent).map(i => i.text)
-  assert.deepEqual(polite, ['7 agent graph updates'], 'only the non-actionable ones are summarised')
+  assert.deepEqual(polite, ['Tool Bash failed for agent Builder', '7 agent graph updates'], 'a tool failure is polite but never summarised')
 })
 
 test('tool_error names the agent, and its session in the All view', () => {
-  const t: any = { kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder', session: 'api' }
+  const t: any = { kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder', session: 'api', live: true }
   assert.equal(describeTransition(t), 'Tool Bash failed for agent Builder')
   assert.equal(describeTransition(t, { multiSession: true }), 'Tool Bash failed for agent Builder in session api')
-  assert.equal(enqueueAnnouncements(createAnnouncementQueue(), [t]).items[0].urgent, true)
+  assert.equal(enqueueAnnouncements(createAnnouncementQueue(), [t]).items[0].urgent ?? false, false, 'a tool failure is told in the polite region')
 })
 
 test('several message_sent in one batch collapse into one provable count', () => {
-  const m = (i: number): any => ({ kind: 'message_sent', id: `m${i}`, name: 'Lead', from: 'Lead', to: `A${i}` })
-  const one = enqueueAnnouncements(createAnnouncementQueue(), [m(1)])
+  const m = (i: number, n: number): any => ({ kind: 'message_sent', id: `m${i}`, name: 'Lead', from: 'Lead', to: `A${i}`, link: 'l', newOnLink: n })
+  const one = enqueueAnnouncements(createAnnouncementQueue(), [m(1, 1)])
   assert.deepEqual(one.items.map(i => i.text), ['Lead sent a message to A1'])
-  const many = enqueueAnnouncements(createAnnouncementQueue(), [m(1), m(2), m(3)])
+  const many = enqueueAnnouncements(createAnnouncementQueue(), [m(1, 3), m(2, 3), m(3, 3)])
   assert.deepEqual(many.items.map(i => i.text), ['3 messages sent between agents'])
+})
+
+// ─── #379 review: replayed history, caps, honest counts ───
+test('B1: 20 agent_error of one pass give at most 3 urgent sentences plus an exact remainder', () => {
+  const errs: any[] = Array.from({ length: 20 }, (_, i) => ({ kind: 'agent_error', id: `e${i}`, name: `n${i}`, live: true }))
+  const q = enqueueAnnouncements(createAnnouncementQueue(), errs)
+  const urgent = q.items.filter(i => i.urgent).map(i => i.text)
+  assert.equal(urgent.length, 4)
+  assert.deepEqual(urgent.slice(0, 3), ['Agent n0 failed', 'Agent n1 failed', 'Agent n2 failed'])
+  assert.equal(urgent[3], 'and 17 more failures or permission requests')
+})
+
+test('B1: a state read from history is never announced as live nor as urgent', async () => {
+  const { detectStateChanges } = await import('../web/components/agent-visualizer/canvas/detect-state-changes')
+  const mk = (id: string, freshnessSource?: string): any => ({ id, sessionId: 's', name: id, state: 'error', opacity: 1, x: 0, y: 0, freshnessSource })
+  const agents = new Map<string, any>([['h', mk('h', 'history')], ['i', mk('i', 'imported')], ['l', mk('l', 'live')], ['u', mk('u')]])
+  const prev = new Map([['h', 'thinking'], ['i', 'thinking'], ['l', 'thinking'], ['u', 'thinking']])
+  const { transitions } = detectStateChanges(agents, new Map(), prev, new Map())
+  const q = enqueueAnnouncements(createAnnouncementQueue(), transitions)
+  assert.deepEqual(q.items.filter(i => i.urgent).map(i => i.text), ['Agent l failed'])
+  assert.deepEqual(q.items.filter(i => !i.urgent).map(i => i.text), [
+    'Agent h, last known state: failed', 'Agent i, last known state: failed', 'Agent u, last known state: failed',
+  ])
+})
+
+test('S3: a live tool_error stays out of the summary but in the polite region', () => {
+  const burst: any[] = Array.from({ length: 6 }, (_, i) => ({ kind: 'agent_spawn', id: `s${i}`, name: `n${i}` }))
+  burst.push({ kind: 'tool_error', id: 't1', name: 'Bash', agent: 'B', live: true }, { kind: 'tool_error', id: 't1', name: 'Bash', agent: 'B', live: true })
+  const q = enqueueAnnouncements(createAnnouncementQueue(), burst)
+  assert.deepEqual(q.items.filter(i => i.urgent), [])
+  assert.deepEqual(q.items.map(i => i.text), ['Tool Bash failed for agent B', '6 agent graph updates'], 'deduplicated on id, not on text')
+})
+
+test('S1: the message count is the real number of new messages, not the capped one', () => {
+  const m = (i: number, newOnLink: number): any => ({ kind: 'message_sent', id: `l#${i}`, link: 'l', name: 'A', from: 'A', to: 'B', newOnLink })
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [m(8, 9), m(9, 9)])
+  assert.deepEqual(q.items.map(i => i.text), ['9 messages sent between agents'])
+  const dup = enqueueAnnouncements(createAnnouncementQueue(), [m(1, 1), m(1, 1)])
+  assert.deepEqual(dup.items.map(i => i.text), ['A sent a message to B'])
+})
+
+test('S1: detectTeamChanges tells how many messages are new on a link', async () => {
+  const { detectTeamChanges, createTeamPrev } = await import('../web/components/agent-visualizer/canvas/team-changes')
+  const link = (n: number): any => ({ id: 'l', sessionId: 's', from: 'a', to: 'b', dropped: 0, messages: Array.from({ length: n }, (_, i) => ({ id: `m${i}` })) })
+  const a = new Map<string, any>([['a', agent({ id: 'a', name: 'A' })], ['b', agent({ id: 'b', name: 'B' })]])
+  const first = detectTeamChanges(a, new Map([['l', link(1)]]), createTeamPrev())
+  const out = detectTeamChanges(a, new Map([['l', link(8)]]), first.next)
+  assert.equal(out.transitions.length, 2)
+  assert.equal((out.transitions[0] as any).newOnLink, 7)
+})
+
+test('S2: the summary and the message count do not share a unit', () => {
+  const burst: any[] = Array.from({ length: 5 }, (_, i) => ({ kind: 'agent_spawn', id: `s${i}`, name: `n${i}` }))
+  const msgs: any[] = [1, 2, 3].map(i => ({ kind: 'message_sent', id: `l#${i}`, link: 'l', name: 'A', from: 'A', to: 'B', newOnLink: 3 }))
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [...burst, ...msgs])
+  assert.deepEqual(q.items.map(i => i.text), ['5 agent graph updates', '3 messages sent between agents'])
 })

@@ -9,19 +9,25 @@ function sessionOf(agent: Agent): string {
   return agent.sessionLabel || agent.sessionId
 }
 
+/** Only a state seen happening is live: a history, an import or an unknown source is a last known state. */
+function isLive(agent: Agent | undefined): boolean {
+  return agent?.freshnessSource === 'live'
+}
+
 /** A semantic state transition detected between frames. */
 export type StateTransition =
   | { kind: 'agent_spawn'; id: string; name: string; session?: string }
   | { kind: 'agent_complete'; id: string; name: string; session?: string }
-  | { kind: 'agent_error'; id: string; name: string; session?: string }
-  | { kind: 'agent_waiting_permission'; id: string; name: string; session?: string }
+  /** `live`: the agent was heard from by a live event; false when its state comes from a replayed or imported history */
+  | { kind: 'agent_error'; id: string; name: string; session?: string; live: boolean }
+  | { kind: 'agent_waiting_permission'; id: string; name: string; session?: string; live: boolean }
   | { kind: 'tool_start'; id: string; name: string }
   | { kind: 'tool_complete'; id: string; name: string }
-  | { kind: 'tool_error'; id: string; name: string; agent?: string; session?: string }
+  | { kind: 'tool_error'; id: string; name: string; agent?: string; session?: string; live: boolean }
   /** A teammate changed activity ('working' | 'idle' | 'done') */
   | { kind: 'agent_activity'; id: string; name: string; activity: string }
   /** A new message travelled on a link */
-  | { kind: 'message_sent'; id: string; name: string; from: string; to: string }
+  | { kind: 'message_sent'; id: string; name: string; from: string; to: string; link?: string; newOnLink?: number }
 
 /**
  * `shownAgents` (optional): the agents on screen. States are tracked for every agent given, but
@@ -82,8 +88,8 @@ export function detectStateChanges(
 
     // Error / permission request: just entered that state (announced to screen readers)
     if (oldState && oldState !== agent.state) {
-      if (agent.state === 'error') transitions.push({ kind: 'agent_error', id, name: agent.name, session: sessionOf(agent) })
-      else if (agent.state === 'waiting_permission') transitions.push({ kind: 'agent_waiting_permission', id, name: agent.name, session: sessionOf(agent) })
+      if (agent.state === 'error') transitions.push({ kind: 'agent_error', id, name: agent.name, session: sessionOf(agent), live: isLive(agent) })
+      else if (agent.state === 'waiting_permission') transitions.push({ kind: 'agent_waiting_permission', id, name: agent.name, session: sessionOf(agent), live: isLive(agent) })
     }
   }
 
@@ -125,7 +131,7 @@ export function detectStateChanges(
     // Tool errored
     if (oldState === 'running' && tool.state === 'error') {
       const owner = agents.get(tool.agentId)
-      transitions.push({ kind: 'tool_error', id, name: tool.toolName, agent: owner?.name, session: owner ? sessionOf(owner) : undefined })
+      transitions.push({ kind: 'tool_error', id, name: tool.toolName, agent: owner?.name, session: owner ? sessionOf(owner) : undefined, live: isLive(owner) })
     }
   }
 
