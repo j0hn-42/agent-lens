@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Agent } from '@/lib/agent-types'
 import {
   DEFAULT_PRESENTATION_OPTIONS, PRESENTATION_STORAGE_KEY, parsePresentationOptions, serializePresentationOptions,
-  snapshotOf, transitionSubtitle, observedLive, type AgentSnapshot, type PresentationOptions,
+  nextSnapshot, transitionSubtitle, observedLive, type AgentSnapshot, type PresentationOptions,
 } from '@/lib/presentation'
 
 /** How long a subtitle stays on screen */
@@ -60,7 +60,7 @@ export function usePresentationSubtitle(agents: ReadonlyMap<string, Agent>, { en
     const next = new Map<string, AgentSnapshot>()
     let latest: { at: number; text: string } | null = null
     for (const [id, agent] of agents) {
-      next.set(id, snapshotOf(agent))
+      next.set(id, nextSnapshot(seen?.get(id), agent))
       if (!seen) continue
       const sentence = transitionSubtitle(seen.get(id), agent, mask)
       if (sentence === null) continue

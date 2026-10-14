@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   PRESENTATION_STORAGE_KEY, DEFAULT_PRESENTATION_OPTIONS, parsePresentationOptions, serializePresentationOptions,
-  maskText, maskedClusterLabelSource, agentRoleLabel, snapshotOf, transitionSubtitle, pickFollowAgent, followTransform,
+  maskText, maskedClusterLabelSource, agentRoleLabel, nextSnapshot, transitionSubtitle, pickFollowAgent, followTransform,
   MAX_SUBTITLE_LENGTH, INITIAL_FOLLOW, stepFollow,
 } from '../web/lib/presentation'
 import { SHORTCUTS } from '../web/lib/shortcuts'
@@ -63,20 +63,20 @@ test('agentRoleLabel names the role, never the prompt', () => {
 })
 
 test('transitionSubtitle: a state change observed live gives a sentence with both states', () => {
-  const prev = snapshotOf(agent({ id: 'a', name: 'Refactor payments', state: 'thinking' }))
+  const prev = nextSnapshot(undefined, agent({ id: 'a', name: 'Refactor payments', state: 'thinking' }))
   const next = agent({ id: 'a', name: 'Refactor payments', state: 'tool_calling', currentTool: 'Read', freshnessSource: 'live', lastEventAt: 5 })
   assert.equal(transitionSubtitle(prev, next, false), 'Refactor payments: Thinking → Calling tool Read')
 })
 
 test('transitionSubtitle: no change, no subtitle', () => {
   const a = agent({ id: 'a', state: 'thinking', lastEventAt: 1 })
-  assert.equal(transitionSubtitle(snapshotOf(a), { ...a, x: 10 }, false), null)
+  assert.equal(transitionSubtitle(nextSnapshot(undefined, a), { ...a, x: 10 }, false), null)
 })
 
 test('transitionSubtitle: a new tool while still calling tools is a transition', () => {
   const a = agent({ id: 'a', name: 'Main', state: 'tool_calling', currentTool: 'Read', lastEventAt: 1 })
   const b = { ...a, currentTool: 'Edit' }
-  assert.equal(transitionSubtitle(snapshotOf(a), b, false), 'Main: Calling tool Read → Calling tool Edit')
+  assert.equal(transitionSubtitle(nextSnapshot(undefined, a), b, false), 'Main: Calling tool Read → Calling tool Edit')
 })
 
 test('transitionSubtitle: an agent unknown before is announced as started, with its observed state', () => {
@@ -85,7 +85,7 @@ test('transitionSubtitle: an agent unknown before is announced as started, with 
 })
 
 test('transitionSubtitle: replayed history and imported transcripts prove no live transition', () => {
-  const prev = snapshotOf(agent({ id: 'a', state: 'thinking' }))
+  const prev = nextSnapshot(undefined, agent({ id: 'a', state: 'thinking' }))
   for (const freshnessSource of ['history', 'imported'] as const) {
     assert.equal(transitionSubtitle(prev, agent({ id: 'a', state: 'complete', freshnessSource, lastEventAt: 1 }), false), null)
     assert.equal(transitionSubtitle(undefined, agent({ id: 'a', state: 'thinking', freshnessSource, lastEventAt: 1 }), false), null)
@@ -93,11 +93,11 @@ test('transitionSubtitle: replayed history and imported transcripts prove no liv
 })
 
 test('transitionSubtitle: an agent never observed live (no lastEventAt) proves nothing', () => {
-  assert.equal(transitionSubtitle(snapshotOf(agent({ id: 'a', state: 'idle' })), agent({ id: 'a', state: 'thinking' }), false), null)
+  assert.equal(transitionSubtitle(nextSnapshot(undefined, agent({ id: 'a', state: 'idle' })), agent({ id: 'a', state: 'thinking' }), false), null)
 })
 
 test('transitionSubtitle: masked, the name is the role and the tool is the only free text kept', () => {
-  const prev = snapshotOf(agent({ id: 'a', state: 'thinking', isMain: true }))
+  const prev = nextSnapshot(undefined, agent({ id: 'a', state: 'thinking', isMain: true }))
   const next = agent({ id: 'a', name: 'Fix the leak in /home/jo/client/secret.ts', isMain: true, state: 'tool_calling', currentTool: 'Edit', lastEventAt: 1 })
   const s = transitionSubtitle(prev, next, true)!
   assert.equal(s, 'Main agent: Thinking → Calling tool Edit')
@@ -105,14 +105,14 @@ test('transitionSubtitle: masked, the name is the role and the tool is the only 
 })
 
 test('transitionSubtitle: an MCP tool shows its tool, not the server', () => {
-  const prev = snapshotOf(agent({ id: 'a', state: 'thinking' }))
+  const prev = nextSnapshot(undefined, agent({ id: 'a', state: 'thinking' }))
   const s = transitionSubtitle(prev, agent({ id: 'a', name: 'M', state: 'tool_calling', currentTool: 'mcp__crm_prod__lookup_customer', lastEventAt: 1 }), false)!
   assert.ok(s.endsWith('Calling tool lookup_customer'), s)
   assert.ok(!s.includes('crm_prod'))
 })
 
 test('transitionSubtitle: control characters are stripped and the length is bounded', () => {
-  const prev = snapshotOf(agent({ id: 'a', state: 'thinking' }))
+  const prev = nextSnapshot(undefined, agent({ id: 'a', state: 'thinking' }))
   const s = transitionSubtitle(prev, agent({ id: 'a', name: 'x\u0000y\n' + 'z'.repeat(500), state: 'complete', lastEventAt: 1 }), false)!
   assert.ok(!/[\u0000-\u001f]/.test(s))
   assert.ok(s.length <= MAX_SUBTITLE_LENGTH)
