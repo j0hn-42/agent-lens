@@ -37,6 +37,8 @@ test('attention: a live permission still pending past the freshness window is co
   assert.equal(sum.firstAgentId, 'old')
   const expired = { ...a('h', 's', 'waiting_permission', 16 * 60_000), freshnessSource: 'history' as const }
   assert.equal(summarizeAttention([expired], NOW).waiting, 0)
+  const justReplayed = { ...a('h', 's', 'waiting_permission', 0), freshnessSource: 'history' as const }
+  assert.equal(summarizeAttention([justReplayed], NOW).waiting, 0, 'a permission read from history is not proven pending (#361)')
   assert.equal(summarizeAttention([{ id: 'n', sessionId: 's', state: 'waiting_permission' }], NOW).total, 0, 'never observed')
 })
 

@@ -99,14 +99,17 @@ export interface SessionSpan {
 
 /**
  * Duration of a session: elapsed since the start while it is active, start to last activity once it is
- * completed. Unknown (dash) when the end of a completed session was never observed.
+ * completed. Unknown (dash) when the end of a completed session was never observed. While the relay is offline
+ * (`relayOffline`) an active session is not proven to run: its duration stops at its last activity (#367).
  */
-export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
-  const end = s.status === 'active' ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
+export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = false): ColumnCell {
+  const running = s.status === 'active' && !relayOffline
+  const end = running ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
   const ms = end - s.startTime
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
-  return { text, label: `${text} ${s.status === 'active' ? 'since start' : 'long'}`, empty: false }
+  const suffix = running ? 'since start' : s.status === 'active' ? 'until last activity' : 'long'
+  return { text, label: `${text} ${suffix}`, empty: false }
 }
 
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */

@@ -6,29 +6,32 @@ import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
 import { formatCostUsage, spokenCostUsage, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
-import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
  * session that no event was ever received for (and with no live hook flag) is 'unobserved': it is
  * listed, but whether it is idle or working is unknown (issue #52), so it never reads 'active'.
- * `isObservedId` defaults to the app-wide observation tracker.
+ * `isObservedId` defaults to the app-wide observation tracker. While the relay is offline (`relayOffline`), an
+ * active session is 'offline': no event can arrive, so it is not shown as active (#367).
  */
 export function sessionStatusKind(
   session: Pick<SessionInfo, 'status' | 'indexedOnly' | 'imported'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
+  relayOffline = false,
 ): SessionStatusKind {
   // The index proves neither detection nor an end: never shown as completed
   if (session.indexedOnly) return 'indexed'
   // Read from a file: neither live activity nor a witnessed end (#294)
   if (session.imported) return 'imported'
+  if (relayOffline && session.status === 'active') return 'offline'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
@@ -41,6 +44,7 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   unobserved: SESSION_NOT_OBSERVED_TEXT,
   indexed: SESSION_INDEXED_TEXT,
   imported: SESSION_IMPORTED_TEXT,
+  offline: SESSION_OFFLINE_TEXT,
 }
 
 export interface TabItem {
@@ -142,24 +146,31 @@ export function scrubberValueText(current: number, total: number): string {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-/** "5 agents: 2 active - 3 done"; agents whose status is no longer proven are counted apart ("- 4 last known state"). */
-export function formatAgentCounts(active: number, done: number, stale = 0): string {
+/**
+ * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
+ * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
+ */
+export function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const staleText = stale > 0 ? ` - ${stale} last known state` : ''
-  return `${pluralize(active + done + stale, 'agent')}: ${active} active${staleText} - ${done} done`
+  const idleText = idle > 0 ? ` - ${idle} idle` : ''
+  const errorText = error > 0 ? ` - ${error} error` : ''
+  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
 }
 
-/** Splits agents into done, stale (status older than the freshness limit: only a last known state) and active. */
+/** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */
 export function agentActivityCounts(
   agents: Iterable<{ state: string; lastEventAt?: number }>,
   now: number,
-): { active: number; done: number; stale: number } {
-  let active = 0, done = 0, stale = 0
+): { active: number; done: number; stale: number; idle: number; error: number } {
+  let active = 0, done = 0, stale = 0, idle = 0, error = 0
   for (const a of agents) {
     if (a.state === 'complete') done++
     else if (deriveFreshness(a, now) === 'stale') stale++
+    else if (a.state === 'idle') idle++
+    else if (a.state === 'error') error++
     else active++
   }
-  return { active, done, stale }
+  return { active, done, stale, idle, error }
 }
 
 /** "3 sessions - 12 agents - ~$1.23" (summary shown in the top bar while the 'All' tab is selected) */
@@ -282,14 +293,14 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): Co
 }
 
 /**
- * Badge of the playback bar. Follows the real connection: LIVE (pulsing) only while the relay is
- * connected or watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ * Badge of the playback bar. Follows the real connection with the top bar's wording: LIVE (pulsing) only while the relay is
+ * watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
  */
 export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
   if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
-  if (status === 'connected' || status === 'watching') return { label: 'LIVE', live: true, tone: 'ok' }
   const d = connectionDisplay(status, false)
-  return { label: d.label, live: false, tone: d.tone }
+  // Same word as the top bar; it pulses only while activity is actually watched (a bare connection proves less)
+  return { label: d.label, live: status === 'watching', tone: d.tone }
 }
 
 /** Text for the sr-only polite live region. Only state changes alter it. */

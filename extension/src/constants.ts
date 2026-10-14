@@ -5,9 +5,8 @@
 
 // ─── Timing ──────────────────────────────────────────────────────────────────
 
-/** How long to wait before declaring a session inactive (ms).
- *  Claude can think for several minutes with extended thinking,
- *  so this needs to be generous to avoid false "completed" state. */
+/** Former inactivity threshold (ms). A silence no longer ends anything (#360): no production code reads it,
+ *  the tests use it to prove that a silence this long changes no state. */
 export const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutes
 
 /** Interval between active-session directory scans (ms) */
@@ -39,8 +38,7 @@ export const POLL_FALLBACK_MS = 3000
 export const PERMISSION_DETECT_MS = 5000
 
 /** JSONL files modified within this many seconds are considered active
- *  at discovery time. Must be longer than INACTIVITY_TIMEOUT_MS to avoid
- *  dropping sessions during long thinking pauses.
+ *  at discovery time. Long enough not to drop a session during a long thinking pause.
  *
  *  Filter is discovery-time only — stale sessions that receive new writes
  *  refresh their mtime and are picked up by the next scan tick

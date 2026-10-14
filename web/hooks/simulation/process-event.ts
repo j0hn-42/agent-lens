@@ -17,7 +17,7 @@ import { handleMessage, handleContextUpdate, handleContextCompacted } from './ha
 import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-events'
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
 import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
-import { heardFrom, importedFrom } from './freshness'
+import { heardFrom, historyFrom, importedFrom } from './freshness'
 import { advanceAgentActiveTime } from './track-active-time'
 
 export interface ProcessEventContext {
@@ -205,7 +205,8 @@ export interface EventBatchOptions {
   advanceClock?: boolean
   /**
    * Wall clock (ms) the events were received at (live path): after each event, the agents it touched are
-   * heard from at that time and, unless the event is a replayed one, their active span moves.
+   * heard from at that time (live, or 'history' for a replayed event, #361) and, unless the event is a replayed
+   * one, their active span moves.
    */
   receivedAt?: number
   /** Asked after each event; true stops the batch there (frame budget) */
@@ -240,7 +241,9 @@ export function processEventBatch(
         for (const [id, before] of writes.before) {
           const agent = Map.prototype.get.call(state.agents, id) as Agent | undefined
           if (!agent || agent === before) continue
-          const heard = event.imported ? importedFrom(agent, receivedAt) : heardFrom(agent, receivedAt)
+          const heard = event.imported ? importedFrom(agent, receivedAt)
+            : event.replayed ? historyFrom(agent, receivedAt)
+            : heardFrom(agent, receivedAt)
           Map.prototype.set.call(state.agents, id, event.replayed ? heard : advanceAgentActiveTime(before, heard, receivedAt))
         }
       }

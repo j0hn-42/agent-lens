@@ -185,6 +185,8 @@ export interface TopBarProps {
   activeAgentCount: number
   /** Agents whose status is older than the freshness limit (not counted as active) */
   staleAgentCount?: number
+  idleAgentCount?: number
+  errorAgentCount?: number
   doneAgentCount: number
   totalTokens: number
   /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
@@ -234,7 +236,7 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   isVSCode, connectionStatus, isDemo = false,
-  activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
@@ -346,11 +348,11 @@ export const TopBar = memo(function TopBar({
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
           <span data-testid="topbar-all-summary">
             {/* "~$1.23" on screen; screen readers skip "~" and "-", so they get the estimate in words (#364) */}
-            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
-            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
           </span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount)}</span>
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
         )}
         <span>
           {/* A sum of what each context holds now, not of what was consumed (#364) */}

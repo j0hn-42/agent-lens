@@ -114,6 +114,11 @@ export const SESSION_IMPORTED_TEXT = 'imported - not live'
 export const SESSION_IMPORTED_HELP =
   'Read once from an imported transcript file. It shows what the file recorded up to its last line, never a live state: whether the session is still running elsewhere is unknown.'
 
+/** Visible status of an active session while the relay is offline (#367): nothing proves it still runs. */
+export const SESSION_OFFLINE_TEXT = 'status unknown (relay offline)'
+export const SESSION_OFFLINE_HELP =
+  'The relay is offline, so no event can arrive: whether this session is still running is unknown. Its duration stops at its last observed activity.'
+
 /** Sessions the app really watches: the entries listed only from the session index are left out. */
 export function detectedSessions<T extends { indexedOnly?: boolean }>(sessions: ReadonlyArray<T>): T[] {
   return sessions.filter(s => !s.indexedOnly)

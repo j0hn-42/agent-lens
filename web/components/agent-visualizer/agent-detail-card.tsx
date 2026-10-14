@@ -218,11 +218,14 @@ export function AgentDetailCard({
 
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
-          <span data-testid="inspector-freshness">{FRESHNESS_TEXT[freshness]}</span>
+          {/* A history status is never live (#361): it was received, not seen happening, and never "no longer reporting" */}
+          <span data-testid="inspector-freshness">{freshness === 'stale' && agent.freshnessSource === 'history' ? 'From history' : FRESHNESS_TEXT[freshness]}</span>
           {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
             {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
-              ? `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'history' ? ' (history)' : agent.freshnessSource === 'imported' ? ' (imported transcript)' : ''}`
+              ? agent.freshnessSource === 'history'
+                ? `history received ${formatClockTime(agent.lastEventAt)}`
+                : `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'imported' ? ' (imported transcript)' : ''}`
               : 'no event observed'}
           </span>
           {typeof toolErrors === 'number' && (

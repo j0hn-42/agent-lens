@@ -3,6 +3,7 @@
  * No React and no canvas here, so everything is unit-testable under node:test.
  * Imports are relative (not "@/") on purpose: the root test runner has no path aliases.
  */
+import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
@@ -268,6 +269,8 @@ export interface A11yExtras {
   collapse?: CollapseView
   teams?: Map<string, TeamSummary>
   simTime?: number
+  /** Wall clock (ms): with it, a stale agent is announced as its last known state, like the canvas (#367) */
+  now?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Proven parent -> child session links, worded in the heading of the clusters they connect */
@@ -278,17 +281,27 @@ export interface A11yExtras {
   fileAttention?: ReadonlyMap<string, FileAttention>
 }
 
-/** "3 agents, 2 running, 1 waiting for permission" */
-export function buildGraphLabel(agents: Iterable<Pick<Agent, 'state'>>, teamCount = 0): string {
-  let total = 0, running = 0, waiting = 0, errored = 0
+/**
+ * "3 agents, 2 running, 1 waiting for permission". With `now`, an agent whose status is stale (#367) is
+ * not counted as running or waiting: nothing proves it, so it is counted apart ("1 last known").
+ */
+export function buildGraphLabel(
+  agents: Iterable<Pick<Agent, 'state'> & Partial<Pick<Agent, 'lastEventAt' | 'freshnessSource'>>>,
+  teamCount = 0,
+  now?: number,
+): string {
+  let total = 0, running = 0, waiting = 0, errored = 0, lastKnown = 0
   for (const a of agents) {
     total++
-    if (a.state === 'thinking' || a.state === 'tool_calling') running++
+    // Same split as the top bar: any stale status (idle included) is only the last known one
+    if (now !== undefined && deriveFreshness(a, now) === 'stale') lastKnown++
+    else if (a.state === 'thinking' || a.state === 'tool_calling') running++
     else if (a.state === 'waiting_permission') waiting++
     else if (a.state === 'error') errored++
   }
   if (total === 0) return 'Agent graph: no agents yet'
   const parts = [`${total} ${total === 1 ? 'agent' : 'agents'}`, `${running} running`, `${waiting} waiting for permission`]
+  if (lastKnown > 0) parts.push(`${lastKnown} last known state, not confirmed`)
   if (errored > 0) parts.push(`${errored} in error`)
   if (teamCount > 0) parts.push(`${teamCount} ${teamCount === 1 ? 'team' : 'teams'}`)
   return `Agent graph: ${parts.join(', ')}`
@@ -317,7 +330,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
@@ -325,13 +338,14 @@ export function buildA11yModel(
   for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.set(e.to, unverifiedReasonText(e.unverifiedReason))
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
+    const stale = extras.now !== undefined && deriveFreshness(a, extras.now) === 'stale'
     const parent = a.parentId ? agents.get(a.parentId) : undefined
     const tools = toolsByAgent.get(a.id) ?? []
     agentItems.push({
       id: a.id,
       name: a.name,
       state: a.state,
-      stateText: stateText(a.state),
+      stateText: stale ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
       tokens: tokenSummary(a),
@@ -346,7 +360,8 @@ export function buildA11yModel(
       teamName: cleanText(a.teamName) || undefined,
       teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
       phase: a.teamKind === 'workflow' ? cleanText(a.phase, 40) || undefined : undefined,
-      activityText: teammateActivity(a),
+      // A stale teammate is not announced as working: the canvas replaces the whole status line (#367)
+      activityText: stale ? undefined : teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
@@ -355,12 +370,12 @@ export function buildA11yModel(
     })
   }
 
-  const teams = buildTeamItems(agents, extras.teams, extras.sessions)
+  const teams = buildTeamItems(agents, extras.teams, extras.sessions, extras.now)
   const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
   const fileConflicts = buildFileConflictItems(agents, extras.fileAttention, extras.sessions, extras.costAgents)
 
   return {
-    summary: buildGraphLabel(agents.values(), teams.length),
+    summary: buildGraphLabel(agents.values(), teams.length, extras.now),
     teams,
     links,
     fileConflicts,
@@ -382,9 +397,9 @@ export function buildA11yModel(
 
 /** Teams with at least two visible members, with their members and activities. One entry per team and lead session. */
 export function buildTeamItems(
-  agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>,
+  agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>, now?: number,
 ): A11yTeamItem[] {
-  return computeClusters(agents.values(), teams, { sessions })
+  return computeClusters(agents.values(), teams, { sessions, now })
     .map(c => ({
       c,
       // The team itself: its teammates and its lead (not the other agents of the hosting session)
@@ -393,7 +408,7 @@ export function buildTeamItems(
     .filter(({ c, members }) => c.kind === 'team' && members.length >= 2)
     .map(({ c, members }) => {
       const parts = members.map(m => {
-        const activity = teammateActivity(m)
+        const activity = now !== undefined && deriveFreshness(m, now) === 'stale' ? undefined : teammateActivity(m)
         return `${cleanText(m.name, 60)}${activity ? ` (${activity})` : m.archived ? ' (archived)' : ''}`
       })
       return {
