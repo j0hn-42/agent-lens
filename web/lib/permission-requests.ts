@@ -1,7 +1,7 @@
 /**
  * Display helpers of the permission requests panel (#240, PR 4). Pure: no React, no DOM.
  */
-import { CONTROL_ALL } from './control-chars'
+import { CONTROL_ALL, CONTROL_TEXT } from './control-chars'
 import type { PermissionRequestMessage } from './bridge-types'
 
 /** Fields of a tool input that name what the call acts on, first found wins (for the button names only) */
@@ -26,4 +26,15 @@ export function inputSummary(r: PermissionRequestMessage): string {
     if (line) return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line
   }
   return ''
+}
+
+/** The extension caps a redirect text at this many characters (extension PERMISSION_MESSAGE_MAX) */
+export const REDIRECT_MESSAGE_MAX = 2000
+
+/**
+ * A redirect text as the extension will pass it to Claude (#387): control and invisible characters removed (line
+ * breaks kept), trimmed, capped. '' means there is nothing to send: a redirect needs a non-empty text.
+ */
+export function redirectMessage(text: string): string {
+  return text.replace(CONTROL_TEXT, '').trim().slice(0, REDIRECT_MESSAGE_MAX)
 }

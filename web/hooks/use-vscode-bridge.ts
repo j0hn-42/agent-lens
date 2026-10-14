@@ -10,8 +10,10 @@ import {
 } from '@/hooks/simulation/session-visibility'
 import {
   vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice,
-  type PermissionBridgeMessage, type PermissionRequestMessage, type PermissionDecision,
+  type PermissionBridgeMessage, type PermissionRequestMessage,
 } from '@/lib/vscode-bridge'
+import type { PermissionAction } from '@/lib/bridge-types'
+import { redirectMessage } from '@/lib/permission-requests'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
@@ -762,7 +764,7 @@ export interface PermissionRow {
   request: PermissionRequestMessage
   state: PermissionRowState
   /** The decision this page sent, when it sent one */
-  action?: PermissionDecision['action']
+  action?: PermissionAction
 }
 
 /** One polite announcement; `id` changes at each one so the same text is announced again */
@@ -779,7 +781,7 @@ export interface PermissionState {
 
 export type PermissionEvent =
   | PermissionBridgeMessage
-  | { kind: 'decide'; nonce: string; action: PermissionDecision['action'] }
+  | { kind: 'decide'; nonce: string; action: PermissionAction }
   | { kind: 'dismiss'; nonce: string }
 
 const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
@@ -862,7 +864,7 @@ export interface PermissionRequestsResult {
   available: boolean
   rows: readonly PermissionRow[]
   notice: PermissionNotice | null
-  decide: (nonce: string, action: PermissionDecision['action']) => void
+  decide: (nonce: string, action: PermissionAction) => void
   dismiss: (nonce: string) => void
 }
 
@@ -896,13 +898,18 @@ export function usePermissionRequests(): PermissionRequestsResult {
     }
   }, [available, apply])
 
-  const decide = useCallback((nonce: string, action: PermissionDecision['action']) => {
+  const decide = useCallback((nonce: string, action: PermissionAction, message?: string) => {
     const row = stateRef.current.rows.find(r => r.request.nonce === nonce)
     if (!row || row.state !== 'waiting' || !vscodeBridge) return
+    // A redirect without a text is not sent at all: the extension would refuse it (message-required)
+    const text = action === 'redirect' ? redirectMessage(message ?? '') : ''
+    if (action === 'redirect' && !text) return
     // State first: a second click before the re-render finds the row 'sending' and sends nothing
     apply({ kind: 'decide', nonce, action })
     const { sessionId, toolUseId } = row.request
-    vscodeBridge.sendPermissionDecision({ sessionId, toolUseId, nonce, action })
+    vscodeBridge.sendPermissionDecision(action === 'redirect'
+      ? { sessionId, toolUseId, nonce, action, message: text }
+      : { sessionId, toolUseId, nonce, action })
   }, [apply])
 
   const dismiss = useCallback((nonce: string) => { apply({ kind: 'dismiss', nonce }) }, [apply])
