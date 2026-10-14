@@ -446,4 +446,48 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
       assert.ok(c.polls < ticks, `most ticks skipped the poll (${c.polls} polls, ${ticks} ticks)`)
     })
   })
+  it('#420: a database deleted then recreated is reopened and read again', () => {
+    const { dir, fx, w, events, lifecycle, clock } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    w.start()
+    assert.equal(w.isSessionActive('ses_a'), true)
+    fx.close()
+    fs.rmSync(path.join(dir, 'opencode.db'))
+    clock.t = T0 + (ACTIVE_SESSION_AGE_S + 3600) * 1000
+    w.scanNow()
+    assert.match(w.status(), /not found/, 'the vanished file is reported, not read as OK')
+    assert.equal(w.isSessionActive('ses_a'), false, 'the old session is not shown active while the file is missing')
+    assert.deepEqual(w.getActiveSessions(), [])
+    const fx2 = new OpenCodeFixture(path.join(dir, 'opencode.db'))
+    const t = clock.t
+    fx2.session('ses_b', { created: t - 500, updated: t - 100 })
+    fx2.message('msg_b', 'ses_b', t - 50, { ...userMsg, time: { created: t - 50 } })
+    clock.t = t + 1000
+    w.scanNow()
+    assert.doesNotMatch(w.status(), /not found/)
+    assert.equal(w.isSessionActive('ses_b'), true, 'the new file is read')
+    assert.equal(w.isSessionActive('ses_a'), false, 'the old session is not served from the new file')
+    assert.ok(events.some(e => e.sessionId === 'ses_b'))
+    assert.ok(lifecycle.some(l => l.type === 'ended' && l.sessionId === 'ses_a'), 'ses_a reported ended')
+    fx2.close()
+  })
+
+  it('#420: a database atomically replaced by rename (new inode, same path) is reopened', () => {
+    const { dir, fx, w, clock } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    w.start()
+    assert.equal(w.isSessionActive('ses_a'), true)
+    const file = path.join(dir, 'opencode.db')
+    const tmp = path.join(dir, 'opencode.db.tmp')
+    const fx2 = new OpenCodeFixture(tmp)
+    fx2.session('ses_c', { created: T0 + 500, updated: T0 + 900 })
+    fx2.message('msg_c', 'ses_c', T0 + 950, userMsg)
+    fx2.close()
+    fs.renameSync(tmp, file) // the watcher's connection is still open on the replaced inode
+    clock.t = T0 + 2000
+    w.scanNow()
+    assert.equal(w.isSessionActive('ses_c'), true, 'the new database is read')
+    assert.equal(w.isSessionActive('ses_a'), false, 'the replaced database is no longer served')
+    fx.close()
+  })
 })

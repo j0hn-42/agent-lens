@@ -94,6 +94,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Workspace verdict per root id, valid while the root keeps the same directory. */
   private verdicts = new Map<string, { directory: string | null; ok: boolean }>()
   private capWarned = false
+  /** File the open connection reads, and its identity: a deleted or replaced file is not followed by the connection. */
+  private dbOpenFile: string | null = null
+  private dbIdentity: string | null = null
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -147,14 +150,53 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }
     }
+    this.resetCursors()
+    this.scanNow()
+    this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
+  }
+
+  /** Session rows are all read, messages and parts only inside the activity window: history is not replayed. */
+  private resetCursors(): void {
     const since = this.now() - ACTIVE_SESSION_AGE_S * 1000
     this.cursors = {
       session: { time: 0, seen: [] },
       message: { time: since, seen: [] },
       part: { time: since, seen: [] },
     }
-    this.scanNow()
-    this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
+    this.lastDataVersion = undefined
+  }
+
+  private static identityOf(file: string): string | null {
+    try {
+      const st = fs.statSync(file)
+      return `${st.dev}:${st.ino}:${st.birthtimeMs}`
+    } catch { return null }
+  }
+
+  /**
+   * An open connection keeps reading the old inode after the file is deleted or replaced, with no
+   * error. Compared at each scan (one stat): the connection is closed, the cursors restart and the
+   * path is opened again (or reported missing).
+   */
+  private checkDbReplaced(): void {
+    if (!this.db || !this.dbOpenFile) return
+    const identity = OpenCodeSessionWatcher.identityOf(this.dbOpenFile)
+    if (identity === this.dbIdentity) return
+    log.info('Base OpenCode supprimée ou remplacée : réouverture.')
+    this.db.close()
+    this.db = null
+    this.dbOpenFile = null
+    this.dbIdentity = null
+    this.resetCursors()
+    // Everything held came from the old file and nothing proves it still exists: the attached
+    // sessions end (also while the file is missing), the replayed rows rebuild the rest.
+    for (const [id, s] of this.sessions) {
+      if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
+    }
+    this.sessions.clear()
+    this.retired.clear()
+    this.known.clear()
+    this.verdicts.clear()
   }
 
   /**
@@ -169,6 +211,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     let more = false
     try {
       runGuarded(() => {
+        this.checkDbReplaced()
         if (!this.ensureDb()) return
         more = this.pollDb()
         this.releaseEndedSessions()
@@ -200,9 +243,21 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (location.kind === 'unavailable') { this.setStatus(location.message); return false }
       file = location.path
     }
-    const opened = openOpenCodeDb(file)
+    let identity = OpenCodeSessionWatcher.identityOf(file)
+    let opened = openOpenCodeDb(file)
     if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
+    // The path may have been swapped between the stat and the open: if the identity moved, the
+    // connection may be on the other file, so open once more.
+    const after = OpenCodeSessionWatcher.identityOf(file)
+    if (after !== identity) {
+      opened.db.close()
+      identity = after
+      opened = openOpenCodeDb(file)
+      if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
+    }
     this.db = opened.db
+    this.dbOpenFile = file
+    this.dbIdentity = identity
     this.okText = `OpenCode database (${file.replace(os.homedir(), '~')})`
     this.setStatus(this.okText)
     return true
