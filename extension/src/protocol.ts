@@ -188,6 +188,11 @@ export type ExtensionToWebviewMessage =
   | { type: 'agent-event'; event: AgentEvent }
   | { type: 'agent-event-batch'; events: AgentEvent[] }
   | { type: 'reset'; reason: string }
+  /** Sent by the relay once per /events connection, before the replay (#366). `evicted`: per session, events the
+   *  relay can no longer replay (buffer or replay cap), totals since the relay started: REPLACE the previous value,
+   *  never add. It says what the replay lacks, not what this client missed: a client that stayed connected got them live.
+   *  `otherEvents`: the same count for sessions no longer listed individually. Absent when nothing was lost. */
+  | { type: 'event-loss'; evicted: Record<string, number>; otherEvents?: number }
   | { type: 'config'; config: Partial<VisualizerConfig> }
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
