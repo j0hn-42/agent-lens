@@ -201,7 +201,6 @@
   "web/lib/panel-layout.ts:CONTROL_BAR_MAX_WIDTH",
   "web/lib/panel-layout.ts:createDockStore",
   "web/lib/panel-layout.ts:DETAIL_SIZE",
-  "web/lib/panel-layout.ts:DOCK_EDGE",
   "web/lib/panel-layout.ts:dockWidthForKey",
   "web/lib/panel-layout.ts:findFreeSpot",
   "web/lib/panel-layout.ts:freeIntervals",

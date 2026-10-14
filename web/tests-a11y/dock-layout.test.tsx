@@ -10,7 +10,8 @@ import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention
 import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
 import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup'
-import { DockResizer } from '@/components/agent-visualizer/shared-ui'
+import { DockHeightResizer, DockResizer } from '@/components/agent-visualizer/shared-ui'
+import { SystemPanel } from '@/components/agent-visualizer/system-panel'
 import { dockStore, intersects, type Rect } from '@/lib/panel-layout'
 import type { Agent } from '@/lib/agent-types'
 import type { AgentLink } from '@/hooks/simulation/types'
@@ -230,4 +231,38 @@ test('the resizer step divides the range exactly so the maximum is a reachable n
     assert.ok(step <= RESIZER_STEP + 1e-9 && step > RESIZER_STEP / 2, `${vw}px: step ${step} strays from ${RESIZER_STEP}`)
   }
   assert.equal(dockResizerStep(280, 280), RESIZER_STEP, 'degenerate range keeps the default step')
+})
+
+test('DockHeightResizer reports clamped heights for the range control and for drags (drag up grows)', () => {
+  const heights: number[] = []
+  const { getByRole, container } = render(
+    <div style={{ position: 'relative' }}><DockHeightResizer height={400} bounds={{ min: 160, max: 700 }} onHeightChange={h => heights.push(h)} label="Resize x height" /></div>,
+  )
+  const input = getByRole('slider', { name: 'Resize x height' })
+  assert.equal(input.getAttribute('aria-orientation'), 'vertical')
+  fireEvent.change(input, { target: { value: '450' } })
+  fireEvent.change(input, { target: { value: '10' } })
+  assert.deepEqual(heights, [450, 160])
+  heights.length = 0
+  const handle = container.querySelector<HTMLElement>('[data-dock-resizer] [aria-hidden="true"]')!
+  fireEvent.pointerDown(handle, { button: 0, clientY: 500, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientY: 450, pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientY: -5000, pointerId: 1 })
+  fireEvent.pointerUp(handle, { pointerId: 1 })
+  fireEvent.pointerMove(handle, { clientY: 100, pointerId: 1 })
+  assert.deepEqual(heights, [450, 700], 'drag up grows, clamped, nothing after pointerup')
+})
+
+test('System sits at the bottom left, shows both resize sliders and follows the size set in the store', () => {
+  setViewport(1600, 900)
+  const { getByRole, container } = render(<SystemPanel visible samples={[]} onClose={() => {}} />)
+  const root = container.querySelector<HTMLElement>('[data-dock-panel="system"]')!
+  assert.ok(root)
+  const width = getByRole('slider', { name: 'Resize system panel width' })
+  getByRole('slider', { name: 'Resize system panel height' })
+  assert.equal(width.getAttribute('aria-controls'), 'dock-panel-system')
+  act(() => { dockStore.setSystemSize({ w: 420, h: 320 }) })
+  assert.equal(root.style.width, '420px')
+  assert.equal(root.style.left, '12px')
+  act(() => { dockStore.setSystemSize({ w: 300, h: 460 }) })
 })

@@ -347,6 +347,74 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
   )
 }
 
+interface DockHeightResizerProps {
+  /** Current height of the panel (px). */
+  height: number
+  /** Range of the height. */
+  bounds: { min: number; max: number }
+  /** Called with the new (already clamped) height. */
+  onHeightChange: (height: number) => void
+  label: string
+  controls?: string
+}
+
+/**
+ * Height resizer for a panel anchored on the bottom: mount it as a child of the panel's positioned root, it
+ * hugs the top edge. Same two layers as DockResizer: a native <input type="range"> over the handle for the
+ * keyboard and assistive technology (ArrowUp/ArrowRight taller, ArrowDown/ArrowLeft shorter, PageUp/PageDown
+ * big steps, Home/End the bounds), and a pointer-only visible handle (drag up to grow).
+ */
+export function DockHeightResizer({ height, bounds, onHeightChange, label, controls }: DockHeightResizerProps) {
+  const { layout } = useDockSnapshot()
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null)
+  if (layout.mode === 'sheet') return null
+  const { min, max } = bounds
+  const current = Math.round(Math.min(max, Math.max(min, height)))
+  const apply = (h: number) => onHeightChange(Math.round(Math.min(Math.max(h, min), max)))
+  const step = dockResizerStep(min, max)
+
+  return (
+    <div data-dock-resizer="height" className="absolute inset-x-0 top-0 z-10 h-0">
+      <input
+        type="range"
+        aria-label={label}
+        aria-controls={controls}
+        aria-orientation="vertical"
+        aria-valuetext={`${current} pixels high`}
+        min={min}
+        max={max}
+        step={step}
+        value={current}
+        onChange={(e) => apply(Number(e.currentTarget.value))}
+        onKeyDown={(e) => { if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation() }}
+        className="peer absolute left-1/2 top-0 m-0 h-6 w-12 -translate-x-1/2 -translate-y-1/2 opacity-0 pointer-events-none"
+      />
+      <div
+        aria-hidden="true"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return
+          e.preventDefault()
+          e.stopPropagation()
+          dragRef.current = { startY: e.clientY, startH: current }
+          try { e.currentTarget.setPointerCapture?.(e.pointerId) } catch { /* not capturable */ }
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current
+          if (d) apply(d.startH + (d.startY - e.clientY))
+        }}
+        onPointerUp={(e) => {
+          dragRef.current = null
+          try { e.currentTarget.releasePointerCapture?.(e.pointerId) } catch { /* already released */ }
+        }}
+        onPointerCancel={() => { dragRef.current = null }}
+        className="group absolute inset-x-0 top-0 flex h-6 -translate-y-1/2 cursor-row-resize touch-none items-center justify-center peer-focus-visible:[&>span]:bg-[color:var(--lens-focus)] peer-focus-visible:[&>span]:outline peer-focus-visible:[&>span]:outline-2 peer-focus-visible:[&>span]:outline-offset-2 peer-focus-visible:[&>span]:outline-[color:var(--lens-focus)]"
+      >
+        <span className="h-1 w-12 rounded-full bg-[color:var(--lens-grip)] transition-colors group-hover:bg-[color:var(--lens-grip-hover)]" />
+      </div>
+    </div>
+  )
+}
+
 // ─── Sliding Panel ──────────────────────────────────────────────────────────
 // Shared wrapper for panels that slide in/out with a visibility transition.
 

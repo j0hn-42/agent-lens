@@ -267,7 +267,7 @@ export function SessionListPanel({
   useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
   const { env, open: openPanels, layout } = useDockSnapshot()
   // Room beside the panel: the right dock and the agent card keep their place, so it can grow, never overlap
-  const bounds = leftPanelWidthBounds(env.viewport.w, openPanels, layout.rightWidth)
+  const bounds = leftPanelWidthBounds(env.viewport.w, openPanels, layout.rightWidth, layout.rects.system?.w ?? layout.systemSize.w)
   const panelWidth = clampLeftPanelWidth(wantedWidth, SESSIONS_PANEL_WIDTH, bounds)
   const resizePanel = (w: number) => {
     setWantedWidth(w)

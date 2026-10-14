@@ -5,8 +5,8 @@
  * bar, panels owned by other modules) and publishes one layout to every docked panel:
  *
  *   - right dock : "link" (stacked on top) then "files" | "conversation" (width = resizable, default 380)
- *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column,
- *                  then "system" (machine health) in the same column, right below the card
+ *   - left dock  : "detail" (agent card), placed below / beside whatever else sits in the left column;
+ *                  "system" (machine health) rests on the bottom left, above the control bar, and is resizable
  *   - bottom dock: "timeline", centred above the control bar, narrowed by whatever sits beside it
  *   - popups     : clamped to the viewport, between the top bar and the control bar
  *
@@ -37,7 +37,11 @@ export const TOPBAR_FALLBACK_H = 60
 
 export const RIGHT_DOCK = { default: 380, min: 280, maxFraction: 0.6, maxPx: 720, step: 16, bigStep: 64 } as const
 export const DETAIL_SIZE = { w: 240, h: 240, minH: 120 } as const
-const SYSTEM_H = 280
+/**
+ * System (machine health) panel: bottom left, resizable. The default size shows everything it holds
+ * (four metrics with their trend, load, uptime and the platform note); per-core detail scrolls.
+ */
+export const SYSTEM_SIZE = { w: 300, h: 460, minW: 240, minH: 160, maxW: 560, step: 10, bigStep: 50 } as const
 export const LINK_H = 300
 export const MIN_MAIN_H = 160
 export const TIMELINE_SIZE = { maxW: 700, minW: 280, heights: [360, 280, 200] as readonly number[] }
@@ -89,6 +93,30 @@ export function dockWidthForDrag(startWidth: number, startX: number, x: number, 
   return clampDockWidth(startWidth + (startX - x), viewportW)
 }
 
+// ─── System panel size ──────────────────────────────────────────────────────
+
+export interface SystemSize { w: number; h: number }
+
+export function systemWidthBounds(viewportW: number): { min: number; max: number } {
+  const room = Math.max(0, Math.floor(viewportW) - 2 * DOCK_EDGE)
+  return { min: SYSTEM_SIZE.minW, max: Math.max(SYSTEM_SIZE.minW, Math.min(SYSTEM_SIZE.maxW, room)) }
+}
+
+/** `areaH`: height of the free band between the top bar and the control bar. */
+export function systemHeightBounds(areaH: number): { min: number; max: number } {
+  return { min: SYSTEM_SIZE.minH, max: Math.max(SYSTEM_SIZE.minH, Math.floor(finite(areaH, SYSTEM_SIZE.h))) }
+}
+
+/** Clamp a requested size (NaN / missing falls back to the default) to the bounds of this viewport and band. */
+function clampSystemSize(size: Partial<SystemSize> | undefined, viewportW: number, areaH: number): SystemSize {
+  const wb = systemWidthBounds(viewportW)
+  const hb = systemHeightBounds(areaH)
+  return {
+    w: Math.round(clamp(finite(size?.w ?? NaN, SYSTEM_SIZE.w), wb.min, wb.max)),
+    h: Math.round(clamp(finite(size?.h ?? NaN, SYSTEM_SIZE.h), hb.min, hb.max)),
+  }
+}
+
 // ─── Left panel (Sessions) width ────────────────────────────────────────────
 
 const RIGHT_DOCK_PANELS: readonly PanelId[] = ['link', 'files', 'conversation']
@@ -103,10 +131,12 @@ export function leftPanelWidthBounds(
   viewportW: number,
   open: readonly PanelId[],
   rightWidth: number,
+  systemWidth: number = SYSTEM_SIZE.w,
 ): { min: number; max: number } {
   if (viewportW < SHEET_BREAKPOINT) return dockWidthBounds(viewportW)
   const rightOpen = open.some(id => RIGHT_DOCK_PANELS.includes(id))
-  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (open.includes('detail') || open.includes('system') ? DETAIL_SIZE.w + DOCK_GAP : 0)
+  const besideW = Math.max(open.includes('detail') ? DETAIL_SIZE.w : 0, open.includes('system') ? systemWidth : 0)
+  const reserved = (rightOpen ? rightWidth + DOCK_GAP : 0) + (besideW > 0 ? besideW + DOCK_GAP : 0)
   const max = Math.max(0, Math.floor(viewportW - 2 * DOCK_EDGE - reserved))
   // Never wider than the room, even when the room is smaller than the usual minimum
   return { min: Math.min(RIGHT_DOCK.min, max), max }
@@ -142,11 +172,14 @@ function fitsIn(r: Rect, area: Rect, blockers: readonly Rect[]): boolean {
   return !blockers.some(b => b.w > 0 && b.h > 0 && intersects(r, inflate(b, DOCK_GAP)))
 }
 
-/** First free spot for a w x h box: scanned top to bottom, then left to right, anchored on the blockers. */
-export function findFreeSpot(w: number, h: number, area: Rect, blockers: readonly Rect[]): Rect | null {
+/**
+ * First free spot for a w x h box: scanned top to bottom, then left to right, anchored on the blockers.
+ * With `fromBottom`, the scan starts at the bottom of the area (lowest row first), then left to right.
+ */
+export function findFreeSpot(w: number, h: number, area: Rect, blockers: readonly Rect[], fromBottom = false): Rect | null {
   const xs = [area.x, ...blockers.map(b => right(b) + DOCK_GAP)]
-  const ys = [area.y, ...blockers.map(b => bottom(b) + DOCK_GAP), bottom(area) - h]
-  const sortedYs = Array.from(new Set(ys.map(Math.round))).sort((a, b) => a - b)
+  const ys = [area.y, ...blockers.map(b => bottom(b) + DOCK_GAP), bottom(area) - h, ...(fromBottom ? blockers.map(b => b.y - DOCK_GAP - h) : [])]
+  const sortedYs = Array.from(new Set(ys.map(Math.round))).sort((a, b) => fromBottom ? b - a : a - b)
   const sortedXs = Array.from(new Set(xs.map(Math.round))).sort((a, b) => a - b)
   for (const y of sortedYs) {
     for (const x of sortedXs) {
@@ -167,6 +200,8 @@ export interface DockInput {
   /** Open docked panels, oldest first (the newest wins when the layout falls back to a sheet). */
   open: readonly PanelId[]
   rightWidth?: number
+  /** Size asked for by the user for System; defaults to SYSTEM_SIZE. Clamped, and shrunk when the room is short. */
+  systemSize?: Partial<SystemSize>
   /** Rectangles of panels owned elsewhere (message feed, per-agent chat, ...): never covered. */
   obstacles?: readonly Rect[]
 }
@@ -183,6 +218,8 @@ export interface DockLayout {
   topbar: Rect
   controlBar: Rect
   rightWidth: number
+  /** Requested size of System, clamped to this viewport (the placed rect may be smaller when the room is short). */
+  systemSize: SystemSize
 }
 
 export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
@@ -243,17 +280,16 @@ function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hi
     blockers.push(placed)
   }
 
-  // Left dock, second slot: System, in the card's column (below it), or at the top of the column when the
-  // card is closed.
+  // Left dock, System: rests on the bottom left, above the control bar; beside (not over) whatever fills
+  // the left column. Smaller heights are tried when the requested one does not fit.
   if (isOpen('system')) {
-    const w = Math.min(DETAIL_SIZE.w, vp.w - 2 * DOCK_EDGE)
-    const card = rects.detail
-    const leftArea: Rect = card
-      ? { x: card.x, y: area.y, w, h: area.h }
-      : { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
+    const w = Math.min(base.systemSize.w, vp.w - 2 * DOCK_EDGE)
+    const leftArea: Rect = { x: DOCK_EDGE, y: area.y, w: vp.w - 2 * DOCK_EDGE, h: area.h }
+    const wanted = Math.min(base.systemSize.h, area.h)
     let placed: Rect | null = null
-    for (const h of [SYSTEM_H, DETAIL_SIZE.h, 180, DETAIL_SIZE.minH]) {
-      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers)
+    for (const h of [wanted, 360, DETAIL_SIZE.h, 180, SYSTEM_SIZE.minH]) {
+      if (h > wanted) continue
+      placed = findFreeSpot(w, Math.min(h, area.h), leftArea, blockers, true)
       if (placed) break
     }
     if (!placed) return null
@@ -300,6 +336,7 @@ export function computeDockLayout(input: DockInput): DockLayout {
     topbar: { x: 0, y: 0, w: vp.w, h: topbarH },
     controlBar,
     rightWidth: clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w),
+    systemSize: clampSystemSize(input.systemSize, vp.w, area.h),
   }
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [] }
@@ -392,6 +429,9 @@ export interface DockStore {
   setOpen(id: PanelId, open: boolean): void
   getRightWidth(): number
   setRightWidth(w: number): void
+  getSystemSize(): SystemSize
+  /** Set the width and / or height of System (clamped). */
+  setSystemSize(size: Partial<SystemSize>): void
   /** Re-read the DOM now (tests / after layout changes). */
   measure(): void
   /** Replace the environment (tests). */
@@ -404,15 +444,16 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
   let env = measure()
   let open: PanelId[] = []
   let rightWidth: number = RIGHT_DOCK.default
+  let systemSize: SystemSize = { w: SYSTEM_SIZE.w, h: SYSTEM_SIZE.h }
   let snapshot: DockSnapshot
   let stop: (() => void) | null = null
   let key = ''
 
   const compute = () => {
-    const k = JSON.stringify([env, open, rightWidth])
+    const k = JSON.stringify([env, open, rightWidth, systemSize])
     if (k === key && snapshot) return false
     key = k
-    snapshot = { layout: computeDockLayout({ ...env, open, rightWidth }), env, open: [...open] }
+    snapshot = { layout: computeDockLayout({ ...env, open, rightWidth, systemSize }), env, open: [...open] }
     return true
   }
   compute()
@@ -466,6 +507,14 @@ export function createDockStore(measure: () => DockEnv = measureDockEnv): DockSt
       const next = clampDockWidth(w, env.viewport.w)
       if (next === rightWidth) return
       rightWidth = next
+      emit()
+    },
+    getSystemSize: () => systemSize,
+    setSystemSize(size) {
+      const areaH = snapshot.layout.area.h
+      const next = clampSystemSize({ ...systemSize, ...size }, env.viewport.w, areaH)
+      if (next.w === systemSize.w && next.h === systemSize.h) return
+      systemSize = next
       emit()
     },
     measure() { env = measure(); emit() },

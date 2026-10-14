@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
-  intersects, bottom, right, createDockStore, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  intersects, bottom, right, createDockStore, SYSTEM_SIZE, systemWidthBounds, systemHeightBounds, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -30,8 +30,8 @@ function obstacleSets(w: number, h: number): Array<{ name: string; rects: Rect[]
   ]
 }
 
-function layoutFor(w: number, h: number, open: PanelId[], obstacles: Rect[], rightWidth?: number): DockLayout {
-  return computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, obstacles, rightWidth })
+function layoutFor(w: number, h: number, open: PanelId[], obstacles: Rect[], rightWidth?: number, systemSize?: { w?: number; h?: number }): DockLayout {
+  return computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, obstacles, rightWidth, systemSize })
 }
 
 function assertGeometry(l: DockLayout, w: number, h: number, open: PanelId[], obstacles: Rect[], label: string) {
@@ -92,23 +92,64 @@ test('wide viewports dock the usual combination: card + files + timeline next to
   assert.ok(bottom(timeline) <= 900 - 16 - BAR_H - 8)
 })
 
-test('System docks in the left column, below the agent card', () => {
+test('System docks at the bottom left, just above the control bar, whatever else is open', () => {
   const l = layoutFor(1600, 900, ['detail', 'system'], [])
   assert.equal(l.mode, 'dock')
   const { detail, system } = l.rects as Record<string, Rect>
   assert.ok(system, 'System has a rect')
   assert.ok(!intersects(detail, system))
-  assert.equal(system.x, detail.x, 'same column')
+  assert.equal(system.x, 12, 'left edge')
+  assert.equal(bottom(system), bottom(l.area), 'rests on the bottom of the free band')
   assert.ok(system.y >= bottom(detail) + 8, 'below the card')
-  assert.ok(system.h >= 120)
 })
 
-test('System alone takes the top of the left column and its width is reserved for the Sessions list', () => {
+test('System by default is big enough to show all its content', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.rects.system!.w, SYSTEM_SIZE.w)
+  assert.equal(l.rects.system!.h, SYSTEM_SIZE.h)
+  assert.ok(SYSTEM_SIZE.h >= 440, 'four metrics with sparklines, load, uptime and the platform note')
+})
+
+test('System goes beside a tall left obstacle (Sessions list) rather than under it', () => {
+  const sessions: Rect = { x: 12, y: TOPBAR_H + 8, w: 320, h: 900 - TOPBAR_H - 8 - 16 - BAR_H - 8 }
+  const l = layoutFor(1600, 900, ['system'], [sessions])
+  assert.equal(l.mode, 'dock')
+  const system = l.rects.system!
+  assert.ok(!intersects(system, sessions))
+  assert.ok(system.x >= right(sessions) + 8)
+  assert.equal(bottom(system), bottom(l.area))
+})
+
+test('the user size of System is honoured, clamped to its bounds and to the free band', () => {
+  const l = layoutFor(1600, 900, ['system'], [], undefined, { w: 400, h: 300 })
+  assert.deepEqual([l.rects.system!.w, l.rects.system!.h], [400, 300])
+  assert.equal(bottom(l.rects.system!), bottom(l.area))
+  const huge = layoutFor(1600, 900, ['system'], [], undefined, { w: 99999, h: 99999 })
+  assert.ok(huge.rects.system!.w <= systemWidthBounds(1600).max)
+  assert.ok(huge.rects.system!.h <= huge.area.h)
+  const tiny = layoutFor(1600, 900, ['system'], [], undefined, { w: 1, h: 1 })
+  assert.equal(tiny.rects.system!.w, SYSTEM_SIZE.minW)
+  assert.equal(tiny.rects.system!.h, SYSTEM_SIZE.minH)
+})
+
+test('System size bounds and keys', () => {
+  assert.deepEqual(systemWidthBounds(1600), { min: SYSTEM_SIZE.minW, max: SYSTEM_SIZE.maxW })
+  assert.equal(systemHeightBounds(500).max, 500)
+  assert.equal(systemHeightBounds(100).min, SYSTEM_SIZE.minH)
+  assert.equal(layoutFor(1600, 900, ['system'], [], undefined, { w: NaN, h: NaN }).systemSize.w, SYSTEM_SIZE.w)
+  const store = createDockStore(() => ({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, obstacles: [] }))
+  store.setSystemSize({ w: 420 })
+  store.setSystemSize({ h: 320 })
+  assert.deepEqual(store.getSystemSize(), { w: 420, h: 320 })
+  store.setSystemSize({ w: 99999 })
+  assert.equal(store.getSystemSize().w, SYSTEM_SIZE.maxW)
+})
+
+test('System alone: its width is reserved for the Sessions list', () => {
   const l = layoutFor(1600, 900, ['system'], [])
   assert.equal(l.mode, 'dock')
-  assert.equal(l.rects.system!.x, 12)
-  assert.equal(l.rects.system!.y, l.area.y)
-  assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+  assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - SYSTEM_SIZE.w - 8)
+  assert.equal(leftPanelWidthBounds(1600, ['system'], 380, 400).max, 1600 - 24 - 400 - 8)
 })
 
 test('System is a full-width sheet on a narrow viewport', () => {

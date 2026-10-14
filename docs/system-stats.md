@@ -6,7 +6,7 @@ Health of the machine that runs the relay, next to the agents that run on it (#3
 
 - Top bar: the **System** button.
 - Keyboard: **Y** (a single-key shortcut, so it follows the single-key preference of the shortcuts dialog), or **System** in the command palette (Ctrl+K), which works even with single-key shortcuts off.
-- The panel docks in the left column under the agent detail card. It does not close the other panels. Closing it returns the focus to where it was.
+- The panel docks at the bottom left, just above the control bar, and opens at a size that shows everything it holds (the per-core detail scrolls). Drag its top edge to change its height and its right edge to change its width, or focus the two sliders ("Resize system panel height" / "Resize system panel width") and use the arrow keys, PageUp / PageDown, Home and End. The size is kept until the page is reloaded. It does not close the other panels. Closing it returns the focus to where it was.
 
 ## What is measured, and from where
 

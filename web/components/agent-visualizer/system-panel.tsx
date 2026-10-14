@@ -8,7 +8,8 @@ import { PANEL_NAMES } from '@/lib/ui-glossary'
 import type { SystemSample, SystemUsage } from '@/lib/bridge-types'
 import { ratio, severity, summarise, type Severity } from '@/lib/system-stats'
 import { CollapsibleSection } from './collapsible-section'
-import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
+import { DOCK_EDGE, SYSTEM_SIZE, dockStore, systemHeightBounds, systemWidthBounds } from '@/lib/panel-layout'
+import { DockHeightResizer, DockResizer, PanelHeader, SlidingPanel, dockPanelDomId, dockAttrs, useDockPanel, useDockSnapshot } from './shared-ui'
 
 interface SystemPanelProps {
   visible: boolean
@@ -262,9 +263,12 @@ function useSeverityAnnouncement(samples: readonly SystemSample[], visible: bool
 }
 
 export function SystemPanel({ visible, samples, unavailableReason, onClose }: SystemPanelProps) {
-  // Left dock, below the agent detail card (non-exclusive: it closes no other panel)
+  // Bottom left dock, resizable (non-exclusive: it closes no other panel)
   const dock = useDockPanel('system', visible)
   const { rect } = dock
+  const { env, layout } = useDockSnapshot()
+  const widthBounds = systemWidthBounds(env.viewport.w)
+  const heightBounds = systemHeightBounds(layout.area.h)
   const titleId = useId()
   const announcement = useSeverityAnnouncement(samples, visible)
   // The body is a scroll container: a tab stop only while it actually scrolls (WCAG 2.1.1), as in the Context panel
@@ -285,14 +289,20 @@ export function SystemPanel({ visible, samples, unavailableReason, onClose }: Sy
   return (
     <SlidingPanel
       visible={visible}
-      position={rect ? { top: rect.y, left: rect.x } : { top: 'calc(var(--topbar-h, 60px) + 8px)', left: 12 }}
+      position={rect ? { top: rect.y, left: rect.x } : { bottom: 96, left: DOCK_EDGE }}
       zIndex={Z.sidePanel}
-      width={rect?.w ?? 240}
+      width={rect?.w ?? SYSTEM_SIZE.w}
       labelledBy={titleId}
       attrs={dockAttrs('system', 'left', dock, visible)}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
-      <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h, background: COLORS.void }}>
+      <div className="glass-card relative flex flex-col" style={{ height: rect?.h, maxHeight: rect?.h, background: COLORS.void }}>
+        {rect && (
+          <>
+            <DockResizer edge="right" bounds={widthBounds} width={rect.w} onWidthChange={w => dockStore.setSystemSize({ w })} label="Resize system panel width" controls={dockPanelDomId('system')} />
+            <DockHeightResizer bounds={heightBounds} height={rect.h} onHeightChange={h => dockStore.setSystemSize({ h })} label="Resize system panel height" controls={dockPanelDomId('system')} />
+          </>
+        )}
         <PanelHeader onClose={onClose} titleId={titleId}>
           <span className="text-[11px] font-mono tracking-wider uppercase" style={{ color: COLORS.textPrimary }}>{PANEL_NAMES.system}</span>
         </PanelHeader>
