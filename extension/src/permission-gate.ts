@@ -287,11 +287,15 @@ function parseDecision(raw: unknown): ParsedDecision | null {
   if (o.toolUseId !== null && (typeof o.toolUseId !== 'string' || !ID_RE.test(o.toolUseId))) return null
   if (o.action !== 'approve' && o.action !== 'deny' && o.action !== 'redirect') return null
   if (o.message !== undefined && typeof o.message !== 'string') return null
+  // Bounded before any cleaning: the page caps its text at PERMISSION_MESSAGE_MAX, so far past that is not from it
+  if (typeof o.message === 'string' && o.message.length > PERMISSION_MESSAGE_MAX * 4) return null
   return { sessionId: o.sessionId, toolUseId: o.toolUseId as string | null, nonce: o.nonce, action: o.action, message: o.message as string | undefined }
 }
 
 /** Free text for Claude: control characters (newlines kept) and invisible/bidi marks removed, trimmed, capped. */
 function cleanMessage(value: string | undefined): string {
   if (!value) return ''
-  return value.replace(CONTROL_TEXT, '').trim().slice(0, PERMISSION_MESSAGE_MAX)
+  const cut = value.replace(CONTROL_TEXT, '').trim().slice(0, PERMISSION_MESSAGE_MAX)
+  // Never half of a surrogate pair at the end
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
 }

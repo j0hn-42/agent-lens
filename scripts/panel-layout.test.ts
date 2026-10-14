@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
-  intersects, bottom, right, createDockStore, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -253,4 +253,13 @@ test('left panel (Sessions): the whole width when nothing is open, minus the rig
   assert.equal(leftPanelWidthBounds(900, ['files'], 540).min, 280 > 900 - 24 - 548 ? 900 - 24 - 548 : 280)
   assert.equal(clampLeftPanelWidth(NaN, 480, { min: 280, max: 900 }), 480)
   assert.equal(clampLeftPanelWidth(5000, 480, { min: 280, max: 900 }), 900)
+})
+
+test('permission cards are an obstacle: the right dock is placed below them, whatever the top bar height (#370)', () => {
+  assert.ok((OBSTACLE_SELECTORS as readonly string[]).includes('[data-permission-requests]'))
+  const cards: Rect = { x: 1600 - 12 - 448, y: TOPBAR_H, w: 448, h: 200 }
+  const layout = computeDockLayout({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['conversation'], obstacles: [cards] })
+  assert.equal(layout.mode, 'dock')
+  assert.ok(!intersects(layout.rects.conversation!, cards))
+  assert.ok(layout.rects.conversation!.y >= bottom(cards))
 })

@@ -321,7 +321,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
   })
 
   it('N1: rows sharing one millisecond cannot keep the scan chain spinning', async () => {
-    const { fx, w } = setup()
+    const { fx, w, clock } = setup()
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
     fx.batch(() => { for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg) })
     w.start()
@@ -335,7 +335,11 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const settled = polls
     for (let i = 0; i < 5; i++) await tick()
     assert.equal(polls, settled, 'no scan left pending')
-    // The next interval tick still polls
+    // The drained database did not change: the next tick is skipped by the data_version gate, then the
+    // periodic recheck polls again
+    w.scanNow()
+    assert.equal(polls, settled, 'an unchanged database is not scanned again at once')
+    clock.t += 60_000
     w.scanNow()
     assert.equal(polls, settled + 1)
   })

@@ -354,6 +354,7 @@ export const OBSTACLE_SELECTORS = [
   '[role="region"][aria-label="Messages"]',
   'button[aria-label^="Expand messages"]',
   '[data-companion-panel]',
+  '[data-permission-requests]',
   '[aria-label="Session transcript"]',
   '[aria-label="Sessions and agents"]',
 ] as const

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   createLoadToken, createReconnectingSource,
   type EventSourceLike, type SourceStatus,
@@ -31,9 +31,10 @@ const IDLE: SourceStatus = { status: 'connecting', mode: 'sse', attempt: 0, deta
  * Relay SSE connection with backoff, polling fallback, stale-selection guard and replay dedupe
  * (logic in lib/reconnect). Timers and the stream are released on unmount or when inputs change.
  */
-export function useReconnectingSource(opts: UseReconnectingSourceOptions): SourceStatus {
+export function useReconnectingSource(opts: UseReconnectingSourceOptions): SourceStatus & { retryNow: () => void } {
   const [state, setState] = useState<SourceStatus>(IDLE)
   const tokenRef = useRef(createLoadToken())
+  const retryRef = useRef<(() => void) | null>(null)
   // Latest callbacks/deps without restarting the connection on every render
   const latest = useRef(opts)
   latest.current = opts
@@ -55,8 +56,10 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
       fetchStatus: latest.current.fetchStatus ?? ((url, signal) => fetch(url, { signal, cache: 'no-store' })),
       random: latest.current.random,
     })
-    return () => source.close()
+    retryRef.current = () => source.retryNow()
+    return () => { retryRef.current = null; source.close() }
   }, [enabled, origin, sessionId, generation])
 
-  return state
+  const retryNow = useCallback(() => { retryRef.current?.() }, [])
+  return useMemo(() => ({ ...state, retryNow }), [state, retryNow])
 }

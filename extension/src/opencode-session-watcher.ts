@@ -214,13 +214,13 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (!db) return false
     // The full scans cost on a large database: skip them while no commit happened, except after a
     // failed or partial poll and at least every DATA_VERSION_RECHECK_MS (a row dated in the future
-    // skew window becomes readable without any write).
+    // margin becomes readable without any write).
     const version = db.dataVersion()
     const now = this.now()
     if (version !== undefined && version === this.lastDataVersion && now - this.lastPollAt < DATA_VERSION_RECHECK_MS) return false
     this.lastDataVersion = undefined
     this.lastPollAt = now
-    const poll = db.poll(this.cursors, undefined, now)
+    const poll = db.poll(this.cursors)
     if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)
