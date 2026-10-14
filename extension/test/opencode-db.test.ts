@@ -459,4 +459,42 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
     assert.equal(p.messages.length >= 1, true)
     odb.close(); db.close()
   })
+
+  it('I-B: dataVersion changes when another connection writes, and never throws', () => {
+    const { file, db } = makeDb()
+    const odb = open(file)
+    const v1 = odb.dataVersion()
+    assert.equal(typeof v1, 'number')
+    assert.equal(odb.dataVersion(), v1)
+    db.exec(sess('s1', 100))
+    const v2 = odb.dataVersion()
+    assert.equal(typeof v2, 'number')
+    assert.notEqual(v2, v1)
+    odb.close(); db.close()
+    const failing = openOpenCodeDb(makeDb().file, fakeOpener(sql => { if (/data_version/i.test(sql)) throw new Error('boom'); return [] }))
+    assert.equal(failing.status, 'ok'); if (failing.status !== 'ok') return
+    assert.equal(failing.db.dataVersion(), undefined)
+  })
+
+  it('I-B: the guard accepts only SELECT, table_info and data_version', () => {
+    const sqls: string[] = []
+    const r = openOpenCodeDb(makeDb().file, fakeOpener(sql => { sqls.push(sql); return [] }))
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    r.db.dataVersion()
+    assert.ok(sqls.some(q => /^PRAGMA data_version$/i.test(q)))
+    const conn = (r.db as unknown as { conn: IndexConnection }).conn
+    for (const bad of ['PRAGMA journal_mode = WAL', 'PRAGMA data_version = 5', 'PRAGMA data_version; DROP TABLE part', 'PRAGMA user_version', 'DELETE FROM part']) {
+      assert.throws(() => conn.all(bad), /refused/, bad)
+    }
+  })
+
+  it('I-B: the row query sorts on the raw columns, not on the aliased expressions', () => {
+    const sqls: string[] = []
+    const r = openOpenCodeDb(makeDb().file, fakeOpener(sql => { sqls.push(sql); return [] }))
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    r.db.poll(EMPTY_OPENCODE_CURSORS)
+    const rowQueries = sqls.filter(q => /ORDER BY/i.test(q) && /CASE WHEN/i.test(q))
+    assert.ok(rowQueries.length >= 3)
+    for (const q of rowQueries) assert.match(q, /ORDER BY (part|message|session)\.time_updated ASC, \1\.id ASC/)
+  })
 })

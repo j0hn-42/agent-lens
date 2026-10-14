@@ -21,12 +21,12 @@ import type { OpenCodeSessionRow, OpenCodeMessageRow, OpenCodePartRow } from './
 
 /** Largest `data` column read, in characters; a larger row is skipped and counted. */
 export const OPENCODE_ROW_DATA_MAX = 1024 * 1024
-/** Rows read per table and per poll. */
 /** A row dated further ahead than this is not read: it would drag the cursor past every later row. */
 export const OPENCODE_FUTURE_SKEW_MS = 5 * 60 * 1000
 /** Cumulative `data` bytes read per table per poll; the poll reports `truncated` when it stops there. */
 export const OPENCODE_POLL_BYTES_MAX = 16 * 1024 * 1024
 const MAX_SAFE = Number.MAX_SAFE_INTEGER
+/** Rows read per table and per poll. */
 const POLL_LIMIT_DEFAULT = 500
 const POLL_LIMIT_HARD_MAX = 5000
 const TIMEOUT_MS = 1000
@@ -126,7 +126,7 @@ export interface OpenCodePoll {
 
 // ─── Reader ────────────────────────────────────────────────────────────────
 
-const READ_ONLY_SQL = /^\s*(SELECT\b|PRAGMA\s+table_info\()/i
+const READ_ONLY_SQL = /^\s*(SELECT\b|PRAGMA\s+table_info\(|PRAGMA\s+data_version\s*$)/i
 
 function guarded(conn: IndexConnection): IndexConnection {
   return {
@@ -200,6 +200,17 @@ export class OpenCodeDb {
   }
 
   /**
+   * SQLite's data_version: it changes when another connection commits to the database. Lets the
+   * caller skip a poll while nothing was written. Undefined when it cannot be read; never throws.
+   */
+  dataVersion(): number | undefined {
+    try {
+      const v = Object.values(this.conn.all('PRAGMA data_version')[0] ?? {})[0]
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+    } catch { return undefined }
+  }
+
+  /**
    * Rows changed since `cursors`. Tool parts are updated in place (pending, running, completed), so
    * the poll follows `time_updated`. Parts are read before messages and messages before sessions: a
    * part always finds its message in this poll or an earlier one. When a later table is truncated the
@@ -267,7 +278,7 @@ export class OpenCodeDb {
     const seen = new Set(cursor.seen)
     // The ids already read at the cursor time come back first: ask for that many more rows.
     const where = `WHERE typeof(time_updated) = 'integer' AND time_updated > 0 AND time_updated <= ${Math.floor(maxTime)} `
-      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND time_updated >= ${t} ORDER BY time_updated ASC, id ASC`
+      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND time_updated >= ${t} ORDER BY ${name}.time_updated ASC, ${name}.id ASC`
     const sqlLimit = limit + seen.size + 1
     let rowLimit = sqlLimit
     let budgetHit = false

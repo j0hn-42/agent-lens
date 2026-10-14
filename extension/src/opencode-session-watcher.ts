@@ -34,6 +34,8 @@ const log = createLogger('OpenCodeSessionWatcher')
 const OPENCODE_LABEL_PREFIX = 'OpenCode '
 /** Session rows remembered (id → row) to find the root of a message or a child. */
 const KNOWN_MAX = 5000
+/** A poll is forced at least this often even when the database reports no change. */
+const DATA_VERSION_RECHECK_MS = 60_000
 /** Scans chained with setImmediate before waiting for the next interval tick. */
 const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
@@ -84,6 +86,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Scan queued with setImmediate while the reader reports more rows waiting. */
   private pendingScan: NodeJS.Immediate | null = null
   private scanning = false
+  /** data_version seen before the last COMPLETE poll (no error, not truncated); undefined forces a poll. */
+  private lastDataVersion: number | undefined
+  private lastPollAt = 0
   /** Scans chained one after the other without an interval tick in between. */
   private chained = 0
   /** Workspace verdict per root id, valid while the root keeps the same directory. */
@@ -207,11 +212,20 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private pollDb(): boolean {
     const db = this.db
     if (!db) return false
-    const poll = db.poll(this.cursors, undefined, this.now())
+    // The full scans cost on a large database: skip them while no commit happened, except after a
+    // failed or partial poll and at least every DATA_VERSION_RECHECK_MS (a row dated in the future
+    // skew window becomes readable without any write).
+    const version = db.dataVersion()
+    const now = this.now()
+    if (version !== undefined && version === this.lastDataVersion && now - this.lastPollAt < DATA_VERSION_RECHECK_MS) return false
+    this.lastDataVersion = undefined
+    this.lastPollAt = now
+    const poll = db.poll(this.cursors, undefined, now)
     if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)
     this.setStatus(this.okText)
+    if (!poll.truncated) this.lastDataVersion = version
     return poll.truncated
   }
 
