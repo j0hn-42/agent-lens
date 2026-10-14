@@ -115,7 +115,7 @@ test('the Time track fits a lower-bound duration (≥ plus the 7-character compa
 
 test('costCell: money with its lower-bound / estimate marks spelled out, a named dash without data', () => {
   const total = (over: Partial<RollupTotal>): RollupTotal => ({ tokens: 1, cost: 0.1234, agents: 1, known: 1, unknown: 0, complete: true, estimated: false, ...over })
-  assert.equal(costCell(total({})).text, '$0.123')
+  assert.equal(costCell(total({})).text, '~$0.123')
   const inc = costCell(total({ complete: false, estimated: true }))
   assert.equal(inc.text, '≥~$0.123')
   assert.match(inc.label, /estimated/)

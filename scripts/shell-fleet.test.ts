@@ -55,8 +55,8 @@ test('the single-key preference is read from storage: only an explicit false dis
 // ─── All tab ─────────────────────────────────────────────────────────────────
 
 test('All mode summary and truncation markers', () => {
-  assert.equal(formatAllSummary(3, 12, 1.234), '3 sessions - 12 agents - $1.23')
-  assert.equal(formatAllSummary(1, 1, 0), '1 session - 1 agent - $0.00')
+  assert.equal(formatAllSummary(3, 12, 1.234), '3 sessions - 12 agents - ~$1.23')
+  assert.equal(formatAllSummary(1, 1, 0), '1 session - 1 agent - ~$0.00')
   assert.equal(formatTruncatedHistory(0), null)
   assert.equal(formatTruncatedHistory(1), 'History truncated: 1 older event dropped')
   assert.equal(formatTruncatedHistory(250), 'History truncated: 250 older events dropped')

@@ -10,6 +10,7 @@ import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './act
 import { isPseudoModel } from './model-provenance'
 import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
 import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatModelName, formatTokens } from './utils'
 import { formatRelativeTime } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -127,9 +128,11 @@ const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {
   if (!total || total.known === 0) return emptyCell('cost unknown')
   const money = formatCost(total.cost)
-  const mark = `${total.complete ? '' : '≥'}${total.estimated ? '~' : ''}`
-  const words = [`${money} cost`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
-  return { text: `${mark}${money}`, label: words.filter(Boolean).join(' '), empty: false }
+  // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
+  const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
+  // Same order as every other spoken cost: "context cost estimate $X", then what qualifies it
+  const words = [`${COST_LABELS.name} ${money}`, total.estimated ? `from ${USAGE_LABELS.estimated} tokens` : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
+  return { text: `${mark}${money}`, label: words.filter(Boolean).join(', '), empty: false }
 }
 
 /** Branch recorded at the start of the session; a dash when it was not recorded. */

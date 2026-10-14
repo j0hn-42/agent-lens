@@ -73,6 +73,9 @@ export interface Agent {
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
   tokensMax: number
+  /** True when `tokensMax` is a fallback (no model, a model the table does not know, or a known window a reading
+   *  overflowed), not reported by the runtime nor read from the model id; shown as "assumed" (#364) */
+  tokensMaxAssumed?: boolean
   contextBreakdown: ContextBreakdown
   toolCalls: number
   /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */

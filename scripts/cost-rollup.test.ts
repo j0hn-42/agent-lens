@@ -89,9 +89,9 @@ test('a branch with only unknown data reads unknown, not 0', () => {
 
 test('formatRollup shows cost and tokens, and the incomplete badge', () => {
   const full = rollupBranch(node(agent('s:m', null, 1_000_000)))
-  assert.equal(formatRollup(full), '$6.00 · 1M')
+  assert.equal(formatRollup(full), '~$6.00 · 1M')
   const partial = rollupBranch(node(agent('s:m', null, 1_000_000), [node(agent('s:u', 's:m', null))]))
-  assert.equal(formatRollup(partial), `$6.00 · 1M ${ROLLUP_INCOMPLETE_TEXT}`)
+  assert.equal(formatRollup(partial), `~$6.00 · 1M ${ROLLUP_INCOMPLETE_TEXT}`)
 })
 
 test('family: a root whose parent is not in the data marks the family incomplete', () => {
