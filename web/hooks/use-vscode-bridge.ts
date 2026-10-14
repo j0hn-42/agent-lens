@@ -22,7 +22,7 @@ import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
-import { parseEventLoss, type EventLoss } from '@/lib/event-loss'
+import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
@@ -131,6 +131,8 @@ interface BridgeHookResult {
   systemStats: readonly SystemSample[]
   /** What the relay could not replay when this page connected (#366): null when it reported nothing. Relay stream only. */
   eventLoss: EventLoss | null
+  /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
+  replayLost: number
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -321,13 +323,21 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const [launchMax, setLaunchMax] = useState<number | null>(null)
   // Machine health (#357): from the relay stream only, like the launches
   const [systemStats, setSystemStats] = useState<readonly SystemSample[]>([])
-  // Events the relay could not replay (#366): sent once per connection, so each connection replaces the last
+  // Events the relay could not replay (#366). Its figure is a total since the relay started: only the first
+  // connection of a graph is a lower bound of what the graph lacks, a reconnection that keeps the graph is
+  // not. The figure lives as long as the graph (until a scope change reloads it), not as long as the link.
   const [eventLoss, setEventLoss] = useState<EventLoss | null>(null)
+  const connectionsRef = useRef(0)
+  const lastLinkStatusRef = useRef<string>('connecting')
   const source = useReconnectingSource({
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
     sessionId: options?.relaySessionId ?? null,
     generation: connectionGeneration,
+    onStatusChange: status => {
+      if (status === 'connected' && lastLinkStatusRef.current !== 'connected') connectionsRef.current++
+      lastLinkStatusRef.current = status
+    },
     onMessage: data => {
       if (isLaunchMessage(data)) { setLaunches(prev => reduceLaunches(prev, data)); return }
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'system-stats') {
@@ -336,7 +346,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
         return
       }
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'event-loss') {
-        setEventLoss(parseEventLoss(data))
+        const incoming = parseEventLoss(data)
+        setEventLoss(prev => acceptEventLoss(connectionsRef.current, prev, incoming))
         return
       }
       vscodeBridge?.dispatch(data)
@@ -409,10 +420,13 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   useEffect(() => {
     if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
   }, [relayEnabled, source.status])
-  // The relay sends event-loss only when something was lost: a link that is gone must not leave an old figure
+  // Without a relay stream there is no figure (demo, VS Code); a cut link keeps it, since the graph keeps its hole
   useEffect(() => {
-    if (!relayEnabled || source.status !== 'connected') setEventLoss(prev => (prev === null ? prev : null))
-  }, [relayEnabled, source.status])
+    if (relayEnabled) return
+    connectionsRef.current = 0
+    lastLinkStatusRef.current = 'connecting'
+    setEventLoss(prev => (prev === null ? prev : null))
+  }, [relayEnabled])
 
   // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
   // no CORS preflight, which a request with Authorization and a JSON body needs, so the dev server (:3000) and the
@@ -432,6 +446,13 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .catch(() => { if (!ctl.signal.aborted) { setLaunchMax(null); setLaunches(prev => (prev.size > 0 ? new Map() : prev)) } })
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayOrigin])
+  // What the relay could not replay, for the selection: a team counts only its own sessions
+  const replayLost = useMemo(() => {
+    const team = parseTeamSelection(selectedSessionId)
+    return replayLostFor(eventLoss, selectedSessionId, team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions))
+    // teamView changes when the tracker learns a team member
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventLoss, selectedSessionId, sessions, teamView])
   const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])
 
   /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
@@ -439,6 +460,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     if (syncedScopeRef.current === scope) { void refreshRelayScope(); return }
     syncedScopeRef.current = scope
     vscodeBridge?.dispatch({ type: 'reset', reason: 'scope-changed' })
+    // The graph is emptied: the next connection is a first one again
+    connectionsRef.current = 0
+    lastLinkStatusRef.current = 'connecting'
+    setEventLoss(null)
     setConnectionGeneration(g => g + 1)
     void refreshRelayScope()
   }, [refreshRelayScope])
@@ -772,6 +797,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     launch,
     systemStats,
     eventLoss,
+    replayLost,
   }
 }
 
