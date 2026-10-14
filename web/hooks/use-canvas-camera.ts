@@ -38,6 +38,8 @@ interface CameraOptions {
   scopeKey?: string
   /** Presentation mode (#245): when `follow` is set the camera centres on the agent that worked last instead of fitting the content */
   presentationRef?: MutableRefObject<{ follow: boolean; mask: boolean }>
+  /** Reduced motion (OS, freeze toggle, all layers calm): no pan inertia, the camera jumps to its target instead of easing */
+  reducedMotionRef?: MutableRefObject<boolean>
 }
 
 export function useCanvasCamera({
@@ -52,6 +54,7 @@ export function useCanvasCamera({
   getInsets,
   scopeKey,
   presentationRef,
+  reducedMotionRef,
 }: CameraOptions) {
   const transformRef = useRef<Transform>({ x: 0, y: 0, scale: 1 })
   const userHasNavigatedRef = useRef(false)
@@ -213,7 +216,9 @@ export function useCanvasCamera({
 
     // Pan inertia
     const inertia = panVelocityRef.current
-    if (inertia.active) {
+    if (inertia.active && reducedMotionRef?.current) {
+      inertia.vx = 0; inertia.vy = 0; inertia.active = false
+    } else if (inertia.active) {
       transformRef.current = { ...transform, x: transform.x + inertia.vx, y: transform.y + inertia.vy }
       inertia.vx *= ANIM.inertiaDecay
       inertia.vy *= ANIM.inertiaDecay
@@ -290,7 +295,7 @@ export function useCanvasCamera({
     // Smooth lerp toward target
     const target = targetTransformRef.current
     if (target) {
-      const lerpSpeed = ANIM.autoFitLerp
+      const lerpSpeed = reducedMotionRef?.current ? 1 : ANIM.autoFitLerp
       const t = transformRef.current
       const nx = t.x + (target.x - t.x) * lerpSpeed
       const ny = t.y + (target.y - t.y) * lerpSpeed
@@ -302,7 +307,7 @@ export function useCanvasCamera({
         transformRef.current = { x: nx, y: ny, scale: ns }
       }
     }
-  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets, presentationRef])
+  }, [computeFitTransform, drawPropsRef, clustersRef, getInsets, presentationRef, reducedMotionRef])
 
   /** Is the camera still going somewhere (lerp to a target, pan inertia, auto-fit refreshing its target)? The draw loop then keeps its frame rate. */
   const isCameraBusy = useCallback(() => {

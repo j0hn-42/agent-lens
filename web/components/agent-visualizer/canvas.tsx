@@ -94,7 +94,7 @@ export function AgentCanvas(props: CanvasProps) {
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey, presentationRef,
+    clustersRef, getInsets, scopeKey, presentationRef, reducedMotionRef: prefs.reducedMotionRef,
   })
   const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
