@@ -6,7 +6,7 @@ import type { UseUiPreferences } from '@/hooks/use-ui-preferences'
 import type { ToastInput } from '@/hooks/use-toasts'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 import { clusterSelectionTarget } from '@/lib/chrome-utils'
-import { downloadText } from '@/lib/comms-export'
+import { downloadText, EXPORT_FAILED_MESSAGE } from '@/lib/comms-export'
 import { buildSessionExport, renderReplayHtml, sessionExportFileName } from '@/lib/session-export'
 import { detectedSessions } from '@/lib/session-model'
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState } from '@/lib/ui-preferences'
@@ -77,7 +77,7 @@ export function useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef 
     pushToast({
       message: saved
         ? `Exported ${plural(exp.eventCount, 'event')} as an HTML replay${lost}; ${plural(exp.redactions.total, 'secret')} redacted (best effort)`
-        : 'Export failed: this view cannot save files',
+        : EXPORT_FAILED_MESSAGE,
       durationMs: 6000,
     })
   }, [bridge.sessions, bridge.getSessionEvents, pushToast])

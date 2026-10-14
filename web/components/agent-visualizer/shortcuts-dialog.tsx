@@ -126,7 +126,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
             <label htmlFor={switchId} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
               Enable single-key shortcuts
               <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>
-                Turn off if letter keys conflict with assistive technology. Esc and ? always work.
+                Turn off if letter keys conflict with assistive technology. Esc always works.
               </span>
             </label>
           </div>

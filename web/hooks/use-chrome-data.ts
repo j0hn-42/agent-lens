@@ -6,7 +6,7 @@ import type { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import { useFreshnessValue } from '@/hooks/use-freshness-clock'
 import { parseTeamSelection } from '@/lib/bridge-types'
 import { agentActivityCounts, buildSessionMeta, connectionDisplay, labelAgentsWithSession } from '@/lib/chrome-utils'
-import { listedAgents } from '@/lib/inactive-agents'
+import { listedAgents, emptiedByHidingCount } from '@/lib/inactive-agents'
 import { deriveSessionLinks } from '@/lib/session-links'
 import { detectedSessions } from '@/lib/session-model'
 import { selectionLabel } from '@/lib/session-tree'
@@ -49,6 +49,8 @@ export function useChromeData(
   const hiddenKeepIds = useMemo(() => [selectedAgentId], [selectedAgentId])
   // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
   const listAgents = useMemo(() => listedAgents(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
+  // Every agent finished and hidden: the canvas would be blank without a word (#369)
+  const blankByHidingCount = useMemo(() => emptiedByHidingCount(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
   // Agents labelled with their session (label + runtime) so the feed can show a session chip
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
 
@@ -63,6 +65,6 @@ export function useChromeData(
 
   return {
     activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
-    hiddenKeepIds, listAgents, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
+    hiddenKeepIds, listAgents, blankByHidingCount, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   }
 }

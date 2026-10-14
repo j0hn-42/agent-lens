@@ -47,6 +47,7 @@ import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { PanelRegistryContext } from "@/hooks/use-panel-registry"
+import { HiddenFinishedNotice } from "./hidden-finished-notice"
 import { UNDO_SHORTCUT_KEY } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 
@@ -177,7 +178,7 @@ export function AgentVisualizer() {
 
   const {
     activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
-    hiddenKeepIds, listAgents, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
+    hiddenKeepIds, listAgents, blankByHidingCount, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   } = useChromeData(agents, agentsRef, bridge, selection.selectedAgentId, hideInactiveShown)
 
   // Team props are spread so each panel picks the ones it declares
@@ -256,10 +257,14 @@ export function AgentVisualizer() {
         </button>
       )}
 
-      <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
+      <main id="visualizer-main" aria-label="Agent visualizer" tabIndex={-1} className="absolute inset-0 outline-none">
       <h1 className="sr-only">Agent Lens</h1>
 
       {isEmpty && <EmptyState bridge={bridge} />}
+
+      {blankByHidingCount > 0 && !isEmpty && (
+        <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
+      )}
 
       {/* Canvas fills everything */}
       <AgentCanvas

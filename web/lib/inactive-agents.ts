@@ -140,3 +140,19 @@ export function hiddenDoneCount(
 export function hiddenDoneText(count: number): string {
   return count > 0 ? `${count} finished ${count === 1 ? 'agent' : 'agents'} hidden` : ''
 }
+
+/**
+ * Count to show on the canvas when 'Hide inactive agents' leaves it blank (#369): every agent is hidden and every
+ * hidden agent is finished, so "N finished agents hidden" is exact. 0 otherwise (something is drawn, the filter is
+ * off, or an idle agent is hidden too, which the sentence would not cover).
+ */
+export function emptiedByHidingCount(
+  agents: Map<string, Agent>,
+  hideInactive: boolean,
+  keepIds: ReadonlyArray<string | null | undefined> = [],
+): number {
+  if (!hideInactive || agents.size === 0) return 0
+  if (visibleAgents(agents, true, keepIds).size > 0) return 0
+  const n = hiddenDoneCount(agents, true, keepIds)
+  return n === agents.size ? n : 0
+}

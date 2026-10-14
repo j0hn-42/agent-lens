@@ -25,12 +25,29 @@ test('Ctrl/Meta/Alt combos are ignored', () => {
   }
 })
 
-test('events from interactive elements are ignored', () => {
-  for (const sel of ['input', 'textarea', 'select', 'button', 'a', '[role="tab"]', '[role="dialog"]']) {
+test('events from text fields and dialogs are ignored', () => {
+  for (const sel of ['input', 'textarea', 'select', '[role="dialog"]']) {
     assert.equal(shouldHandleShortcut(ev('f', target('DIV', [sel])), true), false, sel)
   }
   assert.equal(shouldHandleShortcut(ev('f', target('DIV', [], true)), true), false)
   assert.equal(shouldHandleShortcut(ev('f', target('DIV', ['[contenteditable="true"]'])), true), false)
+})
+
+test('letters work with focus on a button, link or tab, e.g. right after Escape closed a panel (#376)', () => {
+  for (const tag of ['button', 'a', '[role="tab"]']) {
+    for (const k of ['p', 'l', 'y', 'f', 'F', '1']) {
+      assert.equal(shouldHandleShortcut(ev(k, target('DIV', [tag])), true), true, `${k} on ${tag}`)
+      assert.equal(shouldHandleShortcut(ev(k, target('DIV', [tag])), false), false, `${k} on ${tag}, preference off`)
+    }
+  }
+})
+
+test('Space and Enter on a button, link or tab keep activating it (#376)', () => {
+  for (const tag of ['button', 'a', '[role="tab"]']) {
+    for (const k of [' ', 'Enter']) {
+      assert.equal(shouldHandleShortcut(ev(k, target('BUTTON', [tag])), true), false, `${JSON.stringify(k)} on ${tag}`)
+    }
+  }
 })
 
 test('Space is only handled on body', () => {
@@ -50,19 +67,21 @@ test('Escape works from a button but not from an input or dialog', () => {
   assert.equal(shouldHandleShortcut(ev('Escape', target('DIV', ['[role="dialog"]'])), true), false)
 })
 
-test('? always works (even with single-key shortcuts off) and from buttons, never from inputs or dialogs', () => {
-  assert.equal(shouldHandleShortcut(ev('?'), false), true)
-  assert.equal(shouldHandleShortcut(ev('?', target('BUTTON')), false), true)
+test('? follows the single-key preference (WCAG 2.1.4), works from buttons, never from inputs or dialogs (#376)', () => {
+  assert.equal(shouldHandleShortcut(ev('?'), false), false)
+  assert.equal(shouldHandleShortcut(ev('?', target('BUTTON')), false), false)
+  assert.equal(shouldHandleShortcut(ev('?'), true), true)
+  assert.equal(shouldHandleShortcut(ev('?', target('BUTTON')), true), true)
   assert.equal(shouldHandleShortcut(ev('?', target('A')), true), true)
   assert.equal(shouldHandleShortcut(ev('?', target('INPUT')), true), false)
   assert.equal(shouldHandleShortcut(ev('?', target('DIV', ['[role="dialog"]'])), true), false)
   assert.equal(shouldHandleShortcut(ev('?', body, { ctrlKey: true }), true), false)
 })
 
-test('undo key is a single-key shortcut: needs the preference and is ignored on buttons', () => {
+test('undo key is a single-key shortcut: needs the preference', () => {
   assert.equal(shouldHandleShortcut(ev('u'), true), true)
   assert.equal(shouldHandleShortcut(ev('u'), false), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true), false)
+  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), false), false)
 })
 
 test('Ctrl+K and Cmd+K open the palette, other K combinations do not (#243)', () => {

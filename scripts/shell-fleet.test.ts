@@ -21,19 +21,17 @@ const ev = (key: string, t: unknown = body, mods: Partial<{ ctrlKey: boolean; me
 
 // ─── Undo shortcut ───────────────────────────────────────────────────────────
 
-test('undo key fires from buttons and tabs while an undo toast is visible', () => {
-  const undo = { undoAvailable: true }
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, undo), true)
-  assert.equal(shouldHandleShortcut(ev('U', target('BUTTON', ['[role="tab"]'])), true, undo), true)
-  assert.equal(shouldHandleShortcut(ev('u', target('A')), true, undo), true)
-  // never from text fields or dialogs, never with the preference off, never with modifiers
-  assert.equal(shouldHandleShortcut(ev('u', target('INPUT')), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('DIV', ['[role="dialog"]'])), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), false, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON'), { ctrlKey: true }), true, undo), false)
-  // other single keys stay ignored on buttons even while a toast is visible
-  assert.equal(shouldHandleShortcut(ev('f', target('BUTTON')), true, undo), false)
-  assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, { undoAvailable: false }), false)
+test('undo key fires from buttons and tabs, with or without a toast hint (#376)', () => {
+  for (const undo of [{ undoAvailable: true }, { undoAvailable: false }]) {
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), true, undo), true)
+    assert.equal(shouldHandleShortcut(ev('U', target('BUTTON', ['[role="tab"]'])), true, undo), true)
+    assert.equal(shouldHandleShortcut(ev('u', target('A')), true, undo), true)
+    // never from text fields or dialogs, never with the preference off, never with modifiers
+    assert.equal(shouldHandleShortcut(ev('u', target('INPUT')), true, undo), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('DIV', ['[role="dialog"]'])), true, undo), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON')), false, undo), false)
+    assert.equal(shouldHandleShortcut(ev('u', target('BUTTON'), { ctrlKey: true }), true, undo), false)
+  }
 })
 
 // ─── Single-key preference (#4) ──────────────────────────────────────────────

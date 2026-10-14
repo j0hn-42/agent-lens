@@ -33,6 +33,7 @@ import {
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
+import { colorEnabled, colorizeLog } from './log-color'
 import { setLogLevel, createLogger } from '../extension/src/logger'
 import { CONTROL_ALL } from '../extension/src/control-chars'
 import { buildReplayBatches } from '../extension/src/event-replay'
@@ -106,8 +107,13 @@ function resolveAgentLensVersion(): string {
   return '0.0.0'
 }
 
+const useColor = colorEnabled(process.env, Boolean(process.stdout.isTTY))
+
 function log(...args: unknown[]) {
-  if (verbose) console.log(...args)
+  if (!verbose) return
+  // Only a leading string carries the [tag]; other args (errors, ids) stay as they are.
+  if (typeof args[0] === 'string') args[0] = colorizeLog(args[0], useColor)
+  console.log(...args)
 }
 
 /** Shown without --verbose: what the user must know (a session Agent Lens stopped following). */
