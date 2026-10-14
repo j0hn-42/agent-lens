@@ -173,6 +173,43 @@ test('sessions panel: the Active only toggle also hides an active session nobody
   assert.ok(queryByText('Live one'))
 })
 
+test('sessions panel (#372): Active only follows the stored preference and reports each change', () => {
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+  ]
+  const changes: boolean[] = []
+  const { getByRole, queryByText } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="live" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={() => {}} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['live'])} activeOnly={false} onActiveOnlyChange={v => changes.push(v)}
+    />,
+  )
+  const toggle = getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false', 'the stored "off" is restored')
+  assert.ok(queryByText('Old one'))
+  assert.match(toggle.getAttribute('title') ?? '', /end was observed/)
+  fireEvent.click(toggle)
+  assert.deepEqual(changes, [true])
+})
+
+test('sessions panel (#372): the row button hides the session and says it comes back', () => {
+  const sessions = [{ id: 's1', label: 'Refactor', status: 'active' as const, startTime: 0, lastActivityTime: 5 }]
+  const hidden: string[] = []
+  const { getByRole } = render(
+    <SessionListPanel
+      visible onClose={() => {}} sessions={sessions} selectedSessionId="s1" sessionsWithActivity={new Set()}
+      onSelectSession={() => {}} onCloseSession={id => hidden.push(id)} agents={new Map()} selectedAgentId={null} onSelectAgent={() => {}} now={5000}
+      observedSessionIds={new Set(['s1'])}
+    />,
+  )
+  const button = getByRole('button', { name: 'Hide session Refactor until its next activity' })
+  assert.equal(button.getAttribute('title'), 'Hide session (reappears on new activity or after a reconnect)')
+  fireEvent.click(button)
+  assert.deepEqual(hidden, ['s1'])
+})
+
 test('sessions panel: a session row shows its name, model and time, not its workspace nor a CC badge', () => {
   const sessions = [{ id: 's1', label: 'Refactor payments', status: 'active' as const, startTime: 0, lastActivityTime: 0, workspace: 'shop', runtime: 'claude' as const }]
   const { getByText, getAllByText, queryByText } = render(
