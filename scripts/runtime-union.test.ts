@@ -18,7 +18,10 @@ const RUNTIME_LIST_FILES = [
 for (const file of RUNTIME_LIST_FILES) {
   test(`${file}: names opencode wherever it names gemini`, () => {
     const text = fs.readFileSync(path.join(root, file), 'utf8')
-    assert.ok(/gemini/i.test(text), `${file} no longer names gemini: update RUNTIME_LIST_FILES`)
-    assert.match(text, /opencode/i, `${file} lists runtimes but not opencode`)
+    // Quoted occurrences only: a comment or a prose mention does not count as a list entry
+    const gemini = (text.match(/['"]gemini['"]/g) ?? []).length
+    const opencode = (text.match(/['"]opencode['"]/g) ?? []).length
+    assert.ok(gemini > 0, `${file} no longer lists 'gemini': update RUNTIME_LIST_FILES`)
+    assert.ok(opencode >= gemini, `${file} lists 'gemini' ${gemini} time(s) but 'opencode' only ${opencode} time(s)`)
   })
 }
