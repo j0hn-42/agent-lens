@@ -334,7 +334,7 @@ function ReviewControlBar({
 
         <TruncationMarker dropped={droppedEvents} />
 
-        {/* Playback position slider (the Timeline is the panel, #372) */}
+        {/* Playback position slider (the Timeline is the panel opened by T) */}
         <div
           ref={scrubberRef}
           role="slider"
