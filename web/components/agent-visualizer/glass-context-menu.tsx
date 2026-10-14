@@ -17,6 +17,8 @@ interface ContextMenuProps {
     onClick: () => void
     danger?: boolean
     separator?: boolean
+    /** Sensitive item (#374): the first activation only arms it (this label replaces `label`), the second runs it */
+    confirmLabel?: string
   }>
   onClose: () => void
 }
@@ -27,6 +29,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const [active, setActive] = useState(0)
+  /** Index of the sensitive item waiting for its second activation */
+  const [armed, setArmed] = useState<number | null>(null)
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: position.x, top: position.y })
 
   useClickOutside(ref, onClose, TIMING.contextMenuDelayMs)
@@ -123,19 +127,23 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 type="button"
                 role="menuitem"
                 tabIndex={rovingPos === active ? 0 : -1}
-                onFocus={() => setActive(rovingPos)}
+                onFocus={() => { setActive(rovingPos); if (armed !== null && armed !== i) setArmed(null) }}
                 onClick={() => {
+                  if (item.confirmLabel && armed !== i) { setArmed(i); return }
                   item.onClick()
                   onClose()
                 }}
                 className={`min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] ${FOCUS_RING_INSET}`}
-                style={{ color: item.danger ? COLORS.error : COLORS.textPrimary }}
+                style={{ color: item.danger || armed === i ? COLORS.error : COLORS.textPrimary }}
               >
-                {item.label}
+                {armed === i && item.confirmLabel ? item.confirmLabel : item.label}
               </button>
             )
           })}
         </div>
+        <p role="status" aria-live="polite" className="sr-only">
+          {armed !== null ? items[armed]?.confirmLabel ?? '' : ''}
+        </p>
       </GlassCard>
     </div>
   )

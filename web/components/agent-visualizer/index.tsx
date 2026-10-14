@@ -619,7 +619,7 @@ export function AgentVisualizer() {
       { label: '📊  Toggle Stats', onClick: () => setShowStats(prev => !prev) },
       { label: '⬡  Toggle Grid', onClick: () => setShowHexGrid(prev => !prev) },
       { label: '', onClick: () => {}, separator: true },
-      { label: '⟲  Clear history', onClick: handleClearHistory },
+      { label: '⟲  Clear history', confirmLabel: 'Confirm clear history', onClick: handleClearHistory },
       ...(!bridge.useMockData && bridge.selectedSessionId
         ? [{ label: '↻  Reload session events', onClick: handleReloadSessionEvents }]
         : []),
