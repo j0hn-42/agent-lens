@@ -40,7 +40,7 @@ const CATCHUP_POLLS_MAX = 20
 const ROOT_HOPS_MAX = 16
 const CWD_MAX = 4096
 /** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/
+const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
 
 export interface OpenCodeWatcherOptions {
   /** Database file to read; default: resolved from the process environment (opencode-db.ts). */
@@ -191,7 +191,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private deliver(poll: OpenCodePoll): void {
     const rows = [...poll.sessions].sort((a, b) => a.time_created - b.time_created)
     for (const row of rows) this.remember(row)
-    for (const row of rows) this.onSessionRow(row)
+    // Most recently updated first: when more roots compete than the cap allows, the newest win.
+    // A child met before its root is replayed when the root attaches.
+    for (const row of [...rows].sort((a, b) => b.time_updated - a.time_updated)) this.onSessionRow(row)
     for (const m of poll.messages) {
       const s = this.sessionFor(m.session_id)
       if (!s) continue
@@ -285,7 +287,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (this.sessions.size >= OPENCODE_MAX_WATCHED_SESSIONS) {
       if (!this.capWarned) {
         this.capWarned = true
-        log.warn(`Plafond de ${OPENCODE_MAX_WATCHED_SESSIONS} sessions OpenCode suivies atteint : les suivantes sont ignorées.`)
+        log.warn(`Plafond de ${OPENCODE_MAX_WATCHED_SESSIONS} sessions OpenCode suivies atteint : les plus récemment mises à jour sont suivies, les autres ignorées.`)
       }
       return undefined
     }

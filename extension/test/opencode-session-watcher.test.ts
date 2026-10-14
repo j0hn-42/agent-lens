@@ -71,7 +71,11 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     fx.session('ses_a', { created: T0 - 9e6, updated: T0 - 1000 })
     fx.message('msg_old', 'ses_a', T0 - (ACTIVE_SESSION_AGE_S + 60) * 1000, { ...userMsg })
     fx.part('prt_old', 'msg_old', 'ses_a', 1, T0 - (ACTIVE_SESSION_AGE_S + 60) * 1000, { type: 'text', text: 'ancien' })
+    fx.message('msg_new', 'ses_a', T0 - 900, { ...userMsg })
+    fx.part('prt_new', 'msg_new', 'ses_a', T0 - 900, T0 - 900, { type: 'text', text: 'recent' })
     w.start()
+    // Positive control: the in-window part comes out, the out-of-window one does not
+    assert.equal(events.some(e => e.type === 'message' && JSON.stringify(e.payload).includes('recent')), true)
     assert.equal(events.some(e => e.type === 'message' && JSON.stringify(e.payload).includes('ancien')), false)
   })
 
@@ -80,9 +84,16 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
     fx.session('ses_child', { parent: 'ses_a', created: T0 - 800, updated: T0 - 500, title: 'sub' })
     fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+    fx.message('msg_c', 'ses_child', T0 - 400, { ...userMsg, time: { created: T0 - 400 } })
+    fx.part('prt_c', 'msg_c', 'ses_child', T0 - 400, T0 - 400, { type: 'text', text: 'from child' })
     w.start()
-    const first = events.length
     assert.ok(events.every(e => e.sessionId === 'ses_a'))
+    assert.ok(events.some(e => e.type === 'agent_spawn' && (e.payload as { isMain?: boolean }).isMain !== true), 'sub-agent spawn')
+    assert.ok(events.some(e => e.type === 'message' && JSON.stringify(e.payload).includes('from child')), 'child message routed to the root')
+    // Force a re-delivery of the same rows: nothing may be emitted twice
+    const first = events.length
+    const internal = w as unknown as { cursors: unknown }
+    internal.cursors = { session: { time: 0, seen: [] }, message: { time: 0, seen: [] }, part: { time: 0, seen: [] } }
     w.scanNow()
     assert.equal(events.length, first)
   })
@@ -138,6 +149,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     fx.session('ses_ctl', { dir: '/w/\u001b[2Jx', created: T0 - 5000, updated: T0 - 1000 })
     fx.session('ses_rel', { dir: '../etc', created: T0 - 5000, updated: T0 - 1000 })
     w.start()
+    assert.deepEqual(w.getActiveSessions().map(s => s.id).sort(), ['ses_ctl', 'ses_rel'])
     // The reader already strips control characters from the directory; the watcher keeps its own check
     // and drops a relative path. Either way no control character and no relative path reaches the cwd.
     for (const s of w.getActiveSessions()) assert.ok(s.cwd === undefined || (path.isAbsolute(s.cwd) && !/[\u0000-\u001f\u007f-\u009f]/.test(s.cwd)))
@@ -146,13 +158,23 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     strict.fx.session('ses_rel', { dir: '../w', created: T0 - 5000, updated: T0 - 1000 })
     strict.w.start()
     assert.equal(strict.w.isActive(), false)
+    // The watcher's own check, defence in depth behind the reader: control, C1 and bidi-override paths
+    const safe = (d: string | null) => (w as unknown as { safeDirectory(d: string | null): string | undefined }).safeDirectory(d)
+    assert.equal(safe('/w/\u001bx'), undefined)
+    assert.equal(safe('/w/\u0085x'), undefined)
+    assert.equal(safe('/w/\u202ex'), undefined)
+    assert.equal(safe('/w/\u2066x'), undefined)
+    assert.equal(safe('../etc'), undefined)
+    assert.equal(safe('/w/ok'), '/w/ok')
   })
 
   it(`follows at most ${OPENCODE_MAX_WATCHED_SESSIONS} root sessions`, () => {
     const { fx, w } = setup()
-    for (let i = 0; i < OPENCODE_MAX_WATCHED_SESSIONS + 3; i++) fx.session(`ses_${i}`, { created: T0 - 5000 - i, updated: T0 - 1000 - i })
+    // ses_0 is the newest, ses_27 the oldest: the 25 most recently updated must win
+    for (let i = 0; i < OPENCODE_MAX_WATCHED_SESSIONS + 3; i++) fx.session(`ses_${i}`, { created: T0 - 5000, updated: T0 - 1000 - i })
     w.start()
-    assert.equal(w.getActiveSessions().length, OPENCODE_MAX_WATCHED_SESSIONS)
+    const expected = Array.from({ length: OPENCODE_MAX_WATCHED_SESSIONS }, (_, i) => `ses_${i}`).sort()
+    assert.deepEqual(w.getActiveSessions().map(s => s.id).sort(), expected)
   })
 
   it('survives a failing poll and recovers on the next one', () => {
