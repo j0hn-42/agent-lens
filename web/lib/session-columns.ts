@@ -10,6 +10,7 @@ import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './act
 import { isPseudoModel } from './model-provenance'
 import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
 import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatModelName, formatTokens } from './utils'
 import { formatRelativeTime } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -94,30 +95,44 @@ export interface SessionSpan {
   startTime: number
   lastActivityTime: number
   lastActivityUnknown?: boolean
+  recordedStartTime?: number
+  startTimeWatched?: boolean
 }
 
 /**
  * Duration of a session: elapsed since the start while it is active, start to last activity once it is
- * completed. Unknown (dash) when the end of a completed session was never observed. While the relay is offline
- * (`relayOffline`) an active session is not proven to run: its duration stops at its last activity (#367).
+ * completed. The start is the one the transcript records (#365); when only the moment watching began is known,
+ * the duration is a lower bound (≥) and its name says "watched for". Unknown (dash) when the end of a completed
+ * session was never observed. While the relay is offline (`relayOffline`) an active session is not proven to
+ * run: its duration stops at its last activity (#367).
  */
 export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = false): ColumnCell {
   const running = s.status === 'active' && !relayOffline
   const end = running ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
-  const ms = end - s.startTime
+  const watched = s.recordedStartTime === undefined && s.startTimeWatched === true
+  const ms = end - (s.recordedStartTime ?? s.startTime)
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
+  if (watched) {
+    const label = running ? `watched for ${text}, at least that long` : `at least ${text} long`
+    return { text: `≥${text}`, label: `${label}, ${SESSION_START_UNRECORDED_TEXT}`, empty: false }
+  }
   const suffix = running ? 'since start' : s.status === 'active' ? 'until last activity' : 'long'
   return { text, label: `${text} ${suffix}`, empty: false }
 }
+
+/** Said of a session whose transcript records no start: its duration only counts since watching began. */
+const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
 
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {
   if (!total || total.known === 0) return emptyCell('cost unknown')
   const money = formatCost(total.cost)
-  const mark = `${total.complete ? '' : '≥'}${total.estimated ? '~' : ''}`
-  const words = [`${money} cost`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
-  return { text: `${mark}${money}`, label: words.filter(Boolean).join(' '), empty: false }
+  // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
+  const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
+  // Same order as every other spoken cost: "context cost estimate $X", then what qualifies it
+  const words = [`${COST_LABELS.name} ${money}`, total.estimated ? `from ${USAGE_LABELS.estimated} tokens` : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
+  return { text: `${mark}${money}`, label: words.filter(Boolean).join(', '), empty: false }
 }
 
 /** Branch recorded at the start of the session; a dash when it was not recorded. */

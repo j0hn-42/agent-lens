@@ -4,8 +4,9 @@
  * - tokens: the sub-agent's own counter, qualified like everywhere else ("not reported", "at least", "estimated");
  * - files read: files whose Read call by this sub-agent was observed to succeed; reads not seen to succeed are
  *   counted apart as "not confirmed", never as read;
- * - duration: only the one the runtime reported on a live return (a replayed or imported return was measured at
- *   parse time, so it is dropped when the event is handled);
+ * - duration: only the one of a live return: measured between the dispatch and the return as the relay or the
+ *   extension observed them, or "recorded" when a background completion notice gives its own (#365). A replayed
+ *   or imported return was measured at parse time, so its duration is dropped when the event is handled;
  * - result: the start of the returned report, an error said in words, or that no return was observed.
  * Pure and bounded. Imports are relative (not "@/"): the root test runner has no path aliases.
  */
@@ -19,7 +20,8 @@ export const REPORT_EXCERPT_LEN = 280
 export const FILES_LISTED = 20
 
 export type DelegationDuration =
-  | { kind: 'reported'; seconds: number }
+  | { kind: 'measured'; seconds: number }
+  | { kind: 'recorded'; seconds: number }
   | { kind: 'not-reported' }
   | { kind: 'not-returned' }
 
@@ -47,6 +49,7 @@ export interface DelegationRow {
 /** The return to keep on the sub-agent; `trustDuration` is false for replayed or imported events. */
 export function makeDelegationReturn(
   summary: string, cutChars: number, isError: boolean, durationS: unknown, time: number, trustDuration: boolean,
+  durationSource?: unknown,
 ): DelegationReturn {
   const excerpt = summary.slice(0, REPORT_EXCERPT_LEN)
   const validDuration = typeof durationS === 'number' && Number.isFinite(durationS) && durationS >= 0
@@ -54,7 +57,7 @@ export function makeDelegationReturn(
     excerpt,
     truncated: cutChars > 0 || summary.length > REPORT_EXCERPT_LEN,
     isError,
-    ...(trustDuration && validDuration ? { durationS } : {}),
+    ...(trustDuration && validDuration ? { durationS, ...(durationSource === 'recorded' ? { durationRecorded: true } : {}) } : {}),
     time,
   }
 }
@@ -78,7 +81,8 @@ function filesOf(agentId: string, fileAttention: ReadonlyMap<string, FileAttenti
 
 function durationOf(ret: DelegationReturn | undefined): DelegationDuration {
   if (!ret) return { kind: 'not-returned' }
-  return ret.durationS !== undefined ? { kind: 'reported', seconds: ret.durationS } : { kind: 'not-reported' }
+  if (ret.durationS === undefined) return { kind: 'not-reported' }
+  return { kind: ret.durationRecorded ? 'recorded' : 'measured', seconds: ret.durationS }
 }
 
 function resultOf(agent: Agent): DelegationResult {
@@ -130,7 +134,8 @@ export function filesReadText(row: Pick<DelegationRow, 'filesReadCount' | 'reads
 
 export function durationText(d: DelegationDuration): string {
   switch (d.kind) {
-    case 'reported': return `${formatDuration(d.seconds)} (reported)`
+    case 'measured': return `${formatDuration(d.seconds)} (measured)`
+    case 'recorded': return `${formatDuration(d.seconds)} (recorded)`
     case 'not-reported': return USAGE_LABELS.unavailable
     case 'not-returned': return 'no return observed'
   }

@@ -73,6 +73,9 @@ export interface Agent {
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
   tokensMax: number
+  /** True when `tokensMax` is a fallback (no model, a model the table does not know, or a known window a reading
+   *  overflowed), not reported by the runtime nor read from the model id; shown as "assumed" (#364) */
+  tokensMaxAssumed?: boolean
   contextBreakdown: ContextBreakdown
   toolCalls: number
   /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
@@ -128,8 +131,10 @@ export interface DelegationReturn {
   /** True when the report was longer than the excerpt (the full text is in the Conversation) */
   truncated: boolean
   isError: boolean
-  /** Seconds reported by the runtime for a live return; never kept for a replayed or imported one */
+  /** Seconds of a live return, measured by Agent Lens; never kept for a replayed or imported one */
   durationS?: number
+  /** True when durationS is the one a background completion notice records, not a measurement (#365) */
+  durationRecorded?: boolean
   /** Simulation time of the return */
   time: number
 }

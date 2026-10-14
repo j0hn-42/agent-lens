@@ -7,7 +7,7 @@ import { showAllSessions } from './sessions-filter-helpers'
 import axe from 'axe-core'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
-import { LiveTimeValue } from '@/components/agent-visualizer/session-columns'
+import { LiveTimeValue, ROW_GRID } from '@/components/agent-visualizer/session-columns'
 import type { FreshnessClock } from '@/hooks/use-freshness-clock'
 import type { SessionInfo } from '@/lib/bridge-types'
 import { ACTIVE_UNKNOWN_TEXT } from '@/lib/active-time'
@@ -82,9 +82,40 @@ test('sessionTimeCell: elapsed while active, start to last activity once complet
   assert.equal(sessionTimeCell({ startTime: T0 + 5, lastActivityTime: 0, status: 'active' }, T0).empty, true, 'a start in the future is not a duration')
 })
 
+test('sessionTimeCell: from the start the transcript records; a watch start is a lower bound, said in words (#365)', () => {
+  const now = T0 + 3 * 3600_000
+  // Session started 3 h ago, watched for 2 min: the recorded start wins over the event origin
+  const recorded = sessionTimeCell({ startTime: now - 120_000, recordedStartTime: T0, lastActivityTime: now, status: 'active' }, now)
+  assert.equal(recorded.text, '3h 00m')
+  assert.match(recorded.label, /since start/)
+  const watched = sessionTimeCell({ startTime: now - 120_000, startTimeWatched: true, lastActivityTime: now, status: 'active' }, now)
+  assert.equal(watched.text, '≥2m 00s', 'only the time since watching began: a lower bound')
+  assert.match(watched.label, /watched for 2m 00s/)
+  assert.doesNotMatch(watched.label, /since start/)
+  const done = sessionTimeCell({ startTime: T0, startTimeWatched: true, lastActivityTime: T0 + 192_000, status: 'completed' }, now)
+  assert.equal(done.text, '≥3m 12s')
+  assert.match(done.label, /at least 3m 12s/)
+  assert.match(done.label, /session start not recorded/)
+  // Active: the lower bound is said in words too, as for a completed one and for costs
+  assert.match(watched.label, /at least that long/)
+  assert.match(watched.label, /session start not recorded/)
+})
+
+test('the Time track fits a lower-bound duration (≥ plus the 7-character compact form) at every width (#365)', () => {
+  const widest = sessionTimeCell({ startTime: T0, startTimeWatched: true, lastActivityTime: T0 + 3599_000, status: 'completed' }, T0).text
+  assert.equal(widest, '≥59m 59s')
+  // Time is the 4th track of the wide grid and the 6th once runtime and branch are shown
+  const tracks = [...ROW_GRID.matchAll(/grid-cols-\[([^\]]+)\]/g)].map(m => m[1].split('_'))
+  assert.equal(tracks.length, 3)
+  for (const cols of tracks) {
+    const time = cols.length === 8 ? cols[5] : cols[3]
+    assert.ok(parseInt(time, 10) >= widest.length + 1, `Time track ${time} is too narrow for "${widest}"`)
+  }
+})
+
 test('costCell: money with its lower-bound / estimate marks spelled out, a named dash without data', () => {
   const total = (over: Partial<RollupTotal>): RollupTotal => ({ tokens: 1, cost: 0.1234, agents: 1, known: 1, unknown: 0, complete: true, estimated: false, ...over })
-  assert.equal(costCell(total({})).text, '$0.123')
+  assert.equal(costCell(total({})).text, '~$0.123')
   const inc = costCell(total({ complete: false, estimated: true }))
   assert.equal(inc.text, '≥~$0.123')
   assert.match(inc.label, /estimated/)

@@ -104,6 +104,22 @@ describe('background subagent: launch receipt is not a finish (#239)', () => {
     assert.equal(ret[0].payload.summary, 'No defect found.')
   })
 
+  it('the duration the notice records is said to be recorded, not measured (#365)', () => {
+    const { events, feed } = setup()
+    feed(PROMPT, DISPATCH, RECEIPT, TEXT, COMPLETED)
+    const ret = ofType(events, 'subagent_return')[0]
+    assert.equal(ret.payload.durationS, 60.1)
+    assert.equal(ret.payload.durationSource, 'recorded')
+  })
+
+  it('without a recorded duration, the one measured from the launch carries no "recorded" source (#365)', () => {
+    const { events, feed } = setup()
+    feed(PROMPT, DISPATCH, RECEIPT, TEXT, COMPLETED.replace(/<duration_ms>\d+<\/duration_ms>/, ''))
+    const ret = ofType(events, 'subagent_return')[0]
+    assert.equal(typeof ret.payload.durationS, 'number')
+    assert.equal(ret.payload.durationSource, undefined)
+  })
+
   it('the notification never becomes a user message', () => {
     const { events, feed } = setup()
     feed(PROMPT, DISPATCH, RECEIPT, TEXT, RESTARTED, COMPLETED)

@@ -98,6 +98,14 @@ export const USAGE_LABELS = {
   estimated: 'estimated',
 } as const
 
+/** A cost is the tokens now in the context priced at a blended rate, never a bill (#364): "~" on screen,
+ *  the name in words for assistive technology, the method in tooltips. */
+export const COST_LABELS = {
+  mark: '~',
+  name: 'context cost estimate',
+  method: 'Context cost estimate: the tokens now in the context × a blended rate per model (75% input, 25% output price). Not a bill: it drops after a compaction, ignores cache reads and does not add up earlier calls.',
+} as const
+
 /** Shown wherever a result or outcome rests on an end that was never observed. */
 export const END_NOT_OBSERVED = 'end not observed'
 

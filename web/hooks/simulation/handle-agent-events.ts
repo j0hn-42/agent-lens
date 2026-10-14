@@ -19,6 +19,11 @@ import { advanceActiveTime } from '../../lib/active-time'
 import { isBetweenSteps } from '../../lib/inactive-agents'
 import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
+/** Context window for a model, with whether it is a fallback (#364). */
+function windowFor(ctx: ProcessEventContext, model?: string): Pick<Agent, 'tokensMax' | 'tokensMaxAssumed'> {
+  return { tokensMax: ctx.getContextWindowSize(model), tokensMaxAssumed: ctx.isContextWindowAssumed?.(model) ?? false }
+}
+
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
   currentTime: number,
@@ -118,7 +123,7 @@ export function handleAgentSpawn(
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
     tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
-    tokensMax: ctx.getContextWindowSize(initialModel?.model),
+    ...windowFor(ctx, initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, toolErrors: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,
@@ -283,7 +288,7 @@ export function handleModelDetected(
       ...rest,
       ...merged,
       modelsUsed: recordModelUsed(agent.modelsUsed, model),
-      tokensMax: ctx.getContextWindowSize(model),
+      ...windowFor(ctx, model),
       ...(effort ? { effort } : {}),
     })
   }
@@ -304,7 +309,7 @@ function spawnModelFields(
   if (merged) {
     out.model = merged.model
     out.modelSource = merged.modelSource
-    if (merged.model !== agent.model) out.tokensMax = ctx.getContextWindowSize(merged.model)
+    if (merged.model !== agent.model) Object.assign(out, windowFor(ctx, merged.model))
   }
   return out
 }
