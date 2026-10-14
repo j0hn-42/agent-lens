@@ -19,7 +19,7 @@ import {
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
 import { rollupBranch, rollupRows, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
-import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP } from '@/lib/session-model'
+import { observedSessions, isSessionObserved, SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP, SESSION_OFFLINE_HELP } from '@/lib/session-model'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { agentRowView, agentTreeSignature, focusKeyOf, restoreFocusByKey, rowRenderProbe } from '@/lib/row-sync'
@@ -80,6 +80,8 @@ interface SessionListPanelProps {
   allSessionCount?: number
   /** Clock override for tests */
   now?: number
+  /** The relay is offline: no active session is proven to run, and durations stop at the last activity (#367) */
+  relayOffline?: boolean
   /** Sessions heard from in this run (defaults to the app-wide tracker fed by the simulation) */
   observedSessionIds?: ReadonlySet<string>
   /** Attention of every session (agents of the other sessions included); defaults to the agents of this list */
@@ -256,7 +258,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, observedSessionIds, freshnessClock, attention: sharedAttention, health,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
   filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
@@ -634,9 +636,9 @@ export function SessionListPanel({
               }
 
               const session = row.session!
-              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId)
-              const unobserved = kind === 'unobserved' || kind === 'indexed' || kind === 'imported'
-              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : kind === 'imported' ? SESSION_IMPORTED_HELP : SESSION_NOT_OBSERVED_HELP
+              const kind = sessionStatusKind(session, sessionsWithActivity.has(session.id), selected, isObservedId, relayOffline)
+              const unobserved = kind === 'unobserved' || kind === 'indexed' || kind === 'imported' || kind === 'offline'
+              const statusHelp = kind === 'indexed' ? SESSION_INDEXED_HELP : kind === 'imported' ? SESSION_IMPORTED_HELP : kind === 'offline' ? SESSION_OFFLINE_HELP : SESSION_NOT_OBSERVED_HELP
               const badge = runtimeBadge(session.runtime)
               const modelId = sessionModels?.get(session.id)
               const isCollapsed = collapsed.has(session.id)
@@ -707,7 +709,7 @@ export function SessionListPanel({
                       <ColumnValue column="branch" cell={branchCell(session.branch)} title={session.branch} />
                       <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
                       <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null)} />
-                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime)} />
+                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime, relayOffline)} />
                       <ColumnValue column="activity" cell={activityCell(session, currentTime)} />
                       <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
                         {unobserved && (

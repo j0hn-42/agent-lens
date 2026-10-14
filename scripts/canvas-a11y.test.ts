@@ -324,3 +324,55 @@ test('recorder captures dispatch particles that exist for a single frame and too
   resetRecorder(rec)
   assert.equal(rec.comms.size + rec.tools.size, 0)
 })
+
+// ─── #367 the outline never announces a stale state as current ─────────────
+
+test('buildA11yModel announces a stale state as the last known one, like the canvas', () => {
+  const now = 1_700_000_000_000
+  const fresh = agent({ id: 'f', state: 'thinking', lastEventAt: now - 1_000, freshnessSource: 'live' })
+  const stale = agent({ id: 's', state: 'thinking', lastEventAt: now - 120_000, freshnessSource: 'live', isMain: false })
+  const model = buildA11yModel(new Map([['f', fresh], ['s', stale]]), new Map(), [], new Map(), { now })
+  const by = (id: string) => model.agents.find(a => a.id === id)!
+  assert.equal(by('f').stateText, 'thinking')
+  assert.equal(by('s').stateText, 'last known state: Thinking')
+})
+
+test('buildA11yModel leaves the state text alone without a clock', () => {
+  const stale = agent({ state: 'thinking', lastEventAt: 1, freshnessSource: 'live' })
+  const model = buildA11yModel(new Map([['a1', stale]]), new Map(), [], new Map(), {})
+  assert.equal(model.agents[0].stateText, 'thinking')
+})
+
+test('buildA11yModel does not announce a stale teammate as working (#367)', () => {
+  const now = 1_700_000_000_000
+  const mate = (id: string, lastEventAt: number) => agent({
+    id, name: id, kind: 'teammate', teamName: 'core', state: 'thinking', isMain: false, lastEventAt, freshnessSource: 'live',
+  })
+  const model = buildA11yModel(new Map([['f', mate('f', now - 1_000)], ['s', mate('s', now - 120_000)]]), new Map(), [], new Map(), { now })
+  const by = (id: string) => model.agents.find(a => a.id === id)!
+  assert.equal(by('f').activityText, 'working')
+  assert.equal(by('s').stateText, 'last known state: Thinking')
+  assert.equal(by('s').activityText, undefined)
+})
+
+test('buildGraphLabel counts a stale agent apart, not as running or waiting (#367)', () => {
+  const now = 1_700_000_000_000
+  const fresh = { state: 'thinking' as const, lastEventAt: now - 1_000, freshnessSource: 'live' as const }
+  const stale = { state: 'thinking' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  const staleWait = { state: 'waiting_permission' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  assert.equal(
+    buildGraphLabel([fresh, stale, staleWait], 0, now),
+    'Agent graph: 3 agents, 1 running, 0 waiting for permission, 2 last known state, not confirmed',
+  )
+  // Without a clock the old counts are kept
+  assert.match(buildGraphLabel([fresh, stale]), /2 running/)
+  // And the outline summary carries it
+  const model = buildA11yModel(new Map([['s', agent({ id: 's', ...stale })]]), new Map(), [], new Map(), { now })
+  assert.match(model.summary, /0 running.*1 last known state/)
+})
+
+test('buildGraphLabel counts a stale idle agent as last known, like the top bar (#367)', () => {
+  const now = 1_700_000_000_000
+  const staleIdle = { state: 'idle' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  assert.match(buildGraphLabel([staleIdle], 0, now), /1 last known state/)
+})

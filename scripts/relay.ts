@@ -13,6 +13,7 @@ import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEn
 import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude-session-pipeline'
 import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
+import { filterOrchestratorCompletion } from '../extension/src/orchestrator-completion'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
 import { projectTags, branchTag } from '../extension/src/project-identity'
 import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
@@ -76,7 +77,7 @@ let verbose = false
 let sessionEventCount = 0
 /** Webhooks (#236): null without destinations. Only live events of watched Claude sessions are notified. */
 let webhooks: WebhookDispatcher | null = null
-/** > 0 while a transcript history is read: its events are replayed, not live, and never notified */
+/** > 0 while a transcript history is read: its events are replayed, not live (the reconciler marks them `replayed`, #361), and never notified */
 let historyDepth = 0
 function withHistory<T>(load: () => T): T {
   historyDepth++
@@ -350,7 +351,7 @@ function onSessionTags(sessionId: string, _tags: TeamSessionTags | null) {
 const sessions = new Map<string, WatchedSession>()
 
 /**
- * Tracking of a transcript (attach, reads, inactivity, context_update): the same code as the extension's
+ * Tracking of a transcript (attach, reads, activity and end, context_update): the same code as the extension's
  * SessionWatcher (extension/src/claude-session-pipeline.ts, #218). The relay plugs in its reconciler,
  * its lifecycle tags, its size cap and its error guard.
  */
@@ -404,8 +405,8 @@ function detachSessionOnError(sessionId: string, err: unknown) {
 }
 
 /**
- * Make room for one more watched session. Only completed sessions idle for longer than
- * the discovery window are evicted (they cannot be rediscovered); returns false when full.
+ * Make room for one more watched session. Only sessions idle for longer than the discovery window are
+ * evicted, ended or silent: nothing is announced, a transcript that grows again is rediscovered; returns false when full.
  */
 function ensureWatchCapacity(): boolean {
   // Imported sessions hold no watcher: they neither count against the live budget nor get evicted
@@ -414,7 +415,8 @@ function ensureWatchCapacity(): boolean {
   let victim: WatchedSession | undefined
   for (const s of sessions.values()) {
     if (importedSessions.has(s.sessionId)) continue
-    if (!s.sessionCompleted || (Date.now() - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+    // Ended or only silent (#360): no activity for longer than the discovery window
+    if ((Date.now() - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
     if (!victim || s.lastActivityTime < victim.lastActivityTime) victim = s
   }
   if (!victim) return false
@@ -428,7 +430,7 @@ function ensureWatchCapacity(): boolean {
  */
 function importSession(sessionId: string, filePath: string, importedAt: number) {
   const session = pipeline.newSession(sessionId, filePath)
-  // Registered first: every event emitted below is tagged, and the inactivity timer never starts
+  // Registered first: every event emitted below is tagged, and no activity is ever inferred from it
   importedSessions.set(sessionId, { importedAt, ...transcriptTimeRange(filePath) })
   session.sessionCompleted = true
   sessions.set(sessionId, session)
@@ -901,7 +903,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // The transcript parser emits agent_link/message_sent for watched sessions; hook copies would duplicate them
       if (TEAM_EVENTS.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
       if (!isOrchestrator && SUBAGENT_LIFECYCLE.has(event.type) && event.sessionId && sessions.has(event.sessionId)) return
-      broadcastEvent(event, 'hook')
+      // A Stop is a turn end: only a SessionEnd finishes the orchestrator, as in the extension (#360)
+      const filtered = filterOrchestratorCompletion(event)
+      if (!filtered) return
+      broadcastEvent(filtered, 'hook')
+      // After the event: a SessionEnd ends a watched session, any other hook is activity
+      pipeline.observeHookEvent(filtered)
     })
 
     writeDiscoveryFile(hookPort, workspace)
@@ -1378,7 +1385,6 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         for (const session of sessions.values()) {
           session.fileWatcher?.close()
           if (session.pollTimer) clearInterval(session.pollTimer)
-          if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
         }
       }
       codexWatcher?.dispose()

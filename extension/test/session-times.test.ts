@@ -36,7 +36,6 @@ test('attach keeps the last activity at the mtime: reading the history is not ac
   try {
     pipeline.attach(session)
     assert.equal(session.lastActivityTime, writtenAt, 'not the attach time')
-    assert.ok(session.inactivityTimer, 'the inactivity timer still runs')
     // New content is activity
     pipeline.resetInactivityTimer(SESSION)
     assert.ok(session.lastActivityTime >= Date.now() - 1000)

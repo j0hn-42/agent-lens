@@ -62,7 +62,7 @@ pnpm run dev:relay -- --import /path/folder                     # dev relay only
   results are visible; the relay's replay caps keep the newest events. Lines of a type the parser does not know
   are ignored: the JSONL format is internal to Claude Code and may change between versions, so an import is
   only as complete as the parser's understanding of that version.
-- Nothing watches the file afterwards (no file watcher, no poll, no inactivity timer). Re-run the relay to
+- Nothing watches the file afterwards (no file watcher, no poll). Re-run the relay to
   read a newer copy.
 - Provenance: the session is listed with `imported: true` and `importedAt` (when it was read). Its start and
   last activity are the first and last `timestamp` recorded in the file (`lastActivityUnknown` if none). It is

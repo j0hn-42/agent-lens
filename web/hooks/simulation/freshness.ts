@@ -2,18 +2,19 @@
  * Freshness of an agent's status (issue #48): a status is only displayed as current while something
  * proves it. Pure (no React, no DOM, no clock of its own): `now` is always passed in.
  *
- *   fresh          a live event arrived within STALE_AFTER_MS (or a history status within its expiry)
+ *   fresh          a live event arrived within STALE_AFTER_MS
  *   stale          the status is older than that: it is only the "last known state"
  *   interrupted    the agent was paused/interrupted (terminal status, shown TERMINAL_STATUS_VISIBLE_MS)
  *   error          the agent failed (terminal status, shown TERMINAL_STATUS_VISIBLE_MS)
  *   closed         the agent completed, or a terminal status is older than TERMINAL_STATUS_VISIBLE_MS
  *   never-observed no event was ever received for the agent in this app run
  *
- * An agent whose status comes from an imported transcript (#294) is never fresh: at best stale.
+ * An agent whose status comes from an imported transcript (#294) or a replayed history (#361) is never
+ * fresh: at best stale. What was read from a file proves nothing about now.
  */
 import type { Agent } from '../../lib/agent-types'
 import {
-  STALE_AFTER_MS, HISTORY_STATUS_EXPIRY_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_ANNOUNCE_MAX_NAMES, SILENT_AFTER_MS,
+  STALE_AFTER_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_ANNOUNCE_MAX_NAMES, SILENT_AFTER_MS,
 } from '../../lib/canvas-constants'
 import { getStateLabel } from '../../lib/state-labels'
 
@@ -21,13 +22,11 @@ export type Freshness = 'fresh' | 'stale' | 'interrupted' | 'error' | 'closed' |
 
 export interface FreshnessThresholds {
   staleAfterMs: number
-  historyExpiryMs: number
   terminalVisibleMs: number
 }
 
 export const DEFAULT_FRESHNESS_THRESHOLDS: FreshnessThresholds = {
   staleAfterMs: STALE_AFTER_MS,
-  historyExpiryMs: HISTORY_STATUS_EXPIRY_MS,
   terminalVisibleMs: TERMINAL_STATUS_VISIBLE_MS,
 }
 
@@ -52,10 +51,10 @@ export function deriveFreshness(
     if (age > thresholds.terminalVisibleMs) return 'closed'
     return agent.state === 'error' ? 'error' : 'interrupted'
   }
-  // An imported transcript proves nothing about now: its last state is only ever the last known one (#294)
-  if (agent.freshnessSource === 'imported') return 'stale'
-  const limit = agent.freshnessSource === 'history' ? thresholds.historyExpiryMs : thresholds.staleAfterMs
-  return age > limit ? 'stale' : 'fresh'
+  // An imported transcript (#294) or a replayed history (#361) proves nothing about now: its last state is only
+  // ever the last known one, on every surface (canvas, Sessions panel, top-bar counts, inspector)
+  if (agent.freshnessSource === 'imported' || agent.freshnessSource === 'history') return 'stale'
+  return age > thresholds.staleAfterMs ? 'stale' : 'fresh'
 }
 
 /** Text of a stale node: the state is explicitly the last known one (never colour alone). */
@@ -107,6 +106,14 @@ export function silenceText(silence: Silence, state: string): string {
   return silence.kind === 'permission'
     ? `waiting for permission for ${duration}`
     : `${lastKnownStateText(state)}, silent for ${duration}`
+}
+
+/**
+ * `agent` received at `nowMs` from a replayed history (#361): stamped with the reception time, but never fresh
+ * (only a last known state) and never a wall-clock silence.
+ */
+export function historyFrom(agent: Agent, nowMs: number): Agent {
+  return { ...agent, lastEventAt: nowMs, freshnessSource: 'history' }
 }
 
 /** `agent` heard from at `nowMs` by a live event. */
@@ -181,23 +188,28 @@ function listNames(names: string[]): string {
 /**
  * ONE aggregated, polite message for the agents that just became stale or closed between two ticks
  * (null when nothing did). Agents unknown to `prev` are a baseline, never announced.
+ * `fromHistory`: agents whose status now comes from a replayed history (#361). They did not stop reporting, a
+ * history was received for them: they are announced as such, never as "no longer reporting".
  */
 export function buildFreshnessAnnouncement(
   prev: ReadonlyMap<string, Freshness>,
   next: ReadonlyMap<string, Freshness>,
   names: ReadonlyMap<string, string>,
+  fromHistory: ReadonlySet<string> = new Set(),
 ): string | null {
   const stale: string[] = []
+  const history: string[] = []
   const closed: string[] = []
   for (const [id, f] of next) {
     const before = prev.get(id)
     if (before === undefined || before === f) continue
     const name = names.get(id) ?? id
-    if (f === 'stale') stale.push(name)
+    if (f === 'stale') (fromHistory.has(id) ? history : stale).push(name)
     else if (f === 'closed') closed.push(name)
   }
   const parts: string[] = []
   if (stale.length > 0) parts.push(`${listNames(stale)} ${stale.length === 1 ? 'is' : 'are'} no longer reporting, showing the last known state`)
+  if (history.length > 0) parts.push(`${listNames(history)} ${history.length === 1 ? 'shows' : 'show'} a state read from history`)
   if (closed.length > 0) parts.push(`${listNames(closed)} closed`)
   return parts.length > 0 ? parts.join('. ') + '.' : null
 }

@@ -70,6 +70,7 @@ const TEXT_TOKENS = [
   'panelLabel', 'panelLabelDim', 'scrollBtnText',
   'costText', 'costTextDim', 'systemWarm', 'systemCritical',
   'roleAssistantText', 'roleThinkingText', 'roleUserText', 'roleCompactionText',
+  'tool', 'holoBright',
 ] as const
 
 // Tokens used for control borders, tracks and graphical objects (WCAG 1.4.11, 3:1)

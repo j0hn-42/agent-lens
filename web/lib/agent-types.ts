@@ -202,6 +202,10 @@ export interface FileAttention {
   reads: number
   edits: number
   totalTokens: number   // how much context this file consumed
+  /** True once part of totalTokens comes from an estimate rather than a reported figure */
+  tokensEstimated?: boolean
+  /** True once a call on this file ended without a figure: totalTokens is then a lower bound */
+  tokensPartial?: boolean
   lastAccessed: number
   agents: string[]      // which agents touched this file
   /** Edit / Write calls per agent, with how many were observed to succeed (#227) */

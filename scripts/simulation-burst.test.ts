@@ -25,12 +25,13 @@ function makeCtx(): ProcessEventContext {
 const RECEIVED_AT = 1_700_000_000_000
 
 // The per-event path the hook used before #210, kept here as the reference: full scans of the agents
-function referenceStamp(prev: ReadonlyMap<string, Agent>, next: Map<string, Agent>, now: number): Map<string, Agent> {
+// (a replayed event stamps a history status, #361)
+function referenceStamp(prev: ReadonlyMap<string, Agent>, next: Map<string, Agent>, now: number, replayed = false): Map<string, Agent> {
   let out: Map<string, Agent> | null = null
   for (const [id, agent] of next) {
     if (prev.get(id) === agent) continue
     if (!out) out = new Map(next)
-    out.set(id, { ...agent, lastEventAt: now, freshnessSource: 'live' })
+    out.set(id, { ...agent, lastEventAt: now, freshnessSource: replayed ? 'history' : 'live' })
   }
   return out ?? next
 }
@@ -63,7 +64,7 @@ function oneByOneLive(events: readonly SimulationEvent[], ctx: ProcessEventConte
     s = { ...s, currentTime: e.time }
     const before = s
     s = processEvent(e, s, ctx)
-    s = { ...s, agents: referenceStamp(before.agents, s.agents, now) }
+    s = { ...s, agents: referenceStamp(before.agents, s.agents, now, e.replayed === true) }
     if (!e.replayed) s = { ...s, agents: referenceActive(before.agents, s.agents, now) }
   }
   return s

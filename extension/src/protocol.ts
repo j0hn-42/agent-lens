@@ -137,6 +137,8 @@ export interface AgentEvent {
   sessionId?: string
   /** Event of an imported transcript (#294): read from a file, never seen live */
   imported?: boolean
+  /** Event read from a transcript history (attach catch-up, import), not seen live: its wall-clock timing is unknown (#361) */
+  replayed?: boolean
 }
 
 export interface SessionInfo {
@@ -453,9 +455,9 @@ export interface WatchedSession {
   seenToolUseIds: Set<string>
   seenMessageHashes: Set<string>
   sessionDetected: boolean
+  /** The end of the session was observed (SessionEnd hook). A silence never sets it (#360) */
   sessionCompleted: boolean
   lastActivityTime: number
-  inactivityTimer: NodeJS.Timeout | null
   subagentWatchers: Map<string, SubagentState>
   /** Names of subagents already spawned (by transcript parser or file watcher) — prevents duplicate spawns */
   spawnedSubagents: Set<string>
