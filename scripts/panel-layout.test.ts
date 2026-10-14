@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
-  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -57,6 +57,10 @@ function assertGeometry(l: DockLayout, w: number, h: number, open: PanelId[], ob
     if (open.length) {
       assert.equal(placed[0][0], open[open.length - 1], `${label}: the newest panel is the sheet`)
       assert.equal(l.hidden.length, open.length - 1)
+      // #410: the band for the "N panels hidden" notice is kept free under the top bar (when there is room for it)
+      if (l.hidden.length > 0 && l.area.h - SHEET_NOTICE_H >= MIN_MAIN_H) {
+        assert.ok(placed[0][1].y >= TOPBAR_H + SHEET_NOTICE_H, `${label}: the sheet starts below the notice band`)
+      }
     }
   }
 }
@@ -142,8 +146,29 @@ test('below 900px every panel is a full-width sheet between the bars, newest ope
   const r = l.rects.files!
   assert.equal(r.x, 8)
   assert.equal(r.w, 390 - 16)
-  assert.equal(r.y, TOPBAR_H)
+  // #410: a band under the top bar is kept for the "N panels hidden" notice, so the sheet never sits under it
+  assert.equal(r.y, TOPBAR_H + SHEET_NOTICE_H)
   assert.equal(bottom(r), 844 - 16 - BAR_H - 8)
+})
+
+test('the band follows the measured height of the notice, never below the minimum (#410)', () => {
+  const at = (noticeH?: number) => computeDockLayout({ viewport: { w: 320, h: 700 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'timeline', 'files'], noticeH }).rects.files!
+  assert.equal(at(undefined).y, TOPBAR_H + SHEET_NOTICE_H)
+  assert.equal(at(20).y, TOPBAR_H + SHEET_NOTICE_H)
+  assert.equal(at(90).y, TOPBAR_H + 90 + 4)
+})
+
+test('no band when the area is too short to keep a usable sheet (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 390, h: 200 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'files'] })
+  assert.equal(l.mode, 'sheet')
+  assert.ok(l.rects.files!.h > 0)
+  assert.equal(l.rects.files!.y, l.area.y)
+})
+
+test('a lone sheet keeps the whole area: no notice band when nothing is hidden (#410)', () => {
+  const l = layoutFor(390, 844, ['files'], [])
+  assert.deepEqual(l.hidden, [])
+  assert.equal(l.rects.files!.y, TOPBAR_H)
 })
 
 test('a layout that cannot fit falls back to a sheet instead of overlapping', () => {

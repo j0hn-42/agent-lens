@@ -48,6 +48,7 @@ import { PermissionRequests } from "./permission-requests"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { PanelRegistryContext } from "@/hooks/use-panel-registry"
 import { HiddenFinishedNotice } from "./hidden-finished-notice"
+import { HiddenPanelsNotice } from "./hidden-panels-notice"
 import { UNDO_SHORTCUT_KEY } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 
@@ -343,6 +344,8 @@ export function AgentVisualizer() {
         onPause={setToastsPaused}
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
+      {/* Open panels a sheet hides (#410) */}
+      <HiddenPanelsNotice contextOpen={showContext} />
       {/* Operator decisions (#240): renders nothing outside VS Code */}
       <PermissionRequests sessionLabel={permissionSessionLabel} />
       </main>
