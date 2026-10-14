@@ -243,9 +243,18 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (location.kind === 'unavailable') { this.setStatus(location.message); return false }
       file = location.path
     }
-    const identity = OpenCodeSessionWatcher.identityOf(file)
-    const opened = openOpenCodeDb(file)
+    let identity = OpenCodeSessionWatcher.identityOf(file)
+    let opened = openOpenCodeDb(file)
     if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
+    // The path may have been swapped between the stat and the open: if the identity moved, the
+    // connection may be on the other file, so open once more.
+    const after = OpenCodeSessionWatcher.identityOf(file)
+    if (after !== identity) {
+      opened.db.close()
+      identity = after
+      opened = openOpenCodeDb(file)
+      if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
+    }
     this.db = opened.db
     this.dbOpenFile = file
     this.dbIdentity = identity
