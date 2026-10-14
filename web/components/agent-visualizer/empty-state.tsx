@@ -35,8 +35,8 @@ export function EmptyState({ bridge }: {
         <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
           {checklist.map(item => (
             <li key={item.id}>
-              <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? SCENE.complete : SCENE.error }}>{item.ok ? '✓' : '✗'}</span>
-              <span className="sr-only">{item.ok ? 'Done: ' : 'Not done: '}</span>
+              <span aria-hidden="true" className="inline-block w-4" style={{ color: item.unknown ? SCENE.textMuted : item.ok ? SCENE.complete : SCENE.error }}>{item.unknown ? '?' : item.ok ? '✓' : '✗'}</span>
+              <span className="sr-only">{item.unknown ? 'Unknown: ' : item.ok ? 'Done: ' : 'Not done: '}</span>
               {item.label}
               {item.detail && <span> ({item.detail})</span>}
             </li>
