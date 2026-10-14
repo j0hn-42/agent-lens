@@ -32,6 +32,16 @@ function fileUsage(f: FileAttention): UsageTotal {
   return { value: f.totalTokens, status: f.tokensPartial ? 'partial' : 'available', estimated: f.tokensEstimated === true }
 }
 
+/**
+ * The calls started count failures and calls still running: when fewer were observed to succeed, say how many
+ * did. Without per-agent tracking nothing is claimed.
+ */
+function succeededNote(started: number, perAgent: readonly { succeeded: number }[] | undefined): string {
+  if (!perAgent) return ''
+  const succeeded = perAgent.reduce((s, a) => s + a.succeeded, 0)
+  return succeeded < started ? ` (${succeeded} succeeded)` : ''
+}
+
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
@@ -173,12 +183,12 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 <div className="flex items-center gap-2 mt-1">
                   {file.reads > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
-                      {file.reads} read{file.reads > 1 ? 's' : ''}
+                      {file.reads} read{file.reads > 1 ? 's' : ''}{succeededNote(file.reads, file.readers)}
                     </span>
                   )}
                   {file.edits > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
-                      {file.edits} edit{file.edits > 1 ? 's' : ''}
+                      {file.edits} edit{file.edits > 1 ? 's' : ''}{succeededNote(file.edits, file.editors)}
                     </span>
                   )}
                   {conflicted && (

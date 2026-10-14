@@ -47,3 +47,22 @@ test('a heavy file is never drawn in the error red', () => {
   const html = container.innerHTML.toLowerCase()
   assert.ok(!html.includes(red), 'no element uses the error color when there is no conflict')
 })
+
+test('reads and edits observed to succeed are counted apart from the calls started', () => {
+  const mixed: FileAttention = {
+    ...base, path: '/r/mixed.ts', totalTokens: 100, reads: 3, edits: 2,
+    readers: [{ agent: 'main', started: 3, succeeded: 2 }],
+    editors: [{ agent: 'main', started: 2, succeeded: 0 }],
+  }
+  const clean: FileAttention = {
+    ...base, path: '/r/clean.ts', totalTokens: 100, reads: 2,
+    readers: [{ agent: 'main', started: 2, succeeded: 2 }],
+  }
+  const { container } = render(<FileAttentionPanel visible fileAttention={new Map([[mixed.path, mixed], [clean.path, clean]])} onClose={noop} />)
+  const rows = Array.from(container.querySelectorAll('li'))
+  const text = (name: string) => rows.find(li => (li.textContent ?? '').includes(name))?.textContent ?? ''
+  assert.match(text('mixed.ts'), /3 reads \(2 succeeded\)/)
+  assert.match(text('mixed.ts'), /2 edits \(0 succeeded\)/)
+  assert.match(text('clean.ts'), /2 reads/)
+  assert.doesNotMatch(text('clean.ts'), /succeeded/)
+})
