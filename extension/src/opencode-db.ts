@@ -156,6 +156,17 @@ function idOf(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 && v.length <= ID_MAX && v.replace(CONTROL_ALL, '') === v ? v : undefined
 }
 
+/**
+ * A session id is `ses_` + base62 in OpenCode. Anything else is refused: events are stamped with the
+ * session id, and a hostile database could carry the UUID of a live Claude session to mix the streams.
+ */
+const SESSION_ID_RE = /^ses_[A-Za-z0-9_-]{1,120}$/
+
+function sessionIdOf(v: unknown): string | undefined {
+  const id = idOf(v)
+  return id !== undefined && SESSION_ID_RE.test(id) ? id : undefined
+}
+
 function nullableText(v: unknown): string | null {
   return cleanText(v, TEXT_MAX) ?? null
 }
@@ -305,7 +316,7 @@ export class OpenCodeDb {
     let skipped = 0
     const fresh: { id: string; time: number; row: T | undefined }[] = []
     for (const r of raw) {
-      const id = r ? idOf(r.id) : undefined
+      const id = r ? (name === 'session' ? sessionIdOf(r.id) : idOf(r.id)) : undefined
       const time = r ? timeOf(r.time_updated) : undefined
       if (id === undefined || time === undefined) { skipped++; continue }
       if (time === t && seen.has(id)) continue
@@ -338,11 +349,11 @@ function sanitizeCursor(c: OpenCodeCursor | undefined): OpenCodeCursor {
 }
 
 function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefined {
-  const id = idOf(r.id)
+  const id = sessionIdOf(r.id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || created === undefined || updated === undefined) return undefined
-  const parent = r.parent_id === null || r.parent_id === undefined ? null : idOf(r.parent_id)
+  const parent = r.parent_id === null || r.parent_id === undefined ? null : sessionIdOf(r.parent_id)
   if (parent === undefined) return undefined
   return {
     id,
@@ -358,7 +369,7 @@ function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefin
 
 function rowToMessage(r: Record<string, unknown>): OpenCodeMessageRow | undefined {
   const id = idOf(r.id)
-  const sessionId = idOf(r.session_id)
+  const sessionId = sessionIdOf(r.session_id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || sessionId === undefined || created === undefined || updated === undefined || typeof r.data !== 'string') return undefined
@@ -368,7 +379,7 @@ function rowToMessage(r: Record<string, unknown>): OpenCodeMessageRow | undefine
 function rowToPart(r: Record<string, unknown>): OpenCodePartRow | undefined {
   const id = idOf(r.id)
   const messageId = idOf(r.message_id)
-  const sessionId = idOf(r.session_id)
+  const sessionId = sessionIdOf(r.session_id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || messageId === undefined || sessionId === undefined || created === undefined || updated === undefined || typeof r.data !== 'string') return undefined
