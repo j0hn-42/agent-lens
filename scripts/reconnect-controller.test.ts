@@ -365,3 +365,30 @@ test('connect timeout: onopen in time disarms the connect guard, close() cancels
   await tick(10 * CONNECT_TIMEOUT_MS)
   assert.equal(FakeES.all.length, 1)
 })
+
+test('retryNow (#371): connects at once instead of waiting for the backoff timer', async () => {
+  const src = start()
+  FakeES.last.fail()
+  assert.equal(FakeES.all.length, 1)
+  src.retryNow()
+  assert.equal(FakeES.all.length, 2, 'a new attempt starts immediately')
+  assert.equal(last().status, 'connecting', 'the stale "retry in Ns" detail is gone')
+  assert.equal(last().detail, null)
+  await tick(BACKOFF_BASE_MS * 2)
+  assert.equal(FakeES.all.length, 2, 'the cancelled timer does not fire a second attempt')
+})
+
+test('retryNow (#371): while polling it skips the probe wait and tries SSE; ignored when connected or closed', async () => {
+  const src = start()
+  await intoPolling()
+  const before = FakeES.all.length
+  src.retryNow()
+  assert.equal(FakeES.all.length, before + 1)
+  FakeES.last.open()
+  const connected = FakeES.all.length
+  src.retryNow()
+  assert.equal(FakeES.all.length, connected, 'nothing to retry while the stream is open')
+  src.close()
+  src.retryNow()
+  assert.equal(FakeES.all.length, connected, 'closed source stays closed')
+})
