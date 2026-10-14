@@ -125,6 +125,9 @@ test('described-only entries with a proxy are absent at every step time', () => 
     if (DESCRIBED_ONLY.includes('state-paused')) {
       assert.ok(![...state.agents.values()].some(a => a.state === 'paused'), `${s.id}: no paused agent at t=${s.time}`)
     }
+    if (DESCRIBED_ONLY.includes('state-error')) {
+      assert.ok(![...state.agents.values()].some(a => a.state === 'error'), `${s.id}: no agent in error at t=${s.time}`)
+    }
     if (DESCRIBED_ONLY.includes('link-error')) {
       assert.ok(![...state.links.values()].some(l => linkState(l, s.time) === 'error'), `${s.id}: no error link at t=${s.time}`)
     }
