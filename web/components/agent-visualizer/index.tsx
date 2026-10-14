@@ -37,13 +37,13 @@ import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bri
 import { selectionLabel } from "@/lib/session-tree"
 
 import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
-import { GUIDED_STEPS, type TourStep } from "@/lib/guided-steps"
-import { buildLiveTourSteps } from "@/lib/live-tour"
-import { EMPTY_PRESENCE, type LegendPresence } from "@/lib/legend-presence"
-import { useGuidedTour } from "@/hooks/use-guided-tour"
+import { useTourController } from "@/hooks/use-tour-controller"
+import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
+import { useTimelineEvents } from "@/hooks/use-timeline-events"
+import { useReviewControls } from "@/hooks/use-review-controls"
 import { GuidedTourCard } from "./guided-tour-card"
 import { TourHighlight } from "./tour-highlight"
-import { TourBridgeContext, type TourBridge } from "./guided-tour-context"
+import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
 import { TopBar, PANEL_BUTTON_IDS, FULLSCREEN_BUTTON_ID, FullscreenIcon } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
@@ -276,151 +276,21 @@ export function AgentVisualizer() {
     return () => clearTimeout(timer)
   }, [play, isGuidedDemo])
 
-  // Per-session state cache: save/restore simulation state on tab switch
-  // so sessions stay up to date and switching is instant.
-  // useLayoutEffect ensures restart happens synchronously before any animation
-  // frame can consume and discard events from pendingEventsRef.
-  const sessionCacheRef = useRef<Map<string, { snapshot: ReturnType<typeof saveSnapshot>; eventCount: number; viewKey: string }>>(new Map())
-  const prevSelectedRef = useRef<string | null>(null)
-  const allViewKeyRef = useRef(bridge.allViewKey)
-  allViewKeyRef.current = bridge.allViewKey
-  useLayoutEffect(() => {
-    if (bridge.selectedSessionId && bridge.selectedSessionId !== prevSelectedRef.current) {
-      // Save outgoing session state (if any)
-      if (prevSelectedRef.current !== null) {
-        sessionCacheRef.current.set(prevSelectedRef.current, {
-          snapshot: saveSnapshot(),
-          eventCount: bridge.getSessionEventCount(prevSelectedRef.current),
-          viewKey: allViewKeyRef.current,
-        })
-      }
-
-      // Restore or cold-start the incoming session, then flush events.
-      // Flushing happens HERE (after state swap) to prevent the animation
-      // frame from processing events in the wrong simulation context.
-      const cached = sessionCacheRef.current.get(bridge.selectedSessionId)
-      // The union views depend on which sessions 'All' shows: a snapshot of another set is stale
-      const cacheUsable = cached && (!isUnionSelection(bridge.selectedSessionId) || cached.viewKey === allViewKeyRef.current)
-      if (cached && cacheUsable) {
-        restoreSnapshot(cached.snapshot)
-        bridge.flushSessionEvents(bridge.selectedSessionId, cached.eventCount)
-      } else {
-        restart()
-        bridge.flushSessionEvents(bridge.selectedSessionId)
-      }
-
-      // Both paths above leave the simulation playing: the pause belonged to the view that was left (#248).
-      // The events it had queued are re-fed from the cursor, so none is lost; the bar must not claim review.
-      if (isReviewingRef.current) {
-        setIsReviewing(false)
-        pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
-      }
-
-      prevSelectedRef.current = bridge.selectedSessionId
-    }
-  }, [bridge.selectedSessionId, restart, bridge.flushSessionEvents, saveSnapshot, restoreSnapshot, bridge.getSessionEventCount, pushToast])
-
-  // 'All' membership changed (an old session woke up, a session went quiet, the toggle flipped):
-  // rebuild the union from the buffered events of the sessions it now shows.
-  const lastViewKeyRef = useRef(bridge.allViewKey)
-  useLayoutEffect(() => {
-    allViewKeyRef.current = bridge.allViewKey
-    if (lastViewKeyRef.current === bridge.allViewKey) return
-    lastViewKeyRef.current = bridge.allViewKey
-    if (bridge.selectedSessionId !== ALL_SESSIONS_ID) return
-    restart()
-    bridge.flushSessionEvents(ALL_SESSIONS_ID)
-  }, [bridge.allViewKey, bridge.selectedSessionId, restart, bridge.flushSessionEvents])
-
-  // Timeline events — incremental: only processes new conversation messages
-  const timelineCacheRef = useRef<{
-    counts: Map<string, number>
-    events: TimelineEvent[]
-    idCounter: number
-  }>({ counts: new Map(), events: [], idCounter: 0 })
-
-  const timelineEvents = useMemo((): TimelineEvent[] => {
-    const cache = timelineCacheRef.current
-    let appended = false
-    for (const [agentId, msgs] of conversations) {
-      const prevLen = cache.counts.get(agentId) ?? 0
-      if (msgs.length > prevLen) {
-        for (let i = prevLen; i < msgs.length; i++) {
-          const msg = msgs[i]
-          cache.events.push({
-            id: `event-${cache.idCounter++}`,
-            type: msg.type === 'tool_call' ? 'tool_call' : msg.type === 'tool_result' ? 'tool_result' : 'message',
-            label: msg.content.slice(0, 20),
-            timestamp: msg.timestamp,
-            nodeId: agentId,
-          })
-        }
-        cache.counts.set(agentId, msgs.length)
-        appended = true
-      }
-    }
-    if (appended) cache.events.sort((a, b) => a.timestamp - b.timestamp)
-    return cache.events
-  }, [conversations])
-
-  const announceReview = useCallback(() => {
-    pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })
+  const onReviewEnded = useCallback(() => {
+    setIsReviewing(false)
+    pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
   }, [pushToast])
+  const sessionCacheRef = useSessionViewSwap({ bridge, restart, saveSnapshot, restoreSnapshot, isReviewingRef, onReviewEnded })
 
-  const handlePlayPause = useCallback(() => {
-    if (isPlaying) {
-      pause()
-      setIsReviewing(true)
-      announceReview()
-    } else {
-      play()
-    }
-  }, [isPlaying, play, pause, announceReview])
+  const timelineEvents = useTimelineEvents(conversations)
 
-  const handleEnterReview = useCallback(() => {
-    pause()
-    setIsReviewing(true)
-    announceReview()
-  }, [pause, announceReview])
-
-  // Speed only applies in review mode: in live mode it would silently distort the time axis
-  const setSpeedInReview = useCallback((value: number) => {
-    if (isReviewing) setSpeed(value)
-  }, [isReviewing, setSpeed])
-
-  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const handleResumeLive = useCallback(() => {
-    // Events that arrived while paused are still queued: report them instead of silently compressing them
-    const missed = formatMissedEvents(bridge.pendingEvents.length)
-    if (missed) pushToast({ message: `Resumed live: ${missed.replace(' while reviewing', '')}`, durationMs: 5000 })
-    setIsReviewing(false)
-    // Speed chosen in review must not leak into live playback (no speed control there)
-    setSpeed(1)
-    seekToTime(maxTimeReached)
-    setZoomToFitTrigger(n => n + 1)
-    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
-    resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; play() }, TIMING.resumeLiveDelayMs)
-  }, [seekToTime, setSpeed, maxTimeReached, play, bridge.pendingEvents, pushToast])
-  useEffect(() => () => { if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current) }, [])
-
-  // "Clear history": keeps active agents, drops the scrubbable history. Undo restores a snapshot.
-  const handleClearHistory = useCallback(() => {
-    const snapshot = saveSnapshot()
-    setIsReviewing(false)
-    restart(true)
-    pushToast({
-      message: 'History cleared',
-      actionLabel: 'Undo',
-      onAction: () => restoreSnapshot(snapshot),
-    })
-  }, [restart, saveSnapshot, restoreSnapshot, pushToast])
-
-  // Rebuild the canvas from the buffered events of the selected session (live mode)
-  const handleReloadSessionEvents = useCallback(() => {
-    const id = bridge.selectedSessionIdRef.current
-    restart()
-    if (id) bridge.flushSessionEvents(id)
-  }, [restart, bridge.selectedSessionIdRef, bridge.flushSessionEvents])
+  const zoomToFit = useCallback(() => setZoomToFitTrigger(n => n + 1), [])
+  const {
+    handlePlayPause, handleEnterReview, setSpeedInReview, handleResumeLive, handleClearHistory, handleReloadSessionEvents, handleSeek,
+  } = useReviewControls({
+    sim: { isPlaying, maxTimeReached, play, pause, restart, setSpeed, seekToTime, saveSnapshot, restoreSnapshot },
+    bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit,
+  })
 
   // Panel open-order stack (LIFO) so Escape closes the most recently opened panel first
   const panelStackRef = useRef<PanelId[]>([])
@@ -824,55 +694,9 @@ export function AgentVisualizer() {
     if (wanted && wanted !== relayScope.scope) void setRelayScope(wanted)
   }, [relayScope, setRelayScope, getPrefs])
 
-  const handleSeek = (time: number) => {
-    seekingRef.current = true
-    pause()
-    seekToTime(time)
-    setZoomToFitTrigger(n => n + 1)
-    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
-    resumeTimerRef.current = setTimeout(() => { resumeTimerRef.current = null; seekingRef.current = false }, TIMING.seekCompleteDelayMs)
-  }
-
-  // Guided tour. Demo (?scenario=guided): step times only match the guided scenario, so it runs nowhere else.
-  // Real session (#244): the steps are built from what the canvas proves on screen when the tour starts; they have
-  // no scenario time, so the tour neither seeks nor pauses the live scene.
-  const [liveSteps, setLiveSteps] = useState<readonly TourStep[] | null>(null)
-  const tour = useGuidedTour({
-    steps: liveSteps ?? GUIDED_STEPS,
-    seek: liveSteps ? () => {} : handleSeek,
-    play: liveSteps ? () => {} : play,
+  const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
+    seek: handleSeek, play, isGuidedDemo, frameRef, setTourShowsInactive,
   })
-  const canvasToScreenRef = useRef<TourBridge['canvasToScreenRef']['current']>(null)
-  // What the canvas proves on screen now (reported by the canvas, read when the live tour starts and by its steps)
-  const [presence, setPresence] = useState<LegendPresence>(EMPTY_PRESENCE)
-  const presenceRef = useRef(presence)
-  presenceRef.current = presence
-  // Set after mount (IS_GUIDED_DEMO reads the URL, unknown to the server render): keeps hydration identical.
-  // A real source taking over ends the tour: its step times do not match the real event log.
-  const [guidedDemo, setGuidedDemo] = useState(false)
-  useEffect(() => {
-    setGuidedDemo(isGuidedDemo)
-    if (isGuidedDemo) tour.start()
-    else if (tour.active) tour.exit()
-  }, [isGuidedDemo])   // eslint-disable-line react-hooks/exhaustive-deps
-  const startLiveTour = useCallback(() => {
-    const steps = buildLiveTourSteps(presenceRef.current)
-    if (steps.length === 0) return
-    setLiveSteps(steps)
-    tour.start()
-  }, [tour.start])   // eslint-disable-line react-hooks/exhaustive-deps
-  const exitTour = useCallback(() => { tour.exit(); setLiveSteps(null) }, [tour.exit])   // eslint-disable-line react-hooks/exhaustive-deps
-  const canStartLiveTour = !guidedDemo && presence.entries.length > 0
-  const startTour = tour.active ? undefined : guidedDemo ? tour.start : canStartLiveTour ? startLiveTour : undefined
-  const startTourLabel = guidedDemo ? undefined : 'Tour this session'
-  const tourBridge = useMemo(
-    () => ({ legendOpen: Boolean(tour.step?.opensLegend), legendShowAll: guidedDemo, canvasToScreenRef, startTour, startTourLabel, reportPresence: setPresence }),
-    [tour.step, guidedDemo, startTour, startTourLabel],
-  )
-  // A live step is a snapshot: when what it explains left the scene, the card says so instead of going on as if
-  const tourStale = Boolean(liveSteps && tour.step && !tour.step.covers.every(id => presence.entries.includes(id)))
-  const getTourAgents = useCallback(() => frameRef.current.agents, [frameRef])
-  useEffect(() => { setTourShowsInactive(tour.active && !liveSteps) }, [tour.active, liveSteps])
 
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
@@ -1216,7 +1040,7 @@ export function AgentVisualizer() {
       {tour.active && tour.step && (
         <>
           <TourHighlight key={tour.step.id} target={tour.step.target} getAgents={getTourAgents} />
-          <GuidedTourCard steps={liveSteps ?? GUIDED_STEPS} index={tour.index} stale={tourStale} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={exitTour} />
+          <GuidedTourCard steps={tourSteps} index={tour.index} stale={tourStale} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={exitTour} />
         </>
       )}
 
