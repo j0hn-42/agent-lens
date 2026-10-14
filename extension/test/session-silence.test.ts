@@ -78,6 +78,17 @@ describe('ClaudeSessionPipeline: a silent session stays open (#360)', () => {
     assert.equal(sessions.get(SESSION)?.sessionCompleted, false)
   })
 
+  it('a metadata line written after an observed end does not reopen the session', () => {
+    pipeline.observeSessionEnd(SESSION)
+    events = []
+    fs.appendFileSync(file, line({ type: 'summary', summary: 'Ran the tests', leafUuid: 'u1' }))
+    fs.appendFileSync(file, line({ type: 'file-history-snapshot', messageId: 'm1', snapshot: {} }))
+    pipeline.readNewLines(SESSION)
+    assert.equal(sessions.get(SESSION)?.sessionCompleted, true)
+    assert.deepEqual(lifecycle.filter(l => l.startsWith('started')), [`started:${SESSION}`])
+    assert.ok(!events.some(e => e.type === 'agent_spawn'), 'no orchestrator re-announced')
+  })
+
   it('a hook event is activity: it refreshes the last activity time of an open session', () => {
     const before = sessions.get(SESSION)!.lastActivityTime
     mock.timers.tick(INACTIVITY_TIMEOUT_MS)

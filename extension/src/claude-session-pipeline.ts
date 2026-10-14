@@ -179,21 +179,23 @@ export class ClaudeSessionPipeline {
     // Permission-gated tool calls (Agent/Task are skipped: subagents are inherently slow)
     handlePermissionDetection(this.delegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
     scanSubagentsDir(this.delegate, this.parser, sessionId)
-    this.resetInactivityTimer(sessionId)
+    // Only a new user or assistant entry is a resumed conversation: metadata written after the end never reopens it
+    this.resetInactivityTimer(sessionId, lines.some(isConversationLine))
   }
 
   /**
-   * New transcript content: mark the session active. A completed session (observed end) that gets new
-   * content is reopened. A silence never ends anything (#360): no timer completes the session, the
-   * clients tell a silence apart from the event times.
+   * New transcript content: mark the session active. A completed session (observed end) is reopened only by
+   * a new conversation entry (`reopen`). A silence never ends anything (#360): no timer completes the session,
+   * the clients tell a silence apart from the event times.
    */
-  resetInactivityTimer(sessionId: string): void {
+  resetInactivityTimer(sessionId: string, reopen = true): void {
     const session = this.host.sessions.get(sessionId)
     if (!session) return
     if (this.host.isLive && !this.host.isLive(sessionId)) return
 
     const wasCompleted = session.sessionCompleted
     session.lastActivityTime = Date.now()
+    if (wasCompleted && !reopen) return
     session.sessionCompleted = false
 
     // A completed session that gets new content: re-announce the orchestrator so the clients accept its events again
@@ -244,5 +246,15 @@ export class ClaudeSessionPipeline {
     }
     session.subagentWatchers.clear()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
+  }
+}
+
+/** A transcript line that records a conversation turn (user or assistant entry), not metadata */
+function isConversationLine(line: string): boolean {
+  try {
+    const type = (JSON.parse(line) as { type?: unknown } | null)?.type
+    return type === 'user' || type === 'assistant'
+  } catch {
+    return false
   }
 }
