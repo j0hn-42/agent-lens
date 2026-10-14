@@ -167,6 +167,8 @@ export class PiSessionWatcher implements AgentSessionWatcher {
   private versionWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, RetiredPiSession>()
+  /** > 0 while the history of a file is read (attach, rewrite): its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -411,7 +413,7 @@ export class PiSessionWatcher implements AgentSessionWatcher {
 
     // Parser built once per session so the delegate closures capture the right session
     const parser = new PiEventParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -473,7 +475,13 @@ export class PiSessionWatcher implements AgentSessionWatcher {
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
   }
 
+  /** The events emitted while the history is read are marked `replayed` (#390). */
   private drainHistory(session: WatchedPiSession, size: number): void {
+    this.historyDepth++
+    try { this.drainHistoryLines(session, size) } finally { this.historyDepth-- }
+  }
+
+  private drainHistoryLines(session: WatchedPiSession, size: number): void {
     try {
       for (const line of readLinesChunked(session.filePath, size, undefined, session)) {
         try { session.parser.processLine(line, session.eventState) }
