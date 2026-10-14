@@ -132,6 +132,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **estimated** ("estimated") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
 | "not reported" | The value is unavailable. It is not shown as 0. |
+| **~$X** ("context cost estimate") | A cost: the tokens now in the context × a blended rate per model. An estimate even on reported tokens, never a bill. See [Cost](#cost-the--figures). |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **conflict** (Files panel, canvas line) | Two or more agents each made at least one edit of the same absolute file that was observed to succeed. An edit not seen to succeed is never counted. |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
@@ -192,6 +193,16 @@ The used part of the gauge is a reading. The total is a window that is either **
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
 
 **"window assumed".** In the interface, "assumed" is kept for a window that is a fallback, not for every inferred one: no model known yet, a model the table does not know (whether or not `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set: the cap is an upper bound, not the size, and says nothing about a model the table does not list), or a window a reading has already overflowed. The qualifier goes with the window, never with the token count, which is a reading: **12k / 200k tokens, window assumed** on the canvas label and in the screen-reader summary of the node, **190k / 200k (95% of an assumed window)** in the inspector's **Context window** gauge. The percentage drawn above the node then says "assumed" too, and neither it nor the ring around the node is ever coloured or haloed as a warning or critical: how full a window of unknown size is cannot be proven. A window reported by the runtime, or inferred from a `[1m]` suffix or a family the table lists (capped or not), is shown without the word: the table is the documented source for those models, and marking it would put "assumed" on every Claude Code session.
+
+## Cost (the "~$" figures)
+
+Every cost in Agent Lens is a **context cost estimate**, never a bill: the tokens an agent holds in its context now, priced at a blended rate for its model (75% of the input price plus 25% of the output price per million tokens; the Sonnet-class rate for an unknown model). Transcripts do not give what each call was charged, so this is the only figure that can be computed, and it is marked as such:
+
+- **On screen** a cost reads **~$2.10**: in the top bar, the cost pills and the Cost panel, the session halos, the Sessions list and the All summary. The "~" stays even when the runtime reports its tokens (Codex): the tokens are a reading, the price is not. The qualifiers of the tokens are kept around it (**at least ~$2.10**, **~$2.10 estimated**). The tooltip of the top bar cost gives the method.
+- **For screen readers** the same figure is said in words, "context cost estimate $2.10", in the node summaries, the halo announcements and the top bar. The cost notification says "Context cost estimate reached ~$5.20".
+- **What it misses.** It is the size of the context now, not a sum of the calls: it drops after a compaction (from ~$2.10 to ~$0.40 after `/compact`), it ignores cache reads (cheaper than input) and cache writes, and it does not add up the earlier calls that each re-sent the context. Read it as "what the current context weighs", not as what the session has cost.
+
+The token total next to it, **N tokens in context**, adds up what each agent's context holds now. It is not a consumption either, and it drops after a compaction too.
 
 ## Context compactions
 
@@ -309,7 +320,7 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 | **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
 | **Agent in error** | an agent itself is reported in error (no event observed by Agent Lens sets this state yet, so it cannot fire today; a failed tool call does not count: the agent usually handles it and goes on; it shows in the tool error count of the inspector) | on |
 | **Session finished** | a session you were watching goes from active to completed | off |
-| **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
+| **Cost threshold reached** | the context cost estimate shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
 
 - **Where it shows.** In a browser, a system notification appears only while the tab is hidden (the tab title also carries the number of blocked agents). In VS Code, the webview asks the extension, which shows a native message unless the Agent Lens panel is the focused view. The extension checks and caps every message and shows at most one per trigger every 2 seconds.
 - **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.
