@@ -9,7 +9,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
-  resolveOpenCodeDbPath, openOpenCodeDb, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX,
+  resolveOpenCodeDbPath, openOpenCodeDb, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX, OPENCODE_POLL_BYTES_MAX, OPENCODE_FUTURE_SKEW_MS,
   type OpenCodeCursors,
 } from '../src/opencode-db'
 import { nodeSqliteOpener, type IndexConnection, type IndexOpener } from '../src/session-index'
@@ -247,7 +247,8 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     }))
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     r.db.poll(EMPTY_OPENCODE_CURSORS)
-    assert.deepEqual(order, ['part', 'message', 'session'])
+    // Each table may be asked twice (size query, then rows): the order of tables is what counts
+    assert.deepEqual(order.filter((t, i) => t !== order[i - 1]), ['part', 'message', 'session'])
   })
 
   it('holds the part cursor back while messages are truncated', () => {
@@ -375,5 +376,84 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     assert.match(p.error ?? '', /locked/)
     assert.deepEqual(p.cursors, EMPTY_OPENCODE_CURSORS)
     assert.equal(p.parts.length + p.messages.length + p.sessions.length, 0)
+  })
+})
+
+describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () => {
+  const open = (file: string) => {
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok')
+    if (r.status !== 'ok') throw new Error('unreachable')
+    return r.db
+  }
+  const HUGE = '1152921504606846976' // 2^60: above the safe integers, node:sqlite refuses to return it
+
+  it('I1: an integer above 2^53 in time_updated or time_created skips the row, never fails the poll', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('ok', 100))
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('hugeUpd', NULL, '/w', 'T', 1, ${HUGE})`)
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('hugeCre', NULL, '/w', 'T', ${HUGE}, 101)`)
+    db.exec(`INSERT INTO message VALUES ('mh', 's1', ${HUGE}, 103, '{}')`)
+    db.exec(msg('m1', 104))
+    db.close()
+    const odb = open(file)
+    const p = odb.poll(EMPTY_OPENCODE_CURSORS)
+    assert.equal(p.error, undefined)
+    assert.deepEqual(p.sessions.map(s => s.id), ['ok'])
+    assert.deepEqual(p.messages.map(m => m.id), ['m1'])
+    assert.equal(p.skippedRows, 2)
+    const again = odb.poll(p.cursors)
+    assert.equal(again.error, undefined)
+    odb.close()
+  })
+
+  it('I2: a far-future time_updated does not move the cursor; a row within the skew is read', () => {
+    const { file, db } = makeDb()
+    const now = 1_000_000_000_000
+    db.exec(sess('past', now - 1000))
+    db.exec(sess('future', 9e15))
+    db.exec(sess('near', now + OPENCODE_FUTURE_SKEW_MS - 1))
+    const odb = open(file)
+    const p = odb.poll(EMPTY_OPENCODE_CURSORS, 500, now)
+    assert.deepEqual(p.sessions.map(s => s.id), ['past', 'near'])
+    assert.equal(p.cursors.session.time, now + OPENCODE_FUTURE_SKEW_MS - 1)
+    db.exec(sess('later', now + OPENCODE_FUTURE_SKEW_MS))
+    const q = odb.poll(p.cursors, 500, now + OPENCODE_FUTURE_SKEW_MS + 10)
+    assert.deepEqual(q.sessions.map(s => s.id), ['later'])
+    odb.close(); db.close()
+  })
+
+  it('I4: a poll stops at the byte budget, reports truncated, and the next poll delivers the rest once', () => {
+    const { file, db } = makeDb()
+    const big = 'x'.repeat(900 * 1024)
+    const count = Math.ceil(OPENCODE_POLL_BYTES_MAX / (900 * 1024)) + 4
+    db.exec(sess('s1', 1))
+    for (let i = 0; i < count; i++) db.exec(msg(`m${String(i).padStart(3, '0')}`, 10 + i, big))
+    const odb = open(file)
+    let cursors: OpenCodeCursors = EMPTY_OPENCODE_CURSORS
+    const ids: string[] = []
+    let polls = 0
+    let sawTruncated = false
+    for (; polls < 10; polls++) {
+      const p = odb.poll(cursors)
+      assert.equal(p.error, undefined)
+      cursors = p.cursors
+      ids.push(...p.messages.map(m => m.id))
+      sawTruncated ||= p.truncated
+      if (!p.truncated) break
+    }
+    assert.equal(sawTruncated, true)
+    assert.equal(polls >= 1, true)
+    assert.deepEqual(ids, Array.from({ length: count }, (_, i) => `m${String(i).padStart(3, '0')}`))
+    odb.close(); db.close()
+  })
+
+  it('I4: a single row larger than the budget still progresses', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('s1', 1)); db.exec(msg('m1', 10, 'x'.repeat(900 * 1024))); db.exec(msg('m2', 11))
+    const odb = open(file)
+    const p = odb.poll(EMPTY_OPENCODE_CURSORS)
+    assert.equal(p.messages.length >= 1, true)
+    odb.close(); db.close()
   })
 })
