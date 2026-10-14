@@ -69,6 +69,7 @@ export function PanelDock({
           health={health.bySession}
           onClose={() => panels.setShowSessions(false)}
           sessions={bridge.sessions}
+          relayOffline={!bridge.useMockData && bridge.connectionStatus === 'disconnected'}
           allSessionCount={allSessionCount}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}

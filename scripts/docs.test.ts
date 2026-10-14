@@ -318,3 +318,11 @@ test('the launch docs describe the button, the pasted token and the same-origin 
     assert.ok(sec.includes(needle), `docs/launch-security.md should mention ${needle}`)
   }
 })
+
+test('the reading guide says a silence never ends a session, only an observed end does (#360)', () => {
+  const guide = read('docs/reading-the-ui.md')
+  assert.match(guide, /A silence never ends a session/)
+  assert.match(guide, /SessionEnd/)
+  const finished = guide.split('\n').find(l => l.startsWith('| **Session finished**'))
+  assert.ok(finished?.includes('observed'), 'the Session finished trigger says it needs an observed end')
+})

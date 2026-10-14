@@ -25,11 +25,11 @@ export function useChromeData(
   // Agents whose status is older than the freshness limit are counted apart: they are not "active" any more (#145)
   const countsKey = useFreshnessValue(now => {
     const c = agentActivityCounts(agentsRef.current!.values(), now)
-    return `${c.active}|${c.done}|${c.stale}`
+    return `${c.active}|${c.done}|${c.stale}|${c.idle}|${c.error}`
   })
-  const { activeAgentCount, doneAgentCount, staleAgentCount } = useMemo(() => {
-    const [active, done, stale] = countsKey.split('|').map(Number)
-    return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale }
+  const { activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount } = useMemo(() => {
+    const [active, done, stale, idle, error] = countsKey.split('|').map(Number)
+    return { activeAgentCount: active, doneAgentCount: done, staleAgentCount: stale, idleAgentCount: idle, errorAgentCount: error }
   }, [countsKey, agents])
 
   // 'All' counts only the sessions it shows (all of them while finished ones are included)
@@ -62,7 +62,7 @@ export function useChromeData(
   )
 
   return {
-    activeAgentCount, doneAgentCount, staleAgentCount, allSessionCount, connection, selectedSessionLabel,
+    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
     hiddenKeepIds, listAgents, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   }
 }

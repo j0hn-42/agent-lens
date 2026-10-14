@@ -176,7 +176,7 @@ export function AgentVisualizer() {
   }, [bridge])
 
   const {
-    activeAgentCount, doneAgentCount, staleAgentCount, allSessionCount, connection, selectedSessionLabel,
+    activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount, allSessionCount, connection, selectedSessionLabel,
     hiddenKeepIds, listAgents, labelledAgents, sessionMeta, sessionLinks, permissionSessionLabel,
   } = useChromeData(agents, agentsRef, bridge, selection.selectedAgentId, hideInactiveShown)
 
@@ -225,7 +225,7 @@ export function AgentVisualizer() {
         showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
-        activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} doneAgentCount={doneAgentCount}
+        activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} idleAgentCount={idleAgentCount} errorAgentCount={errorAgentCount} doneAgentCount={doneAgentCount}
         totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={usage.tokens} costUsage={usage.cost}
         unattributedCost={usage.summary.unattributedCost}
         showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}

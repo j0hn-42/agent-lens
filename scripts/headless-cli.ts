@@ -129,7 +129,10 @@ function tail(opts: CliOptions, io: CliIo): Promise<number> {
           if (!data) continue // keep-alive comment
           let msg: { type?: unknown; event?: unknown; events?: unknown }
           try { msg = JSON.parse(data) } catch { continue }
-          if (msg.type === 'agent-event' && msg.event) emit(msg.event)
+          if (msg.type === 'agent-event' && msg.event) {
+            // An event read from a transcript history (attach catch-up, #361) is history, not news
+            if (opts.replay || (msg.event as { replayed?: unknown }).replayed !== true) emit(msg.event)
+          }
           else if (opts.replay && msg.type === 'agent-event-batch' && Array.isArray(msg.events)) for (const e of msg.events) { if (done) break; emit(e) }
         }
         if (!done && pending.length > CLI_MAX_PENDING_BYTES) finish(1, 'event stream message too large')

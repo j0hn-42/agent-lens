@@ -9,6 +9,7 @@ import { readTokenCost, readTokenSource } from '../../lib/usage'
 import { windowCoveringUsage } from '../../lib/context-window'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { readCompaction, compactionText } from '../../lib/compaction'
+import { recordCompaction } from '../../lib/waste'
 
 export function handleMessage(
   payload: Record<string, unknown>,
@@ -139,4 +140,6 @@ export function handleContextCompacted(
   const agentName = agentKeyOf(sessionId, idString(payload.agent))
   const compaction = readCompaction(payload)
   appendBoundedConversation(state, agentName, { type: 'compaction', content: compactionText(compaction), timestamp: currentTime, compaction })
+  // What the agent read before is out of its context: reading it again is not waste (#368)
+  state.waste = recordCompaction(state.waste, agentName, state.wasteToken)
 }
