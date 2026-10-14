@@ -13,6 +13,7 @@ const RUNTIME_LIST_FILES = [
   'extension/src/observations.ts',
   'extension/package.json',
   'scripts/mcp/server.ts',
+  'scripts/relay.ts',
 ]
 
 for (const file of RUNTIME_LIST_FILES) {
