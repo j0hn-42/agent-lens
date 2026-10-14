@@ -24,6 +24,7 @@ import { planScopeChoice, scopeEmptyHint, type ScopeChoice } from "@/lib/relay-s
 import { ProjectContextPanel } from "./project-context-panel"
 import { SystemPanel } from "./system-panel"
 import { fetchProjectContext } from "@/lib/project-context"
+import { shouldAutoOpenConversation } from "@/lib/exclusive-panels"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { stopPropagationHandlers, subscribeDockUserResize } from "./shared-ui"
 import { useUiPreferences, type UseUiPreferences } from "@/hooks/use-ui-preferences"
@@ -227,20 +228,19 @@ export function AgentVisualizer() {
   useEffect(() => { dockStore.setRightWidth(prefs.dockRightWidth) }, [prefs.dockRightWidth])
   useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
 
-  // Mutually exclusive panel toggling: Conversation and Files share the right dock, Cost is an overlay
-  // on the same group; opening one closes the others (the project context panel included)
+  // Files, Conversation and Context share the right dock and are mutually exclusive; Cost is an independent
+  // overlay (#370, see lib/exclusive-panels)
   const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost' | 'context') => {
+    if (panel === 'cost') { setShowCostOverlay(prev => !prev); return }
     setShowContext(prev => panel === 'context' ? !prev : false)
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
     setShowConversation(prev => panel === 'conversation' ? !prev : false)
-    setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
   }, [setShowFileAttention, setShowConversation, setShowCostOverlay])
   const openConversation = useCallback(() => {
     setShowFileAttention(false)
-    setShowCostOverlay(false)
     setShowContext(false)
     setShowConversation(true)
-  }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
+  }, [setShowFileAttention, setShowConversation])
   const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
@@ -606,8 +606,12 @@ export function AgentVisualizer() {
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
   // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
   // Conversation right after the card would hide the inspector (and closing it would drop the selection).
+  // Not over a panel the user opened (Files, Context): selecting an agent must not close them (#370). The flags are
+  // read from a ref so that closing a panel does not re-run the effect.
+  const dockFlagsRef = useRef({ files: false, conversation: false, context: false, cost: false })
+  dockFlagsRef.current = { files: showFileAttention, conversation: showConversation, context: showContext, cost: showCostOverlay }
   useEffect(() => {
-    if (selection.selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
+    if (selection.selectedAgentId && shouldAutoOpenConversation(dockFlagsRef.current, dockStore.getSnapshot().env.viewport.w, SHEET_BREAKPOINT)) openConversation()
   }, [selection.selectedAgentId, openConversation])
 
   // Context menu items
