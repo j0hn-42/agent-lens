@@ -59,3 +59,13 @@ test('plain toasts still expire and are evicted oldest first, sparing action toa
   act(() => { mock.timers.tick(6000) })
   assert.deepEqual(result.current.toasts.map(t => t.message), ['undo me'])
 })
+
+test('the stack of action toasts is bounded: past 5 the oldest goes and its onExpire runs', () => {
+  const { result } = renderHook(() => useToasts())
+  const expired: number[] = []
+  act(() => {
+    for (let i = 1; i <= 6; i++) result.current.push({ message: `closed ${i}`, actionLabel: 'Undo', onAction: () => {}, onExpire: () => expired.push(i) })
+  })
+  assert.equal(result.current.toasts.length, 5)
+  assert.deepEqual(expired, [1])
+})

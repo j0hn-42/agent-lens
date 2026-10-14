@@ -372,6 +372,8 @@ test('retryNow (#371): connects at once instead of waiting for the backoff timer
   assert.equal(FakeES.all.length, 1)
   src.retryNow()
   assert.equal(FakeES.all.length, 2, 'a new attempt starts immediately')
+  assert.equal(last().status, 'connecting', 'the stale "retry in Ns" detail is gone')
+  assert.equal(last().detail, null)
   await tick(BACKOFF_BASE_MS * 2)
   assert.equal(FakeES.all.length, 2, 'the cancelled timer does not fire a second attempt')
 })

@@ -286,6 +286,8 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
       if (!alive() || es) return
       if (timer) { clearTimeout(timer); timer = null }
       if (abort) { abort.abort(); abort = null }
+      // The old "retry in Ns" is no longer true: say a connection attempt is running (announced like any status change)
+      emit('connecting')
       connect()
     },
     /** Stop everything: timers, in-flight probe and stream. Late callbacks are ignored. */

@@ -44,7 +44,10 @@ test('no retry button or detail when connected, connecting or in demo', () => {
 test('demo: "Exit demo" is offered next to DEMO only in demo and calls back', () => {
   let left = 0
   const demo = render(topBar({ isDemo: true, onExitDemo: () => { left++ } }))
-  fireEvent.click(demo.getByRole('button', { name: 'Exit demo' }))
+  const exit = demo.getByRole('button', { name: 'Exit demo' })
+  exit.focus()
+  fireEvent.click(exit)
+  assert.notEqual(document.activeElement, document.body, 'focus moves to the label, not lost')
   assert.equal(left, 1)
   demo.unmount()
   const live = render(topBar({ connectionStatus: 'watching', onExitDemo: () => { left++ } }))

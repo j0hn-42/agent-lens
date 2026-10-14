@@ -17,6 +17,8 @@ export type PauseSource = 'hover' | 'focus'
 
 const DEFAULT_DURATION_MS = 5000
 const MAX_TOASTS = 3
+/** Action toasts (Undo) are never evicted by plain ones; past this many, the oldest of them goes so the stack stays bounded */
+const MAX_ACTION_TOASTS = 5
 
 interface TimerState { handle: ReturnType<typeof setTimeout> | null; startedAt: number; remaining: number }
 
@@ -98,6 +100,10 @@ export function useToasts() {
     const overflow = toastsRef.current.length + 1 - MAX_TOASTS
     if (overflow > 0) {
       for (const old of toastsRef.current.filter(t => !t.onAction).slice(0, overflow)) remove(old.id, true)
+    }
+    if (input.onAction) {
+      const actions = toastsRef.current.filter(t => t.onAction)
+      for (const old of actions.slice(0, Math.max(0, actions.length + 1 - MAX_ACTION_TOASTS))) remove(old.id, true)
     }
     toastsRef.current = [...toastsRef.current, item]
     setToasts(toastsRef.current)

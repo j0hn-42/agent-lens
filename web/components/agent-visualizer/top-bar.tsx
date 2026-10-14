@@ -149,11 +149,14 @@ function ConnectionIndicator({ status, isDemo, detail, onRetry, onExitDemo }: {
   const display = connectionDisplay(status, isDemo, detail)
   const color = TONE_COLOR[display.tone]
   const offline = !isDemo && display.tone === 'error'
+  // The buttons disappear once used (state changes): hand focus to the label so it is not lost on <body> (2.4.3)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const then = (fn?: () => void) => () => { labelRef.current?.focus({ preventScroll: true }); fn?.() }
   const buttonClass = `min-h-6 min-w-6 px-2 rounded text-xs font-semibold ${FOCUS_RING}`
   const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
   return (
-    <span className="flex items-center gap-1.5">
-      <span title={display.description} className="flex items-center gap-1.5 font-semibold" style={{ color }}>
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span ref={labelRef} tabIndex={-1} title={display.description} className="flex items-center gap-1.5 font-semibold outline-none" style={{ color }}>
         <span
           aria-hidden="true"
           className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
@@ -163,12 +166,12 @@ function ConnectionIndicator({ status, isDemo, detail, onRetry, onExitDemo }: {
       </span>
       {offline && detail && <span data-testid="connection-detail" style={{ color: COLORS.textMuted }}>{detail}</span>}
       {offline && onRetry && (
-        <button type="button" data-testid="retry-connection" onClick={onRetry} className={buttonClass} style={buttonStyle}>
+        <button type="button" data-testid="retry-connection" onClick={then(onRetry)} className={buttonClass} style={buttonStyle}>
           Retry now
         </button>
       )}
       {isDemo && onExitDemo && (
-        <button type="button" data-testid="exit-demo" onClick={onExitDemo} className={buttonClass} style={buttonStyle}>
+        <button type="button" data-testid="exit-demo" onClick={then(onExitDemo)} className={buttonClass} style={buttonStyle}>
           Exit demo
         </button>
       )}
