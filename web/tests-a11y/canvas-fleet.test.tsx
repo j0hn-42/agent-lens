@@ -162,3 +162,22 @@ test('GraphLegend: documents the orchestrator, the halos and the edge bubbles, a
   assert.ok(strokes.includes(TEAM_DEFAULT_COLOR))
   assert.equal(document.body.innerHTML.includes('#b794f6'), true, 'the shared constant value is what is drawn')
 })
+
+test('GraphA11yList: failures and permission requests go to an assertive region, the rest stays polite', () => {
+  const { container, getByTestId } = renderList({
+    announcements: [
+      { id: 1, text: '7 agent graph updates' },
+      { id: 2, text: 'Agent Planner is waiting for permission', urgent: true },
+      { id: 3, text: 'Tool Bash failed for agent Builder', urgent: true },
+    ],
+  })
+  const urgent = getByTestId('graph-urgent-announcer')
+  assert.equal(urgent.getAttribute('role'), 'alert')
+  assert.equal(urgent.hasAttribute('aria-live'), false, 'role=alert already implies assertive')
+  assert.deepEqual(Array.from(urgent.querySelectorAll('p')).map(p => p.textContent), [
+    'Agent Planner is waiting for permission', 'Tool Bash failed for agent Builder',
+  ])
+  const polite = container.querySelector('[role="status"][aria-live="polite"]')!
+  assert.deepEqual(Array.from(polite.querySelectorAll('p')).map(p => p.textContent), ['7 agent graph updates'])
+  assert.equal(polite.textContent!.includes('waiting for permission'), false, 'an urgent text is absent from the polite region')
+})

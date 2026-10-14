@@ -172,7 +172,11 @@ export function GraphA11yList({
   return (
     <>
       <div role="status" aria-live="polite" aria-atomic="false" className="sr-only">
-        {announcements.map(a => <p key={a.id}>{a.text}</p>)}
+        {announcements.filter(a => !a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
+      </div>
+      {/* Actionable states (failure, permission request) interrupt: never summarised, own region */}
+      <div role="alert" aria-atomic="false" className="sr-only" data-testid="graph-urgent-announcer">
+        {announcements.filter(a => a.urgent).map(a => <p key={a.id}>{a.text}</p>)}
       </div>
 
       {/* Arrow-key boundary of the outline (keys from its buttons bubble here): presentational and
