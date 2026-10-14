@@ -357,9 +357,9 @@ test('buildA11yModel does not announce a stale teammate as working (#367)', () =
 
 test('buildGraphLabel counts a stale agent apart, not as running or waiting (#367)', () => {
   const now = 1_700_000_000_000
-  const fresh = { state: 'thinking', lastEventAt: now - 1_000, freshnessSource: 'live' as const }
-  const stale = { state: 'thinking', lastEventAt: now - 120_000, freshnessSource: 'live' as const }
-  const staleWait = { state: 'waiting_permission', lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  const fresh = { state: 'thinking' as const, lastEventAt: now - 1_000, freshnessSource: 'live' as const }
+  const stale = { state: 'thinking' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  const staleWait = { state: 'waiting_permission' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
   assert.equal(
     buildGraphLabel([fresh, stale, staleWait], 0, now),
     'Agent graph: 3 agents, 1 running, 0 waiting for permission, 2 last known state, not confirmed',
