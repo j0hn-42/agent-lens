@@ -72,7 +72,7 @@ test('300 distinct team names stay bounded by MAX_TEAMS', () => {
 })
 
 test('admitSpawn counts teams by state.teams key: same-named teams of different leads count separately', () => {
-  const state = createEmptyState()
+  const state = { ...createEmptyState(), wasteToken: {} }
   for (let i = 0; i < MAX_TEAMS; i++) {
     state.teams.set(i === 0 ? 'same' : `same@L${i}`, { name: 'same', leadSessionId: `L${i}`, members: [] })
   }
@@ -197,7 +197,7 @@ for (const n of [1, 3, 8, 12]) {
 test('SessionInfo team fields are sanitised like the tracker does', () => {
   const base: SessionInfo = { id: 's', label: 'l', status: 'active', startTime: 1, lastActivityTime: 2 }
   const s = sanitizeSessionInfo({ ...base, teamName: '  al\u0000pha\n‮ ', memberName: 'x'.repeat(200) })
-  assert.equal(s.teamName, 'alpha\u202e')
+  assert.equal(s.teamName, 'alpha', 'the bidi override is stripped (#220)')
   assert.equal(s.memberName!.length, 80)
   const none = sanitizeSessionInfo({ ...base, teamName: ' \u0001 ', memberName: '' })
   assert.equal('teamName' in none, false)

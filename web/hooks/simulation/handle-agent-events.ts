@@ -1,6 +1,7 @@
 import {
   type Agent,
   type TimelineEntry,
+  type ToolCallNode,
   emptyContextBreakdown,
 } from '../../lib/agent-types'
 import { SCENE } from '../../lib/colors'
@@ -15,7 +16,13 @@ import { phaseOfAgent } from './team-key'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
 import { advanceActiveTime } from '../../lib/active-time'
+import { isBetweenSteps } from '../../lib/inactive-agents'
 import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
+
+/** Context window for a model, with whether it is a fallback (#364). */
+function windowFor(ctx: ProcessEventContext, model?: string): Pick<Agent, 'tokensMax' | 'tokensMaxAssumed'> {
+  return { tokensMax: ctx.getContextWindowSize(model), tokensMaxAssumed: ctx.isContextWindowAssumed?.(model) ?? false }
+}
 
 export function handleAgentSpawn(
   payload: Record<string, unknown>,
@@ -51,7 +58,7 @@ export function handleAgentSpawn(
   const requestedModel = typeof payload.requestedModel === 'string' ? cappedString(payload.requestedModel, MAX_ID_LEN) || undefined : undefined
   const effort = parseEffort(payload.effort)
   const subagentType = typeof payload.subagentType === 'string' ? cappedString(payload.subagentType, MAX_ID_LEN) || undefined : undefined
-  const runtime = payload.runtime === 'codex' || payload.runtime === 'copilot' ? payload.runtime : undefined
+  const runtime = payload.runtime === 'codex' || payload.runtime === 'copilot' || payload.runtime === 'pi' || payload.runtime === 'gemini' ? payload.runtime : undefined
 
   const team = parseTeammateExtras(payload)
   const teamFields = team ? {
@@ -76,7 +83,9 @@ export function handleAgentSpawn(
   if (existing) {
     state.agents.set(name, {
       ...existing,
-      state: 'idle',
+      // Several sources announce the same agent (hooks, session and subagent watchers): a duplicate spawn must
+      // not demote an agent that is working or waiting. Only a finished or resting one comes back as idle.
+      state: existing.state === 'thinking' || existing.state === 'tool_calling' || existing.state === 'waiting_permission' ? existing.state : 'idle',
       // A returning agent is live again: undo archiving
       archived: false,
       completeTime: undefined,
@@ -114,7 +123,7 @@ export function handleAgentSpawn(
     parentKey: parentId || null,
     ...(toolUseId ? { toolUseId } : {}),
     tokensUsed: lateUsage, tokenStatus: lateUsage > 0 ? 'available' : 'unavailable', tokenGaps: 0, tokensEstimated: lateUsage > 0 && early?.estimated === true,
-    tokensMax: ctx.getContextWindowSize(initialModel?.model),
+    ...windowFor(ctx, initialModel?.model),
     contextBreakdown: emptyContextBreakdown(),
     toolCalls: 0, toolErrors: 0, timeAlive: 0,
     x, y, vx: 0, vy: 0,
@@ -151,8 +160,7 @@ export function handleAgentSpawn(
     startTime: currentTime,
     blocks: [],
   }
-  pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: SCENE.idle }, ctx)
-  state.timelineEntries.set(name, timelineEntry)
+  state.timelineEntries.set(name, pushTimelineBlock(timelineEntry, currentTime, { type: 'idle', label: 'Starting', color: SCENE.idle }, ctx))
 
   // A subagent_dispatch is emitted just before agent_spawn and may already have
   // recorded the prompt in the child's conversation — keep it.
@@ -161,6 +169,13 @@ export function handleAgentSpawn(
   if (!ctx.skipForceSync) {
     setTimeout(() => ctx.syncForceSimulation(state.agents, state.edges), 0)
   }
+}
+
+function completeTimelineEntry(state: MutableEventState, id: string, currentTime: number, ctx: ProcessEventContext): void {
+  const entry = state.timelineEntries.get(id)
+  if (!entry) return
+  const done = pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
+  state.timelineEntries.set(id, { ...done, endTime: currentTime })
 }
 
 export function handleAgentComplete(
@@ -183,22 +198,14 @@ export function handleAgentComplete(
       state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
     })
 
-    const entry = state.timelineEntries.get(name)
-    if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
-      entry.endTime = currentTime
-    }
+    completeTimelineEntry(state, name, currentTime, ctx)
 
     const agentsToComplete = [name]
     for (const [childId, childAgent] of state.agents) {
       if (childAgent.parentId === name && childAgent.state !== 'complete') {
         state.agents.set(childId, { ...childAgent, state: 'complete', completeTime: currentTime, archived: true, ...(childAgent.kind === 'teammate' ? { activity: 'done' as const } : {}) })
         agentsToComplete.push(childId)
-        const childEntry = state.timelineEntries.get(childId)
-        if (childEntry) {
-          pushTimelineBlock(childEntry, currentTime, { type: 'complete', label: 'Done', color: SCENE.complete, endTime: currentTime }, ctx)
-          childEntry.endTime = currentTime
-        }
+        completeTimelineEntry(state, childId, currentTime, ctx)
       }
     }
 
@@ -231,7 +238,7 @@ export function handlePermissionRequested(
 
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: SCENE.waiting_permission }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'idle', label: 'Permission', color: SCENE.waiting_permission }, ctx))
     }
   }
 }
@@ -245,10 +252,16 @@ export function handleAgentIdle(
   const idleAgent = state.agents.get(idleName)
   if (!idleAgent) return
   // End of a turn: the agent is waiting for the next prompt, not working (its active span closes)
-  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
-    state.agents.set(idleName, { ...idleAgent, state: 'idle', currentTool: undefined })
+  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission' || isBetweenSteps(idleAgent))) {
+    state.agents.set(idleName, { ...idleAgent, state: 'idle', awaitingNextEvent: undefined, currentTool: undefined })
   } else if (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission') {
-    state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
+    // Mid-turn (a permission prompt resolved): no thinking block proves thinking (#362). A call of the agent
+    // still running keeps it calling that tool; otherwise its next step is not observed yet.
+    let running: ToolCallNode | undefined
+    for (const tc of state.toolCalls.values()) if (tc.agentId === idleName && tc.state === 'running') running = tc
+    state.agents.set(idleName, running
+      ? { ...idleAgent, state: 'tool_calling', currentTool: running.toolName }
+      : { ...idleAgent, state: 'idle', awaitingNextEvent: true, currentTool: undefined })
   }
 }
 
@@ -275,7 +288,7 @@ export function handleModelDetected(
       ...rest,
       ...merged,
       modelsUsed: recordModelUsed(agent.modelsUsed, model),
-      tokensMax: ctx.getContextWindowSize(model),
+      ...windowFor(ctx, model),
       ...(effort ? { effort } : {}),
     })
   }
@@ -296,7 +309,7 @@ function spawnModelFields(
   if (merged) {
     out.model = merged.model
     out.modelSource = merged.modelSource
-    if (merged.model !== agent.model) out.tokensMax = ctx.getContextWindowSize(merged.model)
+    if (merged.model !== agent.model) Object.assign(out, windowFor(ctx, merged.model))
   }
   return out
 }

@@ -7,12 +7,48 @@ import { parseMcpTool, formatToolName } from '../../lib/mcp-tool'
 import { readToolOutcome } from '../../lib/tool-lifecycle'
 import { readTokenCost, readTokenSource, effectiveTokenStatus } from '../../lib/usage'
 import { USAGE_LABELS } from '../../lib/ui-glossary'
-import type { Agent, ToolCallNode } from '../../lib/agent-types'
+import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader, TimelineBlock } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
+import { recordToolStart, recordToolEnd } from '../../lib/waste'
+import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
-  return asString(inputData?.file_path) || args?.split(' ')[0] || ''
+  return asString(inputData?.file_path) || asString(inputData?.notebook_path) || args?.split(' ')[0] || ''
+}
+
+/** The pill a successful call's output proves (#317): the gh link of a shell call, or the Grep / Glob file count. */
+function provenResultPill(tc: Pick<ToolCallNode, 'toolName' | 'inputData'>, result: string): ResultPill | null {
+  if (isShellTool(tc.toolName)) {
+    const command = asString(tc.inputData?.command)
+    const link = command ? ghResultLink(command, result) : null
+    return link && { kind: 'link', link }
+  }
+  const files = searchResultCount(tc.toolName, result)
+  return files == null ? null : { kind: 'count', files }
+}
+
+/** Tools that write a file: their observed success is what proves a file conflict (#227) */
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** Copy of the file entry with one editor changed (created when absent). */
+function withEditor(file: FileAttention, agent: string, change: (e: FileEditor) => FileEditor): FileAttention {
+  const editors = file.editors ?? []
+  const i = editors.findIndex(e => e.agent === agent)
+  const next = editors.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(editors[i])
+  return { ...file, editors: next }
+}
+
+/** Copy of the file entry with one reader changed (created when absent). */
+function withReader(file: FileAttention, agent: string, change: (r: FileReader) => FileReader): FileAttention {
+  const readers = file.readers ?? []
+  const i = readers.findIndex(r => r.agent === agent)
+  const next = readers.slice()
+  if (i === -1) next.push(change({ agent, started: 0, succeeded: 0 }))
+  else next[i] = change(readers[i])
+  return { ...file, readers: next }
 }
 
 /**
@@ -28,6 +64,19 @@ function findCallToClose(toolCalls: Map<string, ToolCallNode>, agentId: string, 
     if (tc.state === 'expired' && toolUseId !== undefined && tc.toolUseId === toolUseId) expired = id
   }
   return expired
+}
+
+/**
+ * Index of the Timeline block of a call (the latest tool block that started with it and carries its tool name),
+ * or -1. It may already be closed: a later block cuts the previous one.
+ */
+function findCallBlock(blocks: TimelineBlock[], tc: Pick<ToolCallNode, 'startTime' | 'toolName'>): number {
+  const prefix = `${formatToolName(tc.toolName)}:`
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]
+    if (b.type === 'tool_call' && b.startTime === tc.startTime && b.label.startsWith(prefix)) return i
+  }
+  return -1
 }
 
 /** Token counters after one more figure: a present value adds up, an absent one only widens the gap. */
@@ -104,6 +153,8 @@ export function handleToolCallStart(
 
     state.edges.push({ id: `edge-${toolId}`, from: agentName, to: toolId, type: 'tool', opacity: 0 })
 
+    state.waste = recordToolStart(state.waste, { sessionId, agentId: agentName, toolName, inputData, toolUseId, toolCallId: toolId, time: currentTime }, state.wasteToken)
+
     state.particles.push({
       id: `p-tc-${currentTime}-${toolId}`,
       edgeId: `edge-${toolId}`, progress: 0,
@@ -116,19 +167,24 @@ export function handleToolCallStart(
     // Timeline block
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx)
+      state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'tool_call', label: `${formatToolName(toolName)}: ${args}`.slice(0, LABEL_LEN_TIMELINE), color: mcp ? SCENE.mcp : SCENE.tool }, ctx))
     }
 
     // Track file attention
-    if (toolName === 'Read' || toolName === 'Edit' || toolName === 'Write') {
+    if (toolName === 'Read' || EDIT_TOOLS.has(toolName)) {
       const filePath = extractFilePath(inputData, args)
       if (filePath) {
         const prev = state.fileAttention.get(filePath)
-        const updated = prev
+        let updated: FileAttention = prev
           ? { ...prev, agents: [...prev.agents] }
           : { path: filePath, reads: 0, edits: 0, totalTokens: 0, lastAccessed: currentTime, agents: [] as string[] }
-        if (toolName === 'Read') updated.reads++
-        else updated.edits++
+        if (toolName === 'Read') {
+          updated.reads++
+          updated = withReader(updated, agentName, r => ({ ...r, started: r.started + 1 }))
+        } else {
+          updated.edits++
+          updated = withEditor(updated, agentName, e => ({ ...e, started: e.started + 1 }))
+        }
         updated.lastAccessed = currentTime
         if (!updated.agents.includes(agentName)) updated.agents.push(agentName)
         state.fileAttention.set(filePath, updated)
@@ -161,6 +217,8 @@ export function handleToolCallEnd(
   const errorMessage = typeof payload.errorMessage === 'string' ? payload.errorMessage : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   const agent = state.agents.get(agentName)
+  // Read from the result of the matched call, and only once it is known to have succeeded
+  let pill: ResultPill | null = null
 
   // A usage counts for an agent only if it addresses exactly one instance; otherwise it goes to the remainder (#61)
   const target = resolveUsageTarget(state.agents, sessionId, idString(payload.agent))
@@ -169,11 +227,22 @@ export function handleToolCallEnd(
   }
 
   if (agent) {
+    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
+    const matchedCall = matchedId ? state.toolCalls.get(matchedId) : undefined
+    // Another call of this agent still running (a parallel batch): the agent is still calling that tool
+    let stillRunning: ToolCallNode | undefined
+    for (const [id, tc] of state.toolCalls) {
+      if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
+    }
+    const nextState = stillRunning ? 'tool_calling' : 'idle'
     state.agents.set(agentName, {
       ...agent,
-      // A cancelled call is neither a success nor an agent failure
-      state: outcome === 'error' ? 'error' : 'thinking',
-      currentTool: undefined,
+      // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime.
+      // What the agent does next is unknown until its next event: neutral, never a 'thinking' nobody observed (#362).
+      // Its turn is not over though: idle between two steps, not at rest.
+      state: nextState,
+      ...(nextState === 'idle' ? { awaitingNextEvent: true } : {}),
+      currentTool: stillRunning?.toolName,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
         ? addToken(agent, tokenCost, tokenSource)
@@ -182,13 +251,29 @@ export function handleToolCallEnd(
     })
 
     const toolState: ToolCallNode['state'] = outcome === 'error' ? 'error' : outcome
-    const matchedId = findCallToClose(state.toolCalls, agentName, toolName, toolUseId)
     for (const [id, tc] of state.toolCalls) {
       if (id === matchedId) {
+        pill = toolState === 'complete' ? provenResultPill(tc, result) : null
         state.toolCalls.set(id, {
           ...tc, state: toolState, completeTime: currentTime, result, tokenCost, tokenSource, endObserved: true,
           errorMessage: isError ? (errorMessage || result) : undefined,
+          ...(pill ? { resultPill: pill } : {}),
         })
+
+        // A file conflict needs a write that is known to have happened: only an observed success counts
+        if (toolState === 'complete' && EDIT_TOOLS.has(tc.toolName)) {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withEditor(file, agentName, e => ({ ...e, succeeded: e.succeeded + 1, lastEditTime: currentTime })))
+        }
+        // A file counts as read by the agent only once its Read was observed to succeed (#233)
+        if (toolState === 'complete' && tc.toolName === 'Read') {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
+        }
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
+          toolState === 'complete' ? undefined : { sessionId, agentId: agentName, toolName: tc.toolName, inputData: tc.inputData, toolUseId: tc.toolUseId, toolCallId: id, time: currentTime })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
@@ -209,25 +294,41 @@ export function handleToolCallEnd(
     // Timeline block end
     const entry = state.timelineEntries.get(agentName)
     if (entry) {
-      if (isError || isCancelled) {
-        const lastBlock = entry.blocks[entry.blocks.length - 1]
-        if (lastBlock && !lastBlock.endTime) {
-          // A cancelled call is not a failure: neutral color, never the error red
-          lastBlock.color = isError ? SCENE.error : SCENE.idle
-          lastBlock.label = `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}`
-        }
+      // The block of the call that ended, never the block of another call still running (#362). Without a
+      // matched call (an end whose start was not seen), the last open block, as long as no other call runs.
+      const blocks = entry.blocks.slice()
+      const last = blocks.length - 1
+      const own = matchedCall ? findCallBlock(blocks, matchedCall) : -1
+      const idx = own >= 0 ? own : !stillRunning && last >= 0 && !blocks[last].endTime ? last : -1
+      if (idx >= 0) {
+        let block = blocks[idx]
+        // A cancelled call is not a failure: neutral color, never the error red
+        if (isError || isCancelled) block = { ...block, color: isError ? SCENE.error : SCENE.idle, label: `${toolName}: ${isError ? 'FAILED' : 'CANCELLED'}` }
+        if (block.endTime === undefined) block = { ...block, endTime: currentTime }
+        blocks[idx] = block
       }
-      pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx)
+      // No other call runs: whatever block is still open (a permission wait) ends here too. No 'Thinking...'
+      // block opens until a thinking block is observed.
+      const closeTrailing = !stillRunning && last >= 0 && blocks[last].endTime === undefined
+      if (closeTrailing) blocks[last] = { ...blocks[last], endTime: currentTime }
+      if (idx >= 0 || closeTrailing) state.timelineEntries.set(agentName, { ...entry, blocks })
     }
 
-    // File attention token cost
-    if (tokenCost) { // 0 and null add nothing
-      const matchedTc = Array.from(state.toolCalls.values()).find(tc => tc.agentId === agentName && tc.toolName === toolName)
-      const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
-      if (filePath) {
-        const existing = state.fileAttention.get(filePath)
-        if (existing) {
-          state.fileAttention.set(filePath, { ...existing, totalTokens: existing.totalTokens + tokenCost })
+    // File attention token cost: the figure of the call that just ended, never the first call of this tool
+    // the agent ever made. A call that ended without a figure leaves the file total a lower bound (#368).
+    {
+      const matchedTc = matchedId ? state.toolCalls.get(matchedId) : undefined
+      const filePath = matchedTc ? extractFilePath(matchedTc.inputData, matchedTc.args) : undefined
+      const existing = filePath ? state.fileAttention.get(filePath) : undefined
+      if (filePath && existing) {
+        if (tokenCost === null) {
+          state.fileAttention.set(filePath, { ...existing, tokensPartial: true })
+        } else if (tokenCost) { // 0 adds nothing
+          state.fileAttention.set(filePath, {
+            ...existing,
+            totalTokens: existing.totalTokens + tokenCost,
+            ...(tokenSource === 'estimated' ? { tokensEstimated: true } : {}),
+          })
         }
       }
     }
@@ -239,6 +340,7 @@ export function handleToolCallEnd(
       toolName,
       toolUseId,
       ...(outcome === 'error' ? { isError: true } : {}),
+      ...(pill ? { resultPill: pill } : {}),
     }, state.droppedMessages)
   }
 }

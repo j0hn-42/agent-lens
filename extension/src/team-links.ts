@@ -6,20 +6,13 @@
  * Everything here is untrusted input: strings are stripped of control characters
  * and capped, and nothing throws on malformed shapes. No vscode / fs dependencies.
  */
+import { CONTROL_TEXT } from './control-chars'
 import type { AgentLinkKind, AgentLinkPayload, MessageSentPayload } from './protocol'
 import {
   TEAM_MESSAGE_MAX, TEAM_NAME_MAX, TEAM_LINK_ID_MAX,
   TEAM_NOTIFICATION_SCAN_MAX, TEAM_NOTIFICATIONS_PER_TURN_MAX,
   TEAM_DEDUPE_WINDOW_MS, TEAM_DEDUPE_MAX_ENTRIES,
 } from './constants'
-
-// C0 controls except \t \n, DEL + C1, zero-width/bidi marks, line/paragraph separators
-const INVISIBLE_RANGES: Array<[number, number]> = [[0x200b, 0x200f], [0x2028, 0x202e], [0x2066, 0x2069], [0xfeff, 0xfeff]]
-const UNSAFE_CHARS = new RegExp(
-  '[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f' +
-    INVISIBLE_RANGES.map(([a, b]) => String.fromCharCode(a) + '-' + String.fromCharCode(b)).join('') + ']',
-  'g',
-)
 
 /** Cut at `max` UTF-16 units without leaving a dangling high surrogate. */
 function capText(text: string, max: number): string {
@@ -33,13 +26,13 @@ function capText(text: string, max: number): string {
 /** Strip control characters and cap the length of untrusted free text (newlines/tabs kept). */
 export function sanitizeMessageContent(value: unknown, max = TEAM_MESSAGE_MAX): string {
   if (typeof value !== 'string') return ''
-  return capText(value.replace(UNSAFE_CHARS, ''), max).trim()
+  return capText(value.replace(CONTROL_TEXT, ''), max).trim()
 }
 
 /** Sanitize an agent name: single line, no controls, capped. Returns null when nothing is left. */
 export function sanitizeAgentName(value: unknown): string | null {
   if (typeof value !== 'string') return null
-  const name = capText(value.replace(UNSAFE_CHARS, '').replace(/\s+/g, ' ').trim(), TEAM_NAME_MAX).trim()
+  const name = capText(value.replace(CONTROL_TEXT, '').replace(/\s+/g, ' ').trim(), TEAM_NAME_MAX).trim()
   return name || null
 }
 

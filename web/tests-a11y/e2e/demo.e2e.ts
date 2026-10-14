@@ -14,6 +14,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { AxeBuilder } from '@axe-core/playwright'
 import { compareViolations, type KnownViolation } from '../axe-compare'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
+import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
 
 const known: KnownViolation[] = JSON.parse(
@@ -45,34 +46,6 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
   await page.getByRole('button', { name: 'Files' }).waitFor()
   await waitForStableLayout(page)
   return { page, close: () => context.close() }
-}
-
-// Plain JS string (tsx would inject a __name helper the page lacks). Resolves once the bounding
-// boxes of all visible interactive elements and landmarks are unchanged over two consecutive
-// animation frames AND have not changed for QUIET_MS, so late-rendering content (Conversation rows,
-// panels animating in) is measured only after it exists. Rejects after the timeout.
-const QUIET_MS = 750
-const STABLE_SCRIPT = `new Promise((resolve, reject) => {
-  const sel = 'button, a[href], input, select, textarea, [role], [tabindex], main, aside, section, nav'
-  const snap = () => Array.from(document.querySelectorAll(sel)).map(el => {
-    const r = el.getBoundingClientRect()
-    return [el.tagName, Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)].join(',')
-  }).join('|')
-  const start = performance.now()
-  let prev = snap(), lastChange = start, same = 0
-  const tick = () => {
-    const now = performance.now()
-    const cur = snap()
-    if (cur === prev) same++; else { same = 0; lastChange = now; prev = cur }
-    if (same >= 2 && now - lastChange >= ${QUIET_MS}) return resolve(true)
-    if (now - start > 15000) return reject(new Error('layout did not settle within 15 s'))
-    requestAnimationFrame(tick)
-  }
-  requestAnimationFrame(tick)
-})`
-
-async function waitForStableLayout(page: Page) {
-  await page.evaluate(STABLE_SCRIPT)
 }
 
 async function axeFailures(page: Page, scenario: string) {
@@ -128,6 +101,32 @@ describe('demo mode: axe-core, serious and critical only', () => {
       expectClean('e2e:shortcuts-dialog', await axeFailures(page, 'e2e:shortcuts-dialog'))
     } finally { await close() }
   })
+
+  test('e2e: command palette (#243)', async () => {
+    const { page, close } = await open()
+    try {
+      await page.keyboard.press('Control+k')
+      const dialog = page.getByRole('dialog', { name: 'Command palette' })
+      await dialog.waitFor()
+      assert.ok(await dialog.getByRole('combobox').evaluate(el => el === document.activeElement), 'the search field has focus')
+      expectClean('e2e:command-palette', await axeFailures(page, 'e2e:command-palette'))
+      await page.keyboard.type('timeline panel')
+      await page.keyboard.press('ArrowDown')
+      await page.keyboard.press('Enter')
+      await dialog.waitFor({ state: 'detached' })
+      await page.getByRole('button', { name: /^Timeline/, pressed: true }).waitFor()
+    } finally { await close() }
+  })
+
+  test('e2e: command palette stays inside a 320 px viewport (#243)', async () => {
+    const { page, close } = await open({ width: 320, height: 640 })
+    try {
+      await page.keyboard.press('Control+k')
+      const box = await page.getByRole('dialog', { name: 'Command palette' }).boundingBox()
+      assert.ok(box && box.x >= 0 && box.x + box.width <= 320, `dialog box ${JSON.stringify(box)}`)
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'no horizontal page scroll')
+    } finally { await close() }
+  })
 })
 
 describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
@@ -150,23 +149,30 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const clippedContainers = containers
       .filter(el => el.clientWidth > 1 && el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible')
       .map(el => \`\${label(el)} scrollWidth=\${el.scrollWidth} clientWidth=\${el.clientWidth}\`)
+    // A visually hidden (sr-only) ancestor is clipped to ~1px, so its descendants never show on screen
+    // even though their own boxes can extend past the viewport: they cannot cause a reflow defect.
+    const clippedAway = (el) => {
+      for (let a = el.parentElement; a; a = a.parentElement) {
+        const r = a.getBoundingClientRect()
+        const cs = getComputedStyle(a)
+        if (r.width <= 1 && r.height <= 1 && cs.overflowX !== 'visible' && cs.overflowY !== 'visible') return true
+      }
+      return false
+    }
     const outside = Array.from(document.querySelectorAll(
       'a[href], button, input, select, textarea, [role="button"], [role="slider"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])',
     )).filter(visible).filter(el => {
       const r = el.getBoundingClientRect()
-      return r.left < -1 || r.right > vw + 1
+      return (r.left < -1 || r.right > vw + 1) && !clippedAway(el)
     }).map(el => {
       const r = el.getBoundingClientRect()
-      // Structural, not text-based: tracked in #23 when inside the Conversation log or the graph outline.
-      const tracked = el.closest('[role="log"], [aria-label="Agent graph outline"], [aria-label^="Agent graph:"]') !== null
-      return \`\${tracked ? 'TRACKED ' : ''}\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
+      return \`\${label(el)} \${Math.round(r.left)}..\${Math.round(r.right)}\`
     })
     return {
       doc: document.documentElement.scrollWidth, body: document.body.scrollWidth, inner: vw,
       clippedContainers, outside,
     }
   })()`
-  const KNOWN_OUTSIDE = /^TRACKED /
   type Measure = { doc: number; body: number; inner: number; clippedContainers: string[]; outside: string[] }
   // Findings are collected over every step (initial, review mode, panels) and compared with the
   // allow-list once, so a known defect does not hide a new one in a later step.
@@ -175,12 +181,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
     const add = (rule: string, detail: string) => { f.rules.add(rule); f.details.push(`[${where} @${width}px] ${rule}: ${detail}`) }
     if (m.doc > m.inner || m.body > m.inner) add('page-overflow', `doc=${m.doc} body=${m.body}`)
     if (m.clippedContainers.length) add('clipped-container', m.clippedContainers.join('; '))
-    // The allow-list entry covers only the elements tracked in issue #23 (Conversation row buttons and
-    // the Agent graph region); any other clipped control is a new, never allow-listed rule.
-    const tracked = m.outside.filter(o => KNOWN_OUTSIDE.test(o))
-    const untracked = m.outside.filter(o => !KNOWN_OUTSIDE.test(o))
-    if (tracked.length) add('outside-viewport', tracked.join('; '))
-    if (untracked.length) add('outside-viewport-untracked', untracked.join('; '))
+    if (m.outside.length) add('outside-viewport', m.outside.join('; '))
   }
 
   const TRACKED_OBSTRUCTED = /^\^(Files|Conversation)/
@@ -240,9 +241,9 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             controlBar: rect(q('[data-control-bar]')),
             legend: rect(byName('Legend')),
             zoomIn: rect(byName('Zoom in')),
-            fit: rect(byName('Fit graph to view')),
-            keepCards: rect(byName('Keep cards visible')),
-            expire: rect(Array.from(document.querySelectorAll('label')).find(l => (l.textContent || '').includes('Expire unanswered'))),
+            fit: rect(byName('Fit to view')),
+            view: rect(Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === 'View')),
+            viewPanel: rect(q('[role="dialog"][aria-label="View settings"]')),
             panel: rect(q('[data-dock-panel="files"]')),
           }
         })()`) as Promise<Record<string, { x: number; y: number; w: number; h: number } | null>>
@@ -255,7 +256,24 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             assert.ok(!hit(r[names[i]]!, r[names[j]]!), `${where} @${width}px: ${names[i]} ${JSON.stringify(r[names[i]])} overlaps ${names[j]} ${JSON.stringify(r[names[j]])}`)
           }
         }
-        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'keepCards', 'expire', 'controlBar'], 'canvas overlays')
+        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
+        // The View panel opens from the keyboard, stays clear of the legend and the control bar, and Escape gives the focus back.
+        const viewButton = page.getByRole('button', { name: 'View', exact: true })
+        await viewButton.focus()
+        await page.keyboard.press('Enter')
+        await page.getByRole('dialog', { name: 'View settings' }).waitFor()
+        await waitForStableLayout(page)
+        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'viewPanel', 'controlBar'], 'canvas overlays with the View panel open')
+        await page.keyboard.press('Tab')
+        assert.ok(await page.evaluate(`!!document.activeElement && !!document.activeElement.closest('[role="dialog"][aria-label="View settings"]')`), 'Tab from View goes into its panel')
+        await page.keyboard.press('Escape')
+        assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'Escape closes the panel')
+        assert.ok(await viewButton.evaluate(el => el === document.activeElement), 'Escape returns the focus to View')
+        await viewButton.click()
+        await page.getByRole('dialog', { name: 'View settings' }).waitFor()
+        await page.mouse.click(2, 2)
+        assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'a click outside closes the panel')
+        await waitForStableLayout(page)
         await page.getByRole('button', { name: /^Context/ }).first().click()
         await waitForStableLayout(page)
         check(await rectsOf(), ['panel', 'topbar', 'controlBar'], 'context panel')
@@ -332,7 +350,7 @@ describe('demo mode: keyboard', () => {
       assert.deepEqual(unexpected, [], `invisible controls must not be in the Tab order: ${hidden.join(', ')} (fix, or allow-list in known-violations.json with an issue number)`)
       assert.deepEqual(stale, [], 'no invisible control is focusable any more: remove "e2e:tab-order" from web/tests-a11y/known-violations.json')
 
-      // Even while #10 is allow-listed, a Tab stop must be one of the invisible focusables found
+      // Even if an invisible focusable were allow-listed, a Tab stop must be one of the invisible focusables found
       // by the static scan above; a new invisible stop elsewhere fails.
       const knownHidden = new Set(hidden)
       const stops: string[] = []

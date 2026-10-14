@@ -1,5 +1,5 @@
 /**
- * 'Hide inactive agents': pure filter over the simulation's agents. Inactive = idle, complete or done (a teammate that
+ * 'Hide inactive agents': pure filter over the simulation's agents. Inactive = idle (turn over), complete or done (a teammate that
  * reported activity 'done'). The agents of a workflow that is still active are only hidden once done: those that
  * work or wait stay, so the workflow is never drawn empty (an active workflow always has a member that is not done).
  * Parents of a visible agent stay (edges need both ends), as do the selected and hovered agents.
@@ -24,8 +24,15 @@ export function isDoneAgent(a: Pick<Agent, 'state' | 'archived' | 'activity'>): 
   return a.activity === 'done' && a.state !== 'error' && a.state !== 'waiting_permission'
 }
 
-export function isInactiveAgent(a: Pick<Agent, 'state' | 'archived' | 'kind' | 'activity'>): boolean {
+/** Idle between two steps of a turn (#362): the next step is not observed, but the turn is not over either. */
+export function isBetweenSteps(a: Pick<Agent, 'state' | 'awaitingNextEvent'>): boolean {
+  return a.state === 'idle' && a.awaitingNextEvent === true
+}
+
+export function isInactiveAgent(a: Pick<Agent, 'state' | 'archived' | 'kind' | 'activity' | 'awaitingNextEvent'>): boolean {
   if (isDoneAgent(a)) return true
+  // Between two steps of a turn: not at rest, only not observed yet
+  if (isBetweenSteps(a)) return false
   // A teammate reporting activity 'working' is busy even when its agent state is idle
   if (a.kind === 'teammate' && a.activity === 'working') return false
   return a.state === 'idle'
@@ -132,4 +139,20 @@ export function hiddenDoneCount(
 /** "3 finished agents hidden" / "1 finished agent hidden"; empty when nothing is hidden. */
 export function hiddenDoneText(count: number): string {
   return count > 0 ? `${count} finished ${count === 1 ? 'agent' : 'agents'} hidden` : ''
+}
+
+/**
+ * Count to show on the canvas when 'Hide inactive agents' leaves it blank (#369): every agent is hidden and every
+ * hidden agent is finished, so "N finished agents hidden" is exact. 0 otherwise (something is drawn, the filter is
+ * off, or an idle agent is hidden too, which the sentence would not cover).
+ */
+export function emptiedByHidingCount(
+  agents: Map<string, Agent>,
+  hideInactive: boolean,
+  keepIds: ReadonlyArray<string | null | undefined> = [],
+): number {
+  if (!hideInactive || agents.size === 0) return 0
+  if (visibleAgents(agents, true, keepIds).size > 0) return 0
+  const n = hiddenDoneCount(agents, true, keepIds)
+  return n === agents.size ? n : 0
 }

@@ -1,5 +1,5 @@
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 import { DOCS_READING_THE_UI_URL } from '@/lib/docs-links'
 
 /** Link to the "Reading the UI" guide: what Observed / Not observed, at least, estimated and unattributed mean (#129). */

@@ -7,7 +7,7 @@ import {
 } from '../web/lib/panel-layout'
 
 const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640]]
-const PANELS: PanelId[] = ['detail', 'link', 'files', 'conversation', 'timeline']
+const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
 const TOPBAR_H = 68
 const BAR_H = 56
 
@@ -90,6 +90,32 @@ test('wide viewports dock the usual combination: card + files + timeline next to
   assert.ok(files.x + files.w <= 1600 - 12)
   assert.equal(files.w, 380)
   assert.ok(bottom(timeline) <= 900 - 16 - BAR_H - 8)
+})
+
+test('System docks in the left column, below the agent card', () => {
+  const l = layoutFor(1600, 900, ['detail', 'system'], [])
+  assert.equal(l.mode, 'dock')
+  const { detail, system } = l.rects as Record<string, Rect>
+  assert.ok(system, 'System has a rect')
+  assert.ok(!intersects(detail, system))
+  assert.equal(system.x, detail.x, 'same column')
+  assert.ok(system.y >= bottom(detail) + 8, 'below the card')
+  assert.ok(system.h >= 120)
+})
+
+test('System alone takes the top of the left column and its width is reserved for the Sessions list', () => {
+  const l = layoutFor(1600, 900, ['system'], [])
+  assert.equal(l.mode, 'dock')
+  assert.equal(l.rects.system!.x, 12)
+  assert.equal(l.rects.system!.y, l.area.y)
+  assert.equal(leftPanelWidthBounds(1600, ['system'], 380).max, 1600 - 24 - 240 - 8)
+})
+
+test('System is a full-width sheet on a narrow viewport', () => {
+  const l = layoutFor(390, 844, ['system'], [])
+  assert.equal(l.mode, 'sheet')
+  assert.equal(l.sheetReason, 'narrow')
+  assert.ok(l.rects.system)
 })
 
 test('the card does not start inside the expanded feed even at 720px high', () => {

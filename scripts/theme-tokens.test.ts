@@ -3,7 +3,7 @@ import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DEFAULT_THEME, LEGACY_THEME_IDS, THEME_LABELS, resolveThemeValue, ROLES, THEME_IDS, TOKENS, cssVar, extraVars, shadcnVars, themesCss } from '../web/lib/theme-tokens'
+import { DEFAULT_THEME, LEGACY_THEME_IDS, THEME_LABELS, ROLES, THEME_IDS, TOKENS, cssVar, extraVars, shadcnVars, themesCss } from '../web/lib/theme-tokens'
 import { paletteFor } from '../web/lib/theme-palette'
 import { COLORS, ROLE_COLORS, refreshColors, themed } from '../web/lib/colors'
 import { THEME_STORAGE_KEY as WEB_KEY, readTokens, currentThemeId } from '../web/lib/theme-dom'
@@ -42,6 +42,7 @@ test('neon design tokens are the documented values', () => {
     void: '#050510', surface: '#0a0f1e', 'surface-raised': '#121a30', edge: '#1c3750', 'control-border': '#386e8e',
     ink: '#aaeeff', 'ink-muted': '#7fc3e0', accent: '#66ccff', 'on-accent': '#050510', focus: '#99e0ff',
     ok: '#66ffaa', warn: '#ffbb44', danger: '#ff6666', delegate: '#cc88ff', info: '#22d3ee', 'context-system': '#7777a0',
+    'system-warm': '#ff9944', 'system-critical': '#ff6666',
   })
 })
 
@@ -51,12 +52,11 @@ test('neon reproduces the legacy COLORS palette key for key (the look must not m
   for (const [key, value] of Object.entries(legacy)) assert.equal(neon[key], value, key)
 })
 
-test('neon CSS keeps the legacy glass, ring, input and scrollbar values', () => {
+test('neon CSS keeps the legacy glass, input and scrollbar values', () => {
   const v = extraVars('neon')
   assert.equal(v['--lens-glass-bg'], 'rgba(10, 15, 30, 0.7)')
   assert.equal(v['--lens-glass-border'], 'rgba(102, 204, 255, 0.22)')
   assert.equal(v['--lens-glass-blur'], 'blur(20px)')
-  assert.equal(v['--lens-focus-ring'], '#aaeeff')
   assert.equal(v['--lens-input-border'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(v['--lens-scrollbar-thumb'], 'rgba(102, 204, 255, 0.5)')
   assert.equal(shadcnVars('neon')['--background'], 'oklch(0.145 0 0)')
@@ -102,12 +102,6 @@ test('there are nine themes, all dark, with stable ids and a label each; paper i
   assert.equal(JSON.stringify(Object.keys(TOKENS)), JSON.stringify([...THEME_IDS]))
 })
 
-test('migration: paper, light and dark resolve to catppuccin-macchiato (the default), graphite stays graphite, unknown values to nothing', () => {
-  for (const old of ['paper', 'light', 'dark']) assert.equal(resolveThemeValue(old), 'catppuccin-macchiato', old)
-  for (const id of THEME_IDS) assert.equal(resolveThemeValue(id), id, id)
-  for (const bad of ['purple', 'Paper', '', null, undefined, 3]) assert.equal(resolveThemeValue(bad), null, String(bad))
-})
-
 test('High contrast has a thicker focus ring and a marked card boundary; the others keep 2px', () => {
   assert.equal(extraVars('contrast')['--lens-focus-width'], '3px')
   assert.equal(extraVars('contrast')['--lens-glass-border'], TOKENS.contrast['control-border'])
@@ -135,15 +129,15 @@ test('without a DOM the tokens fall back to the static table and the theme to th
 
 test('Catppuccin themes use the official palette (palette.json 1.8.0) on the roles: crust / mantle / base, text, subtext0, mauve, blue, lavender...', () => {
   const official = {
-    'catppuccin-mocha': { crust: '#11111b', mantle: '#181825', base: '#1e1e2e', surface1: '#45475a', overlay1: '#7f849c', text: '#cdd6f4', subtext0: '#a6adc8', mauve: '#cba6f7', blue: '#89b4fa', lavender: '#b4befe', green: '#a6e3a1', yellow: '#f9e2af', red: '#f38ba8', teal: '#94e2d5' },
-    'catppuccin-macchiato': { crust: '#181926', mantle: '#1e2030', base: '#24273a', surface1: '#494d64', overlay1: '#8087a2', text: '#cad3f5', subtext0: '#a5adcb', mauve: '#c6a0f6', blue: '#8aadf4', lavender: '#b7bdf8', green: '#a6da95', yellow: '#eed49f', red: '#ed8796', teal: '#8bd5ca' },
-    'catppuccin-frappe': { crust: '#232634', mantle: '#292c3c', base: '#303446', surface1: '#51576d', overlay1: '#838ba7', text: '#c6d0f5', subtext0: '#a5adce', mauve: '#ca9ee6', blue: '#8caaee', lavender: '#babbf1', green: '#a6d189', yellow: '#e5c890', red: '#e78284', teal: '#81c8be' },
+    'catppuccin-mocha': { crust: '#11111b', mantle: '#181825', base: '#1e1e2e', surface1: '#45475a', overlay1: '#7f849c', text: '#cdd6f4', subtext0: '#a6adc8', mauve: '#cba6f7', blue: '#89b4fa', lavender: '#b4befe', green: '#a6e3a1', yellow: '#f9e2af', red: '#f38ba8', teal: '#94e2d5', peach: '#fab387' },
+    'catppuccin-macchiato': { crust: '#181926', mantle: '#1e2030', base: '#24273a', surface1: '#494d64', overlay1: '#8087a2', text: '#cad3f5', subtext0: '#a5adcb', mauve: '#c6a0f6', blue: '#8aadf4', lavender: '#b7bdf8', green: '#a6da95', yellow: '#eed49f', red: '#ed8796', teal: '#8bd5ca', peach: '#f5a97f' },
+    'catppuccin-frappe': { crust: '#232634', mantle: '#292c3c', base: '#303446', surface1: '#51576d', overlay1: '#838ba7', text: '#c6d0f5', subtext0: '#a5adce', mauve: '#ca9ee6', blue: '#8caaee', lavender: '#babbf1', green: '#a6d189', yellow: '#e5c890', red: '#e78284', teal: '#81c8be', peach: '#ef9f76' },
   } as const
   for (const [id, c] of Object.entries(official) as Array<[keyof typeof official, (typeof official)[keyof typeof official]]>) {
     assert.deepEqual({ ...TOKENS[id] }, {
       void: c.crust, surface: c.mantle, 'surface-raised': c.base, edge: c.surface1, 'control-border': c.overlay1,
       ink: c.text, 'ink-muted': c.subtext0, accent: c.mauve, 'on-accent': c.crust, focus: c.blue,
-      ok: c.green, warn: c.yellow, danger: c.red, delegate: c.lavender, info: c.teal, 'context-system': c.overlay1,
+      ok: c.green, warn: c.yellow, danger: c.red, delegate: c.lavender, info: c.teal, 'context-system': c.overlay1, 'system-warm': c.peach, 'system-critical': c.red,
     }, id)
   }
   assert.ok(THEME_IDS.every(id => !/latte/.test(id)), 'Latte is light and is not offered')

@@ -134,10 +134,84 @@ export function sliceAnsiSegments(segments: AnsiSegment[], max: number): AnsiSeg
   return out
 }
 
-/** Inline style for a segment, or undefined when it carries none. */
-export function ansiStyle(seg: AnsiStyle): CSSProperties | undefined {
-  const fg = seg.inverse ? (seg.bg ?? 'var(--ansi-bg)') : seg.fg
+const MIN_CONTRAST = 4.5
+type Rgb = [number, number, number]
+
+function toRgb(hex: string): Rgb {
+  return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) as Rgb
+}
+function toHex(c: Rgb): string {
+  return `#${hex2(c[0])}${hex2(c[1])}${hex2(c[2])}`
+}
+function luminance(c: Rgb): number {
+  const [r, g, b] = c.map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+function contrast(a: Rgb, b: Rgb): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+/** Blends `c` toward `page` by 20% (what `opacity: .8` does to a color painted over the page background). */
+function fade(c: Rgb, page: Rgb): Rgb {
+  return c.map((v, i) => Math.round(v * 0.8 + page[i] * 0.2)) as Rgb
+}
+/**
+ * Contrast as seen by the reader. A dimmed segment (opacity .8) fades the whole span, background included,
+ * toward the page background, so both colors are blended with `page`.
+ */
+function seenContrast(fg: Rgb, bg: Rgb, dim: boolean, page: Rgb): number {
+  return dim ? contrast(fade(fg, page), fade(bg, page)) : contrast(fg, bg)
+}
+
+/** Resolves `var(--ansi-N)` (and hex colors) against the theme variables; undefined when unknown. */
+function resolveColor(c: string | undefined, vars: Record<string, string>): Rgb | undefined {
+  if (!c) return undefined
+  const m = /^var\((--[\w-]+)\)$/.exec(c)
+  const hex = m ? vars[m[1]] : c
+  return hex && /^#[0-9a-f]{6}$/i.test(hex) ? toRgb(hex) : undefined
+}
+
+/**
+ * Text color readable (>= 4.5:1, also when dimmed) on `bg`. The wanted color is kept when it already passes;
+ * otherwise it is moved toward white or black (whichever contrasts more) just far enough, keeping its hue.
+ * Only the CSS color changes: the text itself is never touched.
+ */
+function readable(want: Rgb, bg: Rgb, dim: boolean, page: Rgb): Rgb {
+  const ok = (c: Rgb) => seenContrast(c, bg, dim, page) >= MIN_CONTRAST
+  if (ok(want)) return want
+  const target: Rgb = seenContrast([255, 255, 255], bg, dim, page) >= seenContrast([0, 0, 0], bg, dim, page) ? [255, 255, 255] : [0, 0, 0]
+  for (let t = 0.05; t < 1; t += 0.05) {
+    const c = want.map((v, i) => Math.round(v + (target[i] - v) * t)) as Rgb
+    if (ok(c)) return c
+  }
+  return target
+}
+
+/**
+ * Inline style for a segment, or undefined when it carries none. With the theme `vars` (extraVars(themeId)) the
+ * colors are corrected so the text stays >= 4.5:1: a background without explicit foreground gets the best of the
+ * theme's fg/bg (or black/white), and named, 256 and truecolor foregrounds that miss the ratio are lightened or darkened (#193).
+ */
+export function ansiStyle(seg: AnsiStyle, vars?: Record<string, string>): CSSProperties | undefined {
+  let fg = seg.inverse ? (seg.bg ?? 'var(--ansi-bg)') : seg.fg
   const bg = seg.inverse ? (seg.fg ?? 'var(--ansi-fg)') : seg.bg
+  if (vars) {
+    const bgRgb = resolveColor(bg ?? 'var(--ansi-bg)', vars)
+    const pageRgb = resolveColor('var(--ansi-bg)', vars)
+    if (bgRgb && pageRgb) {
+      const dim = !!seg.dim
+      const wantRgb = resolveColor(fg, vars)
+      if (wantRgb) {
+        if (seenContrast(wantRgb, bgRgb, dim, pageRgb) < MIN_CONTRAST) fg = toHex(readable(wantRgb, bgRgb, dim, pageRgb))
+      } else if (bg) {
+        // background set, no foreground: theme foreground, else theme background, else black/white
+        const cands = [resolveColor('var(--ansi-fg)', vars), resolveColor('var(--ansi-bg)', vars)]
+        const names = ['var(--ansi-fg)', 'var(--ansi-bg)']
+        const i = cands.findIndex(c => c && seenContrast(c, bgRgb, dim, pageRgb) >= MIN_CONTRAST)
+        fg = i >= 0 ? names[i] : toHex(readable([255, 255, 255], bgRgb, dim, pageRgb))
+      }
+    }
+  }
   const style: CSSProperties = {}
   if (fg) style.color = fg
   if (bg) style.backgroundColor = bg

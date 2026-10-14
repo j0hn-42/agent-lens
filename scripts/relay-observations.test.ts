@@ -3,7 +3,7 @@
  * Whitelisted projection (no prompt, no path), loopback only, rate-limited, clean idempotent shutdown.
  */
 import '../extension/test/helpers/alias-vscode'
-import { describe, it, before, after } from 'node:test'
+import { describe, it, before, after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import * as fs from 'node:fs'
@@ -159,7 +159,11 @@ describe('relay GET /observations', () => {
     assert.ok(statuses.includes(429), 'expected a 429')
     relay.dispose()
     relay.dispose()
-    await new Promise(r => setTimeout(r, 1200)) // let the limiter refill
-    assert.equal((await get('/observations')).status, 503)
+    // Let the limiter refill by moving its clock (Date.now) forward, not by waiting
+    mock.timers.enable({ apis: ['Date'], now: Date.now() })
+    try {
+      mock.timers.tick(5000)
+      assert.equal((await get('/observations')).status, 503)
+    } finally { mock.timers.reset() }
   })
 })

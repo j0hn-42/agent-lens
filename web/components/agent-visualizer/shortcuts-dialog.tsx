@@ -67,11 +67,15 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
   }
 
   return (
+    // Scrim: presentational click screen (a click on it closes) and key boundary of the modal
+    // (Escape, Tab trap: keys from inside the dialog bubble here), so the dialog carries no handler.
     <div
+      role="presentation"
       {...stopPropagationHandlers}
       className="fixed inset-0 flex items-center justify-center p-3"
       style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
       onMouseDown={e => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
+      onKeyDown={onKeyDown}
     >
       <div
         ref={ref}
@@ -79,7 +83,6 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        onKeyDown={onKeyDown}
         className="max-h-[calc(100vh-24px)] w-[420px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
@@ -123,7 +126,7 @@ export function ShortcutsDialog({ open, onClose, singleKeyEnabled, onSingleKeyEn
             <label htmlFor={switchId} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
               Enable single-key shortcuts
               <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>
-                Turn off if letter keys conflict with assistive technology. Esc and ? always work.
+                Turn off if letter keys conflict with assistive technology. Esc always works.
               </span>
             </label>
           </div>

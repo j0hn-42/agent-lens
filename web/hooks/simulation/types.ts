@@ -10,7 +10,10 @@ import type {
   SimulationEvent,
 } from '../../lib/agent-types'
 import type { SessionProjects } from './fleet-layout'
+import type { ResultPill } from '../../lib/action-summary'
 import type { UnattributedUsage } from '../../lib/attribution'
+import type { CompactionInfo } from '../../lib/compaction'
+import { emptyWasteLedger, type WasteLedger } from '../../lib/waste'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
 export interface SimulationState {
@@ -30,6 +33,8 @@ export interface SimulationState {
   unattributed: Map<string, UnattributedUsage>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
+  /** Repeated reads and identical calls seen so far (see lib/waste) */
+  waste: WasteLedger
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
   droppedEvents: number
   currentTime: number
@@ -56,6 +61,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     teams: new Map(),
     unattributed: new Map(),
     droppedMessages: new Map(),
+    waste: emptyWasteLedger(),
     droppedEvents: 0,
     currentTime: 0,
     isPlaying: false,
@@ -73,7 +79,7 @@ export function nextMsgId(): string { return `msg-${_msgIdCounter++}` }
 export interface ConversationMessage {
   id: string
   /** 'dispatch' / 'return' carry the full subagent prompt / report between two agents; 'message' is a teammate message */
-  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return' | 'message'
+  type: 'tool_call' | 'tool_result' | 'assistant' | 'user' | 'thinking' | 'dispatch' | 'return' | 'message' | 'compaction'
   content: string
   timestamp: number
   toolName?: string
@@ -86,8 +92,12 @@ export interface ConversationMessage {
   /** tool_use_id correlating a dispatch with its return and with the tool call */
   toolUseId?: string
   isError?: boolean
+  /** 'tool_result' rows of a successful call: the gh link or Grep / Glob count its own output proves (#317) */
+  resultPill?: ResultPill
   /** Characters dropped from `content` by the ingestion cap (MAX_TEXT_LEN); absent when nothing was cut */
   cutChars?: number
+  /** 'compaction' rows: the provable fields of the context_compacted event (#232) */
+  compaction?: CompactionInfo
 }
 
 export type LinkKind = 'spawn' | 'teammate'
@@ -173,7 +183,6 @@ export function cutCharsOf(v: unknown, max = MAX_TEXT_LEN): number {
 export function cutField(cut: number): { cutChars?: number } {
   return cut > 0 ? { cutChars: cut } : {}
 }
-export function asNumber(v: unknown, fallback = 0): number { return typeof v === 'number' ? v : fallback }
 export function asBoolean(v: unknown, fallback = false): boolean { return typeof v === 'boolean' ? v : fallback }
 
 // ── Truncation length constants ──────────────────────────────────────
@@ -214,4 +223,6 @@ export interface UseAgentSimulationOptions {
   hideInactive?: boolean
   /** If true, CLAUDE_CODE_DISABLE_1M_CONTEXT is set — cap context window to 200k */
   disable1MContext?: boolean
+  /** Time (ms) a frame gives to catching up a burst of received events (#210). Default CATCH_UP_FRAME_BUDGET_MS */
+  catchUpFrameBudgetMs?: number
 }

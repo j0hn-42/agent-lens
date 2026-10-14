@@ -1,7 +1,7 @@
 /**
  * Runtime abstraction for agent session watchers.
  *
- * Each supported agent tool (Claude Code, Codex, Copilot, ...) implements
+ * Each supported agent tool (Claude Code, Codex, Copilot, Pi, Gemini CLI, ...) implements
  * AgentSessionWatcher and is started via a runtime factory in extension.ts.
  * The interface deliberately matches what the visualizer needs to render
  * live activity: an event stream, session lifecycle, and replay on panel
@@ -15,7 +15,7 @@ import { VisualizerPanel } from './webview-provider'
 import { SESSION_ID_DISPLAY, STATUS_MESSAGE_DURATION_MS } from './constants'
 import type { TypedDisposable, TypedEvent } from './typed-event-emitter'
 
-export type AgentRuntimeMode = 'claude' | 'codex' | 'copilot'
+export type AgentRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
 
 export interface SessionLifecycleEvent {
   type: 'started' | 'ended' | 'updated'
@@ -44,6 +44,22 @@ export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'team
     ...(l.projectId && l.projectName ? { projectId: l.projectId, projectName: l.projectName } : {}),
     ...(l.branch ? { branch: l.branch } : {}),
   }
+}
+
+/**
+ * The session announced by a 'started' lifecycle (#365). When the watcher lists the session, its own times are
+ * kept (start recorded by the transcript, last write of the file); `now` only stands in for a session it does
+ * not list.
+ */
+export function startedSessionInfo(lifecycle: SessionLifecycleEvent, listed: SessionInfo | undefined, now: number): SessionInfo {
+  const times = listed
+    ? {
+      startTime: listed.startTime, lastActivityTime: listed.lastActivityTime,
+      ...(listed.recordedStartTime !== undefined ? { recordedStartTime: listed.recordedStartTime } : {}),
+      ...(listed.startTimeWatched ? { startTimeWatched: true } : {}),
+    }
+    : { startTime: now, lastActivityTime: now, startTimeWatched: true }
+  return { id: lifecycle.sessionId, label: lifecycle.label, status: 'active', ...times, ...lifecycleTags(lifecycle) }
 }
 
 /** Interface every runtime's watcher implements. Uses portable typed-event
@@ -118,17 +134,8 @@ export function wireWatcherToPanel(
     const panel = VisualizerPanel.getCurrent()
     if (!panel) return
     if (lifecycle.type === 'started') {
-      panel.postMessage({
-        type: 'session-started',
-        session: {
-          id: lifecycle.sessionId,
-          label: lifecycle.label,
-          status: 'active',
-          startTime: Date.now(),
-          lastActivityTime: Date.now(),
-          ...lifecycleTags(lifecycle),
-        },
-      })
+      const listed = watcher.getActiveSessions().find(s => s.id === lifecycle.sessionId)
+      panel.postMessage({ type: 'session-started', session: startedSessionInfo(lifecycle, listed, Date.now()) })
     } else if (lifecycle.type === 'updated') {
       panel.postMessage({
         type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,

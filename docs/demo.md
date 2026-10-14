@@ -14,7 +14,7 @@ On peut aussi ajouter `?scenario=tour` à l'URL de n'importe quelle instance en 
 
 - Fenêtre d'au moins 1280 × 800, thème au choix.
 - Désactivez **Hide inactive agents** (bouton de la barre du haut) si vous voulez garder à l'écran les agents terminés. Il est actif par défaut et il masque les sessions finies : c'est une fonctionnalité à montrer, voir l'acte 7.
-- Pour l'acte 4, réglez **Expire unanswered calls after** (bas à droite) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
+- Pour l'acte 4, ouvrez **View** (**Affichage** en français, bas à droite) et réglez **Hide unanswered calls after** (**Masquer les appels sans réponse après**) sur **1 min** avant de lancer : c'est le plus court délai, et le défaut (5 min) dépasse la durée du tour.
 - Le tour ne se rejoue pas tout seul : rechargez la page pour recommencer. Le mode **Review** (barre du bas) permet de remonter la timeline et de survoler un instant précis.
 
 ## Les trois sessions
@@ -38,7 +38,7 @@ Les deux sessions Claude partagent un projet : la vue **All** les regroupe sous 
 | 0:39 | **Fin de tour** | L'`orchestrator` passe en *idle* : il attend le prompt suivant, il ne travaille plus. | Dites : « un agent qui a fini son tour n'est pas compté comme actif ». |
 | 0:40 – 0:49 | **2. Agent Team et Comms** | `api-dev` et `qa-dev` forment l'équipe `payments-squad` (halo en tirets). Ils s'échangent des messages. | Cliquez le lien entre `api-dev` et `qa-dev` : le panneau de lien lit l'échange. Le badge est le nombre de messages. Montrez les couleurs de coéquipiers et l'état working / idle / done. |
 | 0:14 – 1:24 | **3. Workflow à phases** | La session `release` exécute un Workflow : phases **Plan** puis **Build**. | Les membres apparaissent avant l'annonce des phases : le graphe se réorganise. Quand **Plan** est terminé (0:19), ses agents quittent l'écran avec **Hide inactive agents**. |
-| 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **fin non observée**, jamais « réussi ». Le coût inconnu apparaît dans **$Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
+| 1:15 et 0:52 | **4. Valeurs honnêtes** | Un `WebFetch` lancé à 0:15 dont on ne reçoit jamais la fin, un coût rapporté pour un agent inconnu (0:52), un coéquipier annoncé qui n'a rien produit (0:52). | À 1:15 (une minute après son départ, avec le réglage ci-dessus), l'appel sans fin se lit **end not observed**, jamais « réussi ». Le coût inconnu apparaît dans **$Cost** comme **unattributed**, hors des agents. Le coéquipier se lit **Not observed yet**. Les totaux partiels de la barre du haut disent **at least** et **estimated**. |
 | 0:30 – 1:08 | **5. Une session Codex** | `codex` met à jour des pages de documentation. Ses chiffres de jetons viennent du runtime, avec l'effort de raisonnement (`high`). | Dites : « Claude Code et Codex côte à côte, étiquetés par runtime ». Montrez la fenêtre de contexte de 272 000 jetons. |
 | tout le long | **6. Vue All (Fleet)** | Trois sessions sur un canevas, chacune dans un halo pointillé ; deux sont sous le même projet. | Cliquez un halo pour zoomer sur le cluster. Ouvrez **Sessions** : l'arbre sessions, agents et sous-agents ; le menu contextuel (clic droit) ; **Legend** en bas à gauche explique chaque forme. |
 | à la fin | **7. Les filtres** | **Hide inactive agents** masque les agents terminés. | Désactivez-le pour retrouver toute l'histoire. Montrez **Timeline**, **Stats** et **Shortcuts**. |
@@ -96,7 +96,7 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 | 4 | Results come back | forme terminée (contour en tirets), état *complete*, agent archivé (estompé, contour en tirets, toujours cliquable) ; la particule de retour est décrite seulement |
 | 5 | Context usage | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
 | 6 | Waiting for you | état *waiting for permission* |
-| 7 | When something fails | état *error* |
+| 7 | When something fails | appel d'outil en échec (compté dans les erreurs d'outil de l'inspecteur) ; l'état *error* est décrit seulement (un appel d'outil en échec ne met pas l'agent en erreur) |
 | 8 | Agent Teams | état *idle*, anneau d'équipe, coéquipier au travail, coéquipier inactif, halo d'équipe, orchestrateur (couronne et badge LEAD), ligne d'équipe |
 | 9 | Messages between agents | lien de message en vol, bulle du dernier message |
 | 10 | Delivered messages and finished teammates | lien de message récent, coéquipier terminé |
@@ -121,3 +121,14 @@ Les particules (point violet d'envoi de tâche, point vert de retour) sont dans 
 | cartes de découverte : fichier, motif, résultat, code | les quatre cartes de découverte |
 
 Gardez la légende ouverte pour les reconnaître plus tard.
+
+## Visite d'une vraie session
+
+La visite guidée ne sert pas qu'à la démo. Sur une session réelle (ou sur les autres démos), le bouton **Tour this session**, à côté de **Legend**, démarre une visite de ce qui est à l'écran à cet instant :
+
+- les étapes sont construites au démarrage à partir des symboles que le canevas prouve présents (agents, états, outils, liens, équipes, contexte, découvertes...). Aucune étape ne parle d'un symbole absent ; sans symbole à l'écran, le bouton n'est pas proposé ;
+- une étape désigne un vrai agent (un anneau le suit) ou la section de légende correspondante, qui s'ouvre sans modifier la préférence enregistrée ;
+- la scène n'est ni mise en pause ni rejouée : la visite reste en direct. Quand ce qu'une étape explique a quitté la scène, la carte l'écrit (« This is no longer on screen ») ;
+- mêmes contrôles que la visite de la démo : **Previous**, **Next**, **Go to step**, **Exit tour**, `←` `→` et `Échap` dans la carte ; le focus revient au bouton d'origine.
+
+La légende elle-même ne liste plus que les symboles à l'écran ; **Show all symbols** rend la référence complète. La démo guidée garde la légende complète, car ses étapes décrivent des symboles que la démo ne dessine jamais. Voir [reading-the-ui.md](reading-the-ui.md).

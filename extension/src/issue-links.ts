@@ -4,7 +4,8 @@
  * Read-only and defensive: the role is validated before it reaches a command line, gh runs without a
  * shell and with a timeout, the repository comes from the workspace `origin` remote and must be a plain
  * github.com URL, and every URL gh returns must be exactly `<repo>/issues/<n>` or `<repo>/pull/<n>`.
- * Anything else, or gh being absent / unauthenticated / slow, yields no link (silent degradation).
+ * A row that fails these checks is dropped; gh or git being absent / unauthenticated / slow is a failure
+ * (a rejection), never reported as "no link" (#205).
  */
 import { execFile } from 'child_process'
 
@@ -81,20 +82,54 @@ export function normalizeRepoUrl(remote: unknown): string | undefined {
   return undefined
 }
 
-/** The workspace's GitHub repository (its `origin` remote), or undefined. */
+/** git's answer when the directory has no repository or no `origin`: a fact, not a failure. */
+const NO_ORIGIN_RE = /not a git repository|No such remote/i
+
+/**
+ * The workspace's GitHub repository (its `origin` remote), or undefined when there is no repository, no
+ * origin, or an origin that is not github.com. Rejects when git itself fails (absent, timeout, any other
+ * error): that proves nothing about the links (#205).
+ */
 export async function resolveRepoUrl(cwd: string, exec: GhExec = defaultExec): Promise<string | undefined> {
+  let stdout: string
   try {
-    return normalizeRepoUrl(await exec('git', ['remote', 'get-url', 'origin'], { cwd }))
-  } catch {
-    return undefined
+    stdout = await exec('git', ['remote', 'get-url', 'origin'], { cwd })
+  } catch (err) {
+    const e = err as { code?: unknown; message?: unknown }
+    if (typeof e?.code === 'number' && NO_ORIGIN_RE.test(String(e.message))) return undefined
+    throw err
+  }
+  return normalizeRepoUrl(stdout)
+}
+
+/**
+ * Repository lookups shared per directory (at most `maxDirs`). Only a resolved repository is kept: a
+ * failure or an undefined is dropped once settled, so the next request looks again instead of serving
+ * "no repository" until the relay restarts (#205). Concurrent callers share one pending lookup.
+ */
+export function createRepoUrlCache(
+  resolve: (dir: string) => Promise<string | undefined>, maxDirs: number,
+): (dir: string) => Promise<string | undefined> {
+  const byDir = new Map<string, Promise<string | undefined>>()
+  return dir => {
+    const hit = byDir.get(dir)
+    if (hit) return hit
+    if (byDir.size >= maxDirs) {
+      const oldest = byDir.keys().next().value
+      if (oldest !== undefined) byDir.delete(oldest)
+    }
+    const pending = resolve(dir)
+    byDir.set(dir, pending)
+    const forget = () => { if (byDir.get(dir) === pending) byDir.delete(dir) }
+    pending.then(url => { if (!url) forget() }, forget)
+    return pending
   }
 }
 
-/** Validate the JSON printed by `gh issue|pr list --json number,title,url,state[,isDraft]`. */
+/** Validate the JSON printed by `gh issue|pr list --json number,title,url,state[,isDraft]`; throws when it is not a list. */
 export function parseGhList(stdout: string, kind: IssueLink['kind'], repoUrl: string): IssueLink[] {
-  let rows: unknown
-  try { rows = JSON.parse(stdout) } catch { return [] }
-  if (!Array.isArray(rows)) return []
+  const rows: unknown = JSON.parse(stdout)
+  if (!Array.isArray(rows)) throw new Error('gh did not print a JSON list')
   const segment = kind === 'issue' ? 'issues' : 'pull'
   const out: IssueLink[] = []
   for (const row of rows) {
@@ -123,7 +158,10 @@ export interface FetchIssueLinksOptions {
   exec?: GhExec
 }
 
-/** Open PRs then open issues labelled `agent:<role>`; [] on invalid input or any gh failure. */
+/**
+ * Open PRs then open issues labelled `agent:<role>`; [] on invalid input (gh is never run). Rejects when
+ * either gh call fails or prints something other than a list: a failure is not "no link" (#205).
+ */
 export async function fetchIssueLinks(role: unknown, opts: FetchIssueLinksOptions): Promise<IssueLink[]> {
   const clean = sanitizeRole(role)
   const repoUrl = normalizeRepoUrl(opts.repoUrl)
@@ -131,17 +169,13 @@ export async function fetchIssueLinks(role: unknown, opts: FetchIssueLinksOption
   const exec = opts.exec ?? defaultExec
   const slug = repoUrl.slice('https://github.com/'.length)
   const list = async (kind: IssueLink['kind']): Promise<IssueLink[]> => {
-    try {
-      const sub = kind === 'issue' ? 'issue' : 'pr'
-      const fields = kind === 'issue' ? 'number,title,url,state' : 'number,title,url,state,isDraft'
-      const stdout = await exec('gh', [
-        sub, 'list', '--repo', slug, '--label', `agent:${clean}`, '--state', 'open',
-        '--limit', String(ISSUE_LINKS_MAX), '--json', fields,
-      ])
-      return parseGhList(stdout, kind, repoUrl)
-    } catch {
-      return []
-    }
+    const sub = kind === 'issue' ? 'issue' : 'pr'
+    const fields = kind === 'issue' ? 'number,title,url,state' : 'number,title,url,state,isDraft'
+    const stdout = await exec('gh', [
+      sub, 'list', '--repo', slug, '--label', `agent:${clean}`, '--state', 'open',
+      '--limit', String(ISSUE_LINKS_MAX), '--json', fields,
+    ])
+    return parseGhList(stdout, kind, repoUrl)
   }
   const [prs, issues] = await Promise.all([list('pr'), list('issue')])
   return [...prs, ...issues]

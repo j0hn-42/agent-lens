@@ -17,7 +17,9 @@ A process that wants to share its state publishes **one JSON file per (kind, own
 | `payload` | Plain JSON object, depth <= 8, arrays <= 1000, <= 200 keys per object |
 
 - **Atomic write**: temp file in the same directory (`wx`, mode 0600), `fsync`, `rename`. A reader sees the old
-  file or the new one, never a partial one; the temp file is removed on failure.
+  file or the new one, never a partial one; the temp file is removed on failure. It is the single
+  `writeFileAtomic` (`extension/scripts/claude-hooks.js`), also used for every settings.json rewrite by the
+  extension, `scripts/setup.js` and the uninstall script (#217); an existing file keeps its mode.
 - **Strict read**: symlinks refused, size cap (256 KiB), unknown or missing keys refused, wrong types refused,
   corrupt JSON refused, a `writtenAt` more than 5 s in the future refused. The reason is returned
   (`missing | too_large | unreadable | corrupt | invalid | future`), never thrown.
@@ -38,7 +40,7 @@ wiring them earlier would add a second source of truth to reconcile (see `relay-
 ## Observations for Claude (#72) — `extension/src/observations.ts`
 
 Typed action `observations` (name, description, JSON Schemas `inputSchema` / `outputSchema` in
-`OBSERVATIONS_ACTION`). The relay serves it on loopback only, rate-limited like `/status`:
+`OBSERVATIONS_ACTION`). Only the standalone relay (dev relay, standalone app) serves it, on loopback only, rate-limited like `/status`; the VS Code extension's hook server has no `/observations` route, so a client pointed at it gets nothing:
 
 - `GET /observations[?session=<id>][&agents=0]` runs the action.
 - `GET /observations/schema` returns the definition so a client can learn the schema.
@@ -51,3 +53,5 @@ returned. Limits are reported, not hidden: `truncated` (more than 25 sessions), 
 50 agents), `omittedSessions` (ids that are not plain identifiers).
 
 Shutdown: `relay.dispose()` disposes the action (idempotent); afterwards the endpoint answers 503.
+
+Claude Code can call it as an MCP tool through the `agent-lens` MCP server: see [mcp-server.md](mcp-server.md).

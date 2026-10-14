@@ -13,7 +13,7 @@ export interface AttentionAgent {
   sessionId: string
   state: string
   lastEventAt?: number
-  freshnessSource?: 'live' | 'history'
+  freshnessSource?: 'live' | 'history' | 'imported'
 }
 
 export interface SessionAttention { waiting: number; errors: number }
@@ -30,10 +30,13 @@ export interface AttentionSummary {
   firstSessionId: string | null
   /** Ids of every counted agent */
   blockedIds: Set<string>
+  /** Ids of the counted agents by kind (notification rules, #225) */
+  waitingIds: Set<string>
+  errorIds: Set<string>
 }
 
 export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number): AttentionSummary {
-  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set() }
+  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set(), waitingIds: new Set(), errorIds: new Set() }
   let firstError: string | null = null
   let firstErrorSession: string | null = null
   for (const a of agents) {
@@ -41,14 +44,14 @@ export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number
     const freshness = deriveFreshness(a as Parameters<typeof deriveFreshness>[0], now)
     // 'error' stays visible for a while after the event. A live permission request stays pending until the agent
     // emits another event, so a stale one still counts; a stale history status is not proven any more
-    const pending = a.state === 'waiting_permission' && freshness === 'stale' && a.freshnessSource !== 'history'
+    const pending = a.state === 'waiting_permission' && freshness === 'stale' && a.freshnessSource !== 'history' && a.freshnessSource !== 'imported'
     if (freshness !== 'fresh' && freshness !== 'error' && !pending) continue
     const entry = out.bySession.get(a.sessionId) ?? { waiting: 0, errors: 0 }
     if (a.state === 'waiting_permission') {
-      entry.waiting++; out.waiting++
+      entry.waiting++; out.waiting++; out.waitingIds.add(a.id)
       if (out.firstAgentId === null) { out.firstAgentId = a.id; out.firstSessionId = a.sessionId }
     } else {
-      entry.errors++; out.errors++
+      entry.errors++; out.errors++; out.errorIds.add(a.id)
       if (firstError === null) { firstError = a.id; firstErrorSession = a.sessionId }
     }
     out.bySession.set(a.sessionId, entry)
@@ -111,7 +114,7 @@ export function trackForeignAttention(prev: ForeignAttention, events: readonly S
     const current = (next ?? prev).get(key)
     if (e.type === 'permission_requested') {
       next ??= new Map(prev)
-      next.set(key, { id: key, sessionId: e.sessionId, state: 'waiting_permission', lastEventAt: now, freshnessSource: e.replayed ? 'history' : 'live' })
+      next.set(key, { id: key, sessionId: e.sessionId, state: 'waiting_permission', lastEventAt: now, freshnessSource: e.imported ? 'imported' : e.replayed ? 'history' : 'live' })
     } else if (current) {
       next ??= new Map(prev)
       next.delete(key)

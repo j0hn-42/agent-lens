@@ -41,12 +41,14 @@ const TEXT_KEYS: ColorKey[] = [
   'thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded', 'bashResultText', 'toolResultText',
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
-  'roleUserText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
+  'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
+  'systemWarm', 'systemCritical', 'tool', 'holoBright',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
   'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
+  'systemWarm', 'systemCritical',
 ]
 
 const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
@@ -56,11 +58,13 @@ const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],
+  ['resume command / issue chip', 'holoBg05', ['assistantText']],
   ['diff removed', 'diffRemovedBg', ['diffRemoved']],
   ['diff added', 'diffAddedBg', ['diffAdded']],
   ['assistant role', 'roleAssistantBgSelected', ['roleAssistantText']],
   ['thinking role', 'roleThinkingBgSelected', ['roleThinkingText']],
   ['user role', 'roleUserBgSelected', ['roleUserText']],
+  ['compaction row', 'roleCompactionBgSelected', ['roleCompactionText']],
   ['search highlight', 'searchHighlightBg', ['textPrimary']],
   ['dispatch row', 'commDispatchBgSelected', ['commDispatchText']],
   ['return row', 'commReturnBgSelected', ['commReturnText']],
@@ -145,7 +149,7 @@ for (const id of THEME_IDS) {
       assert.ok(ratio(over(v['--lens-scrollbar-thumb'], bg), bg) >= 3, `scrollbar thumb on ${name}`)
       assert.ok(ratio(over(v['--lens-scrollbar-thumb-hover'], bg), bg) >= 3, `scrollbar thumb hover on ${name}`)
       assert.ok(ratio(over(v['--lens-input-border'], bg), bg) >= 3, `input border on ${name}`)
-      assert.ok(ratio(over(v['--lens-focus-ring'], bg), bg) >= 3, `focus ring on ${name}`)
+      assert.ok(ratio(over(TOKENS[id].focus, bg), bg) >= 3, `focus ring on ${name}`)
       const input = over(v['--lens-input-bg'], bg)
       assert.ok(ratio(over(v['--lens-input-placeholder'], input), input) >= 4.5, `placeholder on ${name}`)
       assert.ok(ratio(over(v['--lens-input-color'], input), input) >= 4.5, `input text on ${name}`)
@@ -167,7 +171,7 @@ test('palettes of every theme define the same keys', () => {
 
 // ─── Roles on every ground, for every theme (the table the design system promises) ─────────────
 
-const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info'] as const
+const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info', 'system-warm', 'system-critical'] as const
 const COMPONENT_ROLES = ['control-border', 'focus', 'context-system'] as const
 
 for (const id of THEME_IDS) {
@@ -259,6 +263,21 @@ test('contrast: the palette the interface paints keeps text >= 7:1 on its ground
   }
   assert.deepEqual(failures, [])
 })
+
+// ─── System panel severity (#357): the bar and the status text of `warm` and `critical` ─────────────
+// The panel also states the severity in words and an icon; here the two hues must at least be told apart by luminance.
+
+for (const id of THEME_IDS) {
+  test(`${id}: system-warm and system-critical are >= 3:1 as bars on surface and differ by luminance (>= 1.2:1)`, () => {
+    const t = TOKENS[id]
+    for (const role of ['system-warm', 'system-critical'] as const) {
+      assert.ok(ratio(rgb(t[role]), rgb(t.surface)) >= 3, `${role} bar on surface`)
+    }
+    assert.ok(ratio(rgb(t['system-warm']), rgb(t['system-critical'])) >= 1.2, 'warm vs critical')
+    assert.notEqual(t['system-warm'], t.warn, 'warm is its own orange, not the yellow warn')
+    assert.notEqual(t['system-warm'], t['system-critical'])
+  })
+}
 
 test('neon: the panel and feed colours keep their historical values', () => {
   const p = paletteFor('neon')

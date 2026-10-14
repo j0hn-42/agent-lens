@@ -3,6 +3,7 @@
 
 import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
+import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
@@ -36,6 +37,12 @@ export interface Agent {
   /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
   toolUseId?: string
   state: AgentState
+  /**
+   * Between two steps of a turn (#362): a tool call, a thinking block or a permission prompt ended and the
+   * agent's next step is not observed yet. Read only while `state` is 'idle': the agent shows Idle (nothing is
+   * claimed about what it does) but its turn is not over, so it is not inactive. Cleared by the end of the turn.
+   */
+  awaitingNextEvent?: boolean
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
   /** Agent Team (or Workflow run) the agent belongs to */
@@ -66,6 +73,9 @@ export interface Agent {
   /** True once any part of `tokensUsed` is an estimate rather than a runtime-announced figure */
   tokensEstimated?: boolean
   tokensMax: number
+  /** True when `tokensMax` is a fallback (no model, a model the table does not know, or a known window a reading
+   *  overflowed), not reported by the runtime nor read from the model id; shown as "assumed" (#364) */
+  tokensMaxAssumed?: boolean
   contextBreakdown: ContextBreakdown
   toolCalls: number
   /** Cumulative tool calls of this agent that ended in error (survives the fade-out of tool call nodes); absent = not counted */
@@ -79,7 +89,7 @@ export interface Agent {
   isMain: boolean
   /** Which agent runtime produced this agent — used to pick the brand logo.
    *  Optional for forward compat with events that don't carry it (defaults to 'claude'). */
-  runtime?: 'claude' | 'codex' | 'copilot'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   /** Model ID last reported for this agent (agent_spawn / model_detected).
    *  Drives context-window sizing and the per-family cost rate. */
   model?: string
@@ -97,10 +107,13 @@ export interface Agent {
   task?: string
   spawnTime: number
   completeTime?: number
+  /** What the sub-agent returned to its parent (subagent_return, #233); absent = no return observed */
+  delegationReturn?: DelegationReturn
   /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
   lastEventAt?: number
-  /** Where the last known status comes from: 'live' (default when lastEventAt is set) or replayed 'history' */
-  freshnessSource?: 'live' | 'history'
+  /** Where the last known status comes from: 'live' (default when lastEventAt is set), replayed 'history', or an
+   *  'imported' transcript (#294, never fresh) */
+  freshnessSource?: 'live' | 'history' | 'imported'
   /** Active time of closed working spans, ms (issue #59); absent = never observed working */
   activeMs?: number
   /** Wall-clock ms when the running working span started; absent = not working */
@@ -109,6 +122,21 @@ export interface Agent {
   scale: number
   /** Queued text bubbles shown on canvas — newest pushed to end */
   messageBubbles: MessageBubble[]
+}
+
+/** A sub-agent's observed return (#233): an excerpt of its report, and a duration only when measured live */
+export interface DelegationReturn {
+  /** Start of the report, at most REPORT_EXCERPT_LEN characters */
+  excerpt: string
+  /** True when the report was longer than the excerpt (the full text is in the Conversation) */
+  truncated: boolean
+  isError: boolean
+  /** Seconds of a live return, measured by Agent Lens; never kept for a replayed or imported one */
+  durationS?: number
+  /** True when durationS is the one a background completion notice records, not a measurement (#365) */
+  durationRecorded?: boolean
+  /** Simulation time of the return */
+  time: number
 }
 
 export interface MessageBubble {
@@ -147,6 +175,8 @@ export interface ToolCallNode {
   /** tool_use_id from the transcript/hook — correlates start/end and dispatch/return */
   toolUseId?: string
   errorMessage?: string // error description when state === 'error'
+  /** Set only once the call is seen to succeed: what its own output proves (gh link, Grep / Glob count, #317) */
+  resultPill?: ResultPill
   x: number
   y: number
   startTime: number
@@ -175,8 +205,36 @@ export interface FileAttention {
   reads: number
   edits: number
   totalTokens: number   // how much context this file consumed
+  /** True once part of totalTokens comes from an estimate rather than a reported figure */
+  tokensEstimated?: boolean
+  /** True once a call on this file ended without a figure: totalTokens is then a lower bound */
+  tokensPartial?: boolean
   lastAccessed: number
   agents: string[]      // which agents touched this file
+  /** Edit / Write calls per agent, with how many were observed to succeed (#227) */
+  editors?: FileEditor[]
+  /** Read calls per agent, with how many were observed to succeed (#233) */
+  readers?: FileReader[]
+}
+
+export interface FileReader {
+  /** Agent key (`<session>:<agent>`) */
+  agent: string
+  /** Read calls started */
+  started: number
+  /** Read calls whose end was observed as a success */
+  succeeded: number
+}
+
+export interface FileEditor {
+  /** Agent key (`<session>:<agent>`) */
+  agent: string
+  /** Edit calls started */
+  started: number
+  /** Edit calls whose end was observed as a success */
+  succeeded: number
+  /** Simulation time of the last successful edit */
+  lastEditTime?: number
 }
 
 // Timeline entry for Gantt view
@@ -279,10 +337,13 @@ export interface SimulationEvent {
     | 'message_sent'
     | 'team_info'
     | 'agent_activity'
+    | 'context_compacted'
   payload: Record<string, unknown>
   sessionId?: string
   /** Event of a history replay: it says nothing about when the agent really worked (wall clock) */
   replayed?: boolean
+  /** Event of an imported transcript (#294): the state it leaves is never shown as current */
+  imported?: boolean
 }
 
 export interface DepthParticle {

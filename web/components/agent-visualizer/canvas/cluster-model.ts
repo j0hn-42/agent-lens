@@ -8,11 +8,12 @@
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { totalCostUsage } from '../../../lib/cost'
-import { formatCostUsage } from '../../../lib/usage'
+import { formatCostUsage, spokenCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
+import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import {
   cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator,
 } from './team-style'
@@ -22,7 +23,7 @@ import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 export interface SessionMeta {
   label?: string
   workspace?: string
-  runtime?: 'claude' | 'codex' | 'copilot'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   /** Repository of the session (both fields or none); see SessionInfo.projectId */
   projectId?: string
   projectName?: string
@@ -49,7 +50,7 @@ export interface Cluster {
   teamName?: string
   /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
   teamKind?: GroupKind
-  runtime: 'Claude' | 'Codex' | 'Copilot'
+  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI'
   workspace?: string
   /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
   projectName?: string
@@ -57,7 +58,10 @@ export interface Cluster {
   statusText: string
   /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
   cost: number | null
+  /** "~$0.12" on the halo label: a context cost estimate (#364) */
   costText: string
+  /** "context cost estimate $0.12": the same figure in words, for the announcement */
+  costSpoken: string
 }
 
 /** Session id of events that carry none (matches DEFAULT_SESSION_ID of the simulation) */
@@ -155,6 +159,19 @@ const STATUS_TEXT: Record<ClusterStatus, string> = {
   complete: STATE_LABEL_LONG.complete ?? 'complete',
 }
 
+/** Precedence of a halo status, as clusterStatus applies it */
+const STATUS_RANK: Record<ClusterStatus, number> = { complete: 0, idle: 1, working: 2, waiting: 3, error: 4 }
+
+/**
+ * Halo status text when some members are stale (#367): the status of the fresh members is the only proven
+ * one; a higher status seen only on stale members is worded "last known: ...", like a stale agent.
+ */
+function haloStatusText(fresh: ClusterStatus | undefined, lastKnown: ClusterStatus): string {
+  if (fresh !== undefined && STATUS_RANK[fresh] >= STATUS_RANK[lastKnown]) return STATUS_TEXT[fresh]
+  const known = `last known: ${STATUS_TEXT[lastKnown]}`
+  return fresh === undefined ? known : `${STATUS_TEXT[fresh]}, ${known}`
+}
+
 export interface ClusterOptions {
   /** Facts about sessions that the agents do not carry (workspace, label, runtime) */
   sessions?: ReadonlyMap<string, SessionMeta>
@@ -165,6 +182,8 @@ export interface ClusterOptions {
    * summed over them so the figure does not move with the display state (#106); geometry stays on the drawn agents.
    */
   costAgents?: Iterable<Agent>
+  /** Wall clock (ms): with it, a status only stale members show is worded as the last known one (#367) */
+  now?: number
 }
 
 function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: SessionMeta): string {
@@ -243,7 +262,15 @@ export function computeClusters(
 
     const project = clusterProject(sessionIds, options.sessions)
     const runtimeRaw = (main ?? members[0]).runtime ?? meta?.runtime
-    const status = isTeam ? teamHaloStatus(members.map(teamMemberState)) : clusterStatus(members.map(effectiveClusterState))
+    const statusOf = (ms: Agent[]): ClusterStatus =>
+      isTeam ? teamHaloStatus(ms.map(teamMemberState)) : clusterStatus(ms.map(effectiveClusterState))
+    const status = statusOf(members)
+    const now = options.now
+    const stale = now === undefined ? [] : members.filter(m => deriveFreshness(m, now) === 'stale')
+    const fresh = stale.length === 0 ? members : members.filter(m => !stale.includes(m))
+    const statusText = stale.length === 0
+      ? STATUS_TEXT[status]
+      : haloStatusText(fresh.length > 0 ? statusOf(fresh) : undefined, statusOf(stale))
     const costUsage = totalCostUsage(costGroups.get(key) ?? members)
 
     out.push({
@@ -257,13 +284,14 @@ export function computeClusters(
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
       teamKind,
-      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : 'Claude',
+      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
       ...(project ? { projectName: project } : {}),
       status,
-      statusText: STATUS_TEXT[status],
+      statusText,
       cost: costUsage.value,
       costText: formatCostUsage(costUsage),
+      costSpoken: spokenCostUsage(costUsage),
     })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -299,23 +327,18 @@ export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title'
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): string {
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costSpoken'>): string {
   const n = c.memberIds.length
   const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
   if (c.projectName) parts.push(`project ${c.projectName}`)
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
-  parts.push(c.statusText, `cost ${c.costText}`)
+  parts.push(c.statusText, c.costSpoken)
   return parts.join(', ')
 }
 
 /** Anchor of the halo label: top centre, just above the circle. */
 export function clusterLabelAnchor(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { x: number; y: number } {
   return { x: c.cx, y: c.cy - c.r }
-}
-
-/** Camera target (world centre and radius) that frames the cluster. */
-export function clusterBounds(c: Pick<Cluster, 'cx' | 'cy' | 'r'>): { cx: number; cy: number; r: number } {
-  return { cx: c.cx, cy: c.cy, r: c.r }
 }
 
 /** Label of one phase of a workflow on the canvas (#146) */

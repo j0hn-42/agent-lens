@@ -17,22 +17,15 @@ import { COLUMN_LABELS, agentTimeCell, type ColumnCell } from '@/lib/session-col
 import type { Freshness } from '@/hooks/simulation/freshness'
 import type { ActiveTimeFields } from '@/lib/active-time'
 
-/** Container width (px) under which the panel stacks the columns on a second line. */
-export const COLUMNS_REFLOW_PX = 440
-
-/** Container widths (px) from which the extra columns appear: Cost + Activity, then Runtime + Branch. */
-export const COLUMNS_COST_PX = 520
-export const COLUMNS_BRANCH_PX = 640
-
 /**
  * The row grid. Wide panel: [name | model | tokens | time]; wider: + cost and activity; widest: + runtime
  * and branch. Cells that are not shown are `display: none` (so they take no slot and are not read), the
  * DOM order is the column order. Narrow panel: [name / model tokens time] stacked.
  */
 export const ROW_GRID =
-  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_8ch] ' +
-  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_8ch_10ch_11ch] ' +
-  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_8ch_10ch_11ch] ' +
+  'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_9ch] ' +
+  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_9ch_10ch_11ch] ' +
+  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_9ch_10ch_11ch] ' +
   '@max-[440px]:flex @max-[440px]:flex-wrap'
 const WHEN_COST = 'hidden @min-[520px]:block'
 const WHEN_BRANCH = 'hidden @min-[640px]:block'

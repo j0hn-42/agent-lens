@@ -169,6 +169,21 @@ test('a returning agent (spawn again) is un-archived', () => {
   assert.equal(w.completeTime, undefined)
 })
 
+test('a duplicate spawn of a live agent does not make it idle', () => {
+  for (const live of ['tool_calling', 'thinking'] as const) {
+    const s = run([
+      { type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true } },
+      { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
+      live === 'tool_calling'
+        ? { type: 'tool_call_start', payload: { agent: 'w', tool: 'Bash', args: 'sleep 60' } }
+        : { type: 'message', payload: { agent: 'w', role: 'thinking', content: 'working' } },
+      // a second source (hook server + session watcher) announces the same agent again
+      { type: 'agent_spawn', payload: { name: 'w', parent: 'orchestrator' } },
+    ])
+    assert.equal(s.agents.get('default:w')!.state, live)
+  }
+})
+
 test('top bar counts archived agents as done', () => {
   assert.equal(formatAgentCounts(2, 3), '5 agents: 2 active - 3 done')
 })
@@ -243,6 +258,8 @@ test('formatTeamSummary and runtimeBadge', () => {
   assert.equal(formatTeamSummary('X', 1, 0), 'Team X: 1 member, 0 working')
   assert.deepEqual(runtimeBadge('codex'), { short: 'CX', label: 'Codex' })
   assert.deepEqual(runtimeBadge('copilot'), { short: 'GC', label: 'GitHub Copilot' })
+  assert.deepEqual(runtimeBadge('pi'), { short: 'PI', label: 'Pi' })
+  assert.deepEqual(runtimeBadge('gemini'), { short: 'GM', label: 'Gemini CLI' })
   assert.equal(runtimeBadge('claude')!.label, 'Claude Code')
   assert.equal(runtimeBadge(undefined), null)
 })

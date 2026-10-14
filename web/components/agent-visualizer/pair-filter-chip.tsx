@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { COLORS } from '@/lib/colors'
-import { FOCUS_RING } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import {
   isPairComplete, isPairSet, pairAnnouncement, pairChipLabel, pairSpokenLabel, type PairState,
 } from '@/lib/pair-filter'
@@ -96,7 +96,7 @@ export function PairFilterChip({ pair, nameOf, count, onClear }: {
             aria-label="Clear pair filter"
             title="Clear pair filter"
             onClick={onClear}
-            className={`min-h-6 min-w-6 inline-flex items-center justify-center rounded-full ${FOCUS_RING}`}
+            className={`min-h-6 min-w-6 inline-flex items-center justify-center rounded-full ${FOCUS_RING_INSET}`}
             style={{ color: COLORS.textMuted }}
           >
             <span aria-hidden="true">{'×'}</span>

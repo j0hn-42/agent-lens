@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, HIERARCHY_TEXT, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
+  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import {
@@ -16,10 +16,9 @@ const msg = (id: string, type: ConversationMessage['type'], timestamp: number, c
   ({ id, type, timestamp, content, ...extra })
 
 test('the glossary fixes the panel names and the agent hierarchy', () => {
-  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats' })
+  assert.deepEqual(PANEL_NAMES, { conversation: 'Conversation', files: 'Files', timeline: 'Timeline', cost: 'Cost', context: 'Context', stats: 'Stats', system: 'System' })
   assert.equal(HIERARCHY_TERMS.main, 'Main')
   assert.equal(HIERARCHY_TERMS.lead, 'Lead')
-  assert.equal(HIERARCHY_TEXT, 'Session > Agent (Main / Lead) > Subagent / Teammate')
 })
 
 test('one empty-state wording: "No <things> yet", shared by the glossary and the message lists', () => {
@@ -100,7 +99,8 @@ test('Tempo labels are centralised in the glossary, in English (#123)', async ()
 })
 
 test('no accented character in UI code outside comments (the UI is English only, #123)', () => {
-  const allowed = new Set<string>([]) // files that may carry accented text
+  // The message catalog (#247) is the one place that carries translated text; the rest of the UI code stays accent free
+  const allowed = new Set<string>([join('web/lib', 'messages.ts')])
   const hits: string[] = []
   const walk = (dir: string) => {
     if (!existsSync(dir)) return

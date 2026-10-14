@@ -1,5 +1,5 @@
 /**
- * CodexSessionWatcher (issue #143) : les sessions terminées sont libérées (watcher, timers, parser),
+ * CodexSessionWatcher (issue #143) : les sessions sans activité sont libérées (watcher, timers, parser),
  * rattachées si le fichier reprend, le nombre de sessions suivies est plafonné et les watchers des
  * jours sortis de la fenêtre de scan sont fermés.
  */
@@ -10,7 +10,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { CodexSessionWatcher } from '../src/codex-session-watcher'
-import { ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS } from '../src/constants'
+import { ACTIVE_SESSION_AGE_S, CODEX_MAX_WATCHED_SESSIONS, INACTIVITY_TIMEOUT_MS, POLL_FALLBACK_MS } from '../src/constants'
 
 type Internals = { sessions: Map<string, unknown>; dirWatchers: Map<string, unknown> }
 
@@ -71,8 +71,8 @@ describe('CodexSessionWatcher : libération des sessions terminées', () => {
     assert.equal(internals.sessions.size, 5)
     assert.ok(live.size > 1, 'chaque session arme un poll et un timer d\'inactivité')
 
-    mock.timers.tick(INACTIVITY_TIMEOUT_MS + 1000) // terminées
-    assert.equal(internals.sessions.size, 5, 'terminées mais pas encore libérées')
+    mock.timers.tick(INACTIVITY_TIMEOUT_MS + 1000) // silencieuses
+    assert.equal(internals.sessions.size, 5, 'silencieuses mais pas encore libérées')
     mock.timers.tick(ACTIVE_SESSION_AGE_S * 1000) // au-delà de ACTIVE_SESSION_AGE_S
     assert.equal(internals.sessions.size, 0)
     assert.equal(live.size, 1, 'seul le timer de scan reste armé')
@@ -94,6 +94,40 @@ describe('CodexSessionWatcher : libération des sessions terminées', () => {
     mock.timers.tick(1000)
     assert.equal(internals.sessions.size, 1)
     assert.deepEqual(lifecycle.filter(l => l.startsWith('started')), [`started:${uuid(1)}`, `started:${uuid(1)}`])
+  })
+
+  // #360 : un silence n'est pas une fin : ni agent_complete, ni 'ended', la session reste active
+  it('une session silencieuse reste active : ni agent_complete ni ended', () => {
+    fs.writeFileSync(rollout(1), metaLine)
+    watcher = new CodexSessionWatcher(null)
+    const lifecycle: string[] = []
+    const types: string[] = []
+    watcher.onSessionLifecycle(e => lifecycle.push(e.type))
+    watcher.onEvent(e => types.push(e.type))
+    watcher.start()
+    mock.timers.tick(INACTIVITY_TIMEOUT_MS + 60_000)
+    assert.ok(!types.includes('agent_complete'), types.join(','))
+    assert.ok(!lifecycle.includes('ended'), lifecycle.join(','))
+    assert.deepEqual(watcher.getActiveSessions().map(s => s.status), ['active'])
+  })
+
+  // #206 : dans le relais, une exception dans le poll est un uncaughtException fatal
+  it('une exception pendant la lecture du poll détache la session (ended) sans sortir du timer', () => {
+    fs.writeFileSync(rollout(1), metaLine)
+    watcher = new CodexSessionWatcher(null)
+    const lifecycle: string[] = []
+    watcher.onSessionLifecycle(e => lifecycle.push(`${e.type}:${e.sessionId}`))
+    watcher.start()
+    const internals = watcher as unknown as Internals
+    assert.equal(internals.sessions.size, 1)
+    // La lecture suivante lève : la trace d'activité de la session refuse d'être écrite
+    Object.defineProperty(internals.sessions.get(uuid(1)), 'lastActivityTime', {
+      get: () => Date.now(), set: () => { throw new Error('read failed') },
+    })
+
+    fs.appendFileSync(rollout(1), JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'hi' } }) + '\n')
+    assert.doesNotThrow(() => mock.timers.tick(POLL_FALLBACK_MS))
+    assert.deepEqual(lifecycle.filter(l => l.startsWith('ended')), [`ended:${uuid(1)}`], 'détachement seulement')
   })
 
   it('plafonne le nombre de sessions suivies en gardant les plus récentes', () => {

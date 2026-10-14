@@ -91,7 +91,7 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
 
 test('garde : le bloom reste actif sur le canvas quel que soit le thème, le fond de page est celui de la scène', () => {
   const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
-  assert.match(loop, /bloomRef\.current && !reducedMotion\)/)
+  assert.match(loop, /bloomRef\.current && !calmOf\('effects'\)\)/)
   const css = readFileSync(join(root, 'web/app/globals.css'), 'utf8')
   assert.match(css, /--scene-void: #050510/)
   assert.match(css, /html, body \{ background: var\(--scene-void\); \}/)
@@ -112,7 +112,6 @@ test('le focus reste >= 3:1 sur les surfaces du thème ET sur la scène sombre, 
     const t = TOKENS[id]
     for (const bg of [t.void, t.surface, t['surface-raised']]) assert.ok(ratio(t.focus, bg) >= 3, `${id}: focus sur ${bg}`)
     assert.ok(ratio(t.focus, SCENE.void) >= 3, `${id}: focus sur la scène`)
-    assert.ok(ratio(extraVars(id)['--lens-focus-ring'].startsWith('#') ? extraVars(id)['--lens-focus-ring'] : t.focus, SCENE.void) >= 3, `${id}: anneau sur la scène`)
   }
 })
 

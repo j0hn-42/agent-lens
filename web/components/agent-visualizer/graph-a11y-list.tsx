@@ -8,6 +8,13 @@ import type { LinkMessageItem } from './canvas/edge-bubble-set'
 import { clusterNoun, clusterNounLower } from './canvas/cluster-model'
 import { groupByPhase, phaseSegmentLabel } from '@/lib/phase-groups'
 
+/** Outline button without a canvas node (cluster, link, link message, collapsed branch) that holds the keyboard focus (#195) */
+export interface AuxFocusItem {
+  kind: 'cluster' | 'link' | 'link-message' | 'branch'
+  key: string
+  label: string
+}
+
 interface GraphA11yListProps {
   model: A11yModel
   /** Dispatch / return exchanges, newest last */
@@ -30,6 +37,8 @@ interface GraphA11yListProps {
   selectedClusterKey?: string | null
   /** Sync the canvas focus ring / camera with the focused list button */
   onFocusNode: (node: NavNode) => void
+  /** Focus entered (item) or left (null) a button that has no canvas node: the canvas drops the agent ring and shows it */
+  onFocusAux?: (item: AuxFocusItem | null) => void
   /** Collapse / expand a branch (same action as the canvas badge and the Left / Right keys) */
   onToggleBranch?: (agentId: string) => void
 }
@@ -43,7 +52,7 @@ interface GraphA11yListProps {
 export function GraphA11yList({
   model, communications, announcements, focusedNode,
   onAgentClick, onToolCallClick, onDiscoveryClick, onLinkClick, linkMessages, selectedLinkId, onClusterClick, selectedClusterKey, onFocusNode,
-  onToggleBranch,
+  onFocusAux, onToggleBranch,
 }: GraphA11yListProps) {
   const isFocused = (type: NavNode['type'], id: string) => focusedNode?.type === type && focusedNode.id === id
   // Roving tabindex: the focused node (or the first agent) is the single tab stop of the list
@@ -54,6 +63,11 @@ export function GraphA11yList({
   )
   const tabIndexFor = (type: NavNode['type'], id: string, isFirst: boolean) =>
     isFocused(type, id) || (!hasFocusedButton && isFirst) ? 0 : -1
+
+  const auxFocusProps = (kind: AuxFocusItem['kind'], key: string, label: string) => ({
+    onFocus: () => onFocusAux?.({ kind, key, label }),
+    onBlur: () => onFocusAux?.(null),
+  })
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLElement>) => {
     const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End']
@@ -105,7 +119,7 @@ export function GraphA11yList({
         {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
         {agent.phase ? `Phase ${agent.phase}. ` : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
-        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
+        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. {agent.cost}. {agent.toolCalls} tool calls.
       </p>
       {agent.childNames.length > 0 && (
         <p>Parent of {agent.childNames.join(', ')}.</p>
@@ -119,6 +133,7 @@ export function GraphA11yList({
               data-graph-node=""
               tabIndex={-1}
               aria-expanded={!agent.branch.collapsed}
+              {...auxFocusProps('branch', agent.id, `Branch of ${agent.name}`)}
               onClick={() => onToggleBranch(agent.id)}
             >
               {`Branch of ${agent.name}`}
@@ -160,7 +175,10 @@ export function GraphA11yList({
         {announcements.map(a => <p key={a.id}>{a.text}</p>)}
       </div>
 
-      <section aria-label="Agent graph outline" className="sr-only" onKeyDown={handleKeyDown}>
+      {/* Arrow-key boundary of the outline (keys from its buttons bubble here): presentational and
+          box-less, so the named section carries no handler */}
+      <div role="presentation" style={{ display: 'contents' }} onKeyDown={handleKeyDown}>
+      <section aria-label="Agent graph outline" className="sr-only">
         <h2>Agent graph outline</h2>
         <p>Use arrow keys to move between items and Enter to open details.</p>
         {model.agents.length === 0 ? (
@@ -178,6 +196,7 @@ export function GraphA11yList({
                     data-graph-node=""
                     tabIndex={-1}
                     aria-current={group.cluster.key === selectedClusterKey ? 'true' : undefined}
+                    {...auxFocusProps('cluster', group.cluster.key, `Zoom to ${clusterNounLower(group.cluster)} ${group.cluster.title}`)}
                     onClick={() => onClusterClick(group.cluster.key)}
                   >
                     Zoom to {clusterNounLower(group.cluster)} {group.cluster.title}
@@ -224,6 +243,7 @@ export function GraphA11yList({
                     data-graph-node=""
                     tabIndex={-1}
                     aria-current={link.id === selectedLinkId ? 'true' : undefined}
+                    {...auxFocusProps('link', link.id, link.text)}
                     onClick={() => onLinkClick?.(link.id)}
                   >
                     {link.text}
@@ -239,6 +259,7 @@ export function GraphA11yList({
                       type="button"
                       data-graph-node=""
                       tabIndex={-1}
+                      {...auxFocusProps('link-message', item.id, item.text)}
                       onClick={() => onLinkClick?.(item.linkId)}
                     >
                       {item.text}
@@ -247,6 +268,16 @@ export function GraphA11yList({
                 ))}
               </ul>
             )}
+          </>
+        )}
+
+        {model.fileConflicts && model.fileConflicts.length > 0 && (
+          <>
+            <h3>File conflicts</h3>
+            <p>Files that two or more agents edited, each edit observed to succeed. The Files panel lists them too.</p>
+            <ul aria-label="File conflicts">
+              {model.fileConflicts.map(c => <li key={c.path}>{c.text}</li>)}
+            </ul>
           </>
         )}
 
@@ -281,6 +312,7 @@ export function GraphA11yList({
           </>
         )}
       </section>
+      </div>
     </>
   )
 }

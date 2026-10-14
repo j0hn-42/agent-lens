@@ -20,6 +20,7 @@ const VSCODE_ALIAS = path.join(ROOT, 'extension', 'test', 'helpers', 'alias-vsco
 const STARTUP_TIMEOUT_MS = 30_000
 const REQUEST_TIMEOUT_MS = 5_000
 const EXIT_TIMEOUT_MS = 10_000
+const SIGNAL_SETTLE_MS = 300
 const PARALLEL_STATUS_REQUESTS = 50
 const RESERVED_PORTS = [3000, 3001, DEFAULT_RELAY_PORT]
 
@@ -145,6 +146,32 @@ for (const entry of ENTRIES) {
       }
     })
 
+    it('POST /scope is wired behind the guards in the real server (#291): JSON only, same site only, strict body', async () => {
+      const post = (headers: http.OutgoingHttpHeaders, body: string) => new Promise<Reply>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port: a.port, method: 'POST', path: '/scope', agent: false, headers: { 'User-Agent': `scope-${Math.random()}`, ...headers } }, res => {
+          let out = ''
+          res.setEncoding('utf8')
+          res.on('data', c => { out += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }))
+        })
+        req.on('error', reject)
+        req.end(body)
+      })
+      const json = { 'Content-Type': 'application/json' }
+      const ok = await post(json, '{"scope":"workspace"}')
+      assert.equal(ok.status, 200, ok.body)
+      assertStrictHeaders(ok.headers, CSP_API, 'POST /scope')
+      assert.deepEqual(JSON.parse(ok.body), { scope: 'workspace', allWorkspaces: false })
+      assert.equal((await post(json, '{"scope":"nowhere"}')).status, 400)
+      assert.equal((await post({}, '{"scope":"all"}')).status, 415)
+      assert.equal((await post({ ...json, Origin: 'https://evil.example' }, '{"scope":"all"}')).status, 403)
+      assert.equal((await post({ ...json, 'Sec-Fetch-Site': 'cross-site' }, '{"scope":"all"}')).status, 403)
+      assert.equal((await post({ ...json, Host: 'evil.example' }, '{"scope":"all"}')).status, 403)
+      assert.equal(JSON.parse((await request(a.port, 'GET', '/status')).body).allWorkspaces, false, 'refused requests changed nothing')
+      assert.equal((await request(a.port, 'POST', '/status')).status, 405)
+      assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
+    })
+
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')
@@ -195,8 +222,58 @@ for (const entry of ENTRIES) {
       assert.equal(code, 0, `clean exit on SIGTERM:\n${b.output()}`)
       assert.equal(await accepts('127.0.0.1', b.port), false, 'the port is released')
     })
+
+    it('runs the cleanup (relay.dispose, which kills launched agents) on SIGHUP, SIGINT and SIGTERM alike (#229)', async () => {
+      // Without a SIGHUP handler Node dies without cleanup (exit code null): a detached launched agent would be left running
+      for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'] as const) {
+        const r = await start(entry)
+        // The port line is printed just before the handlers are installed: let that finish before signalling
+        await new Promise(res => setTimeout(res, SIGNAL_SETTLE_MS))
+        r.child.kill(signal)
+        const code = await Promise.race([r.exited, new Promise<'timeout'>(res => setTimeout(() => res('timeout'), EXIT_TIMEOUT_MS))])
+        assert.equal(code, 0, `${signal}: clean exit through cleanup():\n${r.output()}`)
+      }
+    })
   })
 }
+
+describe('app entry point: remote access is refused at startup (#241)', () => {
+  /** Runs the app until it exits; resolves with its exit code and output (rejects if it starts listening). */
+  function runToExit(args: string[]): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolve, reject) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, AGENT_LENS_PORT: '0' }
+      delete childEnv.FORCE_COLOR
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', VSCODE_ALIAS, 'app/src/app.ts', '--no-open', ...args], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      children.push(child)
+      let out = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`did not exit:\n${out}`)) }, STARTUP_TIMEOUT_MS)
+      const onData = (c: Buffer) => {
+        out += c.toString()
+        if (ENTRIES[1].listening.test(out)) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error(`started listening:\n${out}`)) }
+      }
+      child.stdout!.on('data', onData)
+      child.stderr!.on('data', onData)
+      child.once('exit', code => { clearTimeout(timer); resolve({ code, out }) })
+    })
+  }
+
+  it('--allow-host stops the start while token authentication is not shipped', async () => {
+    const r = await runToExit(['--allow-host', 'box.tail1234.ts.net'])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /--allow-host/)
+    assert.match(r.out, /token/i)
+  })
+
+  it('an invalid --allow-host and a non-loopback --host stop the start', async () => {
+    assert.equal((await runToExit(['--allow-host', '*.ts.net'])).code, 2)
+    const host = await runToExit(['--host', '0.0.0.0'])
+    assert.equal(host.code, 2, host.out)
+    assert.match(host.out, /loopback/i)
+    // A security flag typed without its value must not be ignored
+    assert.equal((await runToExit(['--host'])).code, 2)
+    assert.equal((await runToExit(['--allow-host'])).code, 2)
+  })
+})
 
 describe('app entry point: --port 0', () => {
   it('binds an ephemeral port without the environment variable', async () => {

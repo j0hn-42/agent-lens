@@ -46,6 +46,10 @@ export const NEON_COLORS = {
   contextReasoning: '#cc88ff',  // purple — agent thinking
   contextSubagent: '#66ffaa',   // green — child agent results
 
+  // System panel severity (bar and status text; always paired with a word and an icon)
+  systemWarm: '#ff9944',
+  systemCritical: '#ff6666',
+
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
   textPrimary: '#aaeeff',
@@ -110,6 +114,9 @@ export const NEON_COLORS = {
   roleUserBg: 'rgba(200, 160, 80, 0.12)',
   roleUserBgSelected: 'rgba(200, 160, 80, 0.2)',
   roleUserText: '#e0c888',
+  roleCompactionBg: 'rgba(160, 180, 200, 0.1)',
+  roleCompactionBgSelected: 'rgba(160, 180, 200, 0.18)',
+  roleCompactionText: '#c8d4e0',
 
   // Result/success
   resultBg: 'rgba(102, 255, 170, 0.05)',
@@ -395,6 +402,9 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     message: accent,
 
     contextSystem: t['context-system'],
+    systemWarm: t['system-warm'],
+    systemCritical: t['system-critical'],
+
     contextUser: accent,
     contextToolResults: warn,
     contextReasoning: delegate,
@@ -454,6 +464,9 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     roleUserBg: rgba(warn, 0.12),
     roleUserBgSelected: rgba(warn, 0.2),
     roleUserText: warn,
+    roleCompactionBg: rgba(muted, 0.06),
+    roleCompactionBgSelected: rgba(muted, 0.1),
+    roleCompactionText: muted,
 
     resultBg: rgba(ok, 0.05),
     resultBorder: rgba(ok, 0.1),

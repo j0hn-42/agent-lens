@@ -4,7 +4,9 @@ import { COST_DRAW, COST_PANEL } from '../../../lib/canvas-constants'
 import { formatTokens, formatCost } from '../../../lib/utils'
 import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
 import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
+import { maskText } from '../../../lib/presentation'
 import { truncateText } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -160,6 +162,8 @@ export function drawCostSummaryPanel(
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
   unattributed: Iterable<UnattributedUsage> = [],
+  /** Presentation mode (#245): agent names are drawn as bullets */
+  maskNames = false,
 ) {
   // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
   const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
@@ -172,7 +176,7 @@ export function drawCostSummaryPanel(
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => { const usage = agentCostUsage(a); return { name: a.name, usage, cost: usage.value ?? 0 } })
+    .map(a => { const usage = agentCostUsage(a); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
@@ -212,6 +216,7 @@ export function drawCostSummaryPanel(
   const restRows = hasRest ? 1 : 0
   // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
   const headerCostText = formatCostUsage(costUsage)
+  // Kept short: "in context" would overflow the 212 px panel on a wrapped "at least … estimated" line; the top bar says it (#364)
   const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
   ctx.font = 'bold 12px monospace'
   const headerCostW = ctx.measureText(headerCostText).width
@@ -298,7 +303,7 @@ export function drawCostSummaryPanel(
     ctx.fillText(UNATTRIBUTED_LABEL, panelX + COST_PANEL.contentPadding + COST_PANEL.barInset, y + 3)
     ctx.textAlign = 'right'
     const restEstimated = rest.some(u => u.estimated)
-    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
+    ctx.fillText(`${formatTokens(summary.unattributedTokens)} \u00b7 ${COST_LABELS.mark}${formatCost(summary.unattributedCost)}${restEstimated ? ` ${USAGE_LABELS.estimated}` : ''}`, panelX + COST_PANEL.contentPadding + barW - COST_PANEL.barInset, y + 3)
     y += lineH
   }
 

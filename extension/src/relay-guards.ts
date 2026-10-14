@@ -5,12 +5,14 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AgentEvent } from './protocol'
+import { listSubagentTranscripts } from './fs-utils'
+import { newestTranscriptMtime } from './discovery-activity'
 import {
   RELAY_SESSION_PARAM_MAX_LENGTH, RELAY_MAX_REPLAY_PER_SESSION, RELAY_MAX_REPLAY_TOTAL, RELAY_REPLAY_BATCH_SIZE,
   RELAY_MAX_EVENTS_PER_SESSION, RELAY_MAX_BUFFERED_SESSIONS, RELAY_MAX_BUFFERED_EVENTS_TOTAL,
   RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_SESSION_FILE_BYTES,
   RELAY_MAX_CLIENT_BACKLOG_BYTES,
-  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEV_WEB_ORIGIN_PATTERN,
+  RELAY_REPLAY_LIFECYCLE_RESERVE, COLD_RESCAN_CYCLES, DEFAULT_DEV_PORT,
 } from './constants'
 
 const SESSION_ID_RE = /^[A-Za-z0-9._:-]+$/
@@ -47,6 +49,12 @@ export function isStatusPath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/status' } catch { return false }
 }
 
+/** True when the request path (query ignored) is the relay's GET /statusline endpoint (#236). */
+export function isStatusLinePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/statusline' } catch { return false }
+}
+
 /** Which observations route a request path (query ignored) is: the action itself, its schema, or neither. */
 export function observationsRoute(url: string | undefined): 'observations' | 'schema' | null {
   if (!url) { return null }
@@ -80,14 +88,20 @@ export interface ReplayBatchMsg { type: 'agent-event-batch'; events: AgentEvent[
  * ordered last), so the most relevant data survives. Order is preserved, and large
  * sessions are split into batches of at most `batchSize` events.
  */
-export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Partial<ReplayLimits> = {}): ReplayBatchMsg[] {
+export function capReplayBatches(
+  batches: readonly ReplayBatchMsg[],
+  limits: Partial<ReplayLimits> = {},
+  /** Receives, per session, the events the cap left out of the replay (#366). */
+  dropped?: Map<string, number>,
+): ReplayBatchMsg[] {
   const { perSession, total, batchSize } = { ...DEFAULT_REPLAY_LIMITS, ...limits }
   let budget = total
   const kept: AgentEvent[][] = []
-  for (let i = batches.length - 1; i >= 0 && budget > 0; i--) {
+  let i = batches.length - 1
+  for (; i >= 0 && budget > 0; i--) {
     const events = batches[i].events
     const take = Math.min(events.length, perSession, budget)
-    if (take <= 0) { continue }
+    if (take <= 0) { countEvicted(dropped, events, events.length); continue }
     // Lifecycle events cut off by the cap are re-added in front (bounded), so the graph still builds
     const cut = events.slice(0, events.length - take)
     const head = [
@@ -96,7 +110,11 @@ export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Par
     ]
     kept.unshift([...head, ...events.slice(events.length - take)])
     budget -= take + head.length
+    // `head` is a subset of `cut` (no linear includes per event): only what is not re-added is lost
+    countEvicted(dropped, cut, cut.length - head.length)
   }
+  // Batches never reached because the total budget ran out
+  for (; i >= 0; i--) countEvicted(dropped, batches[i].events, batches[i].events.length)
   const out: ReplayBatchMsg[] = []
   for (const events of kept) {
     for (let i = 0; i < events.length; i += batchSize) {
@@ -104,6 +122,36 @@ export function capReplayBatches(batches: readonly ReplayBatchMsg[], limits: Par
     }
   }
   return out
+}
+
+/** Credit `n` of the events of a batch to their session (a batch holds one session; the first event names it). */
+function countEvicted(counter: Map<string, number> | undefined, events: readonly AgentEvent[], n: number): void {
+  if (!counter || n <= 0) return
+  const sid = events.find(e => typeof e.sessionId === 'string')?.sessionId
+  if (typeof sid !== 'string') return
+  counter.set(sid, Math.min((counter.get(sid) ?? 0) + n, Number.MAX_SAFE_INTEGER))
+}
+
+/**
+ * Events the relay buffer let go of (#366). Bounded like the buffer itself: at most `sessions` session
+ * entries (the least recently touched are folded into `other`), so the map and the `event-loss`
+ * message stay small however many sessions pass through a long-running relay.
+ * It counts events the relay can no longer REPLAY, since it started. It does not say what a given
+ * client is missing: a client that stayed connected already received them live.
+ */
+export interface EvictedTally { bySession: Map<string, number>; other: number }
+export function createEvictedTally(): EvictedTally { return { bySession: new Map(), other: 0 } }
+
+export function addEvicted(tally: EvictedTally, sessionId: string, n: number, maxSessions: number = RELAY_MAX_BUFFERED_SESSIONS): void {
+  if (n <= 0) return
+  const next = Math.min((tally.bySession.get(sessionId) ?? 0) + n, Number.MAX_SAFE_INTEGER)
+  tally.bySession.delete(sessionId)
+  tally.bySession.set(sessionId, next)
+  while (tally.bySession.size > Math.max(1, maxSessions)) {
+    const oldest = tally.bySession.keys().next().value as string
+    tally.other = Math.min(tally.other + (tally.bySession.get(oldest) ?? 0), Number.MAX_SAFE_INTEGER)
+    tally.bySession.delete(oldest)
+  }
 }
 
 export interface BufferLimits { perSession: number; sessions: number; total: number }
@@ -124,7 +172,8 @@ function agentNameOf(e: AgentEvent): unknown {
 
 /** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
  *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
-export function trimKeepingLifecycle(buf: AgentEvent[], max: number): void {
+export function trimKeepingLifecycle(buf: AgentEvent[], max: number): number {
+  let removed = 0
   while (buf.length > max) {
     let lifecycle = 0
     let victim = -1
@@ -136,7 +185,9 @@ export function trimKeepingLifecycle(buf: AgentEvent[], max: number): void {
     }
     if (victim < 0 || lifecycle > RELAY_REPLAY_LIFECYCLE_RESERVE) victim = 0
     buf.splice(victim, 1)
+    removed++
   }
+  return removed
 }
 
 /**
@@ -149,6 +200,8 @@ export function appendBounded(
   sessionId: string,
   event: AgentEvent,
   limits: Partial<BufferLimits> = {},
+  /** Events the buffer let go of (#366): what a replay can no longer show. Bounded, see EvictedTally. */
+  evicted?: EvictedTally,
 ): void {
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
@@ -156,7 +209,8 @@ export function appendBounded(
   // Only the latest activity per (session, agent) is replayed: replace in place, it stays after the spawn
   if (previous >= 0) buf[previous] = event
   else buf.push(event)
-  trimKeepingLifecycle(buf, lim.perSession)
+  const trimmed = trimKeepingLifecycle(buf, lim.perSession)
+  if (evicted) addEvicted(evicted, sessionId, trimmed, lim.sessions)
   // Re-insert so Map order reflects recency of writes
   buffers.delete(sessionId)
   buffers.set(sessionId, buf)
@@ -166,16 +220,34 @@ export function appendBounded(
   while (buffers.size > 1 && (buffers.size > lim.sessions || totalEvents > lim.total)) {
     const oldest = buffers.keys().next().value
     if (oldest === undefined || oldest === sessionId) { break }
-    totalEvents -= buffers.get(oldest)?.length ?? 0
+    const lost = buffers.get(oldest)?.length ?? 0
+    totalEvents -= lost
+    if (evicted) addEvicted(evicted, oldest, lost, lim.sessions)
     buffers.delete(oldest)
   }
   // A single session may still exceed the total: trim its head
-  if (totalEvents > lim.total) { buf.splice(0, Math.min(buf.length - 1, totalEvents - lim.total)) }
+  if (totalEvents > lim.total) {
+    const cut = Math.min(buf.length - 1, totalEvents - lim.total)
+    buf.splice(0, cut)
+    if (evicted) addEvicted(evicted, sessionId, cut, lim.sessions)
+  }
 }
 
 /** Truthy env/flag values: 1, true, yes, on. */
 export function isTruthyFlag(value: string | undefined): boolean {
   return value !== undefined && /^(1|true|yes|on)$/i.test(value.trim())
+}
+
+/** True when the request path (query ignored) is exactly /scope: the run-time scope of the relay (#291). */
+export function isScopePath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/scope' } catch { return false }
+}
+
+/** True for `/launch` and `/launch/<id>/stop` (#229): the routes that start and stop an agent process. <id> is 16 lower-case hex digits. */
+export function isLaunchPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return /^\/launch(?:\/[0-9a-f]{16}\/stop)?$/.test(new URL(url, 'http://localhost').pathname) } catch { return false }
 }
 
 export interface DiscoveredSession { sessionId: string; filePath: string; dirPath: string; mtimeMs: number; size: number }
@@ -187,6 +259,9 @@ export interface DiscoveryOptions {
   maxFileBytes?: number
   /** Fichiers écartés (au-delà du plafond, trop gros, non réguliers) : pas de lstat avant COLD_RESCAN_CYCLES cycles */
   cold?: ColdScan
+  /** Appelé pour chaque transcript écarté par un plafond (taille, nombre par dossier), pour l'afficher et non le taire (#291).
+   *  Pas rappelé pour un fichier déjà mis au froid : l'appelant garde sa propre liste. */
+  onSkipped?: (reason: 'sizeLimit' | 'fileLimit', f: { sessionId: string; filePath: string }) => void
 }
 
 /** État de scan froid du relais : `cycle` est incrémenté par l'appelant à chaque scan. */
@@ -195,22 +270,28 @@ export function createColdScan(): ColdScan { return { cycle: 0, until: new Map()
 
 /**
  * Safe lookup of Claude Code project directories under `root`.
- * Only real directories (symlinks are skipped) are returned, capped at `maxDirs`.
- * With `encodedWorkspace` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
+ * Only real directories (symlinks are skipped) are returned, at most `maxDirs`, the first ones BY NAME so the
+ * cut does not depend on the order the file system lists them in. `report.truncated` says whether another
+ * eligible directory was left out (#291): the cap is shown, not silent.
+ * With `match` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
  */
 export function listProjectDirs(
   root: string,
   match: ((name: string) => boolean) | null,
   maxDirs = RELAY_MAX_PROJECT_DIRS,
+  report?: { truncated: boolean },
 ): string[] {
   const out: string[] = []
+  if (report) { report.truncated = false }
   let entries: fs.Dirent[]
   try { entries = fs.readdirSync(root, { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    if (out.length >= maxDirs) { break }
-    if (!e.isDirectory() || e.isSymbolicLink()) { continue }
-    if (match && !match(e.name)) { continue }
-    out.push(path.join(root, e.name))
+  const names = entries
+    .filter(e => e.isDirectory() && !e.isSymbolicLink() && (!match || match(e.name)))
+    .map(e => e.name)
+    .sort()
+  for (const name of names) {
+    if (out.length >= maxDirs) { if (report) { report.truncated = true } break }
+    out.push(path.join(root, name))
   }
   return out
 }
@@ -238,6 +319,7 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
       if (cold && (cold.until.get(filePath) ?? 0) > cold.cycle) { continue }
       try {
         const st = fs.lstatSync(filePath)
+        if (st.isFile() && st.size > maxBytes) opts.onSkipped?.('sizeLimit', { sessionId, filePath })
         if (!st.isFile() || st.size > maxBytes) { cold?.until.set(filePath, cold.cycle + COLD_RESCAN_CYCLES); continue }
         found.push({ sessionId, filePath, dirPath, mtimeMs: st.mtimeMs, size: st.size })
       } catch { /* vanished */ }
@@ -245,7 +327,77 @@ export function discoverSessionFiles(opts: DiscoveryOptions): DiscoveredSession[
     found.sort((a, b) => b.mtimeMs - a.mtimeMs)
     for (const f of found.slice(0, maxFiles)) { out.push(f) }
     // Au-delà du plafond : écartés et mis au froid, pas de lstat à chaque cycle
-    if (cold) { for (const f of found.slice(maxFiles)) { cold.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES) } }
+    for (const f of found.slice(maxFiles)) {
+      opts.onSkipped?.('fileLimit', f)
+      cold?.until.set(f.filePath, cold.cycle + COLD_RESCAN_CYCLES)
+    }
+  }
+  return out
+}
+
+/** Sort un transcript du froid (événement de watch). Vrai s'il était froid. */
+export function wakeColdFile(cold: ColdScan, filePath: string): boolean {
+  return cold.until.delete(filePath)
+}
+
+/** Sort `<dirPath>/<sessionId>.jsonl` du froid. */
+export function wakeColdSession(cold: ColdScan, dirPath: string, sessionId: string): boolean {
+  return wakeColdFile(cold, path.join(dirPath, `${sessionId}.jsonl`))
+}
+
+/**
+ * Admission dans un ensemble borné de surveillances (dossiers subagents des sessions froides). Plein, il
+ * garde les sessions les plus récentes : sinon les premières sessions inactives vues (souvent très
+ * anciennes) occuperaient les places pour toute la vie du relais et une session devenue inactive plus tard
+ * n'aurait jamais de réveil par son dossier subagents.
+ */
+export function admitWatchSlot(
+  slots: ReadonlyMap<string, { mtimeMs: number }>, max: number, mtimeMs: number,
+): { admit: boolean; evict?: string } {
+  if (slots.size < max) return { admit: true }
+  let oldest: string | undefined
+  let oldestMtime = Infinity
+  for (const [key, s] of slots) { if (s.mtimeMs < oldestMtime) { oldestMtime = s.mtimeMs; oldest = key } }
+  return oldest !== undefined && mtimeMs > oldestMtime ? { admit: true, evict: oldest } : { admit: false }
+}
+
+export interface ActiveSessionsOptions extends DiscoveryOptions {
+  /** Au-delà de cet âge (s), le transcript principal est jugé inactif : on regarde ses sous-agents */
+  activeAgeS: number
+  now?: () => number
+  /** Sessions déjà suivies : ignorées sans examen des sous-agents */
+  skip?: (sessionId: string) => boolean
+  /** Appelé quand une session est jugée inactive (et mise au froid) */
+  onIdle?: (s: DiscoveredSession) => void
+}
+
+export interface ActiveSessionCandidate { sessionId: string; filePath: string; newestMtime: number }
+
+/**
+ * Sessions récemment actives parmi les transcripts découverts (fichier principal ou sous-agents,
+ * dont ceux du Workflow tool). Une session jugée inactive est mise au froid COLD_RESCAN_CYCLES
+ * cycles : ni lstat ni readdir de ses sous-agents tant qu'un événement de watch (wakeColdFile)
+ * ne la réveille pas (#211).
+ */
+export function findActiveSessions(opts: ActiveSessionsOptions): ActiveSessionCandidate[] {
+  const now = opts.now ?? Date.now
+  const out: ActiveSessionCandidate[] = []
+  for (const f of discoverSessionFiles(opts)) {
+    if (opts.skip?.(f.sessionId)) { continue }
+    let newestMtime = f.mtimeMs
+    if ((now() - newestMtime) / 1000 > opts.activeAgeS) {
+      // Fichier principal inactif : un sous-agent peut encore tourner (agents du Workflow tool compris)
+      newestMtime = newestTranscriptMtime(
+        listSubagentTranscripts(path.join(f.dirPath, f.sessionId, 'subagents')), newestMtime, now() - opts.activeAgeS * 1000,
+      )
+    }
+    if ((now() - newestMtime) / 1000 <= opts.activeAgeS) {
+      opts.cold?.until.delete(f.filePath)
+      out.push({ sessionId: f.sessionId, filePath: f.filePath, newestMtime })
+    } else if (opts.cold) {
+      opts.cold.until.set(f.filePath, opts.cold.cycle + COLD_RESCAN_CYCLES)
+      opts.onIdle?.(f)
+    }
   }
   return out
 }
@@ -276,10 +428,31 @@ export function isContextPath(url: string | undefined): boolean {
  * (curl, MCP clients) are not browser-driven and pass.
  */
 export function isCrossOriginRequest(headers: { origin?: string | string[]; 'sec-fetch-site'?: string | string[]; host?: string }, host: string | undefined): boolean {
-  if (headers['sec-fetch-site'] === 'cross-site') return true
   const origin = headers.origin
-  if (origin === undefined) return false
+  // Sans Origin (fetch no-cors, iframe) : seul Sec-Fetch-Site peut trahir un appel d'un autre site.
+  // Avec Origin : on décide d'après lui seul. L'UI de dev (localhost:3000 -> 127.0.0.1) est cross-site
+  // pour le navigateur mais son Origin est autorisé.
+  if (origin === undefined) return headers['sec-fetch-site'] === 'cross-site'
   if (typeof origin !== 'string') return true
   if (host !== undefined && origin === `http://${host}`) return false
-  return !DEV_WEB_ORIGIN_PATTERN.test(origin)
+  return !isDevWebOrigin(origin)
+}
+
+/** Ports of the dev web server allowed to call the relay: AGENT_LENS_WEB_PORT (comma list), default 3000. */
+function devWebPorts(env: Record<string, string | undefined>): number[] {
+  const ports = (env.AGENT_LENS_WEB_PORT ?? '').split(',')
+    .map(p => p.trim())
+    .filter(p => /^\d{1,5}$/.test(p))
+    .map(Number)
+    .filter(p => p >= 1 && p <= 65535)
+  return ports.length > 0 ? ports.slice(0, 5) : [DEFAULT_DEV_PORT]
+}
+
+/**
+ * True when `origin` is the dev web server (#201): http on localhost or 127.0.0.1 and one of the configured
+ * ports only. Any other local port (another app, Jupyter, a compromised dev server) is refused.
+ */
+export function isDevWebOrigin(origin: string, env: Record<string, string | undefined> = process.env): boolean {
+  const m = /^http:\/\/(?:localhost|127\.0\.0\.1):(\d{1,5})$/.exec(origin)
+  return m !== null && devWebPorts(env).includes(Number(m[1]))
 }

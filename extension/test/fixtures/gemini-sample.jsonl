@@ -1,0 +1,16 @@
+{"sessionId":"9c1d2e3f-0000-4000-8000-000000000001","projectHash":"70467eff2e0a236497f0693901c782c674520c598f57e72b22e636e00311bd81","startTime":"2026-10-12T09:00:00.000Z","lastUpdated":"2026-10-12T09:00:00.000Z"}
+{"id":"m-u1","timestamp":"2026-10-12T09:00:01.000Z","type":"user","content":[{"text":"Add a retry to the fetch helper"}]}
+{"id":"m-g1","timestamp":"2026-10-12T09:00:02.000Z","type":"gemini","content":"","thoughts":[{"subject":"Locating the helper","description":"Find where fetch is wrapped.","timestamp":"2026-10-12T09:00:02.000Z"}],"tokens":null,"model":"gemini-2.5-pro","toolCalls":[{"id":"call-1","name":"read_file","args":{"file_path":"src/fetch.ts"},"status":"executing","timestamp":"2026-10-12T09:00:02.000Z","displayName":"ReadFile","description":"src/fetch.ts"}]}
+{"id":"m-g1","timestamp":"2026-10-12T09:00:02.000Z","type":"gemini","content":"","thoughts":[{"subject":"Locating the helper","description":"Find where fetch is wrapped.","timestamp":"2026-10-12T09:00:02.000Z"}],"tokens":{"input":120,"output":8,"cached":0,"thoughts":20,"tool":0,"total":148},"model":"gemini-2.5-pro","toolCalls":[{"id":"call-1","name":"read_file","args":{"file_path":"src/fetch.ts"},"result":[{"functionResponse":{"id":"call-1","name":"read_file","response":{"output":"export async function fetchJson(url) {}"}}}],"status":"success","timestamp":"2026-10-12T09:00:02.000Z","displayName":"ReadFile","description":"src/fetch.ts"}]}
+{"$set":{"lastUpdated":"2026-10-12T09:00:03.000Z"}}
+{"id":"m-g2","timestamp":"2026-10-12T09:00:04.000Z","type":"gemini","content":"I'll wrap it in a retry.","thoughts":[],"tokens":null,"model":"gemini-2.5-pro","toolCalls":[{"id":"call-2","name":"run_shell_command","args":{"command":"pnpm test"},"status":"executing","timestamp":"2026-10-12T09:00:04.000Z"}]}
+{"id":"m-g2","timestamp":"2026-10-12T09:00:04.000Z","type":"gemini","content":"I'll wrap it in a retry.","thoughts":[],"tokens":null,"model":"gemini-2.5-pro","toolCalls":[{"id":"call-2","name":"run_shell_command","args":{"command":"pnpm test"},"result":[{"functionResponse":{"id":"call-2","name":"run_shell_command","response":{"output":"2 tests failed"}}}],"status":"error","timestamp":"2026-10-12T09:00:04.000Z"},{"id":"call-3","name":"glob","args":{"pattern":"**/*.test.ts"},"status":"cancelled","timestamp":"2026-10-12T09:00:05.000Z"}]}
+{"$patch":{"id":"m-g2","toolCalls":[{"id":"call-2","result":[{"functionResponse":{"id":"call-2","name":"run_shell_command","response":{"output":"2 tests failed"}}}]}]}}
+{"id":"m-i1","timestamp":"2026-10-12T09:00:06.000Z","type":"info","content":"Update available"}
+{"id":"m-x1","timestamp":"2026-10-12T09:00:06.000Z","type":"future_kind","content":"skipped"}
+{"id":"m-u2","timestamp":"2026-10-12T09:00:07.000Z","type":"user","content":"/help"}
+{"id":"m-u3","timestamp":"2026-10-12T09:00:08.000Z","type":"user","content":"Revert that"}
+{"id":"m-g3","timestamp":"2026-10-12T09:00:09.000Z","type":"gemini","content":"Reverted.","thoughts":[],"tokens":null,"model":"gemini-2.5-flash"}
+{"$rewindTo":"m-u3"}
+{"id":"m-u4","timestamp":"2026-10-12T09:00:10.000Z","type":"user","content":"Also add tests"}
+{"$set":{"summary":"Retry helper"}}

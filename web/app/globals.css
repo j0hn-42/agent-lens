@@ -60,7 +60,7 @@ html, body { background: var(--scene-void); }
 
 @layer base {
   :focus-visible {
-    outline: 2px solid var(--lens-focus-ring);
+    outline: 2px solid var(--lens-focus);
     outline-offset: 2px;
   }
   * {
@@ -119,7 +119,7 @@ html[data-theme="contrast"] :focus-visible {
 .glass-card input:focus,
 .glass-card textarea:focus {
   border-color: var(--lens-input-focus-border) !important;
-  outline: 2px solid var(--lens-focus-ring);
+  outline: 2px solid var(--lens-focus);
   outline-offset: 2px;
   box-shadow: var(--lens-input-focus-glow);
 }
@@ -204,4 +204,12 @@ html[data-theme="contrast"] :focus-visible {
   button:disabled {
     color: GrayText;
   }
+}
+
+/* Presentation mode (#245): free text marked data-sensitive (prompts, paths, tool arguments, messages, session and
+   team names) is blurred and cannot be selected or copied from the screen while masking is in force. */
+[data-presentation-mask] [data-sensitive] {
+  filter: blur(7px);
+  user-select: none;
+  -webkit-user-select: none;
 }

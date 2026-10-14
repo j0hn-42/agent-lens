@@ -33,13 +33,16 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 't', display: 'T', description: `Toggle ${PANEL_NAMES.timeline} panel`, group: 'Panels', singleKey: true },
   { key: 'p', display: 'P', description: `Toggle ${PANEL_NAMES.context} panel (project CLAUDE.md, memory, issues)`, group: 'Panels', singleKey: true },
   { key: 's', display: 'S', description: `Toggle ${PANEL_NAMES.stats} panel`, group: 'Panels', singleKey: true },
+  { key: 'y', display: 'Y', description: `Toggle ${PANEL_NAMES.system} panel (CPU, memory, disk)`, group: 'Panels', singleKey: true },
   { key: '$', display: '$', description: `Toggle ${PANEL_NAMES.cost} overlay`, group: 'Panels', singleKey: true },
   { key: 'F', display: 'Shift+F', description: 'Zoom to fit all agents', group: 'View', singleKey: true },
   { key: 'z', display: 'Z', description: 'Toggle full screen (hides the top bar and playback controls)', group: 'View', singleKey: true },
+  { key: 'v', display: 'V', description: 'Toggle presentation mode (subtitles of transitions, masked sensitive data, camera follows the active agent)', group: 'View', singleKey: true },
   { key: 'g', display: 'G', description: 'Toggle hex grid', group: 'View', singleKey: true },
   { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
+  { key: 'Ctrl+K', display: 'Ctrl+K / Cmd+K', description: 'Open the command palette: actions, panels, sessions and agents', group: 'General', singleKey: false },
   { key: 'Escape', display: 'Esc', description: 'Close the most recently opened panel, then clear the selection', group: 'General', singleKey: false },
-  { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: false },
+  { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: true },
   // Graph navigation, active while the graph has focus (not subject to the single-key preference).
   // `key` is an identifier here: the real keys are in `handles` (kept in sync with canvas/keyboard-nav.ts by a test).
   { key: 'graph:step', display: 'Arrow keys', description: 'Move between nodes; Right opens a folded branch, Left folds it or goes to the parent', group: 'Graph', singleKey: false, handles: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] },

@@ -6,6 +6,7 @@ import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair } from '@/lib/pair-filter-store'
@@ -38,7 +39,7 @@ afterEach(() => {
   window.HTMLCanvasElement.prototype.getContext = realGetContext
 })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const ev = (sessionId: string, type: string, payload: Record<string, unknown>, time = 1) =>
   ({ type: 'agent-event', event: { time, type, sessionId, payload } })
 const info = (id: string, label: string, extra: Record<string, unknown> = {}) => ({
@@ -129,6 +130,25 @@ test('the top bar totals include an usage that belongs to no agent, flagged as u
   assert.ok(!/unattributed/.test(clean.container.textContent ?? ''), 'nothing unattributed, nothing claimed')
 })
 
+test('loop detection (#230): three identical calls reach the inspector and the session row from the real event path', async () => {
+  const grep = (n: number) => [
+    ev('sa', 'tool_call_start', { agent: 'worker-a', tool: 'Grep', toolUseId: `g${n}`, args: 'foo', inputData: { pattern: 'foo', path: 'src' } }, 2 + n * 2),
+    ev('sa', 'tool_call_end', { agent: 'worker-a', tool: 'Grep', toolUseId: `g${n}`, result: 'no match' }, 3 + n * 2),
+  ]
+  const r = await mountWith([SA], [...baseEvents, ...grep(0), ...grep(1), ...grep(2)], null)
+  await act(async () => { fireEvent.click(outlineButton(r.container, /^worker-a/)!) })
+  await wait(200)
+  assert.match(dialogText(r), /Loop observed/, dialogText(r))
+  assert.match(dialogText(r), /Grep called 3× in a row with the same input/)
+  await act(async () => { fireEvent.click(outlineButton(r.container, /^main-a/)!) })
+  await wait(200)
+  assert.match(dialogText(r), /Not enough activity to judge/, 'the orchestrator made no call: its own verdict is not borrowed')
+  assert.match(dialogText(r), /Session: Loop observed/)
+  await openSessions(r)
+  const row = sessionRows(r).find(el => /payments-api/.test(el.textContent ?? ''))!
+  assert.match(row.textContent ?? '', /loop observed/)
+})
+
 test('proven session links reach the canvas: a child session drawn with the dotted link to its parent', async () => {
   const dots = () => calls.filter(c => c.name === 'setLineDash' && Array.isArray(c.args[0]) && (c.args[0] as number[]).length === 2
     && Math.round(((c.args[0] as number[])[0] / (c.args[0] as number[])[1]) * 10) / 10 === 0.4).length
@@ -139,6 +159,7 @@ test('proven session links reach the canvas: a child session drawn with the dott
   await mountWith([SA, info('sb', 'child-run')], spawns)
   const baseline = dots()
   cleanup()
+  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive agents' choice of the first one is not carried over
   calls.length = 0
 
   await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)

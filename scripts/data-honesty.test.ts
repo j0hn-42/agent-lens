@@ -88,6 +88,24 @@ test('a context_update without a usable figure does not reset the counter to 0',
   assert.equal(s.agents.get(key)!.tokensUsed, 5000)
 })
 
+test('a context larger than the assumed window grows the window instead of showing more than 100% (#249)', () => {
+  const s = run([
+    spawn,
+    { type: 'context_update', payload: { agent: 'orchestrator', tokens: 340_000, tokenSource: 'reported' } },
+  ])
+  const a = s.agents.get(key)!
+  assert.equal(a.tokensUsed, 340_000)
+  assert.equal(a.tokensMax, 1_000_000)
+})
+
+test('a window reported by the runtime is kept, even when the usage is above it (#249)', () => {
+  const s = run([
+    spawn,
+    { type: 'context_update', payload: { agent: 'orchestrator', tokens: 300_000, tokensMax: 272_000, tokenSource: 'reported' } },
+  ])
+  assert.equal(s.agents.get(key)!.tokensMax, 272_000)
+})
+
 test('totals across agents: unavailable agents make the fleet total partial', () => {
   const s = run([
     spawn,

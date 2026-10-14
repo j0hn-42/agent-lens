@@ -25,6 +25,8 @@ import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { CommandPalette } from '@/components/agent-visualizer/command-palette'
+import { buildPaletteItems } from '@/lib/command-palette'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import type { AgentLink } from '@/hooks/simulation/types'
@@ -79,6 +81,7 @@ const agent = {
 } as unknown as Agent
 const files = new Map<string, FileAttention>([
   ['src/a.ts', { path: 'src/a.ts', reads: 2, edits: 1, totalTokens: 500, lastAccessed: 1, agents: ['a1'] }],
+  ['/src/b.ts', { path: '/src/b.ts', reads: 1, edits: 0, totalTokens: 900, tokensEstimated: true, tokensPartial: true, lastAccessed: 2, agents: ['a1'] }],
 ])
 const timelineEntries = new Map<string, TimelineEntry>([
   ['a1', {
@@ -105,6 +108,11 @@ const topBarProps: TopBarProps = {
 
 test('known-violations.json is well formed', () => {
   assert.deepEqual(validateKnownViolations(known), [])
+})
+
+test('every known violation cites an open issue', () => {
+  const { open } = JSON.parse(fs.readFileSync(path.join(__dirname, 'open-baseline-issues.json'), 'utf8'))
+  assert.deepEqual(validateKnownViolations(known, open), [])
 })
 
 test('shell: top bar', async () => {
@@ -226,7 +234,7 @@ test('shell: top bar with the attention counter and the notification option (#12
     />,
   )
   getByRole('button', { name: /2 waiting \/ 1 error/ })
-  getByRole('button', { name: 'Notify when blocked' })
+  getByRole('button', { name: 'Notifications' })
   await check('top-bar-attention', container)
 })
 
@@ -301,6 +309,22 @@ test('dialog: keyboard shortcuts', async () => {
     <ShortcutsDialog open onClose={noop} singleKeyEnabled onSingleKeyEnabledChange={noop} />,
   )
   await check('shortcuts-dialog', container)
+})
+
+test('dialog: command palette, with results and with none', async () => {
+  const items = buildPaletteItems({
+    singleKeyEnabled: true, selectedSessionId: 's1', sessions,
+    agents: [{ id: 's1:main', name: 'main-agent', sessionId: 's1', isMain: true }],
+    actions: {
+      togglePlayPause: noop, zoomToFit: noop, toggleFullscreen: noop, toggleHexGrid: noop,
+      toggleMute: noop, openShortcuts: noop, openSettings: noop,
+    },
+    togglePanel: noop, selectSession: noop, selectAgent: noop,
+  })
+  const { container } = render(<CommandPalette open onClose={noop} items={items} />)
+  await check('command-palette', container)
+  await act(async () => { fireEvent.change(within(container).getByRole('combobox'), { target: { value: 'zzzz' } }) })
+  await check('command-palette-empty', container)
 })
 
 test('timeline: canvas view and table view', async () => {

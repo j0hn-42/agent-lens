@@ -23,7 +23,7 @@ let server: http.Server
 let port = 0
 const probeCalls: string[] = []
 const probeCwds: Array<string | undefined> = []
-let probeMode: 'ok' | 'fail' | 'block' = 'ok'
+let probeMode: 'ok' | 'fail' | 'block' | 'empty' = 'ok'
 let release: () => void = () => {}
 const gate = () => new Promise<void>(r => { const prev = release; release = () => { prev(); r() } })
 
@@ -61,6 +61,7 @@ describe('relay GET /issue-links', () => {
         probeCwds.push(cwd)
         if (probeMode === 'fail') throw new Error('gh is not installed')
         if (probeMode === 'block') await gate()
+        if (probeMode === 'empty') return []
         return [link]
       },
     })
@@ -114,12 +115,30 @@ describe('relay GET /issue-links', () => {
     assert.deepEqual(probeCalls, [])
   })
 
-  it('degrades silently when gh fails: 200 with no links', async () => {
+  // #205: a failure is not "no link" (the card says "unavailable" on a non-200), and it is not cached
+  it('answers 502 with Retry-After when gh fails, and does not cache the failure', async () => {
+    probeCalls.length = 0
     probeMode = 'fail'
     const r = await get('/issue-links?role=product-designer')
     probeMode = 'ok'
+    assert.equal(r.status, 502)
+    assert.match(String(r.headers['retry-after']), /^\d+$/)
+    assert.ok(!r.body.includes('"links"'), r.body)
+    const again = await get('/issue-links?role=product-designer')
+    assert.equal(again.status, 200)
+    assert.deepEqual(JSON.parse(again.body), { role: 'product-designer', links: [link] })
+    assert.deepEqual(probeCalls, ['product-designer', 'product-designer'], 'the failure was not cached')
+  })
+
+  it('a true empty list is 200 with no links, and is cached', async () => {
+    probeCalls.length = 0
+    probeMode = 'empty'
+    const r = await get('/issue-links?role=empty-role')
+    probeMode = 'ok'
     assert.equal(r.status, 200)
-    assert.deepEqual(JSON.parse(r.body), { role: 'product-designer', links: [] })
+    assert.deepEqual(JSON.parse(r.body), { role: 'empty-role', links: [] })
+    await get('/issue-links?role=empty-role')
+    assert.deepEqual(probeCalls, ['empty-role'])
   })
 
   it('answers 403 to a foreign Host header (DNS rebinding)', async () => {

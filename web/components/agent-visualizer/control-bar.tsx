@@ -5,7 +5,9 @@ import { TimelineEvent, Z, POPUP } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useThemeVersion } from '@/lib/theme'
 import { formatDuration, pluralize } from '@/lib/utils'
-import { FOCUS_RING, blurFlagAction, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import type { ConnectionStatus } from '@/lib/bridge-types'
+import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -24,6 +26,8 @@ interface ControlBarProps {
   onEnterReview?: () => void
   /** True while the visualizer shows demo data: the badge reads DEMO instead of LIVE */
   isDemo?: boolean
+  /** Relay connection: the badge reads LIVE only while connected or watching (defaults to 'watching') */
+  connectionStatus?: ConnectionStatus
   /** Events dropped from the start of the history (event log cap): shows a 'history truncated' marker */
   droppedEvents?: number
 }
@@ -137,8 +141,10 @@ export function ControlBar(props: ControlBarProps) {
   }, [isReviewing])
 
   return (
+    // Focus observer only (carries focus over a live/review swap): presentational, box-less
     <div
       ref={wrapperRef}
+      role="presentation"
       style={{ display: 'contents' }}
       onFocus={() => { hadFocusRef.current = true }}
       onBlur={(e) => {
@@ -162,10 +168,11 @@ export function ControlBar(props: ControlBarProps) {
 
 function LiveControlBar({
   currentTime, totalDuration, timelineEvents,
-  eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0,
+  eventCount = 0, onEnterReview, isDemo = false, droppedEvents = 0, connectionStatus = 'watching',
 }: ControlBarProps) {
   const scrubberEvents = useScrubberEvents(timelineEvents, totalDuration)
-  const badgeColor = isDemo ? COLORS.holoBright : COLORS.liveText
+  const badge = liveBadge(connectionStatus, isDemo)
+  const badgeColor = badge.live ? COLORS.liveText : badge.tone === 'demo' ? COLORS.holoBright : badge.tone === 'error' ? COLORS.error : COLORS.textMuted
 
   return (
     <div
@@ -177,18 +184,18 @@ function LiveControlBar({
     >
       <div className="glass-card px-3 sm:px-5 py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         {/* LIVE / DEMO badge */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div data-live-badge="" className="flex items-center gap-1.5 shrink-0">
           <span
             aria-hidden="true"
-            className={`w-2 h-2 rounded-full ${isDemo ? '' : 'motion-safe:animate-pulse'}`}
+            className={`w-2 h-2 rounded-full ${badge.live ? 'motion-safe:animate-pulse' : ''}`}
             style={{
-              background: isDemo ? 'transparent' : COLORS.liveDot,
-              border: isDemo ? `2px solid ${COLORS.holoBright}` : undefined,
-              boxShadow: isDemo ? undefined : 'var(--lens-live-halo)',
+              background: badge.live ? COLORS.liveDot : 'transparent',
+              border: badge.live ? undefined : `2px solid ${badgeColor}`,
+              boxShadow: badge.live ? 'var(--lens-live-halo)' : undefined,
             }}
           />
           <span className="text-[11px] font-mono font-semibold tracking-wider" style={{ color: badgeColor }}>
-            {isDemo ? 'DEMO' : 'LIVE'}
+            {badge.label}
           </span>
         </div>
 
@@ -434,12 +441,18 @@ function ReviewControlBar({
 
         {/* Clear history (destructive: two-step confirmation) */}
         {isReviewing && (confirmingClear ? (
+          // Escape boundary of the confirmation (keys from its buttons bubble here): presentational and
+          // box-less, so the named group carries no handler
+          <span
+            role="presentation"
+            style={{ display: 'contents' }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelClear() } }}
+          >
           <span
             ref={confirmGroupRef}
             role="group"
             aria-label="Confirm clearing history"
             className="flex items-center gap-1 shrink-0"
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancelClear() } }}
           >
             <button
               ref={confirmBtnRef}
@@ -458,6 +471,7 @@ function ReviewControlBar({
             >
               Cancel
             </button>
+          </span>
           </span>
         ) : (
           <button

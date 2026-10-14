@@ -1,35 +1,8 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  sumUsage, combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
+  combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
 } from '../web/lib/usage'
-
-test('sumUsage: no value at all is unavailable (null), never 0', () => {
-  assert.deepEqual(sumUsage([]), { value: null, status: 'unavailable', estimated: false })
-  assert.deepEqual(sumUsage([null, undefined]), { value: null, status: 'unavailable', estimated: false })
-})
-
-test('sumUsage: an exact 0 stays available and is distinct from absent', () => {
-  assert.deepEqual(sumUsage([0]), { value: 0, status: 'available', estimated: false })
-  assert.equal(sumUsage([0, null]).status, 'partial')
-})
-
-test('sumUsage: a partial total is a lower bound', () => {
-  const t = sumUsage([100, null, 50])
-  assert.equal(t.value, 150)
-  assert.equal(t.status, 'partial')
-})
-
-test('sumUsage: all present is available; estimated flag is passed through', () => {
-  assert.deepEqual(sumUsage([1, 2, 3]), { value: 6, status: 'available', estimated: false })
-  assert.equal(sumUsage([1, 2], true).estimated, true)
-  assert.equal(sumUsage([null], true).estimated, false, 'nothing to qualify when nothing is known')
-})
-
-test('sumUsage ignores non-finite and negative numbers (treated as absent)', () => {
-  assert.equal(sumUsage([NaN, -5, Infinity]).status, 'unavailable')
-  assert.equal(sumUsage([10, NaN]).status, 'partial')
-})
 
 test('combineUsage: unavailable parts degrade an otherwise exact total to partial', () => {
   const exact = { value: 10, status: 'available' as const, estimated: false }
@@ -60,7 +33,7 @@ test('formatTokenUsage: unavailable, partial (at least) and estimated (badge)', 
 
 test('formatCostUsage mirrors the token total with a currency format', () => {
   assert.equal(formatCostUsage({ value: null, status: 'unavailable', estimated: false }), USAGE_LABELS.unavailable)
-  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} $0.500 ${USAGE_LABELS.estimated}`)
+  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} ~$0.500 ${USAGE_LABELS.estimated}`)
 })
 
 test('readTokenCost: only a finite non-negative number is a value; anything else is null (not 0)', () => {

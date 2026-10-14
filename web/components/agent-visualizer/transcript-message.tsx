@@ -2,10 +2,13 @@
 
 import { useState } from 'react'
 import { COLORS, themed } from '@/lib/colors'
-import { ToolContentRenderer } from './tool-content-renderer'
+import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import type { ConversationMessage } from '@/hooks/simulation/types'
-import { truncateWithMarker, FOCUS_RING, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
+import { truncateWithMarker, COLLAPSED_TEXT_MAX, type CommKind } from '@/lib/feed-utils'
+import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { CheckIcon, GearIcon } from './feed-icons'
+import { extraVars } from '@/lib/theme-tokens'
+import { currentThemeId } from '@/lib/theme-dom'
 import { parseAnsi, sliceAnsiSegments, ansiStyle, type AnsiSegment } from '@/lib/ansi'
 
 // ─── Message rendering utilities of the Conversation panel ───────────────────
@@ -34,10 +37,12 @@ export function HighlightText({ text, query }: { text: string; query?: string })
 
 /** Text of ANSI segments rendered as styled spans (built elements, never raw HTML; the DOM text holds no code). */
 export function AnsiText({ segments, query }: { segments: AnsiSegment[]; query?: string }) {
+  // Theme variables of the current theme: colors are corrected to >= 4.5:1 on their background (#193)
+  const vars = extraVars(currentThemeId())
   return (
     <>
       {segments.map((seg, i) => {
-        const style = ansiStyle(seg)
+        const style = ansiStyle(seg, vars)
         return style
           ? <span key={i} style={style}><HighlightText text={seg.text} query={query} /></span>
           : <HighlightText key={i} text={seg.text} query={query} />
@@ -64,7 +69,7 @@ function TruncatedText({ text, limit, query, color, ansi }: { text: string; limi
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll(v => !v)}
-          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING}`}
+          className={`block mt-0.5 min-h-6 px-1 rounded text-[11px] font-mono underline ${FOCUS_RING_INSET}`}
           style={{ color: COLORS.textMuted }}
         >
           {showAll ? 'Show less' : `Show all (+${t.hidden} chars)`}
@@ -137,6 +142,7 @@ export function TranscriptMessage({ message, searchQuery }: {
           <div className={isBash ? 'whitespace-pre-wrap leading-relaxed' : 'break-words'}>
             <TruncatedText text={resultText} limit={COLLAPSED_TEXT_MAX} query={searchQuery} color={COLORS.textMuted} ansi={isBash} />
           </div>
+          {!message.isError && <ResultPillView pill={message.resultPill} />}
         </div>
       )
     }

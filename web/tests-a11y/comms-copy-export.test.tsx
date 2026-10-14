@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import {
-  conversationToMarkdown, messageToMarkdown, exportNotes, exportFileName, copyText,
+  conversationToMarkdown, conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText,
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -100,6 +100,15 @@ test('copyText resolves false instead of throwing when the clipboard refuses and
   ;(document as unknown as { execCommand: unknown }).execCommand = exec
 })
 
+// jsdom n'applique pas Tailwind : on vérifie que la région n'est pas masquée par une classe `hidden`
+// (y compris `empty:hidden`, qui donne display:none tant que le paragraphe est vide) ni par l'attribut hidden.
+function assertStatusAlwaysRendered(el: HTMLElement) {
+  assert.ok(!el.hasAttribute('hidden'), 'status region must not carry the hidden attribute')
+  assert.notEqual(el.style.display, 'none')
+  const classes = el.className.split(/\s+/)
+  assert.ok(!classes.some(c => c === 'hidden' || c.endsWith(':hidden')), `status region must not be display:none (classes: ${el.className})`)
+}
+
 // ── Link panel ──
 const long = 'x'.repeat(LINK_MESSAGE_MAX_CHARS)
 const link = {
@@ -148,6 +157,48 @@ test('link panel: Export conversation downloads Markdown with the dropped and tr
   assert.match(r.getByRole('status').textContent ?? '', /exported as Markdown/)
 })
 
+const TOKEN = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'
+
+test('the Markdown export masks secrets in contents, title and notes, and counts them', () => {
+  const out = conversationExport({
+    title: `Conversation: ${TOKEN}`,
+    entries: [{ label: 'RETURN', time: '0:09', content: `result: Authorization: Bearer abcdefghijklmnop1234 and ${TOKEN}` }],
+    notes: exportNotes({ searchQuery: TOKEN }),
+  })
+  assert.ok(!out.markdown.includes(TOKEN), 'the token must not reach the file')
+  assert.ok(!out.markdown.includes('abcdefghijklmnop1234'))
+  assert.match(out.markdown, /\[REDACTED:github-token\]/)
+  assert.equal(out.redactions, 4)
+  assert.equal(conversationToMarkdown({ title: 't', entries: [{ label: 'X', time: '0:00', content: TOKEN }], notes: [] }).includes(TOKEN), false)
+})
+
+test('the saved message announces the number of masked secrets, and the failure message is the shared one', () => {
+  assert.match(exportSavedMessage(2), /2 secrets redacted \(best effort\)/)
+  assert.match(exportSavedMessage(1), /1 secret redacted/)
+  assert.doesNotMatch(exportSavedMessage(0), /redacted/)
+  assert.equal(EXPORT_FAILED_MESSAGE, 'Export failed: this view cannot save files')
+})
+
+test('link panel: a tool result carrying a token is masked in the downloaded file and announced', () => {
+  const secretLink = { ...link, messages: [...link.messages, msg('sec', 'return', 9, `ok ${TOKEN}`, { from: 'u', to: 'o' })] } as unknown as AgentLink
+  const r = render(<LinkPanel link={secretLink} agents={agents} onClose={() => {}} />)
+  fireEvent.click(r.getByRole('button', { name: 'Export conversation' }))
+  assert.equal(downloads.length, 1)
+  assert.ok(!downloads[0].text.includes(TOKEN))
+  assert.match(r.getByRole('status').textContent ?? '', /secrets? redacted/)
+})
+
+test('link panel: the status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
+  const r = render(<LinkPanel link={link} agents={agents} onClose={() => {}} />)
+  const status = r.getByRole('status')
+  assert.equal(status.textContent, '')
+  assertStatusAlwaysRendered(status)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(r.getByRole('status'), status)
+  assert.match(status.textContent ?? '', /DISPATCH copied/)
+})
+
 test('link panel: axe finds no violation with the new buttons', async () => {
   const r = render(<LinkPanel link={link} agents={agents} onClose={() => {}} />)
   const res = await axe.run(r.container, {
@@ -179,6 +230,17 @@ test('conversation panel: Copy only on DISPATCH and RETURN rows, copying the who
   await flush()
   assert.deepEqual(copied, ['full prompt text'])
   assert.match(r.getAllByRole('status').map(s => s.textContent).join(' '), /DISPATCH copied/)
+})
+
+test('conversation panel: the copy status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
+  const r = panel()
+  const status = r.getByTestId('copy-feedback')
+  assert.equal(status.getAttribute('role'), 'status')
+  assert.equal(status.textContent, '')
+  assertStatusAlwaysRendered(status)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.match(status.textContent ?? '', /DISPATCH copied/)
 })
 
 test('conversation panel: export lists the visible messages and flags hidden tools and dropped messages', () => {

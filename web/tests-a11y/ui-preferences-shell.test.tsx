@@ -6,6 +6,7 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { renderToString } from 'react-dom/server'
 import { render, cleanup, act, fireEvent } from '@testing-library/react'
+import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair } from '@/lib/pair-filter-store'
@@ -35,7 +36,7 @@ afterEach(() => {
   dockStore.setRightWidth(380)
 })
 
-const post = (data: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data }))
+const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
 const key = (k: string) => act(async () => { fireEvent.keyDown(document.body, { key: k }) })
 

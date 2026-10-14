@@ -1,10 +1,11 @@
-import { LOD, MIN_VISIBLE_OPACITY } from '../../../lib/canvas-constants'
+import { LOD } from '../../../lib/canvas-constants'
 import type { TeamSummary } from '../../../lib/agent-types'
 import type { OverlayPlan } from './label-placement'
+import type { ViewRect } from './view-cull'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
-  /** Reduced motion (OS preference or the "Pause animations" toggle): no ambient/decorative motion. */
+  /** Reduced motion (OS preference or the "Freeze motion" toggle): no ambient/decorative motion. */
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number
@@ -22,8 +23,12 @@ export interface DrawOpts {
   edgeBubbles?: boolean
   /** Keyboard-focused agent (keeps its secondary text when crowded) */
   focusedAgentId?: string | null
+  /** Visible part of the world (margin included): agents, tool cards, edges and particles outside it are not drawn. Absent = draw everything */
+  view?: ViewRect
   /** Teams, to tell the lead of a team ('LEAD') from the main agent of a session ('MAIN') */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
+  /** Presentation mode (#245): free text (names, arguments, results, messages) is drawn as bullets; numbers, states and tool names are kept */
+  maskText?: boolean
 }
 
 export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }
@@ -38,11 +43,6 @@ export interface LevelOfDetail {
 /** Pure level-of-detail rule: hide text that would fall below a readable size. */
 export function lodForZoom(zoom: number): LevelOfDetail {
   return { labels: zoom >= LOD.labelMinZoom, details: zoom >= LOD.detailMinZoom }
-}
-
-/** Is an element drawn at this opacity visible enough to be interactive? */
-export function isInteractiveOpacity(opacity: number): boolean {
-  return opacity >= MIN_VISIBLE_OPACITY
 }
 
 export interface FlashLimiter {

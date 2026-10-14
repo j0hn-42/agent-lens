@@ -5,12 +5,12 @@
 export const LEGEND_ENTRIES = {
   states: ['state-idle', 'state-thinking', 'state-tool_calling', 'state-waiting_permission', 'state-error', 'state-paused', 'state-complete'],
   shapes: ['shape-main', 'shape-sub', 'shape-tool', 'shape-discovery', 'shape-complete'],
-  edges: ['edge-parent', 'edge-unverified', 'edge-tool', 'edge-badge-hidden', 'edge-badge-active', 'particle-dispatch', 'particle-return'],
+  edges: ['edge-parent', 'edge-unverified', 'edge-tool', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'particle-dispatch', 'particle-return'],
   teams: ['team-ring', 'team-idle', 'team-working', 'team-done', 'team-archived', 'team-halo', 'session-halo', 'orchestrator', 'team-row'],
   links: ['link-flight', 'link-recent', 'link-error', 'link-quiet', 'link-bubble'],
   context: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'],
   discoveries: ['disc-file', 'disc-pattern', 'disc-finding', 'disc-code'],
-  runtime: ['rt-claude', 'rt-codex', 'rt-copilot'],
+  runtime: ['rt-claude', 'rt-codex', 'rt-copilot', 'rt-pi', 'rt-gemini'],
 } as const
 
 export type LegendSectionId = keyof typeof LEGEND_ENTRIES

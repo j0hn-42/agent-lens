@@ -19,6 +19,8 @@ export interface UseReconnectingSourceOptions extends ReconnectingSourceDeps {
   origin: string
   /** Single session requested (also sent as ?session=); null = every session */
   sessionId?: string | null
+  /** Bumped to drop the connection and open a new one (a new replay), e.g. after the relay's scope changed (#291) */
+  generation?: number
   onMessage: (data: unknown) => void
   onParseError?: () => void
 }
@@ -35,7 +37,7 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
   // Latest callbacks/deps without restarting the connection on every render
   const latest = useRef(opts)
   latest.current = opts
-  const { enabled, origin, sessionId } = opts
+  const { enabled, origin, sessionId, generation } = opts
 
   useEffect(() => {
     if (!enabled) return
@@ -54,7 +56,7 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
       random: latest.current.random,
     })
     return () => source.close()
-  }, [enabled, origin, sessionId])
+  }, [enabled, origin, sessionId, generation])
 
   return state
 }

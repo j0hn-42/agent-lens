@@ -4,18 +4,23 @@ import { memo, useLayoutEffect, useRef } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
-import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
+import { formatTokenUsage, formatCostUsage, spokenCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { FOCUS_RING, observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, spokenAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
-import { CONVERSATION_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
+import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
 import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
+import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
+
+/** DOM id of the Enter full screen button: focus returns here on exit (#196) */
+export const FULLSCREEN_BUTTON_ID = 'topbar-enter-fullscreen'
 
 /** DOM ids of the top-bar buttons that toggle a panel (focus returns there when a panel opened by shortcut closes). */
 export const PANEL_BUTTON_IDS = {
@@ -26,6 +31,7 @@ export const PANEL_BUTTON_IDS = {
   timeline: 'topbar-toggle-timeline',
   context: 'topbar-toggle-context',
   stats: 'topbar-toggle-stats',
+  system: 'topbar-toggle-system',
 } as const
 
 // ─── Mute/Unmute SVG Icons ───────────────────────────────────────────────────
@@ -69,9 +75,13 @@ function GearIcon() {
   )
 }
 
+/** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
+const CONTEXT_UNAVAILABLE_IN_VSCODE = 'Context: project CLAUDE.md, memory and issues come from the standalone relay, not available in VS Code'
+const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
+
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -90,6 +100,8 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   hasDialog?: boolean
   /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
   keepsInspector?: boolean
+  /** id of an element describing the button (read after its name) */
+  describedBy?: string
 }) {
   return (
     <button
@@ -98,6 +110,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       onClick={onClick}
       aria-pressed={pressed}
       aria-label={ariaLabel}
+      aria-describedby={describedBy}
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
@@ -172,6 +185,8 @@ export interface TopBarProps {
   activeAgentCount: number
   /** Agents whose status is older than the freshness limit (not counted as active) */
   staleAgentCount?: number
+  idleAgentCount?: number
+  errorAgentCount?: number
   doneAgentCount: number
   totalTokens: number
   /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
@@ -188,11 +203,13 @@ export interface TopBarProps {
   showCostOverlay: boolean
   /** Project context panel open (optional: absent = closed) */
   showContext?: boolean
+  /** System (machine health) panel open (optional: absent = closed) */
+  showSystem?: boolean
   showTimeline: boolean
   /** Stats overlay open */
   showStats: boolean
   isMuted: boolean
-  onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context') => void
+  onTogglePanel: (panel: 'files' | 'conversation' | 'cost' | 'context' | 'system') => void
   onToggleTimeline: () => void
   onToggleStats: () => void
   onToggleMute: () => void
@@ -209,6 +226,8 @@ export interface TopBarProps {
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
+  /** Scope of the session discovery (#291): shown permanently when a relay reports its scope */
+  scope?: ScopeSelectorProps
 }
 
 export const TopBar = memo(function TopBar({
@@ -216,11 +235,11 @@ export const TopBar = memo(function TopBar({
   showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
-  connectionStatus, isDemo = false,
-  activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
-  showFileAttention, showConversation, showContext = false, showCostOverlay, showTimeline, showStats, isMuted,
+  isVSCode, connectionStatus, isDemo = false,
+  activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
-  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify,
+  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
@@ -253,7 +272,7 @@ export const TopBar = memo(function TopBar({
         keepsInspector
         style={{ maxWidth: 'min(320px, 100%)' }}
       >
-        <span className="truncate">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
+        <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
         {unobservedCount > 0 && (
           <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
@@ -267,6 +286,8 @@ export const TopBar = memo(function TopBar({
           </>
         )}
       </ToggleButton>
+
+      {scope && <ScopeSelector {...scope} />}
 
       {/* Spacer pushes info to the right */}
       <div className="flex-1" />
@@ -298,9 +319,9 @@ export const TopBar = memo(function TopBar({
             onClick={onToggleNotify}
             title={notifyState === 'denied'
               ? 'Notifications are blocked in the browser settings'
-              : 'Notify when an agent waits for a permission or fails while this tab is hidden'}
+              : 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)'}
           >
-            {notifyState === 'denied' ? 'Notifications blocked' : 'Notify when blocked'}
+            {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
           </ToggleButton>
         )}
         {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
@@ -325,19 +346,26 @@ export const TopBar = memo(function TopBar({
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+          <span data-testid="topbar-all-summary">
+            {/* "~$1.23" on screen; screen readers skip "~" and "-", so they get the estimate in words (#364) */}
+            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+          </span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount)}</span>
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
         )}
         <span>
-          {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}
+          {/* A sum of what each context holds now, not of what was consumed (#364) */}
+          {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens in context'}
           {!isAllMode && (
-            <span style={{ color: COLORS.complete, marginLeft: 4 }}>
+            <span data-testid="topbar-cost" title={COST_LABELS.method} style={{ color: COLORS.complete, marginLeft: 4 }}>
               <span aria-hidden="true">{'\u00b7 '}</span>
-              {costUsage ? formatCostUsage(costUsage) : `~${formatCost(totalCost)}`}
+              {/* "~$2.10" on screen, "context cost estimate $2.10" for assistive technology (#364) */}
+              <span aria-hidden="true">{costUsage ? formatCostUsage(costUsage) : `${COST_LABELS.mark}${formatCost(totalCost)}`}</span>
+              <span className="sr-only">, {costUsage ? spokenCostUsage(costUsage) : `${COST_LABELS.name} ${formatCost(totalCost)}`}</span>
               {unattributedCost > 0 && (
                 <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
-                  {' '}(incl. {formatCost(unattributedCost)} unattributed)
+                  {' '}(incl. <span aria-hidden="true">{COST_LABELS.mark}</span>{formatCost(unattributedCost)} unattributed)
                 </span>
               )}
             </span>
@@ -345,14 +373,17 @@ export const TopBar = memo(function TopBar({
         </span>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
-          {/* Mutually exclusive panel group */}
-          <div role="group" aria-label="Side panels" className="flex items-center gap-1 px-1 py-0.5 rounded" style={{
+          {/* Side panels: Files, Conversation, Context and Cost are mutually exclusive; System opens beside them */}
+          {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
+          <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={`${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.system} active={showSystem} pressed={showSystem} onClick={() => onTogglePanel('system')} ariaLabel={openPanelLabel('system', 'Y')} title={`${PANEL_NAMES.system}: CPU, memory, disk (Y)`} shortcut="y" style={{ background: showSystem ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.system}</ToggleButton>
+            {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
             <ToggleButton
               id={PANEL_BUTTON_IDS.cost}
               active={showCostOverlay}
@@ -381,6 +412,7 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
           {onToggleFullscreen && (
             <ToggleButton
+              id={FULLSCREEN_BUTTON_ID}
               active={false}
               onClick={onToggleFullscreen}
               ariaLabel="Enter full screen"

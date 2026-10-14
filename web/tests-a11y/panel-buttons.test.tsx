@@ -49,3 +49,32 @@ test('the Stats button reports its state and toggles the overlay', () => {
   rerender(<TopBar {...props} showStats />)
   assert.equal(document.getElementById(PANEL_BUTTON_IDS.stats)!.getAttribute('aria-pressed'), 'true')
 })
+
+// #180: the Context panel needs the standalone relay; inside VS Code the button says so instead of opening an empty panel.
+test('in VS Code the Context button exposes why the panel is unavailable', () => {
+  render(<TopBar {...props} isVSCode />)
+  const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
+  assert.ok(btn, 'the Context button stays visible')
+  assert.match(btn.getAttribute('title') ?? '', /standalone relay.*not available in VS Code/i)
+  const described = btn.getAttribute('aria-describedby')
+  assert.ok(described, 'aria-describedby')
+  assert.match(document.getElementById(described)!.textContent ?? '', /standalone relay.*not available in VS Code/i)
+})
+
+// #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the
+// toolbar around it instead of pushing Files and Context out of the screen (e2e reflow-320 measures the real layout).
+test('the side panel group wraps on a narrow viewport and keeps every toggle in it', () => {
+  render(<TopBar {...props} />)
+  const group = document.querySelector<HTMLElement>('[role="group"][aria-label="Side panels"]')!
+  assert.match(group.className, /\bflex-wrap\b/)
+  for (const panel of ['files', 'conversation', 'context', 'system', 'cost'] as const) {
+    assert.ok(group.contains(document.getElementById(PANEL_BUTTON_IDS[panel])), `${panel} toggle stays in the group`)
+  }
+})
+
+test('outside VS Code the Context button has no unavailability note', () => {
+  render(<TopBar {...props} />)
+  const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
+  assert.doesNotMatch(btn.getAttribute('title') ?? '', /not available/i)
+  assert.equal(btn.getAttribute('aria-describedby'), null)
+})

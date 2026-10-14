@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Branche de base : `develop` (pas `main`). PR vers `jobailla/agent-lens`, jamais vers l'upstream `patoles/agent-flow`.
+- Branche de base : `develop` (pas `main`). PR vers `j0hn-42/agent-lens`, jamais vers l'upstream `patoles/agent-flow`.
 - Textes de l'interface en anglais, pas d'i18n ; vocabulaire de `web/lib/ui-glossary.ts` (`PANEL_NAMES`, `HIERARCHY_TERMS`).
 - Aucune couleur en dur : tokens CSS / `COLORS` de `@/lib/colors` ; compatible avec tous les thèmes.
 - « Ne jamais afficher un état ou un nombre non prouvé » (`CONTRIBUTING.md`) : un texte d'étape n'affirme que ce que le scénario produit.
@@ -1270,7 +1270,7 @@ git commit -m "docs(demo): visite guidée
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 git push -u origin worktree-guided-demo-spec
-gh pr create --repo jobailla/agent-lens --base develop --draft --title "feat(demo): visite guidée pas à pas" --body "Spec : docs/superpowers/specs/2026-10-09-guided-demo-design.md · Plan : docs/superpowers/plans/2026-10-09-guided-demo.md
+gh pr create --repo j0hn-42/agent-lens --base develop --draft --title "feat(demo): visite guidée pas à pas" --body "Spec : docs/superpowers/specs/2026-10-09-guided-demo-design.md · Plan : docs/superpowers/plans/2026-10-09-guided-demo.md
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)"
 ```

@@ -21,7 +21,7 @@ import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
 } from './constants'
-import { safeWatch, readTrackedLines, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
+import { safeWatch, readTrackedLines, readLinesChunked, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
   parseTeammateMeta, readTranscriptTail, selectReplayLines, TeammateTracker,
   type TeammateMeta,
@@ -50,6 +50,10 @@ export interface SubagentFileInfo {
   parentAgentId?: string
   /** Set when the .meta.json describes an Agent Team teammate (in_process_teammate / teamName) */
   teammate?: TeammateMeta
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
 }
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
@@ -236,29 +240,28 @@ function startWatchingSubagentFile(
 
   // Pre-scan existing content for dedup IDs and determine if the subagent
   // is still active (has unmatched tool_use blocks = pending work).
+  // Bounded by the stat size (a tool_use written later must stay out of the dedup set, the tail
+  // emits it) and streamed in chunks; an unfinished last line is kept in fileTail.
   const pendingToolUseIds = new Set<string>()
   try {
     const stat = fs.statSync(filePath)
-    if (stat.size > 0) {
-      const content = fs.readFileSync(filePath, 'utf-8')
-      for (const line of content.split(/\r?\n/)) {
-        if (!line.trim()) continue
-        try {
-          const raw: unknown = JSON.parse(line.trim())
-          const entry = raw as { message?: { content?: Array<{ type: string; id?: string; tool_use_id?: string }> } }
-          if (raw && typeof raw === 'object' && entry.message && Array.isArray(entry.message.content)) {
-            for (const block of entry.message.content) {
-              if (block.type === 'tool_use' && block.id) {
-                state.seenToolUseIds.add(block.id)
-                pendingToolUseIds.add(block.id)
-              } else if (block.type === 'tool_result' && block.tool_use_id) {
-                pendingToolUseIds.delete(block.tool_use_id)
-              }
-            }
+    for (const line of readLinesChunked(filePath, stat.size, undefined, state)) {
+      if (!line.trim()) continue
+      try {
+        const raw: unknown = JSON.parse(line)
+        const message = isObject(raw) ? raw.message : undefined
+        const content = isObject(message) ? message.content : undefined
+        if (!Array.isArray(content)) continue
+        for (const block of content) {
+          if (!isObject(block)) continue
+          if (block.type === 'tool_use' && typeof block.id === 'string' && block.id) {
+            state.seenToolUseIds.add(block.id)
+            pendingToolUseIds.add(block.id)
+          } else if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+            pendingToolUseIds.delete(block.tool_use_id)
           }
-        } catch { /* skip unparseable subagent transcript lines */ }
-      }
-      state.fileSize = stat.size
+        }
+      } catch { /* skip unparseable subagent transcript lines */ }
     }
   } catch (err) { log.debug('Subagent initial read failed:', err) }
 

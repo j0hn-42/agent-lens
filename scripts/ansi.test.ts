@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { THEME_IDS } from '../web/lib/theme-tokens'
+import { THEME_IDS, extraVars } from '../web/lib/theme-tokens'
 import { readFileSync } from 'node:fs'
 import { parseAnsi, stripAnsi, sliceAnsiSegments, ansiStyle, ansi256 } from '../web/lib/ansi'
 
@@ -119,5 +119,47 @@ for (const name of THEME_IDS) {
       assert.ok(ratio(mix, p.bg) >= 4.5, `--ansi-${i} dimmed: ${ratio(mix, p.bg).toFixed(2)}`)
     }
     assert.ok(ratio(p.fg, p.bg) >= 7)
+  })
+}
+
+// #193: backgrounds and 256/truecolor foregrounds are corrected to >= 4.5:1 (ansiStyle receives the theme variables)
+for (const name of THEME_IDS) {
+  const vars = extraVars(name)
+  const resolve = (c: unknown): string => {
+    assert.equal(typeof c, 'string', 'color set')
+    const m = /^var\((--[\w-]+)\)$/.exec(c as string)
+    return m ? vars[m[1]] : (c as string)
+  }
+  // dim = opacity .8 on the span: fg and bg are both blended toward the page background
+  const fade = (c: string) => '#' + [1, 3, 5].map(k => Math.round(parseInt(c.slice(k, k + 2), 16) * 0.8 + parseInt(vars['--ansi-bg'].slice(k, k + 2), 16) * 0.2).toString(16).padStart(2, '0')).join('')
+  test(`#193: text on an ANSI background keeps >= 4.5:1 in the ${name} theme`, () => {
+    for (let n = 0; n < 16; n++) {
+      const code = n < 8 ? 40 + n : 100 + n - 8
+      // no explicit fg: the text color is chosen from the background
+      const st = ansiStyle(parseAnsi(`${E}[${code}mx`)[0], vars)!
+      const bg = resolve(st.backgroundColor), fg = resolve(st.color)
+      assert.ok(ratio(fg, bg) >= 4.5, `bg ${n}: ${fg} on ${bg} ${ratio(fg, bg).toFixed(2)}`)
+      // named fg + bg combinations, also dimmed
+      for (let f = 0; f < 16; f++) {
+        const fcode = f < 8 ? 30 + f : 90 + f - 8
+        for (const dim of [false, true]) {
+          const st2 = ansiStyle(parseAnsi(`${E}[${fcode};${code}${dim ? ';2' : ''}mx`)[0], vars)!
+          const b2 = resolve(st2.backgroundColor), f2 = resolve(st2.color)
+          const [ef, eb] = dim ? [fade(f2), fade(b2)] : [f2, b2]
+          assert.ok(ratio(ef, eb) >= 4.5, `fg ${f} on bg ${n}${dim ? ' dim' : ''}: ${ef} on ${eb} ${ratio(ef, eb).toFixed(2)}`)
+        }
+      }
+    }
+  })
+  test(`#193: dark 256/truecolor foregrounds are lightened on the ${name} background`, () => {
+    for (const seq of ['38;5;16', '38;5;232', '38;5;17', '38;2;0;0;0', '38;2;10;10;10']) {
+      const st = ansiStyle(parseAnsi(`${E}[${seq}mx`)[0], vars)!
+      const fg = resolve(st.color), bg = vars['--ansi-bg']
+      assert.ok(ratio(fg, bg) >= 4.5, `${seq}: ${fg} on ${bg} ${ratio(fg, bg).toFixed(2)}`)
+    }
+  })
+  test(`#193: readable colors are kept and the copied text is untouched (${name})`, () => {
+    assert.equal(ansiStyle(parseAnsi(`${E}[31mx`)[0], vars)!.color, 'var(--ansi-1)')
+    assert.equal(stripAnsi(`${E}[30;42m PASS ${E}[0m ok`), ' PASS  ok')
   })
 }

@@ -3,34 +3,35 @@
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
 import { formatDuration, formatCost, pluralize } from './utils'
-import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
-import { formatCostUsage, type UsageTotal } from './usage'
+import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
+import { formatCostUsage, spokenCostUsage, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
-import { SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
-
-/** Shared visible keyboard-focus style for every interactive control in the chrome. */
-export const FOCUS_RING =
-  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]'
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
  * session that no event was ever received for (and with no live hook flag) is 'unobserved': it is
  * listed, but whether it is idle or working is unknown (issue #52), so it never reads 'active'.
- * `isObservedId` defaults to the app-wide observation tracker.
+ * `isObservedId` defaults to the app-wide observation tracker. While the relay is offline (`relayOffline`), an
+ * active session is 'offline': no event can arrive, so it is not shown as active (#367).
  */
 export function sessionStatusKind(
-  session: Pick<SessionInfo, 'status' | 'indexedOnly'> & { id?: string },
+  session: Pick<SessionInfo, 'status' | 'indexedOnly' | 'imported'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
+  relayOffline = false,
 ): SessionStatusKind {
   // The index proves neither detection nor an end: never shown as completed
   if (session.indexedOnly) return 'indexed'
+  // Read from a file: neither live activity nor a witnessed end (#294)
+  if (session.imported) return 'imported'
+  if (relayOffline && session.status === 'active') return 'offline'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
@@ -42,11 +43,8 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   completed: 'completed',
   unobserved: SESSION_NOT_OBSERVED_TEXT,
   indexed: SESSION_INDEXED_TEXT,
-}
-
-/** Ids of the tabs in order: the 'All' tab first, then one per session. */
-export function sessionTabIds(sessions: ReadonlyArray<Pick<SessionInfo, 'id'>>): string[] {
-  return [ALL_SESSIONS_ID, ...sessions.map(s => s.id)]
+  imported: SESSION_IMPORTED_TEXT,
+  offline: SESSION_OFFLINE_TEXT,
 }
 
 export interface TabItem {
@@ -109,42 +107,10 @@ export function formatTeamSummary(teamName: string, members: number, working: nu
 export function runtimeBadge(runtime: SessionInfo['runtime']): { short: string; label: string } | null {
   if (runtime === 'codex') return { short: 'CX', label: 'Codex' }
   if (runtime === 'copilot') return { short: 'GC', label: 'GitHub Copilot' }
+  if (runtime === 'pi') return { short: 'PI', label: 'Pi' }
+  if (runtime === 'gemini') return { short: 'GM', label: 'Gemini CLI' }
   if (runtime === 'claude') return { short: 'CC', label: 'Claude Code' }
   return null
-}
-
-/** Which tab owns the roving tabindex: the selected one, else the first ('All'). */
-export function tabStopId(tabIds: readonly string[], selectedId: string | null): string | undefined {
-  return selectedId !== null && tabIds.includes(selectedId) ? selectedId : tabIds[0]
-}
-
-/** Focus still owed to a neighbouring tab after a close: remembers which tab was closed. */
-export interface PendingTabFocus { closedId: string; focusId: string }
-
-/**
- * Decide what to do with a pending focus move once the session list changed.
- * - the closed tab is gone: focus the neighbour (if it still exists) and clear;
- * - the closed tab is still listed (the close was a no-op or is still in flight): keep waiting.
- */
-export function resolvePendingFocus(
-  pending: PendingTabFocus | null,
-  sessionIds: readonly string[],
-): { focusId: string | null; keep: PendingTabFocus | null } {
-  if (!pending) return { focusId: null, keep: null }
-  if (sessionIds.includes(pending.closedId)) return { focusId: null, keep: pending }
-  return { focusId: sessionIds.includes(pending.focusId) ? pending.focusId : null, keep: null }
-}
-
-/** Roving-tabindex arrow navigation: returns the index to focus, or null when the key is not ours. */
-export function nextTabIndex(current: number, key: string, count: number): number | null {
-  if (count <= 0) return null
-  switch (key) {
-    case 'ArrowRight': return (current + 1) % count
-    case 'ArrowLeft': return (current - 1 + count) % count
-    case 'Home': return 0
-    case 'End': return count - 1
-    default: return null
-  }
 }
 
 // ─── Scrubber ────────────────────────────────────────────────────────────────
@@ -180,30 +146,43 @@ export function scrubberValueText(current: number, total: number): string {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-/** "5 agents: 2 active - 3 done"; agents whose status is no longer proven are counted apart ("- 4 last known state"). */
-export function formatAgentCounts(active: number, done: number, stale = 0): string {
+/**
+ * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
+ * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
+ */
+export function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const staleText = stale > 0 ? ` - ${stale} last known state` : ''
-  return `${pluralize(active + done + stale, 'agent')}: ${active} active${staleText} - ${done} done`
+  const idleText = idle > 0 ? ` - ${idle} idle` : ''
+  const errorText = error > 0 ? ` - ${error} error` : ''
+  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
 }
 
-/** Splits agents into done, stale (status older than the freshness limit: only a last known state) and active. */
+/** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */
 export function agentActivityCounts(
   agents: Iterable<{ state: string; lastEventAt?: number }>,
   now: number,
-): { active: number; done: number; stale: number } {
-  let active = 0, done = 0, stale = 0
+): { active: number; done: number; stale: number; idle: number; error: number } {
+  let active = 0, done = 0, stale = 0, idle = 0, error = 0
   for (const a of agents) {
     if (a.state === 'complete') done++
     else if (deriveFreshness(a, now) === 'stale') stale++
+    else if (a.state === 'idle') idle++
+    else if (a.state === 'error') error++
     else active++
   }
-  return { active, done, stale }
+  return { active, done, stale, idle, error }
 }
 
-/** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */
+/** "3 sessions - 12 agents - ~$1.23" (summary shown in the top bar while the 'All' tab is selected) */
 export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
-  const costText = typeof cost === 'number' ? formatCost(cost) : formatCostUsage(cost)
+  const costText = typeof cost === 'number' ? `${COST_LABELS.mark}${formatCost(cost)}` : formatCostUsage(cost)
   return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
+}
+
+/** The All summary for screen readers: commas for pauses, the estimate in words (they skip "~" and "-", #364) */
+export function spokenAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
+  const usage: UsageTotal = typeof cost === 'number' ? { value: cost, status: 'available', estimated: false } : cost
+  return `${pluralize(sessionCount, 'session')}, ${pluralize(agentCount, 'agent')}, ${spokenCostUsage(usage)}`
 }
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
@@ -217,7 +196,7 @@ export function formatDroppedMessages(dropped: number): string | null {
 }
 
 /** Minimal agent shape needed to label it with its session. */
-interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' }
+interface SessionLabelable { sessionId: string; sessionLabel?: string; runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' }
 
 /**
  * Attach the human-readable session label (and the session runtime when the agent has none) to each
@@ -313,6 +292,17 @@ export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): Co
   }
 }
 
+/**
+ * Badge of the playback bar. Follows the real connection with the top bar's wording: LIVE (pulsing) only while the relay is
+ * watching; otherwise the text says OFFLINE or CONNECTING and nothing pulses.
+ */
+export function liveBadge(status: ConnectionStatus, isDemo: boolean): { label: string; live: boolean; tone: ConnectionTone } {
+  if (isDemo) return { label: 'DEMO', live: false, tone: 'demo' }
+  const d = connectionDisplay(status, false)
+  // Same word as the top bar; it pulses only while activity is actually watched (a bare connection proves less)
+  return { label: d.label, live: status === 'watching', tone: d.tone }
+}
+
 /** Text for the sr-only polite live region. Only state changes alter it. */
 export function buildAnnouncement(opts: {
   connection: ConnectionDisplay
@@ -321,6 +311,10 @@ export function buildAnnouncement(opts: {
   isEmpty: boolean
   /** Listed sessions with no received event (issue #52): their activity is unknown */
   unobservedSessions?: number
+  /** 'Full screen on' / 'Full screen off' after a change (#196) */
+  fullscreenNote?: string | null
+  /** 'Presentation mode on' / 'Presentation mode off' after a change (#245) */
+  presentationNote?: string | null
 }): string {
   const parts = [`Connection: ${opts.connection.label.toLowerCase()}`]
   if (opts.sessionLabel) parts.push(`Session: ${opts.sessionLabel}`)
@@ -329,6 +323,8 @@ export function buildAnnouncement(opts: {
   if (opts.unobservedSessions && opts.unobservedSessions > 0) {
     parts.push(`${pluralize(opts.unobservedSessions, 'session')} listed, ${SESSION_NOT_OBSERVED_TEXT.replace('listed - ', '')}`)
   }
+  if (opts.fullscreenNote) parts.push(opts.fullscreenNote)
+  if (opts.presentationNote) parts.push(opts.presentationNote)
   return parts.join('. ')
 }
 
@@ -344,18 +340,39 @@ export function emptyStateChecklist(opts: {
   status: ConnectionStatus
   relayPort?: string
   sessionCount: number
+  /** Claude Code hooks state: undefined when unknown (old relay, Codex/Copilot only): no line, never a default tick */
+  hooksConfigured?: boolean
+  isVSCode?: boolean
+  /** What the relay really scans (#291); absent = not known (extension, older relay): no claim */
+  scope?: 'workspace' | 'all'
 }): ChecklistItem[] {
   const relayOk = opts.status === 'connected' || opts.status === 'watching'
-  return [
+  const items: ChecklistItem[] = [
     {
       id: 'relay',
       label: 'Relay connected',
       ok: relayOk,
       detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable',
     },
-    { id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching', detail: opts.status === 'watching' ? undefined : 'only the current workspace is watched' },
-    { id: 'runtime', label: 'Claude Code, Codex or Copilot session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    opts.scope === 'all'
+      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk }
+      : {
+          id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching',
+          detail: opts.status === 'watching' ? undefined
+            : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
+            : 'only the current workspace is watched',
+        },
+    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
   ]
+  if (opts.hooksConfigured !== undefined) {
+    items.push({
+      id: 'hooks',
+      label: 'Claude Code hooks configured',
+      ok: opts.hooksConfigured,
+      detail: opts.hooksConfigured ? undefined : opts.isVSCode ? 'run "Agent Lens: Configure Claude Code Hooks"' : 'run "pnpm run setup"',
+    })
+  }
+  return items
 }
 
 // ─── Focus return ────────────────────────────────────────────────────────────
@@ -399,11 +416,6 @@ export function shouldRestoreFocus(active: unknown, panel: ContainsLike | null, 
 /** Key that runs the action (Undo) of the newest toast. Subject to the single-key shortcut preference. */
 export const UNDO_SHORTCUT_KEY = 'u'
 
-/** True when a keyboard U can run an Undo: the preference is on and some visible toast has an action. */
-export function undoShortcutAvailable(singleKeyEnabled: boolean, toasts: ReadonlyArray<{ onAction?: unknown }>): boolean {
-  return singleKeyEnabled && toasts.some(t => typeof t.onAction === 'function')
-}
-
 /** Time left on a toast timer after it ran from `startedAt` until `now` (never negative). */
 export function toastRemaining(remainingMs: number, startedAt: number, now: number): number {
   return Math.max(0, remainingMs - Math.max(0, now - startedAt))
@@ -438,7 +450,7 @@ export function contextMenuPosition(clientX: number, clientY: number, rect: Rect
 
 export interface CanvasSessionMeta {
   label: string
-  runtime?: 'claude' | 'codex' | 'copilot'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
   workspace?: string
   projectId?: string
   projectName?: string

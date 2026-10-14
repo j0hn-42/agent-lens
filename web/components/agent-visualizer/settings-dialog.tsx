@@ -1,11 +1,16 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { GlassCard } from './glass-card'
 import { CloseButton, stopPropagationHandlers } from './shared-ui'
 import { ThemeSelect } from './theme-select'
+import { useLocale, useT, type LocaleChoice } from '@/lib/locale'
+import { parseCostThreshold, type NotificationRules } from '@/lib/notification-rules'
+import type { NotifyState } from '@/hooks/use-attention-alerts'
+import type { PresentationOptions } from '@/lib/presentation'
+import { FOCUS_RING } from '@/lib/focus-ring'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -25,6 +30,20 @@ export interface SettingsDialogProps {
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
   onOpenShortcuts: () => void
+  /** Presentation mode (#245) and its three options; the section is left out when absent */
+  presentation?: {
+    active: boolean
+    onActiveChange: (active: boolean) => void
+    options: PresentationOptions
+    onOptionChange: (key: keyof PresentationOptions, value: boolean) => void
+  }
+  /** Notification channel and rules (#225); the section is left out when absent */
+  notifications?: {
+    state: NotifyState
+    onToggle: () => void
+    rules: NotificationRules
+    onRulesChange: (rules: NotificationRules) => void
+  }
 }
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -54,6 +73,30 @@ function SwitchRow({ label, help, checked, onChange }: {
   )
 }
 
+/** Native select: keyboard operable, named by its label. Each language is written in its own language. */
+function LanguageSelect({ id, choice, onChange, autoLabel, frLabel, enLabel }: {
+  id: string
+  choice: LocaleChoice
+  onChange: (choice: LocaleChoice) => void
+  autoLabel: string
+  frLabel: string
+  enLabel: string
+}) {
+  return (
+    <select
+      id={id}
+      value={choice}
+      onChange={e => onChange(e.target.value as LocaleChoice)}
+      className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono ${FOCUS_RING}`}
+      style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
+    >
+      <option value="auto" style={{ background: COLORS.surface, color: COLORS.ink }}>{autoLabel}</option>
+      <option value="fr" lang="fr" style={{ background: COLORS.surface, color: COLORS.ink }}>{frLabel}</option>
+      <option value="en" lang="en" style={{ background: COLORS.surface, color: COLORS.ink }}>{enLabel}</option>
+    </select>
+  )
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section aria-label={title} className="mb-3">
@@ -65,6 +108,64 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+function NotificationsSection({ notifications }: { notifications: NonNullable<SettingsDialogProps['notifications']> }) {
+  const { state, onToggle, rules, onRulesChange } = notifications
+  const t = useT()
+  const amountId = useId()
+  const errorId = useId()
+  const [draft, setDraft] = useState(String(rules.costThresholdUsd))
+  const [invalid, setInvalid] = useState(false)
+  const usable = state === 'on'
+  const set = (patch: Partial<NotificationRules>) => onRulesChange({ ...rules, ...patch })
+  const note = state === 'unsupported' ? t('settings.notify.unsupported')
+    : state === 'denied' ? t('settings.notify.denied')
+    : t('settings.notify.note')
+  return (
+    <Section title={t('settings.section.notifications')}>
+      <SwitchRow
+        label={t('settings.notify.enable')}
+        help={note}
+        checked={state === 'on'}
+        onChange={() => { if (state !== 'unsupported' && state !== 'denied') onToggle() }}
+      />
+      <SwitchRow label={t('settings.notify.permission')} help={t('settings.notify.permission.help')} checked={rules.permission} onChange={v => set({ permission: v })} />
+      <SwitchRow label={t('settings.notify.error')} help={t('settings.notify.error.help')} checked={rules.error} onChange={v => set({ error: v })} />
+      <SwitchRow label={t('settings.notify.complete')} help={t('settings.notify.complete.help')} checked={rules.complete} onChange={v => set({ complete: v })} />
+      <SwitchRow label={t('settings.notify.cost')} help={t('settings.notify.cost.help')} checked={rules.cost} onChange={v => set({ cost: v })} />
+      <div className="flex items-center gap-2 py-1 pl-8 text-xs font-mono" style={{ color: COLORS.textPrimary }}>
+        <label htmlFor={amountId}>{t('settings.notify.threshold')}</label>
+        <input
+          id={amountId}
+          type="number"
+          min={0.01}
+          step="any"
+          inputMode="decimal"
+          value={draft}
+          disabled={!rules.cost}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? errorId : undefined}
+          onChange={e => {
+            setDraft(e.target.value)
+            const amount = parseCostThreshold(e.target.value)
+            setInvalid(amount === null)
+            if (amount !== null) set({ costThresholdUsd: amount })
+          }}
+          className="min-h-6 w-24 rounded px-1 py-0.5"
+          style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+        />
+      </div>
+      {invalid && (
+        <p id={errorId} role="alert" className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.error }}>
+          {t('settings.notify.invalid')}
+        </p>
+      )}
+      {!usable && state !== 'unsupported' && state !== 'denied' && (
+        <p className="m-0 pl-8 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.notify.rulesPending')}</p>
+      )}
+    </Section>
+  )
+}
+
 /**
  * Modal "Settings" dialog: one place for the preferences that already persist under their own
  * keys (theme, sound, hex grid, finished sessions, inactive agents, single-key shortcuts).
@@ -73,8 +174,11 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts,
+  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation,
 }: SettingsDialogProps) {
+  const { locale, choice, setChoice } = useLocale()
+  const t = useT()
+  const langId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
@@ -147,48 +251,84 @@ export function SettingsDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        lang={locale}
         tabIndex={-1}
         className="max-h-[calc(100vh-24px)] w-[420px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
       >
         <GlassCard visible={true}>
           <div className="mb-3 flex items-center justify-between">
             <h2 id={titleId} className="m-0 text-xs font-mono font-semibold" style={{ color: COLORS.textPrimary }}>
-              Settings
+              {t('settings.title')}
             </h2>
-            <CloseButton onClick={onClose} />
+            <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
-          <Section title="Appearance">
+          <Section title={t('settings.section.appearance')}>
             <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
-              <label htmlFor={themeId} style={{ color: COLORS.textPrimary }}>Theme</label>
+              <label htmlFor={themeId} style={{ color: COLORS.textPrimary }}>{t('settings.theme')}</label>
               <ThemeSelect id={themeId} />
             </div>
-            <SwitchRow label="Hex grid" help="Show the hexagonal grid behind the graph (G)." checked={hexGrid} onChange={onHexGridChange} />
+            <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+              <label htmlFor={langId} style={{ color: COLORS.textPrimary }}>{t('settings.language')}</label>
+              <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
+            </div>
+            <SwitchRow label={t('settings.hexGrid')} help={t('settings.hexGrid.help')} checked={hexGrid} onChange={onHexGridChange} />
           </Section>
 
-          <Section title="Sound">
-            <SwitchRow label="Sound effects" help="Play sounds for agent and tool activity (M)." checked={!muted} onChange={() => onToggleMute()} />
+          <Section title={t('settings.section.sound')}>
+            <SwitchRow label={t('settings.sound')} help={t('settings.sound.help')} checked={!muted} onChange={() => onToggleMute()} />
           </Section>
 
-          <Section title="Sessions and agents">
+          <Section title={t('settings.section.sessions')}>
             <SwitchRow
-              label="Show finished sessions"
-              help="The 'All' view also lists sessions that finished more than 10 minutes ago."
+              label={t('settings.showFinished')}
+              help={t('settings.showFinished.help')}
               checked={showFinished}
               onChange={onShowFinishedChange}
             />
             <SwitchRow
-              label="Hide inactive agents"
-              help="Idle and complete agents are removed from the canvas."
+              label={t('settings.hideInactive')}
+              help={t('settings.hideInactive.help')}
               checked={hideInactive}
               onChange={onHideInactiveChange}
             />
           </Section>
 
-          <Section title="Keyboard">
+          {presentation && (
+            <Section title="Presentation">
+              <SwitchRow
+                label="Presentation mode"
+                help="For demos and streaming (V). Stops with V, Esc or the button at the top of the canvas."
+                checked={presentation.active}
+                onChange={presentation.onActiveChange}
+              />
+              <SwitchRow
+                label="Subtitles of transitions"
+                help="A caption for each state change seen live. Nothing is said about what was already there."
+                checked={presentation.options.subtitles}
+                onChange={v => presentation.onOptionChange('subtitles', v)}
+              />
+              <SwitchRow
+                label="Mask sensitive data"
+                help="Hides prompts, paths, tool arguments, messages, session and team names. Counts, states and tool names stay."
+                checked={presentation.options.mask}
+                onChange={v => presentation.onOptionChange('mask', v)}
+              />
+              <SwitchRow
+                label="Follow the active agent"
+                help="The camera centres on the agent that worked last. Panning or zooming pauses it until another agent takes over."
+                checked={presentation.options.follow}
+                onChange={v => presentation.onOptionChange('follow', v)}
+              />
+            </Section>
+          )}
+
+          {notifications && <NotificationsSection notifications={notifications} />}
+
+          <Section title={t('settings.section.keyboard')}>
             <SwitchRow
-              label="Enable single-key shortcuts"
-              help="Turn off if letter keys conflict with assistive technology. Esc and ? always work."
+              label={t('settings.singleKey')}
+              help={t('settings.singleKey.help')}
               checked={singleKeyEnabled}
               onChange={onSingleKeyEnabledChange}
             />
@@ -198,7 +338,7 @@ export function SettingsDialog({
               className="mt-1 min-h-6 rounded px-2 py-1 text-[11px] font-mono underline"
               style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              View keyboard shortcuts
+              {t('settings.shortcuts')}
             </button>
           </Section>
         </GlassCard>

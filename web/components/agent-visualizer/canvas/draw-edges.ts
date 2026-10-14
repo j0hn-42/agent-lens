@@ -5,6 +5,7 @@ import { MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { type DrawOpts, DEFAULT_DRAW_OPTS } from './draw-options'
 import { bezierPoint, computeControlPoints } from './link-geometry'
 import { isAgentVisible } from './team-style'
+import { edgeInView } from './view-cull'
 import { isUnverifiedEdge, UNVERIFIED_DASH, UNVERIFIED_EDGE } from './edge-style'
 
 export { bezierPoint, computeControlPoints } from './link-geometry'
@@ -110,6 +111,7 @@ export function drawEdges(
     const cp = computeControlPoints(fromX, fromY, toX, toY)
     if (!cp) continue
     const { cp1x, cp1y, cp2x, cp2y } = cp
+    if (!edgeInView(opts.view, fromX, fromY, cp1x, cp1y, cp2x, cp2y, toX, toY)) continue
 
     const beamColor = edge.type === 'tool' ? SCENE.tool : SCENE.holoBase
     const bw = edge.type === 'tool' ? BEAM.tool : BEAM.parentChild

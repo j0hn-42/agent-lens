@@ -3,11 +3,13 @@
  * No React and no canvas here, so everything is unit-testable under node:test.
  * Imports are relative (not "@/") on purpose: the root test runner has no path aliases.
  */
+import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
 import type { Agent, ToolCallNode, Discovery, Particle, Edge, TeamSummary } from '../../../lib/agent-types'
 import type { AgentLink } from '../../../hooks/simulation/types'
-import { formatTokens, formatCost, formatModelName } from '../../../lib/utils'
+import { formatCost, formatModelName } from '../../../lib/utils'
+import { formatTokensOfWindow } from '../../../lib/context-window'
 import { agentCostUsage } from '../../../lib/cost'
-import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
 import { describeModel } from '../../../lib/model-provenance'
@@ -22,6 +24,8 @@ import { clusterLinkNotes } from './session-link-model'
 import type { SessionLink } from '../../../lib/session-links'
 import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
+import type { FileAttention } from '../../../lib/agent-types'
+import { deriveFileConflicts, describeConflictEditors } from '../../../lib/file-conflicts'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -41,7 +45,7 @@ function tokenSummary(a: Agent): string {
   const usage = usageFromAgent(a)
   return usage.status === 'unavailable'
     ? `tokens ${formatTokenUsage(usage)}`
-    : `${formatTokenUsage(usage)} / ${formatTokens(a.tokensMax)} tokens`
+    : formatTokensOfWindow(formatTokenUsage(usage), a)
 }
 
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────
@@ -148,6 +152,7 @@ export interface A11yAgentItem {
   runtime: string
   /** "12k / 200k tokens" */
   tokens: string
+  /** "context cost estimate $0.12" (#364) */
   cost: string
   toolCalls: number
   isMain: boolean
@@ -233,6 +238,13 @@ export interface A11yDiscoveryItem {
   agentName: string
 }
 
+export interface A11yFileConflictItem {
+  path: string
+  agentIds: string[]
+  /** "/repo/a.ts edited by alpha (session Main): 2 successful edits; beta (session Fix): 1 successful edit" */
+  text: string
+}
+
 export interface A11yModel {
   /** aria-label for the canvas wrapper */
   summary: string
@@ -244,6 +256,8 @@ export interface A11yModel {
   links: A11yLinkItem[]
   /** Session / team clusters, in outline order; agents without a cluster are listed first */
   clusters: A11yClusterItem[]
+  /** Files that two or more agents were observed to edit successfully (#227) */
+  fileConflicts?: A11yFileConflictItem[]
 }
 
 /** Optional inputs of the team-aware DOM model */
@@ -255,25 +269,39 @@ export interface A11yExtras {
   collapse?: CollapseView
   teams?: Map<string, TeamSummary>
   simTime?: number
+  /** Wall clock (ms): with it, a stale agent is announced as its last known state, like the canvas (#367) */
+  now?: number
   /** Workspace / label / runtime of the sessions (cluster headings) */
   sessions?: ReadonlyMap<string, SessionMeta>
   /** Proven parent -> child session links, worded in the heading of the clusters they connect */
   sessionLinks?: ReadonlyArray<SessionLink>
   /** Every agent of the simulation (even those a collapsed branch hides): cluster costs count them all */
   costAgents?: Iterable<Agent>
+  /** Files touched by the agents: the source of the file conflicts */
+  fileAttention?: ReadonlyMap<string, FileAttention>
 }
 
-/** "3 agents, 2 running, 1 waiting for permission" */
-export function buildGraphLabel(agents: Iterable<Pick<Agent, 'state'>>, teamCount = 0): string {
-  let total = 0, running = 0, waiting = 0, errored = 0
+/**
+ * "3 agents, 2 running, 1 waiting for permission". With `now`, an agent whose status is stale (#367) is
+ * not counted as running or waiting: nothing proves it, so it is counted apart ("1 last known").
+ */
+export function buildGraphLabel(
+  agents: Iterable<Pick<Agent, 'state'> & Partial<Pick<Agent, 'lastEventAt' | 'freshnessSource'>>>,
+  teamCount = 0,
+  now?: number,
+): string {
+  let total = 0, running = 0, waiting = 0, errored = 0, lastKnown = 0
   for (const a of agents) {
     total++
-    if (a.state === 'thinking' || a.state === 'tool_calling') running++
+    // Same split as the top bar: any stale status (idle included) is only the last known one
+    if (now !== undefined && deriveFreshness(a, now) === 'stale') lastKnown++
+    else if (a.state === 'thinking' || a.state === 'tool_calling') running++
     else if (a.state === 'waiting_permission') waiting++
     else if (a.state === 'error') errored++
   }
   if (total === 0) return 'Agent graph: no agents yet'
   const parts = [`${total} ${total === 1 ? 'agent' : 'agents'}`, `${running} running`, `${waiting} waiting for permission`]
+  if (lastKnown > 0) parts.push(`${lastKnown} last known state, not confirmed`)
   if (errored > 0) parts.push(`${errored} in error`)
   if (teamCount > 0) parts.push(`${teamCount} ${teamCount === 1 ? 'team' : 'teams'}`)
   return `Agent graph: ${parts.join(', ')}`
@@ -302,7 +330,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
@@ -310,17 +338,18 @@ export function buildA11yModel(
   for (const e of extras.edges ?? []) if (isUnverifiedEdge(e)) unverifiedChildren.set(e.to, unverifiedReasonText(e.unverifiedReason))
   const agentItems: A11yAgentItem[] = []
   for (const a of agents.values()) {
+    const stale = extras.now !== undefined && deriveFreshness(a, extras.now) === 'stale'
     const parent = a.parentId ? agents.get(a.parentId) : undefined
     const tools = toolsByAgent.get(a.id) ?? []
     agentItems.push({
       id: a.id,
       name: a.name,
       state: a.state,
-      stateText: stateText(a.state),
+      stateText: stale ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
-      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : 'Claude',
+      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
       tokens: tokenSummary(a),
-      cost: formatCostUsage(agentCostUsage(a)),
+      cost: spokenCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,
@@ -331,7 +360,8 @@ export function buildA11yModel(
       teamName: cleanText(a.teamName) || undefined,
       teamKind: a.teamKind === 'workflow' ? 'workflow' : undefined,
       phase: a.teamKind === 'workflow' ? cleanText(a.phase, 40) || undefined : undefined,
-      activityText: teammateActivity(a),
+      // A stale teammate is not announced as working: the canvas replaces the whole status line (#367)
+      activityText: stale ? undefined : teammateActivity(a),
       archived: !!a.archived,
       sessionLabel: showSession ? cleanText(a.sessionLabel, 40) || undefined : undefined,
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
@@ -340,13 +370,15 @@ export function buildA11yModel(
     })
   }
 
-  const teams = buildTeamItems(agents, extras.teams, extras.sessions)
+  const teams = buildTeamItems(agents, extras.teams, extras.sessions, extras.now)
   const links = buildLinkItems(agents, extras.links, extras.simTime ?? 0)
+  const fileConflicts = buildFileConflictItems(agents, extras.fileAttention, extras.sessions, extras.costAgents)
 
   return {
-    summary: buildGraphLabel(agents.values(), teams.length),
+    summary: buildGraphLabel(agents.values(), teams.length, extras.now),
     teams,
     links,
+    fileConflicts,
     clusters: clusterList.map(c => ({
       key: c.key, kind: c.kind, ...(c.teamKind ? { teamKind: c.teamKind } : {}), title: c.title, text: [clusterAnnouncement(c), ...(linkNotes.get(c.key) ?? [])].join(', '), memberIds: c.memberIds, color: c.color,
     })),
@@ -365,9 +397,9 @@ export function buildA11yModel(
 
 /** Teams with at least two visible members, with their members and activities. One entry per team and lead session. */
 export function buildTeamItems(
-  agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>,
+  agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>, now?: number,
 ): A11yTeamItem[] {
-  return computeClusters(agents.values(), teams, { sessions })
+  return computeClusters(agents.values(), teams, { sessions, now })
     .map(c => ({
       c,
       // The team itself: its teammates and its lead (not the other agents of the hosting session)
@@ -376,7 +408,7 @@ export function buildTeamItems(
     .filter(({ c, members }) => c.kind === 'team' && members.length >= 2)
     .map(({ c, members }) => {
       const parts = members.map(m => {
-        const activity = teammateActivity(m)
+        const activity = now !== undefined && deriveFreshness(m, now) === 'stale' ? undefined : teammateActivity(m)
         return `${cleanText(m.name, 60)}${activity ? ` (${activity})` : m.archived ? ' (archived)' : ''}`
       })
       return {
@@ -410,15 +442,44 @@ export function buildLinkItems(agents: Map<string, Agent>, links: Map<string, Ag
   })
 }
 
+/** One entry per proven file conflict; an agent hidden from the canvas is still named, and said to be off screen. */
+export function buildFileConflictItems(
+  agents: ReadonlyMap<string, Agent>,
+  fileAttention: ReadonlyMap<string, FileAttention> | undefined,
+  sessions?: ReadonlyMap<string, SessionMeta>,
+  allAgents?: Iterable<Agent>,
+): A11yFileConflictItem[] {
+  if (!fileAttention || fileAttention.size === 0) return []
+  const conflicts = deriveFileConflicts(fileAttention)
+  if (conflicts.length === 0) return []
+  const known = new Map<string, Agent>()
+  for (const a of allAgents ?? []) known.set(a.id, a)
+  const label = (key: string) => {
+    const a = agents.get(key) ?? known.get(key)
+    if (!a) return `${cleanText(key, 80)} (not on screen)`
+    const session = cleanText(sessions?.get(a.sessionId)?.label || a.sessionLabel || a.sessionId, 40)
+    const where = [session ? `session ${session}` : '', agents.has(key) ? '' : 'not on screen'].filter(Boolean).join(', ')
+    return `${cleanText(a.name, 60) || 'agent'}${where ? ` (${where})` : ''}`
+  }
+  return conflicts.map(c => ({
+    path: c.path,
+    agentIds: c.editors.map(e => e.agent),
+    text: `${clip(c.path, 160)} ${describeConflictEditors(c, label)}`,
+  }))
+}
+
 // ─── Live-region announcements ───────────────────────────────────────────────
 
 /** Human sentence for a semantic transition, or null when it is not worth announcing. */
-export function describeTransition(t: StateTransition): string | null {
+export function describeTransition(t: StateTransition, opts: { multiSession?: boolean } = {}): string | null {
+  // In the All view several sessions share agent names: say which session the agent belongs to.
+  const who = (name: string, session?: string) =>
+    opts.multiSession && session ? `Agent ${name} in session ${cleanText(session, 60)}` : `Agent ${name}`
   switch (t.kind) {
-    case 'agent_spawn': return `Agent ${t.name} started`
-    case 'agent_complete': return `Agent ${t.name} completed`
-    case 'agent_error': return `Agent ${t.name} failed`
-    case 'agent_waiting_permission': return `Agent ${t.name} is waiting for permission`
+    case 'agent_spawn': return `${who(t.name, t.session)} started`
+    case 'agent_complete': return `${who(t.name, t.session)} completed`
+    case 'agent_error': return `${who(t.name, t.session)} failed`
+    case 'agent_waiting_permission': return `${who(t.name, t.session)} is waiting for permission`
     case 'tool_error': return `Tool ${t.name} failed`
     case 'agent_activity': return `${t.name} is ${t.activity}`
     case 'message_sent': return `${t.from} sent a message to ${t.to}`
@@ -465,11 +526,19 @@ export function createAnnouncementQueue(): AnnouncementQueue {
  * duplicates inside one batch are dropped, and bulk batches collapse into one summary.
  * Returns the same queue object when nothing was added.
  */
-export function enqueueAnnouncements(queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX): AnnouncementQueue {
+export function enqueueAnnouncements(
+  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
+): AnnouncementQueue {
   const texts: string[] = []
+  const seen = new Set<string>()
   for (const t of transitions) {
-    const text = describeTransition(t)
-    if (text && !texts.includes(text)) texts.push(text)
+    const text = describeTransition(t, opts)
+    if (!text) continue
+    // Agent transitions dedupe on (agent id, kind): same-named agents of other sessions stay distinct.
+    const key = t.kind.startsWith('agent_') && t.kind !== 'agent_activity' ? `${t.kind}|${t.id}` : `text|${text}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    texts.push(text)
   }
   if (texts.length === 0) return queue
   const added = texts.length > ANNOUNCE_BULK_THRESHOLD ? [`${texts.length} agent graph updates`] : texts

@@ -171,6 +171,24 @@ test('tabs: tablist semantics, roving tabindex, arrow keys, full-name titles', (
   assert.equal(r.getByRole('tabpanel').getAttribute('aria-labelledby'), r.getAllByRole('tab')[0].id)
 })
 
+test('tabs: Home, End and arrows pressed on the focused tab move the single tab stop (#258)', () => {
+  const r = panel({ initialOpen: true })
+  const tabs = () => r.getAllByRole('tab')
+  tabs()[0].focus()
+  fireEvent.keyDown(tabs()[0], { key: 'End' })
+  assert.equal(document.activeElement, tabs()[3])
+  assert.deepEqual(tabs().map(t => t.tabIndex), [-1, -1, -1, 0])
+  fireEvent.keyDown(tabs()[3], { key: 'Home' })
+  assert.equal(document.activeElement, tabs()[0])
+  fireEvent.keyDown(tabs()[0], { key: 'ArrowLeft' })
+  assert.equal(document.activeElement, tabs()[3], 'Left on the first tab wraps to the last')
+  fireEvent.keyDown(tabs()[3], { key: 'ArrowRight' })
+  assert.equal(document.activeElement, tabs()[0])
+  assert.deepEqual(tabs().map(t => t.tabIndex), [0, -1, -1, -1])
+  const list = r.getByRole('tablist')
+  assert.notEqual(list.getAttribute('tabindex'), '0', 'the tablist itself is not a tab stop')
+})
+
 test('the list is a log with a position in set on every item', () => {
   const r = panel({ initialOpen: true, conversations: new Map([['o', [msg('a1', 'assistant', 1, 'one'), msg('a2', 'assistant', 2, 'two'), msg('a3', 'assistant', 3, 'three')]]]) })
   const log = r.getByRole('log')

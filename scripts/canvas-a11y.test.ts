@@ -72,6 +72,8 @@ test('buildA11yModel lists agent facts, relations, tools and live flag', () => {
   assert.equal(main.relation, 'main agent')
   assert.deepEqual(main.childNames, ['Explorer'])
   assert.equal(main.tokens, '12k / 200k tokens')
+  const assumed = buildA11yModel(new Map([['a1', agent({ tokensMaxAssumed: true })]]), new Map(), [], new Map())
+  assert.equal(assumed.agents[0].tokens, '12k / 200k tokens, window assumed', 'an assumed window is said, not only drawn (#364)')
   assert.equal(sub.relation, 'child of main')
   assert.equal(sub.stateText, 'waiting for permission')
   assert.equal(sub.runtime, 'Codex')
@@ -276,6 +278,37 @@ test('announcement queue dedupes within a batch and returns same queue when empt
   assert.equal(dup.items.length, 1)
 })
 
+// ─── #194: annonces live nommant la session en vue All ──────────────────────
+
+test('vue multi-session : deux agents homonymes de sessions différentes donnent deux annonces nommant leur session', () => {
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [
+    { kind: 'agent_waiting_permission', id: 's1:orchestrator', name: 'orchestrator', session: 'api-refactor' },
+    { kind: 'agent_waiting_permission', id: 's2:orchestrator', name: 'orchestrator', session: 'docs-site' },
+  ], undefined, { multiSession: true })
+  assert.deepEqual(q.items.map(i => i.text), [
+    'Agent orchestrator in session api-refactor is waiting for permission',
+    'Agent orchestrator in session docs-site is waiting for permission',
+  ])
+})
+
+test('vue d\'une seule session : texte inchangé, sans libellé de session', () => {
+  const t = { kind: 'agent_error', id: 's1:a', name: 'X', session: 'api-refactor' } as const
+  assert.equal(describeTransition(t), 'Agent X failed')
+  const q = enqueueAnnouncements(createAnnouncementQueue(), [t], undefined, { multiSession: false })
+  assert.equal(q.items[0].text, 'Agent X failed')
+})
+
+test('détection : les transitions d\'agent portent le libellé de session (repli sur l\'id)', async () => {
+  const { detectStateChanges } = await import('../web/components/agent-visualizer/canvas/detect-state-changes')
+  const mk = (id: string, sessionId: string, sessionLabel?: string): any => ({
+    id, sessionId, sessionLabel, name: 'orchestrator', state: 'waiting_permission', opacity: 1, x: 0, y: 0,
+  })
+  const agents = new Map<string, any>([['s1:o', mk('s1:o', 's1', 'api-refactor')], ['s2:o', mk('s2:o', 's2')]])
+  const prev = new Map([['s1:o', 'thinking'], ['s2:o', 'thinking']])
+  const { transitions } = detectStateChanges(agents, new Map(), prev, new Map())
+  assert.deepEqual(transitions.map((t: any) => t.session), ['api-refactor', 's2'])
+})
+
 test('recorder captures dispatch particles that exist for a single frame and tool calls after they vanish', () => {
   const agents = new Map<string, any>([['a1', agent()], ['a2', agent({ id: 'a2', name: 'Explorer', isMain: false })]])
   const edges: any[] = [{ id: 'e1', from: 'a1', to: 'a2', type: 'parent-child', opacity: 1 }]
@@ -292,4 +325,56 @@ test('recorder captures dispatch particles that exist for a single frame and too
   assert.equal(rec.tools.get('t1')?.name, 'Read')
   resetRecorder(rec)
   assert.equal(rec.comms.size + rec.tools.size, 0)
+})
+
+// ─── #367 the outline never announces a stale state as current ─────────────
+
+test('buildA11yModel announces a stale state as the last known one, like the canvas', () => {
+  const now = 1_700_000_000_000
+  const fresh = agent({ id: 'f', state: 'thinking', lastEventAt: now - 1_000, freshnessSource: 'live' })
+  const stale = agent({ id: 's', state: 'thinking', lastEventAt: now - 120_000, freshnessSource: 'live', isMain: false })
+  const model = buildA11yModel(new Map([['f', fresh], ['s', stale]]), new Map(), [], new Map(), { now })
+  const by = (id: string) => model.agents.find(a => a.id === id)!
+  assert.equal(by('f').stateText, 'thinking')
+  assert.equal(by('s').stateText, 'last known state: Thinking')
+})
+
+test('buildA11yModel leaves the state text alone without a clock', () => {
+  const stale = agent({ state: 'thinking', lastEventAt: 1, freshnessSource: 'live' })
+  const model = buildA11yModel(new Map([['a1', stale]]), new Map(), [], new Map(), {})
+  assert.equal(model.agents[0].stateText, 'thinking')
+})
+
+test('buildA11yModel does not announce a stale teammate as working (#367)', () => {
+  const now = 1_700_000_000_000
+  const mate = (id: string, lastEventAt: number) => agent({
+    id, name: id, kind: 'teammate', teamName: 'core', state: 'thinking', isMain: false, lastEventAt, freshnessSource: 'live',
+  })
+  const model = buildA11yModel(new Map([['f', mate('f', now - 1_000)], ['s', mate('s', now - 120_000)]]), new Map(), [], new Map(), { now })
+  const by = (id: string) => model.agents.find(a => a.id === id)!
+  assert.equal(by('f').activityText, 'working')
+  assert.equal(by('s').stateText, 'last known state: Thinking')
+  assert.equal(by('s').activityText, undefined)
+})
+
+test('buildGraphLabel counts a stale agent apart, not as running or waiting (#367)', () => {
+  const now = 1_700_000_000_000
+  const fresh = { state: 'thinking' as const, lastEventAt: now - 1_000, freshnessSource: 'live' as const }
+  const stale = { state: 'thinking' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  const staleWait = { state: 'waiting_permission' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  assert.equal(
+    buildGraphLabel([fresh, stale, staleWait], 0, now),
+    'Agent graph: 3 agents, 1 running, 0 waiting for permission, 2 last known state, not confirmed',
+  )
+  // Without a clock the old counts are kept
+  assert.match(buildGraphLabel([fresh, stale]), /2 running/)
+  // And the outline summary carries it
+  const model = buildA11yModel(new Map([['s', agent({ id: 's', ...stale })]]), new Map(), [], new Map(), { now })
+  assert.match(model.summary, /0 running.*1 last known state/)
+})
+
+test('buildGraphLabel counts a stale idle agent as last known, like the top bar (#367)', () => {
+  const now = 1_700_000_000_000
+  const staleIdle = { state: 'idle' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  assert.match(buildGraphLabel([staleIdle], 0, now), /1 last known state/)
 })

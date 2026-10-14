@@ -1,16 +1,21 @@
 import type { ContextBreakdown } from '../../lib/agent-types'
+import { SCENE } from '../../lib/colors'
 import type { ConversationMessage } from './types'
 import { agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME, LABEL_LEN_TASK, LABEL_LEN_BUBBLE, MAX_BUBBLES } from './types'
-import type { MutableEventState } from './process-event'
+import { pushTimelineBlock, closeTimelineBlock, type MutableEventState, type ProcessEventContext } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
+import { windowCoveringUsage } from '../../lib/context-window'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
+import { readCompaction, compactionText } from '../../lib/compaction'
+import { recordCompaction } from '../../lib/waste'
 
 export function handleMessage(
   payload: Record<string, unknown>,
   currentTime: number,
   state: MutableEventState,
+  ctx: ProcessEventContext,
   sessionId: string = DEFAULT_SESSION_ID,
 ): void {
   const agentName = agentKeyOf(sessionId, idString(payload.agent))
@@ -51,13 +56,32 @@ export function handleMessage(
       }
     }
 
+    // Only an observed thinking block proves the agent thinks (#362). A prompt or an answer ends that
+    // block (and a past tool failure): the agent is then waiting for its next event, neutral, with its
+    // turn not over (idle between two steps, not at rest).
     if (msgAgent.state !== 'complete' && msgAgent.state !== 'tool_calling') {
-      if (role === 'user' || role === 'thinking' || role === 'assistant') {
+      if (role === 'thinking') {
         updates.state = 'thinking'
+      } else if (msgAgent.state === 'thinking' || msgAgent.state === 'error') {
+        updates.state = 'idle'
+        updates.awaitingNextEvent = true
       }
     }
     if (Object.keys(updates).length > 0) {
       state.agents.set(agentName, { ...msgAgent, ...updates })
+    }
+
+    if (msgAgent.state !== 'complete') {
+      const entry = state.timelineEntries.get(agentName)
+      if (entry) {
+        const lastBlock = entry.blocks[entry.blocks.length - 1]
+        const thinkingOpen = lastBlock !== undefined && lastBlock.type === 'thinking' && !lastBlock.endTime
+        if (role === 'thinking' && msgAgent.state !== 'tool_calling') {
+          if (!thinkingOpen) state.timelineEntries.set(agentName, pushTimelineBlock(entry, currentTime, { type: 'thinking', label: 'Thinking...', color: SCENE.thinking }, ctx))
+        } else if (role !== 'thinking' && thinkingOpen) {
+          state.timelineEntries.set(agentName, closeTimelineBlock(entry, currentTime, 'thinking'))
+        }
+      }
     }
   }
 
@@ -90,15 +114,37 @@ export function handleContextUpdate(
     return
   }
   if (agent) {
+    // A reported window is a fact; a window a reading overflowed was wrong, so the grown one is assumed (#364)
+    const coveredMax = windowCoveringUsage(agent.tokensMax, tokens ?? 0)
+    const tokensMax = tokensMaxOverride ?? coveredMax
+    const tokensMaxAssumed = tokensMaxOverride !== undefined ? false : coveredMax !== agent.tokensMax ? true : agent.tokensMaxAssumed
     state.agents.set(agentName, {
       ...agent,
       // An absolute figure replaces the running sum: gaps counted before it no longer apply
       ...(tokens !== null
         ? { tokensUsed: tokens, tokenStatus: 'available' as const, tokenGaps: 0, tokensEstimated: readTokenSource(payload.tokenSource) === 'estimated' }
         : {}),
-      tokensMax: tokensMaxOverride ?? agent.tokensMax,
+      tokensMax,
+      ...(tokensMaxAssumed !== undefined ? { tokensMaxAssumed } : {}),
       contextBreakdown: breakdown || agent.contextBreakdown,
-      state: agent.state === 'complete' ? 'complete' : 'thinking'
+      // A context reading says nothing about what the agent is doing: its state stays as it was (#362)
     })
   }
+}
+
+/**
+ * A context compaction (#232): one row in the agent's conversation at the time it happened. The agent's
+ * state and bubbles are left alone; the context gauge follows the context_update that comes with it.
+ */
+export function handleContextCompacted(
+  payload: Record<string, unknown>,
+  currentTime: number,
+  state: MutableEventState,
+  sessionId: string = DEFAULT_SESSION_ID,
+): void {
+  const agentName = agentKeyOf(sessionId, idString(payload.agent))
+  const compaction = readCompaction(payload)
+  appendBoundedConversation(state, agentName, { type: 'compaction', content: compactionText(compaction), timestamp: currentTime, compaction })
+  // What the agent read before is out of its context: reading it again is not waste (#368)
+  state.waste = recordCompaction(state.waste, agentName, state.wasteToken)
 }

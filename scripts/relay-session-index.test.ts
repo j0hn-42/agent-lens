@@ -28,7 +28,15 @@ let mode: 'ok' | 'newer' = 'ok'
 let opens = 0
 const wsDir = path.join(fakeHome, 'workspace')
 const open: http.ClientRequest[] = []
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+/** Polls `cond` until it holds (true) or `ms` elapse (false). Waits for what the relay does, never for a fixed time. */
+async function waitFor(cond: () => boolean, ms = 8000): Promise<boolean> {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    if (cond()) return true
+    await new Promise(r => setTimeout(r, 10))
+  }
+  return cond()
+}
 
 const opener: IndexOpener = () => {
   opens++
@@ -102,7 +110,7 @@ describe('relay with an optional session index', () => {
 
   it('adds the indexed sessions, as completed, with their declared parent', async () => {
     const c = await connectSSE()
-    await sleep(200)
+    assert.ok(await waitFor(() => sessionLists(c.text()).length >= 1), 'the session list arrives')
     const lists = sessionLists(c.text())
     assert.equal(lists.length, 1)
     const byId = new Map(lists[0].map(s => [s.id, s]))
@@ -113,7 +121,7 @@ describe('relay with an optional session index', () => {
 
   it('a scoped relay (no all-workspaces) leaves out the rows of other projects and rows naming no project', async () => {
     const c = await connectSSE()
-    await sleep(200)
+    assert.ok(await waitFor(() => sessionLists(c.text()).length >= 1), 'the session list arrives')
     const ids = sessionLists(c.text())[0].map(s => s.id).sort()
     assert.deepEqual(ids, ['idx-child', 'idx-parent'])
     const body = JSON.parse((await get('/status')).body)
@@ -133,7 +141,10 @@ describe('relay with an optional session index', () => {
     assert.equal(body.sessionIndex.status, 'degraded')
     assert.match(body.sessionIndex.message, /version/i)
     const c = await connectSSE()
-    await sleep(150)
+    // Nothing is announced, so there is no message to wait for: the client is registered, then a request on another
+    // connection returns (the stream was written to first) before looking at what the client received
+    assert.ok(await waitFor(() => relay.debugState().sseClients >= 1), 'the client is connected')
+    await get('/status')
     assert.equal(sessionLists(c.text()).length, 0, 'no session of the index, and no crash')
     mode = 'ok'
     assert.ok(opens > 0)

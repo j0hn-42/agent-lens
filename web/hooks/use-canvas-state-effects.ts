@@ -5,7 +5,7 @@ import {
   type VisualEffect,
   detectStateChanges as detectStateChangesPure,
   detectTeamChanges, createTeamPrev, type TeamPrev,
-  createFlashLimiter, enqueueAnnouncements, createAnnouncementQueue,
+  createFlashLimiter, enqueueAnnouncements, createAnnouncementQueue, hasSeveralSessions,
   type AnnouncementItem, type AnnouncementQueue,
 } from '@/components/agent-visualizer/canvas/index'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
@@ -61,7 +61,7 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
     transitions.push(...team.transitions)
 
     if (transitions.length > 0) {
-      const next = enqueueAnnouncements(announcementsRef.current, transitions)
+      const next = enqueueAnnouncements(announcementsRef.current, transitions, undefined, { multiSession: hasSeveralSessions(agents.values()) })
       if (next !== announcementsRef.current) {
         announcementsRef.current = next
         setAnnouncements(next.items)

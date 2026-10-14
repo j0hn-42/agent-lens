@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
-  sessionStatusKind, nextTabIndex, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
-  formatAgentCounts, connectionDisplay, buildAnnouncement, formatMissedEvents,
+  sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
+  formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
   agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
@@ -11,15 +11,6 @@ test('session status: unseen activity beats active, selected tab never shows new
   assert.equal(sessionStatusKind({ status: 'active' }, true, false), 'new-activity')
   assert.equal(sessionStatusKind({ status: 'active' }, true, true), 'active')
   assert.equal(sessionStatusKind({ status: 'completed' }, false, false), 'completed')
-})
-
-test('tab arrow navigation wraps and supports Home/End', () => {
-  assert.equal(nextTabIndex(2, 'ArrowRight', 3), 0)
-  assert.equal(nextTabIndex(0, 'ArrowLeft', 3), 2)
-  assert.equal(nextTabIndex(1, 'Home', 3), 0)
-  assert.equal(nextTabIndex(1, 'End', 3), 2)
-  assert.equal(nextTabIndex(1, 'a', 3), null)
-  assert.equal(nextTabIndex(0, 'ArrowRight', 0), null)
 })
 
 test('scrubber keyboard steps are clamped', () => {
@@ -48,6 +39,7 @@ test('connection badge: DEMO never shows as LIVE, connecting is distinct', () =>
   assert.equal(connectionDisplay('watching', true).label, 'DEMO')
   assert.equal(connectionDisplay('watching', false).label, 'LIVE')
   assert.equal(connectionDisplay('connected', false).label, 'CONNECTED')
+  assert.equal(connectionDisplay('connected', false).label, liveBadge('connected', false).label)
   assert.equal(connectionDisplay('connecting', false).label, 'CONNECTING')
   assert.equal(connectionDisplay('disconnected', false).label, 'OFFLINE')
 })
@@ -70,6 +62,22 @@ test('empty-state checklist reflects connection and sessions', () => {
   assert.match(down[0].detail ?? '', /:3001/)
   const up = emptyStateChecklist({ status: 'watching', sessionCount: 2 })
   assert.deepEqual(up.map(i => i.ok), [true, true, true])
+})
+
+test('empty-state checklist reports the Claude Code hooks state (#176)', () => {
+  const base = { status: 'watching' as const, sessionCount: 0 }
+  const find = (items: ReturnType<typeof emptyStateChecklist>) => items.find(i => i.id === 'hooks')
+  const ok = find(emptyStateChecklist({ ...base, hooksConfigured: true }))
+  assert.equal(ok?.label, 'Claude Code hooks configured')
+  assert.equal(ok?.ok, true)
+  assert.equal(ok?.detail, undefined)
+  const missingCli = find(emptyStateChecklist({ ...base, hooksConfigured: false }))
+  assert.equal(missingCli?.ok, false)
+  assert.match(missingCli?.detail ?? '', /pnpm run setup/)
+  const missingVsc = find(emptyStateChecklist({ ...base, hooksConfigured: false, isVSCode: true }))
+  assert.match(missingVsc?.detail ?? '', /Agent Lens: Configure Claude Code Hooks/)
+  // Unknown (old relay, Codex only): never a default tick
+  assert.equal(find(emptyStateChecklist(base)), undefined)
 })
 
 test('focus is restored only from inside the panel or from body', () => {
@@ -116,12 +124,46 @@ test('agent counts: an agent whose status is older than the freshness limit is n
     { state: 'idle', lastEventAt: old },
     { state: 'complete', lastEventAt: old },
   ]
-  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2 })
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2, idle: 0, error: 0 })
   assert.equal(formatAgentCounts(1, 1, 2), '4 agents: 1 active - 2 last known state - 1 done')
   assert.equal(formatAgentCounts(0, 0, 9), '9 agents: 0 active - 9 last known state - 0 done')
 })
 
 test('agent counts: without stale agents the text is unchanged; agents never heard from stay counted as before', () => {
   assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
-  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
+  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 0, done: 1, stale: 0, idle: 1, error: 0 })
+})
+
+test('empty-state checklist states the scope the relay really scans (#291)', () => {
+  const ws = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'workspace' }).find(i => i.id === 'workspace')
+  assert.equal(ws?.label, 'Workspace watched')
+  assert.match(ws?.detail ?? '', /this workspace only/i)
+  assert.match(ws?.detail ?? '', /All workspaces/)
+  const all = emptyStateChecklist({ status: 'connected', sessionCount: 0, scope: 'all' }).find(i => i.id === 'workspace')
+  assert.equal(all?.label, 'All workspaces watched')
+  assert.equal(all?.ok, true)
+  assert.equal(all?.detail, undefined)
+  // Scope unknown (extension, old relay): the previous wording, no claim
+  assert.equal(emptyStateChecklist({ status: 'connected', sessionCount: 0 }).find(i => i.id === 'workspace')?.label, 'Workspace watched')
+})
+
+test('the playback badge uses the same word as the top bar and only pulses while activity is watched (#367)', () => {
+  for (const status of ['watching', 'connected', 'connecting', 'disconnected'] as const) {
+    assert.equal(liveBadge(status, false).label, connectionDisplay(status, false).label)
+  }
+  assert.equal(liveBadge('connected', false).live, false)
+  assert.equal(liveBadge('watching', false).live, true)
+})
+
+test('agent counts: idle and error agents are not counted as active (#367)', () => {
+  const now = 1_000_000
+  const agents = [
+    { state: 'thinking', lastEventAt: now },
+    { state: 'idle', lastEventAt: now },
+    { state: 'error', lastEventAt: now },
+    { state: 'complete', lastEventAt: now },
+  ]
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 0, idle: 1, error: 1 })
+  assert.equal(formatAgentCounts(1, 1, 0, 1, 1), '4 agents: 1 active - 1 idle - 1 error - 1 done')
+  assert.equal(formatAgentCounts(2, 3), '5 agents: 2 active - 3 done')
 })

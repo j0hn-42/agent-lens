@@ -1,4 +1,4 @@
-import { USAGE_LABELS } from './ui-glossary'
+import { USAGE_LABELS, COST_LABELS } from './ui-glossary'
 import { formatTokens, formatCost } from './utils'
 
 /** How complete a total is: every part known, some parts known (lower bound), or nothing known. */
@@ -23,18 +23,6 @@ function unavailable(): UsageTotal {
 /** A finite, non-negative number is a value; anything else is absent. */
 export function isValue(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0
-}
-
-/** Sums values where null/undefined/invalid mean "absent": an absent part makes the total partial, never 0. */
-export function sumUsage(values: Iterable<number | null | undefined>, estimated = false): UsageTotal {
-  let sum = 0
-  let known = 0
-  let missing = 0
-  for (const v of values) {
-    if (isValue(v)) { sum += v; known++ } else missing++
-  }
-  if (known === 0) return unavailable()
-  return { value: sum, status: missing > 0 ? 'partial' : 'available', estimated }
 }
 
 /** Adds up already-qualified totals (e.g. one per agent). */
@@ -83,8 +71,14 @@ export function formatTokenUsage(usage: UsageTotal): string {
   return qualify(usage, usage.value === null ? '' : formatTokens(usage.value))
 }
 
+/** "~$2.10": a cost is always the context priced at a blended rate, an estimate even on reported tokens (#364). */
 export function formatCostUsage(usage: UsageTotal): string {
-  return qualify(usage, usage.value === null ? '' : formatCost(usage.value))
+  return qualify(usage, usage.value === null ? '' : `${COST_LABELS.mark}${formatCost(usage.value)}`)
+}
+
+/** "context cost estimate $2.10": the same figure in words, for assistive technology (no "~" to spell out). */
+export function spokenCostUsage(usage: UsageTotal): string {
+  return `${COST_LABELS.name} ${qualify(usage, usage.value === null ? '' : formatCost(usage.value))}`
 }
 
 /** A payload token figure: a finite non-negative number is a value, anything else is absent (null, never 0). */

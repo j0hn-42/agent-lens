@@ -4,10 +4,12 @@ import { useId } from 'react'
 import { POPUP, type ToolCallState, type ToolCallNode } from '@/lib/agent-types'
 import { COLORS, themed } from '@/lib/colors'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
+import { isShellTool, type ResultPill } from '@/lib/action-summary'
 import { TOOL_STATE_LABELS, toolEndWarning } from '@/lib/tool-lifecycle'
 import { USAGE_LABELS } from '@/lib/usage'
-import { ToolContentRenderer } from './tool-content-renderer'
+import { ToolContentRenderer, ResultPillView } from './tool-content-renderer'
 import { PanelHeader, DetailPopup } from './shared-ui'
+import { ToolWhySection, type ToolWhy } from './tool-why'
 import { AnsiText } from './transcript-message'
 import { parseAnsi } from '@/lib/ansi'
 
@@ -22,7 +24,10 @@ interface ToolDetailPopupProps {
     tokenSource?: ToolCallNode['tokenSource']
     endObserved?: boolean
     inputData?: Record<string, unknown>
+    resultPill?: ResultPill
   }
+  /** Reasoning observed before the call and, for a failure, its causal chain (absent = nothing to show) */
+  why?: ToolWhy
   position: { x: number; y: number }
   onClose: () => void
 }
@@ -35,13 +40,13 @@ const STATE_DISPLAY: Record<ToolCallState, { color: string; icon: string; label:
   expired: { color: COLORS.tool_calling, icon: '⧖', label: TOOL_STATE_LABELS.expired },
 }))
 
-export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProps) {
+export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopupProps) {
   const titleId = useId()
   const { color: stateColor, icon: stateIcon, label: stateLabel } = STATE_DISPLAY[tool.state] ?? STATE_DISPLAY.complete
   const warning = toolEndWarning(tool)
 
   return (
-    <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId}>
+    <DetailPopup position={position} width={POPUP.tool.width} estimatedHeight={POPUP.tool.estimatedHeight} onClose={onClose} titleId={titleId} sensitive>
       <PanelHeader onClose={onClose} titleId={titleId}>
         <span className="text-[11px]" style={{ color: stateColor }} aria-hidden="true">
           {stateIcon}
@@ -76,6 +81,9 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
         </div>
       )}
 
+      {/* What the output proves: set at ingestion only for a call whose success was observed */}
+      {tool.state === 'complete' && tool.endObserved !== false && <ResultPillView pill={tool.resultPill} />}
+
       {/* Result */}
       {tool.result && (
         <div
@@ -90,9 +98,11 @@ export function ToolDetailPopup({ tool, position, onClose }: ToolDetailPopupProp
           }}
         >
           <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
-          {tool.toolName === 'Bash' ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
+          {isShellTool(tool.toolName) ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}
+
+      {why && <ToolWhySection why={why} />}
 
       {/* Token cost */}
       {tool.state !== 'running' && (

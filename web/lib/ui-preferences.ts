@@ -4,9 +4,10 @@
  * Pure (no React, no direct `window` access) so it can be unit-tested with node:test.
  *
  * Not stored here on purpose:
- * - mute / hide-inactive / single-key shortcuts / show-finished-sessions already persist under their own
- *   keys (use-audio-effects, inactive-agents, shortcuts, SHOW_FINISHED_STORAGE_KEY in
- *   hooks/simulation/session-visibility.ts): reuse those, never duplicate them;
+ * - mute / show-finished-sessions still persist under their own keys (use-audio-effects,
+ *   SHOW_FINISHED_STORAGE_KEY in hooks/simulation/session-visibility.ts): reuse those, never duplicate them.
+ *   hide-inactive and single-key shortcuts live here since #219; their former keys are read once as a
+ *   migration (see LEGACY_BOOLEAN_PREFS);
  * - playback speed: it is locked outside review mode, restoring it would be a trap.
  *
  * Trust model: whatever sits in localStorage may be hand-edited, written by an older/newer build or
@@ -14,6 +15,9 @@
  * of its key (booleans must be booleans, numbers finite and clamped, strings bounded), and parsing
  * never throws.
  */
+
+import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from './inactive-agents'
+import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from './shortcuts'
 
 /** localStorage key of the preference blob */
 export const UI_PREFS_STORAGE_KEY = 'agent-lens:ui-prefs'
@@ -33,6 +37,10 @@ export interface UiPrefs {
   showFiles: boolean
   showConversation: boolean
   showCostOverlay: boolean
+  /** 'Hide inactive agents' (#219): on by default */
+  hideInactive: boolean
+  /** 'Enable single-key shortcuts' (WCAG 2.1.4, #219): on by default */
+  singleKeyShortcuts: boolean
   /** Last selected session tab, restored with restoreSelectedSessionId (null = none) */
   lastSelectedSessionId: string | null
   /** Width in px of the right dock column */
@@ -40,9 +48,11 @@ export interface UiPrefs {
   /** Session list filter (#125): projectId to keep (null = all projects) */
   sessionFilterProject: string | null
   /** Session list filter (#125): runtime to keep (null = both) */
-  sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | null
+  sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | null
   /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
   sessionFilterBranch: string | null
+  /** Discovery scope last chosen (#291): re-applied to the relay when it differs; null = never chosen, the relay's own start-up scope stands */
+  relayScope: 'workspace' | 'all' | null
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -54,11 +64,14 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   showFiles: false,
   showConversation: false,
   showCostOverlay: false,
+  hideInactive: true,
+  singleKeyShortcuts: true,
   lastSelectedSessionId: null,
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
   sessionFilterProject: null,
   sessionFilterRuntime: null,
   sessionFilterBranch: null,
+  relayScope: null,
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -69,7 +82,9 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   const fallback = DEFAULT_UI_PREFS[key]
   switch (key) {
     case 'sessionFilterRuntime':
-      return (value === 'claude' || value === 'codex' || value === 'copilot' ? value : null) as UiPrefs[K]
+      return (value === 'claude' || value === 'codex' || value === 'copilot' || value === 'pi' || value === 'gemini' ? value : null) as UiPrefs[K]
+    case 'relayScope':
+      return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
     case 'sessionFilterBranch':
     case 'sessionFilterProject':
     case 'lastSelectedSessionId': {
@@ -95,23 +110,59 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
  * `{ v: 1, prefs: {...} }` and the unversioned flat object `{ showHexGrid: false, ... }` (v0).
  * A newer version (v > UI_PREFS_VERSION) is ignored entirely: its meaning is unknown.
  */
+function prefsSource(raw: unknown): Record<string, unknown> | null {
+  if (!isPlainObject(raw)) return null
+  if (!Object.prototype.hasOwnProperty.call(raw, 'v')) return raw
+  const v = raw.v
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > UI_PREFS_VERSION) return null
+  const inner = Object.prototype.hasOwnProperty.call(raw, 'prefs') ? raw.prefs : undefined
+  return isPlainObject(inner) ? inner : null
+}
+
 export function sanitizePrefs(raw: unknown): UiPrefs {
   const out: UiPrefs = { ...DEFAULT_UI_PREFS }
-  if (!isPlainObject(raw)) return out
-  let source: Record<string, unknown> = raw
-  if (Object.prototype.hasOwnProperty.call(raw, 'v')) {
-    const v = raw.v
-    if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > UI_PREFS_VERSION) return out
-    const inner = Object.prototype.hasOwnProperty.call(raw, 'prefs') ? raw.prefs : undefined
-    if (!isPlainObject(inner)) return out
-    source = inner
-  }
+  const source = prefsSource(raw)
+  if (!source) return out
   const target = out as unknown as Record<string, unknown>
   for (const key of UI_PREF_KEYS) {
     // Own properties only: `__proto__`/`constructor` payloads never reach the result
     if (Object.prototype.hasOwnProperty.call(source, key)) target[key] = sanitizePref(key, source[key])
   }
   return out
+}
+
+/**
+ * Former standalone keys of preferences now held by the blob (#219). Read only when the blob has no
+ * valid value for the field, with the semantics those keys always had (only the string 'false' disables).
+ */
+const LEGACY_BOOLEAN_PREFS: ReadonlyArray<{ pref: 'hideInactive' | 'singleKeyShortcuts'; storageKey: string; parse: (raw: string | null) => boolean }> = [
+  { pref: 'hideInactive', storageKey: HIDE_INACTIVE_STORAGE_KEY, parse: parseHideInactive },
+  { pref: 'singleKeyShortcuts', storageKey: SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parse: parseSingleKeyPreference },
+]
+
+/** Does the stored text carry a valid boolean for `key`? (same envelope rules as sanitizePrefs) */
+function storedHasBoolean(text: string | null | undefined, key: UiPrefKey): boolean {
+  if (typeof text !== 'string' || text.length === 0 || text.length > 100_000) return false
+  try {
+    const source = prefsSource(JSON.parse(text))
+    return source !== null && Object.prototype.hasOwnProperty.call(source, key) && typeof source[key] === 'boolean'
+  } catch {
+    return false
+  }
+}
+
+/** Parse the stored blob and fill the fields it lacks from the legacy keys. Never throws on legacy reads. */
+function loadPrefs(storage: StorageLike, key: string): UiPrefs {
+  return withLegacy(storage, storage.getItem(key))
+}
+
+function withLegacy(storage: StorageLike, text: string | null | undefined): UiPrefs {
+  const prefs = parsePrefs(text)
+  for (const legacy of LEGACY_BOOLEAN_PREFS) {
+    if (storedHasBoolean(text, legacy.pref)) continue
+    try { prefs[legacy.pref] = legacy.parse(storage.getItem(legacy.storageKey)) } catch { /* storage unavailable: keep the default */ }
+  }
+  return prefs
 }
 
 /** Parse the stored text; never throws, returns defaults for null/garbage */
@@ -289,7 +340,7 @@ export function createPrefsStore(opts: PrefsStoreOptions): PrefsStore {
   let removeOnFlush = false
 
   const current = (): UiPrefs => {
-    if (!prefs) prefs = parsePrefs(opts.storage.getItem(key))
+    if (!prefs) prefs = loadPrefs(opts.storage, key)
     return prefs
   }
   const emit = () => { for (const l of Array.from(listeners)) l() }
@@ -305,7 +356,13 @@ export function createPrefsStore(opts: PrefsStoreOptions): PrefsStore {
   }
   function flush() {
     if (cancelPending) { cancelPending(); cancelPending = null }
-    if (removeOnFlush) { removeOnFlush = false; opts.storage.removeItem(key); return }
+    if (removeOnFlush) {
+      removeOnFlush = false
+      opts.storage.removeItem(key)
+      // Forget the former keys too, or the next load would migrate them back
+      for (const legacy of LEGACY_BOOLEAN_PREFS) { try { opts.storage.removeItem(legacy.storageKey) } catch { /* ignore */ } }
+      return
+    }
     if (prefs) opts.storage.setItem(key, serializePrefs(prefs))
   }
 
@@ -328,7 +385,7 @@ export function createPrefsStore(opts: PrefsStoreOptions): PrefsStore {
       // The other tab's state wins: drop our not-yet-written change instead of overwriting it
       if (cancelPending) { cancelPending(); cancelPending = null }
       removeOnFlush = false
-      replace(parsePrefs(newValue))
+      replace(withLegacy(opts.storage, newValue))
     },
     hasPendingWrite: () => cancelPending !== null,
   }

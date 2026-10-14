@@ -13,6 +13,7 @@
  * A spawn whose parent was never seen becomes a detached "orphan" node (`orphan: true`, no
  * `parent`): the parent is never guessed.
  */
+import { CONTROL_TEXT, CONTROL_ALL } from './control-chars'
 import type { AgentEvent, AgentEventType, NormalizationStats } from './protocol'
 import {
   NORM_TEXT_MAX, NORM_ID_MAX, NORM_NUM_MAX, NORM_EVENT_TIME_MAX_S, NORM_TS_MAX_MS,
@@ -28,6 +29,7 @@ export const AGENT_EVENT_TYPES: readonly AgentEventType[] = [
   'agent_spawn', 'agent_complete', 'agent_idle', 'message', 'context_update', 'model_detected',
   'tool_call_start', 'tool_call_end', 'subagent_dispatch', 'subagent_return', 'permission_requested',
   'error', 'agent_link', 'message_sent', 'team_info', 'agent_activity', 'normalization_stats',
+  'context_compacted',
 ]
 
 /** Keys that must never be copied from untrusted data (prototype pollution). */
@@ -45,7 +47,7 @@ const ID_KEYS: ReadonlySet<string> = new Set([
   'name', 'agent', 'parent', 'child', 'from', 'to', 'tool', 'toolUseId', 'linkId', 'sessionId',
   'label', 'teamName', 'model', 'subagentType', 'memberSessionId', 'leadSessionId', 'leadName',
   'agentType', 'backendType', 'kind', 'role', 'activity', 'color',
-  'requestedModel', 'modelSource', 'effort',
+  'requestedModel', 'modelSource', 'effort', 'trigger',
 ])
 
 export function createStats(): NormalizationStats {
@@ -62,12 +64,6 @@ function bump(stats: NormalizationStats | undefined, key: keyof NormalizationSta
 }
 
 // ─── Leaf helpers ────────────────────────────────────────────────────────────
-
-// C0 controls except TAB / LF / CR, DEL, and the bidi/line-separator hazards.
-// eslint-disable-next-line no-control-regex
-const CONTROL_TEXT = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u2028\u2029]/g
-// eslint-disable-next-line no-control-regex
-const CONTROL_ALL = /[\u0000-\u001F\u007F\u2028\u2029]/g
 
 /**
  * Bounded string: control characters stripped, length capped at `max`. Non-strings give
@@ -355,7 +351,8 @@ export class SessionNormalizer {
     this.trailingTimer = setTimeout(() => {
       this.trailingTimer = null
       const event = this.statsEvent(true)
-      if (event) this.onTrailing?.(event)
+      // Called from a timer: a throwing listener must not end the relay process (#206, #238)
+      if (event) { try { this.onTrailing?.(event) } catch { /* the stats event is informative only */ } }
     }, wait)
     this.trailingTimer.unref?.()
   }
