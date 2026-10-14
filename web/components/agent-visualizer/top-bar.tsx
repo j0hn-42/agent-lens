@@ -185,6 +185,8 @@ export interface TopBarProps {
   activeAgentCount: number
   /** Agents whose status is older than the freshness limit (not counted as active) */
   staleAgentCount?: number
+  idleAgentCount?: number
+  errorAgentCount?: number
   doneAgentCount: number
   totalTokens: number
   /** Qualified token total (partial = lower bound, estimated = badge); overrides `totalTokens` when given */
@@ -234,7 +236,7 @@ export const TopBar = memo(function TopBar({
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
   isVSCode, connectionStatus, isDemo = false,
-  activeAgentCount, staleAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
+  activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
@@ -344,9 +346,9 @@ export const TopBar = memo(function TopBar({
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+          <span>{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount)}</span>
+          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
         )}
         <span>
           {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens'}
