@@ -223,7 +223,7 @@ export function healthText(v: HealthVerdict): string {
     case 'incomplete': {
       const parts = [v.comparable < v.calls ? `${v.comparable} of ${plural(v.calls, 'tool call')} comparable` : plural(v.calls, 'tool call')]
       if (v.dropped > 0) parts.push('earlier history dropped')
-      if (v.lostEvents > 0) parts.push(`at least ${plural(v.lostEvents, 'earlier event')} not replayed by the relay`)
+      if (v.lostEvents > 0) parts.push(`at least ${plural(v.lostEvents, 'earlier event')} of this session not replayed by the relay`)
       return `No loop in the observed part (${parts.join('; ')})`
     }
   }
