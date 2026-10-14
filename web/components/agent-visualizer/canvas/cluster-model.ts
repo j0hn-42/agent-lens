@@ -8,7 +8,7 @@
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { totalCostUsage } from '../../../lib/cost'
-import { formatCostUsage } from '../../../lib/usage'
+import { formatCostUsage, spokenCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
 import { groupByPhase } from '../../../lib/phase-groups'
@@ -57,7 +57,10 @@ export interface Cluster {
   statusText: string
   /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
   cost: number | null
+  /** "~$0.12" on the halo label: a context cost estimate (#364) */
   costText: string
+  /** "context cost estimate $0.12": the same figure in words, for the announcement */
+  costSpoken: string
 }
 
 /** Session id of events that carry none (matches DEFAULT_SESSION_ID of the simulation) */
@@ -264,6 +267,7 @@ export function computeClusters(
       statusText: STATUS_TEXT[status],
       cost: costUsage.value,
       costText: formatCostUsage(costUsage),
+      costSpoken: spokenCostUsage(costUsage),
     })
   }
   return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -299,12 +303,12 @@ export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title'
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
-export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costText'>): string {
+export function clusterAnnouncement(c: Pick<Cluster, 'kind' | 'teamKind' | 'title' | 'memberIds' | 'runtime' | 'workspace' | 'projectName' | 'statusText' | 'costSpoken'>): string {
   const n = c.memberIds.length
   const parts = [`${clusterNoun(c)} ${c.title}`, `${n} ${n === 1 ? 'agent' : 'agents'}`, c.runtime]
   if (c.projectName) parts.push(`project ${c.projectName}`)
   if (c.workspace) parts.push(`workspace ${c.workspace}`)
-  parts.push(c.statusText, `cost ${c.costText}`)
+  parts.push(c.statusText, c.costSpoken)
   return parts.join(', ')
 }
 

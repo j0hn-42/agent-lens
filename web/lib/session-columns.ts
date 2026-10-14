@@ -10,6 +10,7 @@ import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './act
 import { isPseudoModel } from './model-provenance'
 import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
 import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatModelName, formatTokens } from './utils'
 import { formatRelativeTime } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -112,8 +113,9 @@ export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {
   if (!total || total.known === 0) return emptyCell('cost unknown')
   const money = formatCost(total.cost)
-  const mark = `${total.complete ? '' : '≥'}${total.estimated ? '~' : ''}`
-  const words = [`${money} cost`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
+  // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
+  const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
+  const words = [`${money} ${COST_LABELS.name}`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
   return { text: `${mark}${money}`, label: words.filter(Boolean).join(' '), empty: false }
 }
 

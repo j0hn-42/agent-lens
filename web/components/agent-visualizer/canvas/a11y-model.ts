@@ -8,7 +8,7 @@ import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { agentCostUsage } from '../../../lib/cost'
-import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
 import { describeModel } from '../../../lib/model-provenance'
@@ -151,6 +151,7 @@ export interface A11yAgentItem {
   runtime: string
   /** "12k / 200k tokens" */
   tokens: string
+  /** "context cost estimate $0.12" (#364) */
   cost: string
   toolCalls: number
   isMain: boolean
@@ -334,7 +335,7 @@ export function buildA11yModel(
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
       tokens: tokenSummary(a),
-      cost: formatCostUsage(agentCostUsage(a)),
+      cost: spokenCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,
       isMain: a.isMain,
       parentId: a.parentId,

@@ -9,7 +9,11 @@
  */
 import { formatAttention } from './attention'
 import { formatCostUsage, type UsageTotal } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost } from './utils'
+
+/** "Context cost estimate": the cost message names what the figure is (#364) */
+const COST_NAME_CAP = COST_LABELS.name[0].toUpperCase() + COST_LABELS.name.slice(1)
 
 /** localStorage key of the rules (per browser; the master opt-in keeps its own key in use-attention-alerts) */
 export const NOTIFY_RULES_STORAGE_KEY = 'agent-lens:notify-rules'
@@ -125,7 +129,7 @@ export function evaluateTriggers(prev: NotifySnapshot | null, cur: NotifySnapsho
       items.push({
         trigger: 'cost',
         title: NOTIFY_TITLE,
-        body: `Cost reached ${formatCostUsage(cur.cost)} (threshold ${formatCost(rules.costThresholdUsd)})`,
+        body: `${COST_NAME_CAP} reached ${formatCostUsage(cur.cost)} (threshold ${formatCost(rules.costThresholdUsd)})`,
       })
     }
   }

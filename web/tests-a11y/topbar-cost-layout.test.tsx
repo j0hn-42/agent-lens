@@ -7,6 +7,7 @@ import { render, cleanup } from '@testing-library/react'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { costPanelTop, costHeaderWraps } from '@/components/agent-visualizer/canvas/draw-cost'
 import { COST_PANEL } from '@/lib/canvas-constants'
+import { COST_LABELS } from '@/lib/ui-glossary'
 
 afterEach(() => {
   cleanup()
@@ -29,7 +30,7 @@ test('a partial estimated token total and a partial estimated cost are separated
   const { container } = render(<TopBar {...base} tokenUsage={partial} costUsage={cost} unattributedCost={0.03} />)
   const text = container.textContent ?? ''
   assert.doesNotMatch(text, /estimated\s*at least/, 'no "estimated" glued to the next "at least"')
-  assert.match(text, /tokens\s*·\s*at least/)
+  assert.match(text, /tokens in context\s*·\s*at least/)
 })
 
 test('cost panel top follows the published top bar height', () => {
@@ -47,4 +48,16 @@ test('cost panel header puts tokens on a second line when both do not fit side b
   assert.equal(costHeaderWraps(60, 60), false)
   // « $0.069 estimated » + « 11k estimated tokens » dépassaient les 232 px du panneau
   assert.equal(costHeaderWraps(114, 126), true)
+})
+
+test('the top bar cost is a context cost estimate: marked "~", named in words, method in its tooltip (#364)', () => {
+  const cost = { value: 0.312, status: 'available', estimated: false } as const
+  const tokens = { value: 33000, status: 'available', estimated: false } as const
+  const { getByTestId, container } = render(<TopBar {...base} tokenUsage={tokens} costUsage={cost} />)
+  const el = getByTestId('topbar-cost')
+  assert.equal(el.getAttribute('title'), COST_LABELS.method)
+  assert.match(el.textContent ?? '', /~\$0\.312/)
+  assert.match(el.querySelector('.sr-only')?.textContent ?? '', new RegExp(`${COST_LABELS.name} \\$0\\.312`))
+  // The token total adds up what each context holds now, not what was consumed
+  assert.match(container.textContent ?? '', /33k tokens in context/)
 })

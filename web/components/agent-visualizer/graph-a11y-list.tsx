@@ -119,7 +119,7 @@ export function GraphA11yList({
         {agent.teamName ? (agent.teamKind === 'workflow' ? `Agent in workflow ${agent.teamName}. ` : `Teammate in team ${agent.teamName}. `) : ''}
         {agent.phase ? `Phase ${agent.phase}. ` : ''}
         {agent.sessionLabel ? `Session ${agent.sessionLabel}. ` : ''}
-        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. Cost {agent.cost}. {agent.toolCalls} tool calls.
+        {agent.relation}. {agent.runtime}, {agent.model}. {agent.tokens}. {agent.cost}. {agent.toolCalls} tool calls.
       </p>
       {agent.childNames.length > 0 && (
         <p>Parent of {agent.childNames.join(', ')}.</p>

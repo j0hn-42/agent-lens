@@ -1,4 +1,4 @@
-import { USAGE_LABELS } from './ui-glossary'
+import { USAGE_LABELS, COST_LABELS } from './ui-glossary'
 import { formatTokens, formatCost } from './utils'
 
 /** How complete a total is: every part known, some parts known (lower bound), or nothing known. */
@@ -71,8 +71,14 @@ export function formatTokenUsage(usage: UsageTotal): string {
   return qualify(usage, usage.value === null ? '' : formatTokens(usage.value))
 }
 
+/** "~$2.10": a cost is always the context priced at a blended rate, an estimate even on reported tokens (#364). */
 export function formatCostUsage(usage: UsageTotal): string {
-  return qualify(usage, usage.value === null ? '' : formatCost(usage.value))
+  return qualify(usage, usage.value === null ? '' : `${COST_LABELS.mark}${formatCost(usage.value)}`)
+}
+
+/** "context cost estimate $2.10": the same figure in words, for assistive technology (no "~" to spell out). */
+export function spokenCostUsage(usage: UsageTotal): string {
+  return `${COST_LABELS.name} ${qualify(usage, usage.value === null ? '' : formatCost(usage.value))}`
 }
 
 /** A payload token figure: a finite non-negative number is a value, anything else is absent (null, never 0). */
