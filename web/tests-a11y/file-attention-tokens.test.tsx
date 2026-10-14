@@ -66,3 +66,35 @@ test('reads and edits observed to succeed are counted apart from the calls start
   assert.match(text('clean.ts'), /2 reads/)
   assert.doesNotMatch(text('clean.ts'), /succeeded/)
 })
+
+test('a file with no figure at all says "not reported" on screen, not a bare symbol', () => {
+  const none: FileAttention = { ...base, path: '/r/none.ts', totalTokens: 0, tokensPartial: true }
+  const { container } = render(<FileAttentionPanel visible fileAttention={new Map([[none.path, none]])} onClose={noop} />)
+  const row = Array.from(container.querySelectorAll('li')).find(li => (li.textContent ?? '').includes('none.ts'))!
+  const visible = Array.from(row.querySelectorAll('span')).filter(s => !s.classList.contains('sr-only') && s.children.length === 0)
+    .map(s => s.textContent).join(' ')
+  assert.match(visible, /not reported/)
+  assert.doesNotMatch(visible, /\?/)
+})
+
+test('the spoken figure of a row carries its unit', () => {
+  const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} />)
+  const spoken = Array.from(container.querySelectorAll('.sr-only')).map(s => s.textContent ?? '')
+  assert.ok(spoken.some(t => /12k estimated tokens/.test(t)), JSON.stringify(spoken))
+})
+
+test('the counters row wraps instead of overflowing a narrow panel', () => {
+  const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} />)
+  const reads = Array.from(container.querySelectorAll('li span')).find(s => /^\d+ reads?/.test(s.textContent ?? ''))!
+  assert.ok(reads.parentElement!.classList.contains('flex-wrap'))
+})
+
+test('heavy, medium and light files are drawn in three distinct colours', () => {
+  const mk = (name: string, totalTokens: number): FileAttention => ({ ...base, path: `/r/${name}.ts`, totalTokens })
+  const heat = new Map([mk('heavy', 1000), mk('medium', 500), mk('light', 100)].map(f => [f.path, f]))
+  const { container } = render(<FileAttentionPanel visible fileAttention={heat} onClose={noop} />)
+  const colorOf = (name: string) => Array.from(container.querySelectorAll('li span'))
+    .find(s => s.textContent === `/r/${name}.ts`)?.getAttribute('style')
+  const colors = new Set(['heavy', 'medium', 'light'].map(colorOf))
+  assert.equal(colors.size, 3, JSON.stringify([...colors]))
+})

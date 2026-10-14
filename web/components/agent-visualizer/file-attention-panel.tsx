@@ -122,7 +122,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             const heatRatio = file.totalTokens / maxTokens
             // A heavy file is not a failure: never the error red
             const heatColor = heatRatio > 0.7 ? COLORS.tool :
-              heatRatio > 0.4 ? COLORS.filePathActive :
+              heatRatio > 0.4 ? COLORS.holoBright :
                 COLORS.holoBase
             const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
@@ -139,11 +139,13 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                   {displayPath}
                 </span>
                 <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-                  {tokenSpoken === null ? '—' : (
+                  {tokenSpoken === null ? '—' : hasTokens ? (
                     <>
-                      <span aria-hidden="true">{hasTokens ? `${tokenMark}${formatTokens(file.totalTokens)}` : '?'}</span>
-                      <span className="sr-only">{hasTokens ? tokenSpoken : tokenLabel}</span>
+                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens)}`}</span>
+                      <span className="sr-only">{tokenLabel}</span>
                     </>
+                  ) : (
+                    <><span className="sr-only">tokens </span><span>not reported</span></>
                   )}
                 </span>
               </>
@@ -180,7 +182,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 </div>
 
                 {/* Stats row */}
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
                   {file.reads > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
                       {file.reads} read{file.reads > 1 ? 's' : ''}{succeededNote(file.reads, file.readers)}
