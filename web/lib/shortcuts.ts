@@ -42,7 +42,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
   { key: 'Ctrl+K', display: 'Ctrl+K / Cmd+K', description: 'Open the command palette: actions, panels, sessions and agents', group: 'General', singleKey: false },
   { key: 'Escape', display: 'Esc', description: 'Close the most recently opened panel, then clear the selection', group: 'General', singleKey: false },
-  { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: false },
+  { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: true },
   // Graph navigation, active while the graph has focus (not subject to the single-key preference).
   // `key` is an identifier here: the real keys are in `handles` (kept in sync with canvas/keyboard-nav.ts by a test).
   { key: 'graph:step', display: 'Arrow keys', description: 'Move between nodes; Right opens a folded branch, Left folds it or goes to the parent', group: 'Graph', singleKey: false, handles: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] },

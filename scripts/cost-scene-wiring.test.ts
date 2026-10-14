@@ -7,7 +7,7 @@ import { computeClusters } from '../web/components/agent-visualizer/canvas/clust
 import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-model'
 import { drawCostSummaryPanel } from '../web/components/agent-visualizer/canvas/draw-cost'
 import { sessionUsage } from '../web/lib/attribution'
-import { formatCostUsage } from '../web/lib/usage'
+import { formatCostUsage, spokenCostUsage } from '../web/lib/usage'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const mk = (id: string, parentId: string | null, tokensUsed: number): any => ({
@@ -60,7 +60,7 @@ test('on a collapsed scene, halo cost, DOM mirror and Costs panel all equal the 
 
 test('the DOM mirror cluster text carries the whole-simulation cost', () => {
   const scene = sceneAgents(sim.agents, false, [], none, null, createCollapseMemory(), sim)
-  const expected = formatCostUsage(sessionUsage(agents.values(), []).cost)
+  const expected = spokenCostUsage(sessionUsage(agents.values(), []).cost)
   const withScope = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, new Map(), { costAgents: costScope(sim).agents.values() })
   const without = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, new Map())
   const texts = (m: typeof withScope) => m.clusters.map(c => c.text).join('|')

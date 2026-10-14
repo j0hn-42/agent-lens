@@ -46,6 +46,22 @@ export function lifecycleTags(l: SessionLifecycleEvent): Pick<SessionInfo, 'team
   }
 }
 
+/**
+ * The session announced by a 'started' lifecycle (#365). When the watcher lists the session, its own times are
+ * kept (start recorded by the transcript, last write of the file); `now` only stands in for a session it does
+ * not list.
+ */
+export function startedSessionInfo(lifecycle: SessionLifecycleEvent, listed: SessionInfo | undefined, now: number): SessionInfo {
+  const times = listed
+    ? {
+      startTime: listed.startTime, lastActivityTime: listed.lastActivityTime,
+      ...(listed.recordedStartTime !== undefined ? { recordedStartTime: listed.recordedStartTime } : {}),
+      ...(listed.startTimeWatched ? { startTimeWatched: true } : {}),
+    }
+    : { startTime: now, lastActivityTime: now, startTimeWatched: true }
+  return { id: lifecycle.sessionId, label: lifecycle.label, status: 'active', ...times, ...lifecycleTags(lifecycle) }
+}
+
 /** Interface every runtime's watcher implements. Uses portable typed-event
  *  types (not vscode.Event) so watchers can run in the relay/CLI too. */
 export interface AgentSessionWatcher extends TypedDisposable {
@@ -118,17 +134,8 @@ export function wireWatcherToPanel(
     const panel = VisualizerPanel.getCurrent()
     if (!panel) return
     if (lifecycle.type === 'started') {
-      panel.postMessage({
-        type: 'session-started',
-        session: {
-          id: lifecycle.sessionId,
-          label: lifecycle.label,
-          status: 'active',
-          startTime: Date.now(),
-          lastActivityTime: Date.now(),
-          ...lifecycleTags(lifecycle),
-        },
-      })
+      const listed = watcher.getActiveSessions().find(s => s.id === lifecycle.sessionId)
+      panel.postMessage({ type: 'session-started', session: startedSessionInfo(lifecycle, listed, Date.now()) })
     } else if (lifecycle.type === 'updated') {
       panel.postMessage({
         type: 'session-updated', sessionId: lifecycle.sessionId, label: lifecycle.label,

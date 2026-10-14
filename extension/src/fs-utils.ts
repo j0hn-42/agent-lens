@@ -217,6 +217,23 @@ export function listSubagentTranscripts(dir: string): string[] {
 }
 
 /**
+ * When a session was last written: the newest mtime of its transcript and of its subagent transcripts
+ * (`<dir of the transcript>/<session id>/subagents`), at most now (a future mtime proves no activity).
+ * Symlinked subagent files are ignored, as everywhere else. `fallback` when the transcript cannot be stat'ed.
+ */
+export function newestSessionMtime(filePath: string, sessionId: string, fallback = Date.now()): number {
+  let newest: number
+  try { newest = fs.statSync(filePath).mtimeMs } catch { return fallback }
+  for (const sub of listSubagentTranscripts(path.join(path.dirname(filePath), sessionId, 'subagents'))) {
+    try {
+      const st = fs.lstatSync(sub)
+      if (st.isFile() && st.mtimeMs > newest) newest = st.mtimeMs
+    } catch { /* removed meanwhile */ }
+  }
+  return Math.min(newest, Date.now())
+}
+
+/**
  * Read a small regular file defensively: lstat (symlinks are refused), size cap, optional
  * containment check on the real path (so a symlinked parent directory cannot escape `rootDir`),
  * O_NOFOLLOW where available. Returns the text, or undefined for anything unexpected.
