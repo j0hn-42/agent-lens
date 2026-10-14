@@ -28,8 +28,8 @@ function makeDb(): { file: string; db: Db } {
   db.exec("INSERT INTO message VALUES ('m1', 's1', 1, 1, '{}')")
   return { file, db }
 }
-const open = (file: string): OpenCodeDb => {
-  const r = openOpenCodeDb(file)
+const open = (file: string, clock?: () => number): OpenCodeDb => {
+  const r = openOpenCodeDb(file, undefined, clock)
   assert.equal(r.status, 'ok')
   if (r.status !== 'ok') throw new Error('unreachable')
   return r.db
@@ -113,15 +113,67 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
 
   it('a part updated within the same millisecond as the last read is read again', () => {
     const { file, db } = makeDb()
-    const t = Date.now()
+    const t = 1_700_000_000_000
     db.exec(part('p1', t, '{"state":"running"}'))
-    const r = open(file)
+    const r = open(file, () => t + 100)
     const first = r.poll(EMPTY_OPENCODE_CURSORS)
     assert.match(first.parts[0].data, /running/)
     db.exec(`UPDATE part SET data = '{"state":"completed"}' WHERE id = 'p1'`)       // same time_updated
     const second = r.poll(first.cursors)
     assert.deepEqual(second.parts.map(x => x.id), ['p1'], 'too recent to be marked as read')
     assert.match(second.parts[0].data, /completed/)
+    assert.equal(second.truncated, false, 'waiting for the row to settle is not "more rows waiting"')
+    assert.equal(second.settling, true)
+    r.close(); db.close()
+  })
+
+  it('walks 8000 rows of one millisecond with a small limit: each once, the later row reached', () => {
+    const { file, db } = makeDb()
+    db.exec('BEGIN')
+    for (let i = 0; i < 8000; i++) db.exec(`INSERT INTO part VALUES ('p' || printf('%05d', ${i}), 'm1', 's1', 1, 100, '{}')`)
+    db.exec('COMMIT')
+    db.exec(part('zlater', 200))
+    const r = open(file)
+    const ids = drain(r, 500, EMPTY_OPENCODE_CURSORS, 60)
+    assert.equal(ids.length, 8001)
+    assert.equal(new Set(ids).size, 8001)
+    assert.equal(ids[ids.length - 1], 'zlater')
+    r.close(); db.close()
+  })
+
+  it('an id with a semicolon or a quote cannot block the reader', () => {
+    const { file, db } = makeDb()
+    db.exec(part('p;1', 100)); db.exec(part("p''2", 100)); db.exec(part('p3', 100)); db.exec(part('p4', 300))
+    const r = open(file)
+    const p1 = r.poll(EMPTY_OPENCODE_CURSORS, 2)
+    assert.equal(p1.error, undefined)
+    const rest = drain(r, 2, p1.cursors)
+    assert.deepEqual([...p1.parts.map(x => x.id), ...rest].sort(), ["p'2", 'p3', 'p4', 'p;1'])
+    const hostile = r.poll({ ...EMPTY_OPENCODE_CURSORS, part: { time: 100, seen: [], after: "x';--" } })
+    assert.equal(hostile.error, undefined)
+    r.close(); db.close()
+  })
+
+  it('a page of rows not settled yet is not reported as more rows waiting', () => {
+    const { file, db } = makeDb()
+    const t = 1_700_000_000_000
+    for (let i = 0; i < 20; i++) db.exec(part(`q${String(i).padStart(2, '0')}`, t))
+    const r = open(file, () => t + 50)
+    const p = r.poll(EMPTY_OPENCODE_CURSORS, 5)
+    assert.equal(p.truncated, false)
+    assert.equal(p.settling, true)
+    assert.equal(p.cursors.part.time, 0)
+    r.close(); db.close()
+  })
+
+  it('rows dated an hour ahead are not read and do not keep the caller polling hot', () => {
+    const { file, db } = makeDb()
+    const t = 1_700_000_000_000
+    for (let i = 0; i < 20; i++) db.exec(part(`f${String(i).padStart(2, '0')}`, t + 3600_000))
+    const r = open(file, () => t)
+    const p = r.poll(EMPTY_OPENCODE_CURSORS, 5)
+    assert.equal(p.parts.length, 0)
+    assert.equal(p.truncated, false)
     r.close(); db.close()
   })
 })
@@ -133,7 +185,7 @@ describe('resolveOpenCodeDbPath hardening', () => {
     for (const v of ['.', 'x/..', './']) assert.equal(resolve({ OPENCODE_DB: v }).kind, 'unavailable', v)
   })
   it('refuses UNC and device paths on Windows (no network access)', () => {
-    for (const v of ['\\\\host\\share\\o.db', '//host/share/o.db', '\\\\?\\C:\\o.db']) {
+    for (const v of ['\\\\host\\share\\o.db', '//host/share/o.db', '\\\\?\\C:\\o.db', '\\??\\UNC\\host\\share\\o.db']) {
       assert.equal(resolve({}, 'win32', v).kind, 'unavailable', v)
       assert.equal(resolve({ OPENCODE_DB: v }, 'win32').kind, 'unavailable', v)
     }
