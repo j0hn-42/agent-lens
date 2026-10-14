@@ -216,7 +216,8 @@ export class ClaudeSessionPipeline {
   /** A hook event was received for a session: a SessionEnd ends it, anything else is activity */
   observeHookEvent(event: AgentEvent): void {
     if (!event.sessionId) return
-    const who = event.payload?.name ?? event.payload?.agent
+    // Same reading order as filterOrchestratorCompletion: a mixed payload is classified the same way
+    const who = event.payload?.agent ?? event.payload?.name
     const isOrchestrator = !who || who === ORCHESTRATOR_NAME
     if (event.type === 'agent_complete' && isOrchestrator && event.payload?.sessionEnd === true) this.observeSessionEnd(event.sessionId)
     else this.noteHookActivity(event.sessionId)
