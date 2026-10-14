@@ -20,14 +20,14 @@ const noop = () => {}
 const agent = { id: 's1:main', name: 'Main', state: 'thinking' as const, tokensUsed: 1, tokensMax: 10, toolCalls: 6, timeAlive: 1, sessionId: 's1', lastEventAt: NOW, freshnessSource: 'live' as const }
 
 const loop: HealthVerdict = {
-  status: 'loop', calls: 9, comparable: 9, dropped: 0,
+  status: 'loop', calls: 9, comparable: 9, dropped: 0, lostEvents: 0,
   findings: [
     { kind: 'repeat', agentKey: 's1:main', toolName: 'Grep', count: 4, atLeast: false, toolUseIds: [] },
     { kind: 'edit-cycle', agentKey: 's1:main', path: '/repo/src/very/long/path/a.ts', count: 3, atLeast: true, toolUseIds: [] },
   ],
 }
-const unknown: HealthVerdict = { status: 'unknown', calls: 0, comparable: 0, dropped: 0, findings: [] }
-const clear: HealthVerdict = { status: 'clear', calls: 5, comparable: 5, dropped: 0, findings: [] }
+const unknown: HealthVerdict = { status: 'unknown', calls: 0, comparable: 0, dropped: 0, lostEvents: 0, findings: [] }
+const clear: HealthVerdict = { status: 'clear', calls: 5, comparable: 5, dropped: 0, lostEvents: 0, findings: [] }
 
 async function axeViolations(container: HTMLElement): Promise<string[]> {
   const results = await axe.run(container, {

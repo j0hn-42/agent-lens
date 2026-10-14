@@ -17,7 +17,7 @@ interface AttentionSummaryInput {
   sim: Pick<Simulation, 'agents' | 'unattributed' | 'foreignAttention' | 'conversations' | 'droppedMessages' | 'catchUp'>
   /** Always the agents of the latest render: callbacks read it without being re-created */
   agentsRef: RefObject<Simulation['agents']>
-  bridge: Pick<Bridge, 'sessions' | 'isVSCode' | 'selectSession'>
+  bridge: Pick<Bridge, 'sessions' | 'isVSCode' | 'selectSession' | 'eventLoss'>
   /** Select an agent of this view (the one that waits for the operator) */
   selectAgent: (agentId: string | null) => void
 }
@@ -49,9 +49,11 @@ export function useAttentionSummary({ sim, agentsRef, bridge, selectAgent }: Att
   const attentionSession = attention.firstSessionId
   // Loop verdict (#230), per agent and per session, from the tool calls kept in the conversations of this view.
   // Recomputed when a conversation changes, not on every frame; an agent's session never changes.
+  // Events the relay could not replay (#366) make a session's verdict "incomplete", never "clear".
+  const replayLost = useMemo(() => new Map(Object.entries(bridge.eventLoss?.evicted ?? {})), [bridge.eventLoss])
   const health = useMemo(
-    () => assessHealth(conversations, droppedMessages, k => agentsRef.current?.get(k)?.sessionId),
-    [conversations, droppedMessages, agentsRef],
+    () => assessHealth(conversations, droppedMessages, k => agentsRef.current?.get(k)?.sessionId, replayLost),
+    [conversations, droppedMessages, agentsRef, replayLost],
   )
   // An agent of another session is not in this view: go to its session instead
   const jumpToAttention = useCallback(() => {
