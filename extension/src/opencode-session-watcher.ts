@@ -219,7 +219,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const rows = [...poll.sessions].sort((a, b) => a.time_created - b.time_created)
     for (const row of rows) this.remember(row)
     // Most recently updated first: when more roots compete than the cap allows, the newest win.
-    // A child met before its root is replayed when the root attaches.
+    // A child met while its root is not attached (never seen, or released) is replayed when the root attaches.
     for (const row of [...rows].sort((a, b) => b.time_updated - a.time_updated)) this.onSessionRow(row)
     for (const m of poll.messages) {
       const s = this.sessionFor(m.session_id)
@@ -350,14 +350,13 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.retired.delete(sessionId)
     this.sessions.set(sessionId, session)
 
-    if (!retired) {
-      this.processSession(session, row)
-      // Children already seen while the root was not attached
-      const children = [...this.known.values()]
-        .filter(r => r.id !== sessionId && this.rootOf(r.id) === sessionId)
-        .sort((a, b) => a.time_created - b.time_created)
-      for (const child of children) this.processSession(session, child)
-    }
+    // Also on a reattach: a child met while the root was released was dropped. Both calls are
+    // idempotent in the parser (the root spawns once, a known child is not spawned again).
+    this.processSession(session, row)
+    const children = [...this.known.values()]
+      .filter(r => r.id !== sessionId && this.rootOf(r.id) === sessionId)
+      .sort((a, b) => a.time_created - b.time_created)
+    for (const child of children) this.processSession(session, child)
 
     session.detected = true
     this._onSessionDetected.fire(sessionId)

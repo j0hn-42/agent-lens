@@ -349,4 +349,26 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     try { w.scanNow() } finally { warn.mock.restore() }
     assert.equal(w.status(), 'OpenCode: the database could not be read (locked).')
   })
+
+  it('I-A: a sub-agent that appears while its root is released is replayed when the root reattaches', () => {
+    const { fx, w, events, clock } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+    w.start()
+    clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
+    w.scanNow()
+    assert.equal(w.isActive(), false)
+    // One poll: the new child, then activity of the root and of the child
+    fx.session('ses_child', { parent: 'ses_a', created: clock.t, updated: clock.t, title: 'sub' })
+    fx.message('msg_2', 'ses_a', clock.t, { ...userMsg, time: { created: clock.t } })
+    fx.message('msg_c', 'ses_child', clock.t + 1, { ...userMsg, time: { created: clock.t + 1 } })
+    fx.part('prt_c', 'msg_c', 'ses_child', clock.t + 1, clock.t + 1, { type: 'text', text: 'from child' })
+    w.scanNow()
+    const spawns = events.filter(e => e.type === 'agent_spawn')
+    assert.equal(spawns.filter(e => (e.payload as { isMain?: boolean }).isMain).length, 1, 'one main spawn')
+    const child = spawns.filter(e => (e.payload as { isMain?: boolean }).isMain !== true)
+    assert.equal(child.length, 1, 'the sub-agent is spawned')
+    assert.equal(child[0].sessionId, 'ses_a')
+    assert.ok(events.some(e => e.type === 'message' && JSON.stringify(e.payload).includes('from child')))
+  })
 })
