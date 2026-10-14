@@ -136,4 +136,67 @@ describe('historique des watchers non-Claude marqué replayed (#390)', () => {
       for (const e of fresh) assert.notEqual(e.replayed, true, `${e.type} live`)
     })
   }
+
+  for (const [name, build] of Object.entries(harnesses)) {
+    it(`${name} : la reprise d'une session libérée ne relit pas l'historique et reste live`, () => {
+      const h = build()
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), `af-replayed-${name}-home-`))
+      const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `af-replayed-${name}-ws-`)))
+      cleanups.push(() => { h.restore(); fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }) })
+      const file = h.setup(ws, home)
+      const watcher = h.make(ws)
+      cleanups.push(() => watcher.dispose())
+      const events: AgentEvent[] = []
+      watcher.onEvent(e => events.push(e))
+      watcher.start()
+      assert.ok(events.length > 0, 'l\'historique est lu à l\'attache')
+
+      // The session is released (inactive for too long), then its file resumes
+      const internals = watcher as unknown as {
+        sessions: Map<string, { lastActivityTime: number }>
+        releaseEndedSessions(): void
+        scanForSessions(): void
+      }
+      for (const s of internals.sessions.values()) s.lastActivityTime = 0
+      internals.releaseEndedSessions()
+      assert.equal(internals.sessions.size, 0, 'la session est libérée')
+      fs.appendFileSync(file, h.later)
+      const before = events.length
+      internals.scanForSessions()
+
+      assert.equal(internals.sessions.size, 1, 'la session est rattachée')
+      const fresh = events.slice(before)
+      assert.equal(fresh.filter(e => e.type === 'message').length, 1, 'seule la ligne écrite pendant la libération est livrée')
+      for (const e of fresh) assert.notEqual(e.replayed, true, `${e.type} live`)
+    })
+  }
+
+  it('gemini : une réécriture par rename (nouvel inode) ne redit pas l\'ancien message et garde le nouveau live', async () => {
+    const h = harnesses.gemini!()
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'af-replayed-gemini-rw-home-'))
+    const ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'af-replayed-gemini-rw-ws-')))
+    cleanups.push(() => { h.restore(); fs.rmSync(home, { recursive: true, force: true }); fs.rmSync(ws, { recursive: true, force: true }) })
+    const file = h.setup(ws, home)
+    const watcher = h.make(ws)
+    cleanups.push(() => watcher.dispose())
+    const events: AgentEvent[] = []
+    watcher.onEvent(e => events.push(e))
+    watcher.start()
+    const history = events.filter(e => e.type === 'message')
+    assert.equal(history.length, 1)
+    assert.equal(history[0]!.replayed, true)
+
+    // gemini-cli rewrites the whole file (temp file + rename, a new inode) when a session is resumed
+    const head = fs.readFileSync(file, 'utf8')
+    fs.writeFileSync(`${file}.tmp`, head + h.later)
+    fs.renameSync(`${file}.tmp`, file)
+    const before = events.length
+    const deadline = Date.now() + 5000
+    while (!events.slice(before).some(e => e.type === 'message') && Date.now() < deadline) await new Promise(r => setTimeout(r, 100))
+
+    const messages = events.slice(before).filter(e => e.type === 'message')
+    assert.equal(messages.length, 1, 'seule la ligne nouvelle est émise, pas l\'ancienne')
+    assert.equal((messages[0]!.payload as { content?: string }).content, 'later line')
+    for (const e of events.slice(before)) assert.notEqual(e.replayed, true, `${e.type} de la réécriture`)
+  })
 })
