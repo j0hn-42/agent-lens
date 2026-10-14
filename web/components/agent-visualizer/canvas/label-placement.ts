@@ -34,7 +34,7 @@ export interface PlacementRequest {
   essential?: boolean
   /** Smaller form (a count chip, a one-line label) tried, at the preferred position and the fallback offsets, when the full form does not fit */
   compact?: Rect
-  /** Node obstacles do not block it (the selected / hovered agent's bubbles may cover a neighbour node, but never another text) */
+  /** Node obstacles do not block it (the selected / hovered agent's bubbles may cover a neighbour node, but never another text nor a `hard` obstacle) */
   ignoreObstacles?: boolean
   /** Fallback offsets (never the preferred position) must keep the rectangle inside this area, e.g. the safe area clear of the control bar */
   shiftBounds?: Rect
@@ -42,7 +42,12 @@ export interface PlacementRequest {
   fixed?: boolean
 }
 
-export interface Obstacle { rect: Rect; owner?: string }
+export interface Obstacle {
+  rect: Rect
+  owner?: string
+  /** Drawn above the texts (a tool card): blocks every request, `ignoreObstacles` ones included (#378) */
+  hard?: boolean
+}
 
 export interface Placement {
   id: string
@@ -93,7 +98,8 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
     .sort((a, b) => (b.req.priority - a.req.priority) || (a.index - b.index))
 
   const collides = (rect: Rect, owner: string | undefined, ignoreObstacles = false): boolean => {
-    for (const o of ignoreObstacles ? [] : obstacles) {
+    for (const o of obstacles) {
+      if (ignoreObstacles && !o.hard) continue
       if (owner !== undefined && o.owner === owner) continue
       if (rectsOverlap(rect, o.rect, 0)) return true
     }
@@ -102,7 +108,8 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
   }
   const overlapScore = (rect: Rect, owner: string | undefined, ignoreObstacles = false): number => {
     let score = 0
-    for (const o of ignoreObstacles ? [] : obstacles) {
+    for (const o of obstacles) {
+      if (ignoreObstacles && !o.hard) continue
       if (owner !== undefined && o.owner === owner) continue
       score += overlapArea(rect, o.rect)
     }
