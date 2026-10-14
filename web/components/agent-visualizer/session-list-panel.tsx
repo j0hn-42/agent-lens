@@ -29,7 +29,7 @@ import {
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
-import { emptyMatch } from '@/lib/ui-glossary'
+import { SESSION_LIST_LABELS, emptyMatch } from '@/lib/ui-glossary'
 import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
 import { folderPrefixedLabel } from '@/lib/session-tabs'
 import { FreshnessAnnouncer } from './freshness-announcer'
@@ -97,6 +97,9 @@ interface SessionListPanelProps {
   onFilterChange?: (change: { projectId?: string | null; runtime?: RuntimeFilter | null; branch?: string | null }) => void
   /** Why an empty list may be incomplete (#291): shown with the empty state when the scope is a single workspace */
   scopeHint?: string | null
+  /** 'Active only' filter (persisted by the parent, #372); when absent the panel keeps its own, on by default */
+  activeOnly?: boolean
+  onActiveOnlyChange?: (activeOnly: boolean) => void
 }
 
 const STATE_COLOR: Record<string, string> = themed(() => ({
@@ -259,7 +262,7 @@ export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
   teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
-  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint,
+  filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
@@ -307,7 +310,9 @@ export function SessionListPanel({
   const isObserved = (s: SessionInfo) => isSessionObserved(s, sessionsWithActivity.has(s.id), isObservedId)
 
   const forests = useMemo(() => (visible ? buildAgentForests(agents.values()) : new Map<string, AgentNode[]>()), [agents, visible])
-  const [activeOnly, setActiveOnly] = useState(true)
+  const [ownActiveOnly, setOwnActiveOnly] = useState(true)
+  const activeOnly = storedActiveOnly !== undefined ? storedActiveOnly : ownActiveOnly
+  const setActiveOnly = (next: boolean) => { setOwnActiveOnly(next); onActiveOnlyChange?.(next) }
 
   // Search and project / runtime filter (#125)
   const [query, setQuery] = useState('')
@@ -476,8 +481,8 @@ export function SessionListPanel({
             <button
               type="button"
               aria-pressed={activeOnly}
-              onClick={() => { setAnnouncement(`${activeOnly ? 'All sessions' : 'Active sessions only'}: ${(activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length} shown`); setActiveOnly(v => !v) }}
-              title="Hide sessions that are finished"
+              onClick={() => { setAnnouncement(`${activeOnly ? 'All sessions' : 'Active sessions only'}: ${(activeOnly ? sessions : filterActiveSessions(sessions, selectedSessionId, isObserved)).length} shown`); setActiveOnly(!activeOnly) }}
+              title={SESSION_LIST_LABELS.activeOnlyHelp}
               className={`min-h-6 px-2 rounded text-[11px] ${activeOnly ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
               style={{
                 background: activeOnly ? COLORS.toggleActive : COLORS.toggleInactive,
@@ -485,7 +490,7 @@ export function SessionListPanel({
                 color: activeOnly ? COLORS.holoBright : COLORS.textMuted,
               }}
             >
-              Active only
+              {SESSION_LIST_LABELS.activeOnly}
             </button>
           )}
         >
@@ -761,8 +766,8 @@ export function SessionListPanel({
                     )}
                     <button
                       type="button"
-                      aria-label={`Close session ${session.label}`}
-                      title="Close session"
+                      aria-label={SESSION_LIST_LABELS.hideNamed(session.label)}
+                      title={SESSION_LIST_LABELS.hide}
                       onClick={() => onCloseSession(session.id)}
                       className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                       style={{ color: COLORS.tabClose }}

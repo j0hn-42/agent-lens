@@ -51,6 +51,8 @@ export interface UiPrefs {
   sessionFilterRuntime: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | null
   /** Session list filter: branch recorded by the sessions to keep (null = all branches) */
   sessionFilterBranch: string | null
+  /** Session list 'Active only' filter (#372): on by default */
+  sessionListActiveOnly: boolean
   /** Discovery scope last chosen (#291): re-applied to the relay when it differs; null = never chosen, the relay's own start-up scope stands */
   relayScope: 'workspace' | 'all' | null
 }
@@ -71,6 +73,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   sessionFilterProject: null,
   sessionFilterRuntime: null,
   sessionFilterBranch: null,
+  sessionListActiveOnly: true,
   relayScope: null,
 })
 
