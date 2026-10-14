@@ -141,13 +141,35 @@ test('Escape from a focused button still closes panels (works after Tab navigati
   assert.deepEqual(calls, ['closeTop'])
 })
 
-test('single-key shortcuts are inert when disabled, but Escape and ? keep working', () => {
+test('single-key shortcuts, including ?, are inert when disabled, but Escape keeps working (#376)', () => {
   const calls: string[] = []
   render(<Harness calls={calls} closeResult singleKey={false} />)
   fireEvent.keyDown(document.body, { key: 't' })
   fireEvent.keyDown(document.body, { key: 'Escape' })
   fireEvent.keyDown(document.body, { key: '?' })
-  assert.deepEqual(calls, ['closeTop', 'shortcuts'])
+  assert.deepEqual(calls, ['closeTop'])
+})
+
+test('letters work with a button focused (focus returned by Escape), Space still belongs to the button (#376)', () => {
+  const calls: string[] = []
+  const { getByRole } = render(<Harness calls={calls} closeResult />)
+  const button = getByRole('button', { name: 'Action' })
+  button.focus()
+  fireEvent.keyDown(button, { key: 'y' })
+  fireEvent.keyDown(button, { key: 'p' })
+  fireEvent.keyDown(button, { key: 'l' })
+  fireEvent.keyDown(button, { key: ' ' })
+  assert.deepEqual(calls, ['system', 'context', 'sessions'])
+})
+
+test('Shift decides between Files and Zoom to fit, not the case of the letter (Caps Lock) (#376)', () => {
+  const calls: string[] = []
+  render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: 'f' })
+  fireEvent.keyDown(document.body, { key: 'F', shiftKey: true })
+  fireEvent.keyDown(document.body, { key: 'F' })
+  fireEvent.keyDown(document.body, { key: 'f', shiftKey: true })
+  assert.deepEqual(calls, ['files', 'fit', 'files', 'fit'])
 })
 
 test('P toggles the Context panel and S the Stats panel (#124)', () => {

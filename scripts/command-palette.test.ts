@@ -74,8 +74,9 @@ test('shortcuts are shown only while they work', () => {
   const off = buildPaletteItems(source({ singleKeyEnabled: false }))
   assert.equal(byLabel(on, 'Toggle Files panel').shortcut, 'F')
   assert.equal(byLabel(off, 'Toggle Files panel').shortcut, undefined)
-  // ? always works, even with single-key shortcuts off
-  assert.equal(byLabel(off, 'Show keyboard shortcuts').shortcut, '?')
+  // ? is a single-key shortcut too (WCAG 2.1.4, #376): hidden while the preference is off
+  assert.equal(byLabel(on, 'Show keyboard shortcuts').shortcut, '?')
+  assert.equal(byLabel(off, 'Show keyboard shortcuts').shortcut, undefined)
 })
 
 test('the All sessions entry exists and jumps to the union view', () => {
