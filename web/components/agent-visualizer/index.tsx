@@ -651,11 +651,10 @@ export function AgentVisualizer() {
     pushToast({
       message: `Session closed${closed ? `: ${closed.label}` : ''}`,
       actionLabel: 'Undo',
-      durationMs: 5000,
       onAction: () => {
         if (restoreSession(id) && wasSelected) selectSession(id)
       },
-      // The cached simulation state is only needed while undo is possible
+      // The cached simulation state is only needed while undo is possible (the toast stays until used or dismissed, #371)
       onExpire: () => { sessionCacheRef.current.delete(id) },
     })
   }, [bridge.sessions, bridge.selectedSessionId, removeSession, restoreSession, selectSession, pushToast])
@@ -910,6 +909,9 @@ export function AgentVisualizer() {
         connectionStatus={bridge.connectionStatus}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
         isDemo={bridge.useMockData}
+        connectionDetail={bridge.connectionDetail}
+        onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined}
+        onExitDemo={bridge.exitDemo}
         activeAgentCount={activeAgentCount}
         staleAgentCount={staleAgentCount}
         idleAgentCount={idleAgentCount}
@@ -974,8 +976,8 @@ export function AgentVisualizer() {
             <ul className="mt-3 inline-block text-left text-xs space-y-1" style={{ color: SCENE.textMuted }}>
               {checklist.map(item => (
                 <li key={item.id}>
-                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.ok ? SCENE.complete : SCENE.error }}>{item.ok ? '✓' : '✗'}</span>
-                  <span className="sr-only">{item.ok ? 'Done: ' : 'Not done: '}</span>
+                  <span aria-hidden="true" className="inline-block w-4" style={{ color: item.unknown ? SCENE.textMuted : item.ok ? SCENE.complete : SCENE.error }}>{item.unknown ? '?' : item.ok ? '✓' : '✗'}</span>
+                  <span className="sr-only">{item.unknown ? 'Unknown: ' : item.ok ? 'Done: ' : 'Not done: '}</span>
                   {item.label}
                   {item.detail && <span> ({item.detail})</span>}
                 </li>

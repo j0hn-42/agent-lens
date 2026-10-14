@@ -109,6 +109,10 @@ interface BridgeHookResult {
   relayUnreachable: boolean
   /** "reconnecting (attempt N, retry in Xs)" while the relay link is down, else null */
   connectionDetail: string | null
+  /** "Retry now" (#371): skip the reconnect wait and open the stream at once; no-op when the relay is not used */
+  retryRelay: () => void
+  /** Leave the demo for the empty state (#371); the demo sessions go, a real source is not touched */
+  exitDemo: () => void
   /** Consecutive relay connection failures (0 when connected) */
   reconnectAttempt: number
   /** 'polling' after repeated SSE failures: only reachability is probed until the relay answers */
@@ -819,6 +823,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     relayUnreachable,
     connectionDetail: relayEnabled ? source.detail : null,
     reconnectAttempt: relayEnabled ? source.attempt : 0,
+    retryRelay: source.retryNow,
+    exitDemo: leaveDemo,
     relayLinkMode: source.mode,
     notice,
     launch,

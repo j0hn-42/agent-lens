@@ -167,3 +167,25 @@ test('agent counts: idle and error agents are not counted as active (#367)', () 
   assert.equal(formatAgentCounts(1, 1, 0, 1, 1), '4 agents: 1 active - 1 idle - 1 error - 1 done')
   assert.equal(formatAgentCounts(2, 3), '5 agents: 2 active - 3 done')
 })
+
+test('connection detail (#371): the reconnect detail reaches the label description, only while offline', () => {
+  const d = 'reconnecting (attempt 2, retry in 10s)'
+  assert.match(connectionDisplay('disconnected', false, d).description, /attempt 2, retry in 10s/)
+  assert.equal(connectionDisplay('disconnected', false, d).label, 'OFFLINE')
+  assert.equal(connectionDisplay('disconnected', false, null).description, 'Relay offline')
+  assert.equal(connectionDisplay('watching', false, d).description, 'Live: watching for agent activity')
+  assert.doesNotMatch(connectionDisplay('watching', true, d).description, /attempt/)
+})
+
+test('empty-state checklist (#371): workspace and session are unknown, not failed, while the relay is unreachable', () => {
+  const down = emptyStateChecklist({ status: 'disconnected', relayPort: '3001', sessionCount: 0 })
+  assert.equal(down[0].unknown, undefined)
+  assert.equal(down[1].unknown, true)
+  assert.equal(down[2].unknown, true)
+  assert.match(down[1].detail ?? '', /unknown/)
+  const connecting = emptyStateChecklist({ status: 'connecting', sessionCount: 0 })
+  assert.equal(connecting[1].unknown, true)
+  const up = emptyStateChecklist({ status: 'connected', sessionCount: 0 })
+  assert.equal(up[2].unknown, undefined, 'the relay answers: no session is a fact')
+  assert.equal(up[2].ok, false)
+})
