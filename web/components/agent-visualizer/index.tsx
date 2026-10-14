@@ -45,6 +45,7 @@ import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { TruncationBanner } from "./truncation-banner"
 import { createStats, shouldShowTruncationBanner, sumNormalizationStats, truncationTotal } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
+import { replayLostFor } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
@@ -201,7 +202,13 @@ export function AgentVisualizer() {
       : sumNormalizationStats(normalizationStats.values()),
     [normalizationStats, bridge.selectedSessionId],
   )
-  const truncationShown = shouldShowTruncationBanner(truncationStats, truncationDismissed.get(truncationKey))
+  // Events the relay could not replay (#366): a lower bound that joins the banner's total
+  const replayLost = replayLostFor(bridge.eventLoss, bridge.selectedSessionId, !bridge.selectedSessionId || isUnionSelection(bridge.selectedSessionId))
+  const truncationAll = truncationTotal(truncationStats) + replayLost
+  const dismissedAt = truncationDismissed.get(truncationKey)
+  const truncationShown = replayLost > 0
+    ? truncationAll > 0 && (dismissedAt === undefined || truncationAll > dismissedAt)
+    : shouldShowTruncationBanner(truncationStats, dismissedAt)
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
@@ -240,7 +247,8 @@ export function AgentVisualizer() {
           <TruncationBanner
             key={truncationKey}
             stats={truncationStats}
-            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncationTotal(truncationStats)))}
+            replayLost={replayLost}
+            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncationAll))}
           />
         </div>
       )}

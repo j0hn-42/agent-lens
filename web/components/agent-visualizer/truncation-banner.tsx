@@ -8,18 +8,16 @@ import { truncationHeadline, truncationTotal, type NormalizationStats } from '@/
 /**
  * Props contract of {@link TruncationBanner}.
  *
- * Wiring (to do in index.tsx, not done here):
- *  1. Keep `statsBySession: Map<string, NormalizationStats>` and update it from every
- *     `normalization_stats` event (`parseNormalizationStats(event.payload)`, keyed by event.sessionId).
- *  2. Keep `dismissedAt: Map<string, number>`; show the banner for the selected session when
- *     `shouldShowTruncationBanner(stats, dismissedAt.get(sessionId))`. `onDismiss` stores
- *     `truncationTotal(stats)` for that session, so the banner comes back if more is dropped later.
- *  3. Render `<TruncationBanner key={sessionId} stats={stats} onDismiss={...} />` for the selected
- *     session (the key resets the details disclosure when the session changes).
+ * Wired in index.tsx: the counters come from the `normalization_stats` events of the selection (summed
+ * for a union view), `replayLost` from the relay's `event-loss` message. The parent owns the per-selection
+ * dismissal (it stores the total shown, so the banner comes back if more is lost later) and keys the
+ * banner by selection so the details disclosure resets.
  */
 export interface TruncationBannerProps {
   /** Counters of the selected session (untrusted values must go through parseNormalizationStats). */
   stats: NormalizationStats
+  /** Events the relay could not replay when the page connected (lower bound, see lib/event-loss); 0 or invalid = none. */
+  replayLost?: number
   /** The user dismissed the banner for this session. */
   onDismiss: () => void
 }
@@ -37,10 +35,12 @@ const REASONS: ReadonlyArray<{ key: keyof NormalizationStats; label: string }> =
  * state is carried by words and a symbol, never by color alone. Details are a native disclosure
  * button; dismissal is reported to the parent, which owns the per-session memory.
  */
-export function TruncationBanner({ stats, onDismiss }: TruncationBannerProps) {
+export function TruncationBanner({ stats, replayLost = 0, onDismiss }: TruncationBannerProps) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
-  if (truncationTotal(stats) <= 0) return null
+  const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
+  const truncated = truncationTotal(stats) > 0
+  if (!truncated && lost === 0) return null
   const { events, nodes } = truncationHeadline(stats)
 
   return (
@@ -52,7 +52,8 @@ export function TruncationBanner({ stats, onDismiss }: TruncationBannerProps) {
       <div className="flex items-center gap-3">
         <span className="min-w-0 break-words">
           <span aria-hidden="true">⚠ </span>
-          {`Graph truncated: ${events} ${events === 1 ? 'event' : 'events'} ignored, ${nodes} ${nodes === 1 ? 'node' : 'nodes'} dropped`}
+          {truncated && `Graph truncated: ${events} ${events === 1 ? 'event' : 'events'} ignored, ${nodes} ${nodes === 1 ? 'node' : 'nodes'} dropped`}
+          {lost > 0 && `${truncated ? '; ' : 'Graph incomplete: '}at least ${lost} earlier ${lost === 1 ? 'event was' : 'events were'} not replayed by the relay`}
         </span>
         <button
           type="button"

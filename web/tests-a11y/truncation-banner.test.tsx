@@ -99,3 +99,32 @@ test('no axe violations, collapsed and expanded', async () => {
   fireEvent.click(getByRole('button', { name: 'Details' }))
   assert.deepEqual(await violations(container), [])
 })
+
+test('events the relay could not replay show on their own, as "at least" (#366)', () => {
+  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={40} onDismiss={noop} />)
+  const text = getByRole('status').textContent ?? ''
+  assert.match(text, /Graph incomplete: at least 40 earlier events were not replayed by the relay/)
+  assert.doesNotMatch(text, /Graph truncated/)
+})
+
+test('both causes are named when both apply; a replay loss of one is singular', () => {
+  const { getByRole, rerender } = render(<TruncationBanner stats={cut()} replayLost={5} onDismiss={noop} />)
+  const text = getByRole('status').textContent ?? ''
+  assert.match(text, /Graph truncated: 3 events ignored, 4 nodes dropped/)
+  assert.match(text, /at least 5 earlier events were not replayed by the relay/)
+  rerender(<TruncationBanner stats={createStats()} replayLost={1} onDismiss={noop} />)
+  assert.match(getByRole('status').textContent ?? '', /at least 1 earlier event was not replayed by the relay/)
+})
+
+test('a replay loss that is not a positive safe integer renders nothing', () => {
+  for (const bad of [0, -3, Number.NaN, 1.5, Infinity]) {
+    const { container, unmount } = render(<TruncationBanner stats={createStats()} replayLost={bad} onDismiss={noop} />)
+    assert.equal(container.firstChild, null, String(bad))
+    unmount()
+  }
+})
+
+test('no axe violations with a replay loss', async () => {
+  const { container } = render(<TruncationBanner stats={cut()} replayLost={7} onDismiss={noop} />)
+  assert.deepEqual(await violations(container), [])
+})
