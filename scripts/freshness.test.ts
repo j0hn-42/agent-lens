@@ -282,7 +282,7 @@ test('a replayed (history) status reads as last known state on every surface, fr
   const { agentRowView } = await import('../web/lib/row-sync')
   const replayed = { id: 'h', name: 'h', state: 'thinking', lastEventAt: T0, freshnessSource: 'history' as const }
   // Top bar: never counted active
-  assert.deepEqual(agentActivityCounts([replayed], T0), { active: 0, done: 0, stale: 1 })
+  assert.deepEqual(agentActivityCounts([replayed], T0), { active: 0, done: 0, stale: 1, idle: 0, error: 0 })
   // Sessions panel row (the text alternative to the canvas): the state is said to be the last known one
   const view = agentRowView(replayed as Parameters<typeof agentRowView>[0], T0 + 31_000)
   assert.equal(view.stale, true)

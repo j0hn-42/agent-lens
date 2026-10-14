@@ -5,6 +5,7 @@ import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { emptyState } from '@/lib/ui-glossary'
+import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
 import type { Agent } from '@/lib/agent-types'
@@ -25,6 +26,21 @@ interface FileAttentionPanelProps {
 }
 
 const EMPTY_WASTE = emptyWasteLedger()
+
+/** A file's tokens, qualified like every other figure: a lower bound when a call gave none, estimated when any part is. */
+function fileUsage(f: FileAttention): UsageTotal {
+  return { value: f.totalTokens, status: f.tokensPartial ? 'partial' : 'available', estimated: f.tokensEstimated === true }
+}
+
+/**
+ * The calls started count failures and calls still running: when fewer were observed to succeed, say how many
+ * did. Without per-agent tracking nothing is claimed.
+ */
+function succeededNote(started: number, perAgent: readonly { succeeded: number }[] | undefined): string {
+  if (!perAgent) return ''
+  const succeeded = perAgent.reduce((s, a) => s + a.succeeded, 0)
+  return succeeded < started ? ` (${succeeded} succeeded)` : ''
+}
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
@@ -104,12 +120,18 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           <ul className="space-y-1 list-none p-0 m-0">
           {files.map((file) => {
             const heatRatio = file.totalTokens / maxTokens
-            const heatColor = heatRatio > 0.7 ? COLORS.error :
-              heatRatio > 0.4 ? COLORS.tool :
+            // A heavy file is not a failure: never the error red
+            const heatColor = heatRatio > 0.7 ? COLORS.tool :
+              heatRatio > 0.4 ? COLORS.holoBright :
                 COLORS.holoBase
             const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
-            const tokenText = file.totalTokens > 0 ? formatTokens(file.totalTokens) : '—'
+            const usage = fileUsage(file)
+            const hasTokens = file.totalTokens > 0
+            // Nothing counted and nothing missing: a dash. Nothing counted but a call gave no figure: unknown, not 0.
+            const tokenSpoken = hasTokens ? qualify(usage, formatTokens(file.totalTokens)) : file.tokensPartial ? 'tokens not reported' : null
+            const tokenMark = hasTokens ? `${file.tokensPartial ? '≥' : ''}${file.tokensEstimated ? '~' : ''}` : ''
+            const tokenLabel = tokenSpoken ? (hasTokens ? `${tokenSpoken} tokens` : tokenSpoken) : '— tokens'
             const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
@@ -117,7 +139,14 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                   {displayPath}
                 </span>
                 <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-                  {tokenText}
+                  {tokenSpoken === null ? '—' : hasTokens ? (
+                    <>
+                      <span aria-hidden="true">{`${tokenMark}${formatTokens(file.totalTokens)}`}</span>
+                      <span className="sr-only">{tokenLabel}</span>
+                    </>
+                  ) : (
+                    <><span className="sr-only">tokens </span><span>not reported</span></>
+                  )}
                 </span>
               </>
             )
@@ -137,7 +166,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     type="button"
                     onClick={() => onOpenFile?.(file.path)}
                     title={file.path}
-                    aria-label={`Open ${file.path}, ${tokenText} tokens${conflicted ? ', conflict' : ''}`}
+                    aria-label={`Open ${file.path}, ${tokenLabel}${conflicted ? ', conflict' : ''}`}
                     className={`flex items-center justify-between gap-2 w-full min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`}
                   >
                     {headerInner}
@@ -153,15 +182,15 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 </div>
 
                 {/* Stats row */}
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
                   {file.reads > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.filePathActive }}>
-                      {file.reads} read{file.reads > 1 ? 's' : ''}
+                      {file.reads} read{file.reads > 1 ? 's' : ''}{succeededNote(file.reads, file.readers)}
                     </span>
                   )}
                   {file.edits > 0 && (
                     <span className="text-[11px] font-mono" style={{ color: COLORS.tool }}>
-                      {file.edits} edit{file.edits > 1 ? 's' : ''}
+                      {file.edits} edit{file.edits > 1 ? 's' : ''}{succeededNote(file.edits, file.editors)}
                     </span>
                   )}
                   {conflicted && (
@@ -188,7 +217,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             color: COLORS.textMuted,
           }}>
             <span>{pluralize(files.length, 'file')}</span>
-            <span>{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
+            <span>{formatTokenUsage(combineUsage(files.map(fileUsage)))} tokens in file reads</span>
           </div>
         )}
       </div>

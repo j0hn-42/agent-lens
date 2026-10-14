@@ -1,14 +1,14 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AgentEvent, WatchedSession } from './protocol'
-import { INACTIVITY_TIMEOUT_MS, POLL_FALLBACK_MS, SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME } from './constants'
+import { POLL_FALLBACK_MS, SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME } from './constants'
 import { TranscriptParser } from './transcript-parser'
 import { safeWatch, readTrackedLines } from './fs-utils'
 import { handlePermissionDetection } from './permission-detection'
 import { scanSubagentsDir, readSubagentNewLines, markTeammatesDone } from './subagent-watcher'
 
 /**
- * Tracking of one Claude Code session transcript: attach (history catch-up), live reads, inactivity,
+ * Tracking of one Claude Code session transcript: attach (history catch-up), live reads, activity and end,
  * context_update. Single implementation shared by the extension (SessionWatcher, VS Code) and the relay
  * (scripts/relay.ts, `pnpm dev` / `npx agent-lens-app`), which only differ by what they plug in through
  * {@link ClaudeSessionHost}. No `vscode` import: the relay loads this module outside VS Code (#218).
@@ -91,7 +91,6 @@ export class ClaudeSessionPipeline {
       seenMessageHashes: new Set(),
       sessionDetected: false, sessionCompleted: false,
       lastActivityTime,
-      inactivityTimer: null,
       subagentWatchers: new Map(),
       spawnedSubagents: new Set(),
       inlineProgressAgents: new Set(),
@@ -118,7 +117,7 @@ export class ClaudeSessionPipeline {
 
   /**
    * Start tracking a transcript: read its history (current turn only), announce the session, then follow
-   * the file (fs.watch + poll fallback), its subagents and its inactivity. The caller has registered
+   * the file (fs.watch + poll fallback) and its subagents. The caller has registered
    * `session` in the host's `sessions`.
    */
   attach(session: WatchedSession): void {
@@ -162,7 +161,6 @@ export class ClaudeSessionPipeline {
       scanSubagentsDir(this.delegate, this.parser, sessionId)
     }), POLL_FALLBACK_MS)
 
-    // The session completes if no new content arrives
     this.resetInactivityTimer(sessionId)
     this.host.log?.(`Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
   }
@@ -184,17 +182,23 @@ export class ClaudeSessionPipeline {
     // Permission-gated tool calls (Agent/Task are skipped: subagents are inherently slow)
     handlePermissionDetection(this.delegate, ORCHESTRATOR_NAME, session.pendingToolCalls, session, sessionId, session.sessionCompleted, true)
     scanSubagentsDir(this.delegate, this.parser, sessionId)
-    this.resetInactivityTimer(sessionId)
+    // Only a new user or assistant entry is a resumed conversation: metadata written after the end never reopens it
+    this.resetInactivityTimer(sessionId, lines.some(isConversationLine))
   }
 
-  /** Mark the session active; when no new content arrives for INACTIVITY_TIMEOUT_MS, emit agent_complete */
-  resetInactivityTimer(sessionId: string): void {
+  /**
+   * New transcript content: mark the session active. A completed session (observed end) is reopened only by
+   * a new conversation entry (`reopen`). A silence never ends anything (#360): no timer completes the session,
+   * the clients tell a silence apart from the event times.
+   */
+  resetInactivityTimer(sessionId: string, reopen = true): void {
     const session = this.host.sessions.get(sessionId)
     if (!session) return
     if (this.host.isLive && !this.host.isLive(sessionId)) return
 
     const wasCompleted = session.sessionCompleted
     session.lastActivityTime = Date.now()
+    if (wasCompleted && !reopen) return
     session.sessionCompleted = false
 
     // A completed session that gets new content: re-announce the orchestrator so the clients accept its events again
@@ -202,22 +206,36 @@ export class ClaudeSessionPipeline {
       this.spawnOrchestrator(session, this.elapsed(sessionId))
       this.host.fireLifecycle('started', sessionId, session.label)
     }
+  }
 
-    if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
-    session.inactivityTimer = setTimeout(() => {
-      if (!session.sessionCompleted && session.sessionDetected) {
-        this.host.log?.(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} inactive — emitting orchestrator completion`)
-        session.sessionCompleted = true
-        // Teammates stay on screen but are finished with their lead (never agent_complete)
-        markTeammatesDone(this.delegate, session, sessionId)
-        this.emit({
-          time: this.elapsed(sessionId),
-          type: 'agent_complete',
-          payload: { name: ORCHESTRATOR_NAME, inactivity: true },
-        }, sessionId)
-        this.host.fireLifecycle('ended', sessionId, session.label)
-      }
-    }, INACTIVITY_TIMEOUT_MS)
+  /** A hook event of the session was received: activity, but it never reopens a session whose end was observed */
+  noteHookActivity(sessionId: string): void {
+    const session = this.host.sessions.get(sessionId)
+    if (!session || session.sessionCompleted) return
+    if (this.host.isLive && !this.host.isLive(sessionId)) return
+    session.lastActivityTime = Date.now()
+  }
+
+  /** A hook event was received for a session: a SessionEnd ends it, anything else is activity */
+  observeHookEvent(event: AgentEvent): void {
+    if (!event.sessionId) return
+    // Same reading order as filterOrchestratorCompletion: a mixed payload is classified the same way
+    const who = event.payload?.agent ?? event.payload?.name
+    const isOrchestrator = !who || who === ORCHESTRATOR_NAME
+    if (event.type === 'agent_complete' && isOrchestrator && event.payload?.sessionEnd === true) this.observeSessionEnd(event.sessionId)
+    else this.noteHookActivity(event.sessionId)
+  }
+
+  /** Claude Code reported the end of the session (SessionEnd hook): the only way a live session completes */
+  observeSessionEnd(sessionId: string): void {
+    const session = this.host.sessions.get(sessionId)
+    if (!session || session.sessionCompleted || !session.sessionDetected) return
+    if (this.host.isLive && !this.host.isLive(sessionId)) return
+    this.host.log?.(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} ended (SessionEnd observed)`)
+    session.sessionCompleted = true
+    // Teammates stay on screen but are finished with their lead (never agent_complete)
+    markTeammatesDone(this.delegate, session, sessionId)
+    this.host.fireLifecycle('ended', sessionId, session.label)
   }
 
   /** Close every watcher and timer of a session and free its parser state. The caller forgets the session. */
@@ -225,7 +243,6 @@ export class ClaudeSessionPipeline {
     session.fileWatcher?.close()
     session.subagentsDirWatcher?.close()
     if (session.pollTimer) clearInterval(session.pollTimer)
-    if (session.inactivityTimer) clearTimeout(session.inactivityTimer)
     if (session.permissionTimer) clearTimeout(session.permissionTimer)
     for (const sub of session.subagentWatchers.values()) {
       sub.watcher?.close()
@@ -233,5 +250,15 @@ export class ClaudeSessionPipeline {
     }
     session.subagentWatchers.clear()
     this.parser.clearSessionState(session.pendingToolCalls.keys(), session.sessionId)
+  }
+}
+
+/** A transcript line that records a conversation turn (user or assistant entry), not metadata */
+function isConversationLine(line: string): boolean {
+  try {
+    const type = (JSON.parse(line) as { type?: unknown } | null)?.type
+    return type === 'user' || type === 'assistant'
+  } catch {
+    return false
   }
 }

@@ -4,13 +4,14 @@
  * des entrées et reprise à chaud.
  */
 import './helpers/alias-vscode'
-import { describe, it, beforeEach, afterEach } from 'node:test'
+import { describe, it, beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { PiSessionWatcher, piSessionsRoot, readPiSessionHeader, piSessionIdFromFile } from '../src/pi-session-watcher'
 import type { AgentEvent } from '../src/protocol'
+import { INACTIVITY_TIMEOUT_MS } from '../src/constants'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
 
 const uuid = (n: number) => `0192f0a1-7c2e-7000-8000-${String(n).padStart(12, '0')}`
@@ -133,6 +134,24 @@ describe('PiSessionWatcher', () => {
     watcher = new PiSessionWatcher(ws)
     watcher.start()
     assert.deepEqual(watcher.getActiveSessions().map(s => s.id).sort(), [uuid(1), uuid(2)])
+  })
+
+  // #360: a silence is not an end. No agent_complete, no 'ended': the session stays active, in its last known state
+  it('a silent session stays active: no agent_complete, no ended', () => {
+    mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'], now: Date.now() })
+    try {
+      addSession(1, ws)
+      watcher = new PiSessionWatcher(ws)
+      const types: string[] = []
+      const lifecycle: string[] = []
+      watcher.onEvent(e => { types.push(e.type) })
+      watcher.onSessionLifecycle(e => { lifecycle.push(e.type) })
+      watcher.start()
+      mock.timers.tick(INACTIVITY_TIMEOUT_MS + 60_000)
+      assert.ok(!types.includes('agent_complete'), types.join(','))
+      assert.ok(!lifecycle.includes('ended'), lifecycle.join(','))
+      assert.deepEqual(watcher.getActiveSessions().map(s => s.status), ['active'])
+    } finally { mock.timers.reset() }
   })
 
   it('attaches every session when no workspace is given', () => {

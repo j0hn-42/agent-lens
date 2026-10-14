@@ -81,6 +81,7 @@ const agent = {
 } as unknown as Agent
 const files = new Map<string, FileAttention>([
   ['src/a.ts', { path: 'src/a.ts', reads: 2, edits: 1, totalTokens: 500, lastAccessed: 1, agents: ['a1'] }],
+  ['/src/b.ts', { path: '/src/b.ts', reads: 1, edits: 0, totalTokens: 900, tokensEstimated: true, tokensPartial: true, lastAccessed: 2, agents: ['a1'] }],
 ])
 const timelineEntries = new Map<string, TimelineEntry>([
   ['a1', {

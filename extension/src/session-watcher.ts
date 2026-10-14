@@ -131,10 +131,13 @@ export class SessionWatcher implements AgentSessionWatcher {
     this.teamWatcher?.forgetSession(sessionId)
   }
 
-  /** Drop sessions that ended longer ago than the discovery window (they cannot be rediscovered). */
+  /**
+   * Stop watching sessions with no activity for longer than the discovery window, ended or only silent:
+   * nothing is announced (a silence is not an end, #360), and a transcript that grows again is rediscovered.
+   */
   private pruneEndedSessions(now = Date.now()): void {
     for (const s of [...this.sessions.values()]) {
-      if (s.sessionCompleted && (now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
+      if ((now - s.lastActivityTime) / 1000 > ACTIVE_SESSION_AGE_S) this.unwatchSession(s.sessionId)
     }
   }
 
@@ -560,6 +563,8 @@ export class SessionWatcher implements AgentSessionWatcher {
   /** Submit an event received from the Claude Code hooks; delivered on `onHookEvent` unless the transcript already reported it. */
   submitHookEvent(event: AgentEvent): void {
     this.reconciler.submit(event, { source: 'hook' })
+    // After the event: a SessionEnd closes the session once its agent_complete is delivered (#360)
+    this.pipeline.observeHookEvent(event)
   }
 
   dispose(): void {

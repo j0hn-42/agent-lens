@@ -272,7 +272,8 @@ export function handleToolCallEnd(
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
         }
-        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
+          toolState === 'complete' ? undefined : { sessionId, agentId: agentName, toolName: tc.toolName, inputData: tc.inputData, toolUseId: tc.toolUseId, toolCallId: id, time: currentTime })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
@@ -313,14 +314,21 @@ export function handleToolCallEnd(
       if (idx >= 0 || closeTrailing) state.timelineEntries.set(agentName, { ...entry, blocks })
     }
 
-    // File attention token cost
-    if (tokenCost) { // 0 and null add nothing
-      const matchedTc = Array.from(state.toolCalls.values()).find(tc => tc.agentId === agentName && tc.toolName === toolName)
-      const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
-      if (filePath) {
-        const existing = state.fileAttention.get(filePath)
-        if (existing) {
-          state.fileAttention.set(filePath, { ...existing, totalTokens: existing.totalTokens + tokenCost })
+    // File attention token cost: the figure of the call that just ended, never the first call of this tool
+    // the agent ever made. A call that ended without a figure leaves the file total a lower bound (#368).
+    {
+      const matchedTc = matchedId ? state.toolCalls.get(matchedId) : undefined
+      const filePath = matchedTc ? extractFilePath(matchedTc.inputData, matchedTc.args) : undefined
+      const existing = filePath ? state.fileAttention.get(filePath) : undefined
+      if (filePath && existing) {
+        if (tokenCost === null) {
+          state.fileAttention.set(filePath, { ...existing, tokensPartial: true })
+        } else if (tokenCost) { // 0 adds nothing
+          state.fileAttention.set(filePath, {
+            ...existing,
+            totalTokens: existing.totalTokens + tokenCost,
+            ...(tokenSource === 'estimated' ? { tokensEstimated: true } : {}),
+          })
         }
       }
     }
