@@ -380,7 +380,6 @@ test('buildGraphLabel counts a stale idle agent as last known, like the top bar 
 })
 
 // ─── #379: actionable states are never swallowed by the bulk summary ───
-import { isUrgentTransition } from '../web/components/agent-visualizer/canvas/a11y-model'
 
 test('a burst of 10 transitions keeps the permission request and the failures out of the summary', () => {
   const burst: any[] = []
@@ -399,8 +398,7 @@ test('tool_error names the agent, and its session in the All view', () => {
   const t: any = { kind: 'tool_error', id: 't', name: 'Bash', agent: 'Builder', session: 'api' }
   assert.equal(describeTransition(t), 'Tool Bash failed for agent Builder')
   assert.equal(describeTransition(t, { multiSession: true }), 'Tool Bash failed for agent Builder in session api')
-  assert.equal(isUrgentTransition(t), true)
-  assert.equal(isUrgentTransition({ kind: 'agent_spawn', id: 'a', name: 'X' }), false)
+  assert.equal(enqueueAnnouncements(createAnnouncementQueue(), [t]).items[0].urgent, true)
 })
 
 test('several message_sent in one batch collapse into one provable count', () => {

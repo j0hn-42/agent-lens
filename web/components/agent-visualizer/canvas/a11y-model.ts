@@ -497,7 +497,7 @@ export function describeTransition(t: StateTransition, opts: { multiSession?: bo
 export const ANNOUNCE_BULK_THRESHOLD = 4
 
 /** Actionable states: never summarised, and announced in the assertive region. */
-export function isUrgentTransition(t: StateTransition): boolean {
+function isUrgentTransition(t: StateTransition): boolean {
   return t.kind === 'agent_error' || t.kind === 'agent_waiting_permission' || t.kind === 'tool_error'
 }
 
