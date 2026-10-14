@@ -46,7 +46,7 @@ export function redirectMessage(text: string): string {
 }
 
 /** What the extension tells Claude Code with a plain deny (extension permission-gate.ts) */
-export const DENY_MESSAGE = 'Denied by the operator from Agent Lens.'
+const DENY_MESSAGE = 'Denied by the operator from Agent Lens.'
 
 /** Characters of a redirect text compared with the result of the call: the result is cut by the extension */
 const PROBE_CHARS = 40

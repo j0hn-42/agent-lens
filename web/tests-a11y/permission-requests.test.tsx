@@ -290,7 +290,7 @@ test('an empty or blank text is not sent: the field says why, politely, and the 
   const r = render(<PermissionRequests sessionLabel={labels} />)
   const { dialog, field } = await openRedirect(r)
   posted = []
-  for (const text of ['', '   \n', '​']) {
+  for (const text of ['', '   \n', '\u200b']) {
     fireEvent.change(field, { target: { value: text } })
     fireEvent.click(r.getByRole('button', { name: /^Envoyer la redirection/ }))
     assert.deepEqual(decisions(), [], `nothing sent for ${JSON.stringify(text)}`)

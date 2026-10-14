@@ -3,18 +3,18 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { DENY_MESSAGE, REDIRECT_MESSAGE_MAX, carriesRefusal, redirectMessage, refusalProbe } from '../web/lib/permission-requests'
+import { REDIRECT_MESSAGE_MAX, carriesRefusal, redirectMessage, refusalProbe } from '../web/lib/permission-requests'
 
 test('a redirect text is trimmed and keeps its line breaks', () => {
   assert.equal(redirectMessage('  use pnpm\ninstead  '), 'use pnpm\ninstead')
 })
 
 test('blank, control-only or invisible-only texts give nothing to send', () => {
-  for (const text of ['', '   ', '\n\t', '\u0007', '​‮', ' \u0000 ']) assert.equal(redirectMessage(text), '', JSON.stringify(text))
+  for (const text of ['', '   ', '\n\t', '\u0007', '\u200b\u202e', ' \u0000 ']) assert.equal(redirectMessage(text), '', JSON.stringify(text))
 })
 
 test('control and invisible characters are removed, never passed on', () => {
-  assert.equal(redirectMessage('use\u0007 pnpm‮'), 'use pnpm')
+  assert.equal(redirectMessage('use\u0007 pnpm\u202e'), 'use pnpm')
 })
 
 test('the text is capped like the extension caps it', () => {
@@ -30,8 +30,8 @@ test('the cut never splits a surrogate pair', () => {
 // The proof of a refusal: an error end of the call whose text carries the refusal this page sent
 test('the deny probe is the very text the extension hands Claude Code', () => {
   const gate = readFileSync(new URL('../extension/src/permission-gate.ts', import.meta.url), 'utf8')
-  assert.ok(gate.includes(`message: '${DENY_MESSAGE}'`), 'web and extension agree on the deny text')
-  assert.equal(refusalProbe('deny'), DENY_MESSAGE)
+  const probe = refusalProbe('deny')
+  assert.ok(probe && gate.includes(`message: '${probe}'`), 'web and extension agree on the deny text')
 })
 
 test('a redirect probe is the beginning of the cleaned text, spaces collapsed', () => {
