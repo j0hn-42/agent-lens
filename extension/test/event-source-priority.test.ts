@@ -213,6 +213,25 @@ describe('EventReconciler overlap', () => {
     assert.deepEqual(out.map(e => [e.type, e.replayed]), [['agent_spawn', true], ['tool_call_start', undefined]])
   })
 
+  it('asReplayed: a hook event is never marked, and a throwing re-send leaves the next events live (#361)', () => {
+    const { r, out } = harness()
+    r.asReplayed(() => { r.submit(ev('tool_call_start', { toolUseId: 'h' }), { source: 'hook' }) })
+    assert.throws(() => r.asReplayed(() => {
+      r.submit(ev('message', { n: 1 }), { source: 'jsonl' })
+      throw new Error('boom')
+    }))
+    r.submit(ev('message', { n: 2 }), { source: 'jsonl' })
+    assert.deepEqual(out.map(e => e.replayed), [undefined, true, undefined])
+  })
+
+  it('asReplayed inside withHistory (and the reverse) marks, and live resumes after (#361)', () => {
+    const { r, out } = harness()
+    r.withHistory(() => r.asReplayed(() => { r.submit(ev('message', { n: 1 }), { source: 'jsonl' }) }))
+    r.asReplayed(() => r.withHistory(() => { r.submit(ev('message', { n: 2 }), { source: 'jsonl' }) }))
+    r.submit(ev('message', { n: 3 }), { source: 'jsonl' })
+    assert.deepEqual(out.map(e => [e.payload.n, e.replayed]), [[1, true], [2, true], [3, undefined]])
+  })
+
   it('bounds the remembered ids per session (oldest forgotten)', () => {
     const out: AgentEvent[] = []
     const r = new EventReconciler({ deliver: e => out.push(e), maxPerSession: 2 })
