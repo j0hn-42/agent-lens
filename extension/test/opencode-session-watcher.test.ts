@@ -316,4 +316,35 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
       assert.match(String(warn.mock.calls[0].arguments.join(' ')), /not found/)
     } finally { warn.mock.restore() }
   })
+
+  it('N1: rows sharing one millisecond cannot keep the scan chain spinning', async () => {
+    const { fx, w } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg)
+    w.start()
+    const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
+    const real = internal.db.poll.bind(internal.db)
+    let polls = 0
+    internal.db.poll = (...a: unknown[]) => { polls++; return real(...a) }
+    const tick = () => new Promise<void>(r => setImmediate(r))
+    for (let i = 0; i < 150; i++) await tick()
+    assert.ok(polls <= 51, `the chain stopped by itself (${polls} polls)`)
+    const settled = polls
+    for (let i = 0; i < 5; i++) await tick()
+    assert.equal(polls, settled, 'no scan left pending')
+    // The next interval tick still polls
+    w.scanNow()
+    assert.equal(polls, settled + 1)
+  })
+
+  it('N6: a read error shows once with the OpenCode prefix', () => {
+    const { fx, w } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    w.start()
+    const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
+    internal.db.poll = () => ({ sessions: [], messages: [], parts: [], skippedRows: 0, truncated: false, cursors: undefined, error: 'OpenCode: the database could not be read (locked).' })
+    const warn = mock.method(console, 'warn', () => undefined)
+    try { w.scanNow() } finally { warn.mock.restore() }
+    assert.equal(w.status(), 'OpenCode: the database could not be read (locked).')
+  })
 })

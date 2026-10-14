@@ -23,7 +23,7 @@ import type { OpenCodeSessionRow, OpenCodeMessageRow, OpenCodePartRow } from './
 export const OPENCODE_ROW_DATA_MAX = 1024 * 1024
 /** Rows read per table and per poll. */
 /** A row dated further ahead than this is not read: it would drag the cursor past every later row. */
-export const OPENCODE_FUTURE_SKEW_MS = 24 * 3600 * 1000
+export const OPENCODE_FUTURE_SKEW_MS = 5 * 60 * 1000
 /** Cumulative `data` bytes read per table per poll; the poll reports `truncated` when it stops there. */
 export const OPENCODE_POLL_BYTES_MAX = 16 * 1024 * 1024
 const MAX_SAFE = Number.MAX_SAFE_INTEGER

@@ -34,6 +34,8 @@ const log = createLogger('OpenCodeSessionWatcher')
 const OPENCODE_LABEL_PREFIX = 'OpenCode '
 /** Session rows remembered (id → row) to find the root of a message or a child. */
 const KNOWN_MAX = 5000
+/** Scans chained with setImmediate before waiting for the next interval tick. */
+const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
 const ROOT_HOPS_MAX = 16
 const CWD_MAX = 4096
@@ -82,6 +84,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Scan queued with setImmediate while the reader reports more rows waiting. */
   private pendingScan: NodeJS.Immediate | null = null
   private scanning = false
+  /** Scans chained one after the other without an interval tick in between. */
+  private chained = 0
   /** Workspace verdict per root id, valid while the root keeps the same directory. */
   private verdicts = new Map<string, { directory: string | null; ok: boolean }>()
   private capWarned = false
@@ -153,8 +157,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    * leaves rows behind queues the next scan with setImmediate, so a large backlog is read across
    * ticks and never in one blocking loop.
    */
-  scanNow(): void {
+  scanNow(chained = false): void {
     if (this.scanning) return
+    this.chained = chained ? this.chained + 1 : 0
     this.scanning = true
     let more = false
     try {
@@ -164,8 +169,11 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
         this.releaseEndedSessions()
       }, err => log.warn('Scan OpenCode en échec :', err))
     } finally { this.scanning = false }
-    if (more && !this.pendingScan && this.db) {
-      this.pendingScan = setImmediate(() => { this.pendingScan = null; this.scanNow() })
+    if (!more) this.chained = 0
+    // Bounded chain: rows that never let the cursor pass (one millisecond shared by thousands of
+    // rows) would otherwise spin forever; the next interval tick resumes.
+    if (more && !this.pendingScan && this.db && this.chained < SCAN_CHAIN_MAX) {
+      this.pendingScan = setImmediate(() => { this.pendingScan = null; this.scanNow(true) })
     }
   }
 
@@ -200,7 +208,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const db = this.db
     if (!db) return false
     const poll = db.poll(this.cursors, undefined, this.now())
-    if (poll.error) { this.setStatus(`OpenCode: ${poll.error}`); return false }
+    if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)
     this.setStatus(this.okText)
