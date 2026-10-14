@@ -1,7 +1,8 @@
 /**
  * OpenCode database reader (#346): path resolution from the spec rules, read-only opening, schema
  * check, and the cursor poll over `time_updated`. Real node:sqlite databases are built by the test
- * (schema reduced to the columns read); skipped where this Node has no node:sqlite.
+ * (schema reduced to the columns read); skipped where this Node has no node:sqlite. The schema and
+ * the paths follow the source code of OpenCode v1.19.0, not a real database: none was available.
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
