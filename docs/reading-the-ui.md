@@ -150,8 +150,8 @@ The **Files** panel opens with a "Repeated reads and calls" section, computed fr
 
 | Row | It means |
 | --- | --- |
-| **read again N times, no edit seen in between** | The same agent read the same file, with the same offset and limit, N more times, and no Edit, Write or patch on that file (or a patch of unknown path in that session) was seen between the reads. A read of another range, or by another agent, is not a repeat: each agent has its own context. |
-| **same Glob run again N times, no edit seen in between** | The same pattern and path, with no write seen in the session between the calls. |
+| **read again N times, no edit seen in between** | The same agent read the same file, with the same offset and limit, N more times, and no Edit, Write or patch on that file (or a patch of unknown path in that session) was seen between the reads. A read of another range, or by another agent, is not a repeat: each agent has its own context. Nor is a read after a context compaction of that agent, or after a read of the file that was seen to fail or be cancelled: the content was not in its context. |
+| **same Glob run again N times, no edit seen in between** | The same pattern and path, with no write seen in the session, nor compaction of that agent, between the calls. |
 | **same Bash command run again N times, right after itself** | The same command (Codex: `exec_command`) with nothing else called by that agent in between. A command can legitimately change its answer, for example when polling a log. |
 | **at least X tokens** / **estimated** | Cost of the repeats only (the first call is not waste). "at least" because some repeat had no reported cost; **tokens not reported** when none had (never shown as 0). |
 | **N calls had no input details and were not compared** | A Read, Glob or Bash call arrived without the input needed to compare it. It is counted apart, not guessed. |

@@ -272,7 +272,8 @@ export function handleToolCallEnd(
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
         }
-        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken)
+        state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
+          toolState === 'complete' ? undefined : { sessionId, agentId: agentName, toolName: tc.toolName, inputData: tc.inputData, toolUseId: tc.toolUseId, toolCallId: id, time: currentTime })
 
         const edgeId = `edge-${id}`
         // Snap any still-traveling outgoing particle to the end
