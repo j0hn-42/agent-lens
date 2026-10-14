@@ -39,13 +39,13 @@ import { GuidedTourCard } from "./guided-tour-card"
 import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
-import { TopBar, FullscreenIcon } from "./top-bar"
+import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
-import { TruncationBanner } from "./truncation-banner"
-import { createStats, shouldShowTruncationBanner, sumNormalizationStats, truncationTotal } from "@/lib/event-normalize"
+import { TruncationBanner, TruncationAnnouncer } from "./truncation-banner"
+import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
-import { replayLostFor } from "@/lib/event-loss"
+import { truncationBannerState } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
@@ -194,7 +194,7 @@ export function AgentVisualizer() {
   }
   const feedTeamProps = { links, droppedMessages, teams }
 
-  // Counters of the selection: one session, or every session added up for a union view (All, team, project)
+  // Counters of the selection: one session, or every session added up for a union view (All, team pseudo selection)
   const truncationKey = bridge.selectedSessionId ?? ''
   const truncationStats = useMemo(
     () => bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId)
@@ -202,13 +202,9 @@ export function AgentVisualizer() {
       : sumNormalizationStats(normalizationStats.values()),
     [normalizationStats, bridge.selectedSessionId],
   )
-  // Events the relay could not replay (#366): a lower bound that joins the banner's total
-  const replayLost = replayLostFor(bridge.eventLoss, bridge.selectedSessionId, !bridge.selectedSessionId || isUnionSelection(bridge.selectedSessionId))
-  const truncationAll = truncationTotal(truncationStats) + replayLost
-  const dismissedAt = truncationDismissed.get(truncationKey)
-  const truncationShown = replayLost > 0
-    ? truncationAll > 0 && (dismissedAt === undefined || truncationAll > dismissedAt)
-    : shouldShowTruncationBanner(truncationStats, dismissedAt)
+  // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
+  const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
+  const truncationShown = truncation.show && !immersive
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
@@ -233,25 +229,12 @@ export function AgentVisualizer() {
         sessions={bridge.sessions} sessionsWithActivity={bridge.sessionsWithActivity} fullscreenNote={fullscreenNote} presentationNote={presentationNote}
       />
 
+      <TruncationAnnouncer shown={truncationShown} />
+
       <HiddenFinishedAnnouncer agents={agents} hideInactive={hideInactiveShown} keepIds={hiddenKeepIds} />
 
       {/* Burst of received events being caught up over several frames (#210) */}
       <HistoryLoadingIndicator progress={catchUp} />
-
-      {/* What the normalizer discarded for the selection: the graph below is partial when this shows */}
-      {truncationShown && (
-        <div
-          className="absolute left-1/2 -translate-x-1/2"
-          style={{ top: 'calc(var(--topbar-h, 60px) + 44px)', zIndex: Z.controlBar + 5 }}
-        >
-          <TruncationBanner
-            key={truncationKey}
-            stats={truncationStats}
-            replayLost={replayLost}
-            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncationAll))}
-          />
-        </div>
-      )}
 
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <div style={{ display: immersive ? 'none' : 'contents' }}>
@@ -276,6 +259,24 @@ export function AgentVisualizer() {
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
       />
       </div>
+
+      {/* After the top bar in the Tab order; the docks treat it as an obstacle (data-truncation-banner). Left out in full screen like the rest of the chrome. */}
+      {truncationShown && (
+        <div
+          className="absolute flex justify-center pointer-events-none"
+          style={{ left: 12, right: 12, top: 'calc(var(--topbar-h, 60px) + 44px)', zIndex: Z.controlBar + 5 }}
+        >
+          <div className="pointer-events-auto max-w-full">
+            <TruncationBanner
+              key={truncationKey}
+              stats={truncationStats}
+              replayLost={bridge.replayLost}
+              returnFocusId={PANEL_BUTTON_IDS.sessions}
+              onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncation.total))}
+            />
+          </div>
+        </div>
+      )}
 
       {presentationOn && <PresentationBadge onStop={presentation.stop} />}
       <PresentationSubtitle text={presentationSubtitle} />
