@@ -11,11 +11,18 @@ export class AudioEngine {
   private _muted = true  // default muted
   private _volume = 0.5
 
+  /**
+   * Lazily creates the context. Returns without one while muted or before any
+   * user gesture: the browser would refuse to start it and log a warning per call.
+   */
   private ensureContext() {
+    if (this._muted) return
     if (this.ctx) {
       if (this.ctx.state === 'suspended') this.ctx.resume()
       return
     }
+    const activation = typeof navigator !== 'undefined' ? navigator.userActivation : undefined
+    if (activation && !activation.hasBeenActive) return
     this.ctx = new AudioContext()
     this.masterGain = this.ctx.createGain()
     this.masterGain.gain.value = this._muted ? 0 : this._volume
@@ -26,8 +33,8 @@ export class AudioEngine {
 
   setMuted(muted: boolean) {
     this._muted = muted
-    if (this.masterGain) {
-      this.masterGain.gain.setTargetAtTime(muted ? 0 : this._volume, this.ctx!.currentTime, 0.05)
+    if (this.masterGain && this.ctx) {
+      this.masterGain.gain.setTargetAtTime(muted ? 0 : this._volume, this.ctx.currentTime, 0.05)
     }
   }
 
