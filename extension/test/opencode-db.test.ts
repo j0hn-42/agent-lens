@@ -15,8 +15,8 @@ import {
 import { nodeSqliteOpener, type IndexConnection, type IndexOpener } from '../src/session-index'
 
 const HOME = '/home/u'
-const resolve = (env: Record<string, string | undefined>, extra: { platform?: NodeJS.Platform; channel?: string } = {}) =>
-  resolveOpenCodeDbPath({ env, homedir: HOME, platform: extra.platform ?? 'linux', channel: extra.channel })
+const resolve = (env: Record<string, string | undefined>, extra: { platform?: NodeJS.Platform } = {}) =>
+  resolveOpenCodeDbPath({ env, homedir: HOME, platform: extra.platform ?? 'linux' })
 const pathOf = (r: ReturnType<typeof resolve>) => (r.kind === 'file' ? r.path : `unavailable: ${r.message}`)
 
 describe('resolveOpenCodeDbPath', () => {
@@ -30,24 +30,24 @@ describe('resolveOpenCodeDbPath', () => {
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: '' })), '/home/u/.local/share/opencode/opencode.db')
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: 'rel' })), '/home/u/.local/share/opencode/opencode.db')
   })
-  it('latest, beta and prod channels share opencode.db', () => {
-    for (const channel of ['latest', 'beta', 'prod']) {
-      assert.equal(pathOf(resolve({}, { channel })), '/home/u/.local/share/opencode/opencode.db')
-    }
-  })
-  it('other channels use opencode-<channel>.db with unsafe characters replaced', () => {
-    assert.equal(pathOf(resolve({}, { channel: 'local' })), '/home/u/.local/share/opencode/opencode-local.db')
-    assert.equal(pathOf(resolve({}, { channel: 'feat/x y' })), '/home/u/.local/share/opencode/opencode-feat-x-y.db')
-  })
-  it('OPENCODE_DISABLE_CHANNEL_DB=1|true forces opencode.db', () => {
-    for (const v of ['1', 'true']) {
-      assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: v }, { channel: 'local' })), '/home/u/.local/share/opencode/opencode.db')
-    }
-    assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' }, { channel: 'local' })), '/home/u/.local/share/opencode/opencode-local.db')
+  it('never guesses a channel file: opencode.db unless a path is given', () => {
+    assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' })), '/home/u/.local/share/opencode/opencode.db')
   })
   it('OPENCODE_DB: absolute path as is, relative path under <data>', () => {
     assert.deepEqual(resolve({ OPENCODE_DB: '/tmp/o.db' }), { kind: 'file', path: '/tmp/o.db' })
     assert.deepEqual(resolve({ OPENCODE_DB: 'x/o.db' }), { kind: 'file', path: '/home/u/.local/share/opencode/x/o.db' })
+  })
+  it('a relative OPENCODE_DB that leaves <data> is refused', () => {
+    for (const v of ['../o.db', 'x/../../o.db', '..', 'a/..\\..']) {
+      assert.equal(resolve({ OPENCODE_DB: v }).kind, 'unavailable', v)
+    }
+    assert.equal(resolve({ OPENCODE_DB: 'x/../y.db' }).kind, 'file', 'staying inside <data> is fine')
+  })
+  it('an explicit dbPath setting wins over OPENCODE_DB and must be absolute', () => {
+    assert.deepEqual(resolveOpenCodeDbPath({ env: { OPENCODE_DB: '/env.db' }, homedir: HOME, platform: 'linux', dbPath: '/set/opencode-local.db' }),
+      { kind: 'file', path: '/set/opencode-local.db' })
+    assert.equal(resolveOpenCodeDbPath({ env: {}, homedir: HOME, platform: 'linux', dbPath: 'rel.db' }).kind, 'unavailable')
+    assert.equal(resolveOpenCodeDbPath({ env: {}, homedir: HOME, platform: 'linux', dbPath: '  ' }).kind, 'file', 'blank setting = unset')
   })
   it('OPENCODE_DB=:memory: has no file to read', () => {
     assert.equal(resolve({ OPENCODE_DB: ':memory:' }).kind, 'unavailable')
