@@ -1,3 +1,5 @@
+import type { PanelId } from './panel-layout'
+
 // Fixed UI vocabulary (issue #32). Every panel title, aria-label, tooltip and empty state takes its words
 // from here, so one thing never has two names. Pure data: no React and no path-alias imports (node:test).
 
@@ -150,7 +152,7 @@ export const WHY_LABELS = {
 export const EXPIRED_LABEL_SUFFIX = `(expired, ${END_NOT_OBSERVED})`
 
 /** Docked panels (panel-layout ids) under the name the user knows them by. */
-const DOCK_PANEL_NAMES: Record<string, string> = {
+const DOCK_PANEL_NAMES: Record<PanelId, string> = {
   detail: 'Agent card',
   system: PANEL_NAMES.system,
   link: 'Link',
@@ -159,10 +161,14 @@ const DOCK_PANEL_NAMES: Record<string, string> = {
   timeline: PANEL_NAMES.timeline,
 }
 
-/** Sentence for the open panels a one-at-a-time sheet hides (#410); '' when none is hidden. */
-export function hiddenPanelsText(ids: readonly string[]): string {
+/**
+ * Sentence for the open panels a one-at-a-time sheet hides (#410); '' when none is hidden. `ids` is in open order,
+ * oldest first: the sheet shows the newest, so closing it brings back the last hidden one. Context shares the
+ * 'files' slot of the dock, so `context` names that slot Context instead of Files.
+ */
+export function hiddenPanelsText(ids: readonly PanelId[], opts: { context?: boolean } = {}): string {
   if (ids.length === 0) return ''
-  const names = ids.map(id => DOCK_PANEL_NAMES[id] ?? id).join(', ')
+  const names = ids.map(id => (id === 'files' && opts.context ? PANEL_NAMES.context : DOCK_PANEL_NAMES[id]))
   const one = ids.length === 1
-  return `${ids.length} ${one ? 'panel' : 'panels'} hidden: ${names}. Close the panel shown to see ${one ? 'it' : 'them'}.`
+  return `${ids.length} ${one ? 'panel' : 'panels'} hidden: ${names.join(', ')}. Close the panel shown to see ${one ? 'it' : names[names.length - 1]}.`
 }

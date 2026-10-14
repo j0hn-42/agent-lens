@@ -24,7 +24,7 @@ export type PanelId = 'detail' | 'system' | 'link' | 'files' | 'conversation' | 
 
 /** Below this viewport width panels become full-width sheets (one at a time). */
 export const SHEET_BREAKPOINT = 900
-/** Band kept under the top bar by a sheet that hides other open panels (the "N panels hidden" notice). */
+/** Minimum band kept under the top bar by a sheet that hides other open panels (the "N panels hidden" notice). */
 export const SHEET_NOTICE_H = 44
 /** Space between two panels. */
 export const DOCK_GAP = 8
@@ -171,6 +171,8 @@ export interface DockInput {
   rightWidth?: number
   /** Rectangles of panels owned elsewhere (message feed, per-agent chat, ...): never covered. */
   obstacles?: readonly Rect[]
+  /** Measured height of the "N panels hidden" notice (0 / unknown until it is drawn). */
+  noticeH?: number
 }
 
 export interface DockLayout {
@@ -192,11 +194,18 @@ export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
   return { x: Math.round((viewport.w - w) / 2), y: viewport.h - CONTROL_BAR_BOTTOM - controlBarH, w, h: controlBarH }
 }
 
-function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room'): DockLayout {
+/** Band under the top bar for the hidden-panels notice: its measured height (at least SHEET_NOTICE_H), none when it would leave no usable sheet. */
+export function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0): number {
+  if (hiddenCount === 0) return 0
+  const band = Math.max(SHEET_NOTICE_H, Math.ceil(finite(noticeH, 0)) + 4)
+  return areaH - band >= MIN_MAIN_H ? band : 0
+}
+
+function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number): DockLayout {
   const { area } = base
   const newest = open[open.length - 1]
   // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410)
-  const band = open.length > 1 ? Math.min(SHEET_NOTICE_H, area.h) : 0
+  const band = sheetNoticeBand(area.h, open.length - 1, noticeH)
   const sheet: Rect = { x: 8, y: area.y + band, w: Math.max(0, area.w - 0), h: area.h - band }
   return {
     ...base,
@@ -307,9 +316,9 @@ export function computeDockLayout(input: DockInput): DockLayout {
   }
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [] }
-  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow')
+  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH)
   const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room')
+  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH)
   return { ...base, mode: 'dock', rects, hidden: [] }
 }
 
@@ -349,6 +358,8 @@ export interface DockEnv {
   topbarH: number
   controlBarH: number
   obstacles: Rect[]
+  /** Height of the drawn hidden-panels notice (absent when none is drawn). */
+  noticeH?: number
 }
 
 export interface DockSnapshot { layout: DockLayout; env: DockEnv; open: readonly PanelId[] }
@@ -386,7 +397,9 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
     if (r.width <= 0 || r.height <= 0) continue
     obstacles.push(roundRect(r))
   }
-  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles }
+  const notice = doc.querySelector<HTMLElement>('[data-hidden-panels-notice]')
+  const noticeH = notice ? Math.ceil(notice.getBoundingClientRect().height) : 0
+  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH }
 }
 
 type Listener = () => void

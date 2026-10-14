@@ -345,7 +345,7 @@ export function AgentVisualizer() {
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
       {/* Open panels a sheet hides (#410) */}
-      <HiddenPanelsNotice />
+      <HiddenPanelsNotice contextOpen={showContext} />
       {/* Operator decisions (#240): renders nothing outside VS Code */}
       <PermissionRequests sessionLabel={permissionSessionLabel} />
       </main>
