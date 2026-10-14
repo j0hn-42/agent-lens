@@ -196,11 +196,13 @@ test('a sub-agent whose parent link is not proven is flagged', () => {
 })
 
 test('the inspector of the shell receives the report of the selected agent and can select a sub-agent', () => {
-  const shell = fs.readFileSync(path.resolve(__dirname, '..', 'web/components/agent-visualizer/index.tsx'), 'utf8')
-  const card = shell.slice(shell.indexOf('<AgentDetailCard'), shell.indexOf('/>', shell.indexOf('<AgentDetailCard')))
+  // The card is mounted by the selection overlays; the report comes from the inspector hook
+  const overlays = fs.readFileSync(path.resolve(__dirname, '..', 'web/components/agent-visualizer/selection-overlays.tsx'), 'utf8')
+  const inspector = fs.readFileSync(path.resolve(__dirname, '..', 'web/hooks/use-inspector.ts'), 'utf8')
+  const card = overlays.slice(overlays.indexOf('<AgentDetailCard'), overlays.indexOf('/>', overlays.indexOf('<AgentDetailCard')))
   assert.match(card, /delegation=\{/)
   assert.match(card, /onSelectAgent=\{/)
-  assert.match(shell, /deriveDelegationReport\(/)
+  assert.match(inspector, /deriveDelegationReport\(/)
 })
 
 // ─── Documentation ───────────────────────────────────────────────────────────
