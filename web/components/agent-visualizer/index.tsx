@@ -62,7 +62,8 @@ import { buildPaletteItems } from "@/lib/command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { listedAgents } from "@/lib/inactive-agents"
+import { listedAgents, emptiedByHidingCount } from "@/lib/inactive-agents"
+import { HiddenFinishedNotice } from "./hidden-finished-notice"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
@@ -763,6 +764,8 @@ export function AgentVisualizer() {
   const hiddenKeepIds = useMemo(() => [selection.selectedAgentId], [selection.selectedAgentId])
   // Same finished agents as the canvas and the DOM mirror (#147): the sessions list must not show what is announced hidden
   const listAgents = useMemo(() => listedAgents(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
+  // Every agent finished and hidden: the canvas would be blank without a word (#369)
+  const blankByHidingCount = useMemo(() => emptiedByHidingCount(agents, hideInactiveShown, hiddenKeepIds), [agents, hideInactiveShown, hiddenKeepIds])
   const labelledAgents = useMemo(() => labelAgentsWithSession(agents, bridge.sessions), [agents, bridge.sessions])
   const checklist = emptyStateChecklist({
     status: bridge.connectionStatus,
@@ -959,7 +962,7 @@ export function AgentVisualizer() {
         </button>
       )}
 
-      <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
+      <main id="visualizer-main" aria-label="Agent visualizer" tabIndex={-1} className="absolute inset-0 outline-none">
       <h1 className="sr-only">Agent Lens</h1>
 
       {/* Empty state when no demo and no live data. Its text sits directly on the scene ground: scene colours, whatever the theme. */}
@@ -996,6 +999,10 @@ export function AgentVisualizer() {
             </div>
           </div>
         </div>
+      )}
+
+      {blankByHidingCount > 0 && !isEmpty && (
+        <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
       )}
 
       {/* Canvas fills everything */}
