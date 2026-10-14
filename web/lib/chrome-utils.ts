@@ -31,9 +31,9 @@ export function sessionStatusKind(
   if (session.indexedOnly) return 'indexed'
   // Read from a file: neither live activity nor a witnessed end (#294)
   if (session.imported) return 'imported'
+  if (relayOffline && session.status === 'active') return 'offline'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
-  if (relayOffline) return 'offline'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
 }
 

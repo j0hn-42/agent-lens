@@ -32,3 +32,7 @@ test('relay offline: the duration of an active session stops at its last activit
   // The end was never observed: no figure
   assert.equal(sessionTimeCell({ ...active, lastActivityUnknown: true }, now, true).empty, true)
 })
+
+test('relay offline: unseen activity does not hide the offline status', () => {
+  assert.equal(sessionStatusKind(active, true, false, observed, true), 'offline')
+})

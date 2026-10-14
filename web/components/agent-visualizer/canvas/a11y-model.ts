@@ -291,8 +291,8 @@ export function buildGraphLabel(
   let total = 0, running = 0, waiting = 0, errored = 0, lastKnown = 0
   for (const a of agents) {
     total++
-    const active = a.state === 'thinking' || a.state === 'tool_calling' || a.state === 'waiting_permission'
-    if (active && now !== undefined && deriveFreshness(a, now) === 'stale') lastKnown++
+    // Same split as the top bar: any stale status (idle included) is only the last known one
+    if (now !== undefined && deriveFreshness(a, now) === 'stale') lastKnown++
     else if (a.state === 'thinking' || a.state === 'tool_calling') running++
     else if (a.state === 'waiting_permission') waiting++
     else if (a.state === 'error') errored++

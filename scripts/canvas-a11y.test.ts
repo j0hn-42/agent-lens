@@ -370,3 +370,9 @@ test('buildGraphLabel counts a stale agent apart, not as running or waiting (#36
   const model = buildA11yModel(new Map([['s', agent({ id: 's', ...stale })]]), new Map(), [], new Map(), { now })
   assert.match(model.summary, /0 running.*1 last known state/)
 })
+
+test('buildGraphLabel counts a stale idle agent as last known, like the top bar (#367)', () => {
+  const now = 1_700_000_000_000
+  const staleIdle = { state: 'idle' as const, lastEventAt: now - 120_000, freshnessSource: 'live' as const }
+  assert.match(buildGraphLabel([staleIdle], 0, now), /1 last known state/)
+})
