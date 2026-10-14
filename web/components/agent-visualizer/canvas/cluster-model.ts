@@ -163,7 +163,7 @@ const STATUS_RANK: Record<ClusterStatus, number> = { complete: 0, idle: 1, worki
  * Halo status text when some members are stale (#367): the status of the fresh members is the only proven
  * one; a higher status seen only on stale members is worded "last known: ...", like a stale agent.
  */
-export function haloStatusText(fresh: ClusterStatus | undefined, lastKnown: ClusterStatus): string {
+function haloStatusText(fresh: ClusterStatus | undefined, lastKnown: ClusterStatus): string {
   if (fresh !== undefined && STATUS_RANK[fresh] >= STATUS_RANK[lastKnown]) return STATUS_TEXT[fresh]
   const known = `last known: ${STATUS_TEXT[lastKnown]}`
   return fresh === undefined ? known : `${STATUS_TEXT[fresh]}, ${known}`
