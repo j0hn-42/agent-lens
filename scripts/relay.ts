@@ -10,8 +10,8 @@ import * as os from 'os'
 
 import { HookServer } from '../extension/src/hook-server'
 import { AgentEvent, RelayStatus, SessionInfo, WatchedSession, type TranscriptEntry } from '../extension/src/protocol'
-import { ClaudeSessionPipeline } from '../extension/src/claude-session-pipeline'
-import { safeWatch, readLinesChunked, runGuarded } from '../extension/src/fs-utils'
+import { ClaudeSessionPipeline, listedStartTimes } from '../extension/src/claude-session-pipeline'
+import { safeWatch, readLinesChunked, runGuarded, newestSessionMtime } from '../extension/src/fs-utils'
 import { scanSubagentsDir, markTeammatesDone } from '../extension/src/subagent-watcher'
 import { filterOrchestratorCompletion } from '../extension/src/orchestrator-completion'
 import { TeamWatcher, readSessionHeader, type TeamSessionTags } from '../extension/src/team-watcher'
@@ -33,6 +33,7 @@ import {
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
+import { colorEnabled, colorizeLog } from './log-color'
 import { setLogLevel, createLogger } from '../extension/src/logger'
 import { CONTROL_ALL } from '../extension/src/control-chars'
 import { buildReplayBatches } from '../extension/src/event-replay'
@@ -106,8 +107,13 @@ function resolveAgentLensVersion(): string {
   return '0.0.0'
 }
 
+const useColor = colorEnabled(process.env, Boolean(process.stdout.isTTY))
+
 function log(...args: unknown[]) {
-  if (verbose) console.log(...args)
+  if (!verbose) return
+  // Only a leading string carries the [tag]; other args (errors, ids) stay as they are.
+  if (typeof args[0] === 'string') args[0] = colorizeLog(args[0], useColor)
+  console.log(...args)
 }
 
 /** Shown without --verbose: what the user must know (a session Agent Lens stopped following). */
@@ -293,7 +299,7 @@ function toSessionInfo(session: WatchedSession): SessionInfo {
   return {
     id: session.sessionId, label: session.label,
     status: session.sessionCompleted ? 'completed' : 'active',
-    startTime: session.sessionStartTime, lastActivityTime: session.lastActivityTime,
+    ...listedStartTimes(session), lastActivityTime: session.lastActivityTime,
     runtime: 'claude',
     ...(tags ? { teamName: tags.teamName, ...(tags.memberName ? { memberName: tags.memberName } : {}) } : {}),
     ...(workspace ? { workspace } : {}),
@@ -321,12 +327,14 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
       broadcast(JSON.stringify({ type: 'session-started', session: enrichSession(toSessionInfo(live)) }), sessionId)
       return
     }
+    // A watched session keeps its own last activity (the file's mtime at attach, now on a resume): announcing it
+    // is not activity (#365)
     const base: SessionInfo = live
       ? toSessionInfo(live)
-      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
+      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
     broadcast(JSON.stringify({
       type: 'session-started',
-      session: enrichSession({ ...base, label, status: 'active', lastActivityTime: Date.now() } as SessionInfo),
+      session: enrichSession({ ...base, label, status: 'active' } as SessionInfo),
     }), sessionId)
   } else if (type === 'ended') {
     broadcast(JSON.stringify({ type: 'session-ended', sessionId }), sessionId)
@@ -476,9 +484,12 @@ function trackSession(sessionId: string, filePath: string) {
   skippedSessions.watchLimit.delete(sessionId)
   skippedSessions.sizeLimit.delete(sessionId)
   skippedSessions.fileLimit.delete(sessionId)
-  const session = pipeline.newSession(sessionId, filePath)
-  sessions.set(sessionId, session)
   const header = readSessionHeader(filePath)
+  // Times from the file (#365): last written, and the start it records; never the moment the relay attached
+  const session = pipeline.newSession(sessionId, filePath, {
+    lastActivityTime: newestSessionMtime(filePath, sessionId), recordedStartTime: header.startMs,
+  })
+  sessions.set(sessionId, session)
   if (header.cwd) sessionCwd.set(sessionId, header.cwd)
   if (header.branch) sessionBranch.set(sessionId, header.branch)
   pipeline.attach(session)

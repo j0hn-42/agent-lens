@@ -65,7 +65,7 @@ test('triggers: crossing the cost threshold notifies once, with the qualified fi
   hook.rerender({ value: 6 })
   hook.rerender({ value: 7 })
   assert.equal(FakeNotification.shown.length, 1)
-  assert.equal(FakeNotification.shown[0].body, 'Cost reached $6.00 (threshold $5.00)')
+  assert.equal(FakeNotification.shown[0].body, 'Context cost estimate reached ~$6.00 (threshold $5.00)')
 })
 
 test('triggers: nothing is sent while the history replays', () => {

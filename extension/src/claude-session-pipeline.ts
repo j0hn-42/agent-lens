@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AgentEvent, WatchedSession } from './protocol'
+import type { AgentEvent, SessionInfo, WatchedSession } from './protocol'
 import { POLL_FALLBACK_MS, SESSION_ID_DISPLAY, SYSTEM_PROMPT_BASE_TOKENS, ORCHESTRATOR_NAME } from './constants'
 import { TranscriptParser } from './transcript-parser'
 import { safeWatch, readTrackedLines } from './fs-utils'
@@ -32,6 +32,17 @@ export interface ClaudeSessionHost {
   maxFileBytes?(): number
   onOversize?(sessionId: string): void
   log?(message: string): void
+}
+
+/**
+ * Start fields of a listed Claude session (#365). `startTime` stays when watching began, the origin of the event
+ * times; the start the transcript records is given apart, and its absence is said (`startTimeWatched`), so a
+ * duration is never presented as the session's age when it only counts since the relay or extension attached.
+ */
+export function listedStartTimes(session: Pick<WatchedSession, 'sessionStartTime' | 'recordedStartTime'>): Pick<SessionInfo, 'startTime' | 'recordedStartTime' | 'startTimeWatched'> {
+  return session.recordedStartTime !== undefined
+    ? { startTime: session.sessionStartTime, recordedStartTime: session.recordedStartTime }
+    : { startTime: session.sessionStartTime, startTimeWatched: true }
 }
 
 export class ClaudeSessionPipeline {
@@ -81,16 +92,23 @@ export class ClaudeSessionPipeline {
     }, sessionId)
   }
 
-  newSession(sessionId: string, filePath: string, lastActivityTime = Date.now()): WatchedSession {
+  /**
+   * A new tracked session. `lastActivityTime` is when the transcript was last written (its mtime, #365) and
+   * `recordedStartTime` the start it records (left out when it records none).
+   */
+  newSession(sessionId: string, filePath: string, times: { lastActivityTime?: number; recordedStartTime?: number } = {}): WatchedSession {
+    const now = Date.now()
     return {
       sessionId, filePath,
       fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
-      sessionStartTime: Date.now(),
+      sessionStartTime: now,
+      // A start after now is not a recorded start (clock skew, edited file): the start is then the watch start
+      ...(times.recordedStartTime !== undefined && Number.isFinite(times.recordedStartTime) && times.recordedStartTime <= now ? { recordedStartTime: times.recordedStartTime } : {}),
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
       seenMessageHashes: new Set(),
       sessionDetected: false, sessionCompleted: false,
-      lastActivityTime,
+      lastActivityTime: times.lastActivityTime ?? now,
       subagentWatchers: new Map(),
       spawnedSubagents: new Set(),
       inlineProgressAgents: new Set(),
@@ -161,7 +179,7 @@ export class ClaudeSessionPipeline {
       scanSubagentsDir(this.delegate, this.parser, sessionId)
     }), POLL_FALLBACK_MS)
 
-    this.resetInactivityTimer(sessionId)
+    // Attaching is not activity: the last activity stays when the transcript was last written (#365)
     this.host.log?.(`Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
   }
 

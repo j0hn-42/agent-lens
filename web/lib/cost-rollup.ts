@@ -6,6 +6,7 @@
  */
 import { agentCost } from './cost'
 import { USAGE_LABELS, isValue, usageFromAgent } from './usage'
+import { COST_LABELS } from './ui-glossary'
 import { formatCost, formatTokens } from './utils'
 import type { AgentLike, AgentNode, SessionRow } from './session-tree'
 import type { SessionInfo } from './bridge-types'
@@ -148,9 +149,9 @@ export function rollupRows(
   return out
 }
 
-/** "$0.123 · 4.2k", plus the incomplete badge; "unknown" when no agent had a known token count. */
+/** "~$0.123 · 4.2k" (a context cost estimate, #364), plus the incomplete badge; "unknown" when no agent had a known token count. */
 export function formatRollup(total: RollupTotal): string {
   if (total.known === 0) return ROLLUP_UNKNOWN_TEXT
-  const text = `${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${USAGE_LABELS.estimated}` : ''}`
+  const text = `${COST_LABELS.mark}${formatCost(total.cost)} · ${formatTokens(total.tokens)}${total.estimated ? ` ${USAGE_LABELS.estimated}` : ''}`
   return total.complete ? text : `${text} ${ROLLUP_INCOMPLETE_TEXT}`
 }

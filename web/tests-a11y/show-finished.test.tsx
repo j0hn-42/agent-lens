@@ -44,7 +44,7 @@ test('toggle is hidden when there is nothing to show and outside the All tab; th
   assert.equal(single.queryByRole('button', { name: /Show finished sessions/ }), null)
   single.unmount()
   const all = render(<TopBar {...base} allSessionCount={3} finishedSessionCount={4} onToggleShowFinished={noop} />)
-  assert.ok(all.getByText(/^3 sessions/))
+  assert.ok(all.getByText(/^3 sessions -/))
 })
 
 test('a pressed toggle stays reachable even when the finished count drops to 0', () => {

@@ -55,7 +55,7 @@ test('the cost panel qualifies per-agent rows and BY TOOL rows', () => {
   const costs = texts.filter(t => t.includes('$'))
   assert.ok(costs.length >= 3, `header, agent row and tool row show a cost, got ${JSON.stringify(costs)}`)
   for (const c of costs) assert.match(c, /estimated/, `${c} is badged`)
-  assert.ok(texts.some(t => /^at least \$/.test(t)), 'the agent row is a lower bound')
+  assert.ok(texts.some(t => /^at least ~\$/.test(t)), 'the agent row is a lower bound')
 })
 
 test('the cost panel lists a partial agent as a lower bound and never lists an unavailable one as 0', () => {
@@ -68,7 +68,7 @@ test('the cost panel lists a partial agent as a lower bound and never lists an u
   assert.ok(texts.some(t => t.includes('partial-one')), 'partial agent has a row')
   assert.ok(!texts.some(t => t.includes('unknown-one')), 'unavailable agent has no row')
   assert.ok(!texts.some(t => /\$0\.00/.test(t)), `no invented zero, got ${JSON.stringify(texts)}`)
-  assert.ok(texts.some(t => /^at least \$/.test(t)), 'the header is a lower bound because an agent has no data')
+  assert.ok(texts.some(t => /^at least ~\$/.test(t)), 'the header is a lower bound because an agent has no data')
 })
 
 // ─── Expiry delay wiring ────────────────────────────────────────────────────

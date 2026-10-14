@@ -103,7 +103,7 @@ export function handleSubagentReturn(
   if (child) {
     state.agents.set(childKey, {
       ...child,
-      delegationReturn: makeDelegationReturn(summary, cutCharsOf(payload.summary), isError, payload.durationS, currentTime, !opts.replayed),
+      delegationReturn: makeDelegationReturn(summary, cutCharsOf(payload.summary), isError, payload.durationS, currentTime, !opts.replayed, payload.durationSource),
     })
   }
 

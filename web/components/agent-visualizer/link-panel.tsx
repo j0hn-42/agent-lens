@@ -9,7 +9,7 @@ import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
@@ -93,8 +93,8 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   }
   const exportAll = () => {
     const title = `${model.fromName} and ${model.toName}: ${model.kindLabel}`
-    const md = conversationToMarkdown({ title, entries: model.entries.map(toExport), notes: exportNotes({ droppedText: model.droppedText }) })
-    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+    const { markdown: md, redactions } = conversationExport({ title, entries: model.entries.map(toExport), notes: exportNotes({ droppedText: model.droppedText }) })
+    notify(downloadText(exportFileName(title), md) ? exportSavedMessage(redactions) : EXPORT_FAILED_MESSAGE)
   }
   const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(collapsible.map(e => e.id)))
 
