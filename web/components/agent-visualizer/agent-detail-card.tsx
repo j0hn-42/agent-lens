@@ -378,7 +378,7 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
   return (
     <div className="mb-3 text-[11px] font-mono" data-testid="inspector-health">
       <div className="mb-1" style={{ color: COLORS.textMuted }}>Health</div>
-      <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.waiting_permission : COLORS.textDim }}>
+      <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.warn : COLORS.textDim }}>
         {loop && <span aria-hidden="true">⟳ </span>}{healthText(health)}
       </p>
       {health.findings.length > 0 && (

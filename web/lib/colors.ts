@@ -37,11 +37,14 @@ export const SCENE: Readonly<Palette> = Object.freeze({ ...NEON_COLORS })
 /**
  * Interface colour of a state colour that the simulation stored as data (timeline blocks carry the scene colour they
  * were created with). The timeline lives in a side panel, so it paints the theme's equivalent role; a colour that is
- * not one of these roles is returned as is.
+ * not one of these roles is returned as is. The scene paints idle and thinking in the same cyan, so a caller that knows the
+ * block's state passes it: the role of that state wins when its scene colour matches (#381).
  */
 const STATE_KEYS = ['idle', 'thinking', 'tool', 'mcp', 'waiting_permission', 'error', 'complete', 'dispatch', 'return'] as const
-export function uiColor(sceneColor: string): string {
-  const key = STATE_KEYS.find(k => SCENE[k] === sceneColor)
+type StateKey = (typeof STATE_KEYS)[number]
+const isStateKey = (s: string | undefined): s is StateKey => (STATE_KEYS as readonly string[]).includes(s ?? '')
+export function uiColor(sceneColor: string, state?: string): string {
+  const key = isStateKey(state) && SCENE[state] === sceneColor ? state : STATE_KEYS.find(k => SCENE[k] === sceneColor)
   return key ? COLORS[key] : sceneColor
 }
 
