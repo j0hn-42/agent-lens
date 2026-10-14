@@ -7,6 +7,7 @@ import { startCodexRuntime } from './codex-runtime'
 import { startCopilotRuntime } from './copilot-runtime'
 import { startPiRuntime } from './pi-runtime'
 import { startGeminiRuntime } from './gemini-runtime'
+import { startOpenCodeRuntime } from './opencode-runtime'
 import { promptHookSetupIfNeeded, configureClaudeHooks, installControlHook, removeControlHook, isDisable1MContext, areHooksConfigured } from './hooks-config'
 import { createLogger } from './logger'
 import { parseNotifyMessage, NotifyThrottle, showNativeNotification } from './notify'
@@ -23,7 +24,7 @@ let runtimes: AgentRuntime[] = []
 
 function readConfiguredMode(): ConfiguredRuntimeMode {
   const raw = vscode.workspace.getConfiguration('agentVisualizer').get<string>('runtime', 'auto')
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' || raw === 'opencode' ? raw : 'auto'
 }
 
 interface StartRuntimesResult {
@@ -62,6 +63,11 @@ async function startRuntimes(
     try { runtimes.push(startGeminiRuntime(context)) }
     catch (err) { log.error('Gemini CLI runtime failed to start:', err); failures.push('gemini') }
   }
+  if (mode === 'opencode' || mode === 'auto') {
+    log.info('Starting OpenCode runtime...')
+    try { runtimes.push(startOpenCodeRuntime(context)) }
+    catch (err) { log.error('OpenCode runtime failed to start:', err); failures.push('opencode') }
+  }
   return { runtimes, failures }
 }
 
@@ -86,7 +92,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // ─── Settings: autoOpen and eventLogPath (#174) ────────────────────────────
 
-  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi or Gemini CLI) when autoOpen is on.
+  // Open the panel on the first detected session (Claude, Codex, Copilot, Pi, Gemini CLI or OpenCode) when autoOpen is on.
   // Read at event time, so toggling the setting needs no reload.
   for (const r of runtimes) {
     context.subscriptions.push(r.watcher.onSessionDetected(() => autoOpenIfEnabled(context)))
@@ -185,7 +191,7 @@ function applyEventLogPath(context: vscode.ExtensionContext): void {
 }
 
 /** Only prompt for Claude hook setup if a Claude runtime is active —
- *  otherwise a Codex-, Copilot-, Pi- or Gemini-only user would see an irrelevant prompt. */
+ *  otherwise a Codex-, Copilot-, Pi-, Gemini- or OpenCode-only user would see an irrelevant prompt. */
 function promptHookSetupIfNeededForClaude(context: vscode.ExtensionContext): void {
   if (runtimes.some(r => r.mode === 'claude')) {
     promptHookSetupIfNeeded(context)
