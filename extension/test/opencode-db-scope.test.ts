@@ -71,7 +71,7 @@ describe('openOpenCodeDb: roots, tree and scope', { skip: !hasSqlite }, () => {
 
   it('readTree: an id with a quote cannot break out of the query', () => {
     const { file, db } = makeDb()
-    db.exec(root("ro'ot", 1))
+    db.exec(root("ro''ot", 1))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     assert.deepEqual(r.db.readTree("ro'ot").rows.map(s => s.id), ["ro'ot"])

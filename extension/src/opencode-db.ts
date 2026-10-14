@@ -25,6 +25,11 @@ export const OPENCODE_ROW_DATA_MAX = 1024 * 1024
 const POLL_LIMIT_DEFAULT = 500
 const POLL_LIMIT_HARD_MAX = 5000
 const TIMEOUT_MS = 1000
+const ROOTS_LIMIT_DEFAULT = 200
+const TREE_DEPTH_MAX = 5
+const TREE_SESSIONS_MAX = 200
+/** Most sessions a scoped poll covers. */
+const SCOPE_MAX = TREE_SESSIONS_MAX
 const ID_MAX = 256
 const TEXT_MAX = 4096
 const MESSAGE_MAX = 300
@@ -182,6 +187,17 @@ const TABLES: Record<TableSpec['table'], TableSpec> = {
   part: { table: 'part', required: ['id', 'message_id', 'session_id', 'time_created', 'time_updated', 'data'], optional: [] },
 }
 
+interface SessionRead {
+  rows: OpenCodeSessionRead[]
+  skippedRows: number
+  error?: string
+}
+
+/** An id as an SQL string literal. Callers only pass ids that went through idOf. */
+function quote(id: string): string {
+  return `'${id.replace(/'/g, "''")}'`
+}
+
 interface TableRead<T> {
   rows: T[]
   cursor: OpenCodeCursor
@@ -205,6 +221,70 @@ export class OpenCodeDb {
     try { this.conn.close() } catch { /* already closed */ }
   }
 
+  /** Column expressions of a table. A text column above its bound is not loaded: data and free text read
+   *  as absent, an id-like column as '' (so a row with a broken parent_id is skipped, not taken for a root). */
+  private columnList(name: TableSpec['table']): string[] {
+    return this.columns[name].map(c => {
+      if (c === 'data') return `CASE WHEN length(data) > ${OPENCODE_ROW_DATA_MAX} THEN NULL ELSE data END AS data`
+      if (ID_COLUMNS.has(c)) return `CASE WHEN length(${c}) > ${ID_MAX} THEN '' ELSE ${c} END AS ${c}`
+      if (c === 'directory' || c === 'title' || c === 'agent') {
+        return `CASE WHEN length(${c}) > ${TEXT_COLUMN_MAX} THEN NULL ELSE ${c} END AS ${c}`
+      }
+      return c
+    })
+  }
+
+  /** Session rows matching a condition built from validated values only. Never throws. */
+  private sessionQuery(where: string, order: string, limit: number): SessionRead {
+    try {
+      const raw = this.conn.all(`SELECT ${this.columnList('session').join(', ')} FROM session WHERE ${where} ORDER BY ${order} LIMIT ${limit}`)
+      const rows: OpenCodeSessionRead[] = []
+      let skippedRows = 0
+      for (const r of raw) {
+        const row = r ? rowToSession(r) : undefined
+        if (row) rows.push(row)
+        else skippedRows++
+      }
+      return { rows, skippedRows }
+    } catch (e) {
+      return { rows: [], skippedRows: 0, error: `OpenCode: the database could not be read (${errorText(e)}).` }
+    }
+  }
+
+  /**
+   * Root sessions (no parent) updated at or after `sinceMs`, newest first. Archived sessions are left
+   * out when the database says so; if it has no `time_archived` column, none is taken for archived.
+   */
+  recentRoots(sinceMs: number, limit: number = ROOTS_LIMIT_DEFAULT): SessionRead {
+    const since = Number.isSafeInteger(sinceMs) && sinceMs > 0 ? sinceMs : 0
+    const max = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), ROOTS_LIMIT_DEFAULT) : ROOTS_LIMIT_DEFAULT
+    const archived = this.columns.session.includes('time_archived') ? ' AND time_archived IS NULL' : ''
+    return this.sessionQuery(
+      `parent_id IS NULL AND typeof(time_updated) = 'integer' AND time_updated >= ${since}${archived}`,
+      'time_updated DESC, id ASC', max,
+    )
+  }
+
+  /** A root session and its descendants (the sub-agent sessions), parents before children, bounded. */
+  readTree(rootId: string): SessionRead {
+    const id = idOf(rootId)
+    if (id === undefined) return { rows: [], skippedRows: 0 }
+    const out: OpenCodeSessionRead[] = []
+    const known = new Set<string>()
+    let skippedRows = 0
+    let level = this.sessionQuery(`id = ${quote(id)}`, 'id', 1)
+    for (let depth = 0; depth < TREE_DEPTH_MAX; depth++) {
+      if (level.error) return { rows: out, skippedRows, error: level.error }
+      skippedRows += level.skippedRows
+      const fresh = level.rows.filter(r => !known.has(r.id)).slice(0, TREE_SESSIONS_MAX - out.length)
+      if (fresh.length === 0) break
+      for (const r of fresh) { known.add(r.id); out.push(r) }
+      if (out.length >= TREE_SESSIONS_MAX) break
+      level = this.sessionQuery(`parent_id IN (${fresh.map(r => quote(r.id)).join(', ')})`, 'time_created ASC, id ASC', TREE_SESSIONS_MAX)
+    }
+    return { rows: out, skippedRows }
+  }
+
   /**
    * Rows changed since `cursors`. Tool parts are updated in place (pending, running, completed), so
    * the poll follows `time_updated`. Parts are read before messages and messages before sessions: a
@@ -213,7 +293,7 @@ export class OpenCodeDb {
    * per-poll snapshot, not to be summed. More than SEEN_MAX rows sharing one millisecond can be
    * delivered twice (the parser handles a row once per state).
    */
-  poll(cursors: OpenCodeCursors, limit: number = POLL_LIMIT_DEFAULT): OpenCodePoll {
+  poll(cursors: OpenCodeCursors, limit: number = POLL_LIMIT_DEFAULT, scope?: readonly string[]): OpenCodePoll {
     cursors = {
       session: sanitizeCursor(cursors?.session),
       message: sanitizeCursor(cursors?.message),
@@ -221,9 +301,10 @@ export class OpenCodeDb {
     }
     const max = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), POLL_LIMIT_HARD_MAX) : POLL_LIMIT_DEFAULT
     try {
-      const part = this.readTable('part', cursors.part, max, rowToPart)
-      const message = this.readTable('message', cursors.message, max, rowToMessage)
-      const session = this.readTable('session', cursors.session, max, rowToSession)
+      const ids = scope ? scope.filter(x => idOf(x) !== undefined).slice(0, SCOPE_MAX) : undefined
+      const part = this.readTable('part', cursors.part, max, rowToPart, ids)
+      const message = this.readTable('message', cursors.message, max, rowToMessage, ids)
+      const session = this.readTable('session', cursors.session, max, rowToSession, ids)
       return {
         // Rows are delivered only when what they point to is already delivered: a part needs its
         // message, a message its session. Held-back rows come again (their cursor did not move).
@@ -251,22 +332,17 @@ export class OpenCodeDb {
     cursor: OpenCodeCursor,
     limit: number,
     map: (r: Record<string, unknown>) => T | undefined,
+    scope?: readonly string[],
   ): TableRead<T> {
-    // A text column above its bound is not loaded: data and free text read as absent, an id-like
-    // column as '' (so a row with a broken parent_id is skipped, not taken for a root).
-    const cols = this.columns[name].map(c => {
-      if (c === 'data') return `CASE WHEN length(data) > ${OPENCODE_ROW_DATA_MAX} THEN NULL ELSE data END AS data`
-      if (ID_COLUMNS.has(c)) return `CASE WHEN length(${c}) > ${ID_MAX} THEN '' ELSE ${c} END AS ${c}`
-      if (c === 'directory' || c === 'title' || c === 'agent') {
-        return `CASE WHEN length(${c}) > ${TEXT_COLUMN_MAX} THEN NULL ELSE ${c} END AS ${c}`
-      }
-      return c
-    })
+    // A scope limits the read to those sessions (an empty one reads nothing)
+    if (scope && scope.length === 0) return { rows: [], cursor, skipped: 0, truncated: false }
+    const scopeSql = scope ? ` AND ${name === 'session' ? 'id' : 'session_id'} IN (${scope.map(quote).join(', ')})` : ''
+    const cols = this.columnList(name)
     const t = cursor.time
     const seen = new Set(cursor.seen)
     // The ids already read at the cursor time come back first: ask for that many more rows.
     const sql = `SELECT ${cols.join(', ')} FROM ${name} WHERE typeof(time_updated) = 'integer' AND time_updated > 0 `
-      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND time_updated >= ${t} ORDER BY time_updated ASC, id ASC LIMIT ${limit + seen.size + 1}`
+      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND time_updated >= ${t}${scopeSql} ORDER BY time_updated ASC, id ASC LIMIT ${limit + seen.size + 1}`
     const raw = this.conn.all(sql)
 
     let skipped = 0
