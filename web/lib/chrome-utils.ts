@@ -6,24 +6,26 @@ import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { formatCostUsage, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
-import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
+import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
-export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported'
+export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'
 
 /**
  * Status of a session. Unseen background activity wins over the plain active state. An active
  * session that no event was ever received for (and with no live hook flag) is 'unobserved': it is
  * listed, but whether it is idle or working is unknown (issue #52), so it never reads 'active'.
- * `isObservedId` defaults to the app-wide observation tracker.
+ * `isObservedId` defaults to the app-wide observation tracker. While the relay is offline (`relayOffline`), an
+ * active session is 'offline': no event can arrive, so it is not shown as active (#367).
  */
 export function sessionStatusKind(
   session: Pick<SessionInfo, 'status' | 'indexedOnly' | 'imported'> & { id?: string },
   hasActivity: boolean,
   isSelected: boolean,
   isObservedId: (sessionId: string) => boolean = observedSessions.has,
+  relayOffline = false,
 ): SessionStatusKind {
   // The index proves neither detection nor an end: never shown as completed
   if (session.indexedOnly) return 'indexed'
@@ -31,6 +33,7 @@ export function sessionStatusKind(
   if (session.imported) return 'imported'
   if (hasActivity && !isSelected) return 'new-activity'
   if (session.status !== 'active') return 'completed'
+  if (relayOffline) return 'offline'
   return isSessionObserved({ id: session.id ?? '', status: 'active' }, hasActivity, isObservedId) ? 'active' : 'unobserved'
 }
 
@@ -41,6 +44,7 @@ export const SESSION_STATUS_TEXT: Record<SessionStatusKind, string> = {
   unobserved: SESSION_NOT_OBSERVED_TEXT,
   indexed: SESSION_INDEXED_TEXT,
   imported: SESSION_IMPORTED_TEXT,
+  offline: SESSION_OFFLINE_TEXT,
 }
 
 export interface TabItem {

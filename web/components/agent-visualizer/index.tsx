@@ -1150,6 +1150,7 @@ export function AgentVisualizer() {
           health={health.bySession}
           onClose={() => setShowSessions(false)}
           sessions={bridge.sessions}
+          relayOffline={!bridge.useMockData && bridge.connectionStatus === 'disconnected'}
           allSessionCount={allSessionCount}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}
