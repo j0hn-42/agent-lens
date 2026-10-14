@@ -22,6 +22,8 @@ export interface UseReconnectingSourceOptions extends ReconnectingSourceDeps {
   /** Bumped to drop the connection and open a new one (a new replay), e.g. after the relay's scope changed (#291) */
   generation?: number
   onMessage: (data: unknown) => void
+  /** Called synchronously with each status change, before the messages of that connection (a render may not have run yet) */
+  onStatusChange?: (status: SourceStatus['status']) => void
   onParseError?: () => void
 }
 
@@ -42,6 +44,7 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
 
   useEffect(() => {
     if (!enabled) return
+    latest.current.onStatusChange?.('connecting')
     setState(IDLE)
     const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''
     const source = createReconnectingSource({
@@ -51,7 +54,7 @@ export function useReconnectingSource(opts: UseReconnectingSourceOptions): Sourc
       loadToken: tokenRef.current,
       onMessage: d => latest.current.onMessage(d),
       onParseError: () => latest.current.onParseError?.(),
-      onStatus: setState,
+      onStatus: s => { latest.current.onStatusChange?.(s.status); setState(s) },
       createEventSource: latest.current.createEventSource ?? (url => new EventSource(url) as unknown as EventSourceLike),
       fetchStatus: latest.current.fetchStatus ?? ((url, signal) => fetch(url, { signal, cache: 'no-store' })),
       random: latest.current.random,
