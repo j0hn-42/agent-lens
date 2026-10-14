@@ -24,8 +24,8 @@ function run(events: Ev[]): SimulationState {
 const spawn: Ev = { type: 'agent_spawn', payload: { name: 'main', isMain: true } }
 const start = (file: string, id: string): Ev =>
   ({ type: 'tool_call_start', payload: { agent: 'main', tool: 'Read', args: file, inputData: { file_path: file }, toolUseId: id } })
-const end = (id: string, tokenCost: number, tokenSource?: string): Ev =>
-  ({ type: 'tool_call_end', payload: { agent: 'main', tool: 'Read', result: 'ok', toolUseId: id, tokenCost, ...(tokenSource ? { tokenSource } : {}) } })
+const end = (id: string, tokenCost: number | null, tokenSource?: string): Ev =>
+  ({ type: 'tool_call_end', payload: { agent: 'main', tool: 'Read', result: 'ok', toolUseId: id, ...(tokenCost === null ? {} : { tokenCost }), ...(tokenSource ? { tokenSource } : {}) } })
 
 test('read tokens go to the file of the matched call, not the first file read by the agent', () => {
   const s = run([spawn, start('/r/a.ts', 'u1'), end('u1', 100), start('/r/b.ts', 'u2'), end('u2', 300)])
@@ -37,4 +37,24 @@ test('a file whose tokens are estimated is flagged', () => {
   const s = run([spawn, start('/r/a.ts', 'u1'), end('u1', 100, 'estimated'), start('/r/b.ts', 'u2'), end('u2', 50, 'reported')])
   assert.equal(s.fileAttention.get('/r/a.ts')?.tokensEstimated, true)
   assert.notEqual(s.fileAttention.get('/r/b.ts')?.tokensEstimated, true)
+})
+
+test('the estimated flag stays set when a reported figure follows an estimated one, and the figures add up', () => {
+  const s = run([spawn, start('/r/a.ts', 'u1'), end('u1', 100, 'estimated'), start('/r/a.ts', 'u2'), end('u2', 50, 'reported')])
+  assert.equal(s.fileAttention.get('/r/a.ts')?.tokensEstimated, true)
+  assert.equal(s.fileAttention.get('/r/a.ts')?.totalTokens, 150)
+})
+
+test('the estimated flag stays set when an estimated figure follows a reported one', () => {
+  const s = run([spawn, start('/r/a.ts', 'u1'), end('u1', 50, 'reported'), start('/r/a.ts', 'u2'), end('u2', 100, 'estimated')])
+  assert.equal(s.fileAttention.get('/r/a.ts')?.tokensEstimated, true)
+  assert.equal(s.fileAttention.get('/r/a.ts')?.totalTokens, 150)
+})
+
+test('a call ended without a figure makes the file total a lower bound, only for that file', () => {
+  const s = run([spawn, start('/r/a.ts', 'u1'), end('u1', 100, 'reported'), start('/r/a.ts', 'u2'), end('u2', null),
+    start('/r/b.ts', 'u3'), end('u3', 70, 'reported')])
+  assert.equal(s.fileAttention.get('/r/a.ts')?.tokensPartial, true)
+  assert.equal(s.fileAttention.get('/r/a.ts')?.totalTokens, 100)
+  assert.notEqual(s.fileAttention.get('/r/b.ts')?.tokensPartial, true)
 })

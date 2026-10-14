@@ -313,14 +313,16 @@ export function handleToolCallEnd(
       if (idx >= 0 || closeTrailing) state.timelineEntries.set(agentName, { ...entry, blocks })
     }
 
-    // File attention token cost
-    if (tokenCost) { // 0 and null add nothing
-      // The call that just ended, never the first call of this tool the agent ever made
+    // File attention token cost: the figure of the call that just ended, never the first call of this tool
+    // the agent ever made. A call that ended without a figure leaves the file total a lower bound (#368).
+    {
       const matchedTc = matchedId ? state.toolCalls.get(matchedId) : undefined
-      const filePath = extractFilePath(matchedTc?.inputData, matchedTc?.args)
-      if (filePath) {
-        const existing = state.fileAttention.get(filePath)
-        if (existing) {
+      const filePath = matchedTc ? extractFilePath(matchedTc.inputData, matchedTc.args) : undefined
+      const existing = filePath ? state.fileAttention.get(filePath) : undefined
+      if (filePath && existing) {
+        if (tokenCost === null) {
+          state.fileAttention.set(filePath, { ...existing, tokensPartial: true })
+        } else if (tokenCost) { // 0 adds nothing
           state.fileAttention.set(filePath, {
             ...existing,
             totalTokens: existing.totalTokens + tokenCost,

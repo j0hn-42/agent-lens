@@ -4,7 +4,8 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState, USAGE_LABELS } from '@/lib/ui-glossary'
+import { emptyState } from '@/lib/ui-glossary'
+import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
 import type { Agent } from '@/lib/agent-types'
@@ -25,6 +26,11 @@ interface FileAttentionPanelProps {
 }
 
 const EMPTY_WASTE = emptyWasteLedger()
+
+/** A file's tokens, qualified like every other figure: a lower bound when a call gave none, estimated when any part is. */
+function fileUsage(f: FileAttention): UsageTotal {
+  return { value: f.totalTokens, status: f.tokensPartial ? 'partial' : 'available', estimated: f.tokensEstimated === true }
+}
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
@@ -110,8 +116,12 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                 COLORS.holoBase
             const canOpen = Boolean(onOpenFile && file.path.startsWith('/'))
             const displayPath = truncatePath(file.path)
-            const tokenText = file.totalTokens > 0 ? `${file.tokensEstimated ? '~' : ''}${formatTokens(file.totalTokens)}` : '—'
-            const tokenLabel = file.totalTokens > 0 && file.tokensEstimated ? `${tokenText} tokens, ${USAGE_LABELS.estimated}` : `${tokenText} tokens`
+            const usage = fileUsage(file)
+            const hasTokens = file.totalTokens > 0
+            // Nothing counted and nothing missing: a dash. Nothing counted but a call gave no figure: unknown, not 0.
+            const tokenSpoken = hasTokens ? qualify(usage, formatTokens(file.totalTokens)) : file.tokensPartial ? 'tokens not reported' : null
+            const tokenMark = hasTokens ? `${file.tokensPartial ? '≥' : ''}${file.tokensEstimated ? '~' : ''}` : ''
+            const tokenLabel = tokenSpoken ? (hasTokens ? `${tokenSpoken} tokens` : tokenSpoken) : '— tokens'
             const conflicted = inConflict.has(conflictPath(file.path) ?? '')
             const headerInner = (
               <>
@@ -119,7 +129,12 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                   {displayPath}
                 </span>
                 <span className="text-[11px] font-mono shrink-0" style={{ color: COLORS.textMuted }}>
-                  {tokenText}
+                  {tokenSpoken === null ? '—' : (
+                    <>
+                      <span aria-hidden="true">{hasTokens ? `${tokenMark}${formatTokens(file.totalTokens)}` : '?'}</span>
+                      <span className="sr-only">{hasTokens ? tokenSpoken : tokenLabel}</span>
+                    </>
+                  )}
                 </span>
               </>
             )
@@ -190,7 +205,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             color: COLORS.textMuted,
           }}>
             <span>{pluralize(files.length, 'file')}</span>
-            <span>{files.some(f => f.tokensEstimated) ? `${USAGE_LABELS.estimated}: ` : ''}{formatTokens(files.reduce((s, f) => s + f.totalTokens, 0))} tokens in file reads</span>
+            <span>{formatTokenUsage(combineUsage(files.map(fileUsage)))} tokens in file reads</span>
           </div>
         )}
       </div>
