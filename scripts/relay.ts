@@ -36,7 +36,7 @@ import { setLogLevel, createLogger } from '../extension/src/logger'
 import { CONTROL_ALL } from '../extension/src/control-chars'
 import { buildReplayBatches } from '../extension/src/event-replay'
 import {
-  parseSessionParam, isBackedUp, capReplayBatches, appendBounded, isTruthyFlag, statusRateKey,
+  parseSessionParam, isBackedUp, capReplayBatches, appendBounded, createEvictedTally, isTruthyFlag, statusRateKey,
   listProjectDirs, findActiveSessions, wakeColdFile, admitWatchSlot, createColdScan, isValidSessionId, observationsRoute, isCrossOriginRequest,
 } from '../extension/src/relay-guards'
 import { isLoopbackAddress, KeyedRateLimiter } from '../extension/src/hook-guards'
@@ -211,6 +211,8 @@ function broadcastLocal(data: string) {
 // ─── Event buffering ────────────────────────────────────────────────────────
 
 const eventBuffer = new Map<string, AgentEvent[]>()
+/** Events the buffer let go of (#366), bounded: the replay is then partial and must not read as complete. */
+const evictedCounts = createEvictedTally()
 /** Agent states for /observations: fed on every event, not subject to the replay buffer's eviction */
 const agentTracker = new AgentStateTracker()
 
@@ -238,7 +240,7 @@ function deliverEvent(delivered: AgentEvent) {
 
   if (event.sessionId) {
     // Bounded per session, in number of sessions and in total events (see relay-guards.ts)
-    appendBounded(eventBuffer, event.sessionId, event)
+    appendBounded(eventBuffer, event.sessionId, event, {}, evictedCounts)
     agentTracker.ingest(event)
   }
 
@@ -537,6 +539,7 @@ function dropSessionsOutsideWorkspace(workspace: string) {
     const label = s.label
     dropSession(id)
     eventBuffer.delete(id)
+    evictedCounts.bySession.delete(id)
     if (announced) broadcastSessionLifecycle('ended', id, label)
   }
 }
@@ -1284,7 +1287,15 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         return b.lastActivityTime - a.lastActivityTime
       })
       // Volume is capped per session and in total (RELAY_MAX_REPLAY_*), newest events kept.
-      const replay = capReplayBatches(buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }))
+      const replayDropped = new Map<string, number>()
+      const replay = capReplayBatches(buildReplayBatches(eventBuffer, { session: sessionParam, primarySessionId: sorted[0]?.id }), {}, replayDropped)
+      // Tell the client how many events of each session this replay cannot give back (#366), before the replay
+      // itself. Totals since the relay started, not per client: the client replaces its value on each connect.
+      const loss: Record<string, number> = {}
+      for (const [sid, n] of evictedCounts.bySession) if (n > 0 && (!sessionParam || sid === sessionParam)) loss[sid] = n
+      for (const [sid, n] of replayDropped) loss[sid] = (loss[sid] ?? 0) + n
+      const otherEvents = sessionParam ? 0 : evictedCounts.other
+      if (Object.keys(loss).length > 0 || otherEvents > 0) sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}) })
       // The replay can exceed the slow-client backlog limit in one go (issue #203), so wait for the
       // socket to drain between batches instead of dropping a healthy client mid-replay. Live messages
       // arriving meanwhile are held (writeLive) and flushed after the replay, keeping arrival order.
@@ -1372,6 +1383,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
+      evictedCounts.bySession.clear()
+      evictedCounts.other = 0
       agentTracker.clear()
     },
   }
