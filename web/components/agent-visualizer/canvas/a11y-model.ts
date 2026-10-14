@@ -328,7 +328,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
@@ -397,7 +397,7 @@ export function buildA11yModel(
 export function buildTeamItems(
   agents: Map<string, Agent>, teams?: Map<string, TeamSummary>, sessions?: ReadonlyMap<string, SessionMeta>, now?: number,
 ): A11yTeamItem[] {
-  return computeClusters(agents.values(), teams, { sessions })
+  return computeClusters(agents.values(), teams, { sessions, now })
     .map(c => ({
       c,
       // The team itself: its teammates and its lead (not the other agents of the hosting session)
