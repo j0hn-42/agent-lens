@@ -55,6 +55,20 @@ export function conversationExport({ title, entries, notes }: ConversationExport
   return { markdown, redactions: counts.total }
 }
 
+/** Text of a single message for the clipboard: secrets masked like the export, and how many were masked. */
+export function redactForCopy(content: string): { text: string; redactions: number } {
+  const counts = createRedactionCounts()
+  const text = redactText(content, counts)
+  return { text, redactions: counts.total }
+}
+
+/** Status line after a successful Copy: says how many secrets were masked and what was cut. */
+export function copiedMessage(label: string, truncatedChars: number, redactions: number): string {
+  const masked = redactions > 0 ? `; ${redactions} ${redactions === 1 ? 'secret' : 'secrets'} redacted (best effort)` : ''
+  const cut = truncatedChars > 0 ? ` (truncated: ${truncatedChars} characters were cut)` : ''
+  return `${label} copied${masked}${cut}`
+}
+
 /** Failure message shared by every export (session replay and Markdown conversation). */
 export const EXPORT_FAILED_MESSAGE = 'Export failed: this view cannot save files'
 

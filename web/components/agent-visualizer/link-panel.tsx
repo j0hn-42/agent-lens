@@ -9,7 +9,7 @@ import type { AgentLink } from '@/hooks/simulation/types'
 import { buildLinkPanelModel, type LinkPanelEntry } from './canvas/link-panel-model'
 import { GlassCard } from './glass-card'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, redactForCopy, copiedMessage, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { PanelHeader, useDialogBehavior, useDockPanel, dockAttrs } from './shared-ui'
 
@@ -87,9 +87,9 @@ export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
     content: e.content, isError: e.isError, truncatedChars: e.truncatedChars,
   })
   const copyEntry = async (e: LinkPanelEntry) => {
-    const ok = await copyText(e.content)
-    const cut = e.truncatedChars > 0 ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
-    notify(ok ? `${e.typeLabel} copied${cut}` : 'Copy failed: select the text and copy it by hand')
+    const { text, redactions } = redactForCopy(e.content)
+    const ok = await copyText(text)
+    notify(ok ? copiedMessage(e.typeLabel, e.truncatedChars, redactions) : 'Copy failed: select the text and copy it by hand')
   }
   const exportAll = () => {
     const title = `${model.fromName} and ${model.toName}: ${model.kindLabel}`

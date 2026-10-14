@@ -26,7 +26,7 @@ import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { formatDroppedMessages } from '@/lib/chrome-utils'
 import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, redactForCopy, copiedMessage, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
@@ -380,9 +380,9 @@ export function ConversationPanel({
   })
   const copyMessage = async (m: FeedMessage) => {
     const e = entryOf(m)
-    const ok = await copyText(m.content)
-    const cut = e.truncatedChars ? ` (truncated: ${e.truncatedChars} characters were cut)` : ''
-    notify(ok ? `${e.label} copied${cut}` : 'Copy failed: select the text and copy it by hand')
+    const { text, redactions } = redactForCopy(m.content)
+    const ok = await copyText(text)
+    notify(ok ? copiedMessage(e.label, e.truncatedChars ?? 0, redactions) : 'Copy failed: select the text and copy it by hand')
   }
   const exportConversation = () => {
     const title = `Conversation: ${exportScope}`
