@@ -7,7 +7,7 @@
  * never in storage nor in a URL, and it is gone when the dialog closes (unmount). Every state shown is a fact the
  * relay reported (launchStateLabel).
  */
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
@@ -50,18 +50,38 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
   const ref = useRef<HTMLDivElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const stopBtnRef = useRef<HTMLButtonElement>(null)
+  const confirmStopRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const [token, setToken] = useState('')
+  // Read by the native backdrop and Escape listeners (set up once)
+  const tokenRef = useRef('')
+  tokenRef.current = token
+  // Stopping a process takes two steps (#374): "Arrêter" arms it, "Confirmer l'arrêt" sends it
+  const [stopArmed, setStopArmed] = useState(false)
+  const stopConfirmingRef = useRef(false)
+  const refocusStopRef = useRef(false)
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [mounted, setMounted] = useState(false)
 
   const active = activeLaunchFor(launches, repo, issue)
   const latest = latestLaunchFor(launches, repo, issue)
+  const confirmingStop = stopArmed && !!active
+  stopConfirmingRef.current = confirmingStop
   const cleanTitle = title.replace(CONTROL_ALL, ' ').trim()
 
   useEffect(() => { setMounted(true) }, [])
+
+  // Keyboard focus follows the confirmation: onto "Confirmer l'arrêt" when it opens, back onto "Arrêter" when it closes
+  useLayoutEffect(() => {
+    if (confirmingStop) confirmStopRef.current?.focus({ preventScroll: true })
+    else if (refocusStopRef.current) {
+      refocusStopRef.current = false
+      stopBtnRef.current?.focus({ preventScroll: true })
+    }
+  }, [confirmingStop])
 
   // Initial focus on "Annuler" (the safe choice); focus goes back to the trigger on close
   useEffect(() => {
@@ -81,12 +101,14 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
     if (!mounted || !backdrop || !dialog) return
     const onBackdropMouseDown = (e: MouseEvent) => {
       e.stopPropagation()
-      if (e.target === e.currentTarget) onCloseRef.current()
+      // A pasted token is lost on close and has to be fetched from the relay console again: a stray click keeps it
+      if (e.target === e.currentTarget && !tokenRef.current) onCloseRef.current()
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
+        if (stopConfirmingRef.current) { refocusStopRef.current = true; setStopArmed(false); return }
         onCloseRef.current()
         return
       }
@@ -124,7 +146,11 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       : { text: out.message, error: true })
   }
 
+  const cancelStop = () => { refocusStopRef.current = true; setStopArmed(false) }
+
   const stop = async () => {
+    refocusStopRef.current = true
+    setStopArmed(false)
     if (pending || !active || !needToken()) return
     setPending(true)
     setMessage({ text: t('launch.stopSending'), error: false })
@@ -142,7 +168,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       {...stopPropagationHandlers}
       {...{ [INSPECTOR_KEEP_ATTR]: '' }}
       className="fixed inset-0 flex items-center justify-center p-3"
-      style={{ zIndex: Z.contextMenu + 1, background: 'rgba(0, 0, 0, 0.5)' }}
+      style={{ zIndex: Z.contextMenu + 1, background: 'var(--lens-scrim)' }}
     >
       <div
         ref={ref}
@@ -203,37 +229,70 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
             {message && <p className="m-0" style={{ color: message.error ? COLORS.error : COLORS.textMuted }}>{message.text}</p>}
           </div>
 
-          <div className="mt-3 flex justify-end gap-2 text-xs font-mono">
-            <button
-              ref={cancelRef}
-              type="button"
-              onClick={() => onCloseRef.current()}
-              className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
-              style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
-            >
-              {t('launch.cancel')}
-            </button>
+          <div className="mt-3 flex items-center justify-between gap-2 text-xs font-mono">
             {active ? (
+              // Stop zone, apart from the way out: a process is never one click from being killed
+              <div role="group" aria-label={t('launch.stopZone')} className="flex flex-col gap-1">
+                {confirmingStop ? (
+                  <>
+                    <p className="m-0 text-[11px]" style={{ color: COLORS.textPrimary }}>{t('launch.stopConfirmHelp')}</p>
+                    <div className="flex gap-2">
+                      <button
+                        ref={confirmStopRef}
+                        type="button"
+                        onClick={() => { void stop() }}
+                        aria-disabled={pending || undefined}
+                        className={`min-h-6 rounded px-2 py-1 font-semibold ${FOCUS_RING}`}
+                        style={{ border: `2px solid ${COLORS.error}`, color: COLORS.error }}
+                      >
+                        {t('launch.stopConfirm')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelStop}
+                        className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
+                        style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
+                      >
+                        {t('launch.stopKeep')}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    ref={stopBtnRef}
+                    type="button"
+                    onClick={() => setStopArmed(true)}
+                    aria-disabled={pending || undefined}
+                    className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
+                    style={{ border: `1px solid ${COLORS.error}`, color: COLORS.error }}
+                  >
+                    {t('launch.stop')}
+                  </button>
+                )}
+              </div>
+            ) : <span />}
+            <div className="flex gap-2">
               <button
+                ref={cancelRef}
                 type="button"
-                onClick={() => { void stop() }}
-                aria-disabled={pending || undefined}
+                onClick={() => onCloseRef.current()}
                 className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
-                style={{ border: `1px solid ${COLORS.error}`, color: COLORS.error }}
+                style={{ border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
               >
-                {t('launch.stop')}
+                {t(active ? 'launch.close' : 'launch.cancel')}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { void launch() }}
-                aria-disabled={pending || undefined}
-                className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
-                style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.toggleInactive, color: COLORS.textPrimary }}
-              >
-                {t('launch.submit')}
-              </button>
-            )}
+              {!active && (
+                <button
+                  type="button"
+                  onClick={() => { void launch() }}
+                  aria-disabled={pending || undefined}
+                  className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
+                  style={{ border: `1px solid ${COLORS.controlBorder}`, background: COLORS.toggleInactive, color: COLORS.textPrimary }}
+                >
+                  {t('launch.submit')}
+                </button>
+              )}
+            </div>
           </div>
         </GlassCard>
       </div>
