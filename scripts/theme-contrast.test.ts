@@ -42,7 +42,7 @@ const TEXT_KEYS: ColorKey[] = [
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
   'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
-  'systemWarm', 'systemCritical',
+  'systemWarm', 'systemCritical', 'tool', 'holoBright',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
