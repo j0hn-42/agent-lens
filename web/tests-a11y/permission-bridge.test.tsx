@@ -69,6 +69,15 @@ test('a decision is sent with exactly its fields', () => {
   assert.deepEqual(posted, [{ type: 'permission-decision', sessionId: 'sess-1', toolUseId: null, nonce: NONCE, action: 'deny' }])
 })
 
+test('a redirect carries its text; approve and deny never carry one (#387)', () => {
+  bridge.sendPermissionDecision({ sessionId: 'sess-1', toolUseId: 'toolu_01', nonce: NONCE, action: 'redirect', message: 'use pnpm instead' })
+  bridge.sendPermissionDecision({ sessionId: 'sess-1', toolUseId: 'toolu_01', nonce: NONCE, action: 'deny', message: 'leaked' } as never)
+  assert.deepEqual(posted, [
+    { type: 'permission-decision', sessionId: 'sess-1', toolUseId: 'toolu_01', nonce: NONCE, action: 'redirect', message: 'use pnpm instead' },
+    { type: 'permission-decision', sessionId: 'sess-1', toolUseId: 'toolu_01', nonce: NONCE, action: 'deny' },
+  ])
+})
+
 test('incoming request, closing and result are relayed', () => {
   bridge.dispatch({ type: 'permission-request', request: request() })
   bridge.dispatch({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: null, outcome: 'expired' })

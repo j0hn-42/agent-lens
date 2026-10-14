@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
@@ -9,7 +9,9 @@ import { visibleInput, type PermissionRequestMessage } from '@/lib/bridge-types'
 import { formatPermissionTime, inputSummary, remainingSeconds } from '@/lib/permission-requests'
 import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
+import type { PermissionAction } from '@/lib/bridge-types'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
+import { RedirectDialog } from './permission-redirect-dialog'
 
 const CLOSED_KEYS: Record<string, MessageKey> = {
   expired: 'permission.closed.expired',
@@ -36,8 +38,10 @@ interface PermissionRequestsProps {
 
 /**
  * Operator decisions inside VS Code (#240, PR 4): each PermissionRequest the extension holds is shown in full (tool,
- * session, input, deadline) with an Approve and a Deny button. A click sends one decision; the row then says it was
- * sent, never that it was applied: only the transcript can show that. Outside VS Code nothing is rendered.
+ * session, input, deadline) with Approve, Deny and Redirect buttons (#387: Redirect opens a dialog for the text
+ * Claude receives with the deny). A click sends one decision; the row then says it was sent. It says applied only
+ * for a deny or redirect whose refusal was then observed live (an error end of that very call); an approval is never
+ * claimed applied. Outside VS Code nothing is rendered.
  * No global shortcut, no focus taken: news is announced in a polite live region.
  */
 export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
@@ -84,6 +88,13 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
     target?.focus({ preventScroll: true })
   })
 
+  /** Focus target when the redirect dialog closes after its Redirect button went away */
+  const focusPanel = useCallback((nonce: string) => {
+    const row = containerRef.current?.querySelector<HTMLElement>(`[data-nonce="${nonce}"]`)
+    const target = row?.querySelector<HTMLElement>('button') ?? headingRef.current
+    target?.focus({ preventScroll: true })
+  }, [])
+
   if (!available) return null
 
   const sessionName = (id: string) => {
@@ -125,6 +136,7 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
             t={t}
             onDecide={decide}
             onDismiss={dismiss}
+            onFocusPanel={focusPanel}
           />
         ))}
       </section>
@@ -137,6 +149,9 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
 
 function noticeText(n: PermissionNotice, subject: (r: PermissionRequestMessage) => string, t: ReturnType<typeof useT>): string {
   if (n.kind === 'sent') return t('permission.withSubject', { subject: subject(n.request), text: t('permission.announce.sent') })
+  if (n.kind === 'applied') {
+    return t('permission.withSubject', { subject: subject(n.request), text: t(n.action === 'redirect' ? 'permission.applied.redirect' : 'permission.applied.deny') })
+  }
   if (n.kind === 'closed') {
     const key = CLOSED_KEYS[n.outcome]
     const text = key ? t(key) : t('permission.closed.other', { outcome: n.outcome })
@@ -153,8 +168,21 @@ interface RequestRowProps {
   session: string
   locale: string
   t: ReturnType<typeof useT>
-  onDecide: (nonce: string, action: 'approve' | 'deny') => void
+  onDecide: (nonce: string, action: PermissionAction, message?: string) => void
   onDismiss: (nonce: string) => void
+  onFocusPanel: (nonce: string) => void
+}
+
+const SENT_KEYS: Record<PermissionAction, MessageKey> = {
+  approve: 'permission.sent.approve',
+  deny: 'permission.sent.deny',
+  redirect: 'permission.sent.redirect',
+}
+
+function sentText(row: PermissionRow, t: ReturnType<typeof useT>): string {
+  if (row.applied && row.action === 'redirect') return t('permission.applied.redirect')
+  if (row.applied && row.action === 'deny') return t('permission.applied.deny')
+  return row.action ? t(SENT_KEYS[row.action]) : t('permission.sent.other')
 }
 
 /** Whole seconds left before a deadline, re-read every second while the row is on screen (not a live region) */
@@ -168,17 +196,21 @@ function useSecondsLeft(expiresAt: number): number {
 }
 
 /** Decorative marks so Approve and Deny differ by shape, not by colour alone (#374) */
-function DecisionIcon({ action }: { action: 'approve' | 'deny' }) {
+function DecisionIcon({ action }: { action: PermissionAction }) {
   return (
     <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      {action === 'approve' ? <path d="M1.5 5.5 4 8l4.5-6" /> : <path d="M2 2l6 6M8 2 2 8" />}
+      {action === 'approve' ? <path d="M1.5 5.5 4 8l4.5-6" /> : action === 'deny' ? <path d="M2 2l6 6M8 2 2 8" /> : <path d="M1.5 5h7M6 2.5 8.5 5 6 7.5" />}
     </svg>
   )
 }
 
-function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: RequestRowProps) {
+function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onFocusPanel }: RequestRowProps) {
   const { request: r, state } = row
   const titleId = useId()
+  const [redirecting, setRedirecting] = useState(false)
+  // The dialog only exists while the request can still be answered
+  const dialogOpen = redirecting && state === 'waiting'
+  useEffect(() => { if (state !== 'waiting') setRedirecting(false) }, [state])
   const summary = inputSummary(r)
   const name = (action: string) => summary
     ? t('permission.actionName', { action, tool: r.toolName, summary, session })
@@ -226,9 +258,7 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
       )}
       {state === 'sent' ? (
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="m-0 flex-1">
-            {row.action === 'approve' ? t('permission.sent.approve') : row.action === 'deny' ? t('permission.sent.deny') : t('permission.sent.other')}
-          </p>
+          <p className="m-0 flex-1">{sentText(row, t)}</p>
           <button
             type="button"
             className={button}
@@ -241,10 +271,10 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
         </div>
       ) : (
         <div className="flex items-center gap-2 flex-wrap">
-          {(['approve', 'deny'] as const).map(action => {
-            const visible = t(action === 'approve' ? 'permission.approve' : 'permission.deny')
-            // Approve: solid border, check. Deny: dashed border, cross. Same text colour, so the cue is not colour
-            const shape = { border: action === 'approve' ? `2px solid ${COLORS.controlBorder}` : `1px dashed ${COLORS.controlBorder}` }
+          {(['approve', 'deny', 'redirect'] as const).map(action => {
+            const visible = t(action === 'approve' ? 'permission.approve' : action === 'deny' ? 'permission.deny' : 'permission.redirect')
+            // Approve: solid border, check. Deny: dashed border, cross. Redirect: dotted border, arrow. Same text colour, so the cue is not colour
+            const shape = { border: action === 'approve' ? `2px solid ${COLORS.controlBorder}` : `1px ${action === 'deny' ? 'dashed' : 'dotted'} ${COLORS.controlBorder}` }
             return (
               <button
                 key={action}
@@ -253,7 +283,12 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
                 style={sending ? { ...buttonStyle, ...shape, opacity: 0.6 } : { ...buttonStyle, ...shape }}
                 aria-label={name(visible)}
                 aria-disabled={sending || undefined}
-                onClick={() => { if (!sending) onDecide(r.nonce, action) }}
+                aria-haspopup={action === 'redirect' ? 'dialog' : undefined}
+                onClick={() => {
+                  if (sending) return
+                  if (action === 'redirect') setRedirecting(true)
+                  else onDecide(r.nonce, action)
+                }}
               >
                 <DecisionIcon action={action} />
                 {visible}
@@ -262,6 +297,15 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
           })}
           {sending && <p className="m-0" style={{ color: COLORS.textMuted }}>{t('permission.sending')}</p>}
         </div>
+      )}
+      {dialogOpen && (
+        <RedirectDialog
+          request={r}
+          session={session}
+          onSend={message => { setRedirecting(false); onDecide(r.nonce, 'redirect', message) }}
+          onCancel={() => setRedirecting(false)}
+          focusFallback={() => onFocusPanel(r.nonce)}
+        />
       )}
     </div>
   )

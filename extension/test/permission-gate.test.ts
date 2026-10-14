@@ -146,6 +146,22 @@ describe('decide', () => {
     assert.ok(dec && dec.behavior === 'deny' && dec.message.length <= 2000)
   })
 
+  it('a redirect text far past the cap is refused before any cleaning, and the request keeps waiting (#387)', () => {
+    const { gate, shown } = setup()
+    ask(gate)
+    assert.deepEqual(gate.decide({ sessionId: 's1', toolUseId: 'toolu_1', nonce: shown[0].nonce, action: 'redirect', message: 'x'.repeat(8001) }), { ok: false, reason: 'unknown' })
+    assert.equal(gate.pending().length, 1)
+    gate.dispose()
+  })
+
+  it('the cap never leaves half of a surrogate pair at the end of the text (#387)', async () => {
+    const { gate, shown } = setup()
+    const r = ask(gate)
+    gate.decide({ sessionId: 's1', toolUseId: 'toolu_1', nonce: shown[0].nonce, action: 'redirect', message: 'x'.repeat(1999) + '😀' })
+    const dec = await r.decision
+    assert.ok(dec && dec.behavior === 'deny' && !/[\uD800-\uDBFF]$/.test(dec.message))
+  })
+
   it('single use: the same decision a second time is refused and journalled as a replay', async () => {
     const { gate, records, shown } = setup()
     const r = ask(gate)
