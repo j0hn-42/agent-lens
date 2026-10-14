@@ -26,6 +26,23 @@ describe('listProjectDirs report', () => {
     assert.deepEqual(listProjectDirs(projects(), null, 2).map(p => path.basename(p)), ['a', 'b'])
   })
 
+  it('past the cap, keeps the folders with the most recent transcript, not the first by name', () => {
+    const base = path.join(root, 'recency')
+    const old = new Date(Date.now() - 3_600_000)
+    for (const n of ['a-old', 'b-old', 'c-old', 'z-active']) fs.mkdirSync(path.join(base, n), { recursive: true })
+    for (const n of ['a-old', 'b-old', 'c-old']) {
+      const f = path.join(base, n, 's.jsonl')
+      fs.writeFileSync(f, '{}\n')
+      fs.utimesSync(f, old, old)
+    }
+    fs.writeFileSync(path.join(base, 'z-active', 's.jsonl'), '{}\n')
+    const report = { truncated: false }
+    const kept = listProjectDirs(base, null, 2, report).map(p => path.basename(p))
+    assert.ok(kept.includes('z-active'), `kept ${kept.join(', ')}`)
+    assert.equal(kept.length, 2)
+    assert.equal(report.truncated, true)
+  })
+
   it('does not claim truncation when the cap is exactly reached or not reached', () => {
     for (const max of [3, 10]) {
       const report = { truncated: true }

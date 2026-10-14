@@ -216,10 +216,26 @@ export interface DiscoveryOptions {
 export interface ColdScan { cycle: number; until: Map<string, number> }
 export function createColdScan(): ColdScan { return { cycle: 0, until: new Map() } }
 
+/** mtime of the most recent `.jsonl` directly in `dir` (0 when none or unreadable). Regular files only. */
+function newestTranscriptMs(dir: string): number {
+  let newest = 0
+  let files: string[]
+  try { files = fs.readdirSync(dir) } catch { return 0 }
+  for (const f of files) {
+    if (!f.endsWith('.jsonl')) continue
+    try {
+      const st = fs.lstatSync(path.join(dir, f))
+      if (st.isFile() && st.mtimeMs > newest) newest = st.mtimeMs
+    } catch { /* vanished */ }
+  }
+  return newest
+}
+
 /**
  * Safe lookup of Claude Code project directories under `root`.
- * Only real directories (symlinks are skipped) are returned, at most `maxDirs`, the first ones BY NAME so the
- * cut does not depend on the order the file system lists them in. `report.truncated` says whether another
+ * Only real directories (symlinks are skipped) are returned, at most `maxDirs`. Within the cap they are sorted
+ * by name; past it, the ones with the most recent transcript are kept (ties by name), so a workspace that sorts late
+ * is not hidden behind hundreds of old worktree folders. `report.truncated` says whether another
  * eligible directory was left out (#291): the cap is shown, not silent.
  * With `match` only matching dirs (exact or `<encoded>-...` sub-projects) are returned.
  */
@@ -237,6 +253,11 @@ export function listProjectDirs(
     .filter(e => e.isDirectory() && !e.isSymbolicLink() && (!match || match(e.name)))
     .map(e => e.name)
     .sort()
+  if (names.length > maxDirs) {
+    const newest = new Map(names.map(n => [n, newestTranscriptMs(path.join(root, n))]))
+    // Stable sort: equal activity keeps the by-name order
+    names.sort((a, b) => (newest.get(b) ?? 0) - (newest.get(a) ?? 0))
+  }
   for (const name of names) {
     if (out.length >= maxDirs) { if (report) { report.truncated = true } break }
     out.push(path.join(root, name))

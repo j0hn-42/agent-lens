@@ -159,7 +159,7 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 
 | Field | Ceiling | Reported as |
 | --- | --- | --- |
-| `discovery.projectDirsCapped` | 200 project folders (`maxProjectDirs`), the first ones by name | `true` when more exist |
+| `discovery.projectDirsCapped` | 200 project folders (`maxProjectDirs`), the ones with the most recent transcript | `true` when more exist |
 | `skippedSessions.fileLimit` | 500 transcripts per folder (`maxFilesPerDir`), the newest kept | sessions left out |
 | `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
