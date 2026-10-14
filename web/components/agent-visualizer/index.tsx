@@ -37,6 +37,10 @@ import { ALL_SESSIONS_ID, isUnionSelection, parseTeamSelection } from "@/lib/bri
 import { selectionLabel } from "@/lib/session-tree"
 
 import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
+import { useChromeModes } from "@/hooks/use-chrome-modes"
+import { useAttentionSummary } from "@/hooks/use-attention-summary"
+import { useInspector } from "@/hooks/use-inspector"
+import { usePanelsState } from "@/hooks/use-panels-state"
 import { useTourController } from "@/hooks/use-tour-controller"
 import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
@@ -76,23 +80,6 @@ import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 import { useNotificationRules } from "@/hooks/use-notification-rules"
 import { buildSessionExport, renderReplayHtml, sessionExportFileName } from "@/lib/session-export"
 import { downloadText } from "@/lib/comms-export"
-
-type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
-
-type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
-
-/**
- * A persisted on/off flag with the useState setter shape (value or updater). The updater reads the live
- * stored value (getPrefs), so two toggles in one tick compose correctly. The first render is the server
- * render (defaults); the stored value is applied right after mount.
- */
-function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs' | 'getPrefs' | 'setPref'>) {
-  const { prefs, getPrefs, setPref } = prefsApi
-  const set = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
-    setPref(key, typeof value === 'function' ? value((getPrefs() as UiPrefs)[key]) : value)
-  }, [key, getPrefs, setPref])
-  return [prefs[key], set] as const
-}
 
 export function AgentVisualizer() {
   // Persisted UI state (#32): panels, grid, stats, cost overlay and the right dock width survive a reload.
@@ -205,15 +192,12 @@ export function AgentVisualizer() {
     pushToast({ message: n.message, durationMs: n.kind === 'relay-down' ? 8000 : 5000 })
   }, [bridge.notice, pushToast])
 
-  const [showStats, setShowStats] = usePersistedFlag('showStats', uiPrefs)
-  const [showHexGrid, setShowHexGrid] = usePersistedFlag('showHexGrid', uiPrefs)
-  const [showCostOverlay, setShowCostOverlay] = usePersistedFlag('showCostOverlay', uiPrefs)
-  const [showTimeline, setShowTimeline] = usePersistedFlag('showTimeline', uiPrefs)
-  const [showFileAttention, setShowFileAttention] = usePersistedFlag('showFiles', uiPrefs)
-  const [showSessions, setShowSessions] = useState(false)
-  const [showConversation, setShowConversation] = usePersistedFlag('showConversation', uiPrefs)
-  const [showContext, setShowContext] = useState(false)
-  const [showSystem, setShowSystem] = useState(false)
+  const {
+    showStats, setShowStats, showHexGrid, setShowHexGrid, showCostOverlay, showTimeline, setShowTimeline,
+    showFileAttention, setShowFileAttention, showSessions, setShowSessions, showConversation,
+    showContext, setShowContext, showSystem, setShowSystem,
+    toggleExclusivePanel, openConversation, closeConversation, closeTopPanel, registerPanel, panelRefs,
+  } = usePanelsState(uiPrefs)
 
   // Relay origin for on-demand reads ('' = same origin, standalone app)
   const contextOrigin = bridge.relayPort ? `http://127.0.0.1:${bridge.relayPort}` : ''
@@ -222,26 +206,6 @@ export function AgentVisualizer() {
     [contextOrigin],
   )
 
-  // Right dock width: the stored width is applied after mount (and when another tab changes it); a resize
-  // by the user is stored. A width that was only clamped by a narrow viewport is never written back.
-  useEffect(() => { dockStore.setRightWidth(prefs.dockRightWidth) }, [prefs.dockRightWidth])
-  useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
-
-  // Mutually exclusive panel toggling: Conversation and Files share the right dock, Cost is an overlay
-  // on the same group; opening one closes the others (the project context panel included)
-  const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost' | 'context') => {
-    setShowContext(prev => panel === 'context' ? !prev : false)
-    setShowFileAttention(prev => panel === 'files' ? !prev : false)
-    setShowConversation(prev => panel === 'conversation' ? !prev : false)
-    setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
-  }, [setShowFileAttention, setShowConversation, setShowCostOverlay])
-  const openConversation = useCallback(() => {
-    setShowFileAttention(false)
-    setShowCostOverlay(false)
-    setShowContext(false)
-    setShowConversation(true)
-  }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
-  const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
   const [zoomToFitTrigger, setZoomToFitTrigger] = useState(0)
 
   // Selected agent link (canvas edge between teammates); the link panel is mounted by the integration
@@ -253,18 +217,6 @@ export function AgentVisualizer() {
     if (selectedLinkId && !links.has(selectedLinkId)) setSelectedLinkId(null)
   }, [links, selectedLinkId])
 
-  // Focus management: move focus into a panel when it opens, back to its trigger when it closes
-  const filesPanelRef = useRef<HTMLDivElement>(null)
-  const timelinePanelRef = useRef<HTMLDivElement>(null)
-  const sessionsPanelRef = useRef<HTMLDivElement>(null)
-  const contextPanelRef = useRef<HTMLDivElement>(null)
-  const systemPanelRef = useRef<HTMLDivElement>(null)
-  useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
-  // The Conversation panel restores focus itself (to its pill or its top bar button)
-  useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
-  useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
-  useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
-  useFocusReturn(showSystem, systemPanelRef, PANEL_BUTTON_IDS.system)
   const { isMuted, seekingRef, handleToggleMute } = useAudioEffects(agents, toolCalls, isReviewing)
 
   // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
@@ -292,39 +244,6 @@ export function AgentVisualizer() {
     bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit,
   })
 
-  // Panel open-order stack (LIFO) so Escape closes the most recently opened panel first
-  const panelStackRef = useRef<PanelId[]>([])
-  useEffect(() => {
-    const open: Record<PanelId, boolean> = {
-      files: showFileAttention, conversation: showConversation, cost: showCostOverlay,
-      timeline: showTimeline, stats: showStats, sessions: showSessions, context: showContext, system: showSystem,
-    }
-    const stack = panelStackRef.current.filter(id => open[id])
-    for (const id of Object.keys(open) as PanelId[]) {
-      if (open[id] && !stack.includes(id)) stack.push(id)
-    }
-    panelStackRef.current = stack
-  }, [showFileAttention, showConversation, showCostOverlay, showTimeline, showStats, showSessions, showContext, showSystem])
-
-  // Extra panels (e.g. the expandable message feed) join the Escape stack through this registry
-  const panelRegistry = useMemo(() => createPanelRegistry(), [])
-  const registerPanel = panelRegistry.register
-
-  const closeTopPanel = useCallback((): boolean => {
-    const top = panelStackRef.current[panelStackRef.current.length - 1]
-    if (!top) return panelRegistry.escape()
-    panelStackRef.current = panelStackRef.current.slice(0, -1)
-    if (top === 'files') setShowFileAttention(false)
-    else if (top === 'conversation') setShowConversation(false)
-    else if (top === 'cost') setShowCostOverlay(false)
-    else if (top === 'timeline') setShowTimeline(false)
-    else if (top === 'sessions') setShowSessions(false)
-    else if (top === 'context') setShowContext(false)
-    else if (top === 'system') setShowSystem(false)
-    else setShowStats(false)
-    return true
-  }, [panelRegistry, setShowFileAttention, setShowConversation, setShowCostOverlay, setShowTimeline, setShowStats])
-
   // Focus sits in the agent card right after a selection, and the card handles Escape itself: route it through
   // the same order as the global handler so one Escape closes exactly one thing (newest panel first, then
   // the selection), instead of clearing the selection while the panel it opened stays.
@@ -337,44 +256,11 @@ export function AgentVisualizer() {
   const singleKeyShortcuts = prefs.singleKeyShortcuts
   const updateSingleKeyShortcuts = useCallback((enabled: boolean) => setPref('singleKeyShortcuts', enabled), [setPref])
 
-  const { immersive, toggle: toggleFullscreen } = useFullscreen()
-  // Escape closes panels first; with none open it leaves a chrome-only immersive mode (no Fullscreen API: nothing else would)
-  const closeTopPanelOrImmersive = useCallback((): boolean => {
-    if (closeTopPanel()) return true
-    if (immersive && !document.fullscreenElement) { toggleFullscreen(); return true }
-    return false
-  }, [closeTopPanel, immersive, toggleFullscreen])
-  // Focus follows the chrome that disappears (#196) and the change is announced
-  const exitFullscreenRef = useRef<HTMLButtonElement>(null)
-  const wasImmersiveRef = useRef(false)
-  const [fullscreenNote, setFullscreenNote] = useState<string | null>(null)
-  useEffect(() => {
-    if (immersive === wasImmersiveRef.current) return
-    wasImmersiveRef.current = immersive
-    setFullscreenNote(immersive ? 'Full screen on' : 'Full screen off')
-    if (immersive) exitFullscreenRef.current?.focus()
-    else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
-  }, [immersive])
-
-  // Presentation mode (#245): options persist, the mode does not. Escape stops it once nothing else is open.
-  const presentation = usePresentationMode()
-  const presentationOn = presentation.active
-  const presentationMasked = presentationOn && presentation.options.mask
-  usePresentationMaskAttribute(presentationMasked)
-  const presentationSubtitle = usePresentationSubtitle(agents, { enabled: presentationOn && presentation.options.subtitles, mask: presentation.options.mask })
-  const wasPresentingRef = useRef(false)
-  const [presentationNote, setPresentationNote] = useState<string | null>(null)
-  useEffect(() => {
-    if (presentationOn === wasPresentingRef.current) return
-    wasPresentingRef.current = presentationOn
-    setPresentationNote(presentationOn ? 'Presentation mode on' : 'Presentation mode off')
-  }, [presentationOn])
-  const stopPresentation = presentation.stop
-  const closeTopPanelOrImmersiveOrPresentation = useCallback((): boolean => {
-    if (closeTopPanelOrImmersive()) return true
-    if (presentationOn) { stopPresentation(); return true }
-    return false
-  }, [closeTopPanelOrImmersive, presentationOn, stopPresentation])
+  const {
+    immersive, toggleFullscreen, exitFullscreenRef, fullscreenNote,
+    presentation, presentationOn, presentationMasked, presentationSubtitle, presentationNote,
+    closeTopPanelOrImmersiveOrPresentation,
+  } = useChromeModes(agents, closeTopPanel)
 
   // Keyboard shortcuts
   const keyboardActions = useMemo(() => ({
@@ -404,73 +290,18 @@ export function AgentVisualizer() {
 
   useKeyboardShortcuts(keyboardActions)
 
-  // Totals never show a missing figure as 0: agents without data make them a lower bound; usage that belongs
-  // to no single agent is kept apart (#61) but counts in the session total
-  const usage = useMemo(() => sessionUsage(agents.values(), unattributed.values()), [agents, unattributed])
+  const agentsRef = useRef(agents)
+  agentsRef.current = agents
+  const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention } = useAttentionSummary({
+    sim: { agents, unattributed, foreignAttention, conversations, droppedMessages, catchUp },
+    agentsRef, bridge, selectAgent: selection.handleAgentClick,
+  })
   const tokenUsage = usage.tokens
   const costUsage = usage.cost
   const totalTokens = usage.summary.sessionTokens
   const totalCost = usage.summary.sessionCost
 
-  // Agents waiting for a permission or in error (#126): counter, tab title and opt-in notification.
-  // The clock only re-evaluates freshness: a waiting status nothing proves any more drops out.
-  const [attentionNow, setAttentionNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => setAttentionNow(Date.now()), 10_000)
-    return () => clearInterval(t)
-  }, [])
-  const attention = useMemo(() => summarizeAttention(withForeignAttention(agents.values(), foreignAttention), Math.max(attentionNow, Date.now())), [agents, foreignAttention, attentionNow])
-  // Configurable triggers (#225): rules chosen in Settings; inside VS Code the item goes to the extension
-  const { rules: notifyRules, setRules: setNotifyRules } = useNotificationRules()
-  const sendNative = useCallback((item: { trigger: string; title: string; body: string }) => vscodeBridge?.notify(item), [])
-  const { notifyState, toggleNotify } = useAttentionAlerts(attention, {
-    rules: notifyRules, sessions: bridge.sessions, cost: costUsage, replaying: catchUp !== null,
-    native: bridge.isVSCode ? sendNative : undefined,
-  })
-  const { handleAgentClick: selectBlockedAgent } = selection
-  const attentionTarget = attention.firstAgentId
-  const attentionSession = attention.firstSessionId
-  const agentsRef = useRef(agents)
-  agentsRef.current = agents
-  // Loop verdict (#230), per agent and per session, from the tool calls kept in the conversations of this view.
-  // Recomputed when a conversation changes, not on every frame; an agent's session never changes.
-  const health = useMemo(
-    () => assessHealth(conversations, droppedMessages, k => agentsRef.current.get(k)?.sessionId),
-    [conversations, droppedMessages],
-  )
-  // An agent of another session is not in this view: go to its session instead
-  const jumpToAttention = useCallback(() => {
-    if (!attentionTarget) return
-    if (agentsRef.current.has(attentionTarget)) selectBlockedAgent(attentionTarget)
-    else if (attentionSession) bridge.selectSession(attentionSession)
-  }, [attentionTarget, attentionSession, selectBlockedAgent, bridge])
-
-  const selectedAgent = selection.selectedAgentId ? agents.get(selection.selectedAgentId) : null
-  // Inspector (#57): remembers the selected node's last name so "no longer listed" can name it; reset on every new selection
-  const inspectorMemoryRef = useRef<InspectorMemory | null>(null)
-  inspectorMemoryRef.current = nextInspectorMemory(inspectorMemoryRef.current, selection.selectedAgentId, selectedAgent ?? undefined)
-  const selectedGone = !!selection.selectedAgentId && !selectedAgent
-  // Delegation report of the selected agent (#233): its direct sub-agents, each value proven or said unknown
-  const selectedAgentId = selectedAgent?.id
-  const delegation = useMemo(
-    () => selectedAgentId ? deriveDelegationReport(selectedAgentId, agents, fileAttention, edges) : [],
-    [selectedAgentId, agents, fileAttention, edges],
-  )
-
-  // "Why this tool?": derived only from the owner's own history (see lib/tool-reasoning)
-  const toolData = selection.selectedToolData
-  const toolWhy = useMemo((): ToolWhy | undefined => {
-    if (!toolData?.agentId) return undefined
-    const nameOf = (id: string) => agents.get(id)?.name ?? id
-    const reasoning = reasoningBefore(conversations.get(toolData.agentId), toolData.toolUseId, droppedMessages.get(toolData.agentId) ?? 0)
-    const chain = toolData.state === 'error'
-      ? causalChain({
-        agentId: toolData.agentId, toolUseId: toolData.toolUseId, errorText: toolData.errorMessage ?? toolData.result ?? '',
-        agents, conversations, droppedMessages, edges,
-      })
-      : null
-    return { reasoning, chain, nameOf }
-  }, [toolData, agents, conversations, droppedMessages, edges])
+  const { selectedAgent, selectedGone, goneName, delegation, toolWhy } = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
@@ -877,7 +708,7 @@ export function AgentVisualizer() {
         <div {...stopPropagationHandlers}>
           <AgentGoneCard
             key={selection.selectedAgentId}
-            name={inspectorMemoryRef.current?.name ?? null}
+            name={goneName}
             onClose={selection.clearAgent}
             onEscape={escapeFromDetailCard}
           />
@@ -952,7 +783,7 @@ export function AgentVisualizer() {
       </div>
 
       {/* File attention panel (slide-in from right) */}
-      <div ref={filesPanelRef} style={{ display: 'contents' }}>
+      <div ref={panelRefs.files} style={{ display: 'contents' }}>
         <FileAttentionPanel
           visible={showFileAttention}
           fileAttention={fileAttention}
@@ -965,7 +796,7 @@ export function AgentVisualizer() {
       </div>
 
       {/* Sessions panel (slide-in from left): sessions with their agent and sub-agent tree */}
-      <div ref={sessionsPanelRef} style={{ display: 'contents' }}>
+      <div ref={panelRefs.sessions} style={{ display: 'contents' }}>
         <SessionListPanel
           visible={showSessions}
           attention={attention}
@@ -1001,7 +832,7 @@ export function AgentVisualizer() {
       </div>
 
       {/* Project context panel: CLAUDE.md, memory and cited issues, loaded on demand from the relay */}
-      <div ref={contextPanelRef} style={{ display: 'contents' }}>
+      <div ref={panelRefs.context} style={{ display: 'contents' }}>
         <ProjectContextPanel
           visible={showContext}
           sessionId={bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId) ? bridge.selectedSessionId : null}
@@ -1017,7 +848,7 @@ export function AgentVisualizer() {
       </div>
 
       {/* System panel: machine health sampled by the standalone relay (left dock, below the agent card) */}
-      <div ref={systemPanelRef} style={{ display: 'contents' }}>
+      <div ref={panelRefs.system} style={{ display: 'contents' }}>
         <SystemPanel
           visible={showSystem}
           samples={bridge.systemStats}
@@ -1028,7 +859,7 @@ export function AgentVisualizer() {
       </div>
 
       {/* Timeline panel (slide-in from bottom) */}
-      <div ref={timelinePanelRef} style={{ display: 'contents' }}>
+      <div ref={panelRefs.timeline} style={{ display: 'contents' }}>
         <TimelinePanel
           visible={showTimeline}
           timelineEntries={timelineEntries}
