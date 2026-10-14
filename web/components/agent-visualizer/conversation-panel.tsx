@@ -26,7 +26,7 @@ import { isPairComplete, isPairSet, pairEmptyText } from '@/lib/pair-filter'
 import { formatDroppedMessages } from '@/lib/chrome-utils'
 import { CONVERSATION_LABELS, HIERARCHY_TERMS } from '@/lib/ui-glossary'
 import { useCopyFeedback } from '@/hooks/use-copy-feedback'
-import { conversationToMarkdown, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
+import { conversationExport, EXPORT_FAILED_MESSAGE, exportSavedMessage, copyText, downloadText, exportFileName, exportNotes, type CommsExportEntry } from '@/lib/comms-export'
 import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
@@ -386,12 +386,12 @@ export function ConversationPanel({
   }
   const exportConversation = () => {
     const title = `Conversation: ${exportScope}`
-    const md = conversationToMarkdown({
+    const { markdown: md, redactions } = conversationExport({
       title,
       entries: messages.map(entryOf),
       notes: exportNotes({ droppedText: droppedMarker, toolsHidden: !showTools, searchQuery }),
     })
-    notify(downloadText(exportFileName(title), md) ? 'Conversation exported as Markdown' : 'Export failed in this browser')
+    notify(downloadText(exportFileName(title), md) ? exportSavedMessage(redactions) : EXPORT_FAILED_MESSAGE)
   }
 
   const newMessagesText = `${newCount} new message${newCount === 1 ? '' : 's'}`
