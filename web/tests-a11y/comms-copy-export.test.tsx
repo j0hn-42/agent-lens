@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import {
-  conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText,
+  conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText, redactForCopy, copiedMessage,
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -283,4 +283,42 @@ test('conversation panel: export of an active pair reports the older messages dr
   assert.match(text, /^# Conversation: orchestrator and audit-ux/)
   assert.match(text, /Incomplete: .*4 older messages dropped/)
   assert.doesNotMatch(text, /13 older/)
+})
+
+// ── Copy masks secrets like the export (#409) ──
+test('redactForCopy masks secrets and counts them', () => {
+  const out = redactForCopy(`token ${TOKEN} and Authorization: Bearer abcdefghijklmnop1234`)
+  assert.ok(!out.text.includes(TOKEN))
+  assert.match(out.text, /\[REDACTED:github-token\]/)
+  assert.equal(out.redactions, 2)
+  assert.deepEqual(redactForCopy('plain'), { text: 'plain', redactions: 0 })
+})
+
+test('copiedMessage says how many secrets were masked and what was cut', () => {
+  assert.equal(copiedMessage('DISPATCH', 0, 0), 'DISPATCH copied')
+  assert.equal(copiedMessage('DISPATCH', 0, 1), 'DISPATCH copied; 1 secret redacted (best effort)')
+  assert.match(copiedMessage('RETURN', 5, 2), /RETURN copied; 2 secrets redacted \(best effort\) \(truncated: 5 characters were cut\)/)
+})
+
+test('link panel: Copy puts masked text on the clipboard and announces the redaction', async () => {
+  const l = { ...link, messages: [msg('d1', 'dispatch', 5, `use ${TOKEN}`, { from: 'o', to: 'u' })] } as unknown as AgentLink
+  const r = render(<LinkPanel link={l} agents={agents} onClose={() => {}} />)
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(copied.length, 1)
+  assert.ok(!copied[0].includes(TOKEN))
+  assert.match(copied[0], /\[REDACTED:github-token\]/)
+  assert.match(r.getByRole('status').textContent ?? '', /1 secret redacted/)
+})
+
+test('conversation panel: Copy puts masked text on the clipboard and announces the redaction', async () => {
+  const conv = new Map<string, ConversationMessage[]>([['u', [msg('d1', 'dispatch', 5, `use ${TOKEN}`, { from: 'o', to: 'u' })]]])
+  const r = render(
+    <ConversationHarness registry={createPanelRegistry()} conversations={conv} agents={agents} selectedAgentId={null} onAgentClick={() => {}} initialOpen />,
+  )
+  fireEvent.click(r.getByRole('button', { name: /^Copy dispatch/ }))
+  await flush()
+  assert.equal(copied.length, 1)
+  assert.ok(!copied[0].includes(TOKEN))
+  assert.match(r.getAllByRole('status').map(s => s.textContent).join(' '), /1 secret redacted/)
 })
