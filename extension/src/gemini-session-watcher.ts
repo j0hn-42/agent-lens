@@ -29,7 +29,7 @@ import * as path from 'path'
 import * as os from 'os'
 import { AgentEvent, SessionInfo } from './protocol'
 import {
-  ACTIVE_SESSION_AGE_S, INACTIVITY_TIMEOUT_MS, NORM_MAX_LINE_CHARS, ORCHESTRATOR_NAME, GEMINI_MAX_WATCHED_SESSIONS,
+  ACTIVE_SESSION_AGE_S, NORM_MAX_LINE_CHARS, ORCHESTRATOR_NAME, GEMINI_MAX_WATCHED_SESSIONS,
   POLL_FALLBACK_MS, PREVIEW_MAX, RELAY_MAX_FILES_PER_DIR, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_SESSION_FILE_BYTES,
   SCAN_INTERVAL_MS, SESSION_ID_DISPLAY, WATCH_SCAN_DEBOUNCE_MS,
 } from './constants'
@@ -60,7 +60,6 @@ interface WatchedGeminiSession {
   cwd?: string
   fileWatcher: fs.FSWatcher | null
   pollTimer: NodeJS.Timeout | null
-  inactivityTimer: NodeJS.Timeout | null
   fileSize: number
   /** Bytes past the last newline of the previous read, prepended to the next chunk. */
   fileTail: string
@@ -69,7 +68,6 @@ interface WatchedGeminiSession {
   sessionStartTime: number
   lastActivityTime: number
   sessionDetected: boolean
-  sessionCompleted: boolean
   label: string
   eventState: GeminiEventState
   parser: GeminiEventParser
@@ -170,21 +168,22 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
 
   isActive(): boolean {
     for (const s of this.sessions.values()) {
-      if (s.sessionDetected && !s.sessionCompleted) return true
+      if (s.sessionDetected) return true
     }
     return false
   }
 
   isSessionActive(sessionId: string): boolean {
     const s = this.sessions.get(sessionId)
-    return !!s && s.sessionDetected && !s.sessionCompleted
+    return !!s && s.sessionDetected
   }
 
   getActiveSessions(): SessionInfo[] {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.sessionId,
       label: s.label,
-      status: s.sessionCompleted ? 'completed' : 'active',
+      // No end is observed for this runtime: a silence never completes a session (#360)
+      status: 'active',
       startTime: s.sessionStartTime,
       lastActivityTime: s.lastActivityTime,
       runtime: 'gemini',
@@ -353,7 +352,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
   private retire(id: string, s: WatchedGeminiSession): void {
     s.fileWatcher?.close()
     if (s.pollTimer) clearInterval(s.pollTimer)
-    if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     this.sessions.delete(id)
     this.retired.delete(id)
     this.retired.set(id, {
@@ -370,7 +368,7 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
   private releaseEndedSessions(): void {
     const now = Date.now()
     for (const [id, s] of this.sessions) {
-      if (!s.sessionCompleted || (now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
+      if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
       this.retire(id, s)
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
@@ -410,7 +408,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       ...(cwd ? { cwd } : {}),
       fileWatcher: null,
       pollTimer: null,
-      inactivityTimer: null,
       fileSize: 0,
       fileTail: '',
       ino: stat.ino,
@@ -418,7 +415,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
       sessionStartTime: header.startMs ?? (stat.birthtimeMs || stat.mtimeMs),
       lastActivityTime: stat.mtimeMs,
       sessionDetected: false,
-      sessionCompleted: false,
       label,
       eventState: createGeminiEventState(),
       parser,
@@ -447,7 +443,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     // fs.watch sometimes silently stops after a long idle — poll as a backup.
     session.pollTimer = setInterval(() => this.readNewLines(sessionId), POLL_FALLBACK_MS)
 
-    this.resetInactivityTimer(sessionId)
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
   }
 
@@ -508,13 +503,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     }
     session.lastActivityTime = Date.now()
 
-    // New content in a session marked complete on inactivity means the user resumed it.
-    if (session.sessionCompleted) {
-      session.sessionCompleted = false
-      this._onSessionLifecycle.fire(this.lifecycle('started', session))
-      log.info(`Session ${sessionId.slice(0, SESSION_ID_DISPLAY)} re-activated after idle`)
-    }
-
     if (rewritten) {
       session.parser.beginRewrite(session.eventState)
       try { this.drainHistory(session, size) }
@@ -525,25 +513,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
         catch (err) { log.debug('Parser threw on line:', err) }
       }
     }
-
-    this.resetInactivityTimer(sessionId)
-  }
-
-  private resetInactivityTimer(sessionId: string): void {
-    const session = this.sessions.get(sessionId)
-    if (!session) return
-    if (session.inactivityTimer) { clearTimeout(session.inactivityTimer) }
-    session.inactivityTimer = setTimeout(() => runGuarded(() => {
-      if (session.sessionCompleted) return
-      session.sessionCompleted = true
-      this._onEvent.fire({
-        time: (Date.now() - session.sessionStartTime) / 1000,
-        type: 'agent_complete',
-        payload: { name: ORCHESTRATOR_NAME, sessionEnd: true, inactivity: true },
-        sessionId,
-      })
-      this._onSessionLifecycle.fire(this.lifecycle('ended', session))
-    }, err => log.warn('Fin de session Gemini en échec :', err)), INACTIVITY_TIMEOUT_MS)
   }
 
   dispose(): void {
@@ -554,7 +523,6 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     for (const s of this.sessions.values()) {
       s.fileWatcher?.close()
       if (s.pollTimer) clearInterval(s.pollTimer)
-      if (s.inactivityTimer) clearTimeout(s.inactivityTimer)
     }
     this.sessions.clear()
     this.retired.clear()
