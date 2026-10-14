@@ -2,6 +2,7 @@
 // scripts/contrast.test.ts keeps pinning the neon pixels; this file checks the palette each theme really paints.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { SCENE } from '../web/lib/colors'
 import { paletteFor, type ColorKey } from '../web/lib/theme-palette'
 import { THEME_IDS, TOKENS, extraVars, type ThemeId } from '../web/lib/theme-tokens'
 
@@ -81,6 +82,14 @@ for (const id of THEME_IDS) {
     glass: over(p.glassBg, rgb(t.void)),
     raised: rgb(t['surface-raised']),
   }
+
+  test(`${id}: focus ring is >= 3:1 on the scene (the canvas background)`, () => {
+    assert.ok(ratio(rgb(t.focus), rgb(SCENE.void)) >= 3, `focus ${t.focus} on scene ${SCENE.void}`)
+  })
+  test(`${id}: search icon is >= 3:1 on the code block it sits on (over glass)`, () => {
+    const bg = over(p.codeBlockBg, grounds.glass)
+    assert.ok(ratio(over(p.searchIcon, bg), bg) >= 3, `searchIcon ${p.searchIcon} on codeBlockBg`)
+  })
 
   for (const [name, bg] of Object.entries(grounds)) {
     test(`${id}: ink and ink-muted are >= 4.5:1 on ${name}`, () => {
@@ -294,6 +303,6 @@ test('neon: the panel and feed colours keep their historical values', () => {
 })
 
 // #380 (2.4.7): in High contrast the focus ring must not be the accent colour, or a focused accent-filled control shows no ring
-test('contrast: the focus ring is distinct from the accent', () => {
-  assert.notEqual(TOKENS.contrast.focus.toLowerCase(), TOKENS.contrast.accent.toLowerCase())
+test('contrast: the focus ring is visibly distinct from the accent (>= 1.2:1)', () => {
+  assert.ok(ratio(rgb(TOKENS.contrast.focus), rgb(TOKENS.contrast.accent)) >= 1.2)
 })
