@@ -56,6 +56,15 @@ test('the four outcomes: completed, failed, cancelled, and expired are distinct 
   assert.equal(only(expired).endObserved, false)
 })
 
+test('a failed tool call counts a tool error but does not put the agent in error (#363)', () => {
+  const failed = run([orch, start(), { type: 'tool_call_end', time: 2, payload: { agent: 'orchestrator', tool: 'Bash', toolUseId: 'toolu_1', result: 'exit 1', isError: true } }])
+  const agent = Array.from(failed.agents.values()).find(a => a.isMain)!
+  assert.equal(agent.toolErrors, 1)
+  // Neither error (#363) nor a thinking nobody observed (#362): idle between two steps
+  assert.equal(agent.state, 'idle')
+  assert.equal(agent.awaitingNextEvent, true)
+})
+
 test('readToolOutcome: explicit outcome wins over isError, unknown values fall back', () => {
   assert.equal(readToolOutcome({ outcome: 'cancelled', isError: true }), 'cancelled')
   assert.equal(readToolOutcome({ isError: true }), 'error')

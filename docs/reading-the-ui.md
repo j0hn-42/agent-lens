@@ -52,7 +52,7 @@ With at least one symbol on screen, a **Tour this session** button sits beside *
 
 The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [demo.md](demo.md), in French) walks through every section of the legend. Steps per section:
 
-- **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*.
+- **States**: steps *Meet your agent*, *Tool calls*, *Results come back*, *Waiting for you*, *When something fails* and *Agent Teams*. The `paused` state is described only, in step *Seen only in a real session*. The `error` state is described only, in step *When something fails*: a failed tool call does not put an agent in error.
 - **Shapes**: steps *Meet your agent*, *Tool calls*, *Sub-agents* and *Results come back*. The discovery card shape is described only (*Seen only in a real session*).
 - **Edges and particles**: steps *Tool calls*, *Sub-agents* and *Results come back*. The dispatch and return particles are described only, in *Sub-agents* and *Results come back*: the tour pauses the scene at each step, and a paused scene draws no particle. The unverified parent link, the file conflict line and the two folded-branch badges are described only (*Seen only in a real session*).
 - **Teams**: step *Agent Teams* (and *Delivered messages and finished teammates* for a finished teammate, *Results come back* for an archived agent). The session halo is described only (*Seen only in a real session*).
@@ -121,6 +121,9 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | --- | --- |
 | **Observed** | Agent Lens received events for it. |
 | **Not observed** / "listed - activity not observed" | The session or agent is known (for example listed on disk) but no event was ever received. No state or activity is invented for it. |
+| **Thinking** (agent state, Timeline "Thinking..." block) | A thinking block of the agent was observed, and nothing has happened since. A context reading, a prompt, an answer, a resolved permission or the end of a tool call never puts an agent in *Thinking*. |
+| **Idle** between two steps (agent state) | After a tool call, a thinking block or a permission prompt ends (and no other call of the agent still runs), the agent shows **Idle** until its next event: what it does in between is not observed, so nothing is claimed. Its turn is not over, though: it stays on the canvas with **Hide inactive agents**, keeps its branch as it is (a branch you closed stays closed), stays the target of **Follow the active agent**, and no subtitle is written for it. Only the end of the turn makes it inactive. |
+| **active** time (agent card, Sessions panel) | The sum of the observed thinking blocks and tool calls of the agent. It is a lower bound: the time between two steps (the model reading a tool result, writing an answer) is not observed, so it is not counted. "active time unknown" means nothing was observed. |
 | "Not observed yet" (agent card) | The agent was announced but nothing has been seen from it. |
 | "end not observed" (tool card) | The tool call started but its end was never seen. It is not shown as success or failure. |
 | "last known state: X, silent for N min" | The agent sent no event for more than 5 minutes (the status is already "last known state" after 30 s). It is a silence, not a verdict: a long tool call or a long thought is silent too, so Agent Lens never writes "stuck". Shown in the agent card (inspector) and on the agent row of the Sessions panel, in whole minutes. |
@@ -289,13 +292,13 @@ With operator control on ([operator-control.md](operator-control.md)), a permiss
 
 For demos and streaming. Start it with `V` (or Settings > Presentation); stop it with `V`, `Esc` or the "Presentation mode - V to stop" button under the top bar. It is announced ("Presentation mode on/off") and never starts by itself: only the three options below are remembered in this browser (`agent-lens:presentation`), the mode is not. Each option can be turned off in Settings > Presentation.
 
-- **Subtitles of transitions**: a caption at the bottom of the canvas for each state change of an agent, for example "Main agent: Thinking -> Calling tool Read". Only proof counts: a subtitle is written when this page saw the change happen live. Nothing is said about the state that was already there when the mode started, and nothing about replayed history, imported transcripts or an agent never heard from live. A caption stays 7 seconds; when several changes arrive together, the most recent one is shown. It is for the audience: it is not a live region, so a screen reader is not interrupted.
+- **Subtitles of transitions**: a caption at the bottom of the canvas for each state change of an agent, for example "Main agent: Thinking -> Calling tool Read". Only proof counts: a subtitle is written when this page saw the change happen live. An agent idle between two steps of its turn gets no subtitle: the next observed step is reported from the last one ("Calling tool Read -> Calling tool Edit"). Nothing is said about the state that was already there when the mode started, and nothing about replayed history, imported transcripts or an agent never heard from live. A caption stays 7 seconds; when several changes arrive together, the most recent one is shown. It is for the audience: it is not a live region, so a screen reader is not interrupted.
 - **Mask sensitive data** (on by default): free text is hidden, never replaced by a plausible value.
   - On the canvas, tool-call arguments and results, message bubbles, discovery cards, link messages, particle labels, agent names, session and team names (halo labels, the cost panel) are drawn as bullets of the same length. Counts, costs, states, tool names and context gauges stay, because they come from the events and carry no prompt or path.
   - In the panels, Conversation, Files, Context, Timeline, the link panel, the tool and discovery popups, the Sessions list, the selected-session label in the top bar, the agent name in its card and the canvas hover tooltip are blurred and cannot be selected.
   - Subtitles name an agent by its role ("Main agent", "Sub-agent", "Teammate") instead of its name or prompt.
   - Not covered: the text read by screen readers (the graph outline, announcements), the browser tab title, notifications, and anything you copy from a panel before starting the mode. Masking is a screen filter for the audience, not a privacy boundary; check a scene before you share it.
-- **Follow the active agent**: the camera centres on the agent that worked last (thinking, calling a tool or waiting for a permission, seen live), keeping your zoom. With no such agent it stays where it is. Panning or zooming yourself pauses the follow until another agent takes over; the automatic fit is off while the option is on.
+- **Follow the active agent**: the camera centres on the agent that worked last (thinking, calling a tool, waiting for a permission or idle between two steps of its turn, seen live), keeping your zoom. With no such agent it stays where it is. Panning or zooming yourself pauses the follow until another agent takes over; the automatic fit is off while the option is on.
 
 ## Notifications
 
@@ -304,7 +307,7 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 | Trigger | Fires when | Default |
 |---|---|---|
 | **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
-| **Agent in error** | an agent reports an error | on |
+| **Agent in error** | an agent itself is reported in error (no event observed by Agent Lens sets this state yet, so it cannot fire today; a failed tool call does not count: the agent usually handles it and goes on; it shows in the tool error count of the inspector) | on |
 | **Session finished** | a session you were watching goes from active to completed | off |
 | **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
 

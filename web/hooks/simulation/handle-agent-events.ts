@@ -1,6 +1,7 @@
 import {
   type Agent,
   type TimelineEntry,
+  type ToolCallNode,
   emptyContextBreakdown,
 } from '../../lib/agent-types'
 import { SCENE } from '../../lib/colors'
@@ -15,6 +16,7 @@ import { phaseOfAgent } from './team-key'
 import { expireToolCall } from '../../lib/tool-lifecycle'
 import { judgeSpawn } from './edge-validation'
 import { advanceActiveTime } from '../../lib/active-time'
+import { isBetweenSteps } from '../../lib/inactive-agents'
 import { isPseudoModel, mergeModel, parseEffort, parseModelSource, recordModelUsed } from '../../lib/model-provenance'
 
 /** Context window for a model, with whether it is a fallback (#364). */
@@ -250,10 +252,16 @@ export function handleAgentIdle(
   const idleAgent = state.agents.get(idleName)
   if (!idleAgent) return
   // End of a turn: the agent is waiting for the next prompt, not working (its active span closes)
-  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission')) {
-    state.agents.set(idleName, { ...idleAgent, state: 'idle', currentTool: undefined })
+  if (asBoolean(payload.turnEnd) && (idleAgent.state === 'thinking' || idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission' || isBetweenSteps(idleAgent))) {
+    state.agents.set(idleName, { ...idleAgent, state: 'idle', awaitingNextEvent: undefined, currentTool: undefined })
   } else if (idleAgent.state === 'tool_calling' || idleAgent.state === 'waiting_permission') {
-    state.agents.set(idleName, { ...idleAgent, state: 'thinking', currentTool: undefined })
+    // Mid-turn (a permission prompt resolved): no thinking block proves thinking (#362). A call of the agent
+    // still running keeps it calling that tool; otherwise its next step is not observed yet.
+    let running: ToolCallNode | undefined
+    for (const tc of state.toolCalls.values()) if (tc.agentId === idleName && tc.state === 'running') running = tc
+    state.agents.set(idleName, running
+      ? { ...idleAgent, state: 'tool_calling', currentTool: running.toolName }
+      : { ...idleAgent, state: 'idle', awaitingNextEvent: true, currentTool: undefined })
   }
 }
 

@@ -96,7 +96,7 @@ Un bouton **Guided tour**, à côté de **Legend**, n'apparaît que dans cette d
 | 4 | Results come back | forme terminée (contour en tirets), état *complete*, agent archivé (estompé, contour en tirets, toujours cliquable) ; la particule de retour est décrite seulement |
 | 5 | Context usage | les cinq catégories de contexte : prompt système, messages, résultats d'outils, raisonnement, résultats de sous-agents |
 | 6 | Waiting for you | état *waiting for permission* |
-| 7 | When something fails | état *error* |
+| 7 | When something fails | appel d'outil en échec (compté dans les erreurs d'outil de l'inspecteur) ; l'état *error* est décrit seulement (un appel d'outil en échec ne met pas l'agent en erreur) |
 | 8 | Agent Teams | état *idle*, anneau d'équipe, coéquipier au travail, coéquipier inactif, halo d'équipe, orchestrateur (couronne et badge LEAD), ligne d'équipe |
 | 9 | Messages between agents | lien de message en vol, bulle du dernier message |
 | 10 | Delivered messages and finished teammates | lien de message récent, coéquipier terminé |

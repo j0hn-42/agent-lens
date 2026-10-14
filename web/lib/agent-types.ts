@@ -37,6 +37,12 @@ export interface Agent {
   /** tool_use_id of the dispatching Agent/Task call, when the agent is a sub-agent */
   toolUseId?: string
   state: AgentState
+  /**
+   * Between two steps of a turn (#362): a tool call, a thinking block or a permission prompt ended and the
+   * agent's next step is not observed yet. Read only while `state` is 'idle': the agent shows Idle (nothing is
+   * claimed about what it does) but its turn is not over, so it is not inactive. Cleared by the end of the turn.
+   */
+  awaitingNextEvent?: boolean
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
   /** Agent Team (or Workflow run) the agent belongs to */

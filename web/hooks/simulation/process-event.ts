@@ -79,6 +79,19 @@ export function pushTimelineBlock(
   return { ...entry, blocks }
 }
 
+/**
+ * Copy of `entry` with its last block closed at `currentTime` when it is still open (and, with `type`,
+ * only when it has that type); `entry` itself when there is nothing to close. Never mutates `entry`.
+ */
+export function closeTimelineBlock(entry: TimelineEntry, currentTime: number, type?: TimelineBlock['type']): TimelineEntry {
+  const last = entry.blocks.length - 1
+  if (last < 0 || entry.blocks[last].endTime) return entry
+  if (type && entry.blocks[last].type !== type) return entry
+  const blocks = entry.blocks.slice()
+  blocks[last] = { ...blocks[last], endTime: currentTime }
+  return { ...entry, blocks }
+}
+
 /** Shallow-compare two Maps by reference equality of values */
 function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
   if (a.size !== b.size) return false
@@ -118,7 +131,7 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'model_detected':    handleModelDetected(event.payload, state, ctx, sid); break
     case 'tool_call_start':   handleToolCallStart(event.payload, currentTime, state, ctx, sid); break
     case 'tool_call_end':     handleToolCallEnd(event.payload, currentTime, state, ctx, sid); break
-    case 'message':           handleMessage(event.payload, currentTime, state, sid); break
+    case 'message':           handleMessage(event.payload, currentTime, state, ctx, sid); break
     case 'context_update':    handleContextUpdate(event.payload, state, sid); break
     case 'context_compacted': handleContextCompacted(event.payload, currentTime, state, sid); break
     case 'subagent_dispatch': handleSubagentDispatch(event.payload, currentTime, state, sid); break
