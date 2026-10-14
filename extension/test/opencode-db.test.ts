@@ -130,14 +130,25 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     assert.equal(openOpenCodeDb(file).status, 'unavailable')
   })
 
-  it('refuses every write: wrapper and driver are both read-only', () => {
-    const { file } = makeDb()
-    const r = openOpenCodeDb(file)
-    assert.equal(r.status, 'ok')
-    if (r.status !== 'ok') return
-    assert.throws(() => r.db.rawAll("INSERT INTO session (id) VALUES ('x')"), /refused/i)
+  it('sends nothing but SELECT and PRAGMA table_info to the driver, which is opened read-only', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('s1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 1))
+    const sqls: string[] = []
+    let opts: unknown
+    const real = nodeSqliteOpener()!
+    const spy: IndexOpener = (f, o) => {
+      opts = o
+      const c = real(f, o)
+      return { all: sql => { sqls.push(sql); return c.all(sql) }, close: () => c.close() }
+    }
+    const r = openOpenCodeDb(file, spy)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    r.db.poll(EMPTY_OPENCODE_CURSORS)
     r.db.close()
-    const raw = nodeSqliteOpener()!(file, { readOnly: true, timeoutMs: 100 })
+    assert.equal((opts as { readOnly: boolean }).readOnly, true)
+    assert.ok(sqls.length >= 6)
+    for (const sql of sqls) assert.match(sql, /^\s*(SELECT\b|PRAGMA table_info\()/)
+    const raw = real(file, { readOnly: true, timeoutMs: 100 })
     assert.throws(() => raw.all("INSERT INTO session (id, time_created, time_updated) VALUES ('x', 1, 1)"), /readonly|read-only/i)
     raw.close()
   })
@@ -171,7 +182,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
     r.db.close()
     assert.equal(p.sessions.length, 1)
-    assert.equal(p.sessions[0].time_archived, null)
+    assert.equal(p.sessions[0].time_archived, undefined, 'unknown, not "not archived"')
     assert.equal(p.sessions[0].agent, null)
   })
 
@@ -249,6 +260,87 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS, 2)
     assert.equal(p.truncated, true)
     assert.deepEqual(p.cursors.part, EMPTY_OPENCODE_CURSORS.part)
+    assert.deepEqual(p.parts, [], 'a part is not delivered before its message')
+    r.db.close(); db.close()
+  })
+
+  it('does not deliver messages while sessions are truncated', () => {
+    const { file, db } = makeDb()
+    for (let i = 0; i < 3; i++) db.exec(sess(`s${i}`, 10 + i))
+    db.exec(msg('m1', 20))
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    const p = r.db.poll(EMPTY_OPENCODE_CURSORS, 2)
+    assert.equal(p.truncated, true)
+    assert.deepEqual(p.messages, [])
+    assert.deepEqual(p.cursors.message, EMPTY_OPENCODE_CURSORS.message)
+    r.db.close(); db.close()
+  })
+
+  it('is not blocked by rows with an unusable id at the cursor time', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('s1', 1)); db.exec(msg('m1', 1))
+    for (let i = 0; i < 10; i++) db.exec(`INSERT INTO part VALUES (NULL, 'm1', 's1', 1, 50, '{}')`)
+    db.exec(part('good', 50))
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    assert.deepEqual(r.db.poll(EMPTY_OPENCODE_CURSORS, 2).parts.map(x => x.id), ['good'])
+    r.db.close(); db.close()
+  })
+
+  it('treats a hostile cursor as the empty one and never puts it in the SQL', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('s1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 5))
+    const sqls: string[] = []
+    const real = nodeSqliteOpener()!
+    const r = openOpenCodeDb(file, (f, o) => {
+      const c = real(f, o)
+      return { all: sql => { sqls.push(sql); return c.all(sql) }, close: () => c.close() }
+    })
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    const hostile = {
+      part: { time: '0 UNION SELECT data FROM message' as unknown as number, seen: ['a'] },
+      message: { time: NaN, seen: 'x' as unknown as string[] },
+      session: { time: Infinity, seen: [1, null, 'ok'] as unknown as string[] },
+    }
+    const p = r.db.poll(hostile)
+    assert.equal(p.error, undefined)
+    assert.deepEqual(p.parts.map(x => x.id), ['p1'])
+    assert.equal(p.sessions.length, 1)
+    assert.ok(!sqls.some(s => /UNION|NaN|Infinity/.test(s)))
+    r.db.close(); db.close()
+  })
+
+  it('skips a session whose parent_id is present but unusable instead of calling it a root', () => {
+    const { file, db } = makeDb()
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('s1', '${'p'.repeat(300)}', '/w', 'T', 1, 5)`)
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+    assert.deepEqual(p.sessions, [])
+    assert.equal(p.skippedRows, 1)
+    r.db.close(); db.close()
+  })
+
+  it('does not read a text column larger than its bound', () => {
+    const { file, db } = makeDb()
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('s1', NULL, '/w', '${'t'.repeat(100000)}', 1, 5)`)
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+    assert.equal(p.sessions[0].title, null)
+    r.db.close(); db.close()
+  })
+
+  it('ignores ids with control characters', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('s1', 1)); db.exec(msg('m1', 1))
+    db.exec(`INSERT INTO part VALUES ('a' || char(27) || 'b', 'm1', 's1', 1, 9, '{}')`)
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+    assert.deepEqual(p.parts, [])
+    assert.equal(p.skippedRows, 1)
     r.db.close(); db.close()
   })
 
