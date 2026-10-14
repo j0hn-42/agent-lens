@@ -44,40 +44,51 @@ export interface OpenCodeDbPathOptions {
   env: Record<string, string | undefined>
   homedir: string
   platform: NodeJS.Platform
-  /** Release channel of the OpenCode build. It is compiled into the binary, so only the caller can know it. */
-  channel?: string
+  /** Explicit setting (absolute path): another file than the default, e.g. a channel database. */
+  dbPath?: string
 }
 
 function isAbsolute(p: string, platform: NodeJS.Platform): boolean {
   return platform === 'win32' ? path.win32.isAbsolute(p) : path.posix.isAbsolute(p)
 }
 
+function unavailablePath(message: string): OpenCodeDbPath {
+  return { kind: 'unavailable', message: `OpenCode: ${message}` }
+}
+
 /**
- * Where OpenCode keeps its database (packages/core/src/database/database.ts, v1.19.0): OPENCODE_DB if
- * set (an absolute path as is, a relative one under <data>), else <data>/opencode.db for the latest,
- * beta and prod channels (or when OPENCODE_DISABLE_CHANNEL_DB is 1 or true), else
- * <data>/opencode-<channel>.db. <data> is $XDG_DATA_HOME/opencode or ~/.local/share/opencode.
- * Windows is not resolved: the location is not verified there.
+ * Where OpenCode keeps its database (packages/core/src/database/database.ts, v1.19.0). In order:
+ * the `dbPath` setting (absolute), OPENCODE_DB (an absolute path as is; a relative one under <data>,
+ * refused if it leaves <data>), else <data>/opencode.db with <data> = $XDG_DATA_HOME/opencode or
+ * ~/.local/share/opencode. The release channel is compiled into the OpenCode binary and is not
+ * guessed: a channel database (opencode-<channel>.db) is read only through `dbPath`. Windows and
+ * macOS locations are not verified, so only an absolute `dbPath` or OPENCODE_DB works there.
  */
 export function resolveOpenCodeDbPath(opts: OpenCodeDbPathOptions): OpenCodeDbPath {
   const { env, homedir, platform } = opts
+  const setting = opts.dbPath?.trim()
+  if (setting) {
+    return isAbsolute(setting, platform)
+      ? { kind: 'file', path: setting }
+      : unavailablePath('the database path setting must be an absolute path.')
+  }
   const override = env.OPENCODE_DB
   if (override === ':memory:') {
-    return { kind: 'unavailable', message: 'OpenCode: OPENCODE_DB=:memory: points to an in-memory database, there is no file to read.' }
+    return unavailablePath('OPENCODE_DB=:memory: points to an in-memory database, there is no file to read.')
   }
   if (override && isAbsolute(override, platform)) return { kind: 'file', path: override }
-  if (platform === 'win32') {
-    return { kind: 'unavailable', message: 'OpenCode: the database location on Windows is not supported yet; set OPENCODE_DB to an absolute path.' }
+  if (platform !== 'linux') {
+    return unavailablePath('the default database location is only resolved on Linux; set the database path setting or OPENCODE_DB to an absolute path.')
   }
   const xdg = env.XDG_DATA_HOME
   const base = xdg && path.posix.isAbsolute(xdg) ? xdg : path.posix.join(homedir, '.local', 'share')
   const data = path.posix.join(base, 'opencode')
-  if (override) return { kind: 'file', path: path.posix.join(data, override) }
-  const channel = opts.channel
-  const shared = !channel || channel === 'latest' || channel === 'beta' || channel === 'prod'
-    || env.OPENCODE_DISABLE_CHANNEL_DB === '1' || env.OPENCODE_DISABLE_CHANNEL_DB === 'true'
-  const file = shared ? 'opencode.db' : `opencode-${channel.replace(/[^a-zA-Z0-9._-]/g, '-')}.db`
-  return { kind: 'file', path: path.posix.join(data, file) }
+  if (!override) return { kind: 'file', path: path.posix.join(data, 'opencode.db') }
+  const resolved = path.posix.join(data, override)
+  if (resolved !== data && !resolved.startsWith(`${data}/`)) {
+    return unavailablePath('OPENCODE_DB is relative and leaves the OpenCode data directory.')
+  }
+  return { kind: 'file', path: resolved }
 }
 
 // ─── Rows and cursors ──────────────────────────────────────────────────────
