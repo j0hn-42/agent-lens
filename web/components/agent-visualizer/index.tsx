@@ -76,7 +76,7 @@ import { assessHealth, detectLoops } from "@/lib/loop-detection"
 import { useAttentionAlerts } from "@/hooks/use-attention-alerts"
 import { useNotificationRules } from "@/hooks/use-notification-rules"
 import { buildSessionExport, renderReplayHtml, sessionExportFileName } from "@/lib/session-export"
-import { downloadText } from "@/lib/comms-export"
+import { downloadText, EXPORT_FAILED_MESSAGE } from "@/lib/comms-export"
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
 
@@ -682,7 +682,7 @@ export function AgentVisualizer() {
     pushToast({
       message: saved
         ? `Exported ${plural(exp.eventCount, 'event')} as an HTML replay${lost}; ${plural(exp.redactions.total, 'secret')} redacted (best effort)`
-        : 'Export failed: this view cannot save files',
+        : EXPORT_FAILED_MESSAGE,
       durationMs: 6000,
     })
   }, [bridge.sessions, bridge.getSessionEvents, pushToast])

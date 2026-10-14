@@ -3,7 +3,9 @@
  * builders, no React. Only fields the panels already display go in: label, sender, receiver, time and the
  * message content. Nothing is inferred: every cut (hidden tool rows, search filter, dropped older
  * messages, per-message character cap) is stated in the export instead of being left silent.
+ * Secrets are masked with the session export's redaction (`secret-redaction.ts`), best effort, and counted.
  */
+import { createRedactionCounts, redactText } from '@/lib/secret-redaction'
 
 export interface CommsExportEntry {
   /** 'DISPATCH' | 'RETURN' | 'MESSAGE' | ... */
@@ -43,11 +45,27 @@ export interface ConversationExport {
   notes: string[]
 }
 
-export function conversationToMarkdown({ title, entries, notes }: ConversationExport): string {
+/** The file text, with secrets masked, and how many were masked (title, notes and every message included). */
+export function conversationExport({ title, entries, notes }: ConversationExport): { markdown: string; redactions: number } {
   const parts = [`# ${title}`, `${entries.length} ${entries.length === 1 ? 'message' : 'messages'}`]
   if (notes.length > 0) parts.push(notes.map(n => `> Incomplete: ${n}`).join('\n'))
   for (const e of entries) parts.push(messageToMarkdown(e))
-  return parts.join('\n\n') + '\n'
+  const counts = createRedactionCounts()
+  const markdown = redactText(parts.join('\n\n') + '\n', counts)
+  return { markdown, redactions: counts.total }
+}
+
+export function conversationToMarkdown(input: ConversationExport): string {
+  return conversationExport(input).markdown
+}
+
+/** Failure message shared by every export (session replay and Markdown conversation). */
+export const EXPORT_FAILED_MESSAGE = 'Export failed: this view cannot save files'
+
+/** Success message of a Markdown conversation export; says how many secrets were masked. */
+export function exportSavedMessage(redactions: number): string {
+  const masked = redactions > 0 ? `; ${redactions} ${redactions === 1 ? 'secret' : 'secrets'} redacted (best effort)` : ''
+  return `Conversation exported as Markdown${masked}`
 }
 
 /** Notes to put in an export from the state of the panel it comes from. */

@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import {
-  conversationToMarkdown, messageToMarkdown, exportNotes, exportFileName, copyText,
+  conversationToMarkdown, conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText,
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -155,6 +155,37 @@ test('link panel: Export conversation downloads Markdown with the dropped and tr
   assert.match(text, /Incomplete: 2 older messages were dropped\./)
   assert.match(text, /Truncated: 51 characters were cut/)
   assert.match(r.getByRole('status').textContent ?? '', /exported as Markdown/)
+})
+
+const TOKEN = 'ghp_' + 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8'
+
+test('the Markdown export masks secrets in contents, title and notes, and counts them', () => {
+  const out = conversationExport({
+    title: `Conversation: ${TOKEN}`,
+    entries: [{ label: 'RETURN', time: '0:09', content: `result: Authorization: Bearer abcdefghijklmnop1234 and ${TOKEN}` }],
+    notes: exportNotes({ searchQuery: TOKEN }),
+  })
+  assert.ok(!out.markdown.includes(TOKEN), 'the token must not reach the file')
+  assert.ok(!out.markdown.includes('abcdefghijklmnop1234'))
+  assert.match(out.markdown, /\[REDACTED:github-token\]/)
+  assert.equal(out.redactions, 4)
+  assert.equal(conversationToMarkdown({ title: 't', entries: [{ label: 'X', time: '0:00', content: TOKEN }], notes: [] }).includes(TOKEN), false)
+})
+
+test('the saved message announces the number of masked secrets, and the failure message is the shared one', () => {
+  assert.match(exportSavedMessage(2), /2 secrets redacted \(best effort\)/)
+  assert.match(exportSavedMessage(1), /1 secret redacted/)
+  assert.doesNotMatch(exportSavedMessage(0), /redacted/)
+  assert.equal(EXPORT_FAILED_MESSAGE, 'Export failed: this view cannot save files')
+})
+
+test('link panel: a tool result carrying a token is masked in the downloaded file and announced', () => {
+  const secretLink = { ...link, messages: [...link.messages, msg('sec', 'return', 9, `ok ${TOKEN}`, { from: 'u', to: 'o' })] } as unknown as AgentLink
+  const r = render(<LinkPanel link={secretLink} agents={agents} onClose={() => {}} />)
+  fireEvent.click(r.getByRole('button', { name: 'Export conversation' }))
+  assert.equal(downloads.length, 1)
+  assert.ok(!downloads[0].text.includes(TOKEN))
+  assert.match(r.getByRole('status').textContent ?? '', /secrets? redacted/)
 })
 
 test('link panel: the status region is rendered (not display:none) before the first Copy, then holds the message', async () => {
