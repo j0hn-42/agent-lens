@@ -34,8 +34,6 @@ const log = createLogger('OpenCodeSessionWatcher')
 const OPENCODE_LABEL_PREFIX = 'OpenCode '
 /** Session rows remembered (id → row) to find the root of a message or a child. */
 const KNOWN_MAX = 5000
-/** Polls chained while the reader reports more rows waiting. */
-const CATCHUP_POLLS_MAX = 20
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
 const ROOT_HOPS_MAX = 16
 const CWD_MAX = 4096
@@ -81,6 +79,11 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Status shown while the database reads fine (set when it is opened). */
   private okText = ''
   private lastLogged = ''
+  /** Scan queued with setImmediate while the reader reports more rows waiting. */
+  private pendingScan: NodeJS.Immediate | null = null
+  private scanning = false
+  /** Workspace verdict per root id, valid while the root keeps the same directory. */
+  private verdicts = new Map<string, { directory: string | null; ok: boolean }>()
   private capWarned = false
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
@@ -145,18 +148,34 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
   }
 
-  /** One poll of the database and one release pass; also the timer callback. Never throws. */
+  /**
+   * One poll of the database and one release pass; also the timer callback. Never throws. A poll that
+   * leaves rows behind queues the next scan with setImmediate, so a large backlog is read across
+   * ticks and never in one blocking loop.
+   */
   scanNow(): void {
-    runGuarded(() => {
-      if (!this.ensureDb()) return
-      this.pollDb()
-      this.releaseEndedSessions()
-    }, err => log.warn('Scan OpenCode en échec :', err))
+    if (this.scanning) return
+    this.scanning = true
+    let more = false
+    try {
+      runGuarded(() => {
+        if (!this.ensureDb()) return
+        more = this.pollDb()
+        this.releaseEndedSessions()
+      }, err => log.warn('Scan OpenCode en échec :', err))
+    } finally { this.scanning = false }
+    if (more && !this.pendingScan && this.db) {
+      this.pendingScan = setImmediate(() => { this.pendingScan = null; this.scanNow() })
+    }
   }
 
   private setStatus(text: string): void {
     this.statusText = text
-    if (text !== this.lastLogged) { this.lastLogged = text; log.info(text) }
+    if (text === this.lastLogged) return
+    this.lastLogged = text
+    // A failure must show even at the relay's quiet log level; the healthy status stays at info.
+    if (text === this.okText) log.info(text)
+    else log.warn(text)
   }
 
   private ensureDb(): boolean {
@@ -176,16 +195,16 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     return true
   }
 
-  private pollDb(): void {
+  /** One poll; true when the reader reports more rows waiting. */
+  private pollDb(): boolean {
     const db = this.db
-    if (!db) return
-    for (let i = 0; i < CATCHUP_POLLS_MAX; i++) {
-      const poll = db.poll(this.cursors)
-      if (poll.error) { this.setStatus(`OpenCode: ${poll.error}`); return }
-      this.cursors = poll.cursors
-      this.deliver(poll)
-      if (!poll.truncated) { this.setStatus(this.okText); return }
-    }
+    if (!db) return false
+    const poll = db.poll(this.cursors, undefined, this.now())
+    if (poll.error) { this.setStatus(`OpenCode: ${poll.error}`); return false }
+    this.cursors = poll.cursors
+    this.deliver(poll)
+    this.setStatus(this.okText)
+    return poll.truncated
   }
 
   private deliver(poll: OpenCodePoll): void {
@@ -280,10 +299,23 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     return isPathInside(foldPathCase(resolved), foldPathCase(this.workspacePath))
   }
 
+  /** matchesWorkspace (a synchronous realpath) memoised per root, until its directory changes. */
+  private inWorkspace(rootId: string, directory: string | null, cwd: string | undefined): boolean {
+    const known = this.verdicts.get(rootId)
+    if (known && known.directory === directory) return known.ok
+    const ok = this.matchesWorkspace(cwd)
+    this.verdicts.delete(rootId)
+    this.verdicts.set(rootId, { directory, ok })
+    if (this.verdicts.size > KNOWN_MAX) {
+      const oldest = this.verdicts.keys().next().value
+      if (oldest !== undefined) this.verdicts.delete(oldest)
+    }
+    return ok
+  }
+
   private attach(row: OpenCodeSessionRead): WatchedOpenCodeSession | undefined {
     const sessionId = row.id
-    const cwd = this.safeDirectory(row.directory)
-    if (!this.matchesWorkspace(cwd)) return undefined
+    // The cap first: a refused root costs no filesystem call
     if (this.sessions.size >= OPENCODE_MAX_WATCHED_SESSIONS) {
       if (!this.capWarned) {
         this.capWarned = true
@@ -291,6 +323,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       }
       return undefined
     }
+    const cwd = this.safeDirectory(row.directory)
+    if (!this.inWorkspace(sessionId, row.directory, cwd)) return undefined
 
     const retired = this.retired.get(sessionId)
     const state = retired?.state ?? createOpenCodeEventState(sessionId)
@@ -369,11 +403,13 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
 
   dispose(): void {
     if (this.scanInterval) { clearInterval(this.scanInterval); this.scanInterval = null }
+    if (this.pendingScan) { clearImmediate(this.pendingScan); this.pendingScan = null }
     this.db?.close()
     this.db = null
     this.sessions.clear()
     this.retired.clear()
     this.known.clear()
+    this.verdicts.clear()
     this._onEvent.dispose()
     this._onSessionDetected.dispose()
     this._onSessionLifecycle.dispose()
