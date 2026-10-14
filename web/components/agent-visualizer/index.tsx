@@ -62,7 +62,8 @@ import { buildPaletteItems } from "@/lib/command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from "@/hooks/use-presentation"
 import { PanelRegistryContext, createPanelRegistry } from "@/hooks/use-panel-registry"
-import { listedAgents, emptiedByHidingCount, hiddenDoneText } from "@/lib/inactive-agents"
+import { listedAgents, emptiedByHidingCount } from "@/lib/inactive-agents"
+import { HiddenFinishedNotice } from "./hidden-finished-notice"
 import { shiftPickPair, prunePairStore } from "@/lib/pair-filter-store"
 import { detectedSessions } from "@/lib/session-model"
 import { useFreshnessValue } from "@/hooks/use-freshness-clock"
@@ -961,7 +962,7 @@ export function AgentVisualizer() {
         </button>
       )}
 
-      <main id="visualizer-main" aria-label="Agent visualizer" className="absolute inset-0">
+      <main id="visualizer-main" aria-label="Agent visualizer" tabIndex={-1} className="absolute inset-0 outline-none">
       <h1 className="sr-only">Agent Lens</h1>
 
       {/* Empty state when no demo and no live data. Its text sits directly on the scene ground: scene colours, whatever the theme. */}
@@ -1001,21 +1002,7 @@ export function AgentVisualizer() {
       )}
 
       {blankByHidingCount > 0 && !isEmpty && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 p-3 pointer-events-none" data-testid="hidden-finished-notice">
-          <div className="text-center text-xs pointer-events-auto" style={{ fontFamily: "'SF Mono', 'Fira Code', monospace", color: SCENE.textMuted }}>
-            <span>{hiddenDoneText(blankByHidingCount)}</span>
-            <span aria-hidden="true"> · </span>
-            <button
-              type="button"
-              onClick={() => updateHideInactive(false)}
-              aria-label="Show finished agents"
-              className={`min-h-6 min-w-6 px-2 py-1 rounded font-semibold ${FOCUS_RING}`}
-              style={{ background: SCENE.holoBg10, border: `1px solid ${SCENE.controlBorder}`, color: SCENE.textPrimary }}
-            >
-              Show
-            </button>
-          </div>
-        </div>
+        <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
       )}
 
       {/* Canvas fills everything */}
