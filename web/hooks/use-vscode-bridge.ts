@@ -22,6 +22,7 @@ import {
 } from '@/lib/session-buffers'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
+import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
 
 export interface UseVSCodeBridgeOptions {
   /** Ask the relay for a single session only (events of other sessions are rejected). Default: every session. */
@@ -552,92 +553,18 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (typeof config.hooksConfigured === 'boolean') { setHooksConfigured(config.hooksConfigured) }
     })
 
-    // Session lifecycle tracking
-    // Note: these handlers only update session list + selection state.
-    // Event flushing is handled by the consumer (index.tsx effect) to avoid
-    // races between auto-flush here and save/restore logic there.
+    // Session lifecycle: one handler per message type (lib/bridge-session-handlers). They only update the
+    // session list and the selection; event flushing is the consumer's (index.tsx layout effect).
+    const sessionCtx: SessionHandlerCtx = {
+      updateSessions, selectedSessionIdRef, setSelectedSessionId, sessionSwitchPendingRef, pendingEventsRef,
+      sessionBuffersRef, allEventsRef, allBaseRef, lastEventAtRef, modelTrackerRef, teamTrackerRef, dismissedSessionsRef,
+      setSessionModels, refreshTeamView, setSessionsWithActivity, pushNotice,
+      bumpEventVersion: () => setEventVersion(v => v + 1),
+      now: Date.now,
+    }
     const unsubSession = bridge.onSession((type, data) => {
-      if (type === 'reset') {
-        // Panel was reopened — clear all stale state (and tell the user, non-blocking)
-        // A plain panel reopen is routine (sent on every 'ready'): only announce real resets.
-        if (data === 'scope-changed') pushNotice('reset', 'Scope changed: the session view was reloaded')
-        else if (data !== 'panel-reopened') pushNotice('reset', 'Session view was reset')
-        updateSessions(() => [])
-        setSelectedSessionId(null)
-        selectedSessionIdRef.current = null
-        pendingEventsRef.current.length = 0
-        clearSessionBuffers(sessionBuffersRef.current)
-        modelTrackerRef.current.clear()
-        setSessionModels(new Map())
-        allEventsRef.current = []
-        allBaseRef.current = 0
-        lastEventAtRef.current.clear()
-        teamTrackerRef.current.clear()
-        refreshTeamView()
-        setSessionsWithActivity(new Set())
-        dismissedSessionsRef.current.clear()
-        setEventVersion(v => v + 1)
-        return
-      }
-      if (type === 'list') {
-        const sessionList = data as SessionInfo[]
-        // Events replayed before the list arrived were stamped with the reception time: undo that for finished sessions
-        pruneReplayStamps(lastEventAtRef.current, sessionList, Date.now())
-        updateSessions(() => sessionList)
-        // Auto-select: prefer active sessions, then most recently active.
-        // Only set selection — useLayoutEffect handles flushing events.
-        const autoId = selectedSessionIdRef.current ? undefined : pickAutoSelectSession(sessionList)
-        if (autoId) {
-          sessionSwitchPendingRef.current = true
-          pendingEventsRef.current.length = 0
-          selectedSessionIdRef.current = autoId
-          setSelectedSessionId(autoId)
-        }
-      } else if (type === 'started') {
-        const session = data as SessionInfo
-        updateSessions(prev => {
-          const existing = prev.find(s => s.id === session.id)
-          if (existing) {
-            // Session resumed after inactivity — mark active again (an imported one never is: keep what the relay says)
-            return prev.map(s => {
-              if (s.id !== session.id) return s
-              if (session.imported) return session
-              const { indexedOnly: _indexedOnly, ...live } = s // now watched live
-              return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
-            })
-          }
-          return [...prev, session]
-        })
-        if (selectedSessionIdRef.current) {
-          // Never yank the user away from what they are watching: pulse the new tab instead.
-          if (selectedSessionIdRef.current !== session.id && selectedSessionIdRef.current !== ALL_SESSIONS_ID) {
-            setSessionsWithActivity(prev => {
-              if (prev.has(session.id)) return prev
-              const next = new Set(prev)
-              next.add(session.id)
-              return next
-            })
-          }
-        } else {
-          // Nothing selected yet: select the new session.
-          // Set switch-pending flag to prevent the animation frame from processing
-          // events in the wrong simulation state before useLayoutEffect swaps it.
-          sessionSwitchPendingRef.current = true
-          pendingEventsRef.current.length = 0
-          selectedSessionIdRef.current = session.id
-          setSelectedSessionId(session.id)
-        }
-      } else if (type === 'updated') {
-        const { sessionId, label } = data as { sessionId: string; label: string }
-        updateSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, label } : s
-        ))
-      } else if (type === 'ended') {
-        const sessionId = data as string
-        updateSessions(prev => prev.map(s =>
-          s.id === sessionId ? { ...s, status: 'completed' as const } : s
-        ))
-      }
+      const handle = SESSION_HANDLERS[type] as (ctx: SessionHandlerCtx, data: unknown) => void
+      handle(sessionCtx, data)
     })
 
     return () => {
