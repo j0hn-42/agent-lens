@@ -34,15 +34,22 @@ export interface PlacementRequest {
   essential?: boolean
   /** Smaller form (a count chip, a one-line label) tried, at the preferred position and the fallback offsets, when the full form does not fit */
   compact?: Rect
-  /** Node obstacles do not block it (the selected / hovered agent's bubbles may cover a neighbour node, but never another text) */
+  /** Node obstacles do not block it (the selected / hovered agent's bubbles may cover a neighbour node, but never another text nor a `hard` obstacle) */
   ignoreObstacles?: boolean
+  /** Drawn above the `hard` obstacles (a halo label, drawn after the tool cards): they neither block nor move it (#378) */
+  aboveHard?: boolean
   /** Fallback offsets (never the preferred position) must keep the rectangle inside this area, e.g. the safe area clear of the control bar */
   shiftBounds?: Rect
   /** Only shown when there is room at the preferred position (no fallback offsets tried) */
   fixed?: boolean
 }
 
-export interface Obstacle { rect: Rect; owner?: string }
+export interface Obstacle {
+  rect: Rect
+  owner?: string
+  /** Drawn above the texts (a tool card): blocks every request drawn under it, `ignoreObstacles` ones included (#378) */
+  hard?: boolean
+}
 
 export interface Placement {
   id: string
@@ -92,17 +99,19 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
     .map((req, index) => ({ req, index }))
     .sort((a, b) => (b.req.priority - a.req.priority) || (a.index - b.index))
 
-  const collides = (rect: Rect, owner: string | undefined, ignoreObstacles = false): boolean => {
-    for (const o of ignoreObstacles ? [] : obstacles) {
+  const collides = (rect: Rect, owner: string | undefined, ignoreObstacles = false, aboveHard = false): boolean => {
+    for (const o of obstacles) {
+      if (o.hard ? aboveHard : ignoreObstacles) continue
       if (owner !== undefined && o.owner === owner) continue
       if (rectsOverlap(rect, o.rect, 0)) return true
     }
     for (const p of placed) if (rectsOverlap(rect, p.rect, gap)) return true
     return false
   }
-  const overlapScore = (rect: Rect, owner: string | undefined, ignoreObstacles = false): number => {
+  const overlapScore = (rect: Rect, owner: string | undefined, ignoreObstacles = false, aboveHard = false): number => {
     let score = 0
-    for (const o of ignoreObstacles ? [] : obstacles) {
+    for (const o of obstacles) {
+      if (o.hard ? aboveHard : ignoreObstacles) continue
       if (owner !== undefined && o.owner === owner) continue
       score += overlapArea(rect, o.rect)
     }
@@ -118,7 +127,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
       const r = { x: base.x + c.dx, y: base.y + c.dy, w: base.w, h: base.h }
       if (!inside(r, options.bounds)) continue
       if ((c.dx !== 0 || c.dy !== 0) && !inside(r, req.shiftBounds)) continue
-      if (!collides(r, req.owner, req.ignoreObstacles)) { chosen = c; break }
+      if (!collides(r, req.owner, req.ignoreObstacles, req.aboveHard)) { chosen = c; break }
     }
 
     if (chosen) {
@@ -134,7 +143,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
       let found: { dx: number; dy: number } | null = null
       for (const c of smallCandidates) {
         const r = { x: small.x + c.dx, y: small.y + c.dy, w: small.w, h: small.h }
-        if (inside(r, options.bounds) && ((c.dx === 0 && c.dy === 0) || inside(r, req.shiftBounds)) && !collides(r, req.owner, req.ignoreObstacles)) { found = c; break }
+        if (inside(r, options.bounds) && ((c.dx === 0 && c.dy === 0) || inside(r, req.shiftBounds)) && !collides(r, req.owner, req.ignoreObstacles, req.aboveHard)) { found = c; break }
       }
       if (found) {
         const rect = { x: small.x + found.dx, y: small.y + found.dy, w: small.w, h: small.h }
@@ -149,7 +158,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
       let bestScore = Infinity
       for (const c of candidates) {
         const r = { x: base.x + c.dx, y: base.y + c.dy, w: base.w, h: base.h }
-        const score = overlapScore(r, req.owner, req.ignoreObstacles) + (inside(r, options.bounds) ? 0 : 1e6)
+        const score = overlapScore(r, req.owner, req.ignoreObstacles, req.aboveHard) + (inside(r, options.bounds) ? 0 : 1e6)
         if (score < bestScore) { best = c; bestScore = score }
       }
       const rect = { x: base.x + best.dx, y: base.y + best.dy, w: base.w, h: base.h }

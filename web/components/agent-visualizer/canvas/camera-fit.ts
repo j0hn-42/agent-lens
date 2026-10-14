@@ -77,9 +77,12 @@ const AGENT_PADDING = 22
 export function computeFitBounds(input: FitBoundsInput): WorldBounds {
   const b = emptyBounds()
   const scope = input.focusScope ?? null
+  // Cards and discoveries are framed only with their drawn agent (#378): an orphan card must not stretch the fit
+  const drawn = new Set<string>()
   for (const agent of input.agents) {
     if (scope && !scope.has(agent.id)) continue
     if (!isAgentVisible(agent)) continue
+    drawn.add(agent.id)
     const r = agentDrawRadius(agent) + AGENT_PADDING
     extendCircle(b, agent.x, agent.y, r)
     // Label block and context bar under the node, stats / cost overlay above it
@@ -99,12 +102,12 @@ export function computeFitBounds(input: FitBoundsInput): WorldBounds {
   if (input.includeToolCards !== false) {
     for (const tool of input.toolCalls ?? []) {
       if (!(tool.opacity > 0.1)) continue
-      if (scope && !scope.has(tool.agentId)) continue
+      if (!drawn.has(tool.agentId)) continue
       extendRect(b, tool.x - TOOL_CARD_W / 2, tool.y - TOOL_CARD_H / 2, TOOL_CARD_W, TOOL_CARD_H)
     }
     for (const disc of input.discoveries ?? []) {
       if (!(disc.opacity > 0.1)) continue
-      if (scope && !scope.has(disc.agentId)) continue
+      if (!drawn.has(disc.agentId)) continue
       extendRect(b, disc.x - DISC_BOUNDS_HALF_W, disc.y - DISC_BOUNDS_HALF_H, DISC_BOUNDS_HALF_W * 2, DISC_BOUNDS_HALF_H * 2)
     }
   }

@@ -1,9 +1,9 @@
-import { SCENE } from '@/lib/colors'
+import { SCENE } from '../../../lib/colors'
 import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
-import { type Cluster, type PhaseLabel, clusterLabelLines, haloAlphas } from './cluster-model'
-import { CLUSTER_DRAW } from '@/lib/canvas-constants'
+import { type Cluster, type PhaseLabel, clusterLabelLines, fitClusterLabelLines, haloAlphas } from './cluster-model'
+import { CLUSTER_DRAW } from '../../../lib/canvas-constants'
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
 import type { SessionLinkSegment } from './session-link-model'
@@ -140,16 +140,25 @@ export function drawClusterLabels(
     ctx.fill()
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.font = `600 ${CLUSTER_DRAW.labelFontSize}px monospace`
+    const titleFont = `600 ${CLUSTER_DRAW.labelFontSize}px monospace`
+    const detailFont = `${CLUSTER_DRAW.detailFontSize}px monospace`
+    const measure = (s: string) => ctx.measureText(s).width
+    // Cut with an ellipsis, the member count kept, rather than clipped mid-character (#378).
+    // Room: the clip below ends 4 px before the right edge; the title starts at 18 px, the detail at 8 px.
+    ctx.font = titleFont
+    const { title } = fitClusterLabelLines({ title: lines.title, detail: '' }, w - 22, w - 12, measure)
+    ctx.font = detailFont
+    const { detail } = fitClusterLabelLines({ title: '', detail: lines.detail }, w - 22, w - 12, measure)
+    ctx.font = titleFont
     ctx.fillStyle = SCENE.textPrimary
     ctx.save()
     ctx.beginPath()
     ctx.rect(x + 4, y, w - 8, h)
     ctx.clip()
-    ctx.fillText(lines.title, x + 18, y + 4)
-    ctx.font = `${CLUSTER_DRAW.detailFontSize}px monospace`
+    ctx.fillText(title, x + 18, y + 4)
+    ctx.font = detailFont
     ctx.fillStyle = SCENE.textMuted
-    ctx.fillText(lines.detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
+    ctx.fillText(detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
     ctx.restore()
     ctx.restore()
   }

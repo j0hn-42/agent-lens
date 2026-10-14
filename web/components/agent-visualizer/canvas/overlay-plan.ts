@@ -5,9 +5,10 @@
  * the agent bubbles of the other clusters collapse to a small count chip, link bubbles and secondary
  * overlays are hidden, and agent labels shrink to one line. Pure: unit-testable under node:test.
  */
-import type { Agent, TeamSummary } from '../../../lib/agent-types'
+import type { Agent, TeamSummary, ToolCallNode } from '../../../lib/agent-types'
 import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
+  MIN_VISIBLE_OPACITY,
 } from '../../../lib/canvas-constants'
 import { agentCostUsage } from '../../../lib/cost'
 import { formatCostUsage } from '../../../lib/usage'
@@ -77,6 +78,27 @@ export interface OverlayPlanInput {
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
   /** Agent ids whose bubbles never expire (hovered / focused / paused) */
   isBubbleHeld: (agentId: string) => boolean
+  /**
+   * World rectangles of the tool cards drawn (see toolCardRects). Cards are drawn above the labels and
+   * bubbles, so these texts are moved off them, collapsed or hidden rather than left underneath (#378).
+   */
+  toolCards?: Iterable<Rect>
+}
+
+/**
+ * World rectangle, centred on the card, of every tool card that is drawn; `sizeOf` gives its size (the
+ * drawn size, see toolCardSize). Faded-out cards are skipped, as in drawToolCalls.
+ */
+export function toolCardRects<T extends Pick<ToolCallNode, 'x' | 'y' | 'opacity'>>(
+  toolCalls: Iterable<T>, sizeOf: (tool: T) => { w: number; h: number },
+): Rect[] {
+  const out: Rect[] = []
+  for (const t of toolCalls) {
+    if (!(t.opacity >= MIN_VISIBLE_OPACITY)) continue
+    const { w, h } = sizeOf(t)
+    out.push({ x: t.x - w / 2, y: t.y - h / 2, w, h })
+  }
+  return out
 }
 
 export interface OverlayHits {
@@ -165,6 +187,10 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     obstacles.push({ owner: a.id, rect: { x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 } })
   }
   const crowded = visibleAgents > PLACEMENT.crowdedItems
+  for (const card of input.toolCards ?? []) {
+    const rect = toScreen(t, card.x, card.y, card.w, card.h)
+    if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
+  }
 
   // ─── Cluster labels (essential: never hidden, kept at the least-overlapping spot) ───
   const clusterRects = new Map<string, Rect>()
@@ -189,6 +215,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       priority: overlayPriority(PRIORITY.clusterLabel, { selected: priorityClusters.has(c.key) }),
       rect,
       essential: true,
+      // Drawn in screen space after the tool cards: a card under it never covers it, so it does not move it (#378)
+      aboveHard: true,
     })
   }
 

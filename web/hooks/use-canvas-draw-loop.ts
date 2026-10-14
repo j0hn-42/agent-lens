@@ -29,7 +29,7 @@ import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/components/agent-visualizer/canvas/edge-bubble-set'
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
 import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
-import { planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { planKey, toolCardRects } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
 import { createPerfStats, drawPerfOverlay, countPaintCalls } from '@/components/agent-visualizer/canvas/perf-overlay'
 import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
@@ -307,6 +307,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: deps.simTimeRef.current, teams: deps.teamsRef.current,
           isBubbleHeld: id => expiryHold.neverHide || expiryHold.paused || expiryHold.agentIds.has(id),
+          // Cards are drawn above labels and bubbles: keep those texts off them (#378)
+          toolCards: toolCardRects(toolCalls.values(), toolCardSize),
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
