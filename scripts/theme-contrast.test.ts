@@ -48,13 +48,14 @@ const TEXT_KEYS: ColorKey[] = [
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
   'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
-  'systemWarm', 'systemCritical',
+  'systemWarm', 'systemCritical', 'searchIcon',
 ]
 
 const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['thinking expanded', 'thinkingBgExpanded', ['thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded']],
   ['user message', 'userMsgBg', ['userLabel', 'userText']],
   ['tool call', 'toolCallBg', ['toolIndicatorText', 'textPrimary']],
+  ['tool detail result', 'resultBg', ['complete']],
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],

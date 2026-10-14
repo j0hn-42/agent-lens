@@ -229,7 +229,7 @@ export const NEON_COLORS = {
   todoCompletedText: '#66ffaaa0', // >= 4.5:1 text as rendered — completed todo content, render WITHOUT an extra opacity
   todoPending: '#66ccffa0', // >= 4.5:1 as rendered — pending todo icon, render WITHOUT an extra opacity
   contentDim: '#aaeeffa0',
-  searchIcon: '#66ccff60',
+  searchIcon: '#66ccffa0', // >= 3:1 non-text as rendered — sole carrier of the WebSearch cue
 
   // ─── Panel header / chrome text ─────────────────────────────────────────────
 
