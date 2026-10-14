@@ -26,7 +26,7 @@ const POLL_LIMIT_DEFAULT = 500
 const POLL_LIMIT_HARD_MAX = 5000
 const TIMEOUT_MS = 1000
 /** Rows dated further ahead than this are not read (a wrong clock or a hostile database). */
-const FUTURE_MARGIN_MS = 24 * 60 * 60 * 1000
+const FUTURE_MARGIN_MS = 5000
 /** Rows newer than this are given again until they are older: an update in the same millisecond is not lost. */
 const SETTLE_MS = 500
 const ID_MAX = 256
@@ -35,7 +35,6 @@ const MESSAGE_MAX = 300
 /** Longest free-text column (title, directory, agent) read; a longer one is read as absent. */
 const TEXT_COLUMN_MAX = 4096
 /** Most ids remembered at the cursor time. */
-const SEEN_MAX = POLL_LIMIT_HARD_MAX
 const ID_COLUMNS = new Set(['id', 'parent_id', 'session_id', 'message_id'])
 
 // ─── Path ──────────────────────────────────────────────────────────────────
@@ -58,7 +57,7 @@ function isAbsolute(p: string, platform: NodeJS.Platform): boolean {
 
 /** UNC and device paths (\\host\share, //host/share, \\?\...): opening one would reach the network. */
 function isNetworkPath(p: string, platform: NodeJS.Platform): boolean {
-  return platform === 'win32' && /^[\\/]{2}/.test(p)
+  return platform === 'win32' && /^[\\/]{2}|^[\\/]\?\?[\\/]/.test(p)
 }
 
 function unavailablePath(message: string): OpenCodeDbPath {
@@ -112,13 +111,13 @@ export interface OpenCodeSessionRead extends OpenCodeSessionRow {
 }
 
 /**
- * Position in one table: every row with `time_updated` below `time` was read, and `seen` are the ids
- * read at `time`. Past SEEN_MAX ids at one millisecond the position becomes a key instead: every row at
- * `time` with an id up to `after` was read (`seen` is then empty).
+ * Position in one table, a key `(time, after)`: every row with `time_updated` below `time` was read, and
+ * so was every row at `time` whose id is up to `after`. `seen` is kept for older callers and is always
+ * empty.
  */
 export interface OpenCodeCursor {
   time: number
-  seen: string[]
+  seen?: string[]
   after?: string
 }
 export interface OpenCodeCursors {
@@ -127,9 +126,9 @@ export interface OpenCodeCursors {
   part: OpenCodeCursor
 }
 export const EMPTY_OPENCODE_CURSORS: OpenCodeCursors = {
-  session: { time: 0, seen: [] },
-  message: { time: 0, seen: [] },
-  part: { time: 0, seen: [] },
+  session: { time: 0 },
+  message: { time: 0 },
+  part: { time: 0 },
 }
 
 export interface OpenCodePoll {
@@ -139,8 +138,10 @@ export interface OpenCodePoll {
   parts: OpenCodePartRow[]
   /** Rows ignored because of an unusable id or timestamp, or an oversized `data`. */
   skippedRows: number
-  /** More rows are waiting: poll again right away. */
+  /** More settled rows are waiting: poll again right away. */
   truncated: boolean
+  /** Rows too recent to be marked as read were delivered (they come again): poll again after a short wait. */
+  settling?: boolean
   cursors: OpenCodeCursors
   /** The poll failed (lock, corruption, schema change): nothing was read, the cursors are unchanged. */
   error?: string
@@ -208,6 +209,7 @@ interface TableRead<T> {
   cursor: OpenCodeCursor
   skipped: number
   truncated: boolean
+  settling: boolean
 }
 
 export class OpenCodeDb {
@@ -257,6 +259,7 @@ export class OpenCodeDb {
         parts: session.truncated || message.truncated ? [] : part.rows,
         skippedRows: part.skipped + message.skipped + session.skipped,
         truncated: part.truncated || message.truncated || session.truncated,
+        settling: part.settling || message.settling || session.settling,
         cursors: {
           session: session.cursor,
           message: session.truncated ? cursors.message : message.cursor,
@@ -291,15 +294,14 @@ export class OpenCodeDb {
       return c
     })
     const t = cursor.time
-    const seen = new Set(cursor.seen)
     const now = this.now()
-    // A row dated in the far future is not read: it would carry the cursor out of reach of real writes
+    // A row dated in the future is not read: it would carry the cursor out of reach of real writes
     const upper = Math.min(now + FUTURE_MARGIN_MS, Number.MAX_SAFE_INTEGER)
+    // The key is sent as hexadecimal UTF-8: no text from the database goes into the query as is
     const from = cursor.after !== undefined
-      ? `(time_updated > ${t} OR (time_updated = ${t} AND id > ${quote(cursor.after)}))`
+      ? `(time_updated > ${t} OR (time_updated = ${t} AND id > CAST(X'${Buffer.from(cursor.after, 'utf8').toString('hex')}' AS TEXT)))`
       : `time_updated >= ${t}`
-    // The ids already read at the cursor time come back first: ask for that many more rows.
-    const sqlLimit = limit + seen.size + 1
+    const sqlLimit = limit + 1
     const sql = `SELECT ${cols.join(', ')} FROM ${name} WHERE typeof(time_updated) = 'integer' AND time_updated > 0 `
       + `AND time_updated <= ${upper} AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND instr(id, char(0)) = 0 `
       + `AND ${from} ORDER BY time_updated ASC, id ASC LIMIT ${sqlLimit}`
@@ -312,10 +314,9 @@ export class OpenCodeDb {
       const id = r && typeof r.id === 'string' ? r.id : undefined
       const time = r ? timeOf(r.time_updated) : undefined
       if (id === undefined || time === undefined) { skipped++; continue }
-      if (time === t && seen.has(id)) continue
       fresh.push({ id, time, row: map(r) })
     }
-    const truncated = raw.length >= sqlLimit || fresh.length > limit
+    const more = raw.length >= sqlLimit
     const taken = fresh.slice(0, limit)
 
     const rows: T[] = []
@@ -326,15 +327,10 @@ export class OpenCodeDb {
     // A row written in the last instants may still change within the same millisecond: it is delivered
     // but not marked as read, so the next poll gives it again (the parser handles a row once per state).
     const settled = taken.filter(f => f.time <= now - SETTLE_MS)
-    if (settled.length === 0) return { rows, cursor, skipped, truncated }
-    const last = settled[settled.length - 1].time
-    const ids = settled.filter(f => f.time === last).map(f => f.id)
-    const sameTime = last === t
-    const seenNext = sameTime && cursor.after === undefined ? [...cursor.seen, ...ids] : ids
-    const next: OpenCodeCursor = seenNext.length > SEEN_MAX
-      ? { time: last, seen: [], after: ids[ids.length - 1] }
-      : { time: last, seen: seenNext }
-    return { rows, cursor: next, skipped, truncated }
+    const settling = settled.length < taken.length
+    if (settled.length === 0) return { rows, cursor, skipped, truncated: false, settling }
+    const last = settled[settled.length - 1]
+    return { rows, cursor: { time: last.time, after: last.id }, skipped, truncated: more, settling }
   }
 }
 
@@ -342,9 +338,8 @@ export class OpenCodeDb {
 function sanitizeCursor(c: OpenCodeCursor | undefined): OpenCodeCursor {
   const time = c && typeof c.time === 'number' && Number.isSafeInteger(c.time) && c.time > 0 ? c.time : 0
   const rawId = (x: unknown): x is string => typeof x === 'string' && x.length > 0 && x.length <= ID_MAX && !x.includes('\0')
-  const seen = c && time > 0 && Array.isArray(c.seen) ? c.seen.slice(-SEEN_MAX).filter(rawId) : []
   const after = c && time > 0 && rawId(c.after) ? c.after : undefined
-  return after !== undefined ? { time, seen: [], after } : { time, seen }
+  return after !== undefined ? { time, after } : { time }
 }
 
 function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefined {
@@ -400,6 +395,7 @@ function unavailable(message: string): OpenCodeDbOpen {
 export function openOpenCodeDb(
   file: string,
   opener: IndexOpener | null | undefined = nodeSqliteOpener(),
+  clock?: () => number,
 ): OpenCodeDbOpen {
   if (!opener) return unavailable('OpenCode: no SQLite driver in this Node version (node:sqlite needs Node 22.13 or later).')
   let exists = false
@@ -419,7 +415,7 @@ export function openOpenCodeDb(
       }
       columns[spec.table] = [...spec.required, ...spec.optional.filter(c => present.has(c))]
     }
-    return { status: 'ok', db: new OpenCodeDb(conn, columns) }
+    return { status: 'ok', db: new OpenCodeDb(conn, columns, clock) }
   } catch (e) {
     try { conn?.close() } catch { /* already closed */ }
     return unavailable(`OpenCode: the database could not be opened (${errorText(e)}).`)
