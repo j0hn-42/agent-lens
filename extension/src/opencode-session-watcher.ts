@@ -188,6 +188,15 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.dbOpenFile = null
     this.dbIdentity = null
     this.resetCursors()
+    // Everything held came from the old file and nothing proves it still exists: the attached
+    // sessions end (also while the file is missing), the replayed rows rebuild the rest.
+    for (const [id, s] of this.sessions) {
+      if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
+    }
+    this.sessions.clear()
+    this.retired.clear()
+    this.known.clear()
+    this.verdicts.clear()
   }
 
   /**
