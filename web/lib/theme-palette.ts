@@ -265,7 +265,8 @@ export const NEON_COLORS = {
   fpsGood: '#44ff44',
   fpsCaution: '#ffaa00',
   fpsWarning: '#ff4444',
-  /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too) */
+  /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too). The canvas
+   *  draws these two states in them; the `state-thinking` / `state-waiting` tokens carry them for every theme's interface. */
   stateThinking: '#b79cff',
   stateWaitingPermission: '#ff7ad9',
   /** Crown badge (LEAD / MAIN): fill and text on it */
@@ -388,12 +389,12 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     holoHot: t.focus,
 
     idle: accent,
-    thinking: accent,
+    thinking: t['state-thinking'],
     tool_calling: warn,
     complete: ok,
     error: danger,
     paused: t['context-system'],
-    waiting_permission: warn,
+    waiting_permission: t['state-waiting'],
 
     dispatch: delegate,
     return: ok,
@@ -586,8 +587,8 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     fpsGood: ok,
     fpsCaution: warn,
     fpsWarning: danger,
-    stateThinking: delegate,
-    stateWaitingPermission: info,
+    stateThinking: t['state-thinking'],
+    stateWaitingPermission: t['state-waiting'],
     crownFill: accent,
     crownText: t['on-accent'],
     staleNode: t['context-system'],
@@ -626,8 +627,12 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
   }
 }
 
-/** Palette of a theme: neon is the literal legacy palette, the others are derived from their tokens. */
+/**
+ * Palette of a theme: neon is the literal legacy palette, the others are derived from their tokens.
+ * Neon's interface paints thinking and waiting for permission with the colours its canvas draws them in (#381): in the
+ * legacy palette they were the idle cyan and an amber next to the tool one. SCENE (NEON_COLORS) keeps the legacy values.
+ */
 export function paletteFor(id: ThemeId, tokens: Readonly<ThemeTokens> = TOKENS[id]): Palette {
-  if (id === 'neon') return { ...NEON_COLORS }
+  if (id === 'neon') return { ...NEON_COLORS, thinking: NEON_COLORS.stateThinking, waiting_permission: NEON_COLORS.stateWaitingPermission }
   return derivePalette(tokens, SHADOW_CARD[id])
 }

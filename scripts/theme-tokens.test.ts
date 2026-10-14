@@ -42,14 +42,17 @@ test('neon design tokens are the documented values', () => {
     void: '#050510', surface: '#0a0f1e', 'surface-raised': '#121a30', edge: '#1c3750', 'control-border': '#386e8e',
     ink: '#aaeeff', 'ink-muted': '#7fc3e0', accent: '#66ccff', 'on-accent': '#050510', focus: '#99e0ff',
     ok: '#66ffaa', warn: '#ffbb44', danger: '#ff6666', delegate: '#cc88ff', info: '#22d3ee', 'context-system': '#7777a0',
-    'system-warm': '#ff9944', 'system-critical': '#ff6666',
+    'system-warm': '#ff9944', 'system-critical': '#ff6666', 'state-thinking': '#b79cff', 'state-waiting': '#ff7ad9',
   })
 })
 
 test('neon reproduces the legacy COLORS palette key for key (the look must not move)', () => {
   const legacy = JSON.parse(read('scripts/fixtures/neon-colors.legacy.json')) as Record<string, string>
   const neon = paletteFor('neon') as Record<string, string>
-  for (const [key, value] of Object.entries(legacy)) assert.equal(neon[key], value, key)
+  // #381: the two exceptions. Thinking was the idle cyan and waiting an amber beside the tool one; they now take the colours
+  // the canvas has always drawn these states in. SCENE keeps the legacy values (scripts/canvas-theme.test.ts).
+  const moved: Record<string, string> = { thinking: '#b79cff', waiting_permission: '#ff7ad9' }
+  for (const [key, value] of Object.entries(legacy)) assert.equal(neon[key], moved[key] ?? value, key)
 })
 
 test('neon CSS keeps the legacy glass, input and scrollbar values', () => {
@@ -129,15 +132,16 @@ test('without a DOM the tokens fall back to the static table and the theme to th
 
 test('Catppuccin themes use the official palette (palette.json 1.8.0) on the roles: crust / mantle / base, text, subtext0, mauve, blue, lavender...', () => {
   const official = {
-    'catppuccin-mocha': { crust: '#11111b', mantle: '#181825', base: '#1e1e2e', surface1: '#45475a', overlay1: '#7f849c', text: '#cdd6f4', subtext0: '#a6adc8', mauve: '#cba6f7', blue: '#89b4fa', lavender: '#b4befe', green: '#a6e3a1', yellow: '#f9e2af', red: '#f38ba8', teal: '#94e2d5', peach: '#fab387' },
-    'catppuccin-macchiato': { crust: '#181926', mantle: '#1e2030', base: '#24273a', surface1: '#494d64', overlay1: '#8087a2', text: '#cad3f5', subtext0: '#a5adcb', mauve: '#c6a0f6', blue: '#8aadf4', lavender: '#b7bdf8', green: '#a6da95', yellow: '#eed49f', red: '#ed8796', teal: '#8bd5ca', peach: '#f5a97f' },
-    'catppuccin-frappe': { crust: '#232634', mantle: '#292c3c', base: '#303446', surface1: '#51576d', overlay1: '#838ba7', text: '#c6d0f5', subtext0: '#a5adce', mauve: '#ca9ee6', blue: '#8caaee', lavender: '#babbf1', green: '#a6d189', yellow: '#e5c890', red: '#e78284', teal: '#81c8be', peach: '#ef9f76' },
+    'catppuccin-mocha': { crust: '#11111b', mantle: '#181825', base: '#1e1e2e', surface1: '#45475a', overlay1: '#7f849c', text: '#cdd6f4', subtext0: '#a6adc8', mauve: '#cba6f7', blue: '#89b4fa', lavender: '#b4befe', green: '#a6e3a1', yellow: '#f9e2af', red: '#f38ba8', teal: '#94e2d5', peach: '#fab387', sapphire: '#74c7ec', pink: '#f5c2e7' },
+    'catppuccin-macchiato': { crust: '#181926', mantle: '#1e2030', base: '#24273a', surface1: '#494d64', overlay1: '#8087a2', text: '#cad3f5', subtext0: '#a5adcb', mauve: '#c6a0f6', blue: '#8aadf4', lavender: '#b7bdf8', green: '#a6da95', yellow: '#eed49f', red: '#ed8796', teal: '#8bd5ca', peach: '#f5a97f', sapphire: '#7dc4e4', pink: '#f5bde6' },
+    'catppuccin-frappe': { crust: '#232634', mantle: '#292c3c', base: '#303446', surface1: '#51576d', overlay1: '#838ba7', text: '#c6d0f5', subtext0: '#a5adce', mauve: '#ca9ee6', blue: '#8caaee', lavender: '#babbf1', green: '#a6d189', yellow: '#e5c890', red: '#e78284', teal: '#81c8be', peach: '#ef9f76', sapphire: '#85c1dc', pink: '#f4b8e4' },
   } as const
   for (const [id, c] of Object.entries(official) as Array<[keyof typeof official, (typeof official)[keyof typeof official]]>) {
     assert.deepEqual({ ...TOKENS[id] }, {
       void: c.crust, surface: c.mantle, 'surface-raised': c.base, edge: c.surface1, 'control-border': c.overlay1,
       ink: c.text, 'ink-muted': c.subtext0, accent: c.mauve, 'on-accent': c.crust, focus: c.blue,
       ok: c.green, warn: c.yellow, danger: c.red, delegate: c.lavender, info: c.teal, 'context-system': c.overlay1, 'system-warm': c.peach, 'system-critical': c.red,
+      'state-thinking': c.sapphire, 'state-waiting': c.pink,
     }, id)
   }
   assert.ok(THEME_IDS.every(id => !/latte/.test(id)), 'Latte is light and is not offered')

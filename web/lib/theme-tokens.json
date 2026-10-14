@@ -159,7 +159,7 @@
           "anthropic": "#d97757",
           "contrast": "#ffe14d"
         },
-        "usage": "Idle and thinking agents, primary buttons, scrubber fill, selected marker."
+        "usage": "Idle agents, primary buttons, scrubber fill, selected marker."
       },
       {
         "name": "on-accent",
@@ -219,7 +219,7 @@
           "anthropic": "#e3b341",
           "contrast": "#ffc476"
         },
-        "usage": "Tool calls, waiting for permission, expensive tool results. Always paired with a word or icon."
+        "usage": "Tool calls, expensive tool results, warnings (incomplete totals, loop health). Always paired with a word or icon."
       },
       {
         "name": "danger",
@@ -310,6 +310,36 @@
           "contrast": "#ff8686"
         },
         "usage": "System panel: bar and status text of a critical metric (red). Always paired with a word and an icon. At least 1.2:1 in luminance from `system-warm`."
+      },
+      {
+        "name": "state-thinking",
+        "value": {
+          "catppuccin-macchiato": "#7dc4e4",
+          "catppuccin-mocha": "#74c7ec",
+          "catppuccin-frappe": "#85c1dc",
+          "midnight": "#5fd4e6",
+          "graphite": "#8fb8ff",
+          "neon": "#b79cff",
+          "ember": "#9fb4e8",
+          "anthropic": "#a8b4f0",
+          "contrast": "#b8a6ff"
+        },
+        "usage": "Thinking agents (marker, legend, timeline). Distinct from `accent` (idle) and from every other state colour (OKLab distance 0.09 or more). Text 4.5:1 or more on `void`, `surface`, `surface-raised`; always paired with a word."
+      },
+      {
+        "name": "state-waiting",
+        "value": {
+          "catppuccin-macchiato": "#f5bde6",
+          "catppuccin-mocha": "#f5c2e7",
+          "catppuccin-frappe": "#f4b8e4",
+          "midnight": "#ff8fd8",
+          "graphite": "#e88ae8",
+          "neon": "#ff7ad9",
+          "ember": "#f09ac8",
+          "anthropic": "#e08ce0",
+          "contrast": "#ff8ae6"
+        },
+        "usage": "Agents waiting for permission, attention badges, permission prompts. Distinct from `warn` (tool calls) and from every other state colour (OKLab distance 0.09 or more). Text 4.5:1 or more on `void`, `surface`, `surface-raised`; always paired with a word."
       }
     ]
   },
