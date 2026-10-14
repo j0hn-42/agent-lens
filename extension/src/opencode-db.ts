@@ -28,6 +28,11 @@ const TIMEOUT_MS = 1000
 const ID_MAX = 256
 const TEXT_MAX = 4096
 const MESSAGE_MAX = 300
+/** Longest free-text column (title, directory, agent) read; a longer one is read as absent. */
+const TEXT_COLUMN_MAX = 4096
+/** Most ids remembered at the cursor time. */
+const SEEN_MAX = POLL_LIMIT_HARD_MAX
+const ID_COLUMNS = new Set(['id', 'parent_id', 'session_id', 'message_id'])
 
 // ─── Path ──────────────────────────────────────────────────────────────────
 
@@ -80,8 +85,8 @@ export function resolveOpenCodeDbPath(opts: OpenCodeDbPathOptions): OpenCodeDbPa
 /** A session row with the facts the watcher needs beyond the parser's columns. */
 export interface OpenCodeSessionRead extends OpenCodeSessionRow {
   agent: string | null
-  /** Epoch ms when the session was archived; null while it is not. */
-  time_archived: number | null
+  /** Epoch ms when the session was archived; null while it is not; absent when the column does not exist (unknown). */
+  time_archived?: number | null
 }
 
 /** Position in one table: every row with `time_updated` below `time` was read, and `seen` are the ids read at `time`. */
@@ -143,7 +148,7 @@ function timeOf(v: unknown): number | undefined {
 }
 
 function idOf(v: unknown): string | undefined {
-  return typeof v === 'string' && v.length > 0 && v.length <= ID_MAX ? v : undefined
+  return typeof v === 'string' && v.length > 0 && v.length <= ID_MAX && v.replace(CONTROL_ALL, '') === v ? v : undefined
 }
 
 function nullableText(v: unknown): string | null {
@@ -183,11 +188,6 @@ export class OpenCodeDb {
     this.columns = columns
   }
 
-  /** Run a query through the read-only guard (anything but SELECT / PRAGMA table_info is refused). */
-  rawAll(sql: string): Record<string, unknown>[] {
-    return this.conn.all(sql)
-  }
-
   close(): void {
     if (this.closed) return
     this.closed = true
@@ -198,19 +198,27 @@ export class OpenCodeDb {
    * Rows changed since `cursors`. Tool parts are updated in place (pending, running, completed), so
    * the poll follows `time_updated`. Parts are read before messages and messages before sessions: a
    * part always finds its message in this poll or an earlier one. When a later table is truncated the
-   * cursor of the earlier ones is held back, so their rows may come again: the parser handles a row
-   * once per state.
+   * cursor of the earlier ones is held back and their rows are not delivered yet. `skippedRows` is a
+   * per-poll snapshot, not to be summed. More than SEEN_MAX rows sharing one millisecond can be
+   * delivered twice (the parser handles a row once per state).
    */
   poll(cursors: OpenCodeCursors, limit: number = POLL_LIMIT_DEFAULT): OpenCodePoll {
+    cursors = {
+      session: sanitizeCursor(cursors?.session),
+      message: sanitizeCursor(cursors?.message),
+      part: sanitizeCursor(cursors?.part),
+    }
     const max = Number.isFinite(limit) ? Math.min(Math.max(Math.floor(limit), 1), POLL_LIMIT_HARD_MAX) : POLL_LIMIT_DEFAULT
     try {
       const part = this.readTable('part', cursors.part, max, rowToPart)
       const message = this.readTable('message', cursors.message, max, rowToMessage)
       const session = this.readTable('session', cursors.session, max, rowToSession)
       return {
+        // Rows are delivered only when what they point to is already delivered: a part needs its
+        // message, a message its session. Held-back rows come again (their cursor did not move).
         sessions: session.rows,
-        messages: message.rows,
-        parts: part.rows,
+        messages: session.truncated ? [] : message.rows,
+        parts: session.truncated || message.truncated ? [] : part.rows,
         skippedRows: part.skipped + message.skipped + session.skipped,
         truncated: part.truncated || message.truncated || session.truncated,
         cursors: {
@@ -233,14 +241,21 @@ export class OpenCodeDb {
     limit: number,
     map: (r: Record<string, unknown>) => T | undefined,
   ): TableRead<T> {
-    const cols = this.columns[name].map(c => (c === 'data'
-      ? `CASE WHEN length(data) > ${OPENCODE_ROW_DATA_MAX} THEN NULL ELSE data END AS data`
-      : c))
+    // A text column above its bound is not loaded: data and free text read as absent, an id-like
+    // column as '' (so a row with a broken parent_id is skipped, not taken for a root).
+    const cols = this.columns[name].map(c => {
+      if (c === 'data') return `CASE WHEN length(data) > ${OPENCODE_ROW_DATA_MAX} THEN NULL ELSE data END AS data`
+      if (ID_COLUMNS.has(c)) return `CASE WHEN length(${c}) > ${ID_MAX} THEN '' ELSE ${c} END AS ${c}`
+      if (c === 'directory' || c === 'title' || c === 'agent') {
+        return `CASE WHEN length(${c}) > ${TEXT_COLUMN_MAX} THEN NULL ELSE ${c} END AS ${c}`
+      }
+      return c
+    })
     const t = cursor.time
     const seen = new Set(cursor.seen)
     // The ids already read at the cursor time come back first: ask for that many more rows.
-    const sql = `SELECT ${cols.join(', ')} FROM ${name} WHERE typeof(time_updated) IN ('integer', 'real') `
-      + `AND time_updated >= ${t} ORDER BY time_updated ASC, id ASC LIMIT ${limit + seen.size + 1}`
+    const sql = `SELECT ${cols.join(', ')} FROM ${name} WHERE typeof(time_updated) = 'integer' AND time_updated > 0 `
+      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND time_updated >= ${t} ORDER BY time_updated ASC, id ASC LIMIT ${limit + seen.size + 1}`
     const raw = this.conn.all(sql)
 
     let skipped = 0
@@ -263,9 +278,19 @@ export class OpenCodeDb {
     if (taken.length === 0) return { rows, cursor, skipped, truncated }
     const last = taken[taken.length - 1].time
     const ids = taken.filter(f => f.time === last).map(f => f.id)
-    const next: OpenCodeCursor = { time: last, seen: last === t ? [...cursor.seen, ...ids] : ids }
+    const seenNext = last === t ? [...cursor.seen, ...ids] : ids
+    const next: OpenCodeCursor = { time: last, seen: seenNext.slice(-SEEN_MAX) }
     return { rows, cursor: next, skipped, truncated }
   }
+}
+
+/** A cursor from the caller is data: only a safe integer time and a bounded list of valid ids go into a query. */
+function sanitizeCursor(c: OpenCodeCursor | undefined): OpenCodeCursor {
+  const time = c && typeof c.time === 'number' && Number.isSafeInteger(c.time) && c.time > 0 ? c.time : 0
+  const seen = c && time > 0 && Array.isArray(c.seen)
+    ? c.seen.slice(0, SEEN_MAX).filter((x): x is string => idOf(x) !== undefined)
+    : []
+  return { time, seen }
 }
 
 function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefined {
@@ -273,15 +298,17 @@ function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefin
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || created === undefined || updated === undefined) return undefined
+  const parent = r.parent_id === null || r.parent_id === undefined ? null : idOf(r.parent_id)
+  if (parent === undefined) return undefined
   return {
     id,
-    parent_id: idOf(r.parent_id) ?? null,
+    parent_id: parent,
     directory: nullableText(r.directory),
     title: nullableText(r.title),
     agent: nullableText(r.agent),
     time_created: created,
     time_updated: updated,
-    time_archived: timeOf(r.time_archived) ?? null,
+    ...('time_archived' in r ? { time_archived: timeOf(r.time_archived) ?? null } : {}),
   }
 }
 

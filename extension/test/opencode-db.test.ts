@@ -355,7 +355,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
     assert.deepEqual(p.parts.map(x => x.id), ['ok'])
-    assert.equal(p.skippedRows, 2, 'oversized data and null id; a row without a numeric time_updated is never selected')
+    assert.equal(p.skippedRows, 1, 'oversized data; rows without a usable id or integer time_updated are never selected')
     r.db.close(); db.close()
   })
 
