@@ -54,6 +54,29 @@ test('planOverlays: message bubbles are not left under a tool card, even for the
   }
 })
 
+test('planOverlays: a label with a free fallback moves aside or shortens instead of being hidden (#378)', () => {
+  const agents = map(agent())
+  const free = planOverlays(input(agents)).plan.get(planKey.label('s1:main'))!
+  const card = cardOn(free.rect!)
+  const p = planOverlays(input(agents, { toolCards: [card] })).plan.get(planKey.label('s1:main'))!
+  assert.equal(p.hidden, false)
+  assert.ok(p.dy !== 0 || p.collapsed, JSON.stringify(p))
+  assert.equal(rectsOverlap(p.rect!, card), false)
+})
+
+test('planOverlays: bubbles under a card fold into their count chip when the chip spot is free, selected agent included (#378)', () => {
+  const agents = map(agent({ messageBubbles: [{ text: 'hello there', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 60 }] }))
+  for (const selectedAgentId of [null, 's1:main']) {
+    const free = planOverlays(input(agents, { selectedAgentId })).plan.get(planKey.bubbles('s1:main'))!
+    // Card over the right part of the stack: the chip, at the stack's top-left corner, stays clear
+    const card = { x: free.rect!.x + 60, y: free.rect!.y, w: 120, h: 28 }
+    const p = planOverlays(input(agents, { selectedAgentId, toolCards: [card] })).plan.get(planKey.bubbles('s1:main'))!
+    assert.equal(p.hidden, false, `selected: ${selectedAgentId}`)
+    assert.equal(p.collapsed, true, `selected: ${selectedAgentId}`)
+    assert.equal(rectsOverlap(p.rect!, card), false)
+  }
+})
+
 test('planOverlays: without tool cards the plan is unchanged (#378)', () => {
   const agents = map(agent({ messageBubbles: [{ text: 'hi', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 60 }] }))
   const a = planOverlays(input(agents)).plan
