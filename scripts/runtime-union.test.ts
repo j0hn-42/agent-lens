@@ -14,6 +14,7 @@ const RUNTIME_LIST_FILES = [
   'extension/package.json',
   'scripts/mcp/server.ts',
   'scripts/relay.ts',
+  'web/components/agent-visualizer/session-list-panel.tsx',
   'web/lib/agent-types.ts',
   'web/lib/bridge-types.ts',
   'web/lib/chrome-utils.ts',

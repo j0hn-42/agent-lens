@@ -89,7 +89,7 @@ Le plan d'implémentation reconfirme la liste exacte des occurrences par recherc
 | `message.data.error` | `error` (`name` et `data` d'OpenCode) |
 | Message assistant avec `time.completed` posé | `agent_idle` |
 
-`agent_complete` et `permission_requested` ne sont jamais émis : non observables.
+`permission_requested` n'est jamais émis (non observable), et aucun `agent_complete` n'est émis pour la session racine. Un `agent_complete` est émis pour un sous-agent lorsque la part `task` de son parent se termine : c'est la part outil qui prouve la fin de son travail.
 
 **Session active.** Une session est active si `time_updated` est récent (même seuil que Pi/Gemini, à reprendre dans l'implémentation) et non archivée (`time_archived` nul).
 

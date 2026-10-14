@@ -258,7 +258,7 @@ OpenCode sessions (#346) are read from OpenCode's own SQLite database (`<data>/o
 - **No pending permission.** The database does not record a permission request waiting for an answer, so none is shown.
 - **No end of session.** OpenCode reports no end, and a silence never completes a session: a session released after 10 minutes without rows is never shown as finished. Once released it is no longer updated; it keeps its last known state until new rows reattach it. Only an archived session is reported as ended.
 - **No streaming text.** A reply appears once it is written to the database; the text still being streamed is not visible.
-- **Platforms.** Linux and macOS only. On Windows the location is not resolved yet: set `OPENCODE_DB` to an absolute path.
+- **Platforms.** Linux (macOS not verified). On Windows the location is not resolved yet: set `OPENCODE_DB` to an absolute path.
 
 ## Project folders
 
