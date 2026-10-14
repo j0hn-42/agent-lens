@@ -187,7 +187,7 @@
           "neon": "#99e0ff",
           "ember": "#ffd08a",
           "anthropic": "#faf9f5",
-          "contrast": "#ffe14d"
+          "contrast": "#ffffff"
         },
         "usage": "Focus ring, 2px solid with 2px offset. 3:1 or more on every surface."
       },

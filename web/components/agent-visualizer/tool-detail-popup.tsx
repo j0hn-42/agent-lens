@@ -97,7 +97,7 @@ export function ToolDetailPopup({ tool, why, position, onClose }: ToolDetailPopu
             color: COLORS.complete,
           }}
         >
-          <span className="opacity-70 mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
+          <span className="mr-1">{tool.endObserved === false ? 'Reported result (unconfirmed):' : 'Result:'}</span>
           {isShellTool(tool.toolName) ? <AnsiText segments={parseAnsi(tool.result)} /> : tool.result}
         </div>
       )}
