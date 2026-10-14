@@ -188,23 +188,28 @@ function listNames(names: string[]): string {
 /**
  * ONE aggregated, polite message for the agents that just became stale or closed between two ticks
  * (null when nothing did). Agents unknown to `prev` are a baseline, never announced.
+ * `fromHistory`: agents whose status now comes from a replayed history (#361). They did not stop reporting, a
+ * history was received for them: they are announced as such, never as "no longer reporting".
  */
 export function buildFreshnessAnnouncement(
   prev: ReadonlyMap<string, Freshness>,
   next: ReadonlyMap<string, Freshness>,
   names: ReadonlyMap<string, string>,
+  fromHistory: ReadonlySet<string> = new Set(),
 ): string | null {
   const stale: string[] = []
+  const history: string[] = []
   const closed: string[] = []
   for (const [id, f] of next) {
     const before = prev.get(id)
     if (before === undefined || before === f) continue
     const name = names.get(id) ?? id
-    if (f === 'stale') stale.push(name)
+    if (f === 'stale') (fromHistory.has(id) ? history : stale).push(name)
     else if (f === 'closed') closed.push(name)
   }
   const parts: string[] = []
   if (stale.length > 0) parts.push(`${listNames(stale)} ${stale.length === 1 ? 'is' : 'are'} no longer reporting, showing the last known state`)
+  if (history.length > 0) parts.push(`${listNames(history)} ${history.length === 1 ? 'shows' : 'show'} a state read from history`)
   if (closed.length > 0) parts.push(`${listNames(closed)} closed`)
   return parts.length > 0 ? parts.join('. ') + '.' : null
 }

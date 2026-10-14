@@ -208,6 +208,19 @@ test('announcer: ONE polite aggregated message when agents turn stale, silent ot
   assert.equal(region.textContent, before, 'no repeat while nothing changes')
 })
 
+test('announcer: a live agent whose status now comes from a replayed history is not "no longer reporting" (#361)', () => {
+  const clock = fakeClock()
+  const live = new Map([['alpha', { id: 'alpha', name: 'alpha', state: 'thinking', lastEventAt: T0 }]])
+  const { getByRole, rerender } = render(<FreshnessAnnouncer agents={live} clock={clock} />)
+  const region = getByRole('status')
+  clock.advance(1000)
+  assert.equal(region.textContent, '', 'fresh: nothing to say')
+  const replayed = new Map([['alpha', { id: 'alpha', name: 'alpha', state: 'thinking', lastEventAt: T0 + 1000, freshnessSource: 'history' as const }]])
+  rerender(<FreshnessAnnouncer agents={replayed} clock={clock} />)
+  clock.advance(1000)
+  assert.equal(region.textContent, 'alpha shows a state read from history.')
+})
+
 // ─── Canvas ──────────────────────────────────────────────────────────────────
 
 /* eslint-disable @typescript-eslint/no-explicit-any */

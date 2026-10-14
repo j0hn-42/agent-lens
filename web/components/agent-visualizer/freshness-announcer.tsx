@@ -32,7 +32,9 @@ export function FreshnessAnnouncer({ agents, clock }: FreshnessAnnouncerProps) {
     previous.current = next
     if (!prev) return
     const names = new Map(list.map(a => [a.id, a.name]))
-    const text = buildFreshnessAnnouncement(prev, next, names)
+    // A status received from a replayed history is not a stop in reporting (#361)
+    const fromHistory = new Set(list.filter(a => a.freshnessSource === 'history').map(a => a.id))
+    const text = buildFreshnessAnnouncement(prev, next, names, fromHistory)
     if (text) setMessage(text)
   }, [key, clock])
 

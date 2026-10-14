@@ -118,6 +118,20 @@ test('buildFreshnessAnnouncement: one aggregated message for stale and closed, n
   assert.deepEqual([...freshnessMap([ag('a', { lastEventAt: T0 })], T0)], [['a', 'fresh']])
 })
 
+test('buildFreshnessAnnouncement: a live agent whose status now comes from a replayed history is not said to stop reporting (#361)', () => {
+  const names = new Map([['a', 'Alpha'], ['b', 'Beta'], ['c', 'Gamma']])
+  const prev = new Map<string, Freshness>([['a', 'fresh'], ['b', 'fresh'], ['c', 'fresh']])
+  const next = new Map<string, Freshness>([['a', 'stale'], ['b', 'stale'], ['c', 'fresh']])
+  assert.equal(
+    buildFreshnessAnnouncement(prev, next, names, new Set(['a'])),
+    'Beta is no longer reporting, showing the last known state. Alpha shows a state read from history.',
+  )
+  assert.equal(
+    buildFreshnessAnnouncement(prev, new Map<string, Freshness>([['a', 'stale'], ['b', 'stale'], ['c', 'fresh']]), names, new Set(['a', 'b'])),
+    'Alpha, Beta show a state read from history.',
+  )
+})
+
 test('carryFreshness carries the SOURCE of the stamp too (history stays history after a seek)', () => {
   const prev = new Map([
     ['h', ag('h', { lastEventAt: T0, freshnessSource: 'history' })],
