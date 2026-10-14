@@ -40,6 +40,7 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: 'v', display: 'V', description: 'Toggle presentation mode (subtitles of transitions, masked sensitive data, camera follows the active agent)', group: 'View', singleKey: true },
   { key: 'g', display: 'G', description: 'Toggle hex grid', group: 'View', singleKey: true },
   { key: 'u', display: 'U', description: 'Undo the latest action shown in a notification', group: 'General', singleKey: true },
+  { key: ',', display: ',', description: 'Open Settings', group: 'General', singleKey: true },
   { key: 'Ctrl+K', display: 'Ctrl+K / Cmd+K', description: 'Open the command palette: actions, panels, sessions and agents', group: 'General', singleKey: false },
   { key: 'Escape', display: 'Esc', description: 'Close the most recently opened panel, then clear the selection', group: 'General', singleKey: false },
   { key: '?', display: '?', description: 'Show this keyboard shortcuts dialog', group: 'General', singleKey: true },

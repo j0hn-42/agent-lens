@@ -4,11 +4,12 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup, fireEvent, act } from '@testing-library/react'
+import { render, cleanup, fireEvent, act, renderHook } from '@testing-library/react'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
+import { useReviewControls } from '@/hooks/use-review-controls'
 
 afterEach(() => {
   cleanup()
@@ -108,7 +109,7 @@ function Harness(props: { calls: string[]; closeResult: boolean; singleKey?: boo
     toggleCostOverlay: rec('cost'), zoomToFit: rec('fit'), toggleFullscreen: rec('fullscreen'), togglePresentation: rec('presentation'),
     closeTopPanel: () => { props.calls.push('closeTop'); return props.closeResult },
     clearSelection: rec('clearSelection'), toggleMute: rec('mute'), setSpeed: () => { props.calls.push('speed') },
-    openShortcuts: rec('shortcuts'), undoLast: () => { props.calls.push('undo'); return false },
+    openShortcuts: rec('shortcuts'), openSettings: rec('settings'), undoLast: () => { props.calls.push('undo'); return false },
     singleKeyEnabled: props.singleKey ?? true,
   })
   return <button type="button" onClick={() => props.calls.push('button-click')}>Action</button>
@@ -223,4 +224,47 @@ test('context menu: first item gets focus, arrows move it, Enter activates, Esca
   assert.ok(log.includes('remove'))
   fireEvent.keyDown(items[0], { key: 'Escape' })
   assert.ok(log.includes('close'))
+})
+
+test('the comma key opens Settings, from the page and from a focused button, and follows the single-key preference (#411)', () => {
+  const calls: string[] = []
+  const { getByRole, unmount } = render(<Harness calls={calls} closeResult />)
+  fireEvent.keyDown(document.body, { key: ',' })
+  fireEvent.keyDown(getByRole('button', { name: 'Action' }), { key: ',' })
+  assert.deepEqual(calls, ['settings', 'settings'])
+  unmount()
+  const off: string[] = []
+  render(<Harness calls={off} closeResult singleKey={false} />)
+  fireEvent.keyDown(document.body, { key: ',' })
+  assert.deepEqual(off, [])
+})
+
+function reviewControls(isReviewing: boolean) {
+  const speeds: number[] = []
+  const toasts: { message: string }[] = []
+  const hook = renderHook(() => useReviewControls({
+    sim: {
+      isPlaying: true, maxTimeReached: 10, play: noop, pause: noop, restart: noop, seekToTime: noop,
+      saveSnapshot: (() => ({})) as never, restoreSnapshot: noop, setSpeed: (v: number) => { speeds.push(v) },
+    },
+    bridge: { pendingEvents: [], selectedSessionIdRef: { current: null }, flushSessionEvents: noop } as never,
+    isReviewing, setIsReviewing: noop, pushToast: t => { toasts.push(t) },
+    seekingRef: { current: false }, zoomToFit: noop, autoPlay: false,
+  }))
+  return { hook, speeds, toasts }
+}
+
+test('keys 1 to 4 in live mode say that speed applies in review mode, and change nothing (#411)', () => {
+  const { hook, speeds, toasts } = reviewControls(false)
+  hook.result.current.setSpeedInReview(2)
+  assert.deepEqual(speeds, [])
+  assert.equal(toasts.length, 1)
+  assert.match(toasts[0].message, /review/i)
+})
+
+test('keys 1 to 4 in review mode change the speed without a toast (#411)', () => {
+  const { hook, speeds, toasts } = reviewControls(true)
+  hook.result.current.setSpeedInReview(2)
+  assert.deepEqual(speeds, [2])
+  assert.deepEqual(toasts, [])
 })
