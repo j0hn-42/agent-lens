@@ -229,7 +229,7 @@ export function AgentVisualizer() {
   useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
 
   // Files, Conversation and Context share the right dock and are mutually exclusive; Cost is an independent
-  // overlay (#370, see lib/exclusive-panels)
+  // overlay (#370)
   const toggleExclusivePanel = useCallback((panel: 'files' | 'conversation' | 'cost' | 'context') => {
     if (panel === 'cost') { setShowCostOverlay(prev => !prev); return }
     setShowContext(prev => panel === 'context' ? !prev : false)
@@ -608,8 +608,8 @@ export function AgentVisualizer() {
   // Conversation right after the card would hide the inspector (and closing it would drop the selection).
   // Not over a panel the user opened (Files, Context): selecting an agent must not close them (#370). The flags are
   // read from a ref so that closing a panel does not re-run the effect.
-  const dockFlagsRef = useRef({ files: false, conversation: false, context: false, cost: false })
-  dockFlagsRef.current = { files: showFileAttention, conversation: showConversation, context: showContext, cost: showCostOverlay }
+  const dockFlagsRef = useRef({ files: false, context: false })
+  dockFlagsRef.current = { files: showFileAttention, context: showContext }
   useEffect(() => {
     if (selection.selectedAgentId && shouldAutoOpenConversation(dockFlagsRef.current, dockStore.getSnapshot().env.viewport.w, SHEET_BREAKPOINT)) openConversation()
   }, [selection.selectedAgentId, openConversation])
