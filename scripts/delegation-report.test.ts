@@ -165,6 +165,14 @@ test('duration: measured live (#365), else "not reported"; without a return it i
   assert.equal(durationText(report(running)[0].duration), 'no return observed')
 })
 
+test('duration recorded by a background completion notice is said "recorded", not "measured" (#365)', () => {
+  const s = run([main, spawn('scout', 't1'), ret('scout', 't1', { durationS: 75, durationSource: 'recorded' })])
+  assert.deepEqual(report(s)[0].duration, { kind: 'recorded', seconds: 75 })
+  assert.equal(durationText(report(s)[0].duration), '1:15 (recorded)')
+  const replayed = run([main, spawn('scout', 't1'), { ...ret('scout', 't1', { durationS: 75, durationSource: 'recorded' }), replayed: true }])
+  assert.equal(durationText(report(replayed)[0].duration), 'not reported')
+})
+
 test('result: the report excerpt, an error said in words, or that no return was observed', () => {
   const ok = run([main, spawn('scout', 't1'), ret('scout', 't1')])
   assert.equal(resultText(report(ok)[0].result), 'scout report')
@@ -200,7 +208,7 @@ test('the inspector of the shell receives the report of the selected agent and c
 test('the reading guide documents the delegation report and what each column proves', () => {
   const guide = fs.readFileSync(path.resolve(__dirname, '..', 'docs/reading-the-ui.md'), 'utf8')
   assert.match(guide, /## Delegation report/)
-  for (const term of ['not confirmed', 'no return observed', '(measured)', 'not reported']) {
+  for (const term of ['not confirmed', 'no return observed', '(measured)', '(recorded)', 'not reported']) {
     assert.ok(guide.includes(term), `guide should explain "${term}"`)
   }
 })

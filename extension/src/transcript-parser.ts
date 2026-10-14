@@ -363,6 +363,8 @@ export class TranscriptParser {
           toolUseId: launch.toolUseId,
           isError: n.terminalStatus !== 'completed',
           ...(durationS !== undefined ? { durationS } : {}),
+          // The notice's own duration was recorded by the runtime, not measured here (#365)
+          ...(n.durationMs !== undefined ? { durationSource: 'recorded' } : {}),
         },
       }, sessionId)
       this.delegate.emit({

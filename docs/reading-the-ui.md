@@ -171,7 +171,8 @@ When the selected agent has sub-agents, its inspector ends with a **Delegation r
 | **Files read** | **N files** | Distinct files whose `Read` by this sub-agent was observed to succeed. The disclosure lists them (20 at most, then "+N more"). |
 | | **N not confirmed** | Files whose `Read` started but was never seen to succeed (failed, cancelled, still running or end not observed). They are not counted as read. |
 | | **none observed** | No `Read` by this sub-agent was received. It is not shown as "0 files": reads through other tools (Bash `cat`, Grep) are not seen. |
-| **Duration** | **m:ss (measured)** | Measured by Agent Lens (the relay or the extension) between the dispatch and the return it observed live; for a background sub-agent, the duration its completion notice records when it has one. It is not a figure the runtime reports with every return. |
+| **Duration** | **m:ss (measured)** | Measured by Agent Lens (the relay or the extension) between the dispatch and the return it observed live. It is not a figure the runtime reports with every return. |
+| | **m:ss (recorded)** | A background sub-agent whose completion notice records its own duration: that recorded figure, not a measurement by Agent Lens. |
 | | **not reported** | A return was received without a duration, or it came from a history replay or an imported transcript: there the duration was measured when the line was parsed, not while the sub-agent ran, so it is dropped. |
 | | **no return observed** | No return of this sub-agent was received; no duration is computed from the clock. |
 | **Result** | the start of the report | The first 280 characters of what the sub-agent returned to its parent, with "…" and "(full report in Conversation)" when cut. |
