@@ -150,6 +150,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   /** Position de lecture des sessions libérées : un fichier qui reprend repart d'où il s'était arrêté
    *  (pas de rejeu de l'historique). Borné, les plus anciennes entrées sont oubliées. */
   private retired = new Map<string, Pick<WatchedCodexSession, 'fileSize' | 'fileTail' | 'rolloutState' | 'sessionStartTime' | 'label'>>()
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -373,7 +375,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     // Build the parser once per session so the delegate closures capture the
     // right session reference and re-emission is stateless on this side.
     const parser = new CodexRolloutParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -408,7 +410,9 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     this.sessions.set(sessionId, session)
 
     // Drain existing content first, so late-opening panels see full history.
-    this.readNewLines(sessionId)
+    // (a session resumed after a release only reads what was written since: that is live)
+    if (retired) this.readNewLines(sessionId)
+    else this.asHistory(() => this.readNewLines(sessionId))
     if (this.sessions.get(sessionId) !== session) return // detached by a read failure
 
     session.sessionDetected = true
@@ -423,6 +427,12 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     session.pollTimer = setInterval(() => this.readNewLines(sessionId), POLL_FALLBACK_MS)
 
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
+  }
+
+  /** Run a read of history: the events it emits are marked `replayed` (#390). */
+  private asHistory(read: () => void): void {
+    this.historyDepth++
+    try { read() } finally { this.historyDepth-- }
   }
 
   /** Called from watchers and timers: an exception is logged and detaches the session (#206). */

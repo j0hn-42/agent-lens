@@ -153,6 +153,8 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
   private scanCapWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, RetiredGeminiSession>()
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
+  private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -388,7 +390,7 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
 
     // Parser built once per session so the delegate closures capture the right session
     const parser = new GeminiEventParser({
-      emit: (event) => this._onEvent.fire({ ...event, sessionId }),
+      emit: (event) => this._onEvent.fire({ ...event, sessionId, ...(this.historyDepth > 0 ? { replayed: true } : {}) }),
       elapsed: () => {
         const s = this.sessions.get(sessionId)
         return s ? (Date.now() - s.sessionStartTime) / 1000 : 0
@@ -446,7 +448,13 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
     log.info(`Attached to session ${sessionId.slice(0, SESSION_ID_DISPLAY)} at ${filePath}`)
   }
 
+  /** The events emitted while the history is read are marked `replayed` (#390). */
   private drainHistory(session: WatchedGeminiSession, size: number): void {
+    this.historyDepth++
+    try { this.drainHistoryLines(session, size) } finally { this.historyDepth-- }
+  }
+
+  private drainHistoryLines(session: WatchedGeminiSession, size: number): void {
     try {
       for (const line of readLinesChunked(session.filePath, size, undefined, session)) {
         try { session.parser.processLine(line, session.eventState) }
@@ -505,7 +513,8 @@ export class GeminiSessionWatcher implements AgentSessionWatcher {
 
     if (rewritten) {
       session.parser.beginRewrite(session.eventState)
-      try { this.drainHistory(session, size) }
+      // Not marked replayed (#390): the parser drops what was already shown, so what comes out is new
+      try { this.drainHistoryLines(session, size) }
       finally { session.parser.endRewrite(session.eventState) }
     } else {
       for (const line of lines ?? []) {
