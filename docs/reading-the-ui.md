@@ -133,10 +133,13 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **estimated** ("estimated") | The token count was computed locally, not reported by the runtime. |
 | "no checks reported" / "checks unknown" (PR row) | gh listed no check for the PR, or its checks cannot be read. Neither is shown as passing. |
 | "not reported" | The value is unavailable. It is not shown as 0. |
+| **~$X** ("context cost estimate") | A cost: the tokens now in the context × a blended rate per model. An estimate even on reported tokens, never a bill. See [Cost](#cost-the--figures). |
 | **unattributed** | A cost that cannot be tied to exactly one agent (unknown name, or several agents share it). It is listed apart, priced at the default rate, and included in the session total. See [node-inspector.md](node-inspector.md). |
 | **conflict** (Files panel, canvas line) | Two or more agents each made at least one edit of the same absolute file that was observed to succeed. An edit not seen to succeed is never counted. |
 | **Tokens of a file** (Files panel) | The sum of the cost of the calls that ended on that file, each call counted for its own file. It is qualified like every total: **estimated** when any part is estimated (shown `~12k` on screen), **at least** when a call on the file ended without a figure (shown `≥12k`; `tokens not reported` when no figure at all). A call still running or whose end was not observed adds nothing yet. The summary at the bottom adds the files with the same wording. The bar and the colour of a file are its share of the heaviest file: a heavy file is never drawn as an error. The read and edit counters count the calls started, failures and calls still running included; when fewer were observed to succeed, the row says how many did (`3 reads (2 succeeded)`). |
 | **Loading history (n/N)** | A burst of received events (switching to All, a relay replay) is being applied a few milliseconds per frame: n of the N events are on the canvas, the rest are not drawn yet. Screen readers hear the start and "History loaded (N events)" at the end. |
+| **Time** and **Activity** (Sessions panel) | For a Claude Code session, Time counts from the start the transcript records (its first timestamp) and Activity from the last write of the transcript or of its sub-agent transcripts. Neither starts when the relay or the extension began watching: a session opened 3 hours ago reads 3 hours even if the relay started 2 minutes ago. |
+| **≥2m 00s**, read as "watched for" ... "at least that long" (active) or "at least" ... "long" (completed), then "session start not recorded" (Sessions panel, Time) | The transcript records no start, so the duration only counts since Agent Lens began watching the session: the session is at least that old. |
 | **imported - not live** (Sessions panel) | The session was read once from an imported transcript file (`--import`, see [relay-sources.md](relay-sources.md)). It shows what the file recorded up to its last line. It is never shown as active: whether it still runs elsewhere is unknown. Its agents are at best *last known state*, never current, and the inspector says *(imported transcript)* after the last event time. Imported sessions are grouped under **Imported transcripts**, which the project filter also offers. With **Active only** on, an imported session is listed only while selected. |
 | **N active / N idle / N error** (top bar) | "active" only counts agents whose status is proven current and neither idle nor error; idle, error and *last known state* agents are counted apart, and done agents last. The screen-reader outline words a stale agent as *last known state: ...*, like the canvas. |
 | **status unknown (relay offline)** (Sessions panel) | The relay is offline, so no event can arrive: an active session is no longer shown as *active*, and its duration stops at its last observed activity instead of growing. A halo whose working or waiting agents are all *last known state* says *last known: working* (or *waiting for permission*) rather than the bare status. |
@@ -175,7 +178,8 @@ When the selected agent has sub-agents, its inspector ends with a **Delegation r
 | **Files read** | **N files** | Distinct files whose `Read` by this sub-agent was observed to succeed. The disclosure lists them (20 at most, then "+N more"). |
 | | **N not confirmed** | Files whose `Read` started but was never seen to succeed (failed, cancelled, still running or end not observed). They are not counted as read. |
 | | **none observed** | No `Read` by this sub-agent was received. It is not shown as "0 files": reads through other tools (Bash `cat`, Grep) are not seen. |
-| **Duration** | **m:ss (reported)** | The duration the runtime reported with the return, for a return received live. |
+| **Duration** | **m:ss (measured)** | Measured by Agent Lens (the relay or the extension) between the dispatch and the return it observed live. It is not a figure the runtime reports with every return. |
+| | **m:ss (recorded)** | A background sub-agent whose completion notice records its own duration: that recorded figure, not a measurement by Agent Lens. |
 | | **not reported** | A return was received without a duration, or it came from a history replay or an imported transcript: there the duration was measured when the line was parsed, not while the sub-agent ran, so it is dropped. |
 | | **no return observed** | No return of this sub-agent was received; no duration is computed from the clock. |
 | **Result** | the start of the report | The first 280 characters of what the sub-agent returned to its parent, with "…" and "(full report in Conversation)" when cut. |
@@ -188,7 +192,7 @@ A sub-agent whose link to its parent is not proven by the events (dashed on the 
 
 ## Context window (the "/ 1M" next to the gauge)
 
-The used part of the gauge is a reading; the total is a window Agent Lens must **assume**, because Claude Code transcripts do not state it. Where it comes from, strongest first:
+The used part of the gauge is a reading. The total is a window that is either **reported** by the runtime or **inferred** by Agent Lens, because Claude Code transcripts do not state it. Where it comes from, strongest first:
 
 1. **Reported by the runtime** (Codex sends `model_context_window`): shown as is, even when the usage is above it.
 2. **`CLAUDE_CODE_DISABLE_1M_CONTEXT=1`** (environment or the `env` of Claude Code's `settings.json`): every window is capped to 200k. In the VS Code extension this is read at start; for the relay and `node app/dist/app.js` it is read by `GET /status` (field `disable1MContext`, `false` when Claude Code is not watched), so the browser shows 200k as well.
@@ -196,6 +200,18 @@ The used part of the gauge is a reading; the total is a window Agent Lens must *
 4. **The model family table** (Opus, Sonnet, Fable, Mythos 1M; Haiku 200k; GPT 400k), 200k for an unknown model and 1M when no model is known yet.
 
 A window cannot be smaller than what was used. When a reading is above the assumed window (a long session on a 1M model whose id was not recognised), the total grows to the next known size (1M), or to the usage itself beyond 1M, instead of showing more than 100%. The percentage then refers to an assumed window; the model pill and the table above say where it comes from.
+
+**"window assumed".** In the interface, "assumed" is kept for a window that is a fallback, not for every inferred one: no model known yet, a model the table does not know (whether or not `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set: the cap is an upper bound, not the size, and says nothing about a model the table does not list), or a window a reading has already overflowed. The qualifier goes with the window, never with the token count, which is a reading: **12k / 200k tokens, window assumed** on the canvas label and in the screen-reader summary of the node, **190k / 200k (95% of an assumed window)** in the inspector's **Context window** gauge. The percentage drawn above the node then says "assumed" too, and neither it nor the ring around the node is ever coloured or haloed as a warning or critical: how full a window of unknown size is cannot be proven. A window reported by the runtime, or inferred from a `[1m]` suffix or a family the table lists (capped or not), is shown without the word: the table is the documented source for those models, and marking it would put "assumed" on every Claude Code session.
+
+## Cost (the "~$" figures)
+
+Every cost in Agent Lens is a **context cost estimate**, never a bill: the tokens an agent holds in its context now, priced at a blended rate for its model (75% of the input price plus 25% of the output price per million tokens; the Sonnet-class rate for an unknown model). Transcripts do not give what each call was charged, so this is the only figure that can be computed, and it is marked as such:
+
+- **On screen** a cost reads **~$2.10**: in the top bar, the cost pills and the Cost panel, the session halos, the Sessions list and the All summary. The "~" stays even when the runtime reports its tokens (Codex): the tokens are a reading, the price is not. The qualifiers of the tokens are kept around it (**at least ~$2.10**, **~$2.10 estimated**). The tooltip of the top bar cost gives the method.
+- **For screen readers** the same figure is said in words, "context cost estimate $2.10", in the node summaries, the halo announcements and the top bar. The cost notification says "Context cost estimate reached ~$5.20".
+- **What it misses.** It is the size of the context now, not a sum of the calls: it drops after a compaction (from ~$2.10 to ~$0.40 after `/compact`), it ignores cache reads (cheaper than input) and cache writes, and it does not add up the earlier calls that each re-sent the context. Read it as "what the current context weighs", not as what the session has cost.
+
+The token total next to it, **N tokens in context**, adds up what each agent's context holds now. It is not a consumption either, and it drops after a compaction too.
 
 ## Context compactions
 
@@ -313,7 +329,7 @@ The **Notifications** button in the top bar turns notifications on or off; **Set
 | **Agent waiting for a permission** | an agent starts waiting for you to allow a tool | on |
 | **Agent in error** | an agent itself is reported in error (no event observed by Agent Lens sets this state yet, so it cannot fire today; a failed tool call does not count: the agent usually handles it and goes on; it shows in the tool error count of the inspector) | on |
 | **Session finished** | a session you were watching goes from active to completed: its end was observed (Claude Code's `SessionEnd` hook), a silence never fires it | off |
-| **Cost threshold reached** | the cost shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
+| **Cost threshold reached** | the context cost estimate shown in the top bar crosses the amount you set (USD, above 0, up to 10 000), once | off |
 
 - **Where it shows.** In a browser, a system notification appears only while the tab is hidden (the tab title also carries the number of blocked agents). In VS Code, the webview asks the extension, which shows a native message unless the Agent Lens panel is the focused view. The extension checks and caps every message and shows at most one per trigger every 2 seconds.
 - **Only what is new.** A trigger fires on a change, never for what was already there: the first state after loading is a baseline, a session already finished in the history is not announced as finished, and nothing is sent while the history is replaying.

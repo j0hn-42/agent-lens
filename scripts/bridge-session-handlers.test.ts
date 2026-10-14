@@ -70,11 +70,14 @@ test('started: does not yank the user away, it pulses the new tab', () => {
 })
 
 test('started: a resumed session turns active again, an imported one keeps what the relay says', () => {
-  const { ctx } = makeCtx([session('a', { status: 'completed' }), session('i', { status: 'completed', imported: true })], 'a')
-  SESSION_HANDLERS.started(ctx, session('a'))
+  const { ctx } = makeCtx([session('a', { status: 'completed' }), session('b', { status: 'completed' }), session('i', { status: 'completed', imported: true })], 'a')
+  SESSION_HANDLERS.started(ctx, session('a', { lastActivityTime: 500 }))
+  SESSION_HANDLERS.started(ctx, session('b', { lastActivityTime: Number.NaN }))
   SESSION_HANDLERS.started(ctx, session('i', { status: 'completed', imported: true }))
   assert.equal(ctx.sessions.find(s => s.id === 'a')!.status, 'active')
-  assert.equal(ctx.sessions.find(s => s.id === 'a')!.lastActivityTime, 1000)
+  // The time the source gives (#365), not the moment the message arrived; `now` only when it gives none
+  assert.equal(ctx.sessions.find(s => s.id === 'a')!.lastActivityTime, 500)
+  assert.equal(ctx.sessions.find(s => s.id === 'b')!.lastActivityTime, 1000)
   assert.equal(ctx.sessions.find(s => s.id === 'i')!.status, 'completed')
 })
 

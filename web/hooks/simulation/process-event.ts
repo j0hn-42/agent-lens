@@ -24,6 +24,8 @@ export interface ProcessEventContext {
   syncForceSimulation: (agents: Map<string, Agent>, edges: Edge[]) => void
   findToolSlot: (agent: Agent, agents: Map<string, Agent>, toolCalls: Map<string, ToolCallNode>, currentTime: number) => { x: number; y: number }
   getContextWindowSize: (modelId?: string) => number
+  /** Whether `getContextWindowSize` fell back to a default for this model (#364); absent = never flagged */
+  isContextWindowAssumed?: (modelId?: string) => boolean
   blockIdCounter: { current: number }
   skipForceSync: boolean
 }

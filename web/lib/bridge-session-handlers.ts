@@ -6,7 +6,7 @@
  * Everything they touch comes through `SessionHandlerCtx`, so they run without React.
  */
 import type { MutableRefObject } from 'react'
-import { ALL_SESSIONS_ID, pickAutoSelectSession } from './bridge-types'
+import { ALL_SESSIONS_ID, pickAutoSelectSession, resumeSession } from './bridge-types'
 import { pruneReplayStamps } from '../hooks/simulation/session-visibility'
 import type { createTeamTracker } from '../hooks/simulation/team-info'
 import type { SessionModelTracker } from './session-model'
@@ -71,8 +71,7 @@ export const SESSION_HANDLERS: Handlers = {
       return prev.map(s => {
         if (s.id !== session.id) return s
         if (session.imported) return session
-        const { indexedOnly: _indexedOnly, ...live } = s // now watched live
-        return { ...live, status: 'active' as const, lastActivityTime: ctx.now() }
+        return resumeSession(s, session, ctx.now()) // now watched live, with the times the source gives
       })
     })
     const selected = ctx.selectedSessionIdRef.current

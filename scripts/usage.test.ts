@@ -33,7 +33,7 @@ test('formatTokenUsage: unavailable, partial (at least) and estimated (badge)', 
 
 test('formatCostUsage mirrors the token total with a currency format', () => {
   assert.equal(formatCostUsage({ value: null, status: 'unavailable', estimated: false }), USAGE_LABELS.unavailable)
-  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} $0.500 ${USAGE_LABELS.estimated}`)
+  assert.equal(formatCostUsage({ value: 0.5, status: 'partial', estimated: true }), `${USAGE_LABELS.atLeast} ~$0.500 ${USAGE_LABELS.estimated}`)
 })
 
 test('readTokenCost: only a finite non-negative number is a value; anything else is null (not 0)', () => {
