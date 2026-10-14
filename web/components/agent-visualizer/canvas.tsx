@@ -94,7 +94,7 @@ export function AgentCanvas(props: CanvasProps) {
   } = useCanvasCamera({
     mainCanvasRef, drawPropsRef, simTimeRef, dimensions,
     agentCount: simulationRef.current.agents.size, zoomToFitTrigger, selectedAgentId,
-    clustersRef, getInsets, scopeKey, presentationRef,
+    clustersRef, getInsets, scopeKey, presentationRef, reducedMotionRef: prefs.reducedMotionRef,
   })
   const { canvasToScreenRef: tourCanvasToScreenRef, reportPresence } = useTourBridge()
   tourCanvasToScreenRef.current = canvasToScreen
@@ -191,7 +191,7 @@ export function AgentCanvas(props: CanvasProps) {
         tabIndex={0}
         onPointerDownCapture={(e) => { if (e.pointerType === 'mouse') setFocusedNode(null) }}
         {...keyHandlers}
-        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-white"
+        className="absolute inset-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[color:var(--lens-focus)]"
       >
         <canvas
           ref={mainCanvasRef}
@@ -204,7 +204,7 @@ export function AgentCanvas(props: CanvasProps) {
       <div
         ref={bubbleLayerRef}
         data-edge-bubble-layer=""
-        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-white [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
+        className="absolute inset-0 overflow-hidden pointer-events-none [&_button]:min-h-6 [&_button]:min-w-6 [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-[color:var(--lens-focus)] [&_button]:focus-visible:shadow-none [&_button]:focus-visible:outline-offset-2"
       />
       {auxFocus && (
         <div

@@ -796,7 +796,7 @@
   --lens-ink-muted: #d6d6d6;
   --lens-accent: #ffe14d;
   --lens-on-accent: #000000;
-  --lens-focus: #ffe14d;
+  --lens-focus: #ffffff;
   --lens-ok: #86ffb7;
   --lens-warn: #ffc476;
   --lens-danger: #ff8686;
@@ -818,7 +818,7 @@
   --lens-input-border: #ffffff;
   --lens-input-color: #ffffff;
   --lens-input-placeholder: #d6d6d6;
-  --lens-input-focus-border: #ffe14d;
+  --lens-input-focus-border: #ffffff;
   --lens-input-focus-glow: none;
   --lens-scrollbar-thumb: #ffffff;
   --lens-scrollbar-thumb-hover: #d6d6d6;
@@ -830,7 +830,7 @@
   --lens-live-halo: none;
   --lens-hover-05: color-mix(in srgb, var(--lens-ink) 8%, transparent);
   --lens-hover-10: color-mix(in srgb, var(--lens-ink) 12%, transparent);
-  --lens-focus-strong: #ffe14d;
+  --lens-focus-strong: #ffffff;
   --ansi-0: #9aa0b4;
   --ansi-1: #ff6b7a;
   --ansi-2: #5fdc8f;

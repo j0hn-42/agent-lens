@@ -43,14 +43,14 @@ interface ContextMenuActions {
 }
 
 function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
-  if (onAgent) return [{ label: '📊  Toggle Stats', onClick: a.toggleStats }]
+  if (onAgent) return [{ icon: '📊', label: 'Toggle Stats', onClick: a.toggleStats }]
   return [
-    { label: '🔍  Zoom to Fit', onClick: a.zoomToFit },
-    { label: '📊  Toggle Stats', onClick: a.toggleStats },
-    { label: '⬡  Toggle Grid', onClick: a.toggleGrid },
+    { icon: '🔍', label: 'Zoom to Fit', onClick: a.zoomToFit },
+    { icon: '📊', label: 'Toggle Stats', onClick: a.toggleStats },
+    { icon: '⬡', label: 'Toggle Grid', onClick: a.toggleGrid },
     { label: '', onClick: () => {}, separator: true },
-    { label: '⟲  Clear history', confirmLabel: 'Confirm clear history', onClick: a.clearHistory },
-    ...(a.reloadSessionEvents ? [{ label: '↻  Reload session events', onClick: a.reloadSessionEvents }] : []),
+    { icon: '⟲', label: 'Clear history', confirmLabel: 'Confirm clear history', onClick: a.clearHistory },
+    ...(a.reloadSessionEvents ? [{ icon: '↻', label: 'Reload session events', onClick: a.reloadSessionEvents }] : []),
   ]
 }
 

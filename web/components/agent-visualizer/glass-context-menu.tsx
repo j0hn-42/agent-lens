@@ -14,6 +14,10 @@ interface ContextMenuProps {
   position: { x: number; y: number }
   items: Array<{
     label: string
+    /** Decorative glyph shown before the label; hidden from assistive technology */
+    icon?: string
+    /** A toggle that knows its state: rendered as a menuitemcheckbox with aria-checked */
+    checked?: boolean
     onClick: () => void
     danger?: boolean
     separator?: boolean
@@ -126,7 +130,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 key={i}
                 ref={el => { itemRefs.current[i] = el }}
                 type="button"
-                role="menuitem"
+                role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                aria-checked={item.checked}
                 tabIndex={rovingPos === active ? 0 : -1}
                 onFocus={() => { setActive(rovingPos); if (armed !== null && armed !== i) setArmed(null) }}
                 onClick={() => {
@@ -139,6 +144,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 className={`min-h-6 w-full px-3 py-1.5 text-left text-[11px] font-mono transition-colors hover:bg-[color:var(--lens-hover-subtle)] focus-visible:bg-[color:var(--lens-hover)] ${FOCUS_RING_INSET}`}
                 style={{ color: item.danger || armed === i ? COLORS.error : COLORS.textPrimary }}
               >
+                {item.icon && <span aria-hidden="true" className="mr-2 inline-block w-4 text-center">{item.icon}</span>}
                 {armed === i && item.confirmLabel ? item.confirmLabel : item.label}
               </button>
             )

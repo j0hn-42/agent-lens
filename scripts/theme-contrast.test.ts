@@ -48,13 +48,14 @@ const TEXT_KEYS: ColorKey[] = [
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
   'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
-  'systemWarm', 'systemCritical',
+  'systemWarm', 'systemCritical', 'searchIcon',
 ]
 
 const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
   ['thinking expanded', 'thinkingBgExpanded', ['thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded']],
   ['user message', 'userMsgBg', ['userLabel', 'userText']],
   ['tool call', 'toolCallBg', ['toolIndicatorText', 'textPrimary']],
+  ['tool detail result', 'resultBg', ['complete']],
   ['tool result', 'toolResultBg', ['toolResultText']],
   ['bash result', 'bashResultBg', ['bashResultText']],
   ['code block', 'codeBlockBg', ['contentDim', 'textPrimary']],
@@ -290,4 +291,9 @@ test('neon: the panel and feed colours keep their historical values', () => {
   assert.equal(v['--lens-hover-05'], 'rgba(255, 255, 255, 0.05)')
   assert.equal(v['--lens-hover-10'], 'rgba(255, 255, 255, 0.1)')
   assert.equal(v['--lens-focus-strong'], '#ffffff')
+})
+
+// #380 (2.4.7): in High contrast the focus ring must not be the accent colour, or a focused accent-filled control shows no ring
+test('contrast: the focus ring is distinct from the accent', () => {
+  assert.notEqual(TOKENS.contrast.focus.toLowerCase(), TOKENS.contrast.accent.toLowerCase())
 })
