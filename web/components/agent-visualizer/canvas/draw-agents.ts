@@ -8,7 +8,7 @@ import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/f
 import { alphaHex, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
-import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX } from './draw-misc'
+import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -123,6 +123,27 @@ function getGeminiMarkPath() {
   return _geminiMarkPath
 }
 
+/** OpenCode mark: a pair of square brackets, drawn as a path so it needs no asset (#346).
+ *  Same footprint as the Claude spark. Geometry is shared with the legend (OPENCODE_MARK_PATH). */
+function drawOpenCodeMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string) {
+  ctx.save()
+  ctx.translate(cx, cy)
+  const scale = (r * AGENT_DRAW.sparkScale) / OPENCODE_MARK_VIEWBOX
+  ctx.scale(scale, scale)
+  ctx.translate(-OPENCODE_MARK_VIEWBOX / 2, -OPENCODE_MARK_VIEWBOX / 2)
+  ctx.fillStyle = color
+  ctx.shadowColor = color
+  ctx.shadowBlur = 6 / scale
+  ctx.fill(getOpenCodeMarkPath())
+  ctx.restore()
+}
+
+let _openCodeMarkPath: Path2D | null = null
+function getOpenCodeMarkPath() {
+  if (!_openCodeMarkPath) _openCodeMarkPath = new Path2D(OPENCODE_MARK_PATH)
+  return _openCodeMarkPath
+}
+
 /** Pick the brand logo for the agent's runtime. Defaults to Claude. */
 export function drawAgentBrand(
   ctx: CanvasRenderingContext2D,
@@ -133,6 +154,7 @@ export function drawAgentBrand(
   else if (runtime === 'copilot') drawCopilotMark(ctx, cx, cy, r, color)
   else if (runtime === 'pi') drawPiMark(ctx, cx, cy, r, color)
   else if (runtime === 'gemini') drawGeminiMark(ctx, cx, cy, r, color)
+  else if (runtime === 'opencode') drawOpenCodeMark(ctx, cx, cy, r, color)
   else drawClaudeSpark(ctx, cx, cy, r, color)
 }
 

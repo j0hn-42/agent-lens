@@ -126,8 +126,13 @@ test('costCell: money with its lower-bound / estimate marks spelled out, a named
 test('branchCell / runtimeCell / activityCell: value, or a dash that says why', () => {
   assert.deepEqual([branchCell('feat/x').text, branchCell('feat/x').label], ['feat/x', 'branch feat/x'])
   assert.equal(branchCell(undefined).label, 'branch not recorded')
-  assert.deepEqual([runtimeCell('claude').text, runtimeCell('codex').text], ['Claude', 'Codex'])
+  assert.deepEqual([runtimeCell('claude').text, runtimeCell('codex').text], ['Claude Code', 'Codex'])
   assert.equal(runtimeCell('codex').label, 'runtime Codex')
+  assert.equal(runtimeCell('claude').label, 'runtime Claude Code')
+  // #346: no runtime is reported as Claude by default
+  for (const [rt, name] of [['opencode', 'OpenCode'], ['pi', 'Pi'], ['gemini', 'Gemini CLI'], ['copilot', 'GitHub Copilot']] as const) {
+    assert.deepEqual([runtimeCell(rt).text, runtimeCell(rt).label], [name, `runtime ${name}`])
+  }
   assert.equal(runtimeCell(undefined).label, 'runtime not reported')
   assert.equal(activityCell({ lastActivityTime: T0 - 120_000 }, T0).text, '2 min ago')
   assert.equal(activityCell({ lastActivityTime: T0, lastActivityUnknown: true }, T0).label, 'activity unknown')

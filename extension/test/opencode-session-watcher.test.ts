@@ -108,11 +108,13 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(spawns(), 1)
     clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
     w.scanNow()
-    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'ended'])
+    // A silence is not an end: the idle release fires no `ended` (only an archived root does)
+    assert.deepEqual(lifecycle.map(l => l.type), ['started'])
+    assert.equal(lifecycle.some(l => l.type === 'ended'), false)
     assert.equal(w.isActive(), false)
     fx.message('msg_2', 'ses_a', clock.t, { ...userMsg, time: { created: clock.t } })
     w.scanNow()
-    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'ended', 'started'])
+    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'started'])
     assert.equal(spawns(), 1)
   })
 
@@ -185,6 +187,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
     const real = internal.db.poll.bind(internal.db)
     internal.db.poll = () => ({ sessions: [], messages: [], parts: [], skippedRows: 0, truncated: false, cursors: undefined, error: 'database is locked' })
+    fx.message('msg_0', 'ses_a', T0 - 600, userMsg) // a commit, so that the data_version gate lets the poll through
     assert.doesNotThrow(() => w.scanNow())
     assert.match(w.status(), /locked/)
     internal.db.poll = real
@@ -318,7 +321,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
   })
 
   it('N1: rows sharing one millisecond cannot keep the scan chain spinning', async () => {
-    const { fx, w } = setup()
+    const { fx, w, clock } = setup()
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
     fx.batch(() => { for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg) })
     w.start()
@@ -332,7 +335,11 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const settled = polls
     for (let i = 0; i < 5; i++) await tick()
     assert.equal(polls, settled, 'no scan left pending')
-    // The next interval tick still polls
+    // The drained database did not change: the next tick is skipped by the data_version gate, then the
+    // periodic recheck polls again
+    w.scanNow()
+    assert.equal(polls, settled, 'an unchanged database is not scanned again at once')
+    clock.t += 60_000
     w.scanNow()
     assert.equal(polls, settled + 1)
   })
@@ -344,7 +351,99 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
     internal.db.poll = () => ({ sessions: [], messages: [], parts: [], skippedRows: 0, truncated: false, cursors: undefined, error: 'OpenCode: the database could not be read (locked).' })
     const warn = mock.method(console, 'warn', () => undefined)
+    fx.message('msg_0', 'ses_a', T0 - 600, userMsg)
     try { w.scanNow() } finally { warn.mock.restore() }
     assert.equal(w.status(), 'OpenCode: the database could not be read (locked).')
+  })
+
+  it('I-A: a sub-agent that appears while its root is released is replayed when the root reattaches', () => {
+    const { fx, w, events, clock } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+    w.start()
+    clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
+    w.scanNow()
+    assert.equal(w.isActive(), false)
+    // One poll: the new child, then activity of the root and of the child
+    fx.session('ses_child', { parent: 'ses_a', created: clock.t, updated: clock.t, title: 'sub' })
+    fx.message('msg_2', 'ses_a', clock.t, { ...userMsg, time: { created: clock.t } })
+    fx.message('msg_c', 'ses_child', clock.t + 1, { ...userMsg, time: { created: clock.t + 1 } })
+    fx.part('prt_c', 'msg_c', 'ses_child', clock.t + 1, clock.t + 1, { type: 'text', text: 'from child' })
+    w.scanNow()
+    const spawns = events.filter(e => e.type === 'agent_spawn')
+    assert.equal(spawns.filter(e => (e.payload as { isMain?: boolean }).isMain).length, 1, 'one main spawn')
+    const child = spawns.filter(e => (e.payload as { isMain?: boolean }).isMain !== true)
+    assert.equal(child.length, 1, 'the sub-agent is spawned')
+    assert.equal(child[0].sessionId, 'ses_a')
+    assert.ok(events.some(e => e.type === 'message' && JSON.stringify(e.payload).includes('from child')))
+  })
+
+  describe('I-B: data_version gate', () => {
+    type Poll = { sessions: unknown[]; messages: unknown[]; parts: unknown[]; skippedRows: number; truncated: boolean; cursors: unknown; error?: string }
+    function counted(w: OpenCodeSessionWatcher, override?: () => Poll | undefined) {
+      const internal = w as unknown as { db: { poll: (...a: unknown[]) => Poll } }
+      const real = internal.db.poll.bind(internal.db)
+      const state = { polls: 0 }
+      internal.db.poll = (...a: unknown[]) => { state.polls++; return override?.() ?? real(...a) }
+      return state
+    }
+
+    it('polls first, skips while the database is unchanged, polls again when it changed', () => {
+      const { fx, w } = setup()
+      fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+      w.start()
+      const c = counted(w)
+      w.scanNow(); w.scanNow()
+      assert.equal(c.polls, 0, 'unchanged: no poll')
+      fx.message('msg_1', 'ses_a', T0 - 500, userMsg)
+      w.scanNow()
+      assert.equal(c.polls, 1, 'changed: poll')
+      w.scanNow()
+      assert.equal(c.polls, 1)
+    })
+
+    it('polls again after an error, and after a truncated poll', () => {
+      const { fx, w } = setup()
+      fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+      w.start()
+      let mode: 'error' | 'truncated' | 'real' = 'error'
+      const empty = { sessions: [], messages: [], parts: [], skippedRows: 0, cursors: undefined }
+      const c = counted(w, () => {
+        if (mode === 'error') return { ...empty, truncated: false, error: 'OpenCode: locked' }
+        if (mode === 'truncated') return { ...empty, truncated: true, cursors: (w as unknown as { cursors: unknown }).cursors }
+        return undefined
+      })
+      fx.message('msg_1', 'ses_a', T0 - 500, userMsg)
+      w.scanNow()               // error poll (database changed)
+      assert.equal(c.polls, 1)
+      mode = 'truncated'
+      w.scanNow()               // no change, but the last poll failed: poll again
+      assert.equal(c.polls, 2)
+      mode = 'real'
+      w.scanNow()               // no change, but the last poll was truncated: poll again
+      assert.equal(c.polls, 3)
+      w.scanNow()               // complete poll: now skipped
+      assert.equal(c.polls, 3)
+    })
+
+    it('forces a poll after 60 s on the injected clock, and the idle release keeps running while polls are skipped', () => {
+      const { fx, w, clock } = setup()
+      fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+      fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+      w.start()
+      const c = counted(w)
+      clock.t = T0 + 59_000
+      w.scanNow()
+      assert.equal(c.polls, 0)
+      clock.t = T0 + 60_000
+      w.scanNow()
+      assert.equal(c.polls, 1, 'forced')
+      // Ticks every 20 s: polls are mostly skipped, the session is still released once idle
+      let ticks = 0
+      while (w.isActive() && ticks < 100) { clock.t += 20_000; ticks++; w.scanNow() }
+      assert.equal(w.isActive(), false, 'idle session released')
+      assert.equal(ticks, 28)
+      assert.ok(c.polls < ticks, `most ticks skipped the poll (${c.polls} polls, ${ticks} ticks)`)
+    })
   })
 })

@@ -48,7 +48,7 @@ export interface TelemetryEvent {
   /** Comma-separated distinct model IDs observed during the session
    *  (e.g., `"claude-opus-4-7,gpt-5"`). session_end only. */
   models?: string
-  /** Which runtimes were being watched: `"claude"`, `"codex"`, `"copilot"`, `"pi"`, `"gemini"`, or a comma-separated combination.
+  /** Which runtimes were being watched: `"claude"`, `"codex"`, `"copilot"`, `"pi"`, `"gemini"`, `"opencode"`, or a comma-separated combination.
    *  session_end only. */
   runtimes?: string
 }
@@ -133,7 +133,7 @@ export function createTelemetryClient(opts: TelemetryClientOptions): TelemetryCl
       event_count: event.event_count ?? null,
       error_class: event.error_class ? sanitizeString(event.error_class, 64) : null,
       models: event.models ? sanitizeString(event.models, 128) : null,
-      runtimes: event.runtimes ? sanitizeString(event.runtimes, 32) : null,
+      runtimes: event.runtimes ? sanitizeString(event.runtimes, 64) : null,
     })
   }
 

@@ -7,6 +7,7 @@
  * empty cell), and a figure that is a lower bound or an estimate says so in words for assistive tech.
  */
 import { CHRONO_CAP_MS, ACTIVE_UNKNOWN_TEXT, type ActiveTimeFields } from './active-time'
+import { runtimeBadge } from './chrome-utils'
 import { isPseudoModel } from './model-provenance'
 import { ROLLUP_INCOMPLETE_TEXT, type RollupTotal } from './cost-rollup'
 import { USAGE_LABELS, formatTokenUsage, type UsageTotal } from './usage'
@@ -141,11 +142,11 @@ export function branchCell(branch: string | undefined): ColumnCell {
   return { text: branch, label: `branch ${branch}`, empty: false }
 }
 
-/** Runtime of the session (Claude Code or Codex); a dash when the source does not report it. */
+/** Runtime of the session, named like its badge (runtimeBadge); a dash when the source does not report it. */
 export function runtimeCell(runtime: SessionInfo['runtime']): ColumnCell {
-  if (!runtime) return emptyCell('runtime not reported')
-  const text = runtime === 'codex' ? 'Codex' : 'Claude'
-  return { text, label: `runtime ${runtime === 'codex' ? 'Codex' : 'Claude Code'}`, empty: false }
+  const badge = runtimeBadge(runtime)
+  if (!badge) return emptyCell('runtime not reported')
+  return { text: badge.label, label: `runtime ${badge.label}`, empty: false }
 }
 
 /** Time since the last activity; a dash when the source only knows the start. */

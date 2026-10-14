@@ -79,8 +79,8 @@ function makeDb(schema: 'full' | 'noPart' | 'noParentId' = 'full'): { file: stri
 }
 const sess = (id: string, t: number, archived?: number) =>
   `INSERT INTO session (id, parent_id, directory, title, time_created, time_updated, time_archived) VALUES ('${id}', NULL, '/w', 'T', 1, ${t}, ${archived ?? 'NULL'})`
-const msg = (id: string, t: number, data = '{"role":"user"}') => `INSERT INTO message VALUES ('${id}', 's1', 1, ${t}, '${data}')`
-const part = (id: string, t: number, data = '{"type":"text"}') => `INSERT INTO part VALUES ('${id}', 'm1', 's1', 1, ${t}, '${data}')`
+const msg = (id: string, t: number, data = '{"role":"user"}') => `INSERT INTO message VALUES ('${id}', 'ses_1', 1, ${t}, '${data}')`
+const part = (id: string, t: number, data = '{"type":"text"}') => `INSERT INTO part VALUES ('${id}', 'm1', 'ses_1', 1, ${t}, '${data}')`
 
 const COLS: Record<string, string[]> = {
   session: ['id', 'parent_id', 'directory', 'title', 'time_created', 'time_updated'],
@@ -133,7 +133,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('sends nothing but SELECT and PRAGMA table_info to the driver, which is opened read-only', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 1))
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 1))
     const sqls: string[] = []
     let opts: unknown
     const real = nodeSqliteOpener()!
@@ -156,15 +156,15 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('reads rows of the three tables and normalises the fields', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 100)); db.exec(msg('m1', 110)); db.exec(part('p1', 120))
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110)); db.exec(part('p1', 120))
     db.close()
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const poll = r.db.poll(EMPTY_OPENCODE_CURSORS)
     r.db.close()
-    assert.deepEqual(poll.sessions.map(s => [s.id, s.parent_id, s.directory, s.title, s.time_updated, s.time_archived]), [['s1', null, '/w', 'T', 100, null]])
-    assert.deepEqual(poll.messages.map(m => [m.id, m.session_id, m.data]), [['m1', 's1', '{"role":"user"}']])
-    assert.deepEqual(poll.parts.map(p => [p.id, p.message_id, p.session_id]), [['p1', 'm1', 's1']])
+    assert.deepEqual(poll.sessions.map(s => [s.id, s.parent_id, s.directory, s.title, s.time_updated, s.time_archived]), [['ses_1', null, '/w', 'T', 100, null]])
+    assert.deepEqual(poll.messages.map(m => [m.id, m.session_id, m.data]), [['m1', 'ses_1', '{"role":"user"}']])
+    assert.deepEqual(poll.parts.map(p => [p.id, p.message_id, p.session_id]), [['p1', 'm1', 'ses_1']])
     assert.equal(poll.skippedRows, 0)
     assert.equal(poll.truncated, false)
     assert.equal(poll.error, undefined)
@@ -176,7 +176,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     db.exec('CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER)')
     db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
     db.exec('CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
-    db.exec("INSERT INTO session VALUES ('s1', NULL, '/w', 'T', 1, 5)")
+    db.exec("INSERT INTO session VALUES ('ses_1', NULL, '/w', 'T', 1, 5)")
     db.close()
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -189,7 +189,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('polls on time_updated: an updated part is read again, an unchanged one is not', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 100)); db.exec(msg('m1', 110)); db.exec(part('p1', 120, '{"type":"tool","state":{"status":"running"}}'))
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110)); db.exec(part('p1', 120, '{"type":"tool","state":{"status":"running"}}'))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const first = r.db.poll(EMPTY_OPENCODE_CURSORS)
@@ -205,7 +205,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('does not duplicate or lose rows sharing the last timestamp', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 100)); db.exec(msg('m1', 100)); db.exec(part('p1', 200)); db.exec(part('p2', 200))
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 100)); db.exec(part('p1', 200)); db.exec(part('p2', 200))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const first = r.db.poll(EMPTY_OPENCODE_CURSORS)
@@ -219,7 +219,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('bounds a poll by the limit and keeps going from the cursor', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 1))
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 1))
     for (let i = 0; i < 5; i++) db.exec(part(`p${i}`, 10 + Math.floor(i / 2)))   // 10,10,11,11,12
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -254,8 +254,8 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('holds the part cursor back while messages are truncated', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1))
-    for (let i = 0; i < 3; i++) db.exec(`INSERT INTO message VALUES ('m${i}', 's1', 1, ${10 + i}, '{}')`)
+    db.exec(sess('ses_1', 1))
+    for (let i = 0; i < 3; i++) db.exec(`INSERT INTO message VALUES ('m${i}', 'ses_1', 1, ${10 + i}, '{}')`)
     db.exec(part('p1', 50))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -268,7 +268,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('does not deliver messages while sessions are truncated', () => {
     const { file, db } = makeDb()
-    for (let i = 0; i < 3; i++) db.exec(sess(`s${i}`, 10 + i))
+    for (let i = 0; i < 3; i++) db.exec(sess(`ses_${i}`, 10 + i))
     db.exec(msg('m1', 20))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -281,8 +281,8 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('is not blocked by rows with an unusable id at the cursor time', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 1))
-    for (let i = 0; i < 10; i++) db.exec(`INSERT INTO part VALUES (NULL, 'm1', 's1', 1, 50, '{}')`)
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 1))
+    for (let i = 0; i < 10; i++) db.exec(`INSERT INTO part VALUES (NULL, 'm1', 'ses_1', 1, 50, '{}')`)
     db.exec(part('good', 50))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -292,7 +292,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('treats a hostile cursor as the empty one and never puts it in the SQL', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 5))
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 1)); db.exec(part('p1', 5))
     const sqls: string[] = []
     const real = nodeSqliteOpener()!
     const r = openOpenCodeDb(file, (f, o) => {
@@ -315,7 +315,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('skips a session whose parent_id is present but unusable instead of calling it a root', () => {
     const { file, db } = makeDb()
-    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('s1', '${'p'.repeat(300)}', '/w', 'T', 1, 5)`)
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('ses_1', '${'p'.repeat(300)}', '/w', 'T', 1, 5)`)
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
@@ -326,7 +326,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('does not read a text column larger than its bound', () => {
     const { file, db } = makeDb()
-    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('s1', NULL, '/w', '${'t'.repeat(100000)}', 1, 5)`)
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('ses_1', NULL, '/w', '${'t'.repeat(100000)}', 1, 5)`)
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
@@ -336,8 +336,8 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('ignores ids with control characters', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 1))
-    db.exec(`INSERT INTO part VALUES ('a' || char(27) || 'b', 'm1', 's1', 1, 9, '{}')`)
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 1))
+    db.exec(`INSERT INTO part VALUES ('a' || char(27) || 'b', 'm1', 'ses_1', 1, 9, '{}')`)
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
@@ -348,10 +348,10 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('skips and counts rows with an unusable id or oversized data', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 100)); db.exec(msg('m1', 110))
-    db.exec(`INSERT INTO part VALUES ('big', 'm1', 's1', 1, 120, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
-    db.exec("INSERT INTO part VALUES ('nots', 'm1', 's1', 1, NULL, '{}')")
-    db.exec("INSERT INTO part VALUES (NULL, 'm1', 's1', 1, 122, '{}')")
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110))
+    db.exec(`INSERT INTO part VALUES ('big', 'm1', 'ses_1', 1, 120, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    db.exec("INSERT INTO part VALUES ('nots', 'm1', 'ses_1', 1, NULL, '{}')")
+    db.exec("INSERT INTO part VALUES (NULL, 'm1', 'ses_1', 1, 122, '{}')")
     db.exec(part('ok', 123))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
@@ -363,7 +363,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('exposes time_archived of a session', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 100, 99))
+    db.exec(sess('ses_1', 100, 99))
     const r = openOpenCodeDb(file)
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     assert.equal(r.db.poll(EMPTY_OPENCODE_CURSORS).sessions[0].time_archived, 99)
@@ -391,16 +391,16 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
 
   it('I1: an integer above 2^53 in time_updated or time_created skips the row, never fails the poll', () => {
     const { file, db } = makeDb()
-    db.exec(sess('ok', 100))
-    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('hugeUpd', NULL, '/w', 'T', 1, ${HUGE})`)
-    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('hugeCre', NULL, '/w', 'T', ${HUGE}, 101)`)
-    db.exec(`INSERT INTO message VALUES ('mh', 's1', ${HUGE}, 103, '{}')`)
+    db.exec(sess('ses_ok', 100))
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('ses_hugeUpd', NULL, '/w', 'T', 1, ${HUGE})`)
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('ses_hugeCre', NULL, '/w', 'T', ${HUGE}, 101)`)
+    db.exec(`INSERT INTO message VALUES ('mh', 'ses_1', ${HUGE}, 103, '{}')`)
     db.exec(msg('m1', 104))
     db.close()
     const odb = open(file)
     const p = odb.poll(EMPTY_OPENCODE_CURSORS)
     assert.equal(p.error, undefined)
-    assert.deepEqual(p.sessions.map(s => s.id), ['ok'])
+    assert.deepEqual(p.sessions.map(s => s.id), ['ses_ok'])
     assert.deepEqual(p.messages.map(m => m.id), ['m1'])
     assert.equal(p.skippedRows, 2)
     const again = odb.poll(p.cursors)
@@ -411,16 +411,16 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
   it('I2: a far-future time_updated does not move the cursor; a row within the margin is read once it settles', () => {
     const { file, db } = makeDb()
     let now = 1_000_000_000_000
-    db.exec(sess('past', now - 1000))
-    db.exec(sess('future', 9e15))
-    db.exec(sess('outside', now + 60_000))
+    db.exec(sess('ses_past', now - 1000))
+    db.exec(sess('ses_future', 9e15))
+    db.exec(sess('ses_outside', now + 60_000))
     const odb = open(file, () => now)
     const p = odb.poll(EMPTY_OPENCODE_CURSORS, 500)
-    assert.deepEqual(p.sessions.map(s => s.id), ['past'])
+    assert.deepEqual(p.sessions.map(s => s.id), ['ses_past'])
     assert.equal(p.cursors.session.time, now - 1000)
     now += 120_000
     const q = odb.poll(p.cursors, 500)
-    assert.deepEqual(q.sessions.map(s => s.id), ['outside'])
+    assert.deepEqual(q.sessions.map(s => s.id), ['ses_outside'])
     odb.close(); db.close()
   })
 
@@ -428,7 +428,7 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
     const { file, db } = makeDb()
     const big = 'x'.repeat(900 * 1024)
     const count = Math.ceil(OPENCODE_POLL_BYTES_MAX / (900 * 1024)) + 4
-    db.exec(sess('s1', 1))
+    db.exec(sess('ses_1', 1))
     for (let i = 0; i < count; i++) db.exec(msg(`m${String(i).padStart(3, '0')}`, 10 + i, big))
     const odb = open(file)
     let cursors: OpenCodeCursors = EMPTY_OPENCODE_CURSORS
@@ -451,10 +451,68 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
 
   it('I4: a single row larger than the budget still progresses', () => {
     const { file, db } = makeDb()
-    db.exec(sess('s1', 1)); db.exec(msg('m1', 10, 'x'.repeat(900 * 1024))); db.exec(msg('m2', 11))
+    db.exec(sess('ses_1', 1)); db.exec(msg('m1', 10, 'x'.repeat(900 * 1024))); db.exec(msg('m2', 11))
     const odb = open(file)
     const p = odb.poll(EMPTY_OPENCODE_CURSORS)
     assert.equal(p.messages.length >= 1, true)
+    odb.close(); db.close()
+  })
+
+  it('I-B: dataVersion changes when another connection writes, and never throws', () => {
+    const { file, db } = makeDb()
+    const odb = open(file)
+    const v1 = odb.dataVersion()
+    assert.equal(typeof v1, 'number')
+    assert.equal(odb.dataVersion(), v1)
+    db.exec(sess('ses_1', 100))
+    const v2 = odb.dataVersion()
+    assert.equal(typeof v2, 'number')
+    assert.notEqual(v2, v1)
+    odb.close(); db.close()
+    const failing = openOpenCodeDb(makeDb().file, fakeOpener(sql => { if (/data_version/i.test(sql)) throw new Error('boom'); return [] }))
+    assert.equal(failing.status, 'ok'); if (failing.status !== 'ok') return
+    assert.equal(failing.db.dataVersion(), undefined)
+  })
+
+  it('I-B: the guard accepts only SELECT, table_info and data_version', () => {
+    const sqls: string[] = []
+    const r = openOpenCodeDb(makeDb().file, fakeOpener(sql => { sqls.push(sql); return [] }))
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    r.db.dataVersion()
+    assert.ok(sqls.some(q => /^PRAGMA data_version$/i.test(q)))
+    const conn = (r.db as unknown as { conn: IndexConnection }).conn
+    for (const bad of ['PRAGMA journal_mode = WAL', 'PRAGMA data_version = 5', 'PRAGMA data_version; DROP TABLE part', 'PRAGMA user_version', 'DELETE FROM part']) {
+      assert.throws(() => conn.all(bad), /refused/, bad)
+    }
+  })
+
+  it('I-B: the row query sorts on the raw columns, not on the aliased expressions', () => {
+    const sqls: string[] = []
+    const r = openOpenCodeDb(makeDb().file, fakeOpener(sql => { sqls.push(sql); return [] }))
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    r.db.poll(EMPTY_OPENCODE_CURSORS)
+    const rowQueries = sqls.filter(q => /ORDER BY/i.test(q) && /CASE WHEN/i.test(q))
+    assert.ok(rowQueries.length >= 3)
+    for (const q of rowQueries) assert.match(q, /ORDER BY (part|message|session)\.time_updated ASC, \1\.id ASC/)
+  })
+
+  it('M5: a session id that is not ses_<base62> (a UUID of a live Claude session) makes the row unusable', () => {
+    const { file, db } = makeDb()
+    const UUID = '9c1d2e3f-0000-4000-8000-000000000001'
+    db.exec(sess('ses_ok', 100))
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('${UUID}', NULL, '/w', 'T', 1, 101)`)
+    db.exec(`INSERT INTO session (id, parent_id, directory, title, time_created, time_updated) VALUES ('ses_child', '${UUID}', '/w', 'T', 1, 102)`)
+    db.exec(`INSERT INTO message VALUES ('msg_1', '${UUID}', 1, 103, '{}')`)
+    db.exec(`INSERT INTO message VALUES ('msg_2', 'ses_ok', 1, 104, '{}')`)
+    db.exec(`INSERT INTO part VALUES ('prt_1', 'msg_2', '${UUID}', 1, 105, '{}')`)
+    db.exec(`INSERT INTO part VALUES ('prt_2', 'msg_2', 'ses_ok', 1, 106, '{}')`)
+    const odb = open(file)
+    const p = odb.poll(EMPTY_OPENCODE_CURSORS)
+    assert.equal(p.error, undefined)
+    assert.deepEqual(p.sessions.map(x => [x.id, x.parent_id]), [['ses_ok', null]])
+    assert.deepEqual(p.messages.map(x => x.id), ['msg_2'])
+    assert.deepEqual(p.parts.map(x => x.id), ['prt_2'])
+    assert.equal(p.skippedRows, 4)
     odb.close(); db.close()
   })
 })

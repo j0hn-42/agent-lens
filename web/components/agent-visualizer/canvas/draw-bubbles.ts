@@ -45,7 +45,7 @@ export function drawMessageBubblesWorld(
       const isThinking = role === 'thinking'
       const bgColor = isThinking ? SCENE.bubbleThinkingBase : role === 'user' ? SCENE.bubbleUserBase : SCENE.bubbleAssistantBase
       const textColor = isThinking ? SCENE.roleThinkingText : role === 'user' ? SCENE.roleUserText : SCENE.roleAssistantText
-      const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : agent.runtime === 'copilot' ? 'COPILOT' : agent.runtime === 'pi' ? 'PI' : agent.runtime === 'gemini' ? 'GEMINI' : 'CLAUDE'
+      const assistantLabel = agent.runtime === 'codex' ? 'CODEX' : agent.runtime === 'copilot' ? 'COPILOT' : agent.runtime === 'pi' ? 'PI' : agent.runtime === 'gemini' ? 'GEMINI' : agent.runtime === 'opencode' ? 'OPENCODE' : 'CLAUDE'
       const label = isThinking ? 'THINKING' : role === 'user' ? 'USER' : assistantLabel
 
       // Thinking bubbles: smaller font, tighter spacing, more translucent

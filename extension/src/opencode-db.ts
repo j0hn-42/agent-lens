@@ -152,7 +152,7 @@ export interface OpenCodePoll {
 
 // ─── Reader ────────────────────────────────────────────────────────────────
 
-const READ_ONLY_SQL = /^\s*(SELECT\b|PRAGMA\s+table_info\()/i
+const READ_ONLY_SQL = /^\s*(SELECT\b|PRAGMA\s+table_info\(|PRAGMA\s+data_version\s*$)/i
 
 function guarded(conn: IndexConnection): IndexConnection {
   return {
@@ -180,6 +180,17 @@ function timeOf(v: unknown): number | undefined {
 
 function idOf(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 && v.length <= ID_MAX && v.replace(CONTROL_ALL, '') === v ? v : undefined
+}
+
+/**
+ * A session id is `ses_` + base62 in OpenCode. Anything else is refused: events are stamped with the
+ * session id, and a hostile database could carry the UUID of a live Claude session to mix the streams.
+ */
+const SESSION_ID_RE = /^ses_[A-Za-z0-9_-]{1,120}$/
+
+function sessionIdOf(v: unknown): string | undefined {
+  const id = idOf(v)
+  return id !== undefined && SESSION_ID_RE.test(id) ? id : undefined
 }
 
 /** A value as an SQL string literal (an id read from the database, or a cursor key that was checked). */
@@ -233,6 +244,17 @@ export class OpenCodeDb {
     if (this.closed) return
     this.closed = true
     try { this.conn.close() } catch { /* already closed */ }
+  }
+
+  /**
+   * SQLite's data_version: it changes when another connection commits to the database. Lets the
+   * caller skip a poll while nothing was written. Undefined when it cannot be read; never throws.
+   */
+  dataVersion(): number | undefined {
+    try {
+      const v = Object.values(this.conn.all('PRAGMA data_version')[0] ?? {})[0]
+      return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+    } catch { return undefined }
   }
 
   /**
@@ -309,9 +331,10 @@ export class OpenCodeDb {
     const from = cursor.after !== undefined
       ? `(time_updated > ${t} OR (time_updated = ${t} AND id > CAST(X'${Buffer.from(cursor.after, 'utf8').toString('hex')}' AS TEXT)))`
       : `time_updated >= ${t}`
+    // ORDER BY names the table: the bounded `AS id` / `AS time_updated` aliases would otherwise sort the clipped values
     const where = `WHERE typeof(time_updated) = 'integer' AND time_updated > 0 AND time_updated <= ${upper} `
       + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND instr(id, char(0)) = 0 `
-      + `AND ${from} ORDER BY time_updated ASC, id ASC`
+      + `AND ${from} ORDER BY ${name}.time_updated ASC, ${name}.id ASC`
     const sqlLimit = limit + 1
     let rowLimit = sqlLimit
     let budgetHit = false
@@ -336,6 +359,7 @@ export class OpenCodeDb {
     let skipped = 0
     const fresh: { id: string; time: number; row: T | undefined }[] = []
     for (const r of raw) {
+      // The raw id keeps the row in the sequence; the row mappers refuse an id that is not usable
       const id = r && typeof r.id === 'string' ? r.id : undefined
       const time = r ? timeOf(r.time_updated) : undefined
       if (id === undefined || time === undefined) { skipped++; continue }
@@ -368,11 +392,11 @@ function sanitizeCursor(c: OpenCodeCursor | undefined): OpenCodeCursor {
 }
 
 function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefined {
-  const id = idOf(r.id)
+  const id = sessionIdOf(r.id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || created === undefined || updated === undefined) return undefined
-  const parent = r.parent_id === null || r.parent_id === undefined ? null : idOf(r.parent_id)
+  const parent = r.parent_id === null || r.parent_id === undefined ? null : sessionIdOf(r.parent_id)
   if (parent === undefined) return undefined
   return {
     id,
@@ -388,7 +412,7 @@ function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefin
 
 function rowToMessage(r: Record<string, unknown>): OpenCodeMessageRow | undefined {
   const id = idOf(r.id)
-  const sessionId = idOf(r.session_id)
+  const sessionId = sessionIdOf(r.session_id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || sessionId === undefined || created === undefined || updated === undefined || typeof r.data !== 'string') return undefined
@@ -398,7 +422,7 @@ function rowToMessage(r: Record<string, unknown>): OpenCodeMessageRow | undefine
 function rowToPart(r: Record<string, unknown>): OpenCodePartRow | undefined {
   const id = idOf(r.id)
   const messageId = idOf(r.message_id)
-  const sessionId = idOf(r.session_id)
+  const sessionId = sessionIdOf(r.session_id)
   const created = timeOf(r.time_created)
   const updated = timeOf(r.time_updated)
   if (id === undefined || messageId === undefined || sessionId === undefined || created === undefined || updated === undefined || typeof r.data !== 'string') return undefined

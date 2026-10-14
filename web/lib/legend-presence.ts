@@ -81,7 +81,7 @@ export function deriveLegendPresence(input: LegendPresenceInput): LegendPresence
     if (agent.state === 'complete') addFor('shape-complete', agent)
     if (agent.archived) addFor('team-archived', agent)
     if (isOrchestrator(agent)) addFor('orchestrator', agent)
-    addFor(agent.runtime === 'codex' ? 'rt-codex' : agent.runtime === 'copilot' ? 'rt-copilot' : agent.runtime === 'pi' ? 'rt-pi' : agent.runtime === 'gemini' ? 'rt-gemini' : 'rt-claude', agent)
+    addFor(agent.runtime === 'codex' ? 'rt-codex' : agent.runtime === 'copilot' ? 'rt-copilot' : agent.runtime === 'pi' ? 'rt-pi' : agent.runtime === 'gemini' ? 'rt-gemini' : agent.runtime === 'opencode' ? 'rt-opencode' : 'rt-claude', agent)
     if (agent.kind === 'teammate') {
       addFor('team-ring', agent)
       const activity = teammateActivity({ kind: agent.kind, activity: agent.activity, state: agent.state })

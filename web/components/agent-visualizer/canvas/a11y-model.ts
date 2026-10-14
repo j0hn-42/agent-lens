@@ -347,7 +347,7 @@ export function buildA11yModel(
       state: a.state,
       stateText: stale ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
-      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : 'Claude',
+      runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : a.runtime === 'opencode' ? 'OpenCode' : 'Claude',
       tokens: tokenSummary(a),
       cost: spokenCostUsage(agentCostUsage(a)),
       toolCalls: a.toolCalls,

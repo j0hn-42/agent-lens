@@ -37,7 +37,7 @@ export interface SessionInfo {
   /** True when no start is recorded and `startTime` is only when watching began: a duration from it is a lower bound */
   startTimeWatched?: boolean
   /** Agent runtime of the session, when the extension reports it */
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   /** Workspace name/path of the session, when known */
   workspace?: string
   /** Working directory of the session, when known */
@@ -203,7 +203,7 @@ export function isSessionInfo(v: unknown): v is SessionInfo {
     && (v.lastActivityUnknown === undefined || typeof v.lastActivityUnknown === 'boolean')
     && (v.recordedStartTime === undefined || (typeof v.recordedStartTime === 'number' && Number.isFinite(v.recordedStartTime)))
     && (v.startTimeWatched === undefined || typeof v.startTimeWatched === 'boolean')
-    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot' || v.runtime === 'pi' || v.runtime === 'gemini')
+    && (v.runtime === undefined || v.runtime === 'claude' || v.runtime === 'codex' || v.runtime === 'copilot' || v.runtime === 'pi' || v.runtime === 'gemini' || v.runtime === 'opencode')
     && (v.workspace === undefined || typeof v.workspace === 'string')
     && (v.cwd === undefined || typeof v.cwd === 'string')
     && (v.projectId === undefined || typeof v.projectId === 'string')

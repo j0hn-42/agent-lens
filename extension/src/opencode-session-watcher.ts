@@ -34,6 +34,8 @@ const log = createLogger('OpenCodeSessionWatcher')
 const OPENCODE_LABEL_PREFIX = 'OpenCode '
 /** Session rows remembered (id → row) to find the root of a message or a child. */
 const KNOWN_MAX = 5000
+/** A poll is forced at least this often even when the database reports no change. */
+const DATA_VERSION_RECHECK_MS = 60_000
 /** Scans chained with setImmediate before waiting for the next interval tick. */
 const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
@@ -84,6 +86,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Scan queued with setImmediate while the reader reports more rows waiting. */
   private pendingScan: NodeJS.Immediate | null = null
   private scanning = false
+  /** data_version seen before the last COMPLETE poll (no error, not truncated); undefined forces a poll. */
+  private lastDataVersion: number | undefined
+  private lastPollAt = 0
   /** Scans chained one after the other without an interval tick in between. */
   private chained = 0
   /** Workspace verdict per root id, valid while the root keeps the same directory. */
@@ -207,11 +212,20 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private pollDb(): boolean {
     const db = this.db
     if (!db) return false
+    // The full scans cost on a large database: skip them while no commit happened, except after a
+    // failed or partial poll and at least every DATA_VERSION_RECHECK_MS (a row dated in the future
+    // margin becomes readable without any write).
+    const version = db.dataVersion()
+    const now = this.now()
+    if (version !== undefined && version === this.lastDataVersion && now - this.lastPollAt < DATA_VERSION_RECHECK_MS) return false
+    this.lastDataVersion = undefined
+    this.lastPollAt = now
     const poll = db.poll(this.cursors)
     if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)
     this.setStatus(this.okText)
+    if (!poll.truncated) this.lastDataVersion = version
     return poll.truncated
   }
 
@@ -219,7 +233,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const rows = [...poll.sessions].sort((a, b) => a.time_created - b.time_created)
     for (const row of rows) this.remember(row)
     // Most recently updated first: when more roots compete than the cap allows, the newest win.
-    // A child met before its root is replayed when the root attaches.
+    // A child met while its root is not attached (never seen, or released) is replayed when the root attaches.
     for (const row of [...rows].sort((a, b) => b.time_updated - a.time_updated)) this.onSessionRow(row)
     for (const m of poll.messages) {
       const s = this.sessionFor(m.session_id)
@@ -268,7 +282,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       return
     }
     if (isArchived(row)) {
-      if (attached) this.release(rootId, attached)
+      if (attached) this.release(rootId, attached, 'archived')
       return
     }
     if (attached) {
@@ -350,14 +364,13 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.retired.delete(sessionId)
     this.sessions.set(sessionId, session)
 
-    if (!retired) {
-      this.processSession(session, row)
-      // Children already seen while the root was not attached
-      const children = [...this.known.values()]
-        .filter(r => r.id !== sessionId && this.rootOf(r.id) === sessionId)
-        .sort((a, b) => a.time_created - b.time_created)
-      for (const child of children) this.processSession(session, child)
-    }
+    // Also on a reattach: a child met while the root was released was dropped. Both calls are
+    // idempotent in the parser (the root spawns once, a known child is not spawned again).
+    this.processSession(session, row)
+    const children = [...this.known.values()]
+      .filter(r => r.id !== sessionId && this.rootOf(r.id) === sessionId)
+      .sort((a, b) => a.time_created - b.time_created)
+    for (const child of children) this.processSession(session, child)
 
     session.detected = true
     this._onSessionDetected.fire(sessionId)
@@ -387,8 +400,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     return { type, sessionId: s.sessionId, label: s.label, runtime: 'opencode', ...(s.cwd ? { cwd: s.cwd } : {}) }
   }
 
-  /** Stop following a session and keep its parser state for a later reattach. */
-  private release(id: string, s: WatchedOpenCodeSession): void {
+  /** Stop following a session and keep its parser state for a later reattach. Only an archived root
+   *  (proved by the database) fires `ended`: an idle release is a silence, never an end. */
+  private release(id: string, s: WatchedOpenCodeSession, reason: 'idle' | 'archived'): void {
     this.sessions.delete(id)
     this.retired.delete(id)
     this.retired.set(id, { state: s.state, parser: s.parser, sessionStartTime: s.sessionStartTime, label: s.label })
@@ -396,7 +410,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       const oldest = this.retired.keys().next().value
       if (oldest !== undefined) this.retired.delete(oldest)
     }
-    if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
+    if (reason === 'archived' && s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
   }
 
   /** Release sessions silent for more than ACTIVE_SESSION_AGE_S. New rows reattach them. */
@@ -404,7 +418,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const now = this.now()
     for (const [id, s] of this.sessions) {
       if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
-      this.release(id, s)
+      this.release(id, s, 'idle')
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
   }

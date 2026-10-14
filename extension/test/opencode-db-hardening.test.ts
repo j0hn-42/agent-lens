@@ -24,8 +24,8 @@ function makeDb(): { file: string; db: Db } {
   db.exec('CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)')
   db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
-  db.exec("INSERT INTO session (id, time_created, time_updated) VALUES ('s1', 1, 1)")
-  db.exec("INSERT INTO message VALUES ('m1', 's1', 1, 1, '{}')")
+  db.exec("INSERT INTO session (id, time_created, time_updated) VALUES ('ses_1', 1, 1)")
+  db.exec("INSERT INTO message VALUES ('m1', 'ses_1', 1, 1, '{}')")
   return { file, db }
 }
 const open = (file: string, clock?: () => number): OpenCodeDb => {
@@ -34,7 +34,7 @@ const open = (file: string, clock?: () => number): OpenCodeDb => {
   if (r.status !== 'ok') throw new Error('unreachable')
   return r.db
 }
-const part = (id: string, t: number, data = '{}') => `INSERT INTO part VALUES ('${id}', 'm1', 's1', 1, ${t}, '${data}')`
+const part = (id: string, t: number, data = '{}') => `INSERT INTO part VALUES ('${id}', 'm1', 'ses_1', 1, ${t}, '${data}')`
 
 /** Drain the parts table with a small limit; returns the ids delivered, in order. */
 function drain(db: OpenCodeDb, limit: number, startAt: OpenCodeCursors = EMPTY_OPENCODE_CURSORS, maxPolls = 50): string[] {
@@ -52,7 +52,7 @@ function drain(db: OpenCodeDb, limit: number, startAt: OpenCodeCursors = EMPTY_O
 describe('opencode-db hardening', { skip: !hasSqlite }, () => {
   it('is not stalled by ids with control characters (the cursor moves past them)', () => {
     const { file, db } = makeDb()
-    for (let i = 0; i < 20; i++) db.exec(`INSERT INTO part VALUES ('a' || char(10) || '${i}', 'm1', 's1', 1, 5, '{}')`)
+    for (let i = 0; i < 20; i++) db.exec(`INSERT INTO part VALUES ('a' || char(10) || '${i}', 'm1', 'ses_1', 1, 5, '{}')`)
     db.exec(part('zgood', 5)); db.exec(part('later', 9))
     const r = open(file)
     assert.deepEqual(drain(r, 5), ['zgood', 'later'])
@@ -61,8 +61,8 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
 
   it('reports truncated when invalid rows used up the SQL limit', () => {
     const { file, db } = makeDb()
-    db.exec("INSERT INTO message VALUES ('m_bad' || char(7), 's1', 1, 2, '{}')")
-    for (let i = 1; i <= 6; i++) db.exec(`INSERT INTO message VALUES ('m${i + 1}', 's1', 1, ${2 + i}, '{}')`)
+    db.exec("INSERT INTO message VALUES ('m_bad' || char(7), 'ses_1', 1, 2, '{}')")
+    for (let i = 1; i <= 6; i++) db.exec(`INSERT INTO message VALUES ('m${i + 1}', 'ses_1', 1, ${2 + i}, '{}')`)
     const r = open(file)
     const p = r.poll(EMPTY_OPENCODE_CURSORS, 5)
     assert.equal(p.truncated, true)
@@ -100,7 +100,7 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
   it('makes progress through more rows than it remembers at the same millisecond', () => {
     const { file, db } = makeDb()
     db.exec('BEGIN')
-    for (let i = 0; i < 5200; i++) db.exec(`INSERT INTO part VALUES ('p' || printf('%05d', ${i}), 'm1', 's1', 1, 100, '{}')`)
+    for (let i = 0; i < 5200; i++) db.exec(`INSERT INTO part VALUES ('p' || printf('%05d', ${i}), 'm1', 'ses_1', 1, 100, '{}')`)
     db.exec('COMMIT')
     db.exec(part('zlater', 200))
     const r = open(file)
@@ -130,7 +130,7 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
   it('walks 8000 rows of one millisecond with a small limit: each once, the later row reached', () => {
     const { file, db } = makeDb()
     db.exec('BEGIN')
-    for (let i = 0; i < 8000; i++) db.exec(`INSERT INTO part VALUES ('p' || printf('%05d', ${i}), 'm1', 's1', 1, 100, '{}')`)
+    for (let i = 0; i < 8000; i++) db.exec(`INSERT INTO part VALUES ('p' || printf('%05d', ${i}), 'm1', 'ses_1', 1, 100, '{}')`)
     db.exec('COMMIT')
     db.exec(part('zlater', 200))
     const r = open(file)
