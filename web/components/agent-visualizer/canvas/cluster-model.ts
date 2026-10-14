@@ -15,7 +15,8 @@ import { groupByPhase } from '../../../lib/phase-groups'
 import { findTeam, teamOfAgent, teamHaloStatus } from '../../../hooks/simulation/team-key'
 import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import {
-  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator,
+  cleanText, isAgentVisible, agentDrawRadius, safeTeamColor, TEAM_DEFAULT_COLOR, isOrchestrator, ellipsize,
+  type MeasureText,
 } from './team-style'
 import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 
@@ -324,6 +325,28 @@ export function clusterLabelLines(c: Pick<Cluster, 'kind' | 'teamKind' | 'title'
   const n = c.memberIds.length
   const detail = [c.runtime, c.projectName, c.workspace, c.statusText, c.costText].filter(Boolean).join(' · ')
   return { title: `${clusterNoun(c)} ${c.title} (${n})`, detail }
+}
+
+/**
+ * Cluster label lines cut to the room of their chip (#378). The title keeps its " (n)" member count and
+ * loses the end of the name instead ("Session payments-api · ref… (4)"), so a cut never leaves an
+ * orphan parenthesis; the detail line ends with an ellipsis instead of being clipped mid-character.
+ */
+export function fitClusterLabelLines(
+  lines: { title: string; detail: string }, titleWidth: number, detailWidth: number, measure: MeasureText,
+): { title: string; detail: string } {
+  let title = lines.title
+  if (measure(title) > titleWidth) {
+    const m = / \(\d+\)$/.exec(title)
+    const suffix = m ? m[0] : ''
+    const head = suffix ? title.slice(0, -suffix.length) : title
+    const room = titleWidth - measure(suffix)
+    title = suffix && room >= measure('x…')
+      ? ellipsize(head, room, measure) + suffix
+      : ellipsize(title, titleWidth, measure)
+  }
+  const detail = measure(lines.detail) > detailWidth ? ellipsize(lines.detail, detailWidth, measure) : lines.detail
+  return { title, detail }
 }
 
 /** Sentence read by assistive technology for a cluster heading. */
