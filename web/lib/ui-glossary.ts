@@ -148,6 +148,33 @@ export const WHY_LABELS = {
   },
 } as const
 
+// --- Words that had two meanings (#372) -------------------------------------------------------------
+
+/** The model's token window and its gauge. Never "Context" alone: that word names the project panel. */
+export const CONTEXT_WINDOW_NAME = 'Context window'
+
+/** What a panel holds, said after its name where a tooltip or the shortcuts table explains it. */
+export const PANEL_SUMMARIES = {
+  context: 'project CLAUDE.md, memory, issues',
+} as const
+
+/** The control-bar slider. Never "Timeline": that word names the panel opened by T. */
+export const PLAYBACK_LABELS = {
+  position: 'Playback position',
+} as const
+
+/** The list opened by L (top bar, Shortcuts dialog, command palette). */
+export const SESSIONS_LIST_NAME = 'Sessions and agents'
+
+/** Session list controls. A session row's button only hides it: the next event or a reconnect lists it again. */
+export const SESSION_LIST_LABELS = {
+  activeOnly: 'Active only',
+  activeOnlyHelp: 'List only the sessions heard from whose end was not observed (the selected one stays). Hides the ones whose end was observed and the ones never heard from. No time limit, unlike the 10-minute window of the All view.',
+  hide: 'Hide session (reappears on new activity or after a reconnect)',
+  hideNamed: (label: string) => `Hide session ${label} until its next activity`,
+  hidden: (label: string) => `Session hidden: ${label}`,
+} as const
+
 /** Suffix of a timeline label whose call expired. */
 export const EXPIRED_LABEL_SUFFIX = `(expired, ${END_NOT_OBSERVED})`
 

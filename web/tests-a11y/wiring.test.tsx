@@ -32,7 +32,7 @@ function reviewBar(over: Partial<React.ComponentProps<typeof ControlBar>> = {}) 
 test('review scrubber: arrow, Home and End keys call onSeek through the real handler', () => {
   const seeks: number[] = []
   const { getByRole } = reviewBar({ onSeek: t => seeks.push(t) })
-  const slider = getByRole('slider', { name: 'Timeline position' })
+  const slider = getByRole('slider', { name: 'Playback position' })
   assert.equal(slider.tabIndex, 0, 'scrubber is focusable')
   fireEvent.keyDown(slider, { key: 'ArrowRight' })
   fireEvent.keyDown(slider, { key: 'ArrowLeft' })

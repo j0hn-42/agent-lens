@@ -1,4 +1,4 @@
-import { PANEL_NAMES } from './ui-glossary'
+import { PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME } from './ui-glossary'
 
 /**
  * Single source of truth for the keyboard shortcuts shown in the help dialog.
@@ -27,11 +27,11 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   { key: '3', display: '3', description: 'Speed 2x', group: 'Playback', singleKey: true },
   { key: '4', display: '4', description: 'Speed 4x', group: 'Playback', singleKey: true },
   { key: 'm', display: 'M', description: 'Mute / unmute audio', group: 'Playback', singleKey: true },
-  { key: 'l', display: 'L', description: 'Toggle Sessions and agents list', group: 'Panels', singleKey: true },
+  { key: 'l', display: 'L', description: `Toggle ${SESSIONS_LIST_NAME} list`, group: 'Panels', singleKey: true },
   { key: 'f', display: 'F', description: `Toggle ${PANEL_NAMES.files} panel`, group: 'Panels', singleKey: true },
   { key: 'c', display: 'C', description: `Toggle ${PANEL_NAMES.conversation} panel`, group: 'Panels', singleKey: true },
   { key: 't', display: 'T', description: `Toggle ${PANEL_NAMES.timeline} panel`, group: 'Panels', singleKey: true },
-  { key: 'p', display: 'P', description: `Toggle ${PANEL_NAMES.context} panel (project CLAUDE.md, memory, issues)`, group: 'Panels', singleKey: true },
+  { key: 'p', display: 'P', description: `Toggle ${PANEL_NAMES.context} panel (${PANEL_SUMMARIES.context})`, group: 'Panels', singleKey: true },
   { key: 's', display: 'S', description: `Toggle ${PANEL_NAMES.stats} panel`, group: 'Panels', singleKey: true },
   { key: 'y', display: 'Y', description: `Toggle ${PANEL_NAMES.system} panel (CPU, memory, disk)`, group: 'Panels', singleKey: true },
   { key: '$', display: '$', description: `Toggle ${PANEL_NAMES.cost} overlay`, group: 'Panels', singleKey: true },

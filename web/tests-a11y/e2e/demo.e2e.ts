@@ -88,7 +88,7 @@ describe('demo mode: axe-core, serious and critical only', () => {
     const { page, close } = await open()
     try {
       await page.getByRole('button', { name: 'Pause and review history' }).click()
-      await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
+      await page.getByRole('slider', { name: 'Playback position' }).waitFor()
       expectClean('e2e:review-mode', await axeFailures(page, 'e2e:review-mode'))
     } finally { await close() }
   })
@@ -213,7 +213,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         const f: Findings = { rules: new Set(), details: [] }
         record(f, width, 'initial', await page.evaluate<Measure>(MEASURE))
         await page.getByRole('button', { name: 'Pause and review history' }).click()
-        await page.getByRole('slider', { name: 'Timeline position' }).waitFor()
+        await page.getByRole('slider', { name: 'Playback position' }).waitFor()
         await waitForStableLayout(page)
         record(f, width, 'review mode', await page.evaluate<Measure>(MEASURE))
         for (const [label, re] of [['files panel', /^Files/], ['conversation panel', /^Conversation/]] as const) {
@@ -412,7 +412,7 @@ describe('demo mode: keyboard', () => {
         return !!count && Number(count[1]) >= 8
       }, undefined, { timeout: 30000 })
       await page.getByRole('button', { name: 'Pause and review history' }).click()
-      const slider = page.getByRole('slider', { name: 'Timeline position' })
+      const slider = page.getByRole('slider', { name: 'Playback position' })
       await slider.focus()
       const value = async () => Number(await slider.getAttribute('aria-valuenow'))
       const max = Number(await slider.getAttribute('aria-valuemax'))

@@ -7,6 +7,7 @@
 import type { TourStep } from './guided-steps'
 import { LEGEND_ENTRIES, type LegendEntryId, type LegendSectionId } from './legend-entries'
 import type { LegendPresence } from './legend-presence'
+import { CONTEXT_WINDOW_NAME } from './ui-glossary'
 import { cleanText } from '../components/agent-visualizer/canvas/team-style'
 
 /** One sentence per legend entry. It describes the symbol, never the session: the facts come from the presence. */
@@ -82,7 +83,7 @@ const GROUPS: readonly Group[] = [
   { id: 'teams', title: 'Agent teams', entries: ['team-ring', 'team-working', 'team-idle', 'team-done', 'team-halo', 'team-row'] },
   { id: 'sessions', title: 'Sessions', entries: ['session-halo'] },
   { id: 'links', title: 'Links between agents', entries: ['link-flight', 'link-recent', 'link-error', 'link-quiet', 'link-bubble'] },
-  { id: 'context', title: 'Context usage', entries: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'] },
+  { id: 'context', title: CONTEXT_WINDOW_NAME, entries: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'] },
   { id: 'discoveries', title: 'Discoveries', entries: ['shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },
 ]
 

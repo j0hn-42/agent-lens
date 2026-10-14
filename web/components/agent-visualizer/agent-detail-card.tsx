@@ -16,7 +16,7 @@ import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type 
 import { LaunchDialog } from './launch-dialog'
 import { useLocale, useT } from '@/lib/locale'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
-import { groupHeading } from '@/lib/ui-glossary'
+import { CONTEXT_WINDOW_NAME, groupHeading } from '@/lib/ui-glossary'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
@@ -200,7 +200,7 @@ export function AgentDetailCard({
         {/* Context bar */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
-            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>Context window</span>
+            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{CONTEXT_WINDOW_NAME}</span>
             <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
               {formatTokenUsage(usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{agent.tokenStatus === 'unavailable' ? (agent.tokensMaxAssumed ? ' (assumed window)' : '') : ` (${agent.tokenStatus === 'partial' ? '≥ ' : ''}${contextPercent}%${agent.tokensMaxAssumed ? ' of an assumed window' : ''})`}
             </span>
