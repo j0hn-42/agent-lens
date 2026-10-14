@@ -30,12 +30,33 @@ interface SelectionOverlaysProps {
   selectedLinkId: string | null
   onCloseLink: () => void
   onEscapeFromCard: () => void
-  contextMenuItems: ComponentProps<typeof GlassContextMenu>['items']
+  menuActions: ContextMenuActions
+}
+
+interface ContextMenuActions {
+  toggleStats: () => void
+  zoomToFit: () => void
+  toggleGrid: () => void
+  clearHistory: () => void
+  /** Only offered on a real session */
+  reloadSessionEvents: (() => void) | null
+}
+
+function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
+  if (onAgent) return [{ label: '📊  Toggle Stats', onClick: a.toggleStats }]
+  return [
+    { label: '🔍  Zoom to Fit', onClick: a.zoomToFit },
+    { label: '📊  Toggle Stats', onClick: a.toggleStats },
+    { label: '⬡  Toggle Grid', onClick: a.toggleGrid },
+    { label: '', onClick: () => {}, separator: true },
+    { label: '⟲  Clear history', onClick: a.clearHistory },
+    ...(a.reloadSessionEvents ? [{ label: '↻  Reload session events', onClick: a.reloadSessionEvents }] : []),
+  ]
 }
 
 /** What opens over the canvas after a click: the agent card, the tool and discovery popups, the link panel, the context menu */
 export function SelectionOverlays({
-  selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, contextMenuItems,
+  selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
 }: SelectionOverlaysProps) {
   const { selectedAgent, selectedGone, goneName, delegation, toolWhy } = inspector
   return (
@@ -106,7 +127,7 @@ export function SelectionOverlays({
       {selection.contextMenu && (
         <GlassContextMenu
           position={selection.contextMenu}
-          items={contextMenuItems}
+          items={contextMenuItems(Boolean(selection.contextMenu.agentId), menuActions)}
           onClose={() => selection.setContextMenu(null)}
         />
       )}
