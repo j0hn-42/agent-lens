@@ -142,24 +142,31 @@ export function scrubberValueText(current: number, total: number): string {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
-/** "5 agents: 2 active - 3 done"; agents whose status is no longer proven are counted apart ("- 4 last known state"). */
-export function formatAgentCounts(active: number, done: number, stale = 0): string {
+/**
+ * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
+ * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
+ */
+export function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const staleText = stale > 0 ? ` - ${stale} last known state` : ''
-  return `${pluralize(active + done + stale, 'agent')}: ${active} active${staleText} - ${done} done`
+  const idleText = idle > 0 ? ` - ${idle} idle` : ''
+  const errorText = error > 0 ? ` - ${error} error` : ''
+  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
 }
 
-/** Splits agents into done, stale (status older than the freshness limit: only a last known state) and active. */
+/** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */
 export function agentActivityCounts(
   agents: Iterable<{ state: string; lastEventAt?: number }>,
   now: number,
-): { active: number; done: number; stale: number } {
-  let active = 0, done = 0, stale = 0
+): { active: number; done: number; stale: number; idle: number; error: number } {
+  let active = 0, done = 0, stale = 0, idle = 0, error = 0
   for (const a of agents) {
     if (a.state === 'complete') done++
     else if (deriveFreshness(a, now) === 'stale') stale++
+    else if (a.state === 'idle') idle++
+    else if (a.state === 'error') error++
     else active++
   }
-  return { active, done, stale }
+  return { active, done, stale, idle, error }
 }
 
 /** "3 sessions - 12 agents - $1.23" (summary shown in the top bar while the 'All' tab is selected) */

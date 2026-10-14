@@ -39,6 +39,7 @@ test('connection badge: DEMO never shows as LIVE, connecting is distinct', () =>
   assert.equal(connectionDisplay('watching', true).label, 'DEMO')
   assert.equal(connectionDisplay('watching', false).label, 'LIVE')
   assert.equal(connectionDisplay('connected', false).label, 'CONNECTED')
+  assert.equal(connectionDisplay('connected', false).label, liveBadge('connected', false).label)
   assert.equal(connectionDisplay('connecting', false).label, 'CONNECTING')
   assert.equal(connectionDisplay('disconnected', false).label, 'OFFLINE')
 })
@@ -123,14 +124,14 @@ test('agent counts: an agent whose status is older than the freshness limit is n
     { state: 'idle', lastEventAt: old },
     { state: 'complete', lastEventAt: old },
   ]
-  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2 })
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 2, idle: 0, error: 0 })
   assert.equal(formatAgentCounts(1, 1, 2), '4 agents: 1 active - 2 last known state - 1 done')
   assert.equal(formatAgentCounts(0, 0, 9), '9 agents: 0 active - 9 last known state - 0 done')
 })
 
 test('agent counts: without stale agents the text is unchanged; agents never heard from stay counted as before', () => {
   assert.equal(formatAgentCounts(2, 3, 0), '5 agents: 2 active - 3 done')
-  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 1, done: 1, stale: 0 })
+  assert.deepEqual(agentActivityCounts([{ state: 'idle' }, { state: 'complete' }], 5), { active: 0, done: 1, stale: 0, idle: 1, error: 0 })
 })
 
 test('empty-state checklist states the scope the relay really scans (#291)', () => {
@@ -152,4 +153,17 @@ test('the playback badge uses the same word as the top bar and only pulses while
   }
   assert.equal(liveBadge('connected', false).live, false)
   assert.equal(liveBadge('watching', false).live, true)
+})
+
+test('agent counts: idle and error agents are not counted as active (#367)', () => {
+  const now = 1_000_000
+  const agents = [
+    { state: 'thinking', lastEventAt: now },
+    { state: 'idle', lastEventAt: now },
+    { state: 'error', lastEventAt: now },
+    { state: 'complete', lastEventAt: now },
+  ]
+  assert.deepEqual(agentActivityCounts(agents, now), { active: 1, done: 1, stale: 0, idle: 1, error: 1 })
+  assert.equal(formatAgentCounts(1, 1, 0, 1, 1), '4 agents: 1 active - 1 idle - 1 error - 1 done')
+  assert.equal(formatAgentCounts(2, 3), '5 agents: 2 active - 3 done')
 })
