@@ -33,13 +33,14 @@ test('Space on a focused button never triggers the global play/pause shortcut', 
   assert.equal(shouldHandleShortcut(keyEvent(' ', document.body), true), true)
 })
 
-test('single-key shortcuts are ignored in text fields, dialogs and tabs', () => {
+test('single-key shortcuts are ignored in text fields and dialogs, but work from a tab or button (#376)', () => {
   for (const html of ['<input />', '<textarea></textarea>', '<div role="dialog"><span>x</span></div>', '<div contenteditable="true"></div>']) {
     const target = el(html)
     const inner = target.firstElementChild ?? target
     assert.equal(shouldHandleShortcut(keyEvent('f', inner), true), false, html)
   }
-  assert.equal(shouldHandleShortcut(keyEvent('f', el('<button role="tab">t</button>')), true), false)
+  assert.equal(shouldHandleShortcut(keyEvent('f', el('<button role="tab">t</button>')), true), true)
+  assert.equal(shouldHandleShortcut(keyEvent('Enter', el('<button role="tab">t</button>')), true), false)
 })
 
 test('Escape still closes panels from buttons but not from text fields or dialogs', () => {
