@@ -77,6 +77,22 @@ test('planOverlays: bubbles under a card fold into their count chip when the chi
   }
 })
 
+test('planOverlays: a halo label, drawn above the cards, is not moved by a card under it (#378)', () => {
+  const agents = map(agent({ id: 's1:main' }), agent({ id: 's1:sub', isMain: false, parentId: 's1:main', parentKey: 's1:main', x: 380, y: 320 }))
+  const before = planOverlays(input(agents))
+  const key = [...before.plan.keys()].find(k => k.startsWith('cluster:'))
+  assert.ok(key, 'precondition: a halo label is planned')
+  const free = before.plan.get(key)!
+  const card = cardOn(free.rect!)
+  const after = planOverlays(input(agents, { toolCards: [card] }))
+  const p = after.plan.get(key)!
+  assert.equal(p.dx, free.dx)
+  assert.equal(p.dy, free.dy)
+  assert.deepEqual(p.rect, free.rect)
+  const clusterKey = key.slice('cluster:'.length)
+  assert.deepEqual(after.hits.clusterLabels.get(clusterKey), before.hits.clusterLabels.get(clusterKey), 'the click area stays put')
+})
+
 test('planOverlays: without tool cards the plan is unchanged (#378)', () => {
   const agents = map(agent({ messageBubbles: [{ text: 'hi', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 60 }] }))
   const a = planOverlays(input(agents)).plan

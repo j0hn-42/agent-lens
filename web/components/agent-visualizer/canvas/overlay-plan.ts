@@ -215,6 +215,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       priority: overlayPriority(PRIORITY.clusterLabel, { selected: priorityClusters.has(c.key) }),
       rect,
       essential: true,
+      // Drawn in screen space after the tool cards: a card under it never covers it, so it does not move it (#378)
+      aboveHard: true,
     })
   }
 
