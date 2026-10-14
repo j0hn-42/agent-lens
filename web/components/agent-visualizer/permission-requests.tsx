@@ -98,7 +98,7 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
       lang={locale}
       data-permission-requests=""
       className="absolute right-3 flex flex-col gap-2 max-h-[60vh] overflow-y-auto pointer-events-none"
-      style={{ zIndex: Z.sidePanel, top: 'var(--topbar-h, 3.75rem)', width: 'min(28rem, calc(100% - 1.5rem))' }}
+      style={{ zIndex: Z.controlBar + 6, top: 'var(--topbar-h, 3.75rem)', width: 'min(28rem, calc(100% - 1.5rem))' }}
     >
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
         <h2
