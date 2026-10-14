@@ -42,6 +42,8 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
   const fieldId = useId()
   const helpId = useId()
   const errorId = useId()
+  const introId = useId()
+  const backdropRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const fieldRef = useRef<HTMLTextAreaElement>(null)
   const onCancelRef = useRef(onCancel)
@@ -50,6 +52,8 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
   fallbackRef.current = focusFallback
   const [text, setText] = useState('')
   const [invalid, setInvalid] = useState(false)
+  /** Counts refused sends: the error is a new node each time, so the same text is announced again */
+  const [attempt, setAttempt] = useState(0)
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => { setMounted(true) }, [])
@@ -73,7 +77,10 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
   // Native listeners: the dialog container is not an interactive element (jsx-a11y)
   useEffect(() => {
     const dialog = dialogRef.current
-    if (!mounted || !dialog) return
+    const backdrop = backdropRef.current
+    if (!mounted || !dialog || !backdrop) return
+    // A press on the backdrop does not close (the text would be lost) and must not move the focus out of the modal
+    const onBackdropMouseDown = (e: MouseEvent) => { if (e.target === e.currentTarget) e.preventDefault() }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -91,13 +98,18 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
       else if (!e.shiftKey && current === last) { e.preventDefault(); first.focus() }
     }
     dialog.addEventListener('keydown', onKeyDown)
-    return () => dialog.removeEventListener('keydown', onKeyDown)
+    backdrop.addEventListener('mousedown', onBackdropMouseDown)
+    return () => {
+      dialog.removeEventListener('keydown', onKeyDown)
+      backdrop.removeEventListener('mousedown', onBackdropMouseDown)
+    }
   }, [mounted])
 
   const send = () => {
     const message = redirectMessage(text)
     if (!message) {
       setInvalid(true)
+      setAttempt(n => n + 1)
       fieldRef.current?.focus({ preventScroll: true })
       return
     }
@@ -109,6 +121,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
   const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`
   const content = (
     <div
+      ref={backdropRef}
       {...stopPropagationHandlers}
       {...{ [INSPECTOR_KEEP_ATTR]: '' }}
       className="fixed inset-0 flex items-center justify-center p-3"
@@ -119,6 +132,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={introId}
         lang={locale}
         tabIndex={-1}
         className="max-h-[calc(100vh-24px)] w-[480px] max-w-[calc(100vw-24px)] overflow-y-auto outline-none"
@@ -128,7 +142,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
             <h2 id={titleId} className="m-0 text-xs font-semibold break-all">
               {t('permission.redirect.title', { tool: r.toolName, session })}
             </h2>
-            <p className="m-0" style={{ color: COLORS.textMuted }}>{t('permission.redirect.intro')}</p>
+            <p id={introId} className="m-0" style={{ color: COLORS.textMuted }}>{t('permission.redirect.intro')}</p>
             <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-2" style={{ color: COLORS.textMuted }}>
               <dt>{t('permission.session')}</dt>
               <dd className="m-0 break-all">{r.sessionId}</dd>
@@ -170,7 +184,7 @@ export function RedirectDialog({ request: r, session, onSend, onCancel, focusFal
               {t('permission.redirect.help', { max: REDIRECT_MESSAGE_MAX })}
             </p>
             <p id={errorId} aria-live="polite" className="m-0" style={{ color: COLORS.error }}>
-              {invalid ? t('permission.redirect.required') : ''}
+              {invalid && <span key={attempt}>{t('permission.redirect.required')}</span>}
             </p>
             <div className="flex justify-end gap-2">
               <button
