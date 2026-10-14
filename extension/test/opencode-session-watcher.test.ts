@@ -225,7 +225,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     it('200 messages of one out-of-workspace root cost exactly one realpath', () => {
       const { fx, w } = setup('/w')
       fx.session('ses_x', { dir: '/other-ws', created: T0 - 5000, updated: T0 - 1000 })
-      for (let i = 0; i < 200; i++) fx.message(`msg_${i}`, 'ses_x', T0 - 900, userMsg)
+      fx.batch(() => { for (let i = 0; i < 200; i++) fx.message(`msg_${i}`, 'ses_x', T0 - 900, userMsg) })
       const spy = mock.method(fs, 'realpathSync')
       try {
         w.start()
@@ -268,7 +268,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const MESSAGES = 1200
     const seed = (fx: OpenCodeFixture) => {
       fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
-      for (let i = 0; i < MESSAGES; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900 + i, userMsg)
+      fx.batch(() => { for (let i = 0; i < MESSAGES; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900 + i, userMsg) })
     }
     const tick = () => new Promise<void>(r => setImmediate(r))
 
@@ -320,7 +320,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
   it('N1: rows sharing one millisecond cannot keep the scan chain spinning', async () => {
     const { fx, w } = setup()
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
-    for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg)
+    fx.batch(() => { for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg) })
     w.start()
     const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
     const real = internal.db.poll.bind(internal.db)

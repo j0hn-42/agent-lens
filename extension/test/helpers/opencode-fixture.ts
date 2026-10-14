@@ -34,5 +34,11 @@ export class OpenCodeFixture {
   part(id: string, messageId: string, sessionId: string, created: number, updated: number, data: object): void {
     this.db.exec(`INSERT OR REPLACE INTO part VALUES (${q(id)}, ${q(messageId)}, ${q(sessionId)}, ${created}, ${updated}, ${q(JSON.stringify(data))})`)
   }
+  /** Runs `fn` inside one transaction: thousands of inserts without one fsync each. */
+  batch(fn: () => void): void {
+    this.db.exec('BEGIN')
+    try { fn() } catch (e) { this.db.exec('ROLLBACK'); throw e }
+    this.db.exec('COMMIT')
+  }
   close(): void { this.db.close() }
 }
