@@ -81,7 +81,7 @@ const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, className = '' }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -102,6 +102,8 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   keepsInspector?: boolean
   /** id of an element describing the button (read after its name) */
   describedBy?: string
+  /** Extra classes (layout only) */
+  className?: string
 }) {
   return (
     <button
@@ -116,7 +118,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       title={title}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
-      className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+      className={`shrink-0 min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center whitespace-nowrap text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING} ${className}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -152,10 +154,10 @@ function ConnectionIndicator({ status, isDemo, detail, onRetry, onExitDemo }: {
   // The buttons disappear once used (state changes): hand focus to the label so it is not lost on <body> (2.4.3)
   const labelRef = useRef<HTMLSpanElement>(null)
   const then = (fn?: () => void) => () => { labelRef.current?.focus({ preventScroll: true }); fn?.() }
-  const buttonClass = `min-h-6 min-w-6 px-2 rounded text-xs font-semibold ${FOCUS_RING}`
+  const buttonClass = `shrink-0 min-h-6 min-w-6 px-2 rounded text-xs font-semibold ${FOCUS_RING}`
   const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
   return (
-    <span className="flex flex-wrap items-center gap-1.5">
+    <span className="flex flex-wrap min-[1760px]:flex-nowrap items-center gap-1.5 whitespace-nowrap">
       <span ref={labelRef} tabIndex={-1} title={display.description} className="flex items-center gap-1.5 font-semibold outline-none" style={{ color }}>
         <span
           aria-hidden="true"
@@ -289,7 +291,7 @@ export const TopBar = memo(function TopBar({
   return (
     <header
       ref={rootRef}
-      className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px]"
+      className="absolute top-3 left-3 right-3 flex flex-wrap min-[1760px]:flex-nowrap items-center gap-x-2 min-[2200px]:gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px]"
       style={{ zIndex: Z.info, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
@@ -301,7 +303,8 @@ export const TopBar = memo(function TopBar({
         title="Sessions and agents (L)"
         shortcut="l"
         keepsInspector
-        style={{ maxWidth: 'min(320px, 100%)' }}
+        className="max-w-[min(220px,100%)]"
+        style={{ flexShrink: 1 }}
       >
         <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
         <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
@@ -324,7 +327,7 @@ export const TopBar = memo(function TopBar({
       <div className="flex-1" />
 
       {/* Right-side info/controls */}
-      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
+      <div className="flex flex-wrap min-[1760px]:flex-nowrap items-center justify-end gap-x-2 min-[2200px]:gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
         {attentionText && onJumpToAttention && (
           <button
@@ -333,7 +336,7 @@ export const TopBar = memo(function TopBar({
             onClick={onJumpToAttention}
             aria-label={`${attentionText}. Go to the first agent that needs you`}
             title="Agents of this view that wait for a permission or failed. Click to select the first one."
-            className={`min-h-6 px-2 rounded font-bold ${FOCUS_RING}`}
+            className={`shrink-0 min-h-6 px-2 rounded font-bold ${FOCUS_RING}`}
             style={{
               background: COLORS.toggleInactive,
               border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
@@ -372,20 +375,20 @@ export const TopBar = memo(function TopBar({
             onClick={() => onToggleHideInactive(!hideInactive)}
             title="Hide agents that are idle or done"
           >
-            Hide inactive agents
+            Hide inactive{' '}<span className="sr-only min-[2200px]:not-sr-only">agents</span>
           </ToggleButton>
         )}
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span data-testid="topbar-all-summary">
+          <span data-testid="topbar-all-summary" className="whitespace-nowrap min-[1760px]:min-w-0 min-[1760px]:truncate">
             {/* "~$1.23" on screen; screen readers skip "~" and "-", so they get the estimate in words (#364) */}
             <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
             <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
           </span>
         ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
+          <span className="whitespace-nowrap">{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
         )}
-        <span>
+        <span className="whitespace-nowrap min-[1760px]:min-w-0 min-[1760px]:truncate">
           {/* A sum of what each context holds now, not of what was consumed (#364) */}
           {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens in context'}
           {!isAllMode && (
@@ -403,10 +406,10 @@ export const TopBar = memo(function TopBar({
           )}
         </span>
 
-        <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
+        <div role="toolbar" aria-label="View controls" className="flex flex-wrap min-[1760px]:flex-nowrap items-center gap-1">
           {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
           {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
-          <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
+          <div role="group" aria-label="Side panels" className="flex flex-wrap min-[1760px]:flex-nowrap items-center gap-1 px-1 py-0.5 rounded" style={{
             background: COLORS.holoBg03,
             border: `1px solid ${COLORS.holoBorder06}`,
           }}>
@@ -474,7 +477,7 @@ export const TopBar = memo(function TopBar({
             hasDialog
           >
             <span aria-hidden="true">?</span>
-            <span aria-hidden="true" className="ml-1 hidden sm:inline">Shortcuts</span>
+            <span aria-hidden="true" className="ml-1 hidden min-[2200px]:inline">Shortcuts</span>
           </ToggleButton>
         </div>
       </div>
