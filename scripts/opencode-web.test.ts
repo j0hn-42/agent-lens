@@ -7,7 +7,7 @@ import { isSessionInfo } from '../web/lib/bridge-types'
 
 const base = { id: 's', label: 'l', status: 'active', startTime: 1, lastActivityTime: 2 }
 
-test('runtimeBadge: OpenCode has a visible short tag and a full name', () => {
+test('runtimeBadge: OpenCode has the short tag OC and the full name OpenCode', () => {
   assert.deepEqual(runtimeBadge('opencode'), { short: 'OC', label: 'OpenCode' })
 })
 

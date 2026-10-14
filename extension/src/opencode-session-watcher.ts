@@ -268,7 +268,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       return
     }
     if (isArchived(row)) {
-      if (attached) this.release(rootId, attached)
+      if (attached) this.release(rootId, attached, 'archived')
       return
     }
     if (attached) {
@@ -387,8 +387,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     return { type, sessionId: s.sessionId, label: s.label, runtime: 'opencode', ...(s.cwd ? { cwd: s.cwd } : {}) }
   }
 
-  /** Stop following a session and keep its parser state for a later reattach. */
-  private release(id: string, s: WatchedOpenCodeSession): void {
+  /** Stop following a session and keep its parser state for a later reattach. Only an archived root
+   *  (proved by the database) fires `ended`: an idle release is a silence, never an end. */
+  private release(id: string, s: WatchedOpenCodeSession, reason: 'idle' | 'archived'): void {
     this.sessions.delete(id)
     this.retired.delete(id)
     this.retired.set(id, { state: s.state, parser: s.parser, sessionStartTime: s.sessionStartTime, label: s.label })
@@ -396,7 +397,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       const oldest = this.retired.keys().next().value
       if (oldest !== undefined) this.retired.delete(oldest)
     }
-    if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
+    if (reason === 'archived' && s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
   }
 
   /** Release sessions silent for more than ACTIVE_SESSION_AGE_S. New rows reattach them. */
@@ -404,7 +405,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const now = this.now()
     for (const [id, s] of this.sessions) {
       if ((now - s.lastActivityTime) / 1000 <= ACTIVE_SESSION_AGE_S) continue
-      this.release(id, s)
+      this.release(id, s, 'idle')
       log.debug(`Session ${id.slice(0, SESSION_ID_DISPLAY)} libérée`)
     }
   }

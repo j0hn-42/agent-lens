@@ -151,7 +151,7 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 
 A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. For Claude Code sessions, the relay and the VS Code extension mark the events they read from a transcript history (`replayed`): the catch-up read when a session is attached, the sub-agent and teammate files already there, an imported transcript, and what is re-sent to a reopened panel. The page marks the events it replays itself. The initial history read of the Codex, Copilot, Pi, Gemini and OpenCode watchers is not marked yet ([#390](https://github.com/j0hn-42/agent-lens/issues/390)): their agents can still be shown as live right after the attach. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
-A silence never ends a session. However long a session is silent (`pnpm test` running for 7 minutes, a permission left unanswered), its agents keep their last known state and its sub-agents are not closed. A session is marked completed (✓ in the Sessions panel, the **Session finished** notification) only when its end is observed: Claude Code's `SessionEnd` hook. A `Stop` hook only ends a turn: the orchestrator becomes idle, not done. Without the hooks, and for Codex, Copilot, Pi, Gemini and OpenCode, which report no end, a session stays active, in its last known state.
+A silence never ends a session. However long a session is silent (`pnpm test` running for 7 minutes, a permission left unanswered), its agents keep their last known state and its sub-agents are not closed. A session is marked completed (✓ in the Sessions panel, the **Session finished** notification) only when its end is observed: Claude Code's `SessionEnd` hook. A `Stop` hook only ends a turn: the orchestrator becomes idle, not done. Without the hooks, and for Codex, Copilot, Pi, Gemini and OpenCode, which report no end, a session is never marked completed by a silence: it stays in its last known state (for OpenCode, an archived session is the one exception, and a session silent for 10 minutes is no longer updated until new rows arrive).
 
 ## Repeated reads and calls
 
@@ -251,11 +251,12 @@ Gemini CLI sessions (#238) are read from their chat files (`<home>/.gemini/tmp/<
 
 ## OpenCode sessions
 
-OpenCode sessions (#346) are read from OpenCode's own SQLite database (`<data>/opencode.db`, `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`), opened read-only and polled; there is no hook. They carry the badge `OC` (accessible name "OpenCode") and the square brackets mark. What is shown, and what is not:
+OpenCode sessions (#346) are read from OpenCode's own SQLite database (`<data>/opencode.db` for the latest, beta and prod channels (`opencode-<channel>.db` for any other channel), `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`; `OPENCODE_DB` overrides it: an absolute path is used as is, a relative one is resolved under `<data>`), opened read-only and polled; there is no hook. They carry the badge `OC` (accessible name "OpenCode") and the square brackets mark. What is shown, and what is not:
 
+- **Which sessions.** Only sessions with rows written in the last 10 minutes (`ACTIVE_SESSION_AGE_S`) are followed, and at most 25 root sessions, the most recently updated first. History older than that window is not replayed when a session is attached. A session silent for more than 10 minutes is released, and followed again if new rows arrive. An archived session (`time_archived` set in the database) is released too.
 - **Shown.** The prompts, the replies, the reasoning, and each tool call paired with its end.
 - **No pending permission.** The database does not record a permission request waiting for an answer, so none is shown.
-- **No end of session.** OpenCode reports no end: a silent session is not a finished one, and it stays active in its last known state.
+- **No end of session.** OpenCode reports no end, and a silence never completes a session: a session released after 10 minutes without rows is never shown as finished. Once released it is no longer updated; it keeps its last known state until new rows reattach it. Only an archived session is reported as ended.
 - **No streaming text.** A reply appears once it is written to the database; the text still being streamed is not visible.
 - **Platforms.** Linux and macOS only. On Windows the location is not resolved yet: set `OPENCODE_DB` to an absolute path.
 

@@ -108,11 +108,13 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(spawns(), 1)
     clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
     w.scanNow()
-    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'ended'])
+    // A silence is not an end: the idle release fires no `ended` (only an archived root does)
+    assert.deepEqual(lifecycle.map(l => l.type), ['started'])
+    assert.equal(lifecycle.some(l => l.type === 'ended'), false)
     assert.equal(w.isActive(), false)
     fx.message('msg_2', 'ses_a', clock.t, { ...userMsg, time: { created: clock.t } })
     w.scanNow()
-    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'ended', 'started'])
+    assert.deepEqual(lifecycle.map(l => l.type), ['started', 'started'])
     assert.equal(spawns(), 1)
   })
 
