@@ -59,7 +59,8 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
   const tokenRef = useRef('')
   tokenRef.current = token
   // Stopping a process takes two steps (#374): "Arrêter" arms it, "Confirmer l'arrêt" sends it
-  const [stopArmed, setStopArmed] = useState(false)
+  const [armedId, setArmedId] = useState<string | null>(null)
+  const helpStopId = useId()
   const stopConfirmingRef = useRef(false)
   const refocusStopRef = useRef(false)
   const [pending, setPending] = useState(false)
@@ -68,7 +69,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
 
   const active = activeLaunchFor(launches, repo, issue)
   const latest = latestLaunchFor(launches, repo, issue)
-  const confirmingStop = stopArmed && !!active
+  const confirmingStop = !!active && armedId === active.id
   stopConfirmingRef.current = confirmingStop
   const cleanTitle = title.replace(CONTROL_ALL, ' ').trim()
 
@@ -80,8 +81,11 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
     else if (refocusStopRef.current) {
       refocusStopRef.current = false
       stopBtnRef.current?.focus({ preventScroll: true })
+    } else if (ref.current && !ref.current.contains(document.activeElement)) {
+      // The stop zone vanished under the focus (the launch ended): keep it inside the modal
+      cancelRef.current?.focus({ preventScroll: true })
     }
-  }, [confirmingStop])
+  }, [confirmingStop, active?.id])
 
   // Initial focus on "Annuler" (the safe choice); focus goes back to the trigger on close
   useEffect(() => {
@@ -108,7 +112,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        if (stopConfirmingRef.current) { refocusStopRef.current = true; setStopArmed(false); return }
+        if (stopConfirmingRef.current) { refocusStopRef.current = true; setArmedId(null); return }
         onCloseRef.current()
         return
       }
@@ -146,11 +150,11 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
       : { text: out.message, error: true })
   }
 
-  const cancelStop = () => { refocusStopRef.current = true; setStopArmed(false) }
+  const cancelStop = () => { refocusStopRef.current = true; setArmedId(null) }
 
   const stop = async () => {
     refocusStopRef.current = true
-    setStopArmed(false)
+    setArmedId(null)
     if (pending || !active || !needToken()) return
     setPending(true)
     setMessage({ text: t('launch.stopSending'), error: false })
@@ -229,17 +233,18 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
             {message && <p className="m-0" style={{ color: message.error ? COLORS.error : COLORS.textMuted }}>{message.text}</p>}
           </div>
 
-          <div className="mt-3 flex items-center justify-between gap-2 text-xs font-mono">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
             {active ? (
               // Stop zone, apart from the way out: a process is never one click from being killed
               <div role="group" aria-label={t('launch.stopZone')} className="flex flex-col gap-1">
                 {confirmingStop ? (
                   <>
-                    <p className="m-0 text-[11px]" style={{ color: COLORS.textPrimary }}>{t('launch.stopConfirmHelp')}</p>
-                    <div className="flex gap-2">
+                    <p id={helpStopId} className="m-0 text-[11px]" style={{ color: COLORS.textPrimary }}>{t('launch.stopConfirmHelp')}</p>
+                    <div className="flex flex-wrap gap-2">
                       <button
                         ref={confirmStopRef}
                         type="button"
+                        aria-describedby={helpStopId}
                         onClick={() => { void stop() }}
                         aria-disabled={pending || undefined}
                         className={`min-h-6 rounded px-2 py-1 font-semibold ${FOCUS_RING}`}
@@ -261,7 +266,7 @@ export function LaunchDialog({ repo, issue, role, title, maxConcurrent, launches
                   <button
                     ref={stopBtnRef}
                     type="button"
-                    onClick={() => setStopArmed(true)}
+                    onClick={() => { if (!pending && active) setArmedId(active.id) }}
                     aria-disabled={pending || undefined}
                     className={`min-h-6 rounded px-2 py-1 ${FOCUS_RING}`}
                     style={{ border: `1px solid ${COLORS.error}`, color: COLORS.error }}

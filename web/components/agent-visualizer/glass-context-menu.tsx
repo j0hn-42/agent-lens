@@ -31,6 +31,7 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
   const [active, setActive] = useState(0)
   /** Index of the sensitive item waiting for its second activation */
   const [armed, setArmed] = useState<number | null>(null)
+  const armedAtRef = useRef(0)
   const [pos, setPos] = useState<{ left: number; top: number }>({ left: position.x, top: position.y })
 
   useClickOutside(ref, onClose, TIMING.contextMenuDelayMs)
@@ -129,7 +130,9 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
                 tabIndex={rovingPos === active ? 0 : -1}
                 onFocus={() => { setActive(rovingPos); if (armed !== null && armed !== i) setArmed(null) }}
                 onClick={() => {
-                  if (item.confirmLabel && armed !== i) { setArmed(i); return }
+                  if (item.confirmLabel && armed !== i) { armedAtRef.current = Date.now(); setArmed(i); return }
+                  // A double click or a held key must not arm and run in one gesture
+                  if (item.confirmLabel && Date.now() - armedAtRef.current < 400) return
                   item.onClick()
                   onClose()
                 }}

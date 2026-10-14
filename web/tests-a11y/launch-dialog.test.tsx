@@ -253,6 +253,21 @@ test('Escape and Laisser tourner cancel the stop confirmation only; focus return
   assert.deepEqual(await violations(document.body), [])
 })
 
+test('an abandoned confirmation does not come back, with focus, on the next launch (#374)', async () => {
+  const mk = (id: string) => new Map([[id, view({ id, state: 'started', pid: 42 })]])
+  const props = { repo: 'o/r', issue: 7, role: 'r', title: 't', maxConcurrent: 1, origin: '', onClose: () => {} }
+  const v = render(<LaunchDialog {...props} launches={mk('0123456789abcdef')} />)
+  await flush()
+  const dialog = within(document.body).getByRole('dialog')
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Arrêter' })) })
+  assert.equal(document.activeElement, within(dialog).getByRole('button', { name: 'Confirmer l’arrêt' }))
+  v.rerender(<LaunchDialog {...props} launches={new Map()} />)
+  assert.ok(dialog.contains(document.activeElement), 'focus stays inside the modal when the stop zone vanishes')
+  v.rerender(<LaunchDialog {...props} launches={mk('fedcba9876543210')} />)
+  assert.equal(within(dialog).queryByRole('button', { name: 'Confirmer l’arrêt' }), null, 'a new launch starts unarmed')
+  assert.ok(within(dialog).getByRole('button', { name: 'Arrêter' }))
+})
+
 test('a mousedown on the backdrop closes the dialog only while no token is typed; the scrim is a theme token (#374)', async () => {
   let closed = 0
   const dialog = await runningDialog({ onClose: () => { closed++ } })

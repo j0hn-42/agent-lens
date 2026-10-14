@@ -41,6 +41,9 @@ test('a confirm item: first activation arms it, nothing runs, the menu stays ope
   assert.equal(document.activeElement, armed)
   assert.match(v.getByRole('status').textContent ?? '', /Confirm clear history/)
   await act(async () => { fireEvent.click(armed) })
+  assert.deepEqual(log, [], 'a second click right after arming (double click) is ignored')
+  await act(async () => { await new Promise(r => setTimeout(r, 450)) })
+  await act(async () => { fireEvent.click(armed) })
   assert.deepEqual(log, ['clear', 'close'])
 })
 
