@@ -172,10 +172,12 @@ test('GraphA11yList: failures and permission requests go to an assertive region,
     ],
   })
   const urgent = getByTestId('graph-urgent-announcer')
-  assert.equal(urgent.getAttribute('aria-live'), 'assertive')
+  assert.equal(urgent.getAttribute('role'), 'alert')
+  assert.equal(urgent.hasAttribute('aria-live'), false, 'role=alert already implies assertive')
   assert.deepEqual(Array.from(urgent.querySelectorAll('p')).map(p => p.textContent), [
     'Agent Planner is waiting for permission', 'Tool Bash failed for agent Builder',
   ])
   const polite = container.querySelector('[role="status"][aria-live="polite"]')!
   assert.deepEqual(Array.from(polite.querySelectorAll('p')).map(p => p.textContent), ['7 agent graph updates'])
+  assert.equal(polite.textContent!.includes('waiting for permission'), false, 'an urgent text is absent from the polite region')
 })
