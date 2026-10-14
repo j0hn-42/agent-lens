@@ -3,9 +3,10 @@
  * stamps every event with the root session id, releases idle sessions and survives a missing,
  * locked or hostile database. Real node:sqlite databases; skipped where this Node has none.
  */
-import { describe, it, afterEach } from 'node:test'
+import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'node:path'
+import fs from 'node:fs'
 import { OpenCodeSessionWatcher } from '../src/opencode-session-watcher'
 import { ACTIVE_SESSION_AGE_S, OPENCODE_MAX_WATCHED_SESSIONS } from '../src/constants'
 import type { AgentEvent } from '../src/protocol'
@@ -203,5 +204,147 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     // The message of the part predates the window and is never read: the parser has no message to attach
     // the part to and ignores it, so neither a tool_call_end without start nor a lone start comes out
     assert.deepEqual(events.filter(e => e.type.startsWith('tool_call')), [])
+  })
+
+  it('I2: a far-future session row does not freeze the cursor, a later session is still read', () => {
+    const { fx, w, lifecycle, clock } = setup()
+    fx.session('ses_future', { created: T0, updated: 9e15 })
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    w.start()
+    assert.deepEqual(lifecycle.map(l => l.sessionId), ['ses_a'])
+    clock.t = T0 + 5000
+    fx.session('ses_b', { created: clock.t, updated: clock.t })
+    w.scanNow()
+    assert.deepEqual(lifecycle.map(l => l.sessionId), ['ses_a', 'ses_b'])
+  })
+
+  describe('I3: the workspace verdict of a root is computed once', () => {
+    const realpathCalls = (spy: { mock: { calls: { arguments: unknown[] }[] } }, dir: string) =>
+      spy.mock.calls.filter(c => c.arguments[0] === dir).length
+
+    it('200 messages of one out-of-workspace root cost exactly one realpath', () => {
+      const { fx, w } = setup('/w')
+      fx.session('ses_x', { dir: '/other-ws', created: T0 - 5000, updated: T0 - 1000 })
+      fx.batch(() => { for (let i = 0; i < 200; i++) fx.message(`msg_${i}`, 'ses_x', T0 - 900, userMsg) })
+      const spy = mock.method(fs, 'realpathSync')
+      try {
+        w.start()
+        w.scanNow()
+        assert.equal(realpathCalls(spy, '/other-ws'), 1)
+        assert.equal(w.isActive(), false)
+      } finally { spy.mock.restore() }
+    })
+
+    it('a root refused by the cap costs no realpath', () => {
+      const { fx, w } = setup('/w')
+      for (let i = 0; i < OPENCODE_MAX_WATCHED_SESSIONS; i++) fx.session(`ses_${i}`, { dir: '/w', created: T0 - 5000, updated: T0 - 1000 - i })
+      fx.session('ses_capped', { dir: '/w/capped', created: T0 - 5000, updated: T0 - 100000 })
+      for (let i = 0; i < 20; i++) fx.message(`msg_${i}`, 'ses_capped', T0 - 900, userMsg)
+      const spy = mock.method(fs, 'realpathSync')
+      try {
+        w.start()
+        assert.equal(w.getActiveSessions().length, OPENCODE_MAX_WATCHED_SESSIONS)
+        assert.equal(realpathCalls(spy, '/w/capped'), 0)
+      } finally { spy.mock.restore() }
+    })
+
+    it('a changed directory is evaluated again', () => {
+      const { fx, w, clock } = setup('/w')
+      fx.session('ses_x', { dir: '/other-ws', created: T0 - 5000, updated: T0 - 1000 })
+      const spy = mock.method(fs, 'realpathSync')
+      try {
+        w.start()
+        assert.equal(w.isActive(), false)
+        clock.t = T0 + 1000
+        fx.session('ses_x', { dir: '/w/moved', created: T0 - 5000, updated: clock.t })
+        w.scanNow()
+        assert.equal(realpathCalls(spy, '/w/moved'), 1)
+        assert.equal(w.isActive(), true)
+      } finally { spy.mock.restore() }
+    })
+  })
+
+  describe('I4: one poll per tick', () => {
+    const MESSAGES = 1200
+    const seed = (fx: OpenCodeFixture) => {
+      fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+      fx.batch(() => { for (let i = 0; i < MESSAGES; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900 + i, userMsg) })
+    }
+    const tick = () => new Promise<void>(r => setImmediate(r))
+
+    it('drains a multi-poll backlog across ticks, one poll per tick', async () => {
+      const { fx, w } = setup()
+      seed(fx)
+      const w2 = w as unknown as { scanNow(): void; db: { poll: (...a: unknown[]) => { messages: unknown[]; truncated: boolean } } | null }
+      const scan = mock.method(w2, 'scanNow')
+      w.start()
+      const db = w2.db!
+      const real = db.poll.bind(db)
+      const polls: { n: number; truncated: boolean }[] = []
+      db.poll = (...a: unknown[]) => { const p = real(...a); polls.push({ n: p.messages.length, truncated: p.truncated }); return p }
+      // start() did its own (first) poll before the spy: the rest must come through the scheduled scans
+      for (let i = 0; i < 20 && scan.mock.callCount() < 4; i++) await tick()
+      assert.ok(scan.mock.callCount() >= 3, 'scans were chained through setImmediate')
+      const delivered = polls.reduce((a, p) => a + p.n, 0)
+      assert.ok(polls.every(p => p.n <= 500), 'no poll exceeds the limit')
+      assert.ok(delivered > 0)
+      assert.equal(polls.at(-1)?.truncated, false)
+    })
+
+    it('a dispose in the middle of the backlog leaves no pending scan', async () => {
+      const { fx, w } = setup()
+      seed(fx)
+      const scan = mock.method(w as unknown as { scanNow(): void }, 'scanNow')
+      w.start()
+      assert.equal(scan.mock.callCount(), 1, 'start() runs one poll only')
+      w.dispose()
+      await tick(); await tick(); await tick()
+      assert.equal(scan.mock.callCount(), 1)
+    })
+  })
+
+  it('M2: an unavailable database is logged with warn, once per status change', () => {
+    const dir = tmpDir()
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: path.join(dir, 'absent.db'), now: () => T0 })
+    watchers.push(w)
+    const warn = mock.method(console, 'warn', () => undefined)
+    try {
+      w.start()
+      w.scanNow()
+      w.scanNow()
+      assert.equal(warn.mock.callCount(), 1)
+      assert.match(String(warn.mock.calls[0].arguments.join(' ')), /not found/)
+    } finally { warn.mock.restore() }
+  })
+
+  it('N1: rows sharing one millisecond cannot keep the scan chain spinning', async () => {
+    const { fx, w } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.batch(() => { for (let i = 0; i < 6000; i++) fx.message(`msg_${String(i).padStart(5, '0')}`, 'ses_a', T0 - 900, userMsg) })
+    w.start()
+    const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
+    const real = internal.db.poll.bind(internal.db)
+    let polls = 0
+    internal.db.poll = (...a: unknown[]) => { polls++; return real(...a) }
+    const tick = () => new Promise<void>(r => setImmediate(r))
+    for (let i = 0; i < 150; i++) await tick()
+    assert.ok(polls <= 51, `the chain stopped by itself (${polls} polls)`)
+    const settled = polls
+    for (let i = 0; i < 5; i++) await tick()
+    assert.equal(polls, settled, 'no scan left pending')
+    // The next interval tick still polls
+    w.scanNow()
+    assert.equal(polls, settled + 1)
+  })
+
+  it('N6: a read error shows once with the OpenCode prefix', () => {
+    const { fx, w } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    w.start()
+    const internal = w as unknown as { db: { poll: (...a: unknown[]) => unknown } }
+    internal.db.poll = () => ({ sessions: [], messages: [], parts: [], skippedRows: 0, truncated: false, cursors: undefined, error: 'OpenCode: the database could not be read (locked).' })
+    const warn = mock.method(console, 'warn', () => undefined)
+    try { w.scanNow() } finally { warn.mock.restore() }
+    assert.equal(w.status(), 'OpenCode: the database could not be read (locked).')
   })
 })

@@ -21,6 +21,9 @@ import type { OpenCodeSessionRow, OpenCodeMessageRow, OpenCodePartRow } from './
 
 /** Largest `data` column read, in characters; a larger row is skipped and counted. */
 export const OPENCODE_ROW_DATA_MAX = 1024 * 1024
+/** Cumulative `data` bytes read per table per poll; the poll reports `truncated` when it stops there. */
+export const OPENCODE_POLL_BYTES_MAX = 16 * 1024 * 1024
+const MAX_SAFE = Number.MAX_SAFE_INTEGER
 /** Rows read per table and per poll. */
 const POLL_LIMIT_DEFAULT = 500
 const POLL_LIMIT_HARD_MAX = 5000
@@ -280,32 +283,54 @@ export class OpenCodeDb {
     limit: number,
     map: (r: Record<string, unknown>) => T | undefined,
   ): TableRead<T> {
-    // A text column above its bound is not loaded: data and free text read as absent, an id-like
-    // column as '' (so a row with a broken parent_id is skipped, not taken for a root).
+    // Every selected value is bounded in SQL, because node:sqlite throws on an integer above 2^53
+    // (one such row would fail the poll forever). A number outside the safe range, a REAL or a
+    // non-text id reads as absent and the row is skipped; text above its bound is not loaded: data
+    // and free text read as absent, an id-like column as '' (a row with a broken parent_id is
+    // skipped, not taken for a root).
     const cols = this.columns[name].map(c => {
-      if (c === 'data') return `CASE WHEN length(data) > ${OPENCODE_ROW_DATA_MAX} THEN NULL ELSE data END AS data`
+      if (c === 'data') return `CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN data END AS data`
       if (c === 'time_created' || c === 'time_archived') {
-        return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 1 AND ${Number.MAX_SAFE_INTEGER} THEN ${c} END AS ${c}`
+        return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 1 AND ${MAX_SAFE} THEN ${c} END AS ${c}`
       }
-      if (ID_COLUMNS.has(c)) return `CASE WHEN length(${c}) > ${ID_MAX} THEN '' ELSE ${c} END AS ${c}`
+      if (ID_COLUMNS.has(c)) {
+        return `CASE WHEN ${c} IS NULL THEN NULL WHEN typeof(${c}) = 'text' AND length(${c}) <= ${ID_MAX} THEN ${c} ELSE '' END AS ${c}`
+      }
       if (c === 'directory' || c === 'title' || c === 'agent') {
-        return `CASE WHEN length(${c}) > ${TEXT_COLUMN_MAX} THEN NULL ELSE ${c} END AS ${c}`
+        return `CASE WHEN typeof(${c}) = 'text' AND length(${c}) <= ${TEXT_COLUMN_MAX} THEN ${c} END AS ${c}`
       }
-      return c
+      return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 0 AND ${MAX_SAFE} THEN ${c} END AS ${c}`
     })
     const t = cursor.time
     const now = this.now()
     // A row dated in the future is not read: it would carry the cursor out of reach of real writes
-    const upper = Math.min(now + FUTURE_MARGIN_MS, Number.MAX_SAFE_INTEGER)
+    const upper = Math.min(now + FUTURE_MARGIN_MS, MAX_SAFE)
     // The key is sent as hexadecimal UTF-8: no text from the database goes into the query as is
     const from = cursor.after !== undefined
       ? `(time_updated > ${t} OR (time_updated = ${t} AND id > CAST(X'${Buffer.from(cursor.after, 'utf8').toString('hex')}' AS TEXT)))`
       : `time_updated >= ${t}`
+    const where = `WHERE typeof(time_updated) = 'integer' AND time_updated > 0 AND time_updated <= ${upper} `
+      + `AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND instr(id, char(0)) = 0 `
+      + `AND ${from} ORDER BY time_updated ASC, id ASC`
     const sqlLimit = limit + 1
-    const sql = `SELECT ${cols.join(', ')} FROM ${name} WHERE typeof(time_updated) = 'integer' AND time_updated > 0 `
-      + `AND time_updated <= ${upper} AND typeof(id) = 'text' AND length(id) BETWEEN 1 AND ${ID_MAX} AND instr(id, char(0)) = 0 `
-      + `AND ${from} ORDER BY time_updated ASC, id ASC LIMIT ${sqlLimit}`
-    const raw = this.conn.all(sql)
+    let rowLimit = sqlLimit
+    let budgetHit = false
+    if (this.columns[name].includes('data')) {
+      // First a light query (no data), to cut the rows at the byte budget before loading them.
+      const sizes = this.conn.all(
+        `SELECT CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN length(data) ELSE 0 END AS n `
+        + `FROM ${name} ${where} LIMIT ${sqlLimit}`)
+      let total = 0
+      let cut = sizes.length
+      for (let i = 0; i < sizes.length; i++) {
+        const v = sizes[i]?.n
+        const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
+        if (i > 0 && total + n > OPENCODE_POLL_BYTES_MAX) { cut = i; break }
+        total += n
+      }
+      if (cut < sizes.length) { rowLimit = cut; budgetHit = true }
+    }
+    const raw = this.conn.all(`SELECT ${cols.join(', ')} FROM ${name} ${where} LIMIT ${rowLimit}`)
 
     // A row stays in the sequence even when its content is unusable: the cursor must move past it
     let skipped = 0
@@ -316,7 +341,7 @@ export class OpenCodeDb {
       if (id === undefined || time === undefined) { skipped++; continue }
       fresh.push({ id, time, row: map(r) })
     }
-    const more = raw.length >= sqlLimit
+    const more = raw.length >= sqlLimit || budgetHit
     const taken = fresh.slice(0, limit)
 
     const rows: T[] = []

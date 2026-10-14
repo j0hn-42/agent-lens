@@ -20,6 +20,7 @@ import { CodexSessionWatcher } from '../extension/src/codex-session-watcher'
 import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
 import { PiSessionWatcher } from '../extension/src/pi-session-watcher'
 import { GeminiSessionWatcher } from '../extension/src/gemini-session-watcher'
+import { OpenCodeSessionWatcher } from '../extension/src/opencode-session-watcher'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
@@ -685,7 +686,7 @@ export interface Relay {
   debugState: () => { sseClients: number; remoteSseClients: number; scanTimerActive: boolean; systemTimerActive: boolean; heartbeatTimerActive: boolean; scanRuns: number; statusRuns: number; dedupSessions: number; watchedSessions: number; wakeWatchers: number }
 }
 
-export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'auto'
+export type RelayRuntimeMode = 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode' | 'auto'
 
 export interface RelayOptions {
   workspace: string
@@ -775,9 +776,9 @@ async function defaultHooksProbe(workspace: string): Promise<boolean> {
 }
 
 function resolveRuntimeMode(explicit?: RelayRuntimeMode): RelayRuntimeMode {
-  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'gemini' || explicit === 'auto') return explicit
+  if (explicit === 'claude' || explicit === 'codex' || explicit === 'copilot' || explicit === 'pi' || explicit === 'gemini' || explicit === 'opencode' || explicit === 'auto') return explicit
   const raw = process.env.AGENT_LENS_RUNTIME
-  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' ? raw : 'auto'
+  return raw === 'claude' || raw === 'codex' || raw === 'copilot' || raw === 'pi' || raw === 'gemini' || raw === 'opencode' ? raw : 'auto'
 }
 
 export async function createRelay(options: RelayOptions): Promise<Relay> {
@@ -864,7 +865,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   const wantCopilot = mode === 'copilot' || mode === 'auto'
   const wantPi = mode === 'pi' || mode === 'auto'
   const wantGemini = mode === 'gemini' || mode === 'auto'
-  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(', ')})`)
+  const wantOpenCode = mode === 'opencode' || mode === 'auto'
+  log(`[relay] Runtime mode: ${mode} (watching: ${[wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini', wantOpenCode && 'opencode'].filter(Boolean).join(', ')})`)
 
   let hookServer: HookServer | null = null
   let scanTicker: SharedTicker | null = null
@@ -1023,6 +1025,18 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     geminiWatcher.start()
   }
 
+  // ─── OpenCode runtime ─────────────────────────────────────────────────────
+  // Watch OpenCode sessions (SQLite database, read-only, #346), matched to the workspace directory.
+  let openCodeWatcher: OpenCodeSessionWatcher | null = null
+  if (wantOpenCode) {
+    openCodeWatcher = new OpenCodeSessionWatcher(workspace)
+    openCodeWatcher.onEvent((event) => broadcastEvent(event))
+    openCodeWatcher.onSessionLifecycle((lifecycle) => {
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+    })
+    openCodeWatcher.start()
+  }
+
   const telemetry = options.telemetry
   const sessionStart = Date.now()
   let relayDisposed = false
@@ -1067,10 +1081,11 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     if (copilotWatcher) list.push(...copilotWatcher.getActiveSessions())
     if (piWatcher) list.push(...piWatcher.getActiveSessions())
     if (geminiWatcher) list.push(...geminiWatcher.getActiveSessions())
+    if (openCodeWatcher) list.push(...openCodeWatcher.getActiveSessions())
     return { sessions: list, agents: agentTracker }
   })
   const hooksProbe = options.hooksProbe ?? defaultHooksProbe
-  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter((r): r is string => typeof r === 'string')
+  const runtimeList = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini', wantOpenCode && 'opencode'].filter((r): r is string => typeof r === 'string')
 
   // Issue/PR links (#63): the repository is the workspace's own GitHub origin, resolved once per directory
   // One repository lookup per directory: a node's links come from the repository of its own session
@@ -1136,6 +1151,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (copilotWatcher) sessionCount += copilotWatcher.getActiveSessions().length
       if (piWatcher) sessionCount += piWatcher.getActiveSessions().length
       if (geminiWatcher) sessionCount += geminiWatcher.getActiveSessions().length
+      if (openCodeWatcher) sessionCount += openCodeWatcher.getActiveSessions().length
       return { sessionCount, hooksConfigured, disable1MContext }
     },
     base: { relayVersion: agentLensVersion, workspace: normalizePath(workspace), runtimes: runtimeList },
@@ -1283,6 +1299,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (copilotWatcher) sessionList.push(...copilotWatcher.getActiveSessions())
       if (piWatcher) sessionList.push(...piWatcher.getActiveSessions())
       if (geminiWatcher) sessionList.push(...geminiWatcher.getActiveSessions())
+      if (openCodeWatcher) sessionList.push(...openCodeWatcher.getActiveSessions())
       // Indexed sessions complete the list; a session that is also watched live keeps its live entry
       const indexed = readIndex()
       if (indexed) sessionList = mergeIndexedSessions(sessionList, indexed.sessions)
@@ -1370,7 +1387,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       webhooks?.dispose()
       webhooks = null
       const models = [...observedModels].sort().join(',').slice(0, 128)
-      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini'].filter(Boolean).join(',')
+      const runtimes = [wantClaude && 'claude', wantCodex && 'codex', wantCopilot && 'copilot', wantPi && 'pi', wantGemini && 'gemini', wantOpenCode && 'opencode'].filter(Boolean).join(',')
       telemetry?.emit({
         ...baseEvent(),
         event_type: 'session_end',
@@ -1397,6 +1414,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       copilotWatcher?.dispose()
       piWatcher?.dispose()
       geminiWatcher?.dispose()
+      openCodeWatcher?.dispose()
       for (const client of [...sseClients]) dropClient(client)
       for (const id of [...sessions.keys()]) dropSession(id)
       eventBuffer.clear()
