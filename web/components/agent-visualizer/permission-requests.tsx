@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useId, useLayoutEffect, useRef } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING, FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { CONTROL_ALL } from '@/lib/control-chars'
 import { visibleInput, type PermissionRequestMessage } from '@/lib/bridge-types'
-import { formatPermissionTime, inputSummary } from '@/lib/permission-requests'
+import { formatPermissionTime, inputSummary, remainingSeconds } from '@/lib/permission-requests'
 import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
@@ -156,6 +156,25 @@ interface RequestRowProps {
   onDismiss: (nonce: string) => void
 }
 
+/** Whole seconds left before a deadline, re-read every second while the row is on screen (not a live region) */
+function useSecondsLeft(expiresAt: number): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return remainingSeconds(expiresAt, now)
+}
+
+/** Decorative marks so Approve and Deny differ by shape, not by colour alone (#374) */
+function DecisionIcon({ action }: { action: 'approve' | 'deny' }) {
+  return (
+    <svg aria-hidden="true" focusable="false" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      {action === 'approve' ? <path d="M1.5 5.5 4 8l4.5-6" /> : <path d="M2 2l6 6M8 2 2 8" />}
+    </svg>
+  )
+}
+
 function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: RequestRowProps) {
   const { request: r, state } = row
   const titleId = useId()
@@ -166,6 +185,14 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
   const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`
   const buttonStyle = { color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, background: 'transparent' }
   const sending = state === 'sending'
+  const secondsLeft = useSecondsLeft(r.expiresAt)
+  const countdown = secondsLeft > 0
+    ? t('permission.deadlineIn', {
+        time: secondsLeft >= 60
+          ? t('permission.deadlineMin', { min: Math.floor(secondsLeft / 60), sec: String(secondsLeft % 60).padStart(2, '0') })
+          : t('permission.deadlineSec', { sec: secondsLeft }),
+      })
+    : ''
 
   return (
     <div
@@ -182,7 +209,7 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
         <dt>{t('permission.call')}</dt>
         <dd className="m-0 break-all">{r.toolUseId ?? t('permission.callUnknown')}</dd>
         <dt>{t('permission.deadline')}</dt>
-        <dd className="m-0"><time dateTime={new Date(r.expiresAt).toISOString()}>{formatPermissionTime(r.expiresAt, locale)}</time></dd>
+        <dd className="m-0"><time dateTime={new Date(r.expiresAt).toISOString()}>{formatPermissionTime(r.expiresAt, locale)}</time>{countdown && <span> ({countdown})</span>}</dd>
       </dl>
       <div
         role="group"
@@ -215,16 +242,19 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss }: R
         <div className="flex items-center gap-2 flex-wrap">
           {(['approve', 'deny'] as const).map(action => {
             const visible = t(action === 'approve' ? 'permission.approve' : 'permission.deny')
+            // Approve: solid border, check. Deny: dashed border, cross. Same text colour, so the cue is not colour
+            const shape = { border: action === 'approve' ? `2px solid ${COLORS.controlBorder}` : `1px dashed ${COLORS.controlBorder}` }
             return (
               <button
                 key={action}
                 type="button"
-                className={button}
-                style={sending ? { ...buttonStyle, opacity: 0.6 } : buttonStyle}
+                className={`${button} inline-flex items-center gap-1`}
+                style={sending ? { ...buttonStyle, ...shape, opacity: 0.6 } : { ...buttonStyle, ...shape }}
                 aria-label={name(visible)}
                 aria-disabled={sending || undefined}
                 onClick={() => { if (!sending) onDecide(r.nonce, action) }}
               >
+                <DecisionIcon action={action} />
                 {visible}
               </button>
             )
