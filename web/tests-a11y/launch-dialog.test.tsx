@@ -201,20 +201,84 @@ test('states and refusals are announced in a role=status region, in words', asyn
   assert.deepEqual(await violations(document.body), [])
 })
 
-test('Arrêter sends POST /launch/<id>/stop with the token', async () => {
-  const sent: Array<{ url: string; auth?: string }> = []
+const runningDialog = async (over: { onClose?: () => void; sent?: Array<{ url: string; auth?: string }> } = {}) => {
+  const sent = over.sent ?? []
   const running = new Map([['0123456789abcdef', view({ state: 'started', pid: 42 })]])
   render(
-    <LaunchDialog repo="o/r" issue={7} role="r" title="t" maxConcurrent={1} launches={running} origin="" onClose={() => {}}
+    <LaunchDialog repo="o/r" issue={7} role="r" title="t" maxConcurrent={1} launches={running} origin="" onClose={over.onClose ?? (() => {})}
       fetchFn={async (url, init) => { sent.push({ url, auth: init.headers.Authorization }); return { ok: true, status: 202, json: async () => view({ state: 'started', pid: 42, stopRequestedAt: 3 }) } }} />,
   )
   await flush()
-  const dialog = within(document.body).getByRole('dialog')
+  return within(document.body).getByRole('dialog')
+}
+
+test('a running launch offers Fermer, and Arrêter alone in its own labelled zone (#374)', async () => {
+  const dialog = await runningDialog()
+  assert.ok(within(dialog).getByRole('button', { name: 'Fermer' }))
+  assert.equal(within(dialog).queryByRole('button', { name: 'Annuler' }), null)
+  const zone = within(dialog).getByRole('group', { name: 'Arrêt du lancement' })
+  assert.ok(within(zone).getByRole('button', { name: 'Arrêter' }))
+  assert.equal(within(zone).queryByRole('button', { name: 'Fermer' }), null, 'Fermer is outside the stop zone')
+})
+
+test('Arrêter needs a second step: confirm sends POST /launch/<id>/stop with the token (#374)', async () => {
+  const sent: Array<{ url: string; auth?: string }> = []
+  const dialog = await runningDialog({ sent })
   fireEvent.change(within(dialog).getByLabelText('Jeton du relais'), { target: { value: TOKEN } })
   await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Arrêter' })) })
   await flush()
+  assert.deepEqual(sent, [], 'the first click sends nothing')
+  const confirm = within(dialog).getByRole('button', { name: 'Confirmer l’arrêt' })
+  assert.equal(document.activeElement, confirm, 'focus moves to the confirmation')
+  assert.ok(within(dialog).getByRole('button', { name: 'Laisser tourner' }))
+  await act(async () => { fireEvent.click(confirm) })
+  await flush()
   assert.deepEqual(sent, [{ url: '/launch/0123456789abcdef/stop', auth: `Bearer ${TOKEN}` }])
   assert.match(within(dialog).getByRole('status').textContent ?? '', /Arrêt demandé/)
+})
+
+test('Escape and Laisser tourner cancel the stop confirmation only; focus returns to Arrêter (#374)', async () => {
+  let closed = 0
+  const sent: Array<{ url: string; auth?: string }> = []
+  const dialog = await runningDialog({ onClose: () => { closed++ }, sent })
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Arrêter' })) })
+  await act(async () => { fireEvent.keyDown(document.activeElement as Element, { key: 'Escape' }) })
+  assert.equal(closed, 0, 'the dialog stays open')
+  assert.equal(within(dialog).queryByRole('button', { name: 'Confirmer l’arrêt' }), null)
+  assert.equal(document.activeElement, within(dialog).getByRole('button', { name: 'Arrêter' }))
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Arrêter' })) })
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Laisser tourner' })) })
+  assert.equal(document.activeElement, within(dialog).getByRole('button', { name: 'Arrêter' }))
+  assert.deepEqual(sent, [])
+  assert.deepEqual(await violations(document.body), [])
+})
+
+test('an abandoned confirmation does not come back, with focus, on the next launch (#374)', async () => {
+  const mk = (id: string) => new Map([[id, view({ id, state: 'started', pid: 42 })]])
+  const props = { repo: 'o/r', issue: 7, role: 'r', title: 't', maxConcurrent: 1, origin: '', onClose: () => {} }
+  const v = render(<LaunchDialog {...props} launches={mk('0123456789abcdef')} />)
+  await flush()
+  const dialog = within(document.body).getByRole('dialog')
+  await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Arrêter' })) })
+  assert.equal(document.activeElement, within(dialog).getByRole('button', { name: 'Confirmer l’arrêt' }))
+  v.rerender(<LaunchDialog {...props} launches={new Map()} />)
+  assert.ok(dialog.contains(document.activeElement), 'focus stays inside the modal when the stop zone vanishes')
+  v.rerender(<LaunchDialog {...props} launches={mk('fedcba9876543210')} />)
+  assert.equal(within(dialog).queryByRole('button', { name: 'Confirmer l’arrêt' }), null, 'a new launch starts unarmed')
+  assert.ok(within(dialog).getByRole('button', { name: 'Arrêter' }))
+})
+
+test('a mousedown on the backdrop closes the dialog only while no token is typed; the scrim is a theme token (#374)', async () => {
+  let closed = 0
+  const dialog = await runningDialog({ onClose: () => { closed++ } })
+  const backdrop = dialog.parentElement as HTMLElement
+  assert.equal(backdrop.style.background, 'var(--lens-scrim)')
+  fireEvent.change(within(dialog).getByLabelText('Jeton du relais'), { target: { value: TOKEN } })
+  fireEvent.mouseDown(backdrop)
+  assert.equal(closed, 0, 'a typed token is not thrown away by a stray click')
+  fireEvent.change(within(dialog).getByLabelText('Jeton du relais'), { target: { value: '' } })
+  fireEvent.mouseDown(backdrop)
+  assert.equal(closed, 1)
 })
 
 test('in English the same controls carry English names', async () => {

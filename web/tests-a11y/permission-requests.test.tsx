@@ -96,6 +96,27 @@ test('two native buttons whose accessible name starts with their visible label (
   }
 })
 
+test('Approuver and Refuser differ by more than colour: an icon and a border style (#374)', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  const approve = r.getByRole('button', { name: /^Approuver Bash/ })
+  const deny = r.getByRole('button', { name: /^Refuser Bash/ })
+  assert.ok(approve.querySelector('svg[aria-hidden="true"]'), 'approve carries a decorative icon')
+  assert.ok(deny.querySelector('svg[aria-hidden="true"]'), 'deny carries a decorative icon')
+  assert.notEqual(approve.querySelector('svg')?.innerHTML, deny.querySelector('svg')?.innerHTML, 'not the same icon')
+  assert.notEqual(approve.style.borderStyle, deny.style.borderStyle, 'not the same border')
+})
+
+test('the deadline carries a countdown "dans 42 s" next to the absolute time (#374)', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const expiresAt = Date.now() + 42_500
+  await post({ type: 'permission-request', request: request({ expiresAt, requestedAt: expiresAt - 60_000 }) })
+  const row = r.getByRole('group', { name: /^Bash, session/ })
+  assert.match(row.textContent ?? '', /dans (41|42|43) s/)
+  assert.ok((row.textContent ?? '').includes(formatPermissionTime(expiresAt, 'fr')), 'the absolute time stays')
+  assert.equal(row.querySelector('[aria-live]'), null, 'a ticking value is never a live region')
+})
+
 test('without a label the session is named by its id', async () => {
   const r = render(<PermissionRequests />)
   await post({ type: 'permission-request', request: request({ inputPreview: '{"file_path":"/a/b.ts"}', toolName: 'Edit' }) })
