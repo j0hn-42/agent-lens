@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
-  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -142,8 +142,15 @@ test('below 900px every panel is a full-width sheet between the bars, newest ope
   const r = l.rects.files!
   assert.equal(r.x, 8)
   assert.equal(r.w, 390 - 16)
-  assert.equal(r.y, TOPBAR_H)
+  // #410: a band under the top bar is kept for the "N panels hidden" notice, so the sheet never sits under it
+  assert.equal(r.y, TOPBAR_H + SHEET_NOTICE_H)
   assert.equal(bottom(r), 844 - 16 - BAR_H - 8)
+})
+
+test('a lone sheet keeps the whole area: no notice band when nothing is hidden (#410)', () => {
+  const l = layoutFor(390, 844, ['files'], [])
+  assert.deepEqual(l.hidden, [])
+  assert.equal(l.rects.files!.y, TOPBAR_H)
 })
 
 test('a layout that cannot fit falls back to a sheet instead of overlapping', () => {

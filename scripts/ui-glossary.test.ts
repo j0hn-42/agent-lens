@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel,
+  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import {
@@ -118,4 +118,10 @@ test('no accented character in UI code outside comments (the UI is English only,
   }
   for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
   assert.deepEqual(hits, [], 'accented (non-English) text in UI code')
+})
+
+test('hidden panels sentence (#410): names the open panels a sheet hides, nothing when none', () => {
+  assert.equal(hiddenPanelsText([]), '')
+  assert.equal(hiddenPanelsText(['conversation']), '1 panel hidden: Conversation. Close the panel shown to see it.')
+  assert.equal(hiddenPanelsText(['detail', 'files', 'link']), '3 panels hidden: Agent card, Files, Link. Close the panel shown to see them.')
 })

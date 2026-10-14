@@ -148,3 +148,21 @@ export const WHY_LABELS = {
 
 /** Suffix of a timeline label whose call expired. */
 export const EXPIRED_LABEL_SUFFIX = `(expired, ${END_NOT_OBSERVED})`
+
+/** Docked panels (panel-layout ids) under the name the user knows them by. */
+const DOCK_PANEL_NAMES: Record<string, string> = {
+  detail: 'Agent card',
+  system: PANEL_NAMES.system,
+  link: 'Link',
+  files: PANEL_NAMES.files,
+  conversation: PANEL_NAMES.conversation,
+  timeline: PANEL_NAMES.timeline,
+}
+
+/** Sentence for the open panels a one-at-a-time sheet hides (#410); '' when none is hidden. */
+export function hiddenPanelsText(ids: readonly string[]): string {
+  if (ids.length === 0) return ''
+  const names = ids.map(id => DOCK_PANEL_NAMES[id] ?? id).join(', ')
+  const one = ids.length === 1
+  return `${ids.length} ${one ? 'panel' : 'panels'} hidden: ${names}. Close the panel shown to see ${one ? 'it' : 'them'}.`
+}

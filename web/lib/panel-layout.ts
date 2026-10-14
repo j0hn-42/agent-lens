@@ -24,6 +24,8 @@ export type PanelId = 'detail' | 'system' | 'link' | 'files' | 'conversation' | 
 
 /** Below this viewport width panels become full-width sheets (one at a time). */
 export const SHEET_BREAKPOINT = 900
+/** Band kept under the top bar by a sheet that hides other open panels (the "N panels hidden" notice). */
+export const SHEET_NOTICE_H = 44
 /** Space between two panels. */
 export const DOCK_GAP = 8
 /** Space between a panel and the viewport edge. */
@@ -193,7 +195,9 @@ export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
 function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room'): DockLayout {
   const { area } = base
   const newest = open[open.length - 1]
-  const sheet: Rect = { x: 8, y: area.y, w: Math.max(0, area.w - 0), h: area.h }
+  // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410)
+  const band = open.length > 1 ? Math.min(SHEET_NOTICE_H, area.h) : 0
+  const sheet: Rect = { x: 8, y: area.y + band, w: Math.max(0, area.w - 0), h: area.h - band }
   return {
     ...base,
     mode: 'sheet',
