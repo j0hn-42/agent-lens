@@ -49,7 +49,7 @@ function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentPro
     { label: '📊  Toggle Stats', onClick: a.toggleStats },
     { label: '⬡  Toggle Grid', onClick: a.toggleGrid },
     { label: '', onClick: () => {}, separator: true },
-    { label: '⟲  Clear history', onClick: a.clearHistory },
+    { label: '⟲  Clear history', confirmLabel: 'Confirm clear history', onClick: a.clearHistory },
     ...(a.reloadSessionEvents ? [{ label: '↻  Reload session events', onClick: a.reloadSessionEvents }] : []),
   ]
 }

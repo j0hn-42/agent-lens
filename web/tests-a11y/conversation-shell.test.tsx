@@ -202,26 +202,31 @@ test('Escape with focus on the page: Conversation first, the selection second (c
   assert.ok(agentCard(r) === null, 'press 2 clears the selection')
 })
 
-test('selecting an agent closes Files and the Cost overlay like the C / F toggles do: they share the right dock', async () => {
+test('selecting an agent keeps an open Files panel (no Conversation over it); Cost is independent of the right dock (#370)', async () => {
   const r = await mountWithAgents()
   const files = r.container.querySelector<HTMLElement>('#topbar-toggle-files')!
   await key('f')
   assert.ok(filesRegion(r), 'Files open')
   assert.equal(files.getAttribute('aria-pressed'), 'true', 'control: the Files toggle is on')
   await selectWorker(r)
-  assert.ok(conversationRegion(r), 'selection opened Conversation')
-  assert.ok(filesRegion(r) === null, 'Files closed by the selection path (openConversation)')
-  // A hidden-but-open panel would not show in a role query: the flag itself must be off
-  assert.equal(files.getAttribute('aria-pressed'), 'false', 'the Files flag is off, not just hidden by the dock')
+  assert.ok(agentCard(r), 'the selection shows the agent card')
+  assert.ok(filesRegion(r), 'Files stay open')
+  assert.equal(files.getAttribute('aria-pressed'), 'true', 'the Files flag is still on')
+  assert.equal(conversationRegion(r), null, 'Conversation did not open over Files')
 
-  // Cost overlay open (the toggle path closes Conversation); selecting ANOTHER agent must close Cost again
-  const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!
-  await key('$')
-  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'control: the Cost overlay opened')
-  assert.ok(conversationRegion(r) === null, 'control: the toggle path closed Conversation')
+  // Closing Files, then selecting another agent: nothing exclusive is open, so Conversation follows the selection
+  await key('f')
+  assert.ok(filesRegion(r) === null, 'Files closed')
   await selectAgentNamed(r, 'main-a')
   assert.ok(conversationRegion(r), 'the new selection opened Conversation')
-  assert.equal(cost.getAttribute('aria-pressed'), 'false', 'Cost closed by the selection path (openConversation)')
+
+  // Cost neither closes Conversation nor is closed by it
+  const cost = r.container.querySelector<HTMLElement>('#topbar-toggle-cost')!
+  await key('$')
+  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'the Cost overlay opened')
+  assert.ok(conversationRegion(r), 'Conversation stays open beside Cost')
+  await key('f')
+  assert.equal(cost.getAttribute('aria-pressed'), 'true', 'opening Files leaves Cost open')
 })
 
 // #116: below the sheet breakpoint (640 px = 200 % zoom, 320 px = 400 %) one panel fills the width and the newest

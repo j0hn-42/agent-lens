@@ -238,9 +238,10 @@ class VSCodeBridge {
     this.postToExtension({ type: 'permission-surface', ready })
   }
 
-  /** The operator's answer to one waiting request (#240): exactly the fields the extension checks */
+  /** The operator's answer to one waiting request (#240): exactly the fields the extension checks; only a redirect has a message (#387) */
   sendPermissionDecision(d: PermissionDecision): void {
-    this.postToExtension({ type: 'permission-decision', sessionId: d.sessionId, toolUseId: d.toolUseId, nonce: d.nonce, action: d.action })
+    const base = { type: 'permission-decision', sessionId: d.sessionId, toolUseId: d.toolUseId, nonce: d.nonce, action: d.action }
+    this.postToExtension(d.action === 'redirect' ? { ...base, message: d.message } : base)
   }
 
   /**

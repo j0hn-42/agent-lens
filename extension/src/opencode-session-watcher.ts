@@ -207,7 +207,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private pollDb(): boolean {
     const db = this.db
     if (!db) return false
-    const poll = db.poll(this.cursors, undefined, this.now())
+    const poll = db.poll(this.cursors)
     if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)

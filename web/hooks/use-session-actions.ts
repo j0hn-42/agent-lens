@@ -51,11 +51,10 @@ export function useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef 
     pushToast({
       message: `Session closed${closed ? `: ${closed.label}` : ''}`,
       actionLabel: 'Undo',
-      durationMs: 5000,
       onAction: () => {
         if (restoreSession(id) && wasSelected) selectSession(id)
       },
-      // The cached simulation state is only needed while undo is possible
+      // The cached simulation state is only needed while undo is possible (the toast stays until used or dismissed, #371)
       onExpire: () => { sessionCacheRef.current?.delete(id) },
     })
   }, [bridge.sessions, bridge.selectedSessionId, removeSession, restoreSession, selectSession, pushToast, sessionCacheRef])

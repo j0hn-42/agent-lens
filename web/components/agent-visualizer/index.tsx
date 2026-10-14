@@ -226,6 +226,7 @@ export function AgentVisualizer() {
         showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
+        connectionDetail={bridge.connectionDetail} onRetryConnection={bridge.relayOrigin !== null ? bridge.retryRelay : undefined} onExitDemo={bridge.exitDemo}
         activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} idleAgentCount={idleAgentCount} errorAgentCount={errorAgentCount} doneAgentCount={doneAgentCount}
         totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={usage.tokens} costUsage={usage.cost}
         unattributedCost={usage.summary.unattributedCost}

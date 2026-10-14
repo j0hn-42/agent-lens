@@ -206,8 +206,8 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
     const mine = abort
     const kill = setTimeout(() => mine.abort(), POLL_TIMEOUT_MS)
     opts.fetchStatus(opts.statusUrl, mine.signal).then(
-      res => { clearTimeout(kill); if (!alive()) return; abort = null; res.ok ? connect() : fail('probe-failed') },
-      () => { clearTimeout(kill); if (!alive()) return; abort = null; fail('probe-failed') },
+      res => { clearTimeout(kill); if (!alive() || abort !== mine) return; abort = null; res.ok ? connect() : fail('probe-failed') },
+      () => { clearTimeout(kill); if (!alive() || abort !== mine) return; abort = null; fail('probe-failed') },
     )
   }
 
@@ -278,6 +278,18 @@ export function createReconnectingSource(opts: ReconnectingSourceOptions) {
   connect()
 
   return {
+    /**
+     * "Retry now" (#371): skip the wait and open a stream at once. Only meaningful while the link is down
+     * (a pending backoff timer or probe); no-op when a stream is already open or connecting, or once closed.
+     */
+    retryNow() {
+      if (!alive() || es) return
+      if (timer) { clearTimeout(timer); timer = null }
+      if (abort) { abort.abort(); abort = null }
+      // The old "retry in Ns" is no longer true: say a connection attempt is running (announced like any status change)
+      emit('connecting')
+      connect()
+    },
     /** Stop everything: timers, in-flight probe and stream. Late callbacks are ignored. */
     close() {
       // Only invalidate if still the live source: a newer one owns the shared token

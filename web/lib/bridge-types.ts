@@ -302,13 +302,14 @@ export type PermissionCloseOutcome = 'sent' | 'expired' | 'answered-elsewhere' |
 export interface PermissionClosedMessage { nonce: string; sessionId: string; toolUseId: string | null; outcome: string }
 export interface PermissionResultMessage { nonce: string | null; ok: boolean; reason?: string }
 
-/** What the page answers; a redirect (with its text) is not offered yet */
-export interface PermissionDecision {
-  sessionId: string
-  toolUseId: string | null
-  nonce: string
-  action: 'approve' | 'deny'
-}
+/** The three answers the page can give; a redirect is a deny that carries the operator's text to Claude (#387) */
+export type PermissionAction = 'approve' | 'deny' | 'redirect'
+
+/** What the page answers: only a redirect carries a message, and it must not be empty */
+export type PermissionDecision = { sessionId: string; toolUseId: string | null; nonce: string } & (
+  | { action: 'approve' | 'deny' }
+  | { action: 'redirect'; message: string }
+)
 
 const NONCE_RE = /^[0-9a-f]{32}$/
 const SHA256_RE = /^[0-9a-f]{64}$/

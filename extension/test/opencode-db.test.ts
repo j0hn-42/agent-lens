@@ -1,7 +1,8 @@
 /**
  * OpenCode database reader (#346): path resolution from the spec rules, read-only opening, schema
  * check, and the cursor poll over `time_updated`. Real node:sqlite databases are built by the test
- * (schema reduced to the columns read); skipped where this Node has no node:sqlite.
+ * (schema reduced to the columns read); skipped where this Node has no node:sqlite. The schema and
+ * the paths follow the source code of OpenCode v1.19.0, not a real database: none was available.
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
@@ -9,14 +10,14 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
-  resolveOpenCodeDbPath, openOpenCodeDb, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX, OPENCODE_POLL_BYTES_MAX, OPENCODE_FUTURE_SKEW_MS,
+  resolveOpenCodeDbPath, openOpenCodeDb, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX, OPENCODE_POLL_BYTES_MAX,
   type OpenCodeCursors,
 } from '../src/opencode-db'
 import { nodeSqliteOpener, type IndexConnection, type IndexOpener } from '../src/session-index'
 
 const HOME = '/home/u'
-const resolve = (env: Record<string, string | undefined>, extra: { platform?: NodeJS.Platform; channel?: string } = {}) =>
-  resolveOpenCodeDbPath({ env, homedir: HOME, platform: extra.platform ?? 'linux', channel: extra.channel })
+const resolve = (env: Record<string, string | undefined>, extra: { platform?: NodeJS.Platform } = {}) =>
+  resolveOpenCodeDbPath({ env, homedir: HOME, platform: extra.platform ?? 'linux' })
 const pathOf = (r: ReturnType<typeof resolve>) => (r.kind === 'file' ? r.path : `unavailable: ${r.message}`)
 
 describe('resolveOpenCodeDbPath', () => {
@@ -30,24 +31,24 @@ describe('resolveOpenCodeDbPath', () => {
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: '' })), '/home/u/.local/share/opencode/opencode.db')
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: 'rel' })), '/home/u/.local/share/opencode/opencode.db')
   })
-  it('latest, beta and prod channels share opencode.db', () => {
-    for (const channel of ['latest', 'beta', 'prod']) {
-      assert.equal(pathOf(resolve({}, { channel })), '/home/u/.local/share/opencode/opencode.db')
-    }
-  })
-  it('other channels use opencode-<channel>.db with unsafe characters replaced', () => {
-    assert.equal(pathOf(resolve({}, { channel: 'local' })), '/home/u/.local/share/opencode/opencode-local.db')
-    assert.equal(pathOf(resolve({}, { channel: 'feat/x y' })), '/home/u/.local/share/opencode/opencode-feat-x-y.db')
-  })
-  it('OPENCODE_DISABLE_CHANNEL_DB=1|true forces opencode.db', () => {
-    for (const v of ['1', 'true']) {
-      assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: v }, { channel: 'local' })), '/home/u/.local/share/opencode/opencode.db')
-    }
-    assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' }, { channel: 'local' })), '/home/u/.local/share/opencode/opencode-local.db')
+  it('never guesses a channel file: opencode.db unless a path is given', () => {
+    assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' })), '/home/u/.local/share/opencode/opencode.db')
   })
   it('OPENCODE_DB: absolute path as is, relative path under <data>', () => {
     assert.deepEqual(resolve({ OPENCODE_DB: '/tmp/o.db' }), { kind: 'file', path: '/tmp/o.db' })
     assert.deepEqual(resolve({ OPENCODE_DB: 'x/o.db' }), { kind: 'file', path: '/home/u/.local/share/opencode/x/o.db' })
+  })
+  it('a relative OPENCODE_DB that leaves <data> is refused', () => {
+    for (const v of ['../o.db', 'x/../../o.db', '..']) {
+      assert.equal(resolve({ OPENCODE_DB: v }).kind, 'unavailable', v)
+    }
+    assert.equal(resolve({ OPENCODE_DB: 'x/../y.db' }).kind, 'file', 'staying inside <data> is fine')
+  })
+  it('an explicit dbPath setting wins over OPENCODE_DB and must be absolute', () => {
+    assert.deepEqual(resolveOpenCodeDbPath({ env: { OPENCODE_DB: '/env.db' }, homedir: HOME, platform: 'linux', dbPath: '/set/opencode-local.db' }),
+      { kind: 'file', path: '/set/opencode-local.db' })
+    assert.equal(resolveOpenCodeDbPath({ env: {}, homedir: HOME, platform: 'linux', dbPath: 'rel.db' }).kind, 'unavailable')
+    assert.equal(resolveOpenCodeDbPath({ env: {}, homedir: HOME, platform: 'linux', dbPath: '  ' }).kind, 'file', 'blank setting = unset')
   })
   it('OPENCODE_DB=:memory: has no file to read', () => {
     assert.equal(resolve({ OPENCODE_DB: ':memory:' }).kind, 'unavailable')
@@ -380,8 +381,8 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 })
 
 describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () => {
-  const open = (file: string) => {
-    const r = openOpenCodeDb(file)
+  const open = (file: string, clock?: () => number) => {
+    const r = openOpenCodeDb(file, undefined, clock)
     assert.equal(r.status, 'ok')
     if (r.status !== 'ok') throw new Error('unreachable')
     return r.db
@@ -407,22 +408,19 @@ describe('OpenCodeDb.poll hostile values and budgets', { skip: !hasSqlite }, () 
     odb.close()
   })
 
-  it('I2: a far-future time_updated does not move the cursor; a row within the skew is read', () => {
+  it('I2: a far-future time_updated does not move the cursor; a row within the margin is read once it settles', () => {
     const { file, db } = makeDb()
-    const now = 1_000_000_000_000
+    let now = 1_000_000_000_000
     db.exec(sess('past', now - 1000))
     db.exec(sess('future', 9e15))
-    db.exec(sess('near', now + OPENCODE_FUTURE_SKEW_MS - 1))
-    const odb = open(file)
-    const p = odb.poll(EMPTY_OPENCODE_CURSORS, 500, now)
-    assert.deepEqual(p.sessions.map(s => s.id), ['past', 'near'])
-    assert.equal(p.cursors.session.time, now + OPENCODE_FUTURE_SKEW_MS - 1)
-    assert.equal(OPENCODE_FUTURE_SKEW_MS, 5 * 60 * 1000)
-    db.exec(sess('outside', now + OPENCODE_FUTURE_SKEW_MS + 1))
-    assert.deepEqual(odb.poll(EMPTY_OPENCODE_CURSORS, 500, now).sessions.map(s => s.id), ['past', 'near'])
-    db.exec(sess('later', now + OPENCODE_FUTURE_SKEW_MS))
-    const q = odb.poll(p.cursors, 500, now + OPENCODE_FUTURE_SKEW_MS + 10)
-    assert.deepEqual(q.sessions.map(s => s.id), ['later', 'outside'])
+    db.exec(sess('outside', now + 60_000))
+    const odb = open(file, () => now)
+    const p = odb.poll(EMPTY_OPENCODE_CURSORS, 500)
+    assert.deepEqual(p.sessions.map(s => s.id), ['past'])
+    assert.equal(p.cursors.session.time, now - 1000)
+    now += 120_000
+    const q = odb.poll(p.cursors, 500)
+    assert.deepEqual(q.sessions.map(s => s.id), ['outside'])
     odb.close(); db.close()
   })
 
