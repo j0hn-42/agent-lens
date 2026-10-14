@@ -5,6 +5,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { createHash } from 'node:crypto'
 import { DecisionJournal, type DecisionRecord } from '../src/decision-journal'
+import { PermissionGate, sha256Json, type PermissionRequestView } from '../src/permission-gate'
 
 const posix = process.platform !== 'win32'
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'al-journal-'))
@@ -76,5 +77,28 @@ describe('DecisionJournal', () => {
     const blocker = path.join(dir, 'file')
     fs.writeFileSync(blocker, 'x')
     assert.equal(new DecisionJournal(path.join(blocker, 'sub', 'decisions.jsonl'), 1 << 20).append(rec()), false)
+  })
+})
+
+describe('a redirect in the journal (#387)', () => {
+  it('records the SHA-256 of the input and the length of the text, never the text nor the input', async () => {
+    const file = path.join(tmp(), 'decisions.jsonl')
+    const journal = new DecisionJournal(file, 1 << 20)
+    const gate = new PermissionGate({ enabled: () => true, canDecide: () => true, journal, ttlMs: 5000 })
+    const shown: PermissionRequestView[] = []
+    gate.onRequest(v => shown.push(v))
+    const input = { command: 'deploy --token sk-live-input-secret' }
+    const r = gate.request({ sessionId: 's1', toolName: 'Bash', toolInput: input, toolUseId: 'toolu_1' })
+    const text = 'do not deploy; ask me first (secret-redirect-text)'
+    assert.deepEqual(gate.decide({ sessionId: 's1', toolUseId: 'toolu_1', nonce: shown[0].nonce, action: 'redirect', message: text }), { ok: true })
+    assert.deepEqual(await r.decision, { behavior: 'deny', message: text })
+    const raw = fs.readFileSync(file, 'utf8')
+    assert.doesNotMatch(raw, /secret-redirect-text|ask me first|sk-live-input-secret|deploy/)
+    const [line] = lines(file)
+    assert.equal(line.decision, 'redirect')
+    assert.equal(line.outcome, 'sent')
+    assert.equal(line.inputSha256, sha256Json(input))
+    assert.equal(line.messageChars, text.length)
+    assert.equal(line.message, undefined)
   })
 })

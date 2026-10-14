@@ -95,7 +95,7 @@ button is rendered.
 With it, the inspector shows a button "Lancer un agent sur l'issue #N" ("Launch an agent on issue #N" in English) under each open issue of the agent's
 `agent:<role>` links. It opens a confirmation dialog (repository, issue, role, title, command, caps) where you paste
 the token printed on the relay's console; the token is never stored and is cleared when the dialog closes. The dialog
-announces each observed state, offers "Arrêter" while the launch runs, and shows the kept worktree path once it ended.
+announces each observed state, offers "Arrêter" (with a confirmation step) while the launch runs, and shows the kept worktree path once it ended.
 The button needs the page to be served by the relay itself (same origin): the dev server on :3000 and the VS Code
 webview do not offer it, because the relay answers no CORS preflight (a separate follow-up). Details in
 [launch-security.md](launch-security.md#use-it-from-the-inspector).

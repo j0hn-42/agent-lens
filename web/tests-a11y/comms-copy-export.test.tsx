@@ -7,7 +7,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 
 import {
-  conversationToMarkdown, conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText,
+  conversationExport, exportSavedMessage, EXPORT_FAILED_MESSAGE, messageToMarkdown, exportNotes, exportFileName, copyText,
 } from '@/lib/comms-export'
 import { LINK_MESSAGE_MAX_CHARS } from '@/components/agent-visualizer/canvas/link-panel-model'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -79,7 +79,7 @@ test('a truncated message says so in the export, never silently', () => {
 test('the conversation export states what it does not contain', () => {
   const notes = exportNotes({ droppedText: '3 older messages were dropped', toolsHidden: true, searchQuery: ' foo ' })
   assert.equal(notes.length, 3)
-  const md = conversationToMarkdown({ title: 'T', entries: [{ label: 'MESSAGE', time: '0:00', content: 'hi' }], notes })
+  const { markdown: md } = conversationExport({ title: 'T', entries: [{ label: 'MESSAGE', time: '0:00', content: 'hi' }], notes })
   assert.match(md, /^# T\n\n1 message\n/)
   assert.match(md, /> Incomplete: 3 older messages were dropped\./)
   assert.match(md, /> Incomplete: tool calls and results were hidden/)
@@ -169,7 +169,7 @@ test('the Markdown export masks secrets in contents, title and notes, and counts
   assert.ok(!out.markdown.includes('abcdefghijklmnop1234'))
   assert.match(out.markdown, /\[REDACTED:github-token\]/)
   assert.equal(out.redactions, 4)
-  assert.equal(conversationToMarkdown({ title: 't', entries: [{ label: 'X', time: '0:00', content: TOKEN }], notes: [] }).includes(TOKEN), false)
+  assert.equal(conversationExport({ title: 't', entries: [{ label: 'X', time: '0:00', content: TOKEN }], notes: [] }).markdown.includes(TOKEN), false)
 })
 
 test('the saved message announces the number of masked secrets, and the failure message is the shared one', () => {

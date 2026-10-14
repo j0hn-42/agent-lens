@@ -7,13 +7,14 @@ import { useFocusReturn } from '@/hooks/use-focus-return'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { subscribeDockUserResize } from '@/components/agent-visualizer/shared-ui'
 import { dockStore, SHEET_BREAKPOINT } from '@/lib/panel-layout'
+import { shouldAutoOpenConversation } from '@/lib/exclusive-panels'
 import type { UiPrefs } from '@/lib/ui-preferences'
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
 
 type FlagKey = 'showStats' | 'showHexGrid' | 'showCostOverlay' | 'showTimeline' | 'showFiles' | 'showConversation'
 
-/** The panels that exclude each other (Conversation and Files share the right dock, Cost is an overlay on it) */
+/** The panels that can be toggled together: Files, Conversation and Context exclude each other, Cost is an independent overlay (#370) */
 export type ExclusivePanel = 'files' | 'conversation' | 'cost' | 'context'
 
 /**
@@ -50,27 +51,30 @@ export function usePanelsState(uiPrefs: UseUiPreferences, selectedAgentId: strin
   useEffect(() => { dockStore.setRightWidth(prefs.dockRightWidth) }, [prefs.dockRightWidth])
   useEffect(() => subscribeDockUserResize(width => setPref('dockRightWidth', width)), [setPref])
 
-  // Opening one exclusive panel closes the others (the project context panel included)
+  // Files, Conversation and Context share the right dock and are mutually exclusive; Cost is an independent overlay (#370)
   const toggleExclusivePanel = useCallback((panel: ExclusivePanel) => {
+    if (panel === 'cost') { setShowCostOverlay(prev => !prev); return }
     setShowContext(prev => panel === 'context' ? !prev : false)
     setShowFileAttention(prev => panel === 'files' ? !prev : false)
     setShowConversation(prev => panel === 'conversation' ? !prev : false)
-    setShowCostOverlay(prev => panel === 'cost' ? !prev : false)
   }, [setShowFileAttention, setShowConversation, setShowCostOverlay])
   const openConversation = useCallback(() => {
     setShowFileAttention(false)
-    setShowCostOverlay(false)
     setShowContext(false)
     setShowConversation(true)
-  }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
+  }, [setShowFileAttention, setShowConversation])
   const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
 
   // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
   // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
   // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
   // Conversation right after the card would hide the inspector (and closing it would drop the selection).
+  // Not over a panel the user opened (Files, Context): selecting an agent must not close them (#370). The flags are
+  // read from a ref so that closing a panel does not re-run the effect.
+  const dockFlagsRef = useRef({ files: false, context: false })
+  dockFlagsRef.current = { files: showFileAttention, context: showContext }
   useEffect(() => {
-    if (selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
+    if (selectedAgentId && shouldAutoOpenConversation(dockFlagsRef.current, dockStore.getSnapshot().env.viewport.w, SHEET_BREAKPOINT)) openConversation()
   }, [selectedAgentId, openConversation])
 
   // Focus management: move focus into a panel when it opens, back to its trigger when it closes

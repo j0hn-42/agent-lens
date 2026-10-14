@@ -138,18 +138,43 @@ const TONE_COLOR: Record<ConnectionTone, string> = themed(() => ({
   demo: COLORS.holoBright,
 }))
 
-/** Shown in every mode. The text label (never colour alone) carries the state. */
-function ConnectionIndicator({ status, isDemo }: { status: ConnectionStatus; isDemo: boolean }) {
-  const display = connectionDisplay(status, isDemo)
+/**
+ * Shown in every mode. The text label (never colour alone) carries the state. While offline the reconnect detail
+ * ("attempt 2, retry in 10s") is written next to it and in the tooltip, with a "Retry now" button (#371).
+ * In demo, a button leaves it.
+ */
+function ConnectionIndicator({ status, isDemo, detail, onRetry, onExitDemo }: {
+  status: ConnectionStatus; isDemo: boolean; detail?: string | null; onRetry?: () => void; onExitDemo?: () => void
+}) {
+  const display = connectionDisplay(status, isDemo, detail)
   const color = TONE_COLOR[display.tone]
+  const offline = !isDemo && display.tone === 'error'
+  // The buttons disappear once used (state changes): hand focus to the label so it is not lost on <body> (2.4.3)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const then = (fn?: () => void) => () => { labelRef.current?.focus({ preventScroll: true }); fn?.() }
+  const buttonClass = `min-h-6 min-w-6 px-2 rounded text-xs font-semibold ${FOCUS_RING}`
+  const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
   return (
-    <span title={display.description} className="flex items-center gap-1.5 font-semibold" style={{ color }}>
-      <span
-        aria-hidden="true"
-        className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
-        style={{ background: display.tone === 'error' ? 'transparent' : color, border: `2px solid ${color}`, boxShadow: `0 0 4px ${color}` }}
-      />
-      {display.label}
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span ref={labelRef} tabIndex={-1} title={display.description} className="flex items-center gap-1.5 font-semibold outline-none" style={{ color }}>
+        <span
+          aria-hidden="true"
+          className={`w-2 h-2 rounded-full ${display.tone === 'pending' ? 'motion-safe:animate-pulse' : ''}`}
+          style={{ background: display.tone === 'error' ? 'transparent' : color, border: `2px solid ${color}`, boxShadow: `0 0 4px ${color}` }}
+        />
+        {display.label}
+      </span>
+      {offline && detail && <span data-testid="connection-detail" style={{ color: COLORS.textMuted }}>{detail}</span>}
+      {offline && onRetry && (
+        <button type="button" data-testid="retry-connection" onClick={then(onRetry)} className={buttonClass} style={buttonStyle}>
+          Retry now
+        </button>
+      )}
+      {isDemo && onExitDemo && (
+        <button type="button" data-testid="exit-demo" onClick={then(onExitDemo)} className={buttonClass} style={buttonStyle}>
+          Exit demo
+        </button>
+      )}
     </span>
   )
 }
@@ -181,6 +206,12 @@ export interface TopBarProps {
   connectionStatus: ConnectionStatus
   /** True when the visualizer shows the built-in demo scenario instead of live data */
   isDemo?: boolean
+  /** "reconnecting (attempt N, retry in Xs)" while the relay link is down (#371) */
+  connectionDetail?: string | null
+  /** "Retry now": offered while offline */
+  onRetryConnection?: () => void
+  /** "Exit demo": offered next to the DEMO badge */
+  onExitDemo?: () => void
   // Stats
   activeAgentCount: number
   /** Agents whose status is older than the freshness limit (not counted as active) */
@@ -235,7 +266,7 @@ export const TopBar = memo(function TopBar({
   showSessions, onToggleSessions,
   allSessionCount, showFinished = false, finishedSessionCount = 0, onToggleShowFinished,
   hideInactive = false, onToggleHideInactive,
-  isVSCode, connectionStatus, isDemo = false,
+  isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
@@ -294,7 +325,7 @@ export const TopBar = memo(function TopBar({
 
       {/* Right-side info/controls */}
       <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
-        <ConnectionIndicator status={connectionStatus} isDemo={isDemo} />
+        <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
         {attentionText && onJumpToAttention && (
           <button
             type="button"
@@ -373,7 +404,7 @@ export const TopBar = memo(function TopBar({
         </span>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
-          {/* Side panels: Files, Conversation, Context and Cost are mutually exclusive; System opens beside them */}
+          {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
           {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
           <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
             background: COLORS.holoBg03,

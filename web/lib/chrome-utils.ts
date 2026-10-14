@@ -282,13 +282,13 @@ export type ConnectionTone = 'ok' | 'pending' | 'error' | 'demo'
 export interface ConnectionDisplay { label: string; tone: ConnectionTone; description: string }
 
 /** Single place that decides the connection badge: DEMO never masquerades as LIVE. */
-export function connectionDisplay(status: ConnectionStatus, isDemo: boolean): ConnectionDisplay {
+export function connectionDisplay(status: ConnectionStatus, isDemo: boolean, detail?: string | null): ConnectionDisplay {
   if (isDemo) return { label: 'DEMO', tone: 'demo', description: 'Showing demo data, not a live session' }
   switch (status) {
     case 'watching': return { label: 'LIVE', tone: 'ok', description: 'Live: watching for agent activity' }
     case 'connected': return { label: 'CONNECTED', tone: 'ok', description: 'Connected, waiting for agent activity' }
     case 'connecting': return { label: 'CONNECTING', tone: 'pending', description: 'Connecting to the relay' }
-    default: return { label: 'OFFLINE', tone: 'error', description: 'Relay offline' }
+    default: return { label: 'OFFLINE', tone: 'error', description: detail ? `Relay offline: ${detail}` : 'Relay offline' }
   }
 }
 
@@ -334,7 +334,10 @@ export function formatMissedEvents(n: number): string | null {
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-export interface ChecklistItem { id: string; label: string; ok: boolean; detail?: string }
+/** `unknown`: cannot be proven right now (no relay to ask); shown as unknown, never as failed or done */
+export interface ChecklistItem { id: string; label: string; ok: boolean; detail?: string; unknown?: boolean }
+
+const UNKNOWN_DETAIL = 'unknown until the relay answers'
 
 export function emptyStateChecklist(opts: {
   status: ConnectionStatus
@@ -347,22 +350,25 @@ export function emptyStateChecklist(opts: {
   scope?: 'workspace' | 'all'
 }): ChecklistItem[] {
   const relayOk = opts.status === 'connected' || opts.status === 'watching'
+  // Without a relay answer the watched scope and the sessions cannot be known (#371)
+  const relayUnknown = !relayOk
   const items: ChecklistItem[] = [
     {
       id: 'relay',
       label: 'Relay connected',
       ok: relayOk,
-      detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable',
+      detail: relayOk ? undefined : opts.status === 'connecting' ? 'connecting...' : (opts.relayPort ? `unreachable on :${opts.relayPort}` : 'unreachable') + (opts.isVSCode ? '' : '; start it with "pnpm run dev:relay"'),
     },
     opts.scope === 'all'
-      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk }
+      ? { id: 'workspace', label: 'All workspaces watched', ok: relayOk, ...(relayUnknown && { unknown: true, detail: UNKNOWN_DETAIL }) }
       : {
           id: 'workspace', label: 'Workspace watched', ok: opts.status === 'watching',
-          detail: opts.status === 'watching' ? undefined
+          ...(relayUnknown && { unknown: true }),
+          detail: relayUnknown ? UNKNOWN_DETAIL : opts.status === 'watching' ? undefined
             : opts.scope === 'workspace' ? 'this workspace only: choose All workspaces in the scope selector to look at the others'
             : 'only the current workspace is watched',
         },
-    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, detail: opts.sessionCount > 0 ? undefined : 'start a session to see activity' },
+    { id: 'runtime', label: 'Claude Code, Codex, Copilot, Pi or Gemini CLI session detected', ok: opts.sessionCount > 0, ...(relayUnknown && opts.sessionCount === 0 && { unknown: true }), detail: opts.sessionCount > 0 ? undefined : relayUnknown ? UNKNOWN_DETAIL : 'start a session to see activity' },
   ]
   if (opts.hooksConfigured !== undefined) {
     items.push({

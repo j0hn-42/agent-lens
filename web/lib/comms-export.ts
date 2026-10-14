@@ -55,10 +55,6 @@ export function conversationExport({ title, entries, notes }: ConversationExport
   return { markdown, redactions: counts.total }
 }
 
-export function conversationToMarkdown(input: ConversationExport): string {
-  return conversationExport(input).markdown
-}
-
 /** Failure message shared by every export (session replay and Markdown conversation). */
 export const EXPORT_FAILED_MESSAGE = 'Export failed: this view cannot save files'
 
