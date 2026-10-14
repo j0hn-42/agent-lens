@@ -23,6 +23,9 @@ export const COPILOT_MAX_WATCHED_SESSIONS = 25
 /** Plafond de sessions Pi suivies en même temps (même logique que Codex et Copilot, #238) */
 export const PI_MAX_WATCHED_SESSIONS = 25
 
+/** Sessions racines OpenCode suivies en même temps ; les plus anciennes sont ignorées au-delà. */
+export const OPENCODE_MAX_WATCHED_SESSIONS = 25
+
 /** Plafond de sessions Gemini CLI suivies en même temps (même logique que Pi, #238) */
 export const GEMINI_MAX_WATCHED_SESSIONS = 25
 
