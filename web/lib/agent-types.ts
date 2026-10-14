@@ -128,8 +128,10 @@ export interface DelegationReturn {
   /** True when the report was longer than the excerpt (the full text is in the Conversation) */
   truncated: boolean
   isError: boolean
-  /** Seconds reported by the runtime for a live return; never kept for a replayed or imported one */
+  /** Seconds of a live return, measured by Agent Lens; never kept for a replayed or imported one */
   durationS?: number
+  /** True when durationS is the one a background completion notice records, not a measurement (#365) */
+  durationRecorded?: boolean
   /** Simulation time of the return */
   time: number
 }

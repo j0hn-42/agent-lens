@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, resumeSession, toSimulationEvent, type SystemSample } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
@@ -602,8 +602,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
             return prev.map(s => {
               if (s.id !== session.id) return s
               if (session.imported) return session
-              const { indexedOnly: _indexedOnly, ...live } = s // now watched live
-              return { ...live, status: 'active' as const, lastActivityTime: Date.now() }
+              return resumeSession(s, session, Date.now()) // now watched live, with the times the source gives
             })
           }
           return [...prev, session]

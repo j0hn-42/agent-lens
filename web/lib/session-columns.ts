@@ -94,22 +94,34 @@ export interface SessionSpan {
   startTime: number
   lastActivityTime: number
   lastActivityUnknown?: boolean
+  recordedStartTime?: number
+  startTimeWatched?: boolean
 }
 
 /**
  * Duration of a session: elapsed since the start while it is active, start to last activity once it is
- * completed. Unknown (dash) when the end of a completed session was never observed. While the relay is offline
- * (`relayOffline`) an active session is not proven to run: its duration stops at its last activity (#367).
+ * completed. The start is the one the transcript records (#365); when only the moment watching began is known,
+ * the duration is a lower bound (≥) and its name says "watched for". Unknown (dash) when the end of a completed
+ * session was never observed. While the relay is offline (`relayOffline`) an active session is not proven to
+ * run: its duration stops at its last activity (#367).
  */
 export function sessionTimeCell(s: SessionSpan, now: number, relayOffline = false): ColumnCell {
   const running = s.status === 'active' && !relayOffline
   const end = running ? now : s.lastActivityUnknown ? NaN : s.lastActivityTime
-  const ms = end - s.startTime
+  const watched = s.recordedStartTime === undefined && s.startTimeWatched === true
+  const ms = end - (s.recordedStartTime ?? s.startTime)
   if (!Number.isFinite(ms) || ms < 0) return emptyCell('duration unknown')
   const text = formatDurationCompact(ms)
+  if (watched) {
+    const label = running ? `watched for ${text}, at least that long` : `at least ${text} long`
+    return { text: `≥${text}`, label: `${label}, ${SESSION_START_UNRECORDED_TEXT}`, empty: false }
+  }
   const suffix = running ? 'since start' : s.status === 'active' ? 'until last activity' : 'long'
   return { text, label: `${text} ${suffix}`, empty: false }
 }
+
+/** Said of a session whose transcript records no start: its duration only counts since watching began. */
+const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
 
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {
