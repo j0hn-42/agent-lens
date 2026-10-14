@@ -252,7 +252,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     r.db.close(); db.close()
   })
 
-  it('skips and counts rows with an unusable id, timestamp or oversized data', () => {
+  it('skips and counts rows with an unusable id or oversized data', () => {
     const { file, db } = makeDb()
     db.exec(sess('s1', 100)); db.exec(msg('m1', 110))
     db.exec(`INSERT INTO part VALUES ('big', 'm1', 's1', 1, 120, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
@@ -263,7 +263,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
     const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
     assert.deepEqual(p.parts.map(x => x.id), ['ok'])
-    assert.equal(p.skippedRows, 3)
+    assert.equal(p.skippedRows, 2, 'oversized data and null id; a row without a numeric time_updated is never selected')
     r.db.close(); db.close()
   })
 
