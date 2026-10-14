@@ -688,8 +688,6 @@ export const PLACEMENT = {
 /** No event for this long (ms) and a live status is no longer proven: the node turns "stale" */
 /** Mirrors SNAPSHOT_STALE_AFTER_MS of extension/src/constants.ts (a test compares them) */
 export const STALE_AFTER_MS = 30_000
-/** A status that comes from history (not seen live) expires after this long (ms) */
-export const HISTORY_STATUS_EXPIRY_MS = 15 * 60_000
 /** A terminal status (error / interrupted) stays visible this long (ms), then the agent reads "closed" */
 export const TERMINAL_STATUS_VISIBLE_MS = 2 * 60_000
 /** A live agent silent for more than this long (ms) is reported as silent for N min, or as waiting for a permission (#226) */

@@ -21,6 +21,9 @@
  *  3. When the load ends the held events are replayed in order; an event whose derived id
  *     (deriveEventId) matches an event of the OTHER source collapses with it, the winner being
  *     chosen by resolveConflict and placed at the position of the first one.
+ *     A transcript event delivered from that hold is history, not live: it carries `replayed: true`
+ *     (#361). A hook event is pushed by Claude Code when it happens, so it is never marked. A re-send of
+ *     known state to a reconnecting client (`asReplayed`) is marked the same way.
  *  4. Delivered ids are remembered (bounded) so a copy that arrives later from the other
  *     source (a late JSONL line, a late hook) is dropped; what was delivered cannot be retracted,
  *     so for late arrivals the first delivery stands.
@@ -110,6 +113,8 @@ export class EventReconciler {
   private readonly maxSessions: number
   private readonly maxHeld: number
   private loading = 0
+  /** > 0 while state already known is re-sent to a reconnecting client (asReplayed) */
+  private replaying = 0
   private held: SourcedEvent[] = []
   /** session -> (id -> source of the delivered copy), insertion-ordered for bounded eviction */
   private readonly delivered = new Map<string, Map<string, EventSource>>()
@@ -135,7 +140,7 @@ export class EventReconciler {
       if (this.held.length >= this.maxHeld) this.flush()
       return
     }
-    this.process([sourced])
+    this.process([sourced], false)
   }
 
   /**
@@ -152,6 +157,15 @@ export class EventReconciler {
     }
   }
 
+  /**
+   * Re-send what is already known (a reopened webview, #361): the transcript events submitted meanwhile are
+   * delivered at once, as usual, but marked `replayed`. Not a hold: nothing is deduplicated against history.
+   */
+  asReplayed<T>(resend: () => T): T {
+    this.replaying++
+    try { return resend() } finally { this.replaying-- }
+  }
+
   /** Forget what was delivered for a session (it was unwatched). */
   forgetSession(sessionId: string): void { this.delivered.delete(sessionId) }
 
@@ -160,11 +174,14 @@ export class EventReconciler {
   private flush(): void {
     const batch = this.held
     this.held = []
-    this.process(batch)
+    this.process(batch, true)
   }
 
-  /** Collapse cross-source duplicates inside the batch, drop copies already delivered, deliver the rest. */
-  private process(batch: SourcedEvent[]): void {
+  /**
+   * Collapse cross-source duplicates inside the batch, drop copies already delivered, deliver the rest.
+   * `fromHistory`: the batch was held during a history load, so its transcript events are replayed.
+   */
+  private process(batch: SourcedEvent[], fromHistory: boolean): void {
     const out: SourcedEvent[] = []
     const index = new Map<string, number>()
     for (const item of batch) {
@@ -181,7 +198,8 @@ export class EventReconciler {
     for (const item of out) {
       if (this.alreadyDelivered(item)) continue
       this.remember(item)
-      this.deliverFn(item.event, item.source)
+      const replayed = (fromHistory || this.replaying > 0) && item.source === 'jsonl'
+      this.deliverFn(replayed ? { ...item.event, replayed: true } : item.event, item.source)
     }
   }
 

@@ -171,6 +171,11 @@ export class SessionWatcher implements AgentSessionWatcher {
   /** Re-emit session start + conversation events for a newly connected webview.
    *  If sessionIds is provided, only replay those sessions. */
   replaySessionStart(sessionIds?: string[]): void {
+    // What is re-sent here was read before, not seen now: the webview must not show it as live (#361)
+    this.reconciler.asReplayed(() => this.resendSessionStart(sessionIds))
+  }
+
+  private resendSessionStart(sessionIds?: string[]): void {
     for (const [sessionId, session] of this.sessions) {
       if (!session.sessionDetected) { continue }
       if (sessionIds && !sessionIds.includes(sessionId)) { continue }

@@ -20,7 +20,7 @@ Prints the answer of `GET /observations?agents=1` as one JSON document: sessions
 
 ### `tail`
 
-Prints one JSON object per line (the event: `time`, `type`, `payload`, `sessionId`) for each **live** event of `GET /events`. The events the relay replays when you connect are history, not news: they are skipped unless you pass `--replay`.
+Prints one JSON object per line (the event: `time`, `type`, `payload`, `sessionId`) for each **live** event of `GET /events`. History is not news, so it is skipped unless you pass `--replay`: the events the relay replays when you connect, and the events it read from a transcript when it attached a session (they carry `replayed: true`). With `--replay`, an event read from a transcript keeps its `replayed: true`.
 
 | Option | Effect |
 | --- | --- |

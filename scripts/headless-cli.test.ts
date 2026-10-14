@@ -100,6 +100,16 @@ describe('runCli', () => {
     await runCli('tail', ['--port', String(port), '--count', '2', '--replay'], b.io, {})
     assert.deepEqual(b.out.join('').trim().split('\n').map(l => JSON.parse(l).type), ['agent_spawn', 'agent_complete'])
   })
+  it('tail skips a single event the relay marks replayed (attach catch-up, #361) unless --replay is given', async () => {
+    sseWrites = [sse({ type: 'agent-event', event: { time: 1, type: 'message', payload: {}, sessionId: 's1', replayed: true } }), sse(ev('agent_complete'))]
+    const a = io()
+    await runCli('tail', ['--port', String(port), '--count', '1'], a.io, {})
+    assert.deepEqual(a.out.join('').trim().split('\n').map(l => JSON.parse(l).type), ['agent_complete'])
+    const b = io()
+    await runCli('tail', ['--port', String(port), '--count', '2', '--replay'], b.io, {})
+    const lines = b.out.join('').trim().split('\n').map(l => JSON.parse(l))
+    assert.deepEqual(lines.map(l => [l.type, l.replayed]), [['message', true], ['agent_complete', undefined]])
+  })
   it('tail passes --session to the relay', async () => {
     sseWrites = [sse(ev('agent_complete'))]
     await runCli('tail', ['--port', String(port), '--count', '1', '--session', 'abc_1'], io().io, {})

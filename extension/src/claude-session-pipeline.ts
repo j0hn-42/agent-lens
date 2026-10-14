@@ -142,6 +142,11 @@ export class ClaudeSessionPipeline {
       // Content that was already in the file (e.g. the first user message): prescanned for dedup and
       // tokens but never emitted, so emit it now for the clients to show the full history.
       this.parser.emitCatchUpEntries(catchUpEntries, session, sessionId)
+
+      // The subagent, teammate and workflow files already there are history too (#361): a teammate's
+      // replayed tail and a pending sub-agent's spawn were not seen live. Later scans (poll, tail) are live.
+      session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
+      scanSubagentsDir(this.delegate, this.parser, sessionId)
     })
 
     const guard = (fn: () => void) => (this.host.guard ? this.host.guard(fn, sessionId) : fn())
@@ -156,8 +161,6 @@ export class ClaudeSessionPipeline {
       scanSubagentsDir(this.delegate, this.parser, sessionId)
     }), POLL_FALLBACK_MS)
 
-    session.subagentsDir = path.join(path.dirname(filePath), sessionId, 'subagents')
-    scanSubagentsDir(this.delegate, this.parser, sessionId)
     this.resetInactivityTimer(sessionId)
     this.host.log?.(`Watching ${sessionId.slice(0, SESSION_ID_DISPLAY)} — "${session.label}"`)
   }
