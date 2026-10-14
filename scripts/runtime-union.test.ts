@@ -14,6 +14,18 @@ const RUNTIME_LIST_FILES = [
   'extension/package.json',
   'scripts/mcp/server.ts',
   'scripts/relay.ts',
+  'web/lib/agent-types.ts',
+  'web/lib/bridge-types.ts',
+  'web/lib/chrome-utils.ts',
+  'web/lib/session-filter.ts',
+  'web/lib/ui-preferences.ts',
+  'web/lib/legend-presence.ts',
+  'web/hooks/simulation/handle-agent-events.ts',
+  'web/components/agent-visualizer/conversation-panel.tsx',
+  'web/components/agent-visualizer/canvas/draw-bubbles.ts',
+  'web/components/agent-visualizer/canvas/draw-agents.ts',
+  'web/components/agent-visualizer/canvas/cluster-model.ts',
+  'web/components/agent-visualizer/canvas/a11y-model.ts',
 ]
 
 for (const file of RUNTIME_LIST_FILES) {

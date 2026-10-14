@@ -149,9 +149,9 @@ For contributors: the interface colours are defined by role in `web/lib/theme-to
 | **Not provable: ...** / **Chain stops: ...** | The reasoning or the next hop of a failure cannot be proven from the kept history (see [Why this tool?](#why-this-tool-and-the-causal-chain-of-a-failure)). Nothing is guessed. |
 | `actual` / `configured` / `requested` (model pill) | Where the model shown comes from, strongest first. `requested != actual` means the runtime used another model. |
 
-A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. For Claude Code sessions, the relay and the VS Code extension mark the events they read from a transcript history (`replayed`): the catch-up read when a session is attached, the sub-agent and teammate files already there, an imported transcript, and what is re-sent to a reopened panel. The page marks the events it replays itself. The initial history read of the Codex, Copilot, Pi and Gemini watchers is not marked yet ([#390](https://github.com/j0hn-42/agent-lens/issues/390)): their agents can still be shown as live right after the attach. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
+A silence is reported only for a status seen live and only for an agent that is not closed (done, failed or interrupted). A status that comes from a replayed history is never reported as silent: its age is not a wall-clock silence. For Claude Code sessions, the relay and the VS Code extension mark the events they read from a transcript history (`replayed`): the catch-up read when a session is attached, the sub-agent and teammate files already there, an imported transcript, and what is re-sent to a reopened panel. The page marks the events it replays itself. The initial history read of the Codex, Copilot, Pi, Gemini and OpenCode watchers is not marked yet ([#390](https://github.com/j0hn-42/agent-lens/issues/390)): their agents can still be shown as live right after the attach. The threshold is `SILENT_AFTER_MS` in `web/lib/canvas-constants.ts`.
 
-A silence never ends a session. However long a session is silent (`pnpm test` running for 7 minutes, a permission left unanswered), its agents keep their last known state and its sub-agents are not closed. A session is marked completed (✓ in the Sessions panel, the **Session finished** notification) only when its end is observed: Claude Code's `SessionEnd` hook. A `Stop` hook only ends a turn: the orchestrator becomes idle, not done. Without the hooks, and for Codex, Copilot, Pi and Gemini, which report no end, a session stays active, in its last known state.
+A silence never ends a session. However long a session is silent (`pnpm test` running for 7 minutes, a permission left unanswered), its agents keep their last known state and its sub-agents are not closed. A session is marked completed (✓ in the Sessions panel, the **Session finished** notification) only when its end is observed: Claude Code's `SessionEnd` hook. A `Stop` hook only ends a turn: the orchestrator becomes idle, not done. Without the hooks, and for Codex, Copilot, Pi, Gemini and OpenCode, which report no end, a session stays active, in its last known state.
 
 ## Repeated reads and calls
 
@@ -249,6 +249,16 @@ Gemini CLI sessions (#238) are read from their chat files (`<home>/.gemini/tmp/<
 - **Rewinds and edits.** Gemini CLI rewrites a message in the file each time it changes, and can drop messages (`/rewind`) or edit them afterwards. A message is shown once. What was shown before a rewind stays shown: it did happen, and the file cannot say more. Edits to a message after the fact are not shown.
 - **Not listed.** A file whose first record is not a metadata record, whose session id holds a dot, or which is a symbolic link; the old single-file `.json` sessions.
 
+## OpenCode sessions
+
+OpenCode sessions (#346) are read from OpenCode's own SQLite database (`<data>/opencode.db`, `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`), opened read-only and polled; there is no hook. They carry the badge `OC` (accessible name "OpenCode") and the square brackets mark. What is shown, and what is not:
+
+- **Shown.** The prompts, the replies, the reasoning, and each tool call paired with its end.
+- **No pending permission.** The database does not record a permission request waiting for an answer, so none is shown.
+- **No end of session.** OpenCode reports no end: a silent session is not a finished one, and it stays active in its last known state.
+- **No streaming text.** A reply appears once it is written to the database; the text still being streamed is not visible.
+- **Platforms.** Linux and macOS only. On Windows the location is not resolved yet: set `OPENCODE_DB` to an absolute path.
+
 ## Project folders
 
 Claude Code stores a session under `~/.claude/projects/<folder>`, where every character that is not a letter or digit of the project path becomes `-`: `/Users/me/my_project` and `C:\Users\me\my_project` give `-Users-me-my-project` and `C--Users-me-my-project`. Agent Lens finds the folder of your workspace and of its sub-projects with that rule, ignoring case on Windows. Past 200 characters Claude Code cuts the name and appends a hash that Agent Lens cannot recompute, so such a folder is matched on its first 200 characters.
@@ -271,7 +281,7 @@ The Context panel ends with a **CAPABILITIES** block (#242): what the selected s
 | "The session transcript could not be read" | Missing, a symbolic link, outside the Claude projects folder, or a read error: the capabilities are unknown, never shown as empty lists. |
 | "Not provided by this relay" | The relay is older than this view and sends no capabilities. |
 
-Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot, Pi and Gemini CLI sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
+Limits, on purpose: sub-agents (their own transcripts and sidechain lines) are not included; Codex, Copilot, Pi, Gemini CLI and OpenCode sessions and imported transcripts have no project context, so no capabilities either. The read is local, read-only and bounded, and the relay re-parses a transcript only when its size or modification time changed.
 
 ## Resuming a session
 

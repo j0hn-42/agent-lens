@@ -665,6 +665,7 @@ function roleLabelOf(type: string, runtime?: Agent['runtime']): string {
   if (type === 'assistant' && runtime === 'copilot') return 'COPILOT'
   if (type === 'assistant' && runtime === 'pi') return 'PI'
   if (type === 'assistant' && runtime === 'gemini') return 'GEMINI'
+  if (type === 'assistant' && runtime === 'opencode') return 'OPENCODE'
   return (ROLE_COLORS[type] ?? ROLE_COLORS.assistant).label
 }
 

@@ -121,6 +121,10 @@ What the guards will enforce once the token exists (tested now through the app's
 
 `--allow-host` only covers named tunnels (Tailscale serve, a reverse proxy with its own name), which must forward the `Host` header unchanged. An SSH `-L` tunnel is not one of them: the remote browser opens `http://localhost:<port>`, so it sends `Host: localhost:<port>`, which is a loopback `Host`. It gets the full loopback surface (`/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope`), and the `Origin` check of a tunnel does not apply. The same holds for a tunnel that rewrites `Host` to `127.0.0.1`. Step 2 (token) has to close this before `--allow-host` is enabled: the token must be required even on a loopback `Host` when the access is remote.
 
+## OpenCode (#346)
+
+OpenCode has no hook and no transcript file: it keeps every session in one SQLite database (`<data>/opencode.db`, `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`; `OPENCODE_DB` overrides the path, an absolute path as is). The relay opens it read-only, polls it, and turns new rows into events; it never writes to it. Select it alone with `AGENT_LENS_RUNTIME=opencode`; by default it is watched with the other runtimes. As with Pi and Gemini CLI there is no hook to reconcile: the database is the only source. Windows is not supported yet (set `OPENCODE_DB` to an absolute path). What the UI shows is in [Reading the UI](reading-the-ui.md#opencode-sessions).
+
 ## Scope of the discovery (#291)
 
 The relay discovers Claude Code sessions in one of two scopes:
@@ -164,4 +168,4 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 | `skippedSessions.sizeLimit` | 256 MB per transcript, at discovery or after growth | sessions left out |
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
 
-The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi and Gemini CLI sessions are matched to the workspace by their own watchers and ignore the scope.
+The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi, Gemini CLI and OpenCode sessions are matched to the workspace by their own watchers and ignore the scope.

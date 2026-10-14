@@ -23,7 +23,7 @@ import { fitHalo, HALO_LABEL_ROOM } from './halo-geometry'
 export interface SessionMeta {
   label?: string
   workspace?: string
-  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini'
+  runtime?: 'claude' | 'codex' | 'copilot' | 'pi' | 'gemini' | 'opencode'
   /** Repository of the session (both fields or none); see SessionInfo.projectId */
   projectId?: string
   projectName?: string
@@ -50,7 +50,7 @@ export interface Cluster {
   teamName?: string
   /** Team clusters only: an Agent Team or a Workflow run (reuses the team machinery) */
   teamKind?: GroupKind
-  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI'
+  runtime: 'Claude' | 'Codex' | 'Copilot' | 'Pi' | 'Gemini CLI' | 'OpenCode'
   workspace?: string
   /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
   projectName?: string
@@ -284,7 +284,7 @@ export function computeClusters(
       sessionIds,
       teamName: isTeam ? cleanText(teamName, 40) : undefined,
       teamKind,
-      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : 'Claude',
+      runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : runtimeRaw === 'opencode' ? 'OpenCode' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
       ...(project ? { projectName: project } : {}),
       status,
