@@ -118,7 +118,7 @@ export function sessionTimeCell(s: SessionSpan, now: number): ColumnCell {
 }
 
 /** Said of a session whose transcript records no start: its duration only counts since watching began. */
-export const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
+const SESSION_START_UNRECORDED_TEXT = 'session start not recorded'
 
 /** Cost of an agent, session or branch total; a lower bound (≥) or an estimate (~) says so in words too. */
 export function costCell(total: RollupTotal | null | undefined): ColumnCell {
