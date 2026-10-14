@@ -195,7 +195,7 @@ export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
 }
 
 /** Band under the top bar for the hidden-panels notice: its measured height (at least SHEET_NOTICE_H), none when it would leave no usable sheet. */
-export function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0): number {
+function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0): number {
   if (hiddenCount === 0) return 0
   const band = Math.max(SHEET_NOTICE_H, Math.ceil(finite(noticeH, 0)) + 4)
   return areaH - band >= MIN_MAIN_H ? band : 0
