@@ -58,7 +58,7 @@ export function startedSessionInfo(lifecycle: SessionLifecycleEvent, listed: Ses
       ...(listed.recordedStartTime !== undefined ? { recordedStartTime: listed.recordedStartTime } : {}),
       ...(listed.startTimeWatched ? { startTimeWatched: true } : {}),
     }
-    : { startTime: now, lastActivityTime: now }
+    : { startTime: now, lastActivityTime: now, startTimeWatched: true }
   return { id: lifecycle.sessionId, label: lifecycle.label, status: 'active', ...times, ...lifecycleTags(lifecycle) }
 }
 

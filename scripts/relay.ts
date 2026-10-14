@@ -324,7 +324,7 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     // is not activity (#365)
     const base: SessionInfo = live
       ? toSessionInfo(live)
-      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now() }
+      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
     broadcast(JSON.stringify({
       type: 'session-started',
       session: enrichSession({ ...base, label, status: 'active' } as SessionInfo),

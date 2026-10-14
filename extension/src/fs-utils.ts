@@ -218,18 +218,19 @@ export function listSubagentTranscripts(dir: string): string[] {
 
 /**
  * When a session was last written: the newest mtime of its transcript and of its subagent transcripts
- * (`<dir of the transcript>/<session id>/subagents`). `fallback` when the transcript cannot be stat'ed.
+ * (`<dir of the transcript>/<session id>/subagents`), at most now (a future mtime proves no activity).
+ * Symlinked subagent files are ignored, as everywhere else. `fallback` when the transcript cannot be stat'ed.
  */
 export function newestSessionMtime(filePath: string, sessionId: string, fallback = Date.now()): number {
   let newest: number
   try { newest = fs.statSync(filePath).mtimeMs } catch { return fallback }
   for (const sub of listSubagentTranscripts(path.join(path.dirname(filePath), sessionId, 'subagents'))) {
     try {
-      const mt = fs.statSync(sub).mtimeMs
-      if (mt > newest) newest = mt
+      const st = fs.lstatSync(sub)
+      if (st.isFile() && st.mtimeMs > newest) newest = st.mtimeMs
     } catch { /* removed meanwhile */ }
   }
-  return newest
+  return Math.min(newest, Date.now())
 }
 
 /**

@@ -82,3 +82,39 @@ test('startedSessionInfo: keeps the listed times; now only for a session the wat
   assert.equal(unknown.startTime, 9999)
   assert.equal(unknown.lastActivityTime, 9999)
 })
+
+test('a recorded start in the future is no recorded start: the start is then said to be the watch start', () => {
+  const sessions = new Map<string, WatchedSession>()
+  const pipeline = new ClaudeSessionPipeline({ sessions, submit() {}, fireLifecycle() {}, withHistory: load => load() })
+  const future = pipeline.newSession(SESSION, '/nowhere.jsonl', { recordedStartTime: Date.now() + 3600_000 })
+  assert.equal(future.recordedStartTime, undefined)
+  assert.equal(listedStartTimes(future).startTimeWatched, true)
+  const past = pipeline.newSession(SESSION, '/nowhere.jsonl', { recordedStartTime: Date.now() - 1000 })
+  assert.ok(past.recordedStartTime !== undefined)
+})
+
+test('newestSessionMtime: a future mtime is capped at now (no proof of activity to come); a symlinked subagent file is ignored', () => {
+  const writtenAt = Date.now() - 20 * 60_000
+  const { dir, file } = tmpTranscript(writtenAt)
+  try {
+    const subDir = path.join(dir, SESSION, 'subagents')
+    fs.mkdirSync(subDir, { recursive: true })
+    const outside = path.join(dir, 'outside.jsonl')
+    fs.writeFileSync(outside, '')
+    const linkedAt = writtenAt + 60_000
+    fs.utimesSync(outside, linkedAt / 1000, linkedAt / 1000)
+    fs.symlinkSync(outside, path.join(subDir, 'agent-link.jsonl'))
+    assert.equal(Math.round(newestSessionMtime(file, SESSION)), Math.round(writtenAt), 'the symlink target is not read')
+
+    const future = Date.now() + 3600_000
+    fs.utimesSync(file, future / 1000, future / 1000)
+    const before = Date.now()
+    const got = newestSessionMtime(file, SESSION)
+    assert.ok(got >= before && got <= Date.now(), `capped at now (${got})`)
+  } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('startedSessionInfo: a session the watcher does not list has its start said to be the announce time', () => {
+  const lifecycle = { type: 'started' as const, sessionId: 's1', label: 'L', runtime: 'claude' }
+  assert.equal(startedSessionInfo(lifecycle, undefined, 9999).startTimeWatched, true)
+})

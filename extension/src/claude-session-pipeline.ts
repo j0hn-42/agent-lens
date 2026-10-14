@@ -102,7 +102,8 @@ export class ClaudeSessionPipeline {
       sessionId, filePath,
       fileWatcher: null, pollTimer: null, fileSize: 0, fileTail: '',
       sessionStartTime: now,
-      ...(times.recordedStartTime !== undefined && Number.isFinite(times.recordedStartTime) ? { recordedStartTime: times.recordedStartTime } : {}),
+      // A start after now is not a recorded start (clock skew, edited file): the start is then the watch start
+      ...(times.recordedStartTime !== undefined && Number.isFinite(times.recordedStartTime) && times.recordedStartTime <= now ? { recordedStartTime: times.recordedStartTime } : {}),
       pendingToolCalls: new Map(),
       seenToolUseIds: new Set(),
       seenMessageHashes: new Set(),
