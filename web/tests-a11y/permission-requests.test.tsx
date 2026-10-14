@@ -233,3 +233,202 @@ test('unmounting withdraws the surface', () => {
   r.unmount()
   assert.deepEqual(posted, [{ type: 'permission-surface', ready: false }])
 })
+
+// ─── Redirect (#387): a deny that carries the operator's text, from a modal dialog ─────────────────────────────
+
+const REDIRECT_NAME = 'Rediriger Bash : npm test, session fix login'
+const WRITE = { nonce: NONCE2, toolUseId: null, toolName: 'Write', inputPreview: '{"file_path":"/x"}' }
+const toolEnd = (over: Record<string, unknown> = {}, event: Record<string, unknown> = {}) => post({
+  type: 'agent-event',
+  event: { time: 3, type: 'tool_call_end', sessionId: 'sess-1', payload: { agent: 'main', tool: 'Bash', result: 'denied', toolUseId: 'toolu_01', isError: true, ...over }, ...event },
+})
+
+async function openRedirect(r: ReturnType<typeof render>, req = request()) {
+  await post({ type: 'permission-request', request: req })
+  const trigger = r.getByRole('button', { name: new RegExp(`^Rediriger ${req.toolName}`) })
+  trigger.focus()
+  fireEvent.click(trigger)
+  const dialog = r.getByRole('dialog', { name: new RegExp(`^Rediriger ${req.toolName}`) })
+  const field = r.getByRole('textbox', { name: /^Message pour Claude/ }) as HTMLTextAreaElement
+  return { trigger, dialog, field }
+}
+
+async function sendRedirect(r: ReturnType<typeof render>, text = 'use pnpm instead', req = request()) {
+  const opened = await openRedirect(r, req)
+  fireEvent.change(opened.field, { target: { value: text } })
+  fireEvent.click(r.getByRole('button', { name: /^Envoyer la redirection/ }))
+  return opened
+}
+
+test('Rediriger is a third native button, named like the others, that opens a dialog', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  const b = r.getByRole('button', { name: REDIRECT_NAME })
+  assert.equal(b.tagName, 'BUTTON')
+  assert.equal(b.getAttribute('type'), 'button')
+  assert.equal(b.textContent, 'Rediriger', 'the accessible name starts with the visible label (WCAG 2.5.3)')
+  assert.equal(b.getAttribute('aria-haspopup'), 'dialog')
+  assert.equal(r.queryByRole('dialog'), null, 'no dialog before the click')
+})
+
+test('the dialog is modal, names the request, puts the focus in the text field; axe-clean', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  posted = []
+  const { dialog, field } = await openRedirect(r)
+  assert.equal(dialog.getAttribute('aria-modal'), 'true')
+  assert.equal(document.activeElement, field, 'focus in the text field')
+  assert.equal(field.tagName, 'TEXTAREA')
+  assert.equal(field.getAttribute('aria-required'), 'true')
+  assert.equal(field.maxLength, 2000)
+  assert.match(dialog.textContent ?? '', /npm test/, 'the request is recalled in the dialog')
+  assert.match(dialog.textContent ?? '', /sess-1/)
+  assert.deepEqual(decisions(), [], 'opening sends nothing')
+  assert.deepEqual(await violations(document.body), [])
+})
+
+test('an empty or blank text is not sent: the field says why, politely, and the dialog stays open', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { dialog, field } = await openRedirect(r)
+  posted = []
+  for (const text of ['', '   \n', '​']) {
+    fireEvent.change(field, { target: { value: text } })
+    fireEvent.click(r.getByRole('button', { name: /^Envoyer la redirection/ }))
+    assert.deepEqual(decisions(), [], `nothing sent for ${JSON.stringify(text)}`)
+    assert.ok(dialog.isConnected, 'still open')
+    assert.equal(field.getAttribute('aria-invalid'), 'true')
+    const ids = (field.getAttribute('aria-describedby') ?? '').split(' ')
+    const error = ids.map(id => document.getElementById(id)).find(el => /obligatoire/i.test(el?.textContent ?? ''))
+    assert.ok(error, 'the error is tied to the field')
+    assert.ok(error!.closest('[aria-live="polite"]'), 'and announced politely')
+  }
+  assert.equal(document.activeElement, field, 'focus kept in the field')
+  assert.deepEqual(await violations(document.body), [])
+})
+
+test('Échap closes the dialog without sending and gives the focus back to Rediriger', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { trigger, field } = await openRedirect(r)
+  posted = []
+  fireEvent.change(field, { target: { value: 'not sent' } })
+  fireEvent.keyDown(field, { key: 'Escape' })
+  assert.equal(r.queryByRole('dialog'), null)
+  assert.deepEqual(decisions(), [])
+  assert.equal(document.activeElement, trigger)
+  // Reopened, the dialog does not keep the abandoned text
+  fireEvent.click(trigger)
+  assert.equal((r.getByRole('textbox', { name: /^Message pour Claude/ }) as HTMLTextAreaElement).value, '')
+})
+
+test('Annuler closes the dialog without sending and gives the focus back to Rediriger', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { trigger } = await openRedirect(r)
+  posted = []
+  fireEvent.click(r.getByRole('button', { name: 'Annuler' }))
+  assert.equal(r.queryByRole('dialog'), null)
+  assert.deepEqual(decisions(), [])
+  assert.equal(document.activeElement, trigger)
+})
+
+test('Tab and Maj+Tab stay inside the dialog', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { dialog } = await openRedirect(r)
+  const tabbables = Array.from(dialog.querySelectorAll<HTMLElement>('textarea, button, [tabindex="0"]'))
+  assert.ok(tabbables.length >= 3)
+  const first = tabbables[0]
+  const last = tabbables[tabbables.length - 1]
+  last.focus()
+  fireEvent.keyDown(last, { key: 'Tab' })
+  assert.equal(document.activeElement, first, 'Tab from the last control goes to the first')
+  fireEvent.keyDown(first, { key: 'Tab', shiftKey: true })
+  assert.equal(document.activeElement, last, 'Maj+Tab from the first control goes to the last')
+})
+
+test('a text sends exactly one redirect with it; the row says sent, never applied, and keeps no text', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  posted = []
+  const { trigger } = await sendRedirect(r, '  use pnpm instead  ')
+  assert.deepEqual(decisions(), [{ type: 'permission-decision', sessionId: 'sess-1', toolUseId: 'toolu_01', nonce: NONCE, action: 'redirect', message: 'use pnpm instead' }])
+  assert.equal(r.queryByRole('dialog'), null, 'the dialog closes once sent')
+  assert.equal(document.activeElement, trigger, 'focus back on Rediriger')
+  fireEvent.click(trigger)
+  assert.equal(r.queryByRole('dialog'), null, 'no second dialog while the decision is on its way')
+  assert.equal(decisions().length, 1, 'one decision per request')
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  const row = r.getByRole('group', { name: /^Bash, session/ })
+  assert.match(row.textContent ?? '', /envoyée : rediriger/)
+  assert.doesNotMatch(document.body.textContent ?? '', /appliqu/)
+  assert.doesNotMatch(document.body.textContent ?? '', /use pnpm instead/, 'the text is not kept on screen')
+  assert.ok(r.container.contains(document.activeElement), 'focus stays in the panel when the buttons go')
+})
+
+test('message-required from the extension: the request can be redirected again', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await sendRedirect(r, 'x')
+  await post({ type: 'permission-result', nonce: NONCE, ok: false, reason: 'message-required' })
+  assert.match(r.getByRole('status').textContent ?? '', /message est requis/)
+  assert.ok(r.getByRole('button', { name: REDIRECT_NAME }), 'buttons back')
+})
+
+test('a request that closes while the dialog is open closes it, and the focus stays in the panel', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await openRedirect(r)
+  posted = []
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'expired' })
+  assert.equal(r.queryByRole('dialog'), null)
+  assert.deepEqual(decisions(), [])
+  assert.ok(r.container.contains(document.activeElement), 'focus not dropped on the page')
+  assert.match(r.getByRole('status').textContent ?? '', /échéance/i)
+})
+
+test('a request answered from another panel while the dialog is open closes it too', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await openRedirect(r)
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  assert.equal(r.queryByRole('dialog'), null)
+  assert.ok(r.container.contains(document.activeElement), 'focus not dropped on the page')
+})
+
+test('applied only once the refusal is observed: an error end of that very call, seen live after the decision', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await sendRedirect(r)
+  await toolEnd()
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  assert.doesNotMatch(document.body.textContent ?? '', /appliqu/, 'an end seen before the extension said sent proves nothing')
+  // None of these is the refusal of this call
+  await toolEnd({ toolUseId: 'toolu_02' })
+  await toolEnd({}, { sessionId: 'sess-2' })
+  await toolEnd({ isError: false })
+  await toolEnd({ isError: undefined })
+  await toolEnd({ outcome: 'cancelled' })
+  await toolEnd({}, { replayed: true })
+  await toolEnd({}, { imported: true })
+  await post({ type: 'agent-event', event: { time: 3, type: 'tool_call_start', sessionId: 'sess-1', payload: { toolUseId: 'toolu_01', isError: true } } })
+  const row = r.getByRole('group', { name: /^Bash, session/ })
+  assert.doesNotMatch(row.textContent ?? '', /appliqu/)
+  await toolEnd()
+  assert.match(row.textContent ?? '', /Redirection appliquée/)
+  assert.match(r.getByRole('status').textContent ?? '', /appliquée/)
+  assert.deepEqual(await violations(r.container), [])
+})
+
+test('a deny is applied the same way', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  fireEvent.click(r.getByRole('button', { name: /^Refuser Bash/ }))
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  await toolEnd()
+  assert.match(r.getByRole('group', { name: /^Bash, session/ }).textContent ?? '', /Refus appliqué/)
+})
+
+test('an approval, a call that is not identified or a decision from another panel is never shown applied', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  fireEvent.click(r.getByRole('button', { name: /^Approuver Bash/ }))
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  await toolEnd({ isError: false })
+  await toolEnd()
+  await sendRedirect(r, 'no', request(WRITE))
+  await post({ type: 'permission-closed', nonce: NONCE2, sessionId: 'sess-1', toolUseId: null, outcome: 'sent' })
+  await toolEnd({ toolUseId: undefined, tool: 'Write' })
+  assert.doesNotMatch(document.body.textContent ?? '', /appliqu/)
+})

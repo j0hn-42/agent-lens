@@ -765,11 +765,17 @@ export interface PermissionRow {
   state: PermissionRowState
   /** The decision this page sent, when it sent one */
   action?: PermissionAction
+  /**
+   * A deny or redirect this page sent was seen applied (#387): after the extension said `sent`, a live tool_call_end
+   * of that very call (same session, same non-null tool_use_id) ended in error, not cancelled. Never set otherwise.
+   */
+  applied?: boolean
 }
 
 /** One polite announcement; `id` changes at each one so the same text is announced again */
 export type PermissionNotice =
   | { id: number; kind: 'sent'; request: PermissionRequestMessage }
+  | { id: number; kind: 'applied'; request: PermissionRequestMessage; action: 'deny' | 'redirect' }
   | { id: number; kind: 'closed'; request: PermissionRequestMessage; outcome: string }
   | { id: number; kind: 'error'; reason: string; request?: PermissionRequestMessage }
 
@@ -783,6 +789,8 @@ export type PermissionEvent =
   | PermissionBridgeMessage
   | { kind: 'decide'; nonce: string; action: PermissionAction }
   | { kind: 'dismiss'; nonce: string }
+  /** The end of a tool call, seen live in the event stream (#387) */
+  | { kind: 'tool-end'; sessionId: string; toolUseId: string; refused: boolean }
 
 const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
 
@@ -794,8 +802,18 @@ const STILL_WAITING_REASONS = new Set(['mismatch', 'message-required'])
 
 type NoticeBody =
   | { kind: 'sent'; request: PermissionRequestMessage }
+  | { kind: 'applied'; request: PermissionRequestMessage; action: 'deny' | 'redirect' }
   | { kind: 'closed'; request: PermissionRequestMessage; outcome: string }
   | { kind: 'error'; reason: string; request?: PermissionRequestMessage }
+
+/** A refusal of one call (#387): a tool_call_end that names its call, ended in error and was not a user interrupt */
+function observedToolEnd(e: AgentEvent): Extract<PermissionEvent, { kind: 'tool-end' }> | null {
+  // History (replayed, imported) is not news: only what arrives live after the decision can show it was applied
+  if (e.type !== 'tool_call_end' || e.replayed || e.imported || typeof e.sessionId !== 'string') return null
+  const id = e.payload.toolUseId
+  if (typeof id !== 'string' || !id) return null
+  return { kind: 'tool-end', sessionId: e.sessionId, toolUseId: id, refused: e.payload.isError === true && e.payload.outcome !== 'cancelled' }
+}
 
 /**
  * What the panel shows of the waiting requests. Only the extension's messages move a row to `sent` or remove it:
@@ -822,6 +840,13 @@ function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionSt
       const row = find(e.nonce)
       if (!row || row.state !== 'waiting') return s
       return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action }) }
+    }
+    case 'tool-end': {
+      if (!e.refused) return s
+      const row = s.rows.find(r => r.state === 'sent' && !r.applied && (r.action === 'deny' || r.action === 'redirect')
+        && r.request.toolUseId === e.toolUseId && r.request.sessionId === e.sessionId)
+      if (!row || (row.action !== 'deny' && row.action !== 'redirect')) return s
+      return { ...s, rows: withRow(row.request.nonce, { ...row, applied: true }), ...announce({ kind: 'applied', request: row.request, action: row.action }) }
     }
     case 'dismiss': {
       const row = find(e.nonce)
@@ -864,7 +889,8 @@ export interface PermissionRequestsResult {
   available: boolean
   rows: readonly PermissionRow[]
   notice: PermissionNotice | null
-  decide: (nonce: string, action: PermissionAction) => void
+  /** A redirect needs its text; an empty one is not sent */
+  decide: (nonce: string, action: PermissionAction, message?: string) => void
   dismiss: (nonce: string) => void
 }
 
@@ -891,9 +917,15 @@ export function usePermissionRequests(): PermissionRequestsResult {
     if (!available || !vscodeBridge) return
     // Listen first: the extension answers the surface with the requests already waiting
     const off = vscodeBridge.onPermission(apply)
+    // The event stream is read only for the end of a call a deny or redirect was sent for (#387)
+    const offEvents = vscodeBridge.onEvent(event => {
+      const end = observedToolEnd(event)
+      if (end) apply(end)
+    })
     const detach = vscodeBridge.attachPermissionSurface()
     return () => {
       detach()
+      offEvents()
       off()
     }
   }, [available, apply])
