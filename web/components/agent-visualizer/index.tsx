@@ -87,7 +87,7 @@ export function AgentVisualizer() {
     const a = agents.get(key)
     return a ? `${a.name}${a.sessionLabel ? ` (session ${a.sessionLabel})` : ''}` : key
   }, [agents])
-  const { toasts, pushToast, dismissToast, runToastAction, undoLast, hasUndoToast, setToastsPaused } = useToastCenter(bridge.notice)
+  const { toasts, pushToast, dismissToast, runToastAction, undoLast, setToastsPaused } = useToastCenter(bridge.notice)
   const { showShortcuts, openShortcuts, closeShortcuts, showSettings, openSettings, closeSettings, showPalette, openPalette, closePalette } = useDialogsState()
 
   const panels = usePanelsState(uiPrefs, selection.selectedAgentId)
@@ -150,7 +150,7 @@ export function AgentVisualizer() {
 
   useVisualizerShortcuts({
     panels, modes, clearSelection: selection.clearAllSelections, togglePlayPause: handlePlayPause, zoomToFit, toggleMute: handleToggleMute,
-    setSpeed: setSpeedInReview, openShortcuts, openPalette, undoLast, canUndo: hasUndoToast, singleKeyEnabled: singleKeyShortcuts,
+    setSpeed: setSpeedInReview, openShortcuts, openPalette, undoLast, openSettings, singleKeyEnabled: singleKeyShortcuts,
   })
 
   const agentsRef = useRef(agents)

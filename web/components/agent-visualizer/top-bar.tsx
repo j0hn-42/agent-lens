@@ -458,7 +458,8 @@ export const TopBar = memo(function TopBar({
               active={false}
               onClick={onOpenSettings}
               ariaLabel="Settings"
-              title="Settings"
+              title="Settings (,)"
+              shortcut=","
               hasDialog
             >
               <GearIcon />

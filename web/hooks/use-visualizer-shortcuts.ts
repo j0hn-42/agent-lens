@@ -19,13 +19,13 @@ interface ShortcutsInput {
   openShortcuts: () => void
   openPalette: () => void
   undoLast: () => boolean
-  canUndo: () => boolean
+  openSettings: () => void
   singleKeyEnabled: boolean
 }
 
 /** Global keyboard shortcuts: what each key does in the visualizer */
 export function useVisualizerShortcuts(input: ShortcutsInput) {
-  const { panels, modes, clearSelection, togglePlayPause, zoomToFit, toggleMute, setSpeed, openShortcuts, openPalette, undoLast, canUndo, singleKeyEnabled } = input
+  const { panels, modes, clearSelection, togglePlayPause, zoomToFit, toggleMute, setSpeed, openShortcuts, openPalette, openSettings, undoLast, singleKeyEnabled } = input
   const { setShowSessions, setShowTimeline, setShowHexGrid, setShowStats, setShowSystem, toggleExclusivePanel } = panels
   const { toggleFullscreen, closeTopPanelOrImmersiveOrPresentation } = modes
   const togglePresentation = modes.presentation.toggle
@@ -50,9 +50,9 @@ export function useVisualizerShortcuts(input: ShortcutsInput) {
     openShortcuts,
     openPalette,
     undoLast,
-    canUndo,
+    openSettings,
     singleKeyEnabled,
-  }), [openShortcuts, openPalette, undoLast, canUndo, togglePlayPause, clearSelection, setSpeed, toggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation,
+  }), [openShortcuts, openPalette, openSettings, undoLast, togglePlayPause, clearSelection, setSpeed, toggleMute, toggleExclusivePanel, closeTopPanelOrImmersiveOrPresentation,
     toggleFullscreen, togglePresentation, singleKeyEnabled, zoomToFit, setShowSessions, setShowTimeline, setShowHexGrid, setShowStats, setShowSystem])
 
   useKeyboardShortcuts(actions)

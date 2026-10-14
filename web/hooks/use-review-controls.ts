@@ -54,10 +54,12 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
     announceReview()
   }, [pause, announceReview, setIsReviewing])
 
-  // Speed only applies in review mode: in live mode it would silently distort the time axis
+  // Speed only applies in review mode: in live mode it would silently distort the time axis.
+  // The keys 1 to 4 are not silent there: a toast says why nothing changed (#411).
   const setSpeedInReview = useCallback((value: number) => {
     if (isReviewing) setSpeed(value)
-  }, [isReviewing, setSpeed])
+    else pushToast({ message: 'Speed applies in review mode - pause to review first', durationMs: 4000 })
+  }, [isReviewing, setSpeed, pushToast])
 
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const handleResumeLive = useCallback(() => {

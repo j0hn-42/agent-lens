@@ -32,7 +32,6 @@ interface TargetLike {
 export function shouldHandleShortcut(
   e: ShortcutEventLike,
   singleKeyEnabled: boolean,
-  _opts: { undoAvailable?: boolean } = {},
 ): boolean {
   if (e.ctrlKey || e.metaKey || e.altKey) return false
   const t = (e.target ?? null) as TargetLike | null
@@ -85,10 +84,10 @@ export function useKeyboardShortcuts(actions: {
   openShortcuts: () => void
   /** Open the command palette (`Ctrl+K` / `Cmd+K`) */
   openPalette?: () => void
+  /** Open the Settings dialog (`,`) */
+  openSettings?: () => void
   /** Run the action of the newest toast (Undo); returns true if one ran */
   undoLast: () => boolean
-  /** True while a visible toast has an Undo action (lets U fire from buttons and tabs) */
-  canUndo?: () => boolean
   singleKeyEnabled: boolean
 }): void {
   const actionsRef = useRef(actions)
@@ -102,7 +101,7 @@ export function useKeyboardShortcuts(actions: {
         a.openPalette()
         return
       }
-      if (!shouldHandleShortcut(e, a.singleKeyEnabled, { undoAvailable: a.canUndo?.() ?? false })) return
+      if (!shouldHandleShortcut(e, a.singleKeyEnabled)) return
 
       switch (e.key) {
         case ' ':
@@ -164,6 +163,9 @@ export function useKeyboardShortcuts(actions: {
         case '?':
           e.preventDefault()
           a.openShortcuts()
+          break
+        case ',':
+          a.openSettings?.()
           break
         case UNDO_SHORTCUT_KEY:
         case UNDO_SHORTCUT_KEY.toUpperCase():

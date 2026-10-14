@@ -115,7 +115,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   action('grid', 'Toggle hex grid', act.toggleHexGrid, 'g', ['background'])
   action('mute', 'Mute / unmute audio', act.toggleMute, 'm', ['sound'])
   action('shortcuts', 'Show keyboard shortcuts', act.openShortcuts, '?', ['help', 'keys'])
-  action('settings', 'Open settings', act.openSettings, undefined, ['preferences', 'theme', 'notifications'])
+  action('settings', 'Open settings', act.openSettings, ',', ['preferences', 'theme', 'notifications'])
 
   const panel = (id: PalettePanel, label: string, key: string | undefined, keywords: string[] = []) => {
     items.push({
