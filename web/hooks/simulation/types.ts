@@ -13,6 +13,7 @@ import type { SessionProjects } from './fleet-layout'
 import type { ResultPill } from '../../lib/action-summary'
 import type { UnattributedUsage } from '../../lib/attribution'
 import type { CompactionInfo } from '../../lib/compaction'
+import type { NormalizationStats } from '../../lib/event-normalize'
 import { emptyWasteLedger, type WasteLedger } from '../../lib/waste'
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force'
 
@@ -33,6 +34,8 @@ export interface SimulationState {
   unattributed: Map<string, UnattributedUsage>
   /** Per agentKey: conversation messages dropped because of MAX_CONVERSATION_MESSAGES */
   droppedMessages: Map<string, number>
+  /** Counters of what the normalizer discarded, per session (last normalization_stats wins) */
+  normalizationStats: Map<string, NormalizationStats>
   /** Repeated reads and identical calls seen so far (see lib/waste) */
   waste: WasteLedger
   /** Events dropped from the front of eventLog because of MAX_EVENT_LOG */
@@ -61,6 +64,7 @@ export function createEmptyState(overrides?: Partial<SimulationState>): Simulati
     teams: new Map(),
     unattributed: new Map(),
     droppedMessages: new Map(),
+    normalizationStats: new Map(),
     waste: emptyWasteLedger(),
     droppedEvents: 0,
     currentTime: 0,

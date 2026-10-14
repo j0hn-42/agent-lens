@@ -90,7 +90,6 @@
   "web/components/agent-visualizer/shared-ui.tsx:RESIZER_STEP",
   "web/components/agent-visualizer/tour-highlight.tsx:AGENT_RING_RADIUS",
   "web/components/agent-visualizer/tour-highlight.tsx:ringRect",
-  "web/components/agent-visualizer/truncation-banner.tsx:TruncationBanner",
   "web/components/agent-visualizer/waste-section.tsx:WASTE_ROWS_SHOWN",
   "web/hooks/simulation/archive.ts:archivedToEvict",
   "web/hooks/simulation/archive.ts:evictAgents",

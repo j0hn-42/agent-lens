@@ -442,6 +442,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     droppedEvents: state.droppedEvents,
     /** Conversation messages dropped per agentKey (MAX_CONVERSATION_MESSAGES) */
     droppedMessages: state.droppedMessages,
+    /** What the normalizer discarded, per session (normalization_stats) */
+    normalizationStats: state.normalizationStats,
     /** Usage that belongs to no single agent (orphan / ambiguous), see lib/attribution */
     unattributed: state.unattributed,
     /** Agents of other sessions blocked on a permission (see lib/attention) */

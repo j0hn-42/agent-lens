@@ -4,7 +4,8 @@
  * - `repeat`: the same tool called REPEAT_THRESHOLD times or more in a row with the same input;
  * - `edit-cycle`: read → edit → failure on the same file, CYCLE_THRESHOLD times in a row.
  * A call without input data is never assumed identical; an outcome that was not observed is never a failure.
- * When earlier messages were dropped (MAX_CONVERSATION_MESSAGES) the verdict says the history is partial.
+ * When earlier messages were dropped (MAX_CONVERSATION_MESSAGES), or the relay could not replay earlier events
+ * of the session (`event-loss`, #366), the verdict says the history is partial.
  */
 import type { ConversationMessage } from '../hooks/simulation/types'
 
@@ -30,6 +31,8 @@ export interface HealthVerdict {
   comparable: number
   /** Conversation messages dropped before the kept history */
   dropped: number
+  /** Events of the session the relay could not replay (a lower bound, see lib/event-loss) */
+  lostEvents: number
 }
 
 type Outcome = 'ok' | 'error' | 'unknown'
@@ -160,19 +163,20 @@ function findEditCycles(calls: ObservedCall[], dropped: number): LoopFinding[] {
   return out
 }
 
-function statusOf(findings: number, calls: number, comparable: number, dropped: number): HealthStatus {
+function statusOf(findings: number, calls: number, comparable: number, dropped: number, lostEvents: number): HealthStatus {
   if (findings > 0) return 'loop'
   if (comparable === 0) return 'unknown'
-  if (dropped > 0 || comparable < calls) return 'incomplete'
+  if (dropped > 0 || lostEvents > 0 || comparable < calls) return 'incomplete'
   return 'clear'
 }
 
-/** Verdict for one agent's kept conversation; `dropped` = messages lost before it. */
-export function detectLoops(messages: readonly ConversationMessage[], dropped = 0): HealthVerdict {
+/** Verdict for one agent's kept conversation; `dropped` = messages lost before it, `lostEvents` = events of its session the relay could not replay. */
+export function detectLoops(messages: readonly ConversationMessage[], dropped = 0, lostEvents = 0): HealthVerdict {
   const calls = observedCalls(messages)
-  const findings = [...findRepeats(calls, dropped), ...findEditCycles(calls, dropped)]
+  const partial = dropped + lostEvents
+  const findings = [...findRepeats(calls, partial), ...findEditCycles(calls, partial)]
   const comparable = calls.filter(c => c.signature !== null).length
-  return { status: statusOf(findings.length, calls.length, comparable, dropped), findings, calls: calls.length, comparable, dropped }
+  return { status: statusOf(findings.length, calls.length, comparable, dropped, lostEvents), findings, calls: calls.length, comparable, dropped, lostEvents }
 }
 
 export interface HealthSummary {
@@ -180,26 +184,29 @@ export interface HealthSummary {
   bySession: Map<string, HealthVerdict>
 }
 
-/** Verdict per agent and per session (the union of its agents). An agent of unknown session is judged alone. */
+/** Verdict per agent and per session (the union of its agents). An agent of unknown session is judged alone.
+ *  `replayLost`: events per session id the relay could not replay; a session it does not name is not claimed as lossy. */
 export function assessHealth(
   conversations: ReadonlyMap<string, readonly ConversationMessage[]>,
   droppedMessages: ReadonlyMap<string, number>,
   sessionOf: (agentKey: string) => string | undefined,
+  replayLost: ReadonlyMap<string, number> = new Map(),
 ): HealthSummary {
   const byAgent = new Map<string, HealthVerdict>()
   const bySession = new Map<string, HealthVerdict>()
   for (const [agentKey, messages] of conversations) {
-    const v = detectLoops(messages, droppedMessages.get(agentKey) ?? 0)
+    const sessionId = sessionOf(agentKey)
+    const lost = sessionId === undefined ? 0 : replayLost.get(sessionId) ?? 0
+    const v = detectLoops(messages, droppedMessages.get(agentKey) ?? 0, lost)
     v.findings = v.findings.map(f => ({ ...f, agentKey }))
     byAgent.set(agentKey, v)
-    const sessionId = sessionOf(agentKey)
     if (sessionId === undefined) continue
-    const s = bySession.get(sessionId) ?? { status: 'unknown', findings: [], calls: 0, comparable: 0, dropped: 0 }
+    const s = bySession.get(sessionId) ?? { status: 'unknown', findings: [], calls: 0, comparable: 0, dropped: 0, lostEvents: lost }
     s.findings = [...s.findings, ...v.findings]
     s.calls += v.calls
     s.comparable += v.comparable
     s.dropped += v.dropped
-    s.status = statusOf(s.findings.length, s.calls, s.comparable, s.dropped)
+    s.status = statusOf(s.findings.length, s.calls, s.comparable, s.dropped, s.lostEvents)
     bySession.set(sessionId, s)
   }
   return { byAgent, bySession }
@@ -216,6 +223,7 @@ export function healthText(v: HealthVerdict): string {
     case 'incomplete': {
       const parts = [v.comparable < v.calls ? `${v.comparable} of ${plural(v.calls, 'tool call')} comparable` : plural(v.calls, 'tool call')]
       if (v.dropped > 0) parts.push('earlier history dropped')
+      if (v.lostEvents > 0) parts.push(`at least ${plural(v.lostEvents, 'earlier event')} not replayed by the relay`)
       return `No loop in the observed part (${parts.join('; ')})`
     }
   }

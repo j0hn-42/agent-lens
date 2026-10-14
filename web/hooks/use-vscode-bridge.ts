@@ -22,6 +22,7 @@ import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
 } from '@/lib/session-buffers'
+import { parseEventLoss, type EventLoss } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
@@ -128,6 +129,8 @@ interface BridgeHookResult {
   /** Machine health (#357): the relay's `system-stats` samples, oldest first, bounded. Empty until the relay sends one,
    *  while the link is down, and always in VS Code and demo mode (the relay stream is not used there). */
   systemStats: readonly SystemSample[]
+  /** What the relay could not replay when this page connected (#366): null when it reported nothing. Relay stream only. */
+  eventLoss: EventLoss | null
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -318,6 +321,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const [launchMax, setLaunchMax] = useState<number | null>(null)
   // Machine health (#357): from the relay stream only, like the launches
   const [systemStats, setSystemStats] = useState<readonly SystemSample[]>([])
+  // Events the relay could not replay (#366): sent once per connection, so each connection replaces the last
+  const [eventLoss, setEventLoss] = useState<EventLoss | null>(null)
   const source = useReconnectingSource({
     enabled: relayEnabled,
     origin: relayPort ? `http://127.0.0.1:${relayPort}` : '',
@@ -328,6 +333,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'system-stats') {
         const next = parseSystemSample((data as { sample?: unknown }).sample)
         if (next) setSystemStats(prev => pushSample(prev, next))
+        return
+      }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'event-loss') {
+        setEventLoss(parseEventLoss(data))
         return
       }
       vscodeBridge?.dispatch(data)
@@ -399,6 +408,10 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // A buffer from a link that is gone would show old figures as current
   useEffect(() => {
     if (!relayEnabled || source.status !== 'connected') setSystemStats(prev => (prev.length > 0 ? [] : prev))
+  }, [relayEnabled, source.status])
+  // The relay sends event-loss only when something was lost: a link that is gone must not leave an old figure
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') setEventLoss(prev => (prev === null ? prev : null))
   }, [relayEnabled, source.status])
 
   // Launching (#229): only a page served by the relay itself (same origin) can send POST /launch. The relay answers
@@ -758,6 +771,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     notice,
     launch,
     systemStats,
+    eventLoss,
   }
 }
 
