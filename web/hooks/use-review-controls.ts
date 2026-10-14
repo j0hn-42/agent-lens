@@ -20,11 +20,19 @@ interface ReviewControlsInput {
   seekingRef: MutableRefObject<boolean>
   /** Ask the canvas to fit the scene again */
   zoomToFit: () => void
+  /** Start playing shortly after mount (not in the guided demo: the tour holds the scenario at each step's time) */
+  autoPlay: boolean
 }
 
 /** Live / review mode of the control bar: play-pause, resume live, seek, clear history, reload the session view */
-export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit }: ReviewControlsInput) {
+export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay }: ReviewControlsInput) {
   const { isPlaying, maxTimeReached, play, pause, restart, setSpeed, seekToTime, saveSnapshot, restoreSnapshot } = sim
+
+  useEffect(() => {
+    if (!autoPlay) return
+    const timer = setTimeout(() => play(), TIMING.autoPlayDelayMs)
+    return () => clearTimeout(timer)
+  }, [play, autoPlay])
 
   const announceReview = useCallback(() => {
     pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })

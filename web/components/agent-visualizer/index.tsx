@@ -1,7 +1,7 @@
 "use client"
 
 import { useThemeVersion } from '@/lib/theme'
-import { useState, useCallback, useMemo, useEffect, useRef } from "react"
+import { useState, useCallback, useRef } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
@@ -10,10 +10,8 @@ import { ControlBar } from "./control-bar"
 import { fetchProjectContext } from "@/lib/project-context"
 import { OpenFileProvider } from "./tool-content-renderer"
 import { useUiPreferences } from "@/hooks/use-ui-preferences"
-import { dockStore, SHEET_BREAKPOINT } from "@/lib/panel-layout"
-import { TIMING, Z } from "@/lib/agent-types"
+import { Z } from "@/lib/agent-types"
 import { COLORS, SCENE } from "@/lib/colors"
-import { computeSessionOffsets } from "@/hooks/simulation/stamp-time"
 
 import { IS_GUIDED_DEMO, MOCK_DURATION } from "@/lib/mock-scenario"
 import { useChromeModes } from "@/hooks/use-chrome-modes"
@@ -24,6 +22,7 @@ import { useScopeControls } from "@/hooks/use-scope-controls"
 import { EmptyState } from "./empty-state"
 import { SelectionOverlays } from "./selection-overlays"
 import { PanelDock } from "./panel-dock"
+import { VisualizerDialogs } from "./visualizer-dialogs"
 import { useToastCenter } from "@/hooks/use-toast-center"
 import { useDialogsState } from "@/hooks/use-dialogs-state"
 import { useCanvasSelection } from "@/hooks/use-canvas-selection"
@@ -33,6 +32,7 @@ import { usePaletteItems } from "@/hooks/use-palette-items"
 import { usePanelsState } from "@/hooks/use-panels-state"
 import { useTourController } from "@/hooks/use-tour-controller"
 import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
+import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
 import { useReviewControls } from "@/hooks/use-review-controls"
 import { GuidedTourCard } from "./guided-tour-card"
@@ -45,12 +45,9 @@ import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
-import { ShortcutsDialog } from "./shortcuts-dialog"
-import { SettingsDialog } from "./settings-dialog"
-import { CommandPalette } from "./command-palette"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { PanelRegistryContext } from "@/hooks/use-panel-registry"
-import { UNDO_SHORTCUT_KEY, buildSessionProjects } from "@/lib/chrome-utils"
+import { UNDO_SHORTCUT_KEY } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 
 export function AgentVisualizer() {
@@ -69,12 +66,6 @@ export function AgentVisualizer() {
   const isReviewingRef = useRef(false)
   isReviewingRef.current = isReviewing
 
-  // Union views ('All' / team) put every session on one wall-clock axis (offsets in seconds per session)
-  const sessionOffsetsRef = useRef<ReadonlyMap<string, number> | undefined>(undefined)
-  sessionOffsetsRef.current = useMemo(() => computeSessionOffsets(bridge.sessions), [bridge.sessions])
-
-  const sessionProjects = useMemo(() => buildSessionProjects(bridge.sessions), [bridge.sessions])
-
   // 'Hide inactive agents': on by default, persisted with the other UI preferences
   const hideInactive = prefs.hideInactive
   const updateHideInactive = useCallback((hide: boolean) => setPref('hideInactive', hide), [setPref])
@@ -84,49 +75,10 @@ export function AgentVisualizer() {
   const hideInactiveShown = hideInactive && !tourShowsInactive
 
   const {
-    frameRef,
-    agents,
-    toolCalls,
-    particles,
-    edges,
-    discoveries,
-    fileAttention,
-    waste,
-    timelineEntries,
-    currentTime,
-    isPlaying,
-    speed,
-    maxTimeReached,
-    conversations,
-    droppedEvents,
-    droppedMessages,
-    unattributed,
-    foreignAttention,
-    catchUp,
-    links,
-    teams,
-    play,
-    pause,
-    restart,
-    setSpeed,
-    seekToTime,
-    updateAgentPosition,
-    saveSnapshot,
-    restoreSnapshot,
-  } = useAgentSimulation({
-    useMockData: bridge.useMockData,
-    externalEvents: bridge.pendingEvents,
-    onExternalEventsConsumed: bridge.consumeEvents,
-    sessionFilter: bridge.selectedSessionId,
-    // Pass the ref that's updated synchronously in session-started handler,
-    // so the animation frame never uses a stale filter value.
-    sessionFilterRef: bridge.selectedSessionIdRef,
-    disable1MContext: bridge.disable1MContext,
-    isReviewing,
-    sessionOffsetsRef,
-    sessionProjects,
-    hideInactive: hideInactiveShown,
-  })
+    frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
+    conversations, droppedEvents, droppedMessages, unattributed, foreignAttention, catchUp, links, teams,
+    play, pause, restart, setSpeed, seekToTime, updateAgentPosition, saveSnapshot, restoreSnapshot,
+  } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
   // Files panel: an agent key read as "name (session label)", the key itself when the agent is unknown
@@ -137,7 +89,7 @@ export function AgentVisualizer() {
   const { toasts, pushToast, dismissToast, runToastAction, undoLast, hasUndoToast, setToastsPaused } = useToastCenter(bridge.notice)
   const { showShortcuts, openShortcuts, closeShortcuts, showSettings, openSettings, closeSettings, showPalette, openPalette, closePalette } = useDialogsState()
 
-  const panels = usePanelsState(uiPrefs)
+  const panels = usePanelsState(uiPrefs, selection.selectedAgentId)
   const {
     showStats, setShowStats, showHexGrid, setShowHexGrid, showCostOverlay, showTimeline, setShowTimeline,
     showFileAttention, setShowFileAttention, showSessions, setShowSessions, showConversation,
@@ -161,13 +113,6 @@ export function AgentVisualizer() {
 
   // ?scenario=guided only means the guided demo on the demo data: a relay or VS Code takes over from it
   const isGuidedDemo = IS_GUIDED_DEMO && bridge.useMockData
-  // Auto-play on mount (not in the guided demo: the tour holds the scenario at each step's time)
-  useEffect(() => {
-    if (isGuidedDemo) return
-    const timer = setTimeout(() => play(), TIMING.autoPlayDelayMs)
-    return () => clearTimeout(timer)
-  }, [play, isGuidedDemo])
-
   const onReviewEnded = useCallback(() => {
     setIsReviewing(false)
     pushToast({ message: 'Review ended: session changed', durationMs: 4000 })
@@ -181,7 +126,7 @@ export function AgentVisualizer() {
     handlePlayPause, handleEnterReview, setSpeedInReview, handleResumeLive, handleClearHistory, handleReloadSessionEvents, handleSeek,
   } = useReviewControls({
     sim: { isPlaying, maxTimeReached, play, pause, restart, setSpeed, seekToTime, saveSnapshot, restoreSnapshot },
-    bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit,
+    bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay: !isGuidedDemo,
   })
 
   // Focus sits in the agent card right after a selection, and the card handles Escape itself: route it through
@@ -213,20 +158,8 @@ export function AgentVisualizer() {
     sim: { agents, unattributed, foreignAttention, conversations, droppedMessages, catchUp },
     agentsRef, bridge, selectAgent: selection.handleAgentClick,
   })
-  const tokenUsage = usage.tokens
-  const costUsage = usage.cost
-  const totalTokens = usage.summary.sessionTokens
-  const totalCost = usage.summary.sessionCost
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
-
-  // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
-  // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
-  // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
-  // Conversation right after the card would hide the inspector (and closing it would drop the selection).
-  useEffect(() => {
-    if (selection.selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
-  }, [selection.selectedAgentId, openConversation])
 
   const menuActions = {
     toggleStats: () => setShowStats(prev => !prev),
@@ -285,49 +218,23 @@ export function AgentVisualizer() {
       {/* Top bar: sessions button + info/controls (banner landmark; offset var --topbar-h is published for panels) */}
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
-        onToggleFullscreen={toggleFullscreen}
-        sessions={bridge.sessions}
-        teams={bridge.teams}
-        allSessionCount={allSessionCount}
-        showFinished={bridge.showFinished}
-        finishedSessionCount={bridge.finishedSessionCount}
-        onToggleShowFinished={bridge.setShowFinished}
-        hideInactive={hideInactive}
-        onToggleHideInactive={updateHideInactive}
-        selectedSessionId={bridge.selectedSessionId}
-        sessionsWithActivity={bridge.sessionsWithActivity}
-        showSessions={showSessions}
-        onToggleSessions={() => setShowSessions(prev => !prev)}
-        isVSCode={bridge.isVSCode}
-        connectionStatus={bridge.connectionStatus}
+        onToggleFullscreen={toggleFullscreen} sessions={bridge.sessions} teams={bridge.teams} allSessionCount={allSessionCount}
+        showFinished={bridge.showFinished} finishedSessionCount={bridge.finishedSessionCount} onToggleShowFinished={bridge.setShowFinished}
+        hideInactive={hideInactive} onToggleHideInactive={updateHideInactive}
+        selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
+        showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
+        isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}
         scope={bridge.relayOrigin !== null ? scopeProps : undefined}
-        isDemo={bridge.useMockData}
-        activeAgentCount={activeAgentCount}
-        staleAgentCount={staleAgentCount}
-        doneAgentCount={doneAgentCount}
-        totalTokens={totalTokens}
-        totalCost={totalCost}
-        tokenUsage={tokenUsage}
-        costUsage={costUsage}
+        activeAgentCount={activeAgentCount} staleAgentCount={staleAgentCount} doneAgentCount={doneAgentCount}
+        totalTokens={usage.summary.sessionTokens} totalCost={usage.summary.sessionCost} tokenUsage={usage.tokens} costUsage={usage.cost}
         unattributedCost={usage.summary.unattributedCost}
-        showFileAttention={showFileAttention}
-        showConversation={showConversation}
-        showContext={showContext}
-        showSystem={showSystem}
-        showCostOverlay={showCostOverlay}
-        showTimeline={showTimeline}
-        isMuted={isMuted}
-        showStats={showStats}
+        showFileAttention={showFileAttention} showConversation={showConversation} showContext={showContext} showSystem={showSystem}
+        showCostOverlay={showCostOverlay} showTimeline={showTimeline} showStats={showStats} isMuted={isMuted}
         onToggleStats={() => setShowStats(prev => !prev)}
         onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
-        onToggleMute={handleToggleMute}
-        onOpenShortcuts={openShortcuts}
-        onOpenSettings={openSettings}
-        attention={attention}
-        onJumpToAttention={jumpToAttention}
-        notifyState={notifyState}
-        onToggleNotify={toggleNotify}
+        onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings}
+        attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
       />
       </div>
 
@@ -398,25 +305,15 @@ export function AgentVisualizer() {
       {/* Floating control strip */}
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <ControlBar
-        isPlaying={isPlaying}
-        speed={speed}
-        currentTime={currentTime}
+        isPlaying={isPlaying} speed={speed} currentTime={currentTime}
         totalDuration={bridge.useMockData
           ? (isReviewing ? Math.max(maxTimeReached, currentTime) : MOCK_DURATION)
           : Math.max(maxTimeReached, currentTime)
         }
-        onPlayPause={handlePlayPause}
-        onRestart={handleClearHistory}
-        onSpeedChange={setSpeedInReview}
-        isDemo={bridge.useMockData}
-        connectionStatus={bridge.connectionStatus}
-        onSeek={handleSeek}
-        timelineEvents={timelineEvents}
-        isReviewing={isReviewing}
-        eventCount={timelineEvents.length}
-        onEnterReview={handleEnterReview}
-        onResumeLive={handleResumeLive}
-        droppedEvents={droppedEvents}
+        onPlayPause={handlePlayPause} onRestart={handleClearHistory} onSpeedChange={setSpeedInReview}
+        isDemo={bridge.useMockData} connectionStatus={bridge.connectionStatus} onSeek={handleSeek}
+        timelineEvents={timelineEvents} eventCount={timelineEvents.length} isReviewing={isReviewing}
+        onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents}
       />
       </div>
 
@@ -444,31 +341,17 @@ export function AgentVisualizer() {
       <PermissionRequests sessionLabel={permissionSessionLabel} />
       </main>
 
-      <SettingsDialog
-        open={showSettings}
-        onClose={closeSettings}
-        hexGrid={showHexGrid}
-        onHexGridChange={setShowHexGrid}
-        muted={isMuted}
-        onToggleMute={handleToggleMute}
-        showFinished={bridge.showFinished}
-        onShowFinishedChange={bridge.setShowFinished}
-        hideInactive={hideInactive}
-        onHideInactiveChange={updateHideInactive}
-        singleKeyEnabled={singleKeyShortcuts}
-        onSingleKeyEnabledChange={updateSingleKeyShortcuts}
-        onOpenShortcuts={openShortcuts}
-        presentation={{ active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption }}
-        notifications={{ state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules }}
-      />
-
-      <CommandPalette open={showPalette} onClose={closePalette} items={paletteItems} />
-
-      <ShortcutsDialog
-        open={showShortcuts}
-        onClose={closeShortcuts}
-        singleKeyEnabled={singleKeyShortcuts}
-        onSingleKeyEnabledChange={updateSingleKeyShortcuts}
+      <VisualizerDialogs
+        settings={{
+          open: showSettings, onClose: closeSettings, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
+          muted: isMuted, onToggleMute: handleToggleMute, showFinished: bridge.showFinished, onShowFinishedChange: bridge.setShowFinished,
+          hideInactive, onHideInactiveChange: updateHideInactive, singleKeyEnabled: singleKeyShortcuts,
+          onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts,
+          presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
+          notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },
+        }}
+        palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}
+        shortcuts={{ open: showShortcuts, onClose: closeShortcuts, singleKeyEnabled: singleKeyShortcuts, onSingleKeyEnabledChange: updateSingleKeyShortcuts }}
       />
     </div>
     </OpenFileProvider>

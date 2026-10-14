@@ -6,7 +6,7 @@ import { createPanelRegistry } from '@/hooks/use-panel-registry'
 import { useFocusReturn } from '@/hooks/use-focus-return'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { subscribeDockUserResize } from '@/components/agent-visualizer/shared-ui'
-import { dockStore } from '@/lib/panel-layout'
+import { dockStore, SHEET_BREAKPOINT } from '@/lib/panel-layout'
 import type { UiPrefs } from '@/lib/ui-preferences'
 
 type PanelId = 'files' | 'conversation' | 'cost' | 'timeline' | 'stats' | 'sessions' | 'context' | 'system'
@@ -33,7 +33,7 @@ function usePersistedFlag(key: FlagKey, prefsApi: Pick<UseUiPreferences, 'prefs'
  * Which panels are open: the persisted flags (#32), the right dock width, mutual exclusion, the Escape order
  * (newest panel first) and the focus that moves into a panel when it opens and back to its trigger when it closes.
  */
-export function usePanelsState(uiPrefs: UseUiPreferences) {
+export function usePanelsState(uiPrefs: UseUiPreferences, selectedAgentId: string | null) {
   const { prefs, setPref } = uiPrefs
   const [showStats, setShowStats] = usePersistedFlag('showStats', uiPrefs)
   const [showHexGrid, setShowHexGrid] = usePersistedFlag('showHexGrid', uiPrefs)
@@ -64,6 +64,14 @@ export function usePanelsState(uiPrefs: UseUiPreferences) {
     setShowConversation(true)
   }, [setShowFileAttention, setShowCostOverlay, setShowConversation])
   const closeConversation = useCallback(() => setShowConversation(false), [setShowConversation])
+
+  // Per-agent chat is a preset of the Conversation panel: selecting an agent opens it on that agent's tab
+  // (the panel follows `selectedAgentId`); the role label of each message comes from its agent's runtime.
+  // Not on a narrow viewport (#116): panels are one-at-a-time sheets there and the newest wins, so opening
+  // Conversation right after the card would hide the inspector (and closing it would drop the selection).
+  useEffect(() => {
+    if (selectedAgentId && dockStore.getSnapshot().env.viewport.w >= SHEET_BREAKPOINT) openConversation()
+  }, [selectedAgentId, openConversation])
 
   // Focus management: move focus into a panel when it opens, back to its trigger when it closes
   const filesPanelRef = useRef<HTMLDivElement>(null)
