@@ -150,7 +150,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
   /** Position de lecture des sessions libérées : un fichier qui reprend repart d'où il s'était arrêté
    *  (pas de rejeu de l'historique). Borné, les plus anciennes entrées sont oubliées. */
   private retired = new Map<string, Pick<WatchedCodexSession, 'fileSize' | 'fileTail' | 'rolloutState' | 'sessionStartTime' | 'label'>>()
-  /** > 0 while the history of a file is read (attach, rewrite): its events are replayed, not live (#390) */
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
   private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()

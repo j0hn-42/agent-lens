@@ -167,7 +167,7 @@ export class PiSessionWatcher implements AgentSessionWatcher {
   private versionWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, RetiredPiSession>()
-  /** > 0 while the history of a file is read (attach, rewrite): its events are replayed, not live (#390) */
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
   private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()

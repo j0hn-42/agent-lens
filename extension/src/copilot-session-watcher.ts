@@ -97,7 +97,7 @@ export class CopilotSessionWatcher implements AgentSessionWatcher {
   private capWarned = false
   /** Read position of released sessions: a log that resumes restarts where it stopped (no history replay). */
   private retired = new Map<string, Pick<WatchedCopilotSession, 'fileSize' | 'fileTail' | 'eventState' | 'sessionStartTime' | 'label'>>()
-  /** > 0 while the history of a file is read (attach, rewrite): its events are replayed, not live (#390) */
+  /** > 0 while the history of a file is read at attach: its events are replayed, not live (#390) */
   private historyDepth = 0
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
