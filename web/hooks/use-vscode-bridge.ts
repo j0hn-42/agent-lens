@@ -13,7 +13,7 @@ import {
   type PermissionBridgeMessage, type PermissionRequestMessage,
 } from '@/lib/vscode-bridge'
 import type { PermissionAction } from '@/lib/bridge-types'
-import { redirectMessage } from '@/lib/permission-requests'
+import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-requests'
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
@@ -766,8 +766,14 @@ export interface PermissionRow {
   /** The decision this page sent, when it sent one */
   action?: PermissionAction
   /**
+   * What the error result of the call must contain to prove this page's deny or redirect reached Claude (#387): the
+   * deny text or the beginning of the redirect text. In memory only: never shown, never sent elsewhere.
+   */
+  probe?: string
+  /**
    * A deny or redirect this page sent was seen applied (#387): after the extension said `sent`, a live tool_call_end
-   * of that very call (same session, same non-null tool_use_id) ended in error, not cancelled. Never set otherwise.
+   * of that very call (same session, same non-null tool_use_id) ended in error, not cancelled, not from the hook's
+   * PostToolUseFailure, and its result contains the probe. Never set otherwise.
    */
   applied?: boolean
 }
@@ -787,10 +793,10 @@ export interface PermissionState {
 
 export type PermissionEvent =
   | PermissionBridgeMessage
-  | { kind: 'decide'; nonce: string; action: PermissionAction }
+  | { kind: 'decide'; nonce: string; action: PermissionAction; probe?: string }
   | { kind: 'dismiss'; nonce: string }
   /** The end of a tool call, seen live in the event stream (#387) */
-  | { kind: 'tool-end'; sessionId: string; toolUseId: string; refused: boolean }
+  | { kind: 'tool-end'; sessionId: string; toolUseId: string; refused: boolean; result: unknown }
 
 const EMPTY_PERMISSIONS: PermissionState = { rows: [], notice: null, nextId: 1 }
 
@@ -812,12 +818,14 @@ function observedToolEnd(e: AgentEvent): Extract<PermissionEvent, { kind: 'tool-
   if (e.type !== 'tool_call_end' || e.replayed || e.imported || typeof e.sessionId !== 'string') return null
   const id = e.payload.toolUseId
   if (typeof id !== 'string' || !id) return null
-  return { kind: 'tool-end', sessionId: e.sessionId, toolUseId: id, refused: e.payload.isError === true && e.payload.outcome !== 'cancelled' }
+  return { kind: 'tool-end', sessionId: e.sessionId, toolUseId: id, refused: e.payload.isError === true && e.payload.outcome !== 'cancelled', result: e.payload.result }
 }
 
 /**
  * What the panel shows of the waiting requests. Only the extension's messages move a row to `sent` or remove it:
- * a click only makes it `sending`. Nothing here ever says a decision was applied (docs/reading-the-ui.md).
+ * a click only makes it `sending`. A row is marked applied only for a deny or redirect sent from this page, once
+ * the event stream shows its refusal (see PermissionRow.applied); an approval is never claimed applied
+ * (docs/reading-the-ui.md).
  */
 function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionState {
   const find = (nonce: string | null) => (nonce === null ? undefined : s.rows.find(r => r.request.nonce === nonce))
@@ -839,13 +847,13 @@ function reducePermissions(s: PermissionState, e: PermissionEvent): PermissionSt
     case 'decide': {
       const row = find(e.nonce)
       if (!row || row.state !== 'waiting') return s
-      return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action }) }
+      return { ...s, rows: withRow(e.nonce, { ...row, state: 'sending', action: e.action, ...(e.probe ? { probe: e.probe } : {}) }) }
     }
     case 'tool-end': {
       if (!e.refused) return s
       const row = s.rows.find(r => r.state === 'sent' && !r.applied && (r.action === 'deny' || r.action === 'redirect')
         && r.request.toolUseId === e.toolUseId && r.request.sessionId === e.sessionId)
-      if (!row || (row.action !== 'deny' && row.action !== 'redirect')) return s
+      if (!row || (row.action !== 'deny' && row.action !== 'redirect') || !row.probe || !carriesRefusal(row.probe, e.result)) return s
       return { ...s, rows: withRow(row.request.nonce, { ...row, applied: true }), ...announce({ kind: 'applied', request: row.request, action: row.action }) }
     }
     case 'dismiss': {
@@ -937,7 +945,8 @@ export function usePermissionRequests(): PermissionRequestsResult {
     const text = action === 'redirect' ? redirectMessage(message ?? '') : ''
     if (action === 'redirect' && !text) return
     // State first: a second click before the re-render finds the row 'sending' and sends nothing
-    apply({ kind: 'decide', nonce, action })
+    const probe = refusalProbe(action, text) ?? undefined
+    apply({ kind: 'decide', nonce, action, probe })
     const { sessionId, toolUseId } = row.request
     vscodeBridge.sendPermissionDecision(action === 'redirect'
       ? { sessionId, toolUseId, nonce, action, message: text }

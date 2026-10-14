@@ -304,7 +304,7 @@ With operator control on ([operator-control.md](operator-control.md)), a permiss
 | --- | --- |
 | "Sending the decision…" | Your click left the page; the extension has not answered yet. |
 | "Decision sent: approve" (or deny, or redirect) | The extension handed your decision to Claude Code. **Sent is not applied**: whether the tool ran (or the refusal reached Claude) only shows later in the transcript. |
-| "Deny applied" / "Redirect applied" | After your deny or redirect was sent, the session showed the end of **that very call** (same session, same tool call id), in error and not interrupted, live. That is the observed refusal. An approval is never shown applied, nor a call that is "not identified", nor a decision sent from another panel. |
+| "Deny applied" / "Redirect applied" | After your deny or redirect was sent, the session showed live the end of **that very call** (same session, same tool call id), in error, not interrupted, and its result contains the refusal: the deny text, or the beginning of your redirect text. That is the observed refusal. A failure reported by the hook (`[FAILED]`), another error text, an approval, a call that is "not identified" and a decision sent from another panel are never shown applied. |
 | "Decision sent from another panel" | A decision for this request was handed to Claude Code, not from this page. |
 | The request disappears, with an announcement | It ended without a decision: the deadline passed, Claude Code stopped waiting (answered in the terminal, call interrupted), control was turned off or the panel could no longer decide. Claude Code then shows its usual prompt. |
 | "Input truncated" | Only the first 64 KiB of the input are shown; the SHA-256 given is the one of the whole input. |

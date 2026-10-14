@@ -31,10 +31,43 @@ export function inputSummary(r: PermissionRequestMessage): string {
 /** The extension caps a redirect text at this many characters (extension PERMISSION_MESSAGE_MAX) */
 export const REDIRECT_MESSAGE_MAX = 2000
 
+/** Cuts at `max` UTF-16 units without leaving half of a surrogate pair at the end */
+function cutText(text: string, max: number): string {
+  const cut = text.slice(0, max)
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut
+}
+
 /**
  * A redirect text as the extension will pass it to Claude (#387): control and invisible characters removed (line
  * breaks kept), trimmed, capped. '' means there is nothing to send: a redirect needs a non-empty text.
  */
 export function redirectMessage(text: string): string {
-  return text.replace(CONTROL_TEXT, '').trim().slice(0, REDIRECT_MESSAGE_MAX)
+  return cutText(text.replace(CONTROL_TEXT, '').trim(), REDIRECT_MESSAGE_MAX)
+}
+
+/** What the extension tells Claude Code with a plain deny (extension permission-gate.ts) */
+export const DENY_MESSAGE = 'Denied by the operator from Agent Lens.'
+
+/** Characters of a redirect text compared with the result of the call: the result is cut by the extension */
+const PROBE_CHARS = 40
+const collapse = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+/**
+ * The text whose presence in the error result of the call proves that this page's refusal reached Claude (#387):
+ * the deny text, or the beginning of the redirect text. null for an approval. Kept in the page's memory only.
+ */
+export function refusalProbe(action: 'approve' | 'deny' | 'redirect', message?: string): string | null {
+  if (action === 'deny') return DENY_MESSAGE
+  if (action !== 'redirect') return null
+  const text = collapse(redirectMessage(message ?? ''))
+  return text ? cutText(text, PROBE_CHARS) : null
+}
+
+/**
+ * Whether the result of an error end carries the probe. A hook PostToolUseFailure result (`[FAILED] ` prefix) is a
+ * call that ran and failed, and the hook server does not authenticate it: it never counts.
+ */
+export function carriesRefusal(probe: string, result: unknown): boolean {
+  if (typeof result !== 'string' || result.startsWith('[FAILED]')) return false
+  return collapse(result).includes(probe)
 }

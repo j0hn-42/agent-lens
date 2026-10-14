@@ -240,7 +240,7 @@ const REDIRECT_NAME = 'Rediriger Bash : npm test, session fix login'
 const WRITE = { nonce: NONCE2, toolUseId: null, toolName: 'Write', inputPreview: '{"file_path":"/x"}' }
 const toolEnd = (over: Record<string, unknown> = {}, event: Record<string, unknown> = {}) => post({
   type: 'agent-event',
-  event: { time: 3, type: 'tool_call_end', sessionId: 'sess-1', payload: { agent: 'main', tool: 'Bash', result: 'denied', toolUseId: 'toolu_01', isError: true, ...over }, ...event },
+  event: { time: 3, type: 'tool_call_end', sessionId: 'sess-1', payload: { agent: 'main', tool: 'Bash', result: 'use pnpm instead', toolUseId: 'toolu_01', isError: true, ...over }, ...event },
 })
 
 async function openRedirect(r: ReturnType<typeof render>, req = request()) {
@@ -402,6 +402,11 @@ test('applied only once the refusal is observed: an error end of that very call,
   await toolEnd({ outcome: 'cancelled' })
   await toolEnd({}, { replayed: true })
   await toolEnd({}, { imported: true })
+  // An error end that does not carry the refusal text: the tool may have run and failed, or been refused by someone else
+  await toolEnd({ result: 'Exit code 1: npm ERR!' })
+  await toolEnd({ result: 'The user doesn\'t want to proceed with this tool use.' })
+  // The hook's PostToolUseFailure ([FAILED] prefix) is a call that ran and failed, whatever its text
+  await toolEnd({ result: '[FAILED] use pnpm instead' })
   await post({ type: 'agent-event', event: { time: 3, type: 'tool_call_start', sessionId: 'sess-1', payload: { toolUseId: 'toolu_01', isError: true } } })
   const row = r.getByRole('group', { name: /^Bash, session/ })
   assert.doesNotMatch(row.textContent ?? '', /appliqu/)
@@ -411,12 +416,23 @@ test('applied only once the refusal is observed: an error end of that very call,
   assert.deepEqual(await violations(r.container), [])
 })
 
-test('a deny is applied the same way', async () => {
+test('a long redirect text is found even when the result only keeps its beginning, spaces collapsed', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const text = 'Do not run the whole suite.\n\nRun only   the permission tests, then report back what failed and why, in detail.'
+  await sendRedirect(r, text)
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  await toolEnd({ result: 'Do not run the whole suite. Run only the permission' })
+  assert.match(r.getByRole('group', { name: /^Bash, session/ }).textContent ?? '', /Redirection appliquée/)
+})
+
+test('a deny is applied the same way, on the text the extension sends with it', async () => {
   const r = render(<PermissionRequests sessionLabel={labels} />)
   await post({ type: 'permission-request', request: request() })
   fireEvent.click(r.getByRole('button', { name: /^Refuser Bash/ }))
   await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
   await toolEnd()
+  assert.doesNotMatch(document.body.textContent ?? '', /appliqu/, 'another error text is not this refusal')
+  await toolEnd({ result: 'Denied by the operator from Agent Lens.' })
   assert.match(r.getByRole('group', { name: /^Bash, session/ }).textContent ?? '', /Refus appliqué/)
 })
 
@@ -429,6 +445,45 @@ test('an approval, a call that is not identified or a decision from another pane
   await toolEnd()
   await sendRedirect(r, 'no', request(WRITE))
   await post({ type: 'permission-closed', nonce: NONCE2, sessionId: 'sess-1', toolUseId: null, outcome: 'sent' })
-  await toolEnd({ toolUseId: undefined, tool: 'Write' })
+  await toolEnd({ toolUseId: undefined, tool: 'Write', result: 'no' })
   assert.doesNotMatch(document.body.textContent ?? '', /appliqu/)
+})
+
+test('a request answered from another panel is never shown applied, even with a matching end', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  await post({ type: 'permission-request', request: request() })
+  await post({ type: 'permission-closed', nonce: NONCE, sessionId: 'sess-1', toolUseId: 'toolu_01', outcome: 'sent' })
+  assert.match(r.getByRole('group', { name: /^Bash, session/ }).textContent ?? '', /autre panneau/)
+  await toolEnd({ result: 'Denied by the operator from Agent Lens.' })
+  await toolEnd()
+  assert.doesNotMatch(document.body.textContent ?? '', /appliqu/)
+})
+
+test('a click on the backdrop keeps the focus in the dialog, so Échap still closes it', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { dialog, field, trigger } = await openRedirect(r)
+  const backdrop = dialog.parentElement!
+  const md = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+  backdrop.dispatchEvent(md)
+  assert.equal(md.defaultPrevented, true, 'the mousedown does not move the focus out')
+  assert.equal(document.activeElement, field)
+  fireEvent.keyDown(field, { key: 'Escape' })
+  assert.equal(r.queryByRole('dialog'), null)
+  assert.equal(document.activeElement, trigger)
+})
+
+test('the dialog is described by its intro, and a second invalid send is announced again', async () => {
+  const r = render(<PermissionRequests sessionLabel={labels} />)
+  const { dialog } = await openRedirect(r)
+  const described = document.getElementById(dialog.getAttribute('aria-describedby') ?? '')
+  assert.match(described?.textContent ?? '', /refusera cet appel/)
+  const send = r.getByRole('button', { name: /^Envoyer la redirection/ })
+  const live = dialog.querySelector('[aria-live="polite"]')!
+  fireEvent.click(send)
+  const first = live.firstElementChild
+  assert.match(first?.textContent ?? '', /obligatoire/)
+  fireEvent.click(send)
+  const second = live.firstElementChild
+  assert.match(second?.textContent ?? '', /obligatoire/)
+  assert.notEqual(second, first, 'a new node at each attempt, so the same text is read again')
 })
