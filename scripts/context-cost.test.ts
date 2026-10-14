@@ -9,7 +9,7 @@ import { formatCostUsage, spokenCostUsage, USAGE_LABELS } from '../web/lib/usage
 import { COST_LABELS } from '../web/lib/ui-glossary'
 import { formatRollup, type RollupTotal } from '../web/lib/cost-rollup'
 import { costCell } from '../web/lib/session-columns'
-import { formatAllSummary } from '../web/lib/chrome-utils'
+import { formatAllSummary, spokenAllSummary } from '../web/lib/chrome-utils'
 import { clusterAnnouncement } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { evaluateTriggers, emptySnapshot, DEFAULT_RULES, type NotifySnapshot } from '../web/lib/notification-rules'
 
@@ -39,8 +39,12 @@ test('rollups, session cells and the All summary carry the estimate mark', () =>
   assert.equal(formatRollup(total), '~$6.00 · 1M')
   const cell = costCell(total)
   assert.equal(cell.text, '~$6.00')
-  assert.match(cell.label, new RegExp(COST_LABELS.name))
+  assert.equal(cell.label, `${COST_LABELS.name} $6.00`, 'same order as every other spoken cost')
+  assert.equal(costCell({ ...total, complete: false, estimated: true }).label, `${COST_LABELS.name} $6.00, from estimated tokens, incomplete`)
   assert.equal(formatAllSummary(3, 12, 1.23), '3 sessions - 12 agents - ~$1.23')
+  // Screen readers skip "~" and "-": the All summary says the estimate in words, with pauses
+  assert.equal(spokenAllSummary(3, 12, 1.23), `3 sessions, 12 agents, ${COST_LABELS.name} $1.23`)
+  assert.equal(spokenAllSummary(1, 1, { value: 0.5, status: 'partial', estimated: false }), `1 session, 1 agent, ${COST_LABELS.name} at least $0.500`)
 })
 
 test('a halo announcement and the cost notification name the estimate', () => {

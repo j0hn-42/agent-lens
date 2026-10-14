@@ -115,8 +115,9 @@ export function costCell(total: RollupTotal | null | undefined): ColumnCell {
   const money = formatCost(total.cost)
   // Always "~": the cost is the context priced at a blended rate, an estimate even on reported tokens (#364)
   const mark = `${total.complete ? '' : '≥'}${COST_LABELS.mark}`
-  const words = [`${money} ${COST_LABELS.name}`, total.estimated ? USAGE_LABELS.estimated : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
-  return { text: `${mark}${money}`, label: words.filter(Boolean).join(' '), empty: false }
+  // Same order as every other spoken cost: "context cost estimate $X", then what qualifies it
+  const words = [`${COST_LABELS.name} ${money}`, total.estimated ? `from ${USAGE_LABELS.estimated} tokens` : '', total.complete ? '' : ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')]
+  return { text: `${mark}${money}`, label: words.filter(Boolean).join(', '), empty: false }
 }
 
 /** Branch recorded at the start of the session; a dash when it was not recorded. */

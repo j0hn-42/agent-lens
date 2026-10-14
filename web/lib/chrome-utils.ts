@@ -4,7 +4,7 @@
  */
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
-import { formatCostUsage, type UsageTotal } from './usage'
+import { formatCostUsage, spokenCostUsage, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
@@ -166,6 +166,12 @@ export function agentActivityCounts(
 export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
   const costText = typeof cost === 'number' ? `${COST_LABELS.mark}${formatCost(cost)}` : formatCostUsage(cost)
   return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
+}
+
+/** The All summary for screen readers: commas for pauses, the estimate in words (they skip "~" and "-", #364) */
+export function spokenAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
+  const usage: UsageTotal = typeof cost === 'number' ? { value: cost, status: 'available', estimated: false } : cost
+  return `${pluralize(sessionCount, 'session')}, ${pluralize(agentCount, 'agent')}, ${spokenCostUsage(usage)}`
 }
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
