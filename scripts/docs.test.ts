@@ -319,6 +319,13 @@ test('the launch docs describe the button, the pasted token and the same-origin 
   }
 })
 
+test('the reading guide says when the truncation notice is announced: again after full screen, never during it (#453)', () => {
+  const section = read('docs/reading-the-ui.md').split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
+  assert.ok(section, 'the Graph truncated section exists')
+  assert.doesNotMatch(section, /announced once/, 'it is announced again each time full screen gives it back')
+  assert.match(section, /again when leaving full screen/)
+})
+
 test('the reading guide says a silence never ends a session, only an observed end does (#360)', () => {
   const guide = read('docs/reading-the-ui.md')
   assert.match(guide, /A silence never ends a session/)
