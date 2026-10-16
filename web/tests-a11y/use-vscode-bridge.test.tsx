@@ -230,6 +230,55 @@ test('disable1MContext comes from GET /status in relay mode, only when the relay
   assert.equal(second.result.current.disable1MContext, false, 'Codex only: the Claude Code flag says nothing')
 })
 
+test('event-loss (#366): only the first connection of a graph counts, and it lives as long as the graph, not the link', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.eventLoss, null)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 }, otherEvents: 2 }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 })
+  // The link drops: the graph keeps its hole, so the figure stays
+  await act(async () => FakeES.last.fail())
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a cut link does not make the graph complete again')
+  // The relay reconnects and sends its cumulative total since it started: the graph was kept, so it says nothing about it
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 50 }, otherEvents: 9 }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 2 }, 'a later connection never replaces the first figure')
+})
+
+test('event-loss (#366): a first connection without loss is not turned into a loss by a reconnection', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 5 } }))
+  assert.equal(result.current.eventLoss, null)
+})
+
+test('event-loss (#366): a scope change reloads the view, so the next connection is a first one again', async () => {
+  relayEnv('4321')
+  g.fetch = async (_url: string, init?: { method?: string }) =>
+    init?.method === 'POST' ? { ok: true, json: async () => ({ scope: 'all', allWorkspaces: true }) } : { ok: false }
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 })
+  await act(async () => { await result.current.setRelayScope('all') })
+  assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { b: 4 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 })
+})
+
+test('event-loss (#366): outside relay mode there is none', () => {
+  const { result } = renderHook(() => useVSCodeBridge())
+  assert.equal(result.current.eventLoss, null)
+  assert.equal(result.current.replayLost, 0)
+})
+
 test('unmount closes the stream and cancels reconnect timers', async () => {
   relayEnv()
   const { unmount } = renderHook(() => useVSCodeBridge())

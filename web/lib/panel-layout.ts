@@ -370,6 +370,7 @@ export const OBSTACLE_SELECTORS = [
   'button[aria-label^="Expand messages"]',
   '[data-companion-panel]',
   '[data-permission-requests]',
+  '[data-truncation-banner]',
   '[aria-label="Session transcript"]',
   '[aria-label="Sessions and agents"]',
 ] as const
