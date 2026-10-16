@@ -25,6 +25,8 @@ export function drawToolCalls(
   const { reducedMotion } = opts
   // Card text would fall under LOD.minTextPx on screen: the card shrinks to its icon instead of an empty or unreadable box (#378)
   const showText = lodOf(opts).cardText
+  // Strokes of the icon marks: never thinner than TOOL_DRAW.iconMinStrokePx on screen
+  const iconStroke = Math.max(1.5, TOOL_DRAW.iconMinStrokePx / (opts.zoom > 0 ? opts.zoom : 1))
   for (const [id, tool] of toolCalls) {
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     if (!boxInView(opts.view, tool.x - TOOL_MAX_CARD_W / 2 - TOOL_CULL_SLACK, tool.y - TOOL_DRAW.expandedHeight / 2 - TOOL_CULL_SLACK, tool.x + TOOL_MAX_CARD_W / 2 + TOOL_CULL_SLACK, tool.y + TOOL_DRAW.expandedHeight / 2 + TOOL_CULL_SLACK)) continue
@@ -79,6 +81,16 @@ export function drawToolCalls(
     ctx.setLineDash([])
 
     ctx.shadowBlur = 0
+
+    // On the icon, a running call keeps a ring under reduced motion too: a still half ring, so running
+    // never relies on colour alone (#378)
+    if (isRunning && reducedMotion && !showText) {
+      ctx.beginPath()
+      ctx.arc(tool.x, tool.y, cardW / 2 + TOOL_DRAW.spinRingPadding, -Math.PI / 2, Math.PI / 2)
+      ctx.strokeStyle = accent + '90'
+      ctx.lineWidth = iconStroke
+      ctx.stroke()
+    }
 
     if (isRunning && !reducedMotion) {
       const ringR = Math.max(cardW, cardH) / 2 + (mcp ? MCP_DRAW.orbitPadding : TOOL_DRAW.spinRingPadding)
@@ -139,13 +151,36 @@ export function drawToolCalls(
     // Action glyph on the left of the card (centred, larger, on the icon): a shape, so it stays readable at any zoom
     const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : mcp && !showText ? SCENE.mcp : SCENE.return
     if (glyph) {
-      drawToolGlyph(ctx, glyph, showText ? cardX + GLYPH_SLOT / 2 + 1 : tool.x, tool.y, showText ? 11 : TOOL_DRAW.iconGlyphSize, glyphColor, time, isRunning, reducedMotion)
+      if (showText) drawToolGlyph(ctx, glyph, cardX + GLYPH_SLOT / 2 + 1, tool.y, 11, glyphColor, time, isRunning, reducedMotion)
+      else drawToolGlyph(ctx, glyph, tool.x, tool.y, TOOL_DRAW.iconGlyphSize, glyphColor, time, isRunning, reducedMotion, Math.max(1.3, TOOL_DRAW.iconMinStrokePx / (opts.zoom > 0 ? opts.zoom : 1)))
     } else if (!showText) {
-      // MCP and unknown tools have no glyph: a dot marks the call on its icon
+      // MCP and unknown tools have no glyph: a ring marks an MCP call on its icon, a dot any other tool
+      const dotR = Math.max(TOOL_DRAW.iconDotRadius, TOOL_DRAW.iconDotMinPx / (opts.zoom > 0 ? opts.zoom : 1))
       ctx.beginPath()
-      ctx.arc(tool.x, tool.y, TOOL_DRAW.iconDotRadius, 0, Math.PI * 2)
-      ctx.fillStyle = glyphColor
-      ctx.fill()
+      ctx.arc(tool.x, tool.y, dotR, 0, Math.PI * 2)
+      if (mcp) {
+        ctx.strokeStyle = glyphColor
+        ctx.lineWidth = iconStroke
+        ctx.stroke()
+      } else {
+        ctx.fillStyle = glyphColor
+        ctx.fill()
+      }
+    }
+
+    // Failed call on its icon: a cross in the top-right corner, so the failure is a shape, not only a colour (#378)
+    if (isError && !showText) {
+      const half = Math.max(3, TOOL_DRAW.iconErrorMarkPx / (opts.zoom > 0 ? opts.zoom : 1))
+      const cx = cardX + cardW
+      const cy = cardY
+      ctx.beginPath()
+      ctx.moveTo(cx - half, cy - half)
+      ctx.lineTo(cx + half, cy + half)
+      ctx.moveTo(cx + half, cy - half)
+      ctx.lineTo(cx - half, cy + half)
+      ctx.strokeStyle = SCENE.error
+      ctx.lineWidth = iconStroke
+      ctx.stroke()
     }
 
     if (!showText) { ctx.restore(); continue }

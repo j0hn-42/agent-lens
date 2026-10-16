@@ -375,8 +375,14 @@ export const TOOL_DRAW = {
   iconSize: 28,
   /** Glyph size (world px) on that icon */
   iconGlyphSize: 16,
-  /** Dot radius (world px) on the icon of a tool without glyph (MCP, unknown tools) */
+  /** Dot radius (world px) on the icon of a tool without glyph (MCP ring, unknown tools dot) */
   iconDotRadius: 3.5,
+  /** Smallest on-screen radius (px) of that dot or ring */
+  iconDotMinPx: 2,
+  /** Smallest on-screen width (px) of the strokes on the icon: glyph, MCP ring, running ring, error cross */
+  iconMinStrokePx: 1.25,
+  /** On-screen half size (px) of the cross that marks a failed call on its icon */
+  iconErrorMarkPx: 3,
 } as const
 
 // ─── MCP tool call drawing constants ────────────────────────────────────────
