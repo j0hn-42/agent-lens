@@ -507,7 +507,8 @@ export function SessionListPanel({
           <input
             type="search"
             aria-label="Search sessions"
-            placeholder="Search name, project, branch, agent"
+            placeholder="Search sessions"
+            title="Searches name, project, branch, agent"
             value={query}
             onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
             className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}

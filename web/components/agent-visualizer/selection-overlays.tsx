@@ -46,7 +46,7 @@ interface ContextMenuActions {
 export function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
   if (onAgent) return [{ icon: '📊', label: 'Toggle Stats', onClick: a.toggleStats }]
   return [
-    { icon: '🔍', label: 'Zoom to Fit', onClick: a.zoomToFit },
+    { icon: '🔍', label: 'Zoom to fit', onClick: a.zoomToFit },
     { icon: '📊', label: 'Toggle Stats', onClick: a.toggleStats },
     { icon: '⬡', label: 'Toggle Grid', onClick: a.toggleGrid },
     { label: '', onClick: () => {}, separator: true },
