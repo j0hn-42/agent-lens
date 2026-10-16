@@ -20,6 +20,8 @@ export interface TruncationBannerProps {
   replayLost?: number
   /** The user dismissed the banner for this session. */
   onDismiss: () => void
+  /** DOM id of a stable element that receives the focus when the banner is dismissed (the banner unmounts with its own button) */
+  returnFocusId?: string
 }
 
 const REASONS: ReadonlyArray<{ key: keyof NormalizationStats; label: string }> = [
@@ -35,7 +37,7 @@ const REASONS: ReadonlyArray<{ key: keyof NormalizationStats; label: string }> =
  * state is carried by words and a symbol, never by color alone. Details are a native disclosure
  * button; dismissal is reported to the parent, which owns the per-session memory.
  */
-export function TruncationBanner({ stats, replayLost = 0, onDismiss }: TruncationBannerProps) {
+export function TruncationBanner({ stats, replayLost = 0, onDismiss, returnFocusId }: TruncationBannerProps) {
   const [open, setOpen] = useState(false)
   const detailsId = useId()
   const lost = Number.isSafeInteger(replayLost) && replayLost > 0 ? replayLost : 0
@@ -45,8 +47,10 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss }: Truncatio
 
   return (
     <div
-      role="status"
-      className="glass-card flex flex-col gap-1 px-3 py-1.5 text-xs font-mono max-w-[calc(100vw-24px)]"
+      role="group"
+      aria-label="Graph truncation"
+      data-truncation-banner
+      className="glass-card flex flex-col gap-1 px-3 py-1.5 text-xs font-mono w-fit max-w-full"
       style={{ color: COLORS.textPrimary }}
     >
       <div className="flex items-center gap-3">
@@ -68,7 +72,11 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss }: Truncatio
         <button
           type="button"
           aria-label="Dismiss truncation warning"
-          onClick={onDismiss}
+          onClick={() => {
+            // The banner unmounts with this button: hand the focus over first (WCAG 2.4.3)
+            if (returnFocusId) document.getElementById(returnFocusId)?.focus({ preventScroll: true })
+            onDismiss()
+          }}
           className={`min-h-6 min-w-6 rounded shrink-0 ${FOCUS_RING}`}
           style={{ color: COLORS.textMuted }}
         >
@@ -80,6 +88,19 @@ export function TruncationBanner({ stats, replayLost = 0, onDismiss }: Truncatio
           <li key={r.key}>{`${r.label}: ${stats[r.key]}`}</li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * Stable polite live region for the banner. The banner itself is not a live region (it would be announced
+ * already filled when it mounts, and again at every counter change): this one says one fixed sentence when
+ * the banner appears and goes quiet when it goes away.
+ */
+export function TruncationAnnouncer({ shown }: { shown: boolean }) {
+  return (
+    <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+      {shown ? 'Graph incomplete or truncated: see the notice under the top bar.' : ''}
     </div>
   )
 }

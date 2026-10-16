@@ -1,4 +1,4 @@
-import { LOD } from '../../../lib/canvas-constants'
+import { LOD, AGENT_DRAW } from '../../../lib/canvas-constants'
 import type { TeamSummary } from '../../../lib/agent-types'
 import type { OverlayPlan } from './label-placement'
 import type { ViewRect } from './view-cull'
@@ -9,6 +9,8 @@ export interface DrawOpts {
   reducedMotion: boolean
   /** Current camera zoom (1 = 100%), used for level of detail. */
   zoom: number
+  /** Level of detail of this frame, with hysteresis (see lodForZoom); absent = derived from `zoom` */
+  lod?: LevelOfDetail
   /** The cost overlay is active (affects the stacked overlay layout above agents). */
   showCost: boolean
   /** The stats overlay is active (affects the stacked overlay layout above agents). */
@@ -36,13 +38,37 @@ export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, show
 export interface LevelOfDetail {
   /** Agent names + state labels */
   labels: boolean
-  /** Secondary text: stats, token labels, tool/discovery/bubble text, cost pills */
+  /** Secondary text: stats, token labels, discovery text, cost pills */
   details: boolean
+  /** Tool-card and message-bubble text; false = card icon and bubble count chip (#378) */
+  cardText: boolean
 }
 
-/** Pure level-of-detail rule: hide text that would fall below a readable size. */
-export function lodForZoom(zoom: number): LevelOfDetail {
-  return { labels: zoom >= LOD.labelMinZoom, details: zoom >= LOD.detailMinZoom }
+/**
+ * Pure level-of-detail rule: hide text that would fall below a readable size. With the level of the
+ * previous frame, a shown level is kept down to LOD.hysteresis under its threshold (no blinking).
+ */
+export function lodForZoom(zoom: number, previous?: LevelOfDetail): LevelOfDetail {
+  const keep = (threshold: number, wasShown: boolean | undefined) => zoom >= (wasShown ? threshold * (1 - LOD.hysteresis) : threshold)
+  return {
+    labels: keep(LOD.labelMinZoom, previous?.labels),
+    details: keep(LOD.detailMinZoom, previous?.details),
+    cardText: keep(LOD.cardTextMinZoom, previous?.cardText),
+  }
+}
+
+/** Level of detail of a frame: the one the draw loop computed (with hysteresis), else the plain rule. */
+export function lodOf(opts: Pick<DrawOpts, 'zoom' | 'lod'>): LevelOfDetail {
+  return opts.lod ?? lodForZoom(opts.zoom)
+}
+
+/**
+ * Factor applied to an agent label (and the context bar under it) so that its text is never smaller
+ * than LOD.minTextPx on screen: 1 from the zoom where the label font reaches that size, more below.
+ */
+export function labelScaleForZoom(zoom: number): number {
+  if (!(zoom > 0)) return 1
+  return Math.max(1, LOD.minTextPx / (AGENT_DRAW.labelFontSize * zoom))
 }
 
 export interface FlashLimiter {

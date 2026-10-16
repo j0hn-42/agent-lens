@@ -5,7 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
 
-import { TruncationBanner } from '@/components/agent-visualizer/truncation-banner'
+import { TruncationBanner, TruncationAnnouncer } from '@/components/agent-visualizer/truncation-banner'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { createStats, type NormalizationStats } from '@/lib/event-normalize'
 
@@ -34,15 +34,15 @@ test('renders nothing unless events or nodes were really discarded (duplicates a
   assert.equal(benign.container.firstChild, null)
 })
 
-test('is a status region whose text states the proven numbers (events = ignored + malformed, nodes = dropped by caps)', () => {
+test('is a named group (not a live region of its own) whose text states the proven numbers (events = ignored + malformed, nodes = dropped by caps)', () => {
   const { getByRole } = render(<TruncationBanner stats={cut()} onDismiss={noop} />)
-  const status = getByRole('status')
+  const status = getByRole('group', { name: 'Graph truncation' })
   assert.match(status.textContent ?? '', /Graph truncated: 3 events ignored, 4 nodes dropped/)
 })
 
 test('singular forms for a count of one', () => {
   const { getByRole } = render(<TruncationBanner stats={cut({ ignoredEvents: 1, malformed: 0, droppedByCap: 1 })} onDismiss={noop} />)
-  assert.match(getByRole('status').textContent ?? '', /Graph truncated: 1 event ignored, 1 node dropped/)
+  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /Graph truncated: 1 event ignored, 1 node dropped/)
 })
 
 test('the details disclosure is a native button that toggles aria-expanded and lists the counters by reason', () => {
@@ -88,9 +88,9 @@ test('every control keeps a 24px target and a visible :focus-visible style', () 
 
 test('the warning symbol is decorative: the meaning is in the words, not in a color or an icon', () => {
   const { getByRole } = render(<TruncationBanner stats={cut()} onDismiss={noop} />)
-  const symbol = getByRole('status').querySelector('[aria-hidden="true"]')
+  const symbol = getByRole('group', { name: 'Graph truncation' }).querySelector('[aria-hidden="true"]')
   assert.ok(symbol)
-  assert.match(getByRole('status').textContent ?? '', /truncated/i)
+  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /truncated/i)
 })
 
 test('no axe violations, collapsed and expanded', async () => {
@@ -102,18 +102,18 @@ test('no axe violations, collapsed and expanded', async () => {
 
 test('events the relay could not replay show on their own, as "at least" (#366)', () => {
   const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={40} onDismiss={noop} />)
-  const text = getByRole('status').textContent ?? ''
+  const text = getByRole('group', { name: 'Graph truncation' }).textContent ?? ''
   assert.match(text, /Graph incomplete: at least 40 earlier events were not replayed by the relay/)
   assert.doesNotMatch(text, /Graph truncated/)
 })
 
 test('both causes are named when both apply; a replay loss of one is singular', () => {
   const { getByRole, rerender } = render(<TruncationBanner stats={cut()} replayLost={5} onDismiss={noop} />)
-  const text = getByRole('status').textContent ?? ''
+  const text = getByRole('group', { name: 'Graph truncation' }).textContent ?? ''
   assert.match(text, /Graph truncated: 3 events ignored, 4 nodes dropped/)
   assert.match(text, /at least 5 earlier events were not replayed by the relay/)
   rerender(<TruncationBanner stats={createStats()} replayLost={1} onDismiss={noop} />)
-  assert.match(getByRole('status').textContent ?? '', /at least 1 earlier event was not replayed by the relay/)
+  assert.match(getByRole('group', { name: 'Graph truncation' }).textContent ?? '', /at least 1 earlier event was not replayed by the relay/)
 })
 
 test('a replay loss that is not a positive safe integer renders nothing', () => {
@@ -122,6 +122,40 @@ test('a replay loss that is not a positive safe integer renders nothing', () => 
     assert.equal(container.firstChild, null, String(bad))
     unmount()
   }
+})
+
+test('dismissing hands the focus to a stable element instead of dropping it on the page (WCAG 2.4.3, #366)', () => {
+  const { getByRole } = render(
+    <div>
+      <button id="stable-target" type="button">Sessions</button>
+      <TruncationBanner stats={cut()} returnFocusId="stable-target" onDismiss={noop} />
+    </div>,
+  )
+  const dismiss = getByRole('button', { name: 'Dismiss truncation warning' })
+  dismiss.focus()
+  fireEvent.click(dismiss)
+  assert.equal(document.activeElement?.id, 'stable-target')
+})
+
+test('dismissing without a target (or with a missing one) still just reports to the parent', () => {
+  let calls = 0
+  const { getByRole } = render(<TruncationBanner stats={cut()} returnFocusId="nope" onDismiss={() => { calls++ }} />)
+  fireEvent.click(getByRole('button', { name: 'Dismiss truncation warning' }))
+  assert.equal(calls, 1)
+})
+
+test('the announcer is a stable live region: empty when hidden, one fixed sentence when shown (numbers do not re-announce)', () => {
+  const { container, rerender } = render(<TruncationAnnouncer shown={false} />)
+  const region = () => container.querySelector('[role="status"]')!
+  assert.equal(region().getAttribute('aria-live'), 'polite')
+  assert.equal(region().textContent, '')
+  rerender(<TruncationAnnouncer shown />)
+  const text = region().textContent
+  assert.match(text ?? '', /Graph incomplete or truncated/)
+  rerender(<TruncationAnnouncer shown />)
+  assert.equal(region().textContent, text)
+  rerender(<TruncationAnnouncer shown={false} />)
+  assert.equal(region().textContent, '')
 })
 
 test('no axe violations with a replay loss', async () => {

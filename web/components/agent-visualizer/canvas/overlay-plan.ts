@@ -20,6 +20,7 @@ import {
   orchestratorInfo,
 } from './team-style'
 import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
+import { labelScaleForZoom } from './draw-options'
 import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
 import {
@@ -62,7 +63,8 @@ export interface OverlayPlanInput {
   viewport: { w: number; h: number }
   /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
   safeArea?: Rect
-  lod: { labels: boolean; details: boolean }
+  /** cardText false (or absent = true): agent bubbles are planned as their count chip only (#378) */
+  lod: { labels: boolean; details: boolean; cardText?: boolean }
   showStats: boolean
   showCost: boolean
   showSessionLabels: boolean
@@ -220,6 +222,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     })
   }
 
+  const labelScale = labelScaleForZoom(s)
   for (const a of visible) {
     const id = a.id
     const r = agentDrawRadius(a)
@@ -229,10 +232,13 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       focused: id === input.focusedAgentId,
       orchestrator: isOrchestrator(a),
       active: a.state === 'thinking' || a.state === 'tool_calling' || a.state === 'waiting_permission',
+      alert: a.state === 'error',
     }
     const isPriority = flags.selected || flags.hovered || flags.focused
     const secondaryAllowed = !crowded || isPriority
 
+    // Right edge (screen) of this agent's label block as reserved, enlarged below 100% (#378)
+    let labelRight: number | undefined
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
       const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
@@ -249,11 +255,14 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const barShown = contextBarShown(a)
       const labelH = lines * AGENT_DRAW.stateLabelGap
       const blockH = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
-      const full = toScreen(t, a.x - wW / 2, top, wW, blockH)
+      // Drawn enlarged by labelScale around its top centre below 100% (held at LOD.minTextPx on screen, #378)
+      const k = labelScale
+      const full = toScreen(t, a.x - (wW * k) / 2, top, wW * k, blockH * k)
       const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
       const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
       const cW = measure(compactText) + LABEL_PAD * 2
-      const compact = toScreen(t, a.x - cW / 2, top, cW, barShown ? blockH : AGENT_DRAW.stateLabelGap)
+      const compact = toScreen(t, a.x - (cW * k) / 2, top, cW * k, (barShown ? blockH : AGENT_DRAW.stateLabelGap) * k)
+      labelRight = full.x + full.w
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),
@@ -314,14 +323,20 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         const ay = a.y + AGENT_DRAW.bubbleCursorY
         const full = toScreen(t, ax, ay, w, h)
         const clusterBoost = (clusterOf.get(id) && priorityClusters.has(clusterOf.get(id) as string)) ? 500 : 0
+        // Bubble text would fall under LOD.minTextPx on screen: the count chip stands for the stack
+        const compactOnly = input.lod.cardText === false
+        // The chip is fixed: anchored right of the agent's own label block, which is enlarged below 100%
+        // and placed first, so the label never pushes its own chip out (#378)
+        const chipX = compactOnly && labelRight !== undefined ? Math.max(full.x, labelRight + PLACEMENT.gap) : full.x
         requests.push({
           id: planKey.bubbles(id),
           priority: overlayPriority(PRIORITY.agentBubbles, flags) + clusterBoost,
           rect: full,
-          compact: { x: full.x, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
+          compact: { x: chipX, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
           owner: id,
           fixed: true,
           ignoreObstacles: isPriority,
+          compactOnly,
         })
       }
     }

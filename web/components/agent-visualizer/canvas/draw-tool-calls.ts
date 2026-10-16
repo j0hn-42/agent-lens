@@ -10,7 +10,7 @@ import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
 import { boxInView } from './view-cull'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 
 /** Glow and error halo around a card (world units) */
 const TOOL_CULL_SLACK = 24
@@ -23,7 +23,10 @@ export function drawToolCalls(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const { reducedMotion } = opts
-  const showText = lodForZoom(opts.zoom).details
+  // Card text would fall under LOD.minTextPx on screen: the card shrinks to its icon instead of an empty or unreadable box (#378)
+  const showText = lodOf(opts).cardText
+  // Strokes of the icon marks: never thinner than TOOL_DRAW.iconMinStrokePx on screen
+  const iconStroke = Math.max(1.5, TOOL_DRAW.iconMinStrokePx / (opts.zoom > 0 ? opts.zoom : 1))
   for (const [id, tool] of toolCalls) {
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     if (!boxInView(opts.view, tool.x - TOOL_MAX_CARD_W / 2 - TOOL_CULL_SLACK, tool.y - TOOL_DRAW.expandedHeight / 2 - TOOL_CULL_SLACK, tool.x + TOOL_MAX_CARD_W / 2 + TOOL_CULL_SLACK, tool.y + TOOL_DRAW.expandedHeight / 2 + TOOL_CULL_SLACK)) continue
@@ -48,8 +51,8 @@ export function drawToolCalls(
     const textX = tool.x + slot / 2
     const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12 - slot)
     const textWidth = Math.min(measureTextCached(ctx, label) + 12 + slot, TOOL_MAX_CARD_W)
-    const cardW = Math.max(60, textWidth)
-    const cardH = toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
+    const cardW = showText ? Math.max(60, textWidth) : TOOL_DRAW.iconSize
+    const cardH = !showText ? TOOL_DRAW.iconSize : toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
     const cardX = tool.x - cardW / 2
     const cardY = tool.y - cardH / 2
     // Hit-testing reuses the exact drawn size
@@ -79,6 +82,16 @@ export function drawToolCalls(
 
     ctx.shadowBlur = 0
 
+    // On the icon, a running call keeps a ring under reduced motion too: a still half ring, so running
+    // never relies on colour alone (#378)
+    if (isRunning && reducedMotion && !showText) {
+      ctx.beginPath()
+      ctx.arc(tool.x, tool.y, cardW / 2 + TOOL_DRAW.spinRingPadding, -Math.PI / 2, Math.PI / 2)
+      ctx.strokeStyle = accent + '90'
+      ctx.lineWidth = iconStroke
+      ctx.stroke()
+    }
+
     if (isRunning && !reducedMotion) {
       const ringR = Math.max(cardW, cardH) / 2 + (mcp ? MCP_DRAW.orbitPadding : TOOL_DRAW.spinRingPadding)
       if (mcp) {
@@ -100,11 +113,11 @@ export function drawToolCalls(
       }
     }
 
-    // MCP server badge above the card (text only when zoomed in; shape remains otherwise)
-    if (mcp) {
+    // MCP server badge above the card (not on the icon: an empty pill would say nothing)
+    if (mcp && showText) {
       ctx.font = `${MCP_DRAW.badgeFontSize}px monospace`
-      const badgeText = showText ? truncateText(ctx, `MCP · ${mcp.server}`, cardW + 20) : ''
-      const badgeW = showText ? measureTextCached(ctx, badgeText) + MCP_DRAW.badgePadX * 2 : 14
+      const badgeText = truncateText(ctx, `MCP · ${mcp.server}`, cardW + 20)
+      const badgeW = measureTextCached(ctx, badgeText) + MCP_DRAW.badgePadX * 2
       const badgeX = tool.x - badgeW / 2
       const badgeY = cardY - MCP_DRAW.badgeHeight - MCP_DRAW.badgeGap
       ctx.beginPath()
@@ -114,12 +127,10 @@ export function drawToolCalls(
       ctx.strokeStyle = SCENE.mcp + 'cc'
       ctx.lineWidth = 1
       ctx.stroke()
-      if (showText) {
-        ctx.fillStyle = SCENE.mcp
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(badgeText, tool.x, badgeY + MCP_DRAW.badgeHeight / 2 + 0.5)
-      }
+      ctx.fillStyle = SCENE.mcp
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(badgeText, tool.x, badgeY + MCP_DRAW.badgeHeight / 2 + 0.5)
     }
 
     // Crack lines for errors
@@ -137,10 +148,39 @@ export function drawToolCalls(
       ctx.restore()
     }
 
-    // Action glyph on the left of the card: a shape, so it stays readable at any zoom
+    // Action glyph on the left of the card (centred, larger, on the icon): a shape, so it stays readable at any zoom
+    const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : mcp && !showText ? SCENE.mcp : SCENE.return
     if (glyph) {
-      const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : SCENE.return
-      drawToolGlyph(ctx, glyph, cardX + GLYPH_SLOT / 2 + 1, tool.y, 11, glyphColor, time, isRunning, reducedMotion)
+      if (showText) drawToolGlyph(ctx, glyph, cardX + GLYPH_SLOT / 2 + 1, tool.y, 11, glyphColor, time, isRunning, reducedMotion)
+      else drawToolGlyph(ctx, glyph, tool.x, tool.y, TOOL_DRAW.iconGlyphSize, glyphColor, time, isRunning, reducedMotion, Math.max(1.3, TOOL_DRAW.iconMinStrokePx / (opts.zoom > 0 ? opts.zoom : 1)))
+    } else if (!showText) {
+      // MCP and unknown tools have no glyph: a ring marks an MCP call on its icon, a dot any other tool
+      const dotR = Math.max(TOOL_DRAW.iconDotRadius, TOOL_DRAW.iconDotMinPx / (opts.zoom > 0 ? opts.zoom : 1))
+      ctx.beginPath()
+      ctx.arc(tool.x, tool.y, dotR, 0, Math.PI * 2)
+      if (mcp) {
+        ctx.strokeStyle = glyphColor
+        ctx.lineWidth = iconStroke
+        ctx.stroke()
+      } else {
+        ctx.fillStyle = glyphColor
+        ctx.fill()
+      }
+    }
+
+    // Failed call on its icon: a cross in the top-right corner, so the failure is a shape, not only a colour (#378)
+    if (isError && !showText) {
+      const half = Math.max(3, TOOL_DRAW.iconErrorMarkPx / (opts.zoom > 0 ? opts.zoom : 1))
+      const cx = cardX + cardW
+      const cy = cardY
+      ctx.beginPath()
+      ctx.moveTo(cx - half, cy - half)
+      ctx.lineTo(cx + half, cy + half)
+      ctx.moveTo(cx + half, cy - half)
+      ctx.lineTo(cx - half, cy + half)
+      ctx.strokeStyle = SCENE.error
+      ctx.lineWidth = iconStroke
+      ctx.stroke()
     }
 
     if (!showText) { ctx.restore(); continue }
