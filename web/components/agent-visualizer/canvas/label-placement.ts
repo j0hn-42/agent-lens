@@ -175,14 +175,16 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
   return requests.map(r => result.get(r.id)!)
 }
 
-/** Priority of an overlay: the selected / hovered agent first, then the orchestrator, then active agents. */
+/** Priority of an overlay: the selected / hovered agent first, then the orchestrator, then an agent in error, then active agents. */
 export function overlayPriority(
   kindBase: number,
-  flags: { selected?: boolean; hovered?: boolean; focused?: boolean; orchestrator?: boolean; active?: boolean },
+  flags: { selected?: boolean; hovered?: boolean; focused?: boolean; orchestrator?: boolean; alert?: boolean; active?: boolean },
 ): number {
   let p = kindBase
   if (flags.selected || flags.hovered || flags.focused) p += 1000
   if (flags.orchestrator) p += 100
+  // An error is the state the user most needs to see: its label gives way after the orchestrator's only (#378)
+  if (flags.alert) p += 50
   if (flags.active) p += 10
   return p
 }

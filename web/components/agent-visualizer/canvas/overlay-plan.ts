@@ -232,6 +232,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       focused: id === input.focusedAgentId,
       orchestrator: isOrchestrator(a),
       active: a.state === 'thinking' || a.state === 'tool_calling' || a.state === 'waiting_permission',
+      alert: a.state === 'error',
     }
     const isPriority = flags.selected || flags.hovered || flags.focused
     const secondaryAllowed = !crowded || isPriority
