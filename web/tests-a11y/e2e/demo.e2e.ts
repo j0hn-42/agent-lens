@@ -504,6 +504,36 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     } finally { await close() }
   })
 
+  // #380: aria-checked follows the real overlay state (index.tsx wiring), not only the pure item builder
+  test('context menu: Toggle Grid and Toggle Stats report the state they switch', async () => {
+    const { page, close } = await open()
+    try {
+      const menu = page.getByRole('menu', { name: 'Context menu' })
+      const openMenu = async () => {
+        await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
+        await menu.waitFor()
+      }
+      const checked = (name: string) => menu.getByRole('menuitemcheckbox', { name, exact: true })
+      const waitChecked = (name: string, value: 'true' | 'false') =>
+        menu.locator(`[role="menuitemcheckbox"][aria-checked="${value}"]`, { hasText: name }).waitFor({ timeout: 5000 })
+      await openMenu()
+      assert.equal(await checked('Toggle Grid').getAttribute('aria-checked'), 'true', 'the hex grid is on by default')
+      assert.equal(await checked('Toggle Stats').getAttribute('aria-checked'), 'false', 'stats are off by default')
+      await checked('Toggle Grid').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle Grid', 'false')
+      assert.equal(await checked('Toggle Grid').getAttribute('aria-checked'), 'false', 'Toggle Grid turned the grid off')
+      await checked('Toggle Stats').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle Stats', 'true')
+      assert.equal(await checked('Toggle Stats').getAttribute('aria-checked'), 'true', 'Toggle Stats turned the stats on')
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+    } finally { await close() }
+  })
+
   test('context menu: Shift+F10 opens it, Escape closes it and focus returns to the graph', async () => {
     const { page, close } = await open()
     try {
