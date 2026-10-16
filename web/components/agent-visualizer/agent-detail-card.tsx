@@ -421,6 +421,7 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
   return (
     <section className="mb-3 min-w-0 text-[11px] font-mono" aria-labelledby={headingId} data-testid="git-strip">
       <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>{L.title}</h3>
+      {lost > 0 && <p className="m-0" data-testid="git-lost" style={{ color: COLORS.textDim }}>{L.lost}</p>}
       {git.head && (
         <p className="m-0 break-all" data-testid="git-branch" style={{ color: COLORS.textDim }}>
           <span aria-hidden="true">⎇ </span>
@@ -455,7 +456,7 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
               return (
                 <li key={`${p.repo ?? ''}#${p.number}`} className="min-w-0 break-words">
                   {p.url ? (
-                    <a href={p.url} target="_blank" rel="noopener noreferrer" className={`underline ${FOCUS_RING_STRONG}`} style={{ color: COLORS.textPrimary }}>{name}</a>
+                    <a href={p.url} target="_blank" rel="noopener noreferrer" className={`underline ${FOCUS_RING_STRONG}`} style={{ color: COLORS.textPrimary }}>{name}<span className="sr-only">{L.newTab}</span></a>
                   ) : (
                     <span style={{ color: COLORS.textPrimary }}>{name}</span>
                   )}

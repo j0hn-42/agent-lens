@@ -142,6 +142,10 @@ export const FILE_TIMELINE_LABELS = {
 /** Git strip of the agent card (#386): each value read from an observed git / gh output, never a default. */
 export const GIT_STRIP_LABELS = {
   title: 'Git (observed)',
+  /** Under the title when the relay could not replay some events: qualifies the branch, the commits and the PRs */
+  lost: 'events lost: later changes may be missing',
+  /** Screen reader only, after the PR link text */
+  newTab: ' (opens in a new tab)',
   branch: 'Branch',
   detached: 'detached HEAD',
   sources: { checkout: 'git checkout / switch', status: 'git status', 'show-current': 'git branch --show-current', commit: 'git commit' },
