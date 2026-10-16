@@ -109,7 +109,7 @@ const STATE_COLOR: Record<string, string> = themed(() => ({
 
 /** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
 function StateMarker({ state }: { state: string }) {
-  const color = STATE_COLOR[state] ?? COLORS.idle
+  const color = STATE_COLOR[state] ?? (state === 'paused' ? COLORS.paused : COLORS.idle)
   if (state === 'complete') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✓</span>
   if (state === 'error') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✕</span>
   const hollow = state === 'idle' || state === 'paused'
@@ -140,7 +140,7 @@ function RollupLabel({ total, label }: { total: RollupTotal; label: string }) {
   return (
     <span
       className="shrink-0 tabular-nums"
-      style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.waiting_permission }}
+      style={{ color: total.complete && total.known > 0 ? COLORS.textMuted : COLORS.warn }}
       title={total.complete ? undefined : ROLLUP_INCOMPLETE_HELP}
     >
       <span className="sr-only">{label}, </span>
@@ -724,7 +724,7 @@ export function SessionListPanel({
                           </span>
                         )}
                         {sessionHealthText(health?.get(session.id)) && (
-                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.waiting_permission }}>
+                          <span className="shrink-0 font-semibold" data-testid="session-health" style={{ color: COLORS.warn }}>
                             <span aria-hidden="true">⟳ </span>{sessionHealthText(health?.get(session.id))}
                           </span>
                         )}

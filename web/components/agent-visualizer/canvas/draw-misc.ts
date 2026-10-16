@@ -3,7 +3,7 @@ import { SCENE, getStateColor } from '../../../lib/colors'
 import { STATE_COLOR_OVERRIDES } from '../../../lib/canvas-constants'
 import { measureTextCached } from './render-cache'
 
-/** Canvas state colour: colors.ts value, except where the canvas needs a distinct hue (thinking, waiting_permission). */
+/** Canvas state colour: SCENE value, except where the canvas needs a distinct hue (thinking, waiting_permission: SCENE.stateThinking / stateWaitingPermission). */
 export function stateColor(state: Agent['state']): string {
   return STATE_COLOR_OVERRIDES[state] ?? getStateColor(state, SCENE)
 }
