@@ -305,7 +305,7 @@ export function toolingCommands(command: string): ToolingCommand[] {
 }
 
 /** Characters of a tool result kept on the event (`RESULT_MAX` in extension/src/constants.ts): a result that long may be cut. */
-const RESULT_CAPTURE_LIMIT = 200
+export const RESULT_CAPTURE_LIMIT = 200
 
 /** Prefix the hook server puts on the result of a failed call */
 const FAILED_PREFIX = '[FAILED]'

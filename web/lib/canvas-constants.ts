@@ -107,6 +107,18 @@ export function setToolExpiryS(seconds: number): number {
 export const DISCOVERY_HOLD_S = 8
 /** Speed multiplier for discovery lerp toward target position */
 export const DISCOVERY_LERP_SPEED = 3
+/**
+ * File cards made from the paths a Glob / Grep output lists (#438, web/lib/search-discoveries.ts).
+ * At most `maxPerCall` cards per call: the other paths, and any the 200-character capture cut, are not drawn;
+ * each card says how many files the call reported and how many are shown (a11y list, tooltip, popup).
+ */
+export const SEARCH_DISCOVERY = {
+  maxPerCall: 5,
+  /** Distance from the tool card centre to the column of cards, to its right */
+  offsetX: 230,
+  /** Vertical distance between two cards of the same call */
+  gapY: 40,
+} as const
 /** Seconds a message bubble is considered visible (for pruning) */
 export const BUBBLE_VISIBLE_S = 12
 

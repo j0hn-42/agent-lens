@@ -12,6 +12,7 @@ import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
 import { reviveFinished } from './revive-agent'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
+import { searchDiscoveries } from '../../lib/search-discoveries'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -276,6 +277,11 @@ export function handleToolCallEnd(
           const filePath = extractFilePath(tc.inputData, tc.args)
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
+        }
+        // File cards for the paths a successful Glob / Grep output lists itself (#438); a replayed result reuses the ids
+        if (toolState === 'complete') {
+          const cards = searchDiscoveries({ ...tc, toolUseId: tc.toolUseId ?? toolUseId }, result, currentTime)
+          for (const d of cards) if (!state.discoveries.some(x => x.id === d.id)) state.discoveries.push(d)
         }
         state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
           toolState === 'complete' ? undefined : { sessionId, agentId: agentName, toolName: tc.toolName, inputData: tc.inputData, toolUseId: tc.toolUseId, toolCallId: id, time: currentTime })
