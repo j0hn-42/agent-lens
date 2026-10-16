@@ -17,6 +17,7 @@ import { useCanvasInsets } from '@/hooks/use-canvas-insets'
 import { useCanvasDrawProps } from '@/hooks/use-canvas-draw-props'
 import { useCanvasA11yMirror } from '@/hooks/use-canvas-a11y-mirror'
 import { useCanvasStateEffects } from '@/hooks/use-canvas-state-effects'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
 import { useCanvasDrawLoop } from '@/hooks/use-canvas-draw-loop'
 import { useTourBridge } from './guided-tour-context'
 
@@ -31,6 +32,8 @@ export function AgentCanvas(props: CanvasProps) {
   } = props
   const presentationRef = useRef<PresentationFlags>(NO_PRESENTATION)
   presentationRef.current = presentation ?? NO_PRESENTATION
+  const announceLevelRef = useRef<AnnounceLevel>('all')
+  announceLevelRef.current = props.announceLevel ?? 'all'
   const mainCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const simTimeRef = useRef(0)
@@ -130,7 +133,7 @@ export function AgentCanvas(props: CanvasProps) {
   })
   useEffect(() => { reportPresence?.(legendPresence) }, [legendPresence, reportPresence])
   const { effectsRef, announcements, detectStateChanges } = useCanvasStateEffects({
-    simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef,
+    simulationRef, drawPropsRef, reducedMotionRef: prefs.reducedMotionRef, linksPropRef, announceLevelRef,
   })
   useCanvasDrawLoop({
     simulationRef, mainCanvasRef, tooltipRef, bubbleLayerRef, drawPropsRef, transformRef, simTimeRef, dimensions, dprRef,

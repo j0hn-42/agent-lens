@@ -1,6 +1,7 @@
 import type { TeamSummary } from '@/lib/agent-types'
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
 import type { SessionMeta } from './index'
 
 export interface CanvasProps {
@@ -43,5 +44,7 @@ export interface CanvasProps {
    */
   /** Presentation mode (#245): `follow` = the camera follows the agent that worked last; `mask` = free text is drawn as bullets. Absent = both off */
   presentation?: { follow: boolean; mask: boolean }
+  /** Verbosity of the live announcements (#379); absent = every change. Urgent states are announced at every level */
+  announceLevel?: AnnounceLevel
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

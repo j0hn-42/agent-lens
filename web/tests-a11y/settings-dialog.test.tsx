@@ -96,3 +96,18 @@ test('top bar gear button opens settings, and is absent without a handler', () =
   view.rerender(<TopBar {...topBarProps} />)
   assert.equal(view.queryByRole('button', { name: 'Settings' }), null)
 })
+
+test('announcements (#379): a named select with its help, reporting the chosen level; absent without the prop', () => {
+  const view = render(<SettingsDialog {...dialogProps()} />)
+  assert.equal(view.queryByRole('combobox', { name: 'Announcement level' }), null)
+  cleanup()
+  const levels: string[] = []
+  const shown = render(<SettingsDialog {...dialogProps({ announcements: { level: 'all', onLevelChange: l => levels.push(l) } })} />)
+  const select = shown.getByRole('combobox', { name: 'Announcement level' }) as HTMLSelectElement
+  assert.equal(select.value, 'all')
+  assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Every change', 'Important only'])
+  const help = document.getElementById(select.getAttribute('aria-describedby') ?? '')
+  assert.ok(help && /always announced/.test(help.textContent ?? ''), 'the help says urgent states are always announced')
+  fireEvent.change(select, { target: { value: 'important' } })
+  assert.deepEqual(levels, ['important'])
+})

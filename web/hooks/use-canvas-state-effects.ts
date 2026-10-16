@@ -8,6 +8,7 @@ import {
   createFlashLimiter, enqueueAnnouncements, createAnnouncementQueue, hasSeveralSessions,
   type AnnouncementItem, type AnnouncementQueue,
 } from '@/components/agent-visualizer/canvas/index'
+import type { AnnounceLevel } from '@/lib/ui-preferences'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 
 interface StateEffectsDeps {
@@ -15,13 +16,15 @@ interface StateEffectsDeps {
   drawPropsRef: MutableRefObject<CanvasDrawProps>
   reducedMotionRef: MutableRefObject<boolean>
   linksPropRef: MutableRefObject<Map<string, AgentLink> | undefined>
+  /** Verbosity of the announcements (#379), read when a batch is queued */
+  announceLevelRef: MutableRefObject<AnnounceLevel>
 }
 
 /**
  * State changes of agents and tool calls: spawns transient visual effects (none under reduced
  * motion, flashes rate-limited) and feeds the live-region announcements.
  */
-export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMotionRef, linksPropRef }: StateEffectsDeps) {
+export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMotionRef, linksPropRef, announceLevelRef }: StateEffectsDeps) {
   const effectsRef = useRef<VisualEffect[]>([])
   const prevAgentStatesRef = useRef<Map<string, string>>(new Map())
   const prevToolStatesRef = useRef<Map<string, string>>(new Map())
@@ -61,7 +64,7 @@ export function useCanvasStateEffects({ simulationRef, drawPropsRef, reducedMoti
     transitions.push(...team.transitions)
 
     if (transitions.length > 0) {
-      const next = enqueueAnnouncements(announcementsRef.current, transitions, undefined, { multiSession: hasSeveralSessions(agents.values()) })
+      const next = enqueueAnnouncements(announcementsRef.current, transitions, undefined, { multiSession: hasSeveralSessions(agents.values()), level: announceLevelRef.current })
       if (next !== announcementsRef.current) {
         announcementsRef.current = next
         setAnnouncements(next.items)
