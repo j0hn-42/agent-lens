@@ -102,14 +102,24 @@ test('a failed or cancelled call makes no step; a call still running makes none 
   assert.equal(s.fileAttention.get('/r/a.ts')?.edits, 2)
 })
 
-test('a replayed tool_result of the same call makes no second step', () => {
+test('a replayed tool_result does not reopen a completed call (no second step)', () => {
+  // The later ends never match the completed call (findCallToClose), so this proves the non-rematching only;
+  // the dedup of recordFileStep is guarded by 'the same call never makes two steps' and by the next test.
   const s = run([spawn, start('Edit', '/r/a.ts', 'u1'), end('Edit', 'u1'), end('Edit', 'u1'), end('Edit', 'u1')])
   assert.deepEqual(steps(s, '/r/a.ts'), ['edited:u1'])
 })
 
-test('an end whose start was never seen makes no step', () => {
-  const s = run([spawn, end('Read', 'ghost')])
-  assert.equal(s.fileAttention.size, 0)
+test('a replayed tool_use and its tool_result (same tool_use_id) make no second step', () => {
+  // A new call node is made for the replayed start and completes: only the tool_use_id dedup of recordFileStep
+  // keeps it out (checked by mutation: without it, two steps).
+  const s = run([spawn, ...call('Edit', '/r/a.ts', 'u1'), ...call('Edit', '/r/a.ts', 'u1')])
+  assert.deepEqual(steps(s, '/r/a.ts'), ['edited:u1'])
+})
+
+test('an end whose start was never seen adds no step to a file', () => {
+  const s = run([spawn, ...call('Read', '/r/a.ts', 'u1'), end('Read', 'ghost'), end('Edit', 'ghost2')])
+  assert.deepEqual(steps(s, '/r/a.ts'), ['read:u1'])
+  assert.deepEqual([...s.fileAttention.keys()], ['/r/a.ts'])
 })
 
 test('the steps of each file stay apart', () => {
