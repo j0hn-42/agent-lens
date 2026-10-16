@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { buildTimelineRows, timelineAriaLabel, timelineBlockState, computeTimelineRange, timelineMarkers, TIMELINE_LABEL_GAP } from '../web/lib/timeline-rows'
+import { buildTimelineRows, timelineAriaLabel, timelineBlockState, computeTimelineRange, timelineMarkers } from '../web/lib/timeline-rows'
 import { formatDuration } from '../web/lib/utils'
 import { SCENE } from '../web/lib/colors'
 import type { TimelineEntry } from '../web/lib/agent-types'
@@ -48,6 +48,7 @@ test('range and aria label', () => {
 // 5 s up to 60 s, then 10 s), whatever the width. At 390 px the bar is 236 px wide: a 9.5 s span drew ten "0:0x"
 // labels 24.8 px apart, each 26.5 px wide ("0:000:010:02..."), and the last one was cut by the canvas edge.
 const LABEL_W = 26.5 // "0:00" in 11px monospace, measured in Chromium
+const LABEL_GAP = 6 // smallest space between two labels
 const barStart = 104
 const labelsOf = (markers: ReturnType<typeof timelineMarkers>) => markers.filter(m => m.labelled)
 
@@ -58,7 +59,7 @@ for (const [canvasWidth, span] of [[340, 9.5], [340, 19.5], [340, 59], [340, 125
     assert.ok(labels.length >= 2, `at least two labels give the scale (got ${labels.length})`)
     for (let i = 1; i < labels.length; i++) {
       const gap = labels[i].labelX - labels[i - 1].labelX - LABEL_W
-      assert.ok(gap >= TIMELINE_LABEL_GAP, `${formatDuration(labels[i - 1].t)} and ${formatDuration(labels[i].t)} are ${gap.toFixed(1)} px apart`)
+      assert.ok(gap >= LABEL_GAP, `${formatDuration(labels[i - 1].t)} and ${formatDuration(labels[i].t)} are ${gap.toFixed(1)} px apart`)
     }
     for (const m of labels) {
       assert.ok(m.labelX - LABEL_W / 2 >= 0 && m.labelX + LABEL_W / 2 <= canvasWidth, `${formatDuration(m.t)} at ${m.labelX.toFixed(1)} is cut by the edge`)

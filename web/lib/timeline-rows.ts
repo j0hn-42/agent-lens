@@ -46,7 +46,7 @@ export function timelineBlockState(block: Pick<TimelineBlock, 'type' | 'color'>)
 
 /** Overall [min, max] time range, extended to currentTime for running blocks. */
 /** Smallest space, in px, between two header labels of the Timeline (#378). */
-export const TIMELINE_LABEL_GAP = 6
+const TIMELINE_LABEL_GAP = 6
 
 /** Round steps of the time axis, in seconds. */
 const MARKER_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 86400]
