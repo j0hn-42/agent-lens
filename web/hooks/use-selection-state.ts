@@ -24,6 +24,8 @@ export interface DiscoveryDataSnapshot {
   label: string
   content: string
   agentId: string
+  /** Where a file card listed by a search output comes from (#438), kept so the popup still says it */
+  listing?: Discovery['listing']
 }
 
 export interface ContextMenuState {
@@ -127,7 +129,7 @@ export function useSelectionState(deps: {
         setSelectedDiscoveryScreenPos({ x: disc.x, y: disc.y })
         // Snapshot data so popup persists after discovery card fades
         setSelectedDiscoveryData({
-          id: disc.id, type: disc.type, label: disc.label, content: disc.content, agentId: disc.agentId,
+          id: disc.id, type: disc.type, label: disc.label, content: disc.content, agentId: disc.agentId, listing: disc.listing,
         })
       }
     } else {

@@ -298,7 +298,7 @@ export function GraphA11yList({
                     onFocus={() => onFocusNode({ type: 'discovery', id: d.id })}
                     onClick={() => onDiscoveryClick?.(d.id)}
                   >
-                    {d.type} found by {d.agentName}: {d.label}
+                    {d.origin ? `${d.label}: ${d.origin}, call by ${d.agentName}` : `${d.type} found by ${d.agentName}: ${d.label}`}
                   </button>
                   {d.content && <p>{d.content}</p>}
                 </li>

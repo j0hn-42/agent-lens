@@ -2,6 +2,7 @@ import type { Agent, Discovery } from '@/lib/agent-types'
 import type { SimulationState } from '@/hooks/simulation/types'
 import { STATE_LABEL_LONG } from '@/lib/canvas-constants'
 import { formatModelName } from '@/lib/utils'
+import { listedFileText } from '@/lib/ui-glossary'
 import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { agentStatusText, teammateActivity, cleanText, agentDrawRadius } from './team-style'
 import type { NavNode } from './keyboard-nav'
@@ -34,7 +35,7 @@ export function describeTooltip(node: NavNode, sim: SimulationState): TooltipCon
   }
   const d = sim.discoveries.find(x => x.id === node.id)
   if (!d) return null
-  return { title: d.label, lines: [`Discovery: ${d.type}`] }
+  return { title: d.label, lines: [d.listing ? listedFileText(d.listing) : `Discovery: ${d.type}`] }
 }
 
 /** Anchor the tooltip above its node in screen space; hide when the node is gone or off-canvas. */

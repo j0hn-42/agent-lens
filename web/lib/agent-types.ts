@@ -202,6 +202,11 @@ export interface Discovery {
   targetY: number
   opacity: number
   timestamp: number
+  /** tool_use_id of the call whose output listed it (#438); absent for a discovery from no call */
+  toolUseId?: string
+  /** Set for a file a Glob / Grep output listed (#438): its 1-based index among the listed paths, the count
+   *  the tool's header reported, and the number of cards made from that call (bounded by SEARCH_DISCOVERY.maxPerCall) */
+  listing?: { tool: string; position: number; reported: number; shown: number }
 }
 
 // File attention tracking
