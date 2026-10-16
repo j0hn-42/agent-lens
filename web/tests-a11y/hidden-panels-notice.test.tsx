@@ -64,7 +64,7 @@ test('the stack puts the banner right under the notice, in that order, and keeps
   const stack = r.container.querySelector<HTMLElement>('[data-topbar-stack]')!
   assert.ok(stack, 'one container')
   assert.equal(stack.style.top, `${68 + TOPBAR_STACK_TOP}px`)
-  const slot = () => stack.querySelector<HTMLElement>('[data-truncation-banner]')!.parentElement!
+  const slot = () => stack.querySelector<HTMLElement>('[data-truncation-banner]')!.closest<HTMLElement>('[data-banner-slot]')!
   assert.equal(slot().style.marginTop, `${BANNER_MIN_TOP - TOPBAR_STACK_TOP}px`, 'no notice: the banner keeps the slot under the loading indicator')
   setViewport(390, 844)
   act(() => { dockStore.setOpen('files', true); dockStore.setOpen('timeline', true) })

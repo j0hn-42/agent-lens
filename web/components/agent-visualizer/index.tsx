@@ -52,7 +52,7 @@ import { PermissionRequests } from "./permission-requests"
 import { PresentationSubtitle, PresentationBadge } from "./presentation-subtitle"
 import { PanelRegistryContext } from "@/hooks/use-panel-registry"
 import { HiddenFinishedNotice } from "./hidden-finished-notice"
-import { HiddenPanelsNotice } from "./hidden-panels-notice"
+import { UnderTopbarStack } from "./hidden-panels-notice"
 import { UNDO_SHORTCUT_KEY } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 
@@ -261,23 +261,21 @@ export function AgentVisualizer() {
       />
       </div>
 
-      {/* After the top bar in the Tab order; the docks treat it as an obstacle (data-truncation-banner). Left out in full screen like the rest of the chrome. */}
-      {truncationShown && (
-        <div
-          className="absolute flex justify-center pointer-events-none"
-          style={{ left: 12, right: 12, top: 'calc(var(--topbar-h, 60px) + 44px)', zIndex: Z.controlBar + 5 }}
-        >
-          <div className="pointer-events-auto max-w-full">
-            <TruncationBanner
-              key={truncationKey}
-              stats={truncationStats}
-              replayLost={bridge.replayLost}
-              returnFocusId={PANEL_BUTTON_IDS.sessions}
-              onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncation.total))}
-            />
-          </div>
-        </div>
-      )}
+      {/* One column under the top bar (#453): the open panels a sheet hides (#410), then the truncation banner. After the
+          top bar in the Tab order; the docks treat the banner as an obstacle and a sheet keeps the column's measured height
+          free. The banner is left out in full screen like the rest of the chrome. */}
+      <UnderTopbarStack
+        contextOpen={showContext}
+        banner={truncationShown ? (
+          <TruncationBanner
+            key={truncationKey}
+            stats={truncationStats}
+            replayLost={bridge.replayLost}
+            returnFocusId={PANEL_BUTTON_IDS.sessions}
+            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncation.total))}
+          />
+        ) : null}
+      />
 
       {presentationOn && <PresentationBadge onStop={presentation.stop} />}
       <PresentationSubtitle text={presentationSubtitle} />
@@ -382,8 +380,6 @@ export function AgentVisualizer() {
         onPause={setToastsPaused}
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
-      {/* Open panels a sheet hides (#410) */}
-      <HiddenPanelsNotice contextOpen={showContext} />
       {/* Operator decisions (#240): renders nothing outside VS Code */}
       <PermissionRequests sessionLabel={permissionSessionLabel} />
       </main>

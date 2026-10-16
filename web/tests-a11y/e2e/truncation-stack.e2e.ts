@@ -88,7 +88,13 @@ for (const w of [320, 390, 600, 899]) {
       assert.ok(!overlap(m.sheets[0], m.banner) && !overlap(m.sheets[0], m.notice), `${w}px: the sheet starts under both ${JSON.stringify(m)}`)
       for (const name of ['Details', 'Dismiss truncation warning']) {
         const b = frame.getByRole('button', { name, exact: true })
-        assert.ok(await b.evaluate(IS_ON_TOP), `${w}px: ${name} is not covered`)
+        // What is drawn at the centre of the button: the button itself, or the element that covers it
+        const cover = await b.evaluate((el: Element) => {
+          const r = el.getBoundingClientRect()
+          const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          return t === el || (t !== null && el.contains(t)) ? '' : (t ? t.outerHTML.slice(0, 160) : 'nothing')
+        })
+        assert.equal(cover, '', `${w}px: ${name} is covered`)
       }
 
       // One panel left: no notice, but the sheet still starts under the banner
