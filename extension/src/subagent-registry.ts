@@ -23,6 +23,11 @@ export interface SubagentRecord {
   fileKey?: string
   /** True once agent_spawn has been emitted for this record */
   spawned: boolean
+  /**
+   * Set when the dispatch was read from the history at attach (#446): `spawned` is then true although no
+   * agent_spawn was emitted. Rank of the dispatch in the history; cleared once announced or found ended.
+   */
+  historyOrder?: number
 }
 
 export class SubagentRegistry {
@@ -30,6 +35,7 @@ export class SubagentRegistry {
   private byToolUseId = new Map<string, SubagentRecord>()
   private byFileKey = new Map<string, SubagentRecord>()
   private nameUses = new Map<string, number>()
+  private historyDispatches = 0
 
   private allocateName(label: string): string {
     const used = this.nameUses.get(label) ?? 0
@@ -53,6 +59,11 @@ export class SubagentRegistry {
     record.toolUseId = toolUseId
     this.byToolUseId.set(toolUseId, record)
     return record
+  }
+
+  /** Mark a dispatch read from the history (prescan): known, not announced (#446). Idempotent. */
+  markFromHistory(record: SubagentRecord): void {
+    if (record.historyOrder === undefined) record.historyOrder = this.historyDispatches++
   }
 
   /** Bind a record to its transcript file key (agent_id) when the dispatch result exposes it. */

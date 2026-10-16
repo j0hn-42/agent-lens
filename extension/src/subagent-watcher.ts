@@ -20,6 +20,7 @@ import {
 import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
+  SUBAGENT_CATCH_UP_SPAWNS_MAX,
 } from './constants'
 import { safeWatch, readTrackedLines, readLinesChunked, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
@@ -165,8 +166,43 @@ export function scanSubagentsDir(
     for (const { filePath } of ordered) {
       startWatchingSubagentFile(delegate, parser, filePath, sessionId)
     }
+    emitCatchUpSpawns(delegate, parser, session, sessionId)
     tickWorkflowGroups(delegate, session, sessionId, selection.workflows)
   } catch (err) { log.debug('Subagent dir scan failed:', err) }
+}
+
+/**
+ * The spawns owed to subagents whose dispatch was read from the history and shows no end (#446): the
+ * prescan registered them without emitting anything. Emitted in dispatch order, at most
+ * SUBAGENT_CATCH_UP_SPAWNS_MAX per session; beyond it, readSubagentNewLines announces a subagent on its
+ * first new line (still only while its dispatch shows no end). Runs before any line of theirs is emitted.
+ */
+function emitCatchUpSpawns(
+  delegate: SubagentWatcherDelegate,
+  parser: TranscriptParser,
+  session: WatchedSession,
+  sessionId: string,
+): void {
+  const registry = parser.getSubagentRegistry(sessionId)
+  const owed: Array<{ state: SubagentState; record: SubagentRecord; order: number }> = []
+  for (const state of session.subagentWatchers.values()) {
+    if (!state.catchUpSpawn) continue
+    state.catchUpSpawn = false
+    const record = state.agentId ? registry.getByFileKey(state.agentId) : undefined
+    if (!record || record.historyOrder === undefined || state.spawnEmitted) continue
+    owed.push({ state, record, order: record.historyOrder })
+  }
+  owed.sort((a, b) => a.order - b.order)
+  let deferred = 0
+  for (const { state, record } of owed) {
+    if ((session.catchUpSpawns ?? 0) >= SUBAGENT_CATCH_UP_SPAWNS_MAX) { deferred++; continue }
+    session.catchUpSpawns = (session.catchUpSpawns ?? 0) + 1
+    state.spawnEmitted = true
+    spawnFromRecord(delegate, session, record, sessionId)
+  }
+  if (deferred > 0) {
+    log.warn(`${deferred} running subagent(s) beyond the ${SUBAGENT_CATCH_UP_SPAWNS_MAX} announced at attach (session ${sessionId.slice(0, SESSION_ID_DISPLAY)}): each is announced on its next transcript line`)
+  }
 }
 
 function spawnFromRecord(
@@ -176,6 +212,7 @@ function spawnFromRecord(
   sessionId: string,
 ): void {
   record.spawned = true
+  record.historyOrder = undefined
   session.spawnedSubagents.add(record.name)
   emitSubagentSpawn(delegate, record.parentName, record.name, record.label, sessionId, {
     label: record.label,
@@ -271,6 +308,16 @@ function startWatchingSubagentFile(
   state.spawnEmitted = pendingToolUseIds.size > 0 || alreadySpawned
   if (pendingToolUseIds.size > 0 && !alreadySpawned) {
     spawnFromRecord(delegate, session, record, sessionId)
+  }
+  // Dispatched in the history (#446): `spawned` comes from the prescan, nothing was emitted. Its spawn is
+  // owed while the history shows no end (emitCatchUpSpawns); an ended one is never brought back here.
+  if (record.historyOrder !== undefined) {
+    if (record.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
+      state.spawnEmitted = false
+      state.catchUpSpawn = true
+    } else {
+      record.historyOrder = undefined
+    }
   }
 
   // Watch for new content
@@ -477,8 +524,13 @@ export function readSubagentNewLines(
   // Lazily emit spawn on first new content if not already emitted
   if (!state.spawnEmitted) {
     state.spawnEmitted = true
+    state.catchUpSpawn = false
     const record = state.agentId ? parser.getSubagentRegistry(sessionId).getByFileKey(state.agentId) : undefined
-    if (record) {
+    if (record?.historyOrder !== undefined) {
+      // Owed since the attach, beyond SUBAGENT_CATCH_UP_SPAWNS_MAX (#446): announced only while its dispatch shows no end
+      if (record.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) spawnFromRecord(delegate, session, record, sessionId)
+      else record.historyOrder = undefined
+    } else if (record) {
       if (!record.spawned && !session.spawnedSubagents.has(record.name)) spawnFromRecord(delegate, session, record, sessionId)
     } else if (!session.spawnedSubagents.has(state.agentName)) {
       session.spawnedSubagents.add(state.agentName)

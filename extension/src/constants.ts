@@ -232,6 +232,12 @@ export const PATTERN_TOOLS = ['Glob', 'Grep'] as const
 /** Suffix length used when building subagent names from IDs */
 export const SUBAGENT_ID_SUFFIX_LENGTH = 6
 
+/**
+ * Subagents announced at once when attaching to a session whose history launched them and shows no end
+ * (#446). Beyond it, a subagent is announced on its first new transcript line instead (logged at attach).
+ */
+export const SUBAGENT_CATCH_UP_SPAWNS_MAX = 16
+
 /** Generate a consistent fallback name for a subagent when no explicit name is available.
  *  @param id  An identifier string (e.g. agent_id or a timestamp) — the last chars are used.
  *  @param index  A 1-based index for sequential numbering. */
