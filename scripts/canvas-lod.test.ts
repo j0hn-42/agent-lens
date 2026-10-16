@@ -61,8 +61,8 @@ const opts = (zoom: number, over: Record<string, unknown> = {}): any => ({ reduc
 test('LOD: a shown level is kept just under its threshold, a hidden one only returns at the threshold (#378)', () => {
   const shown: LevelOfDetail = lodForZoom(4)
   const hidden: LevelOfDetail = lodForZoom(0.01)
-  for (const key of ['labels', 'details'] as const) {
-    const threshold = key === 'labels' ? LOD.labelMinZoom : LOD.detailMinZoom
+  for (const key of ['labels', 'details', 'cardText'] as const) {
+    const threshold = key === 'labels' ? LOD.labelMinZoom : key === 'details' ? LOD.detailMinZoom : LOD.cardTextMinZoom
     const inBand = threshold * (1 - HYSTERESIS / 2)
     assert.equal(lodForZoom(inBand, shown)[key], true, `${key}: kept in the hysteresis band`)
     assert.equal(lodForZoom(inBand, hidden)[key], false, `${key}: not shown again in the band`)
@@ -110,8 +110,17 @@ test('planOverlays: the label block is reserved at the size it is drawn, not shr
   assert.ok(p.rect.h / 2 >= AGENT_DRAW.stateLabelGap * (MIN_PX / AGENT_DRAW.labelFontSize) - 1e-9)
 })
 
+/** 10 agents in a 5 x 2 grid, `gap` world px apart: on develop (labels shrunk with the zoom) none of their labels gave way at 100 px / 50 % */
+function grid(gap: number, over: (i: number) => Record<string, unknown> = () => ({})): any[] {
+  return Array.from({ length: 10 }, (_, i) => agent({
+    id: `s1:w${i}`, name: `worker-${i}`, displayName: `worker-${i}`,
+    x: 300 + (i % 5) * gap, y: 300 + Math.floor(i / 5) * gap, ...over(i),
+  }))
+}
+
 test('planOverlays: crowded labels are thinned out (hidden or one line), never stacked, the selected one kept (#378)', () => {
-  const list = Array.from({ length: 8 }, (_, i) => agent({ id: `s1:w${i}`, name: `worker-${i}`, displayName: `worker-${i}`, x: 300 + i * 50 }))
+  // A layout where labels shrunk with the zoom all fit: only the label block reserved at its drawn size gives way
+  const list = grid(100)
   const agents = map(...list)
   const zoom = 0.5
   const { plan } = planOverlays(planInput(agents, zoom, { selectedAgentId: 's1:w3' }))
@@ -122,6 +131,17 @@ test('planOverlays: crowded labels are thinned out (hidden or one line), never s
   }
   assert.ok(placed.some(p => p.hidden || p.collapsed), 'some labels give way')
   assert.equal(plan.get(planKey.label('s1:w3'))!.hidden, false, 'the selected agent keeps its label')
+})
+
+test('planOverlays: an agent in error keeps its label when crowded labels give way (#378)', () => {
+  for (const [gap, zoom] of [[100, 0.5], [120, 0.4], [80, 0.4]] as const) {
+    for (const errorAt of [3, 6, 8]) {
+      const list = grid(gap, i => (i < 3 ? { state: 'thinking' } : i === errorAt ? { state: 'error' } : {}))
+      const { plan } = planOverlays(planInput(map(...list), zoom))
+      const p = plan.get(planKey.label(`s1:w${errorAt}`))!
+      assert.equal(p.hidden, false, `agent in error (w${errorAt}) loses its label at gap ${gap}, zoom ${zoom}`)
+    }
+  }
 })
 
 // ─── Tool cards: icon instead of an empty or unreadable card ────────────────
@@ -139,12 +159,80 @@ test('drawToolCalls: under the card-text zoom a card is its icon (square), with 
   }
 })
 
-test('drawToolCalls: at 100% the card keeps its text (#378)', () => {
-  const rec = recordingContext(1)
-  drawToolCalls(rec.ctx, map(tool()), 0, null, opts(1))
-  assert.ok(rec.texts.some(t => t.text.startsWith('Read')), 'card text drawn')
-  const size = getToolCardSize('t1')!
-  assert.ok(size.w > size.h, 'full card')
+test('drawToolCalls: at 100% the card keeps its text, none of it under the minimum size, MCP badge included (#378)', () => {
+  for (const t of [tool(), tool({ id: 't3', toolName: 'mcp__github__search', mcp: { server: 'github', tool: 'search' } })]) {
+    const rec = recordingContext(1)
+    drawToolCalls(rec.ctx, map(t), 0, null, opts(1))
+    assert.ok(rec.texts.some(x => x.text.startsWith(t.mcp ? 'search' : 'Read')), `${t.id}: card text drawn`)
+    for (const x of rec.texts) assert.ok(x.screenPx >= MIN_PX - 1e-9, `${t.id} "${x.text}" at ${x.screenPx.toFixed(1)} px at 100%`)
+    const size = getToolCardSize(t.id)!
+    assert.ok(size.w > size.h, `${t.id}: full card`)
+  }
+})
+
+/** Shapes drawn by a call, colours left out: method, rounded arguments, line width and dash */
+function shapeTrace(rec: ReturnType<typeof recordingContext>): string {
+  return rec.ops
+    .filter(o => o.name !== 'measureText')
+    .map(o => `${o.name}(${o.args.map(a => (typeof a === 'number' ? a.toFixed(2) : Array.isArray(a) ? `[${a}]` : String(a))).join(',')})` + (o.name === 'stroke' ? `@${o.lineWidth}/[${o.lineDash}]` : ''))
+    .join(';')
+}
+function drawIcon(t: any, zoom = 0.7, over: Record<string, unknown> = {}) {
+  const rec = recordingContext(zoom)
+  drawToolCalls(rec.ctx, map(t), 0, null, opts(zoom, over))
+  return rec
+}
+
+test('drawToolCalls: on the icon, running, complete and error differ by shape, not only by colour (reduced motion, #378)', () => {
+  const traces = {
+    running: shapeTrace(drawIcon(tool({ state: 'running' }))),
+    complete: shapeTrace(drawIcon(tool({ state: 'complete' }))),
+    error: shapeTrace(drawIcon(tool({ state: 'error', errorMessage: 'ENOENT' }))),
+  }
+  assert.notEqual(traces.running, traces.complete, 'running and complete icons draw the same shapes')
+  assert.notEqual(traces.running, traces.error, 'running and error icons draw the same shapes')
+  assert.notEqual(traces.complete, traces.error, 'complete and error icons draw the same shapes')
+})
+
+test('drawToolCalls: the error icon carries a mark at least 1.25 px thick on screen (#378)', () => {
+  for (const zoom of [0.4, 0.7]) {
+    const thickSegments = (rec: ReturnType<typeof drawIcon>) => rec.ops.filter(o => o.name === 'stroke' && o.lineWidth * o.scale >= 1.25 - 1e-9).length
+    const complete = thickSegments(drawIcon(tool({ state: 'complete' }), zoom))
+    const error = thickSegments(drawIcon(tool({ state: 'error' }), zoom))
+    assert.ok(error > complete, `zoom ${zoom}: the error icon adds no stroke of 1.25 px or more (${error} vs ${complete})`)
+  }
+})
+
+test('drawToolCalls: the icon of an MCP call is a ring, an unknown tool a dot (#378)', () => {
+  const centreMark = (rec: ReturnType<typeof drawIcon>) => {
+    const i = rec.ops.findIndex(o => o.name === 'arc' && o.args[0] === 400 && o.args[1] === 300)
+    assert.ok(i >= 0, 'a mark is drawn at the centre of the icon')
+    return rec.ops.slice(i + 1).find(o => o.name === 'fill' || o.name === 'stroke')!.name
+  }
+  assert.equal(centreMark(drawIcon(tool({ state: 'complete', toolName: 'mcp__github__search', mcp: { server: 'github', tool: 'search' } }))), 'stroke', 'MCP: a ring')
+  assert.equal(centreMark(drawIcon(tool({ state: 'complete', toolName: 'SomeUnknownTool', args: '' }))), 'fill', 'unknown tool: a dot')
+})
+
+test('drawToolCalls: error and cancelled calls become icons too, cancelled dashed (#378)', () => {
+  for (const t of [tool({ id: 't4', state: 'error', errorMessage: 'ENOENT' }), tool({ id: 't5', state: 'cancelled' }), tool({ id: 't6', state: 'expired' })]) {
+    const rec = drawIcon(t)
+    for (const x of rec.texts) assert.ok(x.screenPx >= MIN_PX - 1e-9, `${t.id} "${x.text}" at ${x.screenPx.toFixed(1)} px`)
+    const size = getToolCardSize(t.id)!
+    assert.equal(size.w, size.h, `${t.id}: icon`)
+    if (t.state !== 'error') assert.ok(rec.ops.some(o => o.name === 'stroke' && o.lineDash.join(',') === '4,3'), `${t.id}: dashed outline`)
+  }
+})
+
+test('drawToolCalls: the strokes of the icon glyph stay at least 1.25 px thick on screen (#378)', () => {
+  for (const zoom of [0.35, 0.4, 0.7]) {
+    const rec = drawIcon(tool({ state: 'complete' }), zoom)
+    const start = rec.ops.findIndex(o => o.name === 'translate')
+    assert.ok(start >= 0, 'the glyph is drawn')
+    const end = rec.ops.findIndex((o, i) => i > start && o.name === 'restore')
+    for (const o of rec.ops.slice(start, end).filter(o => o.name === 'stroke')) {
+      assert.ok(o.lineWidth * o.scale >= 1.25 - 1e-9, `glyph stroke at ${(o.lineWidth * o.scale).toFixed(2)} px (zoom ${zoom})`)
+    }
+  }
 })
 
 // ─── Bubbles: count chip instead of unreadable text ─────────────────────────
@@ -166,6 +254,15 @@ test('bubbles: under the card-text zoom the stack folds into its count chip, no 
     for (const t of rec.texts) assert.ok(t.screenPx >= MIN_PX - 1e-9, `"${t.text}" at ${t.screenPx.toFixed(1)} px`)
   } finally {
     clearOverlayHits()
+  }
+})
+
+test('bubbles: the count chip of a lone agent is not pushed out by its enlarged label block (#378)', () => {
+  for (const zoom of [0.36, 0.4, 0.46]) {
+    const a = agent({ messageBubbles: [{ text: 'hello there', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 30 }] })
+    const p = planOverlays(planInput(map(a), zoom)).plan.get(planKey.bubbles(a.id))!
+    assert.equal(p.hidden, false, `zoom ${zoom}: chip hidden`)
+    assert.equal(p.collapsed, true, `zoom ${zoom}: count chip`)
   }
 })
 

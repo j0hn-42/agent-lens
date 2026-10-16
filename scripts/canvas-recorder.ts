@@ -24,23 +24,34 @@ registerHooks({
 export interface DrawnText { text: string; screenPx: number }
 export interface DrawnRect { x: number; y: number; w: number; h: number; screenW: number; screenH: number }
 
+/** One call on the context, with the line width and dash in effect and the uniform scale (colours left out) */
+export interface DrawnOp { name: string; args: unknown[]; lineWidth: number; lineDash: number[]; scale: number }
+
 export interface Recording {
   ctx: CanvasRenderingContext2D
   texts: DrawnText[]
   rects: DrawnRect[]
+  /** Every method call, in order: lets a test compare the shapes drawn, whatever their colours */
+  ops: DrawnOp[]
 }
 
 /** A 2D context that records texts (with their on-screen size) and rounded rectangles. `zoom` is the camera scale already applied. */
 export function recordingContext(zoom: number): Recording {
   const texts: DrawnText[] = []
   const rects: DrawnRect[] = []
-  const stack: number[] = []
+  const ops: DrawnOp[] = []
+  const stack: { scale: number; lineWidth: unknown; lineDash: number[] }[] = []
   let scale = zoom
-  const state: Record<string | symbol, unknown> = { font: '10px sans-serif', globalAlpha: 1 }
+  let lineDash: number[] = []
+  const state: Record<string | symbol, unknown> = { font: '10px sans-serif', globalAlpha: 1, lineWidth: 1 }
   const fontPx = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(state.font))?.[1] ?? 10)
   const methods: Record<string, (...args: number[] | unknown[]) => unknown> = {
-    save: () => { stack.push(scale) },
-    restore: () => { scale = stack.pop() ?? scale },
+    save: () => { stack.push({ scale, lineWidth: state.lineWidth, lineDash }) },
+    restore: () => {
+      const top = stack.pop()
+      if (top) { scale = top.scale; state.lineWidth = top.lineWidth; lineDash = top.lineDash }
+    },
+    setLineDash: (...a) => { lineDash = [...(a[0] as number[])] },
     scale: (...a) => { scale *= Number(a[0]) },
     setTransform: () => { scale = zoom },
     fillText: (...a) => { texts.push({ text: String(a[0]), screenPx: fontPx() * scale }) },
@@ -52,17 +63,21 @@ export function recordingContext(zoom: number): Recording {
     measureText: (...a) => ({ width: String(a[0]).length * fontPx() * 0.6 }),
     createLinearGradient: () => ({ addColorStop: () => undefined }),
     createRadialGradient: () => ({ addColorStop: () => undefined }),
-    getLineDash: () => [],
+    getLineDash: () => [...lineDash],
+  }
+  const call = (name: string) => (...args: unknown[]) => {
+    ops.push({ name, args, lineWidth: Number(state.lineWidth), lineDash: [...lineDash], scale })
+    return methods[name] ? methods[name](...(args as number[])) : undefined
   }
   const ctx = new Proxy(state, {
     get(target, prop) {
-      if (typeof prop === 'string' && prop in methods) return methods[prop]
+      if (typeof prop === 'string' && prop in methods) return call(prop)
       if (prop in target) return target[prop]
-      return () => undefined
+      return typeof prop === 'string' ? call(prop) : undefined
     },
     set(target, prop, value) { target[prop] = value; return true },
   }) as unknown as CanvasRenderingContext2D
-  return { ctx, texts, rects }
+  return { ctx, texts, rects, ops }
 }
 
 /** Glow sprites are drawn on off-screen canvases: a stub `document` is enough under node. */
