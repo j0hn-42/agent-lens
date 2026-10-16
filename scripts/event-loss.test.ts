@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { parseEventLoss, replayLostFor, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence } from '../web/lib/event-loss'
+import { parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence } from '../web/lib/event-loss'
 import { createStats } from '../web/lib/event-normalize'
 import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 
@@ -92,4 +92,15 @@ test('replayLostSentence names what is missing without claiming an exact figure'
   assert.equal(replayLostSentence(0), '')
   assert.equal(replayLostSentence(1), 'at least 1 earlier event was not replayed by the relay')
   assert.equal(replayLostSentence(7), 'at least 7 earlier events were not replayed by the relay')
+})
+
+test('replayLostForSession: an agent card reads its own session only, never the total of a view (#366)', () => {
+  const loss = { evicted: { s1: 3, s2: 4 }, otherEvents: 10 }
+  assert.equal(replayLostForSession(loss, 's1'), 3)
+  assert.equal(replayLostForSession(loss, 's3'), 0, 'a session absent from the tally is not claimed as lossy')
+  assert.equal(replayLostForSession(loss, undefined), 0, 'no session: nothing is claimed, unlike replayLostFor with no selection')
+  assert.equal(replayLostForSession(loss, ''), 0)
+  assert.equal(replayLostForSession(loss, ALL_SESSIONS_ID), 0, 'the All pseudo selection is no session')
+  assert.equal(replayLostForSession(loss, '__proto__'), 0)
+  assert.equal(replayLostForSession(null, 's1'), 0)
 })
