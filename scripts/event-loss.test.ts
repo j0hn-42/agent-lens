@@ -54,6 +54,22 @@ test('replayLostFor: All and no selection read the whole tally, a team only its 
   assert.equal(replayLostFor(loss, 'team:x', new Set(['__proto__', 'toString'])), 0)
 })
 
+test('replayLostFor: All counts only the sessions it shows, and otherEvents only when it shows every one (#453)', () => {
+  const loss = { evicted: { live: 3, old: 50, gone: 7 }, otherEvents: 9 }
+  // showFinished off (the default) or a project scope: the view is a set of sessions
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID, null, new Set(['live'])), 3, 'old finished sessions out of the view are not counted')
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID, null, new Set(['live', 'old'])), 53)
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID, null, new Set(['unknown'])), 0, 'a shown session the tally does not name claims nothing')
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID, null, new Set()), 0, 'an empty view is never incomplete')
+  assert.equal(replayLostFor(loss, null, null, new Set(['live'])), 3, 'no selection reads the same set')
+  // Every session shown: the whole tally, otherEvents included (they may belong to a shown session)
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID, null, null), 69)
+  assert.equal(replayLostFor(loss, ALL_SESSIONS_ID), 69)
+  // The set says nothing for one session or a team
+  assert.equal(replayLostFor(loss, 'old', null, new Set(['live'])), 50)
+  assert.equal(replayLostFor(loss, 'team:x', new Set(['gone']), new Set(['live'])), 7)
+})
+
 test('acceptEventLoss keeps the figure of the first connection of a graph and ignores later ones', () => {
   const first = { evicted: { a: 3 }, otherEvents: 0 }
   const later = { evicted: { a: 50 }, otherEvents: 0 }
