@@ -109,7 +109,7 @@ const STATE_COLOR: Record<string, string> = themed(() => ({
 
 /** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
 function StateMarker({ state }: { state: string }) {
-  const color = STATE_COLOR[state] ?? COLORS.idle
+  const color = STATE_COLOR[state] ?? (state === 'paused' ? COLORS.paused : COLORS.idle)
   if (state === 'complete') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✓</span>
   if (state === 'error') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✕</span>
   const hollow = state === 'idle' || state === 'paused'
