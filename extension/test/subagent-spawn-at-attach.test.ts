@@ -14,7 +14,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { AgentEvent } from '../src/protocol'
 import { scanSubagentsDir, readSubagentNewLines } from '../src/subagent-watcher'
-import { SUBAGENT_CATCH_UP_SPAWNS_MAX } from '../src/constants'
+import { SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S } from '../src/constants'
 import {
   tmpDir, makeSession, makeHarness, ofType, userText, assistantText, assistantToolUse, toolResult, writeJsonl,
 } from './helpers/teams-fixtures'
@@ -249,6 +249,19 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     )
     assert.equal(h.parser.isSubagentDispatchOpen(session, 'toolu_tm1'), false)
     assert.deepEqual(spawnNames(h.events), [])
+  })
+
+  it('an open launch whose file has not been written for longer than ACTIVE_SESSION_AGE_S is drawn on its next line only', () => {
+    const old = Date.now() - (ACTIVE_SESSION_AGE_S + 60) * 1000
+    const { h, grow, atAttach } = attach(
+      [userText('Audit'), dispatch('toolu_old', 'Quiet audit'), receipt('toolu_old', 'a0000000000000010')],
+      [{ agentId: 'a0000000000000010', toolUseId: 'toolu_old', description: 'Quiet audit', mtimeMs: old }],
+    )
+    assert.deepEqual(spawnNames(h.events.slice(0, atAttach)), [], 'an old file proves nothing about now')
+    grow('a0000000000000010')
+    assert.deepEqual(spawnNames(h.events), ['Quiet audit'], 'its next line, with its launch still open')
+    const after = h.events.slice(atAttach)
+    assert.ok(after.findIndex(e => e.type === 'agent_spawn') < after.findIndex(e => e.type === 'tool_call_start'))
   })
 })
 
