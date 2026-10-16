@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
+  topbarStack, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -287,4 +288,97 @@ test('permission cards are an obstacle: the right dock is placed below them, wha
   assert.equal(layout.mode, 'dock')
   assert.ok(!intersects(layout.rects.conversation!, cards))
   assert.ok(layout.rects.conversation!.y >= bottom(cards))
+})
+
+// #453: the truncation banner sits under the hidden-panels notice, in one column under the top bar, and a sheet
+// keeps their measured height free (the banner used to cover the notice and the top of the sheet below 900 px).
+const sheetAt = (w: number, h: number, open: PanelId[], noticeH?: number, bannerH?: number, obstacles: Rect[] = []) =>
+  computeDockLayout({ viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, open, noticeH, bannerH, obstacles })
+
+test('topbarStack: the banner goes under the notice, never above its own slot, and the band ends under the lower one (#453)', () => {
+  assert.deepEqual(topbarStack(0, 0, 0), { bannerTop: null, band: 0 }, 'nothing drawn: no band')
+  assert.deepEqual(topbarStack(2, 55, 0), { bannerTop: null, band: TOPBAR_STACK_TOP + 55 + 2 })
+  assert.deepEqual(topbarStack(1, 0, 0), { bannerTop: null, band: SHEET_NOTICE_H }, 'the notice keeps its minimum height')
+  assert.deepEqual(topbarStack(0, 0, 30), { bannerTop: BANNER_MIN_TOP, band: BANNER_MIN_TOP + 30 + 2 }, 'alone, the banner keeps its slot')
+  const both = topbarStack(2, 55, 78)
+  assert.equal(both.bannerTop, TOPBAR_STACK_TOP + 55 + TOPBAR_STACK_GAP, 'right under the notice')
+  assert.equal(both.band, both.bannerTop! + 78 + 2)
+  assert.ok(topbarStack(1, 40, 30).bannerTop! >= BANNER_MIN_TOP)
+  assert.deepEqual(topbarStack(1, NaN, NaN), topbarStack(1, 0, 0), 'unmeasured values count as nothing drawn')
+})
+
+test('sheet + banner: the sheet starts under the banner, the banner under the notice, at 320, 390, 600 and 899 px (#453)', () => {
+  for (const w of [320, 390, 600, 899]) {
+    for (const [noticeH, bannerH] of [[40, 38], [55, 78], [40, 46]] as const) {
+      const l = sheetAt(w, 844, ['detail', 'timeline', 'files'], noticeH, bannerH)
+      const s = topbarStack(l.hidden.length, noticeH, bannerH)
+      const noticeBottom = TOPBAR_H + TOPBAR_STACK_TOP + noticeH
+      const bannerTop = TOPBAR_H + s.bannerTop!
+      assert.equal(l.mode, 'sheet')
+      assert.ok(bannerTop >= noticeBottom + TOPBAR_STACK_GAP, `${w}px: the banner does not cover the notice`)
+      assert.ok(l.rects.files!.y >= bannerTop + bannerH, `${w}px: the sheet starts under the banner (${l.rects.files!.y} < ${bannerTop + bannerH})`)
+    }
+  }
+})
+
+test('a lone sheet keeps a band for the banner, none without it (#453)', () => {
+  assert.equal(sheetAt(390, 844, ['detail'], 0, 0).rects.detail!.y, TOPBAR_H)
+  const l = sheetAt(390, 844, ['detail'], 0, 46)
+  assert.ok(l.rects.detail!.y >= TOPBAR_H + BANNER_MIN_TOP + 46, 'the card sheet does not slide under the banner')
+})
+
+test('a no-room sheet (wide viewport) keeps the band for the banner too (#453)', () => {
+  const banner: Rect = { x: 300, y: TOPBAR_H + BANNER_MIN_TOP, w: 400, h: 30 }
+  const wall: Rect = { x: 0, y: TOPBAR_H, w: 1000, h: 400 }
+  const l = sheetAt(1000, 640, ['files'], 0, 30, [wall, banner])
+  assert.equal(l.sheetReason, 'no-room')
+  assert.ok(l.rects.files!.y >= bottom(banner))
+})
+
+test('when notice and banner do not both fit, the sheet still keeps the notice band (#453 review)', () => {
+  // Area of 220 px: room for the notice band alone (44), not for the notice and a 120 px banner (168)
+  const l = sheetAt(390, TOPBAR_H + 220 + 16 + BAR_H + 8, ['detail', 'files'], 40, 120)
+  assert.equal(l.area.h, 220)
+  assert.equal(l.rects.files!.y, l.area.y + topbarStack(1, 40, 0).band)
+  assert.equal(topbarStack(1, 40, 0).band, SHEET_NOTICE_H)
+})
+
+// A 320 x 568 phone as measured in a real browser: the top bar wraps to 187 px, the area under it is 276 px
+const phone = (open: PanelId[], noticeH: number, bannerH: number) => {
+  const l = computeDockLayout({ viewport: { w: 320, h: 568 }, topbarH: 187, controlBarH: 81, open, noticeH, bannerH })
+  assert.equal(l.area.h, 276)
+  return l
+}
+
+test('320 x 568, two panels and a banner: the sheet starts under the notice and the banner (#453 review)', () => {
+  const l = phone(['timeline', 'files'], 40, 74)
+  const s = topbarStack(1, 40, 74)
+  assert.ok(l.rects.files!.y >= l.area.y + TOPBAR_STACK_TOP + 40, `the sheet starts under the notice (${l.rects.files!.y})`)
+  assert.ok(l.rects.files!.y >= l.area.y + s.bannerTop! + 74, `the sheet starts under the banner (${l.rects.files!.y})`)
+  assert.equal(bottom(l.rects.files!), bottom(l.area), 'the sheet still ends above the control bar')
+})
+
+test('320 x 568, agent card alone and a banner: the card sheet does not cover the banner (#453 review)', () => {
+  const l = phone(['detail'], 0, 74)
+  assert.ok(l.rects.detail!.y >= l.area.y + topbarStack(0, 0, 74).bannerTop! + 74, `card at ${l.rects.detail!.y}`)
+  assert.ok(l.rects.detail!.h >= 96, 'the card keeps a usable, scrolling sheet (MIN_SHEET_H_WITH_BANNER)')
+})
+
+test('a window too short even for the reduced floor: the notice band is kept, then nothing (#453 review)', () => {
+  // Area 200: notice + banner 74 (122) leaves 78, under the reduced floor; the notice alone (44) leaves 156, under MIN_MAIN_H
+  const l = sheetAt(390, TOPBAR_H + 200 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(l.area.h, 200)
+  assert.equal(l.rects.files!.y, l.area.y)
+  const k = sheetAt(390, TOPBAR_H + 210 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(k.rects.files!.y, k.area.y + SHEET_NOTICE_H, '210 px: the notice band fits (166 left)')
+})
+
+test('store: a measured banner re-flows the sheet (#453)', () => {
+  let env = fakeEnv({ viewport: { w: 390, h: 844 } })
+  const store = createDockStore(() => env)
+  store.setOpen('detail', true)
+  assert.equal(store.getSnapshot().layout.rects.detail!.y, TOPBAR_H)
+  env = fakeEnv({ viewport: { w: 390, h: 844 }, bannerH: 46 })
+  store.measure()
+  assert.ok(store.getSnapshot().layout.rects.detail!.y >= TOPBAR_H + BANNER_MIN_TOP + 46)
 })

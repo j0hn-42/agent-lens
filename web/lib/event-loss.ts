@@ -52,13 +52,25 @@ const add = (a: number, b: number) => Math.min(a + b, Number.MAX_SAFE_INTEGER)
 
 /**
  * Events the relay could not replay for the selection. One session: only its own count (a session the tally
- * does not name is never claimed as lossy). All, or no selection: the whole tally, `otherEvents` included.
+ * does not name is never claimed as lossy). All, or no selection: the sessions All shows (`allViewSessionIds`,
+ * #453: finished sessions are hidden by default and a project scope narrows it), never `otherEvents` then; only
+ * when All shows every session (null) is it the whole tally, `otherEvents` included.
  * A team: only the sessions that belong to it (`teamSessionIds`), never `otherEvents`, which names no session;
  * an unknown membership claims nothing.
  */
-export function replayLostFor(loss: EventLoss | null, selectedId: string | null | undefined, teamSessionIds: ReadonlySet<string> | null = null): number {
+export function replayLostFor(
+  loss: EventLoss | null,
+  selectedId: string | null | undefined,
+  teamSessionIds: ReadonlySet<string> | null = null,
+  allViewSessionIds: ReadonlySet<string> | null = null,
+): number {
   if (!loss) return 0
   if (!selectedId || selectedId === ALL_SESSIONS_ID) {
+    if (allViewSessionIds) {
+      let shown = 0
+      for (const sid of allViewSessionIds) shown = add(shown, replayLostForSession(loss, sid))
+      return shown
+    }
     let total = loss.otherEvents
     for (const n of Object.values(loss.evicted)) total = add(total, n)
     return total

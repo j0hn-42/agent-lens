@@ -173,6 +173,8 @@ export interface DockInput {
   obstacles?: readonly Rect[]
   /** Measured height of the "N panels hidden" notice (0 / unknown until it is drawn). */
   noticeH?: number
+  /** Measured height of the truncation banner (0 / absent when none is drawn): a sheet keeps it free (#453). */
+  bannerH?: number
 }
 
 export interface DockLayout {
@@ -194,18 +196,53 @@ export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
   return { x: Math.round((viewport.w - w) / 2), y: viewport.h - CONTROL_BAR_BOTTOM - controlBarH, w, h: controlBarH }
 }
 
-/** Band under the top bar for the hidden-panels notice: its measured height (at least SHEET_NOTICE_H), none when it would leave no usable sheet. */
-function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0): number {
-  if (hiddenCount === 0) return 0
-  const band = Math.max(SHEET_NOTICE_H, Math.ceil(finite(noticeH, 0)) + 4)
-  return areaH - band >= MIN_MAIN_H ? band : 0
+/** Offset of the column under the top bar that holds the hidden-panels notice, then the truncation banner (#453). */
+export const TOPBAR_STACK_TOP = 2
+/** Space between the notice and the banner in that column. */
+export const TOPBAR_STACK_GAP = 4
+/** The banner never starts higher than this under the top bar: the history-loading indicator (top bar + 8 px) keeps its slot. */
+export const BANNER_MIN_TOP = 44
+
+/**
+ * The column under the top bar (#453), as offsets from the bottom of the top bar: where the banner starts (null when
+ * none is drawn) and the band it all takes (0 when nothing is drawn). The notice is drawn only when panels are hidden,
+ * at least SHEET_NOTICE_H - 4 high; the banner goes right under it, never above its own slot. Heights are the measured
+ * ones (an unmeasured or invalid value counts as nothing drawn), so a wrapped line grows the band instead of being cut.
+ */
+export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0): { bannerTop: number | null; band: number } {
+  const notice = hiddenCount > 0 ? Math.max(SHEET_NOTICE_H - 4, Math.ceil(Math.max(0, finite(noticeH, 0)))) : 0
+  const banner = Math.ceil(Math.max(0, finite(bannerH, 0)))
+  const noticeBottom = notice > 0 ? TOPBAR_STACK_TOP + notice : 0
+  const bannerTop = banner > 0 ? Math.max(BANNER_MIN_TOP, noticeBottom > 0 ? noticeBottom + TOPBAR_STACK_GAP : 0) : null
+  const lowest = bannerTop !== null ? bannerTop + banner : noticeBottom
+  return { bannerTop, band: lowest > 0 ? lowest + 2 : 0 }
 }
 
-function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number): DockLayout {
+/**
+ * Smallest sheet left under the column when a truncation banner is drawn (#453): lower than MIN_MAIN_H, so a phone
+ * (320 x 568, where the top bar wraps) keeps the banner, the only sign of a partial graph, visible; the sheet scrolls.
+ */
+const MIN_SHEET_H_WITH_BANNER = 96
+
+/**
+ * Band a sheet keeps free under the top bar for that column. In order: the whole column (notice and banner) when it
+ * leaves MIN_MAIN_H, or, with a banner, MIN_SHEET_H_WITH_BANNER; else the notice alone (as before #453) when it leaves
+ * MIN_MAIN_H; else none (the sheet takes the room and may cover the column).
+ */
+function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0, bannerH = 0): number {
+  const full = topbarStack(hiddenCount, noticeH, bannerH)
+  const floor = full.bannerTop !== null ? MIN_SHEET_H_WITH_BANNER : MIN_MAIN_H
+  if (full.band > 0 && areaH - full.band >= floor) return full.band
+  const noticeOnly = topbarStack(hiddenCount, noticeH, 0).band
+  return noticeOnly > 0 && areaH - noticeOnly >= MIN_MAIN_H ? noticeOnly : 0
+}
+
+function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number, bannerH?: number): DockLayout {
   const { area } = base
   const newest = open[open.length - 1]
-  // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410)
-  const band = sheetNoticeBand(area.h, open.length - 1, noticeH)
+  // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410), and for the
+  // truncation banner under it (#453), which a sheet must not slide under even when it is the only open panel
+  const band = sheetNoticeBand(area.h, open.length - 1, noticeH, bannerH)
   const sheet: Rect = { x: 8, y: area.y + band, w: Math.max(0, area.w - 0), h: area.h - band }
   return {
     ...base,
@@ -316,9 +353,9 @@ export function computeDockLayout(input: DockInput): DockLayout {
   }
   const open = Array.from(new Set(input.open))
   if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [] }
-  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH)
+  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH)
   const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH)
+  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH)
   return { ...base, mode: 'dock', rects, hidden: [] }
 }
 
@@ -360,6 +397,8 @@ export interface DockEnv {
   obstacles: Rect[]
   /** Height of the drawn hidden-panels notice (absent when none is drawn). */
   noticeH?: number
+  /** Height of the drawn truncation banner (absent when none is drawn, #453). */
+  bannerH?: number
 }
 
 export interface DockSnapshot { layout: DockLayout; env: DockEnv; open: readonly PanelId[] }
@@ -400,7 +439,10 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
   }
   const notice = doc.querySelector<HTMLElement>('[data-hidden-panels-notice]')
   const noticeH = notice ? Math.ceil(notice.getBoundingClientRect().height) : 0
-  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH }
+  // The banner is an obstacle for the docks (above) and takes its own band over a sheet (#453)
+  const banner = doc.querySelector<HTMLElement>('[data-truncation-banner]')
+  const bannerH = banner && !banner.closest('[aria-hidden="true"]') && !banner.closest('[inert]') ? Math.max(0, Math.ceil(banner.getBoundingClientRect().height)) : 0
+  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH }
 }
 
 type Listener = () => void
