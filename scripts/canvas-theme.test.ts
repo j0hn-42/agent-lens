@@ -135,3 +135,41 @@ test('le texte posé directement sur le fond de la scène (état vide) utilise l
   const top = readFileSync(join(root, 'web/components/agent-visualizer/top-bar.tsx'), 'utf8')
   assert.match(top, /var\(--lens-bar-bg\)/, 'la barre d\'outils porte sa propre surface')
 })
+
+// ─── Carte de découverte (#438 : les cartes de fichier listées par Grep deviennent visibles) ───
+
+/** [r, g, b, a] d'une couleur #rrggbb[aa] ou rgba(r, g, b, a) */
+const rgba = (c: string): [number, number, number, number] => {
+  const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(c)
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])]
+  const a = c.length === 9 ? parseInt(c.slice(7, 9), 16) / 255 : 1
+  return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16), a]
+}
+/** La couleur `fg`, peinte avec l'opacité globale `alpha`, composée sur le fond opaque `bg` (#rrggbb) */
+const over = (fg: string, bg: string, alpha: number): string => {
+  const [r, g, b, a] = rgba(fg)
+  const [R, G, B] = rgba(bg)
+  const k = a * alpha
+  return '#' + [[r, R], [g, G], [b, B]].map(([f, d]) => Math.round(f * k + d * (1 - k)).toString(16).padStart(2, '0')).join('')
+}
+
+test('carte de découverte : libellé et chemin >= 4,5:1 à l\'opacité 0.9, sur la carte composée sur la scène, dans tous les thèmes', () => {
+  const CARD_OPACITY = 0.9 // plafond du fondu (animateDiscoveries)
+  for (const id of THEME_IDS) {
+    refreshColors(id)
+    for (const bg of [SCENE.cardBg, SCENE.cardBgSelected]) {
+      const card = over(bg, SCENE.void, CARD_OPACITY)
+      for (const type of ['file', 'pattern', 'finding', 'code']) {
+        const label = over(getDiscoveryTypeColor(type, SCENE), card, CARD_OPACITY)
+        assert.ok(ratio(label, card) >= 4.5, `${id}: libellé ${type} sur ${bg} (${ratio(label, card).toFixed(2)}:1)`)
+      }
+      const path = over(SCENE.textMuted, card, CARD_OPACITY)
+      assert.ok(ratio(path, card) >= 4.5, `${id}: chemin (textMuted) sur ${bg} (${ratio(path, card).toFixed(2)}:1)`)
+    }
+  }
+})
+
+test('carte de découverte : la barre de couleur est décorative, le type est dit en texte', () => {
+  const src = readFileSync(join(root, 'web/components/agent-visualizer/canvas/draw-discoveries.ts'), 'utf8')
+  assert.match(src, /decorative/, 'draw-discoveries le dit à côté de la barre')
+})
