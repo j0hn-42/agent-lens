@@ -237,6 +237,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const isPriority = flags.selected || flags.hovered || flags.focused
     const secondaryAllowed = !crowded || isPriority
 
+    // Right edge (screen) of this agent's label block as reserved, enlarged below 100% (#378)
+    let labelRight: number | undefined
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
       const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
@@ -260,6 +262,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
       const cW = measure(compactText) + LABEL_PAD * 2
       const compact = toScreen(t, a.x - (cW * k) / 2, top, cW * k, (barShown ? blockH : AGENT_DRAW.stateLabelGap) * k)
+      labelRight = full.x + full.w
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),
@@ -320,16 +323,20 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         const ay = a.y + AGENT_DRAW.bubbleCursorY
         const full = toScreen(t, ax, ay, w, h)
         const clusterBoost = (clusterOf.get(id) && priorityClusters.has(clusterOf.get(id) as string)) ? 500 : 0
+        // Bubble text would fall under LOD.minTextPx on screen: the count chip stands for the stack
+        const compactOnly = input.lod.cardText === false
+        // The chip is fixed: anchored right of the agent's own label block, which is enlarged below 100%
+        // and placed first, so the label never pushes its own chip out (#378)
+        const chipX = compactOnly && labelRight !== undefined ? Math.max(full.x, labelRight + PLACEMENT.gap) : full.x
         requests.push({
           id: planKey.bubbles(id),
           priority: overlayPriority(PRIORITY.agentBubbles, flags) + clusterBoost,
           rect: full,
-          compact: { x: full.x, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
+          compact: { x: chipX, y: full.y, w: PLACEMENT.chipW, h: PLACEMENT.chipH },
           owner: id,
           fixed: true,
           ignoreObstacles: isPriority,
-          // Bubble text would fall under LOD.minTextPx on screen: the count chip stands for the stack
-          compactOnly: input.lod.cardText === false,
+          compactOnly,
         })
       }
     }
