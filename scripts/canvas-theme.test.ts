@@ -103,7 +103,7 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
     assert.doesNotMatch(src, /\bCOLORS\b/, `${f}: COLORS (thématisé) dans le code de la scène, utiliser SCENE`)
     assert.doesNotMatch(src, /theme-dom|currentThemeId|refreshColors|themed\(|theme-palette|paletteFor/, `${f}: la scène ne lit le thème que par scene-state-colors`)
     if (f.endsWith('use-canvas-draw-loop.ts')) continue
-    assert.doesNotMatch(src, /\bsceneTheme\(/, `${f}: seule la boucle de dessin lit le thème actif (une fois par image)`)
+    assert.doesNotMatch(src, /\bsceneTheme\(/, `${f}: seule la boucle de dessin lit le thème actif (à chaque image)`)
   }
   // Le seul pont entre le thème et la scène : il ne donne que les couleurs des états d'agent
   const bridge = readFileSync(join(root, 'web/lib/scene-state-colors.ts'), 'utf8')
