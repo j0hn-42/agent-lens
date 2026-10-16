@@ -446,13 +446,13 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       .catch(() => { if (!ctl.signal.aborted) { setLaunchMax(null); setLaunches(prev => (prev.size > 0 ? new Map() : prev)) } })
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayOrigin])
-  // What the relay could not replay, for the selection: a team counts only its own sessions
+  // What the relay could not replay, for the selection: a team counts only its own sessions, All only the ones it shows (#453)
   const replayLost = useMemo(() => {
     const team = parseTeamSelection(selectedSessionId)
-    return replayLostFor(eventLoss, selectedSessionId, team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions))
+    return replayLostFor(eventLoss, selectedSessionId, team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions), visibility.ids)
     // teamView changes when the tracker learns a team member
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventLoss, selectedSessionId, sessions, teamView])
+  }, [eventLoss, selectedSessionId, sessions, teamView, visibility.ids])
   const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])
 
   /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
