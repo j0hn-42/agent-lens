@@ -1,4 +1,3 @@
-
 // ─── Model families ──────────────────────────────────────────────────────────
 
 /** Single source of truth for Claude model families. Display names
