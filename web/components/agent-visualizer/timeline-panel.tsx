@@ -8,6 +8,7 @@ import { formatDuration } from '@/lib/utils'
 import {
   buildTimelineRows,
   computeTimelineRange,
+  timelineMarkers,
   timelineAriaLabel,
   timelineBlockState,
   TIMELINE_STATE_LABELS,
@@ -163,21 +164,16 @@ function drawTimeline(
   const timeSpan = Math.max(maxTime - minTime, 1)
   const barWidth = width - LABEL_WIDTH
 
-  // Time markers
-  const markerInterval = timeSpan > 60 ? 10 : timeSpan > 20 ? 5 : timeSpan > 10 ? 2 : 1
-  const markers: number[] = []
-  for (let t = Math.ceil(minTime / markerInterval) * markerInterval; t <= maxTime; t += markerInterval) {
-    markers.push(t)
-  }
-
   ctx.font = FONT
+
+  // Time markers: spaced for the widest label at this width, none cut by the edge (#378)
+  const markers = timelineMarkers(minTime, maxTime, LABEL_WIDTH, barWidth, ctx.measureText(formatDuration(maxTime)).width, width)
 
   // ── Header row: time labels ──
   ctx.textAlign = 'center'
   ctx.fillStyle = COLORS.textMutedOpaque
-  for (const t of markers) {
-    const x = LABEL_WIDTH + ((t - minTime) / timeSpan) * barWidth
-    ctx.fillText(formatDuration(t), x, HEADER_HEIGHT - 4)
+  for (const m of markers) {
+    if (m.labelled) ctx.fillText(formatDuration(m.t), m.x, HEADER_HEIGHT - 4)
   }
 
   // ── Agent rows ──
@@ -199,10 +195,7 @@ function drawTimeline(
 
     // Vertical marker lines
     ctx.fillStyle = COLORS.panelSeparator
-    for (const t of markers) {
-      const x = LABEL_WIDTH + ((t - minTime) / timeSpan) * barWidth
-      ctx.fillRect(x, trackY, 1, trackH)
-    }
+    for (const m of markers) ctx.fillRect(m.x, trackY, 1, trackH)
 
     // Blocks
     for (const block of entry.blocks) {
