@@ -1,4 +1,4 @@
-// Flow from a Glob / Grep tool card to the file cards its output listed (#384). The link is proven by the
+// Flow from a Grep tool card to the file cards its output listed (#384). The link is proven by the
 // tool_use_id and the agent, never inferred; nothing is drawn for a call that is missing or not complete; a
 // frozen scene keeps a static line and an arrowhead (the direction is not carried by motion).
 import './canvas-recorder'
