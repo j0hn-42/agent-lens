@@ -132,6 +132,8 @@ export const FILE_TIMELINE_LABELS = {
   noCommits: 'Commits are not shown: no observed event ties a file to a commit.',
   /** "3 steps observed", "(incomplete)" when the relay could not replay some events */
   summary: (n: number, incomplete: boolean) => `${n} step${n === 1 ? '' : 's'} observed${incomplete ? ' (incomplete)' : ''}`,
+  /** Screen-reader-only end of the summary, so each closed disclosure names its file */
+  summaryOf: (path: string) => ` of ${path}`,
   omitted: (n: number) => `${n} earlier step${n === 1 ? '' : 's'} not kept (the ${FILE_TIMELINE_MAX_STEPS} most recent are listed)`,
   list: (path: string) => `Steps of ${path}`,
 } as const

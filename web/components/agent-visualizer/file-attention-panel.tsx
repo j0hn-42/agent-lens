@@ -60,7 +60,7 @@ function FileTimelineDetails({ path, timeline, label, incomplete }: {
   return (
     <details className="mt-1 text-[11px] font-mono">
       <summary className={`cursor-pointer min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`} style={{ color: COLORS.textMuted }}>
-        {L.summary(fileStepTotal(timeline), incomplete)}
+        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{L.summaryOf(path)}</span>
       </summary>
       {timeline.omitted > 0 && (
         <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{L.omitted(timeline.omitted)}</p>
