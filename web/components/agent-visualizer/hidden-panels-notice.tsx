@@ -14,7 +14,7 @@ import { useDockSnapshot } from './shared-ui'
  * The line sits in the column under the top bar ({@link UnderTopbarStack}); its height is measured (data attribute
  * read by the dock store), so a long list or a larger text size grows the band instead of being cut.
  */
-export function HiddenPanelsNotice({ contextOpen = false }: { contextOpen?: boolean }) {
+function HiddenPanelsNotice({ contextOpen = false }: { contextOpen?: boolean }) {
   const { layout } = useDockSnapshot()
   const text = hiddenPanelsText(layout.hidden, { context: contextOpen })
   return (
