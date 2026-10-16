@@ -242,3 +242,10 @@ test('pipeline: a replayed tool_use and tool_result (same tool_use_id) list the 
   const s = run([spawn('main'), ...c, ...c])
   assert.equal(gitOf(s, 'main')?.commits.length, 1)
 })
+
+test('pipeline: a replayed older switch (same tool_use_id) does not move the branch back', () => {
+  // Not idempotent: without the call-level dedup, the replay would set feat/a again
+  const a = bash('main', 'git switch feat/a', "Switched to branch 'feat/a'", 'u1')
+  const s = run([spawn('main'), ...a, ...bash('main', 'git switch feat/b', "Switched to branch 'feat/b'", 'u2'), ...a])
+  assert.deepEqual(gitOf(s, 'main')?.head?.ref, { kind: 'branch', name: 'feat/b' })
+})
