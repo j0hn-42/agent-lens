@@ -7,6 +7,7 @@ import type { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import type { useInspector } from "@/hooks/use-inspector"
 import type { useAttentionSummary } from "@/hooks/use-attention-summary"
 import { detectLoops } from "@/lib/loop-detection"
+import { replayLostFor } from "@/lib/event-loss"
 import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
 import { ToolDetailPopup } from "./tool-detail-popup"
@@ -26,7 +27,7 @@ interface SelectionOverlaysProps {
   links: Simulation['links']
   droppedMessages: Simulation['droppedMessages']
   health: ReturnType<typeof useAttentionSummary>['health']
-  bridge: Pick<Bridge, 'relayOrigin' | 'launch'>
+  bridge: Pick<Bridge, 'relayOrigin' | 'launch' | 'eventLoss'>
   selectedLinkId: string | null
   onCloseLink: () => void
   onEscapeFromCard: () => void
@@ -71,6 +72,7 @@ export function SelectionOverlays({
             health={health.byAgent.get(selectedAgent.id) ?? detectLoops([], droppedMessages.get(selectedAgent.id) ?? 0)}
             sessionHealth={health.bySession.get(selectedAgent.sessionId)}
             delegation={delegation}
+            replayLost={replayLostFor(bridge.eventLoss, selectedAgent.sessionId, false)}
             onSelectAgent={selection.handleAgentClick}
             relayOrigin={bridge.relayOrigin}
             launch={bridge.launch}

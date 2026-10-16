@@ -22,7 +22,8 @@ import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type F
 import { goneText } from '@/lib/inspector-model'
 import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
 import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
-import { tokensText, filesReadText, durationText, resultText, type DelegationRow } from '@/lib/delegation-report'
+import { tokensText, filesReadText, durationText, resultText, delegationCountText, type DelegationRow } from '@/lib/delegation-report'
+import { boundedCount, replayLostSentence } from '@/lib/event-loss'
 
 interface AgentDetailCardProps {
   agent: {
@@ -76,6 +77,8 @@ interface AgentDetailCardProps {
   onEscape?: () => void
   /** Freshness clock override for tests */
   freshnessClock?: FreshnessClock
+  /** Events of this node's session the relay could not replay (#366): totals and "none" verdicts then read "at least" / "incomplete" */
+  replayLost?: number
 }
 
 const FRESHNESS_TEXT: Record<Freshness, string> = {
@@ -105,6 +108,7 @@ export function AgentDetailCard({
   onClose,
   onEscape,
   freshnessClock,
+  replayLost = 0,
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
@@ -211,7 +215,7 @@ export function AgentDetailCard({
 
         {/* Stats row */}
         <div className="flex gap-3 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-          <span>{pluralize(agent.toolCalls, 'tool')}</span>
+          <span>{boundedCount(agent.toolCalls, replayLost, 'tool')}</span>
           <span>{formatDuration(agent.timeAlive)} alive</span>
           <span style={{ color: freshness === 'stale' ? COLORS.textMuted : stateColor }}>{stateText}</span>
         </div>
@@ -230,9 +234,10 @@ export function AgentDetailCard({
           </span>
           {typeof toolErrors === 'number' && (
             <span data-testid="inspector-errors" style={{ color: toolErrors > 0 ? COLORS.error : undefined }}>
-              {pluralize(toolErrors, 'tool error')}
+              {boundedCount(toolErrors, replayLost, 'tool error')}
             </span>
           )}
+          {replayLost > 0 && <span data-testid="inspector-replay-lost">{replayLostSentence(replayLost)}</span>}
           {sessionLabel && <span className="truncate">{sessionLabel}</span>}
         </div>
         <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
@@ -243,7 +248,7 @@ export function AgentDetailCard({
         {health && <HealthSection health={health} sessionHealth={sessionHealth} />}
 
         {/* Delegation report (#233): per sub-agent, each value proven or said unknown */}
-        {delegation && delegation.length > 0 && <DelegationSection rows={delegation} onSelectAgent={onSelectAgent} />}
+        {delegation && delegation.length > 0 && <DelegationSection rows={delegation} onSelectAgent={onSelectAgent} lost={replayLost} />}
 
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
@@ -400,12 +405,12 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
   )
 }
 
-function DelegationSection({ rows, onSelectAgent }: { rows: DelegationRow[]; onSelectAgent?: (agentId: string) => void }) {
+function DelegationSection({ rows, onSelectAgent, lost = 0 }: { rows: DelegationRow[]; onSelectAgent?: (agentId: string) => void; lost?: number }) {
   const headingId = useId()
   return (
     <section className="mb-3 text-[11px] font-mono" aria-labelledby={headingId} data-testid="delegation-report">
       <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>Delegation report</h3>
-      <ul className="flex flex-col gap-2" aria-label={`Delegation report: ${pluralize(rows.length, 'sub-agent')}`}>
+      <ul className="flex flex-col gap-2" aria-label={`Delegation report: ${delegationCountText(rows.length, lost)}`}>
         {rows.map(row => (
           <li key={row.agentId} className="min-w-0" data-testid="delegation-row">
             <div className="flex min-w-0 items-center gap-x-2">
@@ -432,19 +437,19 @@ function DelegationSection({ rows, onSelectAgent }: { rows: DelegationRow[]; onS
               <dd className="m-0 min-w-0">
                 {row.filesReadCount > 0 ? (
                   <details>
-                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{filesReadText(row)}</summary>
+                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{filesReadText(row, lost)}</summary>
                     <ul className="flex flex-col">
                       {row.filesRead.map(f => <li key={f} className="truncate" title={f}>{f}</li>)}
                     </ul>
                     {row.filesReadCount > row.filesRead.length && <div>+{row.filesReadCount - row.filesRead.length} more</div>}
                   </details>
-                ) : filesReadText(row)}
+                ) : filesReadText(row, lost)}
               </dd>
               <dt style={{ color: COLORS.textMuted }}>Duration</dt>
-              <dd className="m-0">{durationText(row.duration)}</dd>
+              <dd className="m-0">{durationText(row.duration, lost)}</dd>
               <dt style={{ color: COLORS.textMuted }}>Result</dt>
               <dd className="m-0 min-w-0 break-words" style={row.result.kind === 'error' ? { color: COLORS.error } : undefined}>
-                {resultText(row.result)}
+                {resultText(row.result, lost)}
                 {row.result.kind !== 'not-returned' && row.result.truncated && (
                   <span style={{ color: COLORS.textDim }}> (full report in Conversation)</span>
                 )}

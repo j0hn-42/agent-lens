@@ -53,3 +53,19 @@ export function replayLostFor(loss: EventLoss | null, sessionId: string | null |
   if (union || !sessionId) return replayLostTotal(loss)
   return Object.hasOwn(loss.evicted, sessionId) ? loss.evicted[sessionId] : 0
 }
+
+/**
+ * A count over a graph that may be incomplete (#366). `lost` is replayLostFor() for the scope of the figure.
+ * Nothing lost: the plain count. Lost: "at least N", and a zero is "no X observed (incomplete)", never a clean zero.
+ */
+export function boundedCount(n: number, lost: number, singular: string, plural = `${singular}s`): string {
+  if (!(lost > 0)) return `${n} ${n === 1 ? singular : plural}`
+  if (n === 0) return `no ${singular} observed (incomplete)`
+  return `at least ${n} ${n === 1 ? singular : plural}`
+}
+
+/** What is missing, as a count since the relay started (never an exact figure); empty when nothing is. */
+export function replayLostSentence(lost: number): string {
+  if (!(lost > 0)) return ''
+  return lost === 1 ? 'at least 1 earlier event was not replayed by the relay' : `at least ${lost} earlier events were not replayed by the relay`
+}
