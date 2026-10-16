@@ -146,6 +146,8 @@ export function GlassContextMenu({ position, items, onClose }: ContextMenuProps)
               >
                 {item.icon && <span aria-hidden="true" className="mr-2 inline-block w-4 text-center">{item.icon}</span>}
                 {armed === i && item.confirmLabel ? item.confirmLabel : item.label}
+                {/* Visible twin of aria-checked, so what is seen matches what is announced */}
+                {item.checked !== undefined && <span aria-hidden="true" data-check-mark="" className="ml-2">{item.checked ? '✓' : ''}</span>}
               </button>
             )
           })}
