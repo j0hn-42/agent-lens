@@ -414,12 +414,12 @@ Settings > Appearance > **Language** (a native select, so it works with the keyb
 
 The interface is translated step by step, so for now the language covers only:
 
-- the canvas controls (the Zoom group, the View button and its panel: Freeze motion, the per-layer toggles, Pin cards, Hide unanswered calls after);
-- the Settings dialog (appearance, sound, sessions, notifications, keyboard).
+- the canvas controls (the Zoom group, the View button and its panel: Freeze motion, the per-layer toggles, Pin cards, Hide unanswered calls after), except the legend toggle beside them, which stays English and is marked `lang="en"`;
+- the Settings dialog in full (appearance, sound, sessions, presentation, notifications, keyboard). The theme names Catppuccin, Midnight, Graphite, Neon, Ember and Anthropic are proper names and stay as they are; *High contrast* is translated.
 
 Everything else (top bar, panels, command palette, legend, tour, notifications sent to the system, the text of tool calls and conversations) stays in English, and the page `lang` stays `en`. Translation never changes what is displayed: a figure keeps its qualification ("at least", "estimated" become "au moins", "estimé") and an unavailable channel is still said to be unavailable.
 
-To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. To add a language, extend `LOCALES` and fill the table.
+To add a string, add its key to **every** locale in `web/lib/messages.ts`; `scripts/messages.test.ts` fails on a missing key, a different `{placeholder}` or a French text that is still the English one. `web/tests-a11y/i18n-no-mixed-languages.test.tsx` renders Settings (each notification state, an invalid threshold included) and the canvas controls in each locale and fails on any rendered string (visible text, accessible names, tooltips, descriptions) that is not a value of the current locale's catalog or of an explicit allowlist of proper names and symbols; a subtree that stays English, such as the legend, is left out only if it declares `lang="en"`. When you translate a new surface, add it to that test. Still English for now, so a French reader sees the same setting named twice: the top bar (for instance *Hide inactive agents* against *Masquer les agents inactifs* in Settings), the agent card (apart from its Launch button), the panels, the command palette, the shortcuts dialog, the legend, the presentation-mode banner and its announcement, and the attention counter. To add a language, extend `LOCALES` and fill the table.
 
 ## The `observations` action
 
