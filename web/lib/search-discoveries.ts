@@ -3,7 +3,7 @@ import { canonicalTool, searchResultCount, RESULT_CAPTURE_LIMIT } from './action
 import { SEARCH_DISCOVERY } from './canvas-constants'
 
 /** What a Glob / Grep output proves it listed: the whole path lines under its header, and the header's count. */
-export interface ListedPaths {
+interface ListedPaths {
   /** Distinct paths, in the order the output lists them */
   paths: string[]
   /** Files the tool's own `Found N files` header reports (may exceed `paths`: a limit or the capture cut) */
@@ -24,7 +24,7 @@ function isPathLine(line: string): boolean {
  * line of an output that reached the capture limit may be cut, so it is dropped. More paths than the header
  * reports means the output is not what it claims: null. The caller checks the call succeeded.
  */
-export function provenListedPaths(toolName: string, inputData: Record<string, unknown> | undefined, result: string): ListedPaths | null {
+function provenListedPaths(toolName: string, inputData: Record<string, unknown> | undefined, result: string): ListedPaths | null {
   const tool = canonicalTool(toolName)
   if (tool !== 'Glob' && tool !== 'Grep') return null
   if (tool === 'Grep' && inputData?.output_mode !== undefined && inputData.output_mode !== 'files_with_matches') return null

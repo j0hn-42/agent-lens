@@ -2,12 +2,18 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { provenListedPaths, searchDiscoveries } from '../web/lib/search-discoveries'
+import { searchDiscoveries } from '../web/lib/search-discoveries'
 import { SEARCH_DISCOVERY } from '../web/lib/canvas-constants'
 import { RESULT_CAPTURE_LIMIT } from '../web/lib/action-summary'
 import { listedFileText } from '../web/lib/ui-glossary'
 
 // #438: discovery cards come only from paths a successful Glob / Grep output lists itself, never from a guess
+
+/** The paths the cards of one call show, with the count they say the call reported; null when no card. */
+function provenListedPaths(toolName: string, inputData: Record<string, unknown> | undefined, result: string) {
+  const ds = searchDiscoveries({ agentId: 's1:a', toolName, inputData, toolUseId: 'tu', x: 0, y: 0 }, result, 1)
+  return ds.length === 0 ? null : { paths: ds.map(d => d.content), reported: ds[0].listing!.reported }
+}
 
 test('provenListedPaths: the paths listed under the tool\'s own "Found N files" header', () => {
   assert.deepEqual(provenListedPaths('Glob', { pattern: '**/*.ts' }, 'Found 3 files\n/r/a.ts\n/r/b.ts\n/r/c.ts'), { paths: ['/r/a.ts', '/r/b.ts', '/r/c.ts'], reported: 3 })
