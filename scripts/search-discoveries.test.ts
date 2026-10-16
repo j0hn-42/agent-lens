@@ -31,8 +31,9 @@ test('provenListedPaths: the paths listed under the tool\'s own "Found N files" 
   assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, 'Found 1 file\n/r/a.ts'), { paths: ['/r/a.ts'], reported: 1 })
   // Copilot lower-case name, Windows paths
   assert.deepEqual(provenListedPaths('glob', undefined, 'Found 1 file\nC:\\repo\\a.ts'), { paths: ['C:\\repo\\a.ts'], reported: 1 })
-  // The header may list fewer paths than it reports (a limit): the count stays the header's
-  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, 'Found 9 files limit: 2\n/r/a.ts\n/r/b.ts'), { paths: ['/r/a.ts', '/r/b.ts'], reported: 9 })
+  // The header may carry a limit suffix (real output: 'Found 10 files limit: 10'); the count read is the header's
+  const limited = 'Found 10 files limit: 10\n' + Array.from({ length: 10 }, (_, i) => `src/services/s${i}.ts`).join('\n')
+  assert.equal(provenListedPaths('Grep', { pattern: 'x', head_limit: 10 }, limited)?.reported, 10)
 })
 
 test('provenListedPaths: no header, no paths, a failure or another tool give nothing', () => {
