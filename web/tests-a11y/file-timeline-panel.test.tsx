@@ -56,6 +56,17 @@ test('a file with observed steps has a disclosure, a native summary reachable by
   assert.equal(document.activeElement, summary, 'the summary takes the focus')
 })
 
+test('each summary names its file, so two closed disclosures never read the same', () => {
+  const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} agentLabel={agentLabel} />)
+  const a = rowOf(container, withSteps.path).querySelector('details > summary')?.textContent ?? ''
+  const b = rowOf(container, capped.path).querySelector('details > summary')?.textContent ?? ''
+  assert.match(a, /^3 steps observed of \/repo\/src\/a\.ts$/)
+  assert.match(b, /^13 steps observed of \/repo\/src\/b\.ts$/)
+  // The path part is for screen readers only: the visible text stays the count
+  const hidden = rowOf(container, withSteps.path).querySelector('details > summary .sr-only')
+  assert.equal(hidden?.textContent, ' of /repo/src/a.ts')
+})
+
 test('the steps are an ordered list, said in words, each with its agent and its call', () => {
   const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} agentLabel={agentLabel} />)
   const row = rowOf(container, withSteps.path)
