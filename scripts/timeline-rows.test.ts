@@ -57,15 +57,23 @@ for (const [canvasWidth, span] of [[340, 9.5], [340, 19.5], [340, 59], [340, 125
     const labels = labelsOf(markers)
     assert.ok(labels.length >= 2, `at least two labels give the scale (got ${labels.length})`)
     for (let i = 1; i < labels.length; i++) {
-      const gap = labels[i].x - labels[i - 1].x - LABEL_W
+      const gap = labels[i].labelX - labels[i - 1].labelX - LABEL_W
       assert.ok(gap >= TIMELINE_LABEL_GAP, `${formatDuration(labels[i - 1].t)} and ${formatDuration(labels[i].t)} are ${gap.toFixed(1)} px apart`)
     }
     for (const m of labels) {
-      assert.ok(m.x - LABEL_W / 2 >= 0 && m.x + LABEL_W / 2 <= canvasWidth, `${formatDuration(m.t)} at ${m.x.toFixed(1)} is cut by the edge`)
+      assert.ok(m.labelX - LABEL_W / 2 >= 0 && m.labelX + LABEL_W / 2 <= canvasWidth, `${formatDuration(m.t)} at ${m.labelX.toFixed(1)} is cut by the edge`)
+      // A label moved off its line stays against it: the line is under the label or at its right end
+      assert.ok(Math.abs(m.labelX - m.x) <= LABEL_W / 2 + 0.01, `${formatDuration(m.t)} drawn ${(m.labelX - m.x).toFixed(1)} px from its line`)
     }
     for (const m of markers) assert.ok(m.x >= barStart - 0.01 && m.x <= canvasWidth + 0.01, 'marker lines stay on the bar')
   })
 }
+
+test('timeline markers: a one-second span still shows both ends, the last one moved inside the edge', () => {
+  const markers = timelineMarkers(0, 1, barStart, 236, LABEL_W, 340)
+  assert.deepEqual(markers.filter(m => m.labelled).map(m => m.t), [0, 1])
+  assert.equal(markers[1].labelX + LABEL_W / 2, 340)
+})
 
 test('timeline markers: a wide panel keeps the old steps (1 s up to 10 s, 10 s past one minute)', () => {
   const short = timelineMarkers(0, 10, barStart, 570, LABEL_W, 674)

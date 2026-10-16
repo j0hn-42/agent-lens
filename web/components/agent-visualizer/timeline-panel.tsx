@@ -173,7 +173,7 @@ function drawTimeline(
   ctx.textAlign = 'center'
   ctx.fillStyle = COLORS.textMutedOpaque
   for (const m of markers) {
-    if (m.labelled) ctx.fillText(formatDuration(m.t), m.x, HEADER_HEIGHT - 4)
+    if (m.labelled) ctx.fillText(formatDuration(m.t), m.labelX, HEADER_HEIGHT - 4)
   }
 
   // ── Agent rows ──
