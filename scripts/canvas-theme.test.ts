@@ -1,11 +1,14 @@
-// Le thème ne s'applique qu'à l'interface : la scène (fond de page + canvas) garde les couleurs neon dans les trois thèmes.
+// Le thème s'applique à l'interface et aux seules couleurs d'état des agents sur le canvas (#381) : le reste de la scène
+// (fond de page, liens, halos, particules, cartes, libellés, grille) lit SCENE, figé en neon dans tous les thèmes.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { COLORS, SCENE, refreshColors, getStateColor, getDiscoveryTypeColor, contextSegments, uiColor } from '../web/lib/colors'
-import { NEON_COLORS } from '../web/lib/theme-palette'
-import { PERF_OVERLAY, STATE_COLOR_OVERRIDES, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canvas-constants'
+import { NEON_COLORS, paletteFor } from '../web/lib/theme-palette'
+import * as canvasConstants from '../web/lib/canvas-constants'
+import { PERF_OVERLAY, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canvas-constants'
+import { stateColor } from '../web/components/agent-visualizer/canvas/draw-misc'
 import { THEME_IDS, TOKENS, extraVars } from '../web/lib/theme-tokens'
 import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { TEAM_DEFAULT_COLOR, teammateAccent } from '../web/components/agent-visualizer/canvas/team-style'
@@ -26,8 +29,7 @@ for (const id of THEME_IDS) {
     refreshColors(id)
     assert.equal(PERF_OVERLAY.bgColor, 'rgba(0, 0, 0, 0.75)')
     assert.equal(PERF_OVERLAY.fpsGoodColor, '#44ff44')
-    assert.equal(STATE_COLOR_OVERRIDES.thinking, '#b79cff')
-    assert.equal(STATE_COLOR_OVERRIDES.waiting_permission, '#ff7ad9')
+    assert.equal('STATE_COLOR_OVERRIDES' in canvasConstants, false, 'plus de couleurs d\'état figées en neon pour le canvas')
     assert.equal(ORCHESTRATOR_DRAW.accent, '#ffd166')
     assert.equal(FRESHNESS_DRAW.staleColor, '#8a94a0')
     assert.equal(FRESHNESS_DRAW.staleTextColor, '#c5ced8')
@@ -42,6 +44,18 @@ for (const id of THEME_IDS) {
     assert.equal(contextSegments(bd, SCENE)[2].color, '#ffbb44')
   })
 }
+
+test('contrat (#381) : les couleurs d\'état du canvas suivent le thème passé explicitement, le reste de la scène reste neon', () => {
+  const states = ['idle', 'thinking', 'tool_calling', 'complete', 'error', 'paused', 'waiting_permission'] as const
+  for (const id of THEME_IDS) {
+    refreshColors(id === 'neon' ? 'graphite' : 'neon') // le thème des panneaux n'entre pas en compte : seul le thème passé compte
+    for (const s of states) assert.equal(stateColor(s, id), (paletteFor(id) as Record<string, string>)[s], `${id} ${s}`)
+    assert.deepEqual({ ...SCENE }, { ...NEON_COLORS }, `${id}: SCENE reste neon`)
+  }
+  refreshColors('neon')
+  assert.equal(stateColor('thinking', 'neon'), '#b79cff', 'Neon garde son violet')
+  assert.equal(stateColor('waiting_permission', 'neon'), '#ff7ad9', 'Neon garde son rose')
+})
 
 test('l\'interface, elle, change avec le thème (graphite et les autres thèmes diffèrent de neon)', () => {
   refreshColors('neon')
@@ -75,7 +89,7 @@ function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])
 }
 
-test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais la palette thématisée', () => {
+test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais la palette thématisée ; le thème n\'y entre que par scene-state-colors', () => {
   const files = [
     ...walk(join(root, 'web/components/agent-visualizer/canvas')),
     ...walk(join(root, 'web/hooks')),
@@ -85,8 +99,18 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
   for (const f of files) {
     const src = readFileSync(f, 'utf8')
     assert.doesNotMatch(src, /\bCOLORS\b/, `${f}: COLORS (thématisé) dans le code de la scène, utiliser SCENE`)
-    assert.doesNotMatch(src, /theme-dom|currentThemeId|refreshColors|themed\(/, `${f}: la scène ne dépend pas du thème`)
+    assert.doesNotMatch(src, /theme-dom|currentThemeId|refreshColors|themed\(|theme-palette|paletteFor/, `${f}: la scène ne lit le thème que par scene-state-colors`)
+    if (f.endsWith('use-canvas-draw-loop.ts')) continue
+    assert.doesNotMatch(src, /\bsceneTheme\(/, `${f}: seule la boucle de dessin lit le thème actif (une fois par image)`)
   }
+  // Le seul pont entre le thème et la scène : il ne donne que les couleurs des états d'agent
+  const bridge = readFileSync(join(root, 'web/lib/scene-state-colors.ts'), 'utf8')
+  assert.doesNotMatch(bridge, /\bCOLORS\b|\bSCENE\b/, 'scene-state-colors ne touche ni COLORS ni SCENE')
+  const exported = [...bridge.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]).sort()
+  assert.deepEqual(exported, ['sceneStateColor', 'sceneStateColors', 'sceneTheme'])
+  const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
+  assert.match(loop, /opts\.theme = theme/, 'la boucle passe le thème au dessin par les options')
+  assert.match(loop, /keys: \[[^\]]*sceneTheme\(\)/, 'un changement de thème redessine une scène immobile')
 })
 
 test('garde : le bloom reste actif sur le canvas quel que soit le thème, le fond de page est celui de la scène', () => {
