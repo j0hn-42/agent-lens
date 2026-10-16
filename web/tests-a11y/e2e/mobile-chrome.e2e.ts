@@ -63,8 +63,9 @@ async function visibleControls(page: Page): Promise<Array<{ name: string; w: num
     .map(el => { const r = el.getBoundingClientRect(); return { name: el.getAttribute('aria-label') || el.textContent.trim(), w: r.width, h: r.height } })`) as Promise<Array<{ name: string; w: number; h: number }>>
 }
 
-// Height budgets: three rows at 390 px, five at 320 px (the panel toggles do not fit on fewer lines there)
-for (const [w, h, budget] of [[390, 844, 130], [320, 568, 180]] as Array<[number, number, number]>) {
+// Height budgets, folded: four rows at 390 px (Sessions; connection and More; the side panels; the other toggles),
+// five at 320 px where the side panels group itself needs two lines. Measured before #378: 193 and 290.5 px.
+for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
   test(`top bar ${w}x${h}: folded under 600 px it stays within ${budget} px, totals one named button away`, async () => {
     const page = await open(w, h)
     try {

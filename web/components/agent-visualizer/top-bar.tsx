@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useLayoutEffect, useRef } from "react"
+import { memo, useId, useLayoutEffect, useRef, useState } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
@@ -11,7 +11,7 @@ import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSum
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
-import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, openPanelLabel } from "@/lib/ui-glossary"
+import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, TOP_BAR_LABELS, openPanelLabel } from "@/lib/ui-glossary"
 import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
@@ -81,7 +81,7 @@ const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls, className = '' }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -102,6 +102,10 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   keepsInspector?: boolean
   /** id of an element describing the button (read after its name) */
   describedBy?: string
+  /** aria-expanded of a disclosure button, with the id of what it shows */
+  expanded?: boolean
+  controls?: string
+  className?: string
 }) {
   return (
     <button
@@ -111,12 +115,14 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       aria-pressed={pressed}
       aria-label={ariaLabel}
       aria-describedby={describedBy}
+      aria-expanded={expanded}
+      aria-controls={controls}
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
-      className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
+      className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING} ${className}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -278,6 +284,9 @@ export const TopBar = memo(function TopBar({
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
+  // Under 600 px the totals and filters fold behind a disclosure button (#378); 600 px and wider nothing changes
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreId = useId()
 
   // Publish the measured height so panels can offset themselves below the (wrapping) bar.
   useLayoutEffect(() => {
@@ -323,8 +332,8 @@ export const TopBar = memo(function TopBar({
       {/* Spacer pushes info to the right */}
       <div className="flex-1" />
 
-      {/* Right-side info/controls */}
-      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full" style={{ color: COLORS.textMuted }}>
+      {/* Right-side info/controls. Under 600 px its items join the rows of the bar itself (display: contents) */}
+      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full max-[600px]:contents" style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
         {attentionText && onJumpToAttention && (
           <button
@@ -343,6 +352,19 @@ export const TopBar = memo(function TopBar({
             <span aria-hidden="true">! </span>{attentionText}
           </button>
         )}
+        <ToggleButton
+          active={moreOpen}
+          onClick={() => setMoreOpen(v => !v)}
+          ariaLabel={TOP_BAR_LABELS.moreName}
+          title={TOP_BAR_LABELS.moreHelp}
+          expanded={moreOpen}
+          controls={moreId}
+          className="min-[600px]:hidden"
+        >
+          {TOP_BAR_LABELS.more}
+        </ToggleButton>
+        {/* Folded under 600 px until More is pressed; a plain box (display: contents) otherwise */}
+        <div id={moreId} className={moreOpen ? 'contents' : 'contents max-[600px]:hidden'}>
         {notifyState !== 'unsupported' && onToggleNotify && (
           <ToggleButton
             active={notifyState === 'on'}
@@ -402,6 +424,7 @@ export const TopBar = memo(function TopBar({
             </span>
           )}
         </span>
+        </div>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
           {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}

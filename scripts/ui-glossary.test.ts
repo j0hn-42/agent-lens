@@ -181,3 +181,10 @@ test('the retired double meanings are gone from the UI code (#372)', () => {
   for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
   assert.deepEqual(hits, [])
 })
+
+test('the top bar disclosure under 600 px (#378): its visible text starts its accessible name (2.5.3)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.TOP_BAR_LABELS.more, 'More')
+  assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /tokens in context/)
+})
