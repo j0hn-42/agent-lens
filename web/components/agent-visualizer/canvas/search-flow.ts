@@ -64,7 +64,7 @@ export function searchFlowSegments(
 }
 
 /** Where a chip is along its line, in [0, 1): chips of one call are spread evenly so they never pile up */
-export function flowChipPosition(time: number, index: number, count: number): number {
+function flowChipPosition(time: number, index: number, count: number): number {
   const phase = time * SEARCH_FLOW.speed + index / Math.max(1, count)
   return phase - Math.floor(phase)
 }
@@ -74,7 +74,7 @@ export function flowChipPosition(time: number, index: number, count: number): nu
  * arrowhead, not by motion. Unless motion is calm, one chip per card also travels along the line; the chip
  * count is the card count, so it is bounded by SEARCH_DISCOVERY.maxPerCall per call. No text is drawn.
  */
-export function drawSearchFlow(ctx: CanvasRenderingContext2D, segments: readonly FlowSegment[], time: number, opts: Pick<DrawOpts, 'reducedMotion'>) {
+export function drawSearchFlow(ctx: CanvasRenderingContext2D, segments: readonly FlowSegment[], time: number, opts: DrawOpts) {
   if (segments.length === 0) return
   const color = getDiscoveryTypeColor('file', SCENE)
   for (const s of segments) {

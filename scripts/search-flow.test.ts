@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
 import { SEARCH_DISCOVERY, MIN_VISIBLE_OPACITY } from '../web/lib/canvas-constants'
-import { searchFlowSegments, flowChipPosition, drawSearchFlow } from '../web/components/agent-visualizer/canvas/search-flow'
+import { searchFlowSegments, drawSearchFlow } from '../web/components/agent-visualizer/canvas/search-flow'
 
 stubDocument()
 
@@ -58,19 +58,21 @@ test('at most SEARCH_DISCOVERY.maxPerCall segments per call (#384)', () => {
   assert.equal(searchFlowSegments(many, calls(call()), size).length, SEARCH_DISCOVERY.maxPerCall)
 })
 
-test('chip position stays on the segment and chips of one call are spread out (#384)', () => {
-  for (let t = 0; t < 10; t += 0.37) {
-    const p = flowChipPosition(t, 2, 5)
-    assert.ok(p >= 0 && p < 1)
-  }
-  assert.notEqual(flowChipPosition(1, 0, 4), flowChipPosition(1, 1, 4))
-})
-
 function draw(segs: any[], reduced: boolean, time = 1.3) {
   const rec = recordingContext(1)
   drawSearchFlow(rec.ctx, segs, time, { reducedMotion: reduced, zoom: 1, showCost: false, showStats: false })
   return rec
 }
+
+test('chips stay on their line, move with the clock and are spread out (#384)', () => {
+  const segs = searchFlowSegments([disc(0), disc(0, { id: 'd-b' }), disc(0, { id: 'd-c' })], calls(call()), size)
+  const arcs = (t: number) => draw(segs, false, t).ops.filter(o => o.name === 'arc').map(o => o.args as number[])
+  for (let t = 0; t < 6; t += 0.41) {
+    for (const [x] of arcs(t)) assert.ok(x >= segs[0].x1 && x <= segs[0].x2, 'inside the line')
+  }
+  assert.notEqual(arcs(1)[0][0], arcs(1)[1][0], 'chips of one call do not pile up')
+  assert.notEqual(arcs(1)[0][0], arcs(1.5)[0][0], 'the clock moves them')
+})
 
 test('animated: a line, an arrowhead and at most one chip per card, no text (#384)', () => {
   const segs = searchFlowSegments([disc(0), disc(1), disc(2)], calls(call()), size)
