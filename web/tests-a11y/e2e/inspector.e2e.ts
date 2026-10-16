@@ -62,7 +62,9 @@ async function openWithFakeRelay(width: number, height: number) {
   }
   // The top bar counts what React knows: wait until both agents of the shown session are in it
   await page.getByText(/2 agents/).first().waitFor()
-  // Idle agents are hidden by default
+  // Idle agents are hidden by default. Under 600 px the filter is behind More (#378)
+  const more = page.getByRole('button', { name: /^More/ })
+  if (await more.count()) await more.evaluate((el: HTMLElement) => el.click())
   await page.getByRole('button', { name: /Hide inactive agents/ }).evaluate((el: HTMLElement) => el.click())
   return { page, close: () => context.close() }
 }

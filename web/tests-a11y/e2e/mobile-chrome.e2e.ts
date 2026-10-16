@@ -7,6 +7,7 @@ import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
+import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
 import { startDemoServer, type DemoServer } from './demo-server'
 
 let browser: Browser
@@ -75,8 +76,22 @@ for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number
 
       const more = page.getByRole('button', { name: /^More/ })
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
-      const totals = page.getByText(/tokens in context/)
-      assert.equal(await totals.isVisible(), false, 'folded: the token total is not drawn')
+      const totals = page.locator('header').getByText(/tokens in context/)
+      // Folded, the totals are visually hidden (sr-only, 1 px) but stay in the accessibility tree
+      // Width actually drawn: the narrowest box among the text and its ancestors in the bar (sr-only clips to 1 px)
+      const drawnWidth = () => totals.evaluate((el: Element) => {
+        let w = Infinity
+        for (let n: Element | null = el; n && n.tagName !== 'HEADER'; n = n.parentElement) {
+          const r = n.getBoundingClientRect()
+          if (getComputedStyle(n).display !== 'contents') w = Math.min(w, r.width)
+        }
+        return w
+      })
+      assert.ok(await drawnWidth() <= 1, 'folded: the token total is not drawn')
+      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total')
+      assert.equal(await page.getByRole('button', { name: 'Hide inactive agents' }).count(), 0, 'folded: the filters are not in the Tab order')
+      const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
+      assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
       // Always in the bar: the connection state, the Sessions button and the panel toggles
       for (const name of ['Timeline', 'Stats', 'Files']) {
         assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `${name} stays in the bar`)
@@ -89,7 +104,7 @@ for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number
       await more.focus()
       await page.keyboard.press('Enter')
       assert.equal(await more.getAttribute('aria-expanded'), 'true')
-      assert.ok(await totals.isVisible(), 'expanded: the token total is drawn')
+      assert.ok(await drawnWidth() > 1, 'expanded: the token total is drawn')
       await page.keyboard.press('Tab')
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
       assert.match(String(next), /Notifications|Hide inactive agents|Show finished|finished/, `Tab after More reaches a folded control (got "${next}")`)

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useId, useLayoutEffect, useRef, useState } from "react"
+import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
@@ -79,9 +79,19 @@ function GearIcon() {
 const CONTEXT_UNAVAILABLE_IN_VSCODE = `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} come from the standalone relay, not available in VS Code`
 const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
+/** Below this width the top bar folds its totals and filters behind More (#378). */
+const NARROW_QUERY = '(max-width: 599.98px)'
+const narrowList = () => (typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null)
+function subscribeNarrow(onChange: () => void) {
+  const mql = narrowList()
+  mql?.addEventListener('change', onChange)
+  return () => mql?.removeEventListener('change', onChange)
+}
+const isNarrow = () => narrowList()?.matches ?? false
+
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls, className = '' }: {
+function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   /** Visual active state */
@@ -105,7 +115,6 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   /** aria-expanded of a disclosure button, with the id of what it shows */
   expanded?: boolean
   controls?: string
-  className?: string
 }) {
   return (
     <button
@@ -122,7 +131,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
       title={title}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
-      className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING} ${className}`}
+      className={`min-h-6 min-w-6 px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
@@ -284,9 +293,12 @@ export const TopBar = memo(function TopBar({
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  // Under 600 px the totals and filters fold behind a disclosure button (#378); 600 px and wider nothing changes
+  // Under 600 px the totals and filters fold behind a disclosure button (#378); 600 px and wider nothing changes.
+  // Folded, the filters are not rendered (no hidden Tab stop) and the totals stay for assistive technology (sr-only).
+  const narrow = useSyncExternalStore(subscribeNarrow, isNarrow, () => false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreId = useId()
+  const folded = narrow && !moreOpen
 
   // Publish the measured height so panels can offset themselves below the (wrapping) bar.
   useLayoutEffect(() => {
@@ -333,7 +345,7 @@ export const TopBar = memo(function TopBar({
       <div className="flex-1" />
 
       {/* Right-side info/controls. Under 600 px its items join the rows of the bar itself (display: contents) */}
-      <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full max-[600px]:contents" style={{ color: COLORS.textMuted }}>
+      <div className={narrow ? 'contents' : 'flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full'} style={{ color: COLORS.textMuted }}>
         <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
         {attentionText && onJumpToAttention && (
           <button
@@ -352,20 +364,21 @@ export const TopBar = memo(function TopBar({
             <span aria-hidden="true">! </span>{attentionText}
           </button>
         )}
-        <ToggleButton
-          active={moreOpen}
-          onClick={() => setMoreOpen(v => !v)}
-          ariaLabel={TOP_BAR_LABELS.moreName}
-          title={TOP_BAR_LABELS.moreHelp}
-          expanded={moreOpen}
-          controls={moreId}
-          className="min-[600px]:hidden"
-        >
-          {TOP_BAR_LABELS.more}
-        </ToggleButton>
-        {/* Folded under 600 px until More is pressed; a plain box (display: contents) otherwise */}
-        <div id={moreId} className={moreOpen ? 'contents' : 'contents max-[600px]:hidden'}>
-        {notifyState !== 'unsupported' && onToggleNotify && (
+        {narrow && (
+          <ToggleButton
+            active={moreOpen}
+            onClick={() => setMoreOpen(v => !v)}
+            ariaLabel={TOP_BAR_LABELS.moreName}
+            title={TOP_BAR_LABELS.moreHelp}
+            expanded={moreOpen}
+            controls={moreId}
+          >
+            {TOP_BAR_LABELS.more}
+          </ToggleButton>
+        )}
+        {/* What More shows; a plain box (display: contents) */}
+        <div id={moreId} className="contents">
+        {!folded && notifyState !== 'unsupported' && onToggleNotify && (
           <ToggleButton
             active={notifyState === 'on'}
             pressed={notifyState === 'on'}
@@ -377,7 +390,7 @@ export const TopBar = memo(function TopBar({
             {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
           </ToggleButton>
         )}
-        {isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
+        {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
           <ToggleButton
             active={showFinished}
             pressed={showFinished}
@@ -387,7 +400,7 @@ export const TopBar = memo(function TopBar({
             {finishedToggleLabel(finishedSessionCount)}
           </ToggleButton>
         )}
-        {onToggleHideInactive && (
+        {!folded && onToggleHideInactive && (
           <ToggleButton
             active={hideInactive}
             pressed={hideInactive}
@@ -397,6 +410,7 @@ export const TopBar = memo(function TopBar({
             Hide inactive agents
           </ToggleButton>
         )}
+        <div className={folded ? 'sr-only' : 'contents'}>
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
           <span data-testid="topbar-all-summary">
@@ -424,6 +438,7 @@ export const TopBar = memo(function TopBar({
             </span>
           )}
         </span>
+        </div>
         </div>
 
         <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
