@@ -155,6 +155,29 @@ for (const [w, h] of [[600, 800], [640, 400], [1280, 800]] as Array<[number, num
   })
 }
 
+// Folded, a filter that changes what the canvas shows is never hidden behind a plain "More" (docs/reading-the-ui.md)
+test('top bar 390x844: folded with Hide inactive agents on, More says a filter is on', async () => {
+  const page = await open(390, 844)
+  try {
+    const more = page.getByRole('button', { name: /^More · \d+ filters? on/ })
+    assert.ok(await more.isVisible(), 'More shows that a filter is on')
+    assert.match(String(await more.getAttribute('aria-label')), /Hide inactive agents/, 'its name says which one')
+    assert.match(String(await more.textContent()), /^More · \d+ filters? on$/)
+    // Turn the filter off: More no longer lists it
+    await more.click()
+    const hide = page.getByRole('button', { name: 'Hide inactive agents' })
+    assert.equal(await hide.getAttribute('aria-pressed'), 'true', 'Hide inactive agents is on by default')
+    await hide.click()
+    assert.equal(await hide.getAttribute('aria-pressed'), 'false')
+    const disclosure = page.locator('header button[aria-expanded]')
+    await disclosure.click()
+    assert.equal(await disclosure.getAttribute('aria-expanded'), 'false')
+    assert.doesNotMatch(String(await disclosure.getAttribute('aria-label')), /Hide inactive agents/)
+  } finally {
+    await page.context().close()
+  }
+})
+
 for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`timeline ${w}x${h}: header labels neither touch each other nor leave the canvas`, async () => {
     const page = await open(w, h)
