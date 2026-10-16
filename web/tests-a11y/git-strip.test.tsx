@@ -87,6 +87,24 @@ test('a PR whose repository no output named says so', () => {
   assert.match(prs[1] ?? '', /PR #13 \(repository not reported\) closed/)
 })
 
+test('events lost: the commit count says (incomplete) and one line qualifies the whole strip', () => {
+  const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} replayLost={2} />)
+  assert.match(v.getByText(/commits observed/).textContent ?? '', /5 commits observed \(incomplete\)/)
+  const strip = within(v.getByTestId('git-strip'))
+  assert.equal(strip.getByTestId('git-lost').textContent, 'events lost: later changes may be missing')
+})
+
+test('no event lost: no loss line and no (incomplete)', () => {
+  const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.queryByTestId('git-lost'), null)
+  assert.doesNotMatch(v.getByTestId('git-commits').textContent ?? '', /incomplete/)
+})
+
+test('the PR link says it opens in a new tab', () => {
+  const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} />)
+  assert.match(v.getByRole('link', { name: /PR #12/ }).textContent ?? '', /PR #12 \(o\/r\) merged \(opens in a new tab\)$/)
+})
+
 test('the strip is axe-clean', async () => {
   const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} />)
   assert.deepEqual(await violations(v.getByTestId('git-strip')), [])
