@@ -326,6 +326,14 @@ test('the reading guide says when the truncation notice is announced: again afte
   assert.match(section, /again when leaving full screen/)
 })
 
+test('the reading guide does not promise the sheet always starts under the truncation notice (#453 review)', () => {
+  const item = read('docs/reading-the-ui.md').split('\n').find(l => l.startsWith('- **Hidden panels**')) ?? ''
+  assert.ok(item, 'the Hidden panels item exists')
+  assert.doesNotMatch(item, /the sheet starts under both, even when/, 'not when the window is too short for both')
+  assert.match(item, /starts under both when there is room/)
+  assert.match(item, /may cover the truncation notice/)
+})
+
 test('the reading guide says a silence never ends a session, only an observed end does (#360)', () => {
   const guide = read('docs/reading-the-ui.md')
   assert.match(guide, /A silence never ends a session/)
