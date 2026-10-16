@@ -58,6 +58,7 @@ export function PanelDock({
           onClose={() => panels.setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
           agentLabel={agentLabel}
+          replayLost={bridge.replayLost}
         />
       </div>
 

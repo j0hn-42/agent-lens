@@ -109,3 +109,17 @@ test('gone card: Escape closes it through onEscape (or onClose), and does not bu
   v.getByRole('dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
   assert.equal(closed, 1)
 })
+
+test('replay loss (#366): tool count and tool errors read "at least", a zero is never clean', () => {
+  const a = { ...anchor, toolCalls: 4 }
+  const v = render(<AgentDetailCard agent={a} toolErrors={0} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, 'no tool error observed (incomplete)')
+  assert.ok(v.getByText('at least 4 tools'))
+  v.rerender(<AgentDetailCard agent={a} toolErrors={2} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, 'at least 2 tool errors')
+  assert.ok(v.getByText(/at least 6 earlier events were not replayed by the relay/))
+  v.rerender(<AgentDetailCard agent={a} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-errors').textContent, '0 tool errors')
+  assert.ok(v.getByText('4 tools'))
+  assert.equal(v.queryByText(/not replayed by the relay/), null)
+})

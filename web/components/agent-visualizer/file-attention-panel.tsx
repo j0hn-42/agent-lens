@@ -2,12 +2,13 @@
 
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
+import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { emptyState } from '@/lib/ui-glossary'
 import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
-import { deriveFileConflicts, conflictPath, conflictPathSet, describeConflictEditors } from '@/lib/file-conflicts'
+import { deriveFileConflicts, conflictPath, conflictPathSet, conflictHeading, describeConflictEditors } from '@/lib/file-conflicts'
+import { boundedCount, replayLostSentence } from '@/lib/event-loss'
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
 import { WasteSection } from './waste-section'
@@ -23,6 +24,8 @@ interface FileAttentionPanelProps {
   waste?: WasteLedger
   /** Names of the agents the waste rows refer to */
   agents?: ReadonlyMap<string, Agent>
+  /** Events the relay could not replay for the shown scope (#366): the conflicts read "at least", a zero is the observed part only */
+  replayLost?: number
 }
 
 const EMPTY_WASTE = emptyWasteLedger()
@@ -42,7 +45,7 @@ function succeededNote(started: number, perAgent: readonly { succeeded: number }
   return succeeded < started ? ` (${succeeded} succeeded)` : ''
 }
 
-export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents }: FileAttentionPanelProps) {
+export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents, replayLost = 0 }: FileAttentionPanelProps) {
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
   const { rect } = dock
@@ -83,13 +86,18 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {emptyState('files')}
+              {replayLost > 0 ? 'No file observed (incomplete)' : emptyState('files')}
             </div>
+          )}
+          {conflicts.length === 0 && replayLost > 0 && (
+            <p data-testid="file-conflicts-incomplete" className="m-0 mb-2 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+              {conflictHeading(0, replayLost)}: {replayLostSentence(replayLost)}
+            </p>
           )}
           {conflicts.length > 0 && (
             <div className="mb-2">
               <h3 id="file-conflicts-heading" className="text-[11px] font-mono font-semibold mb-1" style={{ color: COLORS.error }}>
-                {pluralize(conflicts.length, 'conflict')}: files edited by several agents
+                {conflictHeading(conflicts.length, replayLost)}: files edited by several agents
               </h3>
               <ul aria-label="File conflicts" className="space-y-1 list-none p-0 m-0">
                 {conflicts.map(c => {
@@ -216,7 +224,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>
-            <span>{pluralize(files.length, 'file')}</span>
+            <span>{boundedCount(files.length, replayLost, 'file')}</span>
             <span>{formatTokenUsage(combineUsage(files.map(fileUsage)))} tokens in file reads</span>
           </div>
         )}

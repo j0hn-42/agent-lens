@@ -7,7 +7,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import type { SimulationEvent } from '../web/lib/agent-types'
 import {
-  deriveDelegationReport, durationText, resultText, filesReadText, tokensText,
+  deriveDelegationReport, durationText, resultText, filesReadText, tokensText, delegationCountText,
   REPORT_EXCERPT_LEN, FILES_LISTED,
 } from '../web/lib/delegation-report'
 
@@ -143,6 +143,24 @@ test('files read: only reads observed to succeed are counted; the others are sai
 test('files read: none observed is said in words, never "0 files"', () => {
   const s = run([main, spawn('scout', 't1')])
   assert.equal(filesReadText(report(s)[0]), 'none observed')
+})
+
+test('delegation under replay loss (#366): "at least", never a clean "none observed" or a final "no return"', () => {
+  const s = run([main, spawn('scout', 't1')])
+  const row = report(s)[0]
+  assert.equal(filesReadText(row, 4), 'none observed (incomplete)')
+  assert.equal(filesReadText({ filesReadCount: 2, readsNotConfirmed: 0 }, 4), 'at least 2 files')
+  assert.equal(filesReadText({ filesReadCount: 1, readsNotConfirmed: 2 }, 4), 'at least 1 file, at least 2 not confirmed')
+  assert.equal(filesReadText({ filesReadCount: 0, readsNotConfirmed: 2 }, 4), 'none confirmed (incomplete), at least 2 not confirmed')
+  assert.equal(filesReadText({ filesReadCount: 0, readsNotConfirmed: 2 }, 0), 'none confirmed, 2 not confirmed')
+  assert.equal(resultText({ kind: 'not-returned', finished: true }, 4), 'Finished, no return observed (incomplete)')
+  assert.equal(resultText({ kind: 'not-returned', finished: true }, 0), 'Finished, no return observed')
+  assert.equal(durationText(row.duration, 4), 'no return observed (incomplete)')
+  assert.equal(durationText({ kind: 'measured', seconds: 75 }, 4), '1:15 (measured)')
+  assert.equal(resultText(row.result, 0), 'No return observed yet')
+  assert.equal(resultText(row.result, 4), 'No return observed (incomplete)')
+  assert.equal(delegationCountText(3, 0), '3 sub-agents')
+  assert.equal(delegationCountText(3, 4), 'at least 3 sub-agents')
 })
 
 test('files read: the list is bounded and keeps the full count', () => {

@@ -125,24 +125,33 @@ export function tokensText(row: Pick<DelegationRow, 'tokens'>): string {
   return formatTokenUsage(row.tokens)
 }
 
-/** "3 files", "1 file, 2 not confirmed", "none observed" (never "0 files") */
-export function filesReadText(row: Pick<DelegationRow, 'filesReadCount' | 'readsNotConfirmed'>): string {
-  if (row.filesReadCount === 0 && row.readsNotConfirmed === 0) return 'none observed'
-  const read = row.filesReadCount > 0 ? pluralize(row.filesReadCount, 'file') : 'none confirmed'
-  return row.readsNotConfirmed > 0 ? `${read}, ${row.readsNotConfirmed} not confirmed` : read
+/** "3 files", "1 file, 2 not confirmed", "none observed" (never "0 files"). `lost`: events the relay could not replay (#366), counts then read "at least". */
+export function filesReadText(row: Pick<DelegationRow, 'filesReadCount' | 'readsNotConfirmed'>, lost = 0): string {
+  const bounded = lost > 0 ? 'at least ' : ''
+  if (row.filesReadCount === 0 && row.readsNotConfirmed === 0) return bounded ? 'none observed (incomplete)' : 'none observed'
+  const read = row.filesReadCount > 0 ? `${bounded}${pluralize(row.filesReadCount, 'file')}` : (bounded ? 'none confirmed (incomplete)' : 'none confirmed')
+  return row.readsNotConfirmed > 0 ? `${read}, ${bounded}${row.readsNotConfirmed} not confirmed` : read
 }
 
-export function durationText(d: DelegationDuration): string {
+/** "3 sub-agents"; "at least 3 sub-agents" when events may be missing (#366) */
+export function delegationCountText(n: number, lost = 0): string {
+  return `${lost > 0 ? 'at least ' : ''}${pluralize(n, 'sub-agent')}`
+}
+
+export function durationText(d: DelegationDuration, lost = 0): string {
   switch (d.kind) {
     case 'measured': return `${formatDuration(d.seconds)} (measured)`
     case 'recorded': return `${formatDuration(d.seconds)} (recorded)`
     case 'not-reported': return USAGE_LABELS.unavailable
-    case 'not-returned': return 'no return observed'
+    case 'not-returned': return lost > 0 ? 'no return observed (incomplete)' : 'no return observed'
   }
 }
 
-export function resultText(r: DelegationResult): string {
-  if (r.kind === 'not-returned') return r.finished ? 'Finished, no return observed' : 'No return observed yet'
+export function resultText(r: DelegationResult, lost = 0): string {
+  if (r.kind === 'not-returned') {
+    if (lost > 0) return r.finished ? 'Finished, no return observed (incomplete)' : 'No return observed (incomplete)'
+    return r.finished ? 'Finished, no return observed' : 'No return observed yet'
+  }
   const text = r.excerpt.trim() ? `${r.excerpt}${r.truncated ? '…' : ''}` : 'empty report'
   return r.kind === 'error' ? `Error: ${text}` : r.excerpt.trim() ? text : 'Returned an empty report'
 }

@@ -68,6 +68,12 @@ test('each entry states tokens, files read, duration and result in words', () =>
   assert.match(b, /parent link not verified/)
 })
 
+test('under replay loss (#366), the inspector passes the loss to the report: "at least" and an incomplete return', () => {
+  const v = render(<AgentDetailCard agent={parent} toolErrors={0} onClose={noop} freshnessClock={clock} delegation={[running]} onSelectAgent={noop} replayLost={4} />)
+  const list = v.getByRole('list', { name: 'Delegation report: at least 1 sub-agent' })
+  assert.ok(within(list).getByText('No return observed (incomplete)'))
+})
+
 test('each sub-agent is a button with an accessible name that opens its own inspector, by keyboard too', () => {
   const picked: string[] = []
   const v = renderCard([returned, running], id => picked.push(id))
