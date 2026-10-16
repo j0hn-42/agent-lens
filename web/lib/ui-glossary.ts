@@ -169,7 +169,7 @@ export const SESSIONS_LIST_NAME = 'Sessions and agents'
 /** Session list controls. A session row's button only hides it: the next event or a reconnect lists it again. */
 export const SESSION_LIST_LABELS = {
   activeOnly: 'Active only',
-  activeOnlyHelp: 'List only the sessions heard from whose end was not observed (the selected one stays). Hides the ones whose end was observed and the ones never heard from. No time limit, unlike the 10-minute window of the All view.',
+  activeOnlyHelp: 'List only the sessions heard from that are still followed and not marked finished (the selected one stays). Hides a session once its end was observed or it is no longer watched (size cap, read error, scope change), and the ones never heard from. No time limit, unlike the 10-minute window of the All view.',
   hide: 'Hide session (reappears on new activity or after a reconnect)',
   hideNamed: (label: string) => `Hide session ${label} until its next activity`,
   hidden: (label: string) => `Session hidden: ${label}`,
