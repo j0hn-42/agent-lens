@@ -45,6 +45,8 @@ describe('relay attached to a session whose background subagent is already runni
   let server: http.Server
   let req: http.ClientRequest
   const received: Ev[] = []
+  /** The events as the relay sent them (before the page marks a batch as replayed) */
+  const sent: Ev[] = []
 
   before(async () => {
     const ws = path.join(fakeHome, 'work', 'demo')
@@ -83,8 +85,10 @@ describe('relay attached to a session whose background subagent is already runni
       for (const b of complete) {
         if (!b.startsWith('data: ')) continue
         const m = JSON.parse(b.slice(6))
-        if (m.type === 'agent-event-batch') received.push(...(m.events ?? []).map((e: Ev) => ({ ...e, replayed: true })))
-        else if (m.type === 'agent-event' && m.event) received.push(m.event)
+        if (m.type === 'agent-event-batch') {
+          sent.push(...(m.events ?? []))
+          received.push(...(m.events ?? []).map((e: Ev) => ({ ...e, replayed: true })))
+        } else if (m.type === 'agent-event' && m.event) { sent.push(m.event); received.push(m.event) }
       }
     }
     req = http.get({ host: '127.0.0.1', port, path: '/events', agent: false }, res => {
@@ -119,6 +123,11 @@ describe('relay attached to a session whose background subagent is already runni
     const start = evs.findIndex(e => e.type === 'tool_call_start' && e.payload.agent === 'Open audit')
     assert.ok(start >= 0, 'its live work reaches the client')
     assert.ok(evs.indexOf(spawns[0]) < start, 'spawn before its first event')
+  })
+
+  it('the relay marks that spawn as read from history (#361): it proves no live work', () => {
+    const spawn = sent.find(e => e.sessionId === LEAD && e.type === 'agent_spawn' && e.payload.name === 'Open audit')
+    assert.equal(spawn?.replayed, true)
   })
 
   it('the subagent finished in the history is not announced again', () => {
