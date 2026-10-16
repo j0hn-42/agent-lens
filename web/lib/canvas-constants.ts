@@ -389,8 +389,9 @@ export const TOOL_DRAW = {
 
 export const MCP_DRAW = {
   /** Server badge above the card */
-  badgeHeight: 11,
-  badgeFontSize: 9,
+  badgeHeight: 13,
+  /** LOD.minTextPx: the badge is only drawn with the card text, from 100 %, so it is never under that size there (#378) */
+  badgeFontSize: 11,
   badgePadX: 5,
   badgeGap: 3,
   /** Orbiting dots around a running MCP card */
