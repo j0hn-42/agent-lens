@@ -69,6 +69,15 @@ test('a command aimed at another repository (-C, --git-dir, --work-tree) proves 
   assert.equal(rec(undefined, call('git --work-tree ../o commit -m x', '[other abc1234] x')), undefined)
 })
 
+test('a repository named by GIT_DIR / GIT_WORK_TREE, or a cd / pushd before git, proves nothing for this agent', () => {
+  assert.equal(rec(undefined, call('GIT_DIR=../o/.git git status', 'On branch envrepo')), undefined)
+  assert.equal(rec(undefined, call('GIT_WORK_TREE=../o git commit -m x', '[envrepo abc1234] x')), undefined)
+  assert.equal(rec(undefined, call('env GIT_DIR=../o/.git git switch dev', "Switched to branch 'dev'")), undefined)
+  assert.equal(rec(undefined, call('pushd ../o && git status', 'On branch other')), undefined)
+  assert.equal(rec(undefined, call('cd ../other && git checkout dev', "Switched to branch 'dev'")), undefined)
+  assert.equal(rec(undefined, call('(cd ../o && git status)', 'On branch other')), undefined)
+})
+
 test('a commit exists only when the output of git commit shows it; it also proves the branch', () => {
   const s = rec(undefined, call('git commit -m "feat: x (#386)"', '[feat/x 1a2b3c4] feat: x (#386)\n 2 files changed, 10 insertions(+)'))
   assert.deepEqual(s?.commits.map(c => [c.sha, c.branch, c.message, c.amend]), [['1a2b3c4', 'feat/x', 'feat: x (#386)', false]])
