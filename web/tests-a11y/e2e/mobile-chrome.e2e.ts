@@ -162,7 +162,8 @@ test('top bar 390x844: folded with Hide inactive agents on, More says a filter i
     const more = page.getByRole('button', { name: /^More · \d+ filters? on/ })
     assert.ok(await more.isVisible(), 'More shows that a filter is on')
     assert.match(String(await more.getAttribute('aria-label')), /Hide inactive agents/, 'its name says which one')
-    assert.match(String(await more.textContent()), /^More · \d+ filters? on$/)
+    // Visible text kept short: at 320 px "More · 1 filter on" pushed More onto a row of its own (196.5 px bar)
+    assert.match(String(await more.textContent()), /^More · \d+ filters?$/)
     // Turn the filter off: More no longer lists it
     await more.click()
     const hide = page.getByRole('button', { name: 'Hide inactive agents', exact: true })

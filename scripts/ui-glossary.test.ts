@@ -191,8 +191,8 @@ test('the top bar disclosure under 600 px (#378): its visible text starts its ac
 
 test('folded with a filter on, the More button says so on screen and in its name (#378)', async () => {
   const g = await import('../web/lib/ui-glossary')
-  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter on')
-  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters on')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters')
   const one = g.TOP_BAR_LABELS.moreNameWithFilters(['Hide inactive agents'])
   assert.equal(one, 'More · 1 filter on: totals and filters (Hide inactive agents)')
   // 2.5.3: the accessible name starts with the visible text
