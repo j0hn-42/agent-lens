@@ -81,6 +81,12 @@ test('PR states are words, the PR link has an accessible name; a PR without URL 
   assert.match(prs[1] ?? '', /PR #13.*closed/)
 })
 
+test('a PR whose repository no output named says so', () => {
+  const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} />)
+  const prs = within(v.getByRole('list', { name: 'Pull requests observed' })).getAllByRole('listitem').map(li => li.textContent)
+  assert.match(prs[1] ?? '', /PR #13 \(repository not reported\) closed/)
+})
+
 test('the strip is axe-clean', async () => {
   const v = render(<AgentDetailCard agent={{ ...base, git }} onClose={noop} freshnessClock={clock} />)
   assert.deepEqual(await violations(v.getByTestId('git-strip')), [])

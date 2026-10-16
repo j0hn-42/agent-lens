@@ -155,6 +155,20 @@ test('a PR of an unknown repository is never merged with one of a known reposito
   assert.deepEqual(merged?.prs.map(p => [p.number, p.repo, p.state]), [[12, 'o/r', 'created'], [12, null, 'merged']])
 })
 
+test('the repository named by -R / --repo is the repository of a PR the output does not name', () => {
+  const viewed = rec(undefined, call('gh pr view 5 --repo x/y --json number,state', '{"number":5,"state":"MERGED"}'))
+  assert.deepEqual(viewed?.prs.map(p => [p.number, p.repo, p.state]), [[5, 'x/y', 'merged']])
+  assert.deepEqual(rec(undefined, call('gh pr view 5 --repo=x/y --json number,state', '{"number":5,"state":"OPEN"}'))?.prs.map(p => p.repo), ['x/y'])
+  const created = rec(undefined, call('gh pr create', 'https://github.com/o/r/pull/12'))
+  const merged = rec(created, call('gh pr merge 12 -R o/r', 'Merged pull request #12 (x)'))
+  assert.deepEqual(merged?.prs.map(p => [p.number, p.repo, p.state, p.url]), [[12, 'o/r', 'merged', 'https://github.com/o/r/pull/12']])
+  assert.deepEqual(rec(undefined, call('gh pr close 7 --repo o/r', 'Closed pull request #7 (x)'))?.prs.map(p => p.repo), ['o/r'])
+  // A host prefix is part of the value, not the owner
+  assert.deepEqual(rec(undefined, call('gh pr close 7 --repo github.com/o/r', 'Closed pull request #7 (x)'))?.prs.map(p => p.repo), ['o/r'])
+  // The repository the output names wins over the flag
+  assert.deepEqual(rec(undefined, call('gh pr close 7 -R a/b', 'Closed pull request o/r#7 (x)'))?.prs.map(p => p.repo), ['o/r'])
+})
+
 test('a failed gh call proves no PR state', () => {
   assert.equal(rec(undefined, call('gh pr merge 12', '✓ Merged pull request o/r#12 (x)'), 'error'), undefined)
 })
