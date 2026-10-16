@@ -76,7 +76,7 @@ function GearIcon() {
 }
 
 /** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
-const CONTEXT_UNAVAILABLE_IN_VSCODE = 'Context: project CLAUDE.md, memory and issues come from the standalone relay, not available in VS Code'
+const CONTEXT_UNAVAILABLE_IN_VSCODE = `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} come from the standalone relay, not available in VS Code`
 const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
