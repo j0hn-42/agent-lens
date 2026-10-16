@@ -111,4 +111,31 @@ describe('agent inspector in a real browser', () => {
       } finally { await close() }
     })
   }
+
+  test('#386: at 320 px the git strip of the card reflows (long branch, commit, PR) without horizontal scroll', async () => {
+    const { page, close } = await openWithFakeRelay(320, 700)
+    try {
+      const host = page.parentFrame()!
+      const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
+      const branch = 'feat/386-a-very-long-branch-name-that-does-not-fit-in-a-narrow-card'
+      const bash = (time: number, id: string, command: string, result: string) => [
+        { type: 'agent-event', event: { time, type: 'tool_call_start', sessionId: 'sa', payload: { agent: 'worker-a', tool: 'Bash', args: command, inputData: { command }, toolUseId: id } } },
+        { type: 'agent-event', event: { time: time + 1, type: 'tool_call_end', sessionId: 'sa', payload: { agent: 'worker-a', tool: 'Bash', result, toolUseId: id } } },
+      ]
+      for (const e of [
+        ...bash(10, 'g1', `git checkout -b ${branch}`, `Switched to a new branch '${branch}'`),
+        ...bash(20, 'g2', 'git commit -m "feat: a commit message long enough to wrap (#386)"', `[${branch} abc1234] feat: a commit message long enough to wrap (#386)`),
+        ...bash(30, 'g3', 'gh pr create --draft', 'https://github.com/o/r/pull/12'),
+      ]) await post(e)
+      await selectWorker(page)
+      const strip = page.locator('[data-testid="git-strip"]')
+      await strip.waitFor()
+      await waitForStableLayout(page)
+      assert.match((await strip.textContent()) ?? '', /PR #12 \(o\/r\) created/)
+      const box = await strip.boundingBox()
+      assert.ok(box && box.x >= -0.5 && box.x + box.width <= 320.5, `the strip is inside the viewport (${JSON.stringify(box)})`)
+      const overflow = await strip.evaluate((el: HTMLElement) => el.scrollWidth - el.clientWidth)
+      assert.ok(overflow <= 1, `no horizontal overflow in the strip (${overflow} px)`)
+    } finally { await close() }
+  })
 })

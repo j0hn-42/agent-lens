@@ -1,5 +1,6 @@
 import type { PanelId } from './panel-layout'
 import { FILE_TIMELINE_MAX_STEPS } from './file-timeline'
+import { GIT_STRIP_MAX_COMMITS } from './git-state'
 
 // Fixed UI vocabulary (issue #32). Every panel title, aria-label, tooltip and empty state takes its words
 // from here, so one thing never has two names. Pure data: no React and no path-alias imports (node:test).
@@ -136,6 +137,24 @@ export const FILE_TIMELINE_LABELS = {
   summaryOf: (path: string) => ` of ${path}`,
   omitted: (n: number) => `${n} earlier step${n === 1 ? '' : 's'} not kept (the ${FILE_TIMELINE_MAX_STEPS} most recent are listed)`,
   list: (path: string) => `Steps of ${path}`,
+} as const
+
+/** Git strip of the agent card (#386): each value read from an observed git / gh output, never a default. */
+export const GIT_STRIP_LABELS = {
+  title: 'Git (observed)',
+  branch: 'Branch',
+  detached: 'detached HEAD',
+  sources: { checkout: 'git checkout / switch', status: 'git status', 'show-current': 'git branch --show-current', commit: 'git commit' },
+  /** "+1:02": time since the agent appeared */
+  seen: (elapsed: string) => `seen +${elapsed}`,
+  commits: (n: number, incomplete: boolean) => `${n} commit${n === 1 ? '' : 's'} observed${incomplete ? ' (incomplete)' : ''}`,
+  commitsList: 'Commits observed',
+  amended: 'amended',
+  omittedCommits: (n: number) => `${n} earlier commit${n === 1 ? '' : 's'} not kept (the ${GIT_STRIP_MAX_COMMITS} most recent are listed)`,
+  prsList: 'Pull requests observed',
+  pr: (n: number, repo: string | null) => `PR #${n}${repo ? ` (${repo})` : ''}`,
+  prStates: { created: 'created', open: 'open', draft: 'open, draft', merged: 'merged', closed: 'closed' },
+  omittedPrs: (n: number) => `${n} earlier PR${n === 1 ? '' : 's'} not kept`,
 } as const
 
 /** "Why this tool?" and the causal chain of a failure (issue #231): each line says what was observed, or that it cannot be proven. */
