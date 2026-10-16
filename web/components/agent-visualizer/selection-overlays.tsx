@@ -1,6 +1,5 @@
 "use client"
 
-import type { ComponentProps } from "react"
 import type { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import type { useSelectionState } from "@/hooks/use-selection-state"
 import type { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
@@ -10,6 +9,7 @@ import { detectLoops } from "@/lib/loop-detection"
 import { replayLostForSession } from "@/lib/event-loss"
 import { AgentDetailCard, AgentGoneCard } from "./agent-detail-card"
 import { GlassContextMenu } from "./glass-context-menu"
+import { contextMenuItems, type ContextMenuActions } from "./context-menu-items"
 import { ToolDetailPopup } from "./tool-detail-popup"
 import { DiscoveryDetailPopup } from "./discovery-detail-popup"
 import { LinkPanel } from "./link-panel"
@@ -32,30 +32,6 @@ interface SelectionOverlaysProps {
   onCloseLink: () => void
   onEscapeFromCard: () => void
   menuActions: ContextMenuActions
-}
-
-export interface ContextMenuActions {
-  /** Current state of the two overlays the menu toggles, so the menu items can say it */
-  showStats: boolean
-  showGrid: boolean
-  toggleStats: () => void
-  zoomToFit: () => void
-  toggleGrid: () => void
-  clearHistory: () => void
-  /** Only offered on a real session */
-  reloadSessionEvents: (() => void) | null
-}
-
-export function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
-  if (onAgent) return [{ icon: '📊', label: 'Toggle Stats', checked: a.showStats, onClick: a.toggleStats }]
-  return [
-    { icon: '🔍', label: 'Zoom to Fit', onClick: a.zoomToFit },
-    { icon: '📊', label: 'Toggle Stats', checked: a.showStats, onClick: a.toggleStats },
-    { icon: '⬡', label: 'Toggle Grid', checked: a.showGrid, onClick: a.toggleGrid },
-    { label: '', onClick: () => {}, separator: true },
-    { icon: '⟲', label: 'Clear history', confirmLabel: 'Confirm clear history', onClick: a.clearHistory },
-    ...(a.reloadSessionEvents ? [{ icon: '↻', label: 'Reload session events', onClick: a.reloadSessionEvents }] : []),
-  ]
 }
 
 /** What opens over the canvas after a click: the agent card, the tool and discovery popups, the link panel, the context menu */

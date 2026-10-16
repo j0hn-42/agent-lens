@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 
-import { contextMenuItems } from '@/components/agent-visualizer/selection-overlays'
+import { contextMenuItems } from '@/components/agent-visualizer/context-menu-items'
 
 const noop = () => {}
 const actions = (showStats: boolean, showGrid: boolean) => ({
