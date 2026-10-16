@@ -80,7 +80,7 @@ test('canvas menu: "Zoom to fit" is spelled like everywhere else (shortcuts, pal
   assert.equal(queryByRole('menuitem', { name: 'Zoom to Fit' }), null)
 })
 
-test('session search: the placeholder fits a narrow panel and the fields searched stay readable (title)', () => {
+test('session search: the placeholder fits a narrow panel and the fields searched stay visible, as its description', () => {
   const { getByRole } = render(
     <SessionListPanel
       visible onClose={noop} sessions={[]} selectedSessionId="__all__" sessionsWithActivity={new Set()}
@@ -91,5 +91,10 @@ test('session search: the placeholder fits a narrow panel and the fields searche
   const input = getByRole('searchbox', { name: 'Search sessions' }) as HTMLInputElement
   assert.ok(input.placeholder.length <= 20, `placeholder "${input.placeholder}" is cut in a narrow panel`)
   assert.ok(!input.placeholder.includes('…') && !input.placeholder.includes('..'))
-  assert.match(input.title, /name, project, branch, agent/)
+  // A title shows only on mouse hover: the hint is visible text, tied to the input for screen readers
+  assert.equal(input.title, '')
+  const hintId = input.getAttribute('aria-describedby')
+  assert.ok(hintId, 'the input has a description')
+  const hint = document.getElementById(hintId)
+  assert.equal(hint?.textContent, 'Searches name, project, branch, agent')
 })
