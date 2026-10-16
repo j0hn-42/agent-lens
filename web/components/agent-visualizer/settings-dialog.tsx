@@ -11,6 +11,7 @@ import { parseCostThreshold, type NotificationRules } from '@/lib/notification-r
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 import type { PresentationOptions } from '@/lib/presentation'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { ANNOUNCE_LEVELS, type AnnounceLevel } from '@/lib/ui-preferences'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -36,6 +37,11 @@ export interface SettingsDialogProps {
     onActiveChange: (active: boolean) => void
     options: PresentationOptions
     onOptionChange: (key: keyof PresentationOptions, value: boolean) => void
+  }
+  /** Verbosity of the live announcements (#379); the section is left out when absent */
+  announcements?: {
+    level: AnnounceLevel
+    onLevelChange: (level: AnnounceLevel) => void
   }
   /** Notification channel and rules (#225); the section is left out when absent */
   notifications?: {
@@ -108,6 +114,36 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+/** Native select named by its label and described by its help: keyboard operable, no custom widget. */
+function AnnouncementsSection({ announcements }: { announcements: NonNullable<SettingsDialogProps['announcements']> }) {
+  const t = useT()
+  const selectId = useId()
+  const helpId = useId()
+  return (
+    <Section title={t('settings.section.announcements')}>
+      <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+        <label htmlFor={selectId} style={{ color: COLORS.textPrimary }}>{t('settings.announce.level')}</label>
+        <select
+          id={selectId}
+          value={announcements.level}
+          aria-describedby={helpId}
+          onChange={e => {
+            const level = ANNOUNCE_LEVELS.find(l => l === e.target.value)
+            if (level) announcements.onLevelChange(level)
+          }}
+          className={`min-h-6 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-mono ${FOCUS_RING}`}
+          style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: 'inherit' }}
+        >
+          {ANNOUNCE_LEVELS.map(level => (
+            <option key={level} value={level} style={{ background: COLORS.surface, color: COLORS.ink }}>{t(`settings.announce.level.${level}`)}</option>
+          ))}
+        </select>
+      </div>
+      <p id={helpId} className="m-0 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.announce.help')}</p>
+    </Section>
+  )
+}
+
 function NotificationsSection({ notifications }: { notifications: NonNullable<SettingsDialogProps['notifications']> }) {
   const { state, onToggle, rules, onRulesChange } = notifications
   const t = useT()
@@ -174,7 +210,7 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation,
+  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
   const t = useT()
@@ -324,6 +360,8 @@ export function SettingsDialog({
           )}
 
           {notifications && <NotificationsSection notifications={notifications} />}
+
+          {announcements && <AnnouncementsSection announcements={announcements} />}
 
           <Section title={t('settings.section.keyboard')}>
             <SwitchRow

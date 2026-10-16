@@ -25,6 +25,7 @@ import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { ShortcutsDialog } from '@/components/agent-visualizer/shortcuts-dialog'
+import { SettingsDialog } from '@/components/agent-visualizer/settings-dialog'
 import { CommandPalette } from '@/components/agent-visualizer/command-palette'
 import { buildPaletteItems } from '@/lib/command-palette'
 import { LinkPanel } from '@/components/agent-visualizer/link-panel'
@@ -309,6 +310,23 @@ test('dialog: keyboard shortcuts', async () => {
     <ShortcutsDialog open onClose={noop} singleKeyEnabled onSingleKeyEnabledChange={noop} />,
   )
   await check('shortcuts-dialog', container)
+})
+
+test('dialog: settings with announcements (#379)', async () => {
+  const { container } = render(
+    <SettingsDialog
+      open onClose={noop}
+      hexGrid onHexGridChange={noop}
+      muted={false} onToggleMute={noop}
+      showFinished={false} onShowFinishedChange={noop}
+      hideInactive onHideInactiveChange={noop}
+      singleKeyEnabled onSingleKeyEnabledChange={noop}
+      onOpenShortcuts={noop}
+      announcements={{ level: 'important', onLevelChange: noop }}
+    />,
+  )
+  assert.ok(within(container).getByRole('combobox', { name: 'Announcement level' }), 'the announcements section is rendered')
+  await check('settings-dialog', container)
 })
 
 test('dialog: command palette, with results and with none', async () => {

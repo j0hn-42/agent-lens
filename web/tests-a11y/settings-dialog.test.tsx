@@ -96,3 +96,22 @@ test('top bar gear button opens settings, and is absent without a handler', () =
   view.rerender(<TopBar {...topBarProps} />)
   assert.equal(view.queryByRole('button', { name: 'Settings' }), null)
 })
+
+test('announcements (#379): a named select with its help, reporting the chosen level; absent without the prop', () => {
+  const view = render(<SettingsDialog {...dialogProps()} />)
+  assert.equal(view.queryByRole('combobox', { name: 'Announcement level' }), null)
+  cleanup()
+  const levels: string[] = []
+  const shown = render(<SettingsDialog {...dialogProps({ announcements: { level: 'all', onLevelChange: l => levels.push(l) } })} />)
+  const select = shown.getByRole('combobox', { name: 'Announcement level' }) as HTMLSelectElement
+  assert.equal(select.value, 'all')
+  assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Every change', 'Important only'])
+  const help = document.getElementById(select.getAttribute('aria-describedby') ?? '')
+  const helpText = help?.textContent ?? ''
+  assert.ok(/the canvas announces only/.test(helpText), 'the help scopes the level to the canvas, the only region that reads it')
+  assert.ok(/connection, session and panel messages are still read/.test(helpText), 'the help says the other live regions are unchanged')
+  assert.ok(/never dropped/.test(helpText) && /the rest are counted/.test(helpText), 'the help says urgent states beyond three are counted, not each read')
+  assert.ok(!/always announced/.test(helpText), 'no claim that each urgent state is read')
+  fireEvent.change(select, { target: { value: 'important' } })
+  assert.deepEqual(levels, ['important'])
+})

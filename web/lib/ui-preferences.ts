@@ -30,6 +30,10 @@ export const DOCK_RIGHT_WIDTH_DEFAULT = 380
 /** Upper bound on the length of a stored session id */
 export const SESSION_ID_MAX_LENGTH = 256
 
+/** Verbosity of the live announcements (#379): 'all', or 'important' (live failures and permission requests only) */
+export const ANNOUNCE_LEVELS = ['all', 'important'] as const
+export type AnnounceLevel = (typeof ANNOUNCE_LEVELS)[number]
+
 export interface UiPrefs {
   showHexGrid: boolean
   showStats: boolean
@@ -55,6 +59,8 @@ export interface UiPrefs {
   sessionListActiveOnly: boolean
   /** Discovery scope last chosen (#291): re-applied to the relay when it differs; null = never chosen, the relay's own start-up scope stands */
   relayScope: 'workspace' | 'all' | null
+  /** Verbosity of the live announcements (#379): urgent states are told at every level */
+  announceLevel: AnnounceLevel
 }
 
 export type UiPrefKey = keyof UiPrefs
@@ -75,6 +81,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   sessionFilterBranch: null,
   sessionListActiveOnly: true,
   relayScope: null,
+  announceLevel: 'all',
 })
 
 /** Every persisted key (own, fixed list: never derived from stored data) */
@@ -86,6 +93,8 @@ export function sanitizePref<K extends UiPrefKey>(key: K, value: unknown): UiPre
   switch (key) {
     case 'sessionFilterRuntime':
       return (value === 'claude' || value === 'codex' || value === 'copilot' || value === 'pi' || value === 'gemini' || value === 'opencode' ? value : null) as UiPrefs[K]
+    case 'announceLevel':
+      return (value === 'all' || value === 'important' ? value : fallback) as UiPrefs[K]
     case 'relayScope':
       return (value === 'workspace' || value === 'all' ? value : null) as UiPrefs[K]
     case 'sessionFilterBranch':
