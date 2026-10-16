@@ -181,8 +181,8 @@ export const TOP_BAR_LABELS = {
   more: 'More',
   moreName: 'More: totals and filters',
   moreHelp: 'Agent counts, tokens in context, cost and the view filters (folded under 600 px wide)',
-  /** Folded with filters on: the visible text says the canvas is filtered */
-  moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'} on`,
+  /** Folded with filters on: the visible text says the canvas is filtered (short: it shares a row at 320 px) */
+  moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'}`,
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */
   moreNameWithFilters: (names: readonly string[]) =>
     `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: totals and filters (${names.join(', ')})`,
