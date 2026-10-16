@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
 import { computeNextFrame } from '../web/hooks/simulation/animate'
-import { DISCOVERY_HOLD_S } from '../web/lib/canvas-constants'
+import { DISCOVERY_HOLD_S, SEARCH_DISCOVERY } from '../web/lib/canvas-constants'
 import { RESULT_CAPTURE_LIMIT } from '../web/lib/action-summary'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
@@ -44,7 +44,8 @@ test('a completed Grep creates one file card per listed path, linked to its call
   const s = run([spawn, ...search('Grep', GREP_3, {}, { pattern: 'x' })])
   assert.deepEqual(s.discoveries.map(d => d.content), ['src/services/matches.ts', 'src/services/seasons.ts', 'src/routes/matches.ts'])
   assert.ok(s.discoveries.every(d => d.toolUseId === 'tu1' && d.agentId === agentKeyOf('s1', 'a') && d.type === 'file' && d.timestamp === 2))
-  assert.deepEqual(s.discoveries.map(d => [d.x, d.y]), [[40, 20], [40, 20], [40, 20]], 'they start on the tool card')
+  assert.deepEqual(s.discoveries.map(d => [d.x, d.y]), s.discoveries.map(d => [d.targetX, d.targetY]), 'they are born in place, no slide')
+  assert.ok(s.discoveries.every(d => d.targetX === 40 + SEARCH_DISCOVERY.offsetX))
   // The pill keeps reading the header
   assert.deepEqual(Array.from(s.toolCalls.values())[0].resultPill, { kind: 'count', files: 3 })
 })

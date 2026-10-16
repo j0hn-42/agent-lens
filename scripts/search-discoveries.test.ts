@@ -77,7 +77,7 @@ test('provenListedPaths: an output cut at the capture limit keeps only its whole
 
 const call = { agentId: 's1:a', toolName: 'Glob', inputData: { pattern: '*.ts' }, toolUseId: 'tu1', x: 100, y: 50 }
 
-test('searchDiscoveries: one file card per proven path, starting at the tool card, with the call it comes from', () => {
+test('searchDiscoveries: one file card per proven path, next to the tool card, with the call it comes from', () => {
   const ds = searchDiscoveries(call, 'Found 2 files\n/r/src/a.ts\n/r/b.ts', 7)
   assert.equal(ds.length, 2)
   assert.deepEqual(ds.map(d => d.id), ['disc-s1:a-tu1-0', 'disc-s1:a-tu1-1'])
@@ -87,7 +87,8 @@ test('searchDiscoveries: one file card per proven path, starting at the tool car
     assert.equal(d.toolUseId, 'tu1')
     assert.equal(d.timestamp, 7)
     assert.equal(d.opacity, 0)
-    assert.deepEqual([d.x, d.y], [100, 50], 'animates from the tool card')
+    assert.deepEqual([d.x, d.y], [d.targetX, d.targetY], 'born in place: no slide (#384 brings motion, with its reduced-motion guard)')
+    assert.equal(d.targetX, 100 + SEARCH_DISCOVERY.offsetX)
   }
   assert.deepEqual(ds.map(d => d.listing), [
     { tool: 'Glob', position: 1, reported: 2, shown: 2 },
