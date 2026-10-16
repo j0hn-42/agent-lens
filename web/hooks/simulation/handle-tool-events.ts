@@ -111,7 +111,7 @@ export function handleToolCallStart(
     ? payload.inputData as Record<string, unknown> : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
   // A finished agent that starts a call is live again (#433)
-  const agent = reviveFinished(state, agentName)
+  const agent = reviveFinished(state, agentName, ctx, currentTime)
 
   if (agent) {
     // Dedup: skip if there's already a running tool call for the same agent+tool

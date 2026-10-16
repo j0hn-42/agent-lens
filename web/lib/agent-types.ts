@@ -43,6 +43,11 @@ export interface Agent {
    * claimed about what it does) but its turn is not over, so it is not inactive. Cleared by the end of the turn.
    */
   awaitingNextEvent?: boolean
+  /**
+   * A finished agent that received a prompt after its end (a resume, #433). Armed by that observed user turn,
+   * never by work alone: a late message of the turn that already ended must not bring the agent back.
+   */
+  resumePrompted?: boolean
   /** 'main' | 'subagent' | 'teammate' (Agent Team member). Defaults from isMain/parent when absent. */
   kind?: 'main' | 'subagent' | 'teammate'
   /** Agent Team (or Workflow run) the agent belongs to */
