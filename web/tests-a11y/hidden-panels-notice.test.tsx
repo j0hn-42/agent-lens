@@ -4,8 +4,8 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
 import axe from 'axe-core'
-import { HiddenPanelsNotice } from '@/components/agent-visualizer/hidden-panels-notice'
-import { dockStore } from '@/lib/panel-layout'
+import { HiddenPanelsNotice, UnderTopbarStack } from '@/components/agent-visualizer/hidden-panels-notice'
+import { dockStore, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP } from '@/lib/panel-layout'
 
 const win = window as unknown as { innerWidth: number; innerHeight: number }
 
@@ -56,6 +56,29 @@ test('the text is cleared again when the sheet shows the only open panel', () =>
   assert.ok(region(r).textContent)
   act(() => dockStore.setOpen('timeline', false))
   assert.equal(region(r).textContent, '')
+})
+
+// #453: the notice and the truncation banner share one column under the top bar, so the banner can never cover the notice
+test('the stack puts the banner right under the notice, in that order, and keeps its own slot when no notice is drawn', () => {
+  const r = render(<UnderTopbarStack banner={<div data-truncation-banner="">banner</div>} />)
+  const stack = r.container.querySelector<HTMLElement>('[data-topbar-stack]')!
+  assert.ok(stack, 'one container')
+  assert.equal(stack.style.top, `${68 + TOPBAR_STACK_TOP}px`)
+  const slot = () => stack.querySelector<HTMLElement>('[data-truncation-banner]')!.parentElement!
+  assert.equal(slot().style.marginTop, `${BANNER_MIN_TOP - TOPBAR_STACK_TOP}px`, 'no notice: the banner keeps the slot under the loading indicator')
+  setViewport(390, 844)
+  act(() => { dockStore.setOpen('files', true); dockStore.setOpen('timeline', true) })
+  const notice = stack.querySelector('[data-hidden-panels-notice]')!
+  assert.ok(notice, 'the notice is in the same container')
+  assert.ok(notice.compareDocumentPosition(slot()) & Node.DOCUMENT_POSITION_FOLLOWING, 'the banner comes after the notice')
+  assert.equal(slot().style.marginTop, `${TOPBAR_STACK_GAP}px`, 'right under the notice')
+  assert.notEqual(getComputedStyle(notice).position, 'absolute', 'the notice is in the flow of the column, not placed over it')
+})
+
+test('the stack without a banner is only the notice region', () => {
+  const r = render(<UnderTopbarStack />)
+  assert.equal(r.container.querySelector('[data-truncation-banner]'), null)
+  assert.equal(r.getByRole('status').textContent, '')
 })
 
 test('axe finds no violation, empty or filled', async () => {
