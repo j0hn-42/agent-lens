@@ -10,6 +10,9 @@ import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 import { useReviewControls } from '@/hooks/use-review-controls'
+import { PanelDock } from '@/components/agent-visualizer/panel-dock'
+import { useUiPreferences } from '@/hooks/use-ui-preferences'
+import { createPrefsStore, type PrefsStore, type StorageLike } from '@/lib/ui-preferences'
 
 afterEach(() => {
   cleanup()
@@ -267,4 +270,58 @@ test('keys 1 to 4 in review mode change the speed without a toast (#411)', () =>
   hook.result.current.setSpeedInReview(2)
   assert.deepEqual(speeds, [2])
   assert.deepEqual(toasts, [])
+})
+
+// Active only (#372): PanelDock hands the stored preference to the Sessions panel and writes each change back.
+// Rendering the panel alone (keyboard.test.tsx) cannot notice that wiring being dropped.
+test('PanelDock: the Active only choice goes to the preferences store and survives a remount (#372)', () => {
+  const memory = new Map<string, string>()
+  const storage: StorageLike = {
+    getItem: k => memory.get(k) ?? null,
+    setItem: (k, v) => { memory.set(k, v) },
+    removeItem: k => { memory.delete(k) },
+  }
+  const sync = (fn: () => void) => { fn(); return () => {} }
+  const sessions = [
+    { id: 'live', label: 'Live one', status: 'active' as const, startTime: 0, lastActivityTime: 5 },
+    { id: 'old', label: 'Old one', status: 'completed' as const, startTime: 0, lastActivityTime: 1 },
+  ]
+  const ref = () => ({ current: null })
+  const props = {
+    panels: {
+      panelRefs: { files: ref(), sessions: ref(), context: ref(), system: ref(), timeline: ref() },
+      showFileAttention: false, showSessions: true, showContext: false, showSystem: false, showTimeline: false,
+      setShowFileAttention: noop, setShowSessions: noop, setShowContext: noop, setShowSystem: noop, setShowTimeline: noop,
+    },
+    sim: { fileAttention: new Map(), waste: undefined, agents: new Map(), timelineEntries: new Map(), currentTime: 0 },
+    bridge: {
+      sessions, selectedSessionId: 'live', sessionsWithActivity: new Set(['live']), sessionModels: new Map(),
+      selectSession: noop, renameSession: noop, useMockData: true, isVSCode: false, connectionStatus: 'connected',
+      teams: new Map(), teamWorking: new Map(), teamSummaries: new Map(), teamMemberCounts: new Map(), relayScope: null,
+      systemStats: [],
+    },
+    selection: { selectedAgentId: null, handleAgentClick: noop },
+    attention: undefined, health: { bySession: undefined },
+    sessionActions: { handleCloseSession: noop, handleExportSession: noop, canExportSession: () => false },
+    allSessionCount: 2, listAgents: new Map(), agentLabel: (k: string) => k, openFile: noop,
+    fetchContext: async () => null, contextOrigin: '',
+  } as unknown as Omit<React.ComponentProps<typeof PanelDock>, 'uiPrefs'>
+  function Dock({ store }: { store: PrefsStore }) {
+    const uiPrefs = useUiPreferences(store)
+    return <PanelDock {...props} uiPrefs={uiPrefs} />
+  }
+
+  const store = createPrefsStore({ storage, schedule: sync })
+  const first = render(<Dock store={store} />)
+  const toggle = first.getByRole('button', { name: 'Active only' })
+  assert.equal(toggle.getAttribute('aria-pressed'), 'true', 'on by default')
+  assert.equal(first.queryByText('Old one'), null)
+  fireEvent.click(toggle)
+  assert.equal(store.getSnapshot().sessionListActiveOnly, false, 'the click reaches the store')
+  first.unmount()
+
+  // A reload: a new store over the same storage
+  const again = render(<Dock store={createPrefsStore({ storage, schedule: sync })} />)
+  assert.equal(again.getByRole('button', { name: 'Active only' }).getAttribute('aria-pressed'), 'false')
+  assert.ok(again.queryByText('Old one'), 'the finished session is listed after the remount')
 })

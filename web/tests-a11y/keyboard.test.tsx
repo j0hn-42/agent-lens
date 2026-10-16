@@ -204,8 +204,11 @@ test('sessions panel (#372): the row button hides the session and says it comes 
       observedSessionIds={new Set(['s1'])}
     />,
   )
-  const button = getByRole('button', { name: 'Hide session Refactor until its next activity' })
-  assert.equal(button.getAttribute('title'), 'Hide session (reappears on new activity or after a reconnect)')
+  // The panel is named like the top bar button that opens it
+  getByRole('region', { name: /^Sessions and agents/ })
+  getByRole('slider', { name: 'Resize Sessions and agents panel' })
+  const button = getByRole('button', { name: 'Hide session Refactor (reappears on new activity or after a reconnect)' })
+  assert.equal(button.getAttribute('title'), 'Hide session Refactor (reappears on new activity or after a reconnect)')
   fireEvent.click(button)
   assert.deepEqual(hidden, ['s1'])
 })

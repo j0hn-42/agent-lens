@@ -148,11 +148,16 @@ test('one name per thing (#372): Context, Timeline and Sessions never take a sec
 test('hiding a session says what it does and that it comes back (#372)', async () => {
   const g = await import('../web/lib/ui-glossary')
   assert.equal(g.SESSION_LIST_LABELS.hide, 'Hide session (reappears on new activity or after a reconnect)')
-  assert.equal(g.SESSION_LIST_LABELS.hideNamed('Refactor'), 'Hide session Refactor until its next activity')
+  // The accessible name and the tooltip say the same thing, return after a reconnect included
+  assert.equal(g.SESSION_LIST_LABELS.hideNamed('Refactor'), 'Hide session Refactor (reappears on new activity or after a reconnect)')
   assert.equal(g.SESSION_LIST_LABELS.hidden('Refactor'), 'Session hidden: Refactor')
+  assert.equal(g.SESSION_LIST_LABELS.hiddenUnnamed, 'Session hidden')
   assert.equal(g.SESSION_LIST_LABELS.activeOnly, 'Active only')
   // 'Active only' is not the 10-minute window of the 'All' view: the tooltip says the rule it applies
+  // A session-ended also comes from the relay when it stops watching (size cap, read error, scope change):
+  // the tooltip must not call every hidden session one whose end was observed
   assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /end was observed/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no longer watched/)
   assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /never heard from/)
   assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no time limit/i)
 })
