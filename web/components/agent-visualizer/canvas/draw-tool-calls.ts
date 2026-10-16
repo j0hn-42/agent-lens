@@ -23,7 +23,8 @@ export function drawToolCalls(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const { reducedMotion } = opts
-  const showText = lodOf(opts).details
+  // Card text would fall under LOD.minTextPx on screen: the card shrinks to its icon instead of an empty or unreadable box (#378)
+  const showText = lodOf(opts).cardText
   for (const [id, tool] of toolCalls) {
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     if (!boxInView(opts.view, tool.x - TOOL_MAX_CARD_W / 2 - TOOL_CULL_SLACK, tool.y - TOOL_DRAW.expandedHeight / 2 - TOOL_CULL_SLACK, tool.x + TOOL_MAX_CARD_W / 2 + TOOL_CULL_SLACK, tool.y + TOOL_DRAW.expandedHeight / 2 + TOOL_CULL_SLACK)) continue
@@ -48,8 +49,8 @@ export function drawToolCalls(
     const textX = tool.x + slot / 2
     const label = truncateText(ctx, toolLabel, TOOL_MAX_CARD_W - 12 - slot)
     const textWidth = Math.min(measureTextCached(ctx, label) + 12 + slot, TOOL_MAX_CARD_W)
-    const cardW = Math.max(60, textWidth)
-    const cardH = toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
+    const cardW = showText ? Math.max(60, textWidth) : TOOL_DRAW.iconSize
+    const cardH = !showText ? TOOL_DRAW.iconSize : toolCardExpanded(tool) ? TOOL_DRAW.expandedHeight : TOOL_DRAW.collapsedHeight
     const cardX = tool.x - cardW / 2
     const cardY = tool.y - cardH / 2
     // Hit-testing reuses the exact drawn size
@@ -100,11 +101,11 @@ export function drawToolCalls(
       }
     }
 
-    // MCP server badge above the card (text only when zoomed in; shape remains otherwise)
-    if (mcp) {
+    // MCP server badge above the card (not on the icon: an empty pill would say nothing)
+    if (mcp && showText) {
       ctx.font = `${MCP_DRAW.badgeFontSize}px monospace`
-      const badgeText = showText ? truncateText(ctx, `MCP · ${mcp.server}`, cardW + 20) : ''
-      const badgeW = showText ? measureTextCached(ctx, badgeText) + MCP_DRAW.badgePadX * 2 : 14
+      const badgeText = truncateText(ctx, `MCP · ${mcp.server}`, cardW + 20)
+      const badgeW = measureTextCached(ctx, badgeText) + MCP_DRAW.badgePadX * 2
       const badgeX = tool.x - badgeW / 2
       const badgeY = cardY - MCP_DRAW.badgeHeight - MCP_DRAW.badgeGap
       ctx.beginPath()
@@ -114,12 +115,10 @@ export function drawToolCalls(
       ctx.strokeStyle = SCENE.mcp + 'cc'
       ctx.lineWidth = 1
       ctx.stroke()
-      if (showText) {
-        ctx.fillStyle = SCENE.mcp
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.fillText(badgeText, tool.x, badgeY + MCP_DRAW.badgeHeight / 2 + 0.5)
-      }
+      ctx.fillStyle = SCENE.mcp
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(badgeText, tool.x, badgeY + MCP_DRAW.badgeHeight / 2 + 0.5)
     }
 
     // Crack lines for errors
@@ -137,10 +136,16 @@ export function drawToolCalls(
       ctx.restore()
     }
 
-    // Action glyph on the left of the card: a shape, so it stays readable at any zoom
+    // Action glyph on the left of the card (centred, larger, on the icon): a shape, so it stays readable at any zoom
+    const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : mcp && !showText ? SCENE.mcp : SCENE.return
     if (glyph) {
-      const glyphColor = isError ? SCENE.error : isUnresolved ? SCENE.textMuted : isRunning ? accent : SCENE.return
-      drawToolGlyph(ctx, glyph, cardX + GLYPH_SLOT / 2 + 1, tool.y, 11, glyphColor, time, isRunning, reducedMotion)
+      drawToolGlyph(ctx, glyph, showText ? cardX + GLYPH_SLOT / 2 + 1 : tool.x, tool.y, showText ? 11 : TOOL_DRAW.iconGlyphSize, glyphColor, time, isRunning, reducedMotion)
+    } else if (!showText) {
+      // MCP and unknown tools have no glyph: a dot marks the call on its icon
+      ctx.beginPath()
+      ctx.arc(tool.x, tool.y, TOOL_DRAW.iconDotRadius, 0, Math.PI * 2)
+      ctx.fillStyle = glyphColor
+      ctx.fill()
     }
 
     if (!showText) { ctx.restore(); continue }

@@ -371,6 +371,12 @@ export const TOOL_DRAW = {
   tokenFontSize: 11,
   /** Y offset for two-line card layout */
   twoLineOffset: 7,
+  /** Side (world px) of the square icon a card becomes when its text would be unreadable (LOD.cardTextMinZoom, #378) */
+  iconSize: 28,
+  /** Glyph size (world px) on that icon */
+  iconGlyphSize: 16,
+  /** Dot radius (world px) on the icon of a tool without glyph (MCP, unknown tools) */
+  iconDotRadius: 3.5,
 } as const
 
 // ─── MCP tool call drawing constants ────────────────────────────────────────
