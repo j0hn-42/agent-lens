@@ -3,7 +3,7 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, within } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { ToolDetailPopup } from '@/components/agent-visualizer/tool-detail-popup'
@@ -35,8 +35,47 @@ test('Edit: an insertion and a deletion are named as such (#383)', () => {
   const ins = show('Edit', { file_path: '/a.ts', old_string: '', new_string: 'a\nb' })
   assert.equal(ins.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), '2 lines inserted')
   cleanup()
-  const del = show('Edit', { file_path: '/a.ts', old_string: 'a', new_string: '' })
-  assert.equal(del.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), '1 line deleted')
+  const del = show('Edit', { file_path: '/a.ts', old_string: 'a\nb', new_string: '' })
+  assert.equal(del.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), 'text removed from 2 lines')
+})
+
+const summaryText = (r: ReturnType<typeof show>) => r.getByRole('group', { name: 'Edit summary' }).textContent?.replace(/\s+/g, ' ').trim()
+
+test('Edit: a removed word is not called a deleted line (#383)', () => {
+  // old_string may be part of a line: the call proves text was removed from 1 line, not that the line went
+  assert.equal(summaryText(show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: '' })), 'text removed from 1 line')
+})
+
+test('Edit: nothing in either string, no summary (#383)', () => {
+  const { queryByRole } = show('Edit', { file_path: '/a.ts', old_string: '', new_string: '' })
+  assert.equal(queryByRole('group', { name: 'Edit summary' }), null)
+})
+
+test('MultiEdit: blocks of different kinds are not summed into a replacement (#383)', () => {
+  const r = show('MultiEdit', {
+    file_path: '/a.ts',
+    edits: [
+      { old_string: '', new_string: 'a\nb' },
+      { old_string: 'a\nb\nc', new_string: '' },
+    ],
+  })
+  const summary = within(r.getByRole('group', { name: 'Edit summary' }))
+  summary.getByText('old: 3 lines, new: 2 lines', { exact: true })
+  summary.getByText('2 blocks', { exact: true })
+  assert.doesNotMatch(r.getByRole('group', { name: 'Edit summary' }).textContent ?? '', /replaced|inserted|removed/)
+})
+
+test('MultiEdit: blocks of one kind keep the verb (#383)', () => {
+  const r = show('MultiEdit', {
+    file_path: '/a.ts',
+    edits: [
+      { old_string: '', new_string: 'a\nb' },
+      { old_string: '', new_string: 'c' },
+    ],
+  })
+  const summary = within(r.getByRole('group', { name: 'Edit summary' }))
+  summary.getByText('3 lines inserted', { exact: true })
+  summary.getByText('2 blocks', { exact: true })
 })
 
 test('MultiEdit: every block is shown, numbered, with the block count', () => {
