@@ -20,7 +20,7 @@ export interface AnimateOptions {
   toolExpiryS?: number
 }
 
-function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number): SimulationState['agents'] {
+function animateAgents(agents: SimulationState['agents'], deltaTime: number, currentTime: number, newTime: number): SimulationState['agents'] {
   let newAgents = agents
   for (const [id, agent] of agents) {
     let updated = false
@@ -38,7 +38,11 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
       else if (opacity < floor) { opacity = Math.min(floor, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
       if (scale > 0.8) { scale = Math.max(0.8, scale - deltaTime * ANIM_SPEED.agentScaleOut); updated = true }
     }
-    if (agent.state !== 'complete') { timeAlive += deltaTime; updated = true }
+    // Age on the simulation clock (same formula as a seek), not per frame: a hidden tab stops frames, not time
+    if (agent.state !== 'complete') {
+      const aged = Math.max(0, newTime - agent.spawnTime)
+      if (aged !== timeAlive) { timeAlive = aged; updated = true }
+    }
     // Prune expired message bubbles
     // (skipped while the agent is hovered/focused, playback is paused, or "never hide" is on)
     if (messageBubbles.length > 0 && !isExpiryHeld('agent', id)) {
@@ -198,7 +202,7 @@ export function computeNextFrame(prev: SimulationState, deltaTime: number, newTi
       recordFrame(a11yRecorder, { particles: currentState.particles, edges: currentState.edges, agents: currentState.agents, toolCalls: currentState.toolCalls })
       const newToolCallsRaw = animateToolCalls(currentState.toolCalls, currentState.agents, deltaTime, newTime, options.toolExpiryS ?? TOOL_EXPIRY_S)
       const timelineEntries = closeExpiredTimelineBlocks(currentState.timelineEntries, currentState.toolCalls, newToolCallsRaw)
-      const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime)
+      const newAgentsRaw = animateAgents(currentState.agents, deltaTime, currentState.currentTime, newTime)
       const newEdgesRaw = animateEdges(currentState.edges, deltaTime)
 
       const { agents: newAgents, toolCalls: newToolCalls, edges: filteredEdges } =

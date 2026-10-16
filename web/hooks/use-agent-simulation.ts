@@ -329,9 +329,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     // Keep active agents but clear completed state and visual history
     const prev = frameRef.current
     const agents = new Map<string, Agent>()
+    // The clock restarts at 0, so the kept agents are born at 0 too (their age is measured from the clock)
     for (const [id, agent] of prev.agents) {
       if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
+        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0, spawnTime: 0 })
       }
     }
 
