@@ -34,12 +34,30 @@ async function setTheme(page: Page, id: string) {
   await select.waitFor({ state: 'hidden' })
 }
 
-async function contrastFailures(page: Page) {
+type ContrastData = { fgColor?: string; bgColor?: string; contrastRatio?: number; expectedContrastRatio?: string; messageKey?: string }
+
+/**
+ * Incomplete results axe may leave, each with the reason it is harmless. Anything else incomplete means axe could not
+ * compute a contrast (e.g. text over the canvas bitmap) and the audit would pass without checking it.
+ */
+const INCOMPLETE_ALLOWED: Record<string, string> = {
+  // a decorative glyph (emoji icon in an aria-hidden span): axe reports "only non-text characters", no text to contrast
+  nonBmp: 'non-text characters',
+}
+
+async function contrastAudit(page: Page) {
   const results = await new AxeBuilder({ page }).withRules(['color-contrast']).analyze()
-  return results.violations.flatMap(v => v.nodes.map(n => {
-    const data = (n.any[0]?.data ?? {}) as { fgColor?: string; bgColor?: string; contrastRatio?: number; expectedContrastRatio?: string }
-    return `${n.target.join(' ')} fg ${data.fgColor} bg ${data.bgColor} ratio ${data.contrastRatio} (needs ${data.expectedContrastRatio})`
-  }))
+  const describe = (n: { target: unknown[]; any: { data?: unknown }[] }) => {
+    const data = (n.any[0]?.data ?? {}) as ContrastData
+    return `${n.target.join(' ')} fg ${data.fgColor} bg ${data.bgColor} ratio ${data.contrastRatio} (needs ${data.expectedContrastRatio})${data.messageKey ? ` [${data.messageKey}]` : ''}`
+  }
+  return {
+    failures: results.violations.flatMap(v => v.nodes.map(describe)),
+    passes: results.passes.reduce((sum, r) => sum + r.nodes.length, 0),
+    unexplained: results.incomplete.flatMap(r => r.nodes)
+      .filter(n => !Object.hasOwn(INCOMPLETE_ALLOWED, (n.any[0]?.data as ContrastData | undefined)?.messageKey ?? ''))
+      .map(describe),
+  }
 }
 
 for (const id of THEME_IDS) {
@@ -53,7 +71,10 @@ for (const id of THEME_IDS) {
       await setTheme(page, id)
       await waitForStableLayout(page)
       assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), id)
-      assert.deepEqual(await contrastFailures(page), [], `[${id}] color-contrast violations`)
+      const { failures, passes, unexplained } = await contrastAudit(page)
+      assert.deepEqual(failures, [], `[${id}] color-contrast violations`)
+      assert.deepEqual(unexplained, [], `[${id}] nodes axe could not evaluate`)
+      assert.ok(passes > 0, `[${id}] axe checked no text node: the audit would pass empty`)
     } finally { await context.close() }
   })
 }
