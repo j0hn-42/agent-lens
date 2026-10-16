@@ -50,7 +50,7 @@ export function useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef 
       selectSession(remaining.length > 0 ? remaining[remaining.length - 1].id : ALL_SESSIONS_ID)
     }
     pushToast({
-      message: closed ? SESSION_LIST_LABELS.hidden(closed.label) : 'Session hidden',
+      message: closed ? SESSION_LIST_LABELS.hidden(closed.label) : SESSION_LIST_LABELS.hiddenUnnamed,
       actionLabel: 'Undo',
       onAction: () => {
         if (restoreSession(id) && wasSelected) selectSession(id)

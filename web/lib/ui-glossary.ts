@@ -171,8 +171,9 @@ export const SESSION_LIST_LABELS = {
   activeOnly: 'Active only',
   activeOnlyHelp: 'List only the sessions heard from that are still followed and not marked finished (the selected one stays). Hides a session once its end was observed or it is no longer watched (size cap, read error, scope change), and the ones never heard from. No time limit, unlike the 10-minute window of the All view.',
   hide: 'Hide session (reappears on new activity or after a reconnect)',
-  hideNamed: (label: string) => `Hide session ${label} until its next activity`,
+  hideNamed: (label: string) => `Hide session ${label} (reappears on new activity or after a reconnect)`,
   hidden: (label: string) => `Session hidden: ${label}`,
+  hiddenUnnamed: 'Session hidden',
 } as const
 
 /** Suffix of a timeline label whose call expired. */

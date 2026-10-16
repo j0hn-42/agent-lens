@@ -767,7 +767,7 @@ export function SessionListPanel({
                     <button
                       type="button"
                       aria-label={SESSION_LIST_LABELS.hideNamed(session.label)}
-                      title={SESSION_LIST_LABELS.hide}
+                      title={SESSION_LIST_LABELS.hideNamed(session.label)}
                       onClick={() => onCloseSession(session.id)}
                       className={`min-h-6 min-w-6 rounded text-[11px] leading-none opacity-70 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 transition-opacity ${FOCUS_RING}`}
                       style={{ color: COLORS.tabClose }}
