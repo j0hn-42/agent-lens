@@ -202,4 +202,22 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     grow('a0000000000000008')
     assert.deepEqual(spawnNames(h.events), [], 'not after growth')
   })
+
+  it('a nested subagent with pending work is announced after its parent caught up at attach, under it', () => {
+    const { h } = attach(
+      [userText('Audit'), dispatch('toolu_p1', 'Parent'), receipt('toolu_p1', 'a00000000000000p1')],
+      [
+        { agentId: 'a00000000000000p1', toolUseId: 'toolu_p1', description: 'Parent' },
+        {
+          agentId: 'a00000000000000c1', toolUseId: 'toolu_N', description: 'Child', meta: { parentAgentId: 'a00000000000000p1' },
+          // A tool call not answered yet: the file watcher announces it at once
+          entries: [userText('Do it'), assistantToolUse('a00000000000000c1-t1', 'Read', { file_path: '/a.ts' })],
+        },
+      ],
+    )
+    assert.deepEqual(spawnNames(h.events), ['Parent', 'Child'], 'the parent exists when its child is announced')
+    const child = ofType(h.events, 'agent_spawn').find(e => e.payload.name === 'Child')!
+    assert.equal(child.payload.parent, 'Parent')
+  })
 })
+
