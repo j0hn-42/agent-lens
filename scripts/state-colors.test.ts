@@ -111,6 +111,16 @@ test('timeline blocks stored with a scene colour paint the theme colour of their
     assert.equal(getStateColor('thinking'), COLORS.thinking, id)
   }
   refreshColors('neon')
+  const tl = readFileSync(join(__dirname, '../web/components/agent-visualizer/timeline-panel.tsx'), 'utf8')
+  assert.doesNotMatch(tl, /uiColor\(block\.color\)/, 'timeline blocks pass their state to uiColor')
+  assert.match(tl, /uiColor\(block\.color, state\)/)
+})
+
+test('session list: a paused agent is not drawn with the idle colour (paused is its own state)', () => {
+  for (const id of THEME_IDS) assert.notEqual(paletteFor(id).paused, paletteFor(id).idle, id)
+  const src = readFileSync(join(__dirname, '../web/components/agent-visualizer/session-list-panel.tsx'), 'utf8')
+  const marker = src.slice(src.indexOf('function StateMarker'), src.indexOf('function SessionMarker'))
+  assert.match(marker, /state === 'paused' \? COLORS\.paused/, 'StateMarker paints paused with COLORS.paused')
 })
 
 // The graph legend draws the canvas colours (stateColor), the session list and the timeline legend draw the theme ones
