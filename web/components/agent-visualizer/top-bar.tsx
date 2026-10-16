@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
+import { memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
@@ -91,9 +91,10 @@ const isNarrow = () => narrowList()?.matches ?? false
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
+  buttonRef?: React.Ref<HTMLButtonElement>
   /** Visual active state */
   active: boolean
   /** aria-pressed value; omit for buttons whose accessible name already changes with state */
@@ -119,6 +120,7 @@ function ToggleButton({ id, active, pressed, onClick, children, style, activeCol
   return (
     <button
       id={id}
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       aria-pressed={pressed}
@@ -295,9 +297,32 @@ export const TopBar = memo(function TopBar({
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
   // Under 600 px the totals and filters fold behind a disclosure button (#378); 600 px and wider nothing changes.
   // Folded, the filters are not rendered (no hidden Tab stop) and the totals stay for assistive technology (sr-only).
-  const narrow = useSyncExternalStore(subscribeNarrow, isNarrow, () => false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreId = useId()
+  // Crossing 600 px (resize, browser zoom) unmounts More or the folded filters: keep the focus out of <body> (2.4.3).
+  // The focus is read in the media query handler, before React renders the new width.
+  const regionRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLButtonElement>(null)
+  const refocusAfterWiden = useRef(false)
+  const subscribe = useCallback((onChange: () => void) => subscribeNarrow(() => {
+    const active = typeof document === 'undefined' ? null : document.activeElement
+    if (isNarrow()) {
+      // A folded filter has the focus: open More in the same render, so the filter stays mounted
+      if (active && regionRef.current?.contains(active)) setMoreOpen(true)
+    } else if (active && active === moreRef.current) {
+      refocusAfterWiden.current = true
+    }
+    onChange()
+  }), [])
+  const narrow = useSyncExternalStore(subscribe, isNarrow, () => false)
+  useLayoutEffect(() => {
+    if (narrow || !refocusAfterWiden.current) return
+    refocusAfterWiden.current = false
+    // More is gone: its first control (a filter) takes the focus, else the first view control
+    const target = regionRef.current?.querySelector<HTMLElement>('button')
+      ?? rootRef.current?.querySelector<HTMLElement>('[role="toolbar"] button')
+    target?.focus({ preventScroll: true })
+  }, [narrow])
   const folded = narrow && !moreOpen
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   const activeFilters = [
@@ -372,6 +397,7 @@ export const TopBar = memo(function TopBar({
         )}
         {narrow && (
           <ToggleButton
+            buttonRef={moreRef}
             active={moreOpen}
             onClick={() => setMoreOpen(v => !v)}
             ariaLabel={showFilterCount ? TOP_BAR_LABELS.moreNameWithFilters(activeFilters) : TOP_BAR_LABELS.moreName}
@@ -383,7 +409,7 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
         )}
         {/* What More shows; a plain box (display: contents) */}
-        <div id={moreId} className="contents">
+        <div id={moreId} ref={regionRef} className="contents">
         {!folded && notifyState !== 'unsupported' && onToggleNotify && (
           <ToggleButton
             active={notifyState === 'on'}
