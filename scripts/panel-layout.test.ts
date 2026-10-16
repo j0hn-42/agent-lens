@@ -335,11 +335,42 @@ test('a no-room sheet (wide viewport) keeps the band for the banner too (#453)',
   assert.ok(l.rects.files!.y >= bottom(banner))
 })
 
-test('no band when the stack would leave no usable sheet, banner included (#453)', () => {
+test('when notice and banner do not both fit, the sheet still keeps the notice band (#453 review)', () => {
   // Area of 220 px: room for the notice band alone (44), not for the notice and a 120 px banner (168)
   const l = sheetAt(390, TOPBAR_H + 220 + 16 + BAR_H + 8, ['detail', 'files'], 40, 120)
   assert.equal(l.area.h, 220)
+  assert.equal(l.rects.files!.y, l.area.y + topbarStack(1, 40, 0).band)
+  assert.equal(topbarStack(1, 40, 0).band, SHEET_NOTICE_H)
+})
+
+// A 320 x 568 phone as measured in a real browser: the top bar wraps to 187 px, the area under it is 276 px
+const phone = (open: PanelId[], noticeH: number, bannerH: number) => {
+  const l = computeDockLayout({ viewport: { w: 320, h: 568 }, topbarH: 187, controlBarH: 81, open, noticeH, bannerH })
+  assert.equal(l.area.h, 276)
+  return l
+}
+
+test('320 x 568, two panels and a banner: the sheet starts under the notice and the banner (#453 review)', () => {
+  const l = phone(['timeline', 'files'], 40, 74)
+  const s = topbarStack(1, 40, 74)
+  assert.ok(l.rects.files!.y >= l.area.y + TOPBAR_STACK_TOP + 40, `the sheet starts under the notice (${l.rects.files!.y})`)
+  assert.ok(l.rects.files!.y >= l.area.y + s.bannerTop! + 74, `the sheet starts under the banner (${l.rects.files!.y})`)
+  assert.equal(bottom(l.rects.files!), bottom(l.area), 'the sheet still ends above the control bar')
+})
+
+test('320 x 568, agent card alone and a banner: the card sheet does not cover the banner (#453 review)', () => {
+  const l = phone(['detail'], 0, 74)
+  assert.ok(l.rects.detail!.y >= l.area.y + topbarStack(0, 0, 74).bannerTop! + 74, `card at ${l.rects.detail!.y}`)
+  assert.ok(l.rects.detail!.h >= 96, "the card keeps a usable, scrolling sheet")
+})
+
+test('a window too short even for the reduced floor: the notice band is kept, then nothing (#453 review)', () => {
+  // Area 200: notice + banner 74 (122) leaves 78, under the reduced floor; the notice alone (44) leaves 156, under MIN_MAIN_H
+  const l = sheetAt(390, TOPBAR_H + 200 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(l.area.h, 200)
   assert.equal(l.rects.files!.y, l.area.y)
+  const k = sheetAt(390, TOPBAR_H + 210 + 16 + BAR_H + 8, ['timeline', 'files'], 40, 74)
+  assert.equal(k.rects.files!.y, k.area.y + SHEET_NOTICE_H, '210 px: the notice band fits (166 left)')
 })
 
 test('store: a measured banner re-flows the sheet (#453)', () => {
