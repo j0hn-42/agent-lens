@@ -60,7 +60,7 @@ test('provenListedPaths: only whole path lines, read up to the first line that i
   assert.deepEqual(provenListedPaths('Grep', {}, 'Found 3 files\nsrc/a.ts\n  (more)\nsrc/c.ts'), { paths: ['src/a.ts'], reported: 3 }, 'a line with leading space is not a path')
   assert.deepEqual(provenListedPaths('Grep', {}, 'Found 3 files\nsrc/a.ts\nsrc/b.ts \nsrc/c.ts'), { paths: ['src/a.ts'], reported: 3 }, 'nor one with trailing space')
   assert.equal(provenListedPaths('Grep', {}, 'Found 1 file\nsrc/a\u0007.ts'), null, 'a control character is not in a path')
-  assert.deepEqual(provenListedPaths('Glob', {}, 'Found 2 files\n/r/a.ts\n/r/a.ts'), { paths: ['/r/a.ts'], reported: 2 }, 'a repeated line is one path')
+  assert.equal(provenListedPaths('Grep', {}, 'Found 2 files\nsrc/a.ts\nsrc/a.ts'), null, 'a repeated line: the output is not what it claims')
   assert.equal(provenListedPaths('Glob', {}, 'Found 1 file\n/r/a.ts\n/r/b.ts'), null, 'more paths than the header reports: the output is not what it claims')
 })
 
