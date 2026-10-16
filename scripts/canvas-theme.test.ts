@@ -12,6 +12,8 @@ import { stateColor } from '../web/components/agent-visualizer/canvas/draw-misc'
 import { THEME_IDS, TOKENS, extraVars } from '../web/lib/theme-tokens'
 import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
 import { TEAM_DEFAULT_COLOR, teammateAccent } from '../web/components/agent-visualizer/canvas/team-style'
+import { sceneStamp } from '../web/components/agent-visualizer/canvas/scene-stamp'
+import { createDrawGate } from '../web/components/agent-visualizer/canvas/draw-gate'
 
 const root = join(__dirname, '..')
 const legacy = JSON.parse(readFileSync(join(__dirname, 'fixtures/neon-colors.legacy.json'), 'utf8')) as Record<string, string>
@@ -111,6 +113,25 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
   const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
   assert.match(loop, /opts\.theme = theme/, 'la boucle passe le thème au dessin par les options')
   assert.match(loop, /keys: \[[^\]]*sceneTheme\(\)/, 'un changement de thème redessine une scène immobile')
+})
+
+test('comportement : un changement de thème change l\'empreinte de la scène et force le dessin d\'une scène immobile', () => {
+  const input = (theme: string) => ({
+    agents: [], toolCalls: [], particles: 0, edges: 0, discoveries: 0, effects: 0,
+    transform: { x: 0, y: 0, scale: 1 }, width: 800, height: 600, dpr: 1, epoch: 1,
+    keys: [theme, null, null, false],
+  })
+  const s1 = sceneStamp(input('neon'))
+  const s2 = sceneStamp(input('contrast'))
+  assert.notEqual(s1, s2, 'le thème entre dans l\'empreinte')
+  assert.equal(sceneStamp(input('neon')), s1, 'même thème, même empreinte')
+  const gate = createDrawGate()
+  const now = 1000
+  const frame = (t: number, stamp: number) => gate.shouldDraw({ now: t, stamp, reducedMotion: false, animating: false, moving: false })
+  assert.equal(frame(now, s1), true, 'première image dessinée')
+  assert.equal(frame(now + 16, s1), false, 'scène immobile, même thème : image sautée')
+  assert.equal(frame(now + 32, s2), true, 'thème changé : la scène immobile est redessinée')
+  assert.equal(frame(now + 48, s2), false, 'puis de nouveau sautée tant que rien ne change')
 })
 
 test('garde : le bloom reste actif sur le canvas quel que soit le thème, le fond de page est celui de la scène', () => {
