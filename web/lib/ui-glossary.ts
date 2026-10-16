@@ -117,7 +117,7 @@ export const EXPIRED_WARNING = 'Expired, end not observed: the result is unknown
 /** Warning for a result that was reported although the end of the call was not observed. */
 export const RESULT_WITHOUT_END_WARNING = `Result reported, ${END_NOT_OBSERVED}.`
 
-/** Where a file card made from a Glob / Grep output comes from (#438): its line in the list, the count the
+/** Where a file card made from a Glob / Grep output comes from (#438): its index in the list, the count the
  *  tool's header reported, and how many cards the call has, so the paths not drawn are said, never hidden. */
 export function listedFileText(l: { tool: string; position: number; reported: number; shown: number }): string {
   const base = `File listed by ${l.tool}, ${l.position} of ${l.reported} files the call reported`

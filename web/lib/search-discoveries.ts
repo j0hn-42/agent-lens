@@ -4,7 +4,7 @@ import { SEARCH_DISCOVERY } from './canvas-constants'
 
 /** What a Glob / Grep output proves it listed: the whole path lines under its header, and the header's count. */
 interface ListedPaths {
-  /** Distinct paths, in the order the output lists them */
+  /** The paths, all distinct, in the order the output lists them */
   paths: string[]
   /** Files the tool's own `Found N files` header reports (may exceed `paths`: a limit or the capture cut) */
   reported: number
@@ -26,7 +26,7 @@ function isPathLine(line: string): boolean {
  * `Found N files` header (a list without it is not proven to be paths), Grep is not in content or count mode, and
  * at least one whole path line follows. Lines are read up to the first one that is not a path line; the last
  * line of an output that reached the capture limit may be cut, so it is dropped. More paths than the header
- * reports means the output is not what it claims: null. The caller checks the call succeeded.
+ * reports, or a path listed twice, means the output is not what it claims: null. The caller checks the call succeeded.
  */
 function provenListedPaths(toolName: string, inputData: Record<string, unknown> | undefined, result: string): ListedPaths | null {
   const tool = canonicalTool(toolName)
@@ -39,7 +39,9 @@ function provenListedPaths(toolName: string, inputData: Record<string, unknown> 
   const paths: string[] = []
   for (const line of whole) {
     if (!isPathLine(line)) break
-    if (!paths.includes(line)) paths.push(line)
+    // A path listed twice: the output is not the list it claims to be
+    if (paths.includes(line)) return null
+    paths.push(line)
   }
   if (paths.length === 0 || paths.length > reported) return null
   return { paths, reported }
@@ -52,7 +54,7 @@ function baseName(path: string): string {
 
 /**
  * File cards for the paths a successful search call listed, at most SEARCH_DISCOVERY.maxPerCall, in a column to
- * the right of the tool card, starting on it (they animate out). Ids are `disc-<agent>-<tool_use_id>-<line>`, so
+ * the right of the tool card, starting on it (they animate out). Ids are `disc-<agent>-<tool_use_id>-<index>`, so
  * a replayed result builds the same ids; a call without a tool_use_id gets no card, since nothing would make its
  * cards stable. The caller checks the call succeeded and skips ids already on screen.
  */
