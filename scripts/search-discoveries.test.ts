@@ -1,5 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { provenListedPaths, searchDiscoveries } from '../web/lib/search-discoveries'
 import { SEARCH_DISCOVERY } from '../web/lib/canvas-constants'
 import { RESULT_CAPTURE_LIMIT } from '../web/lib/action-summary'
@@ -88,4 +90,15 @@ test('searchDiscoveries: no tool_use_id, no stable id, no card', () => {
 test('listedFileText says where the card comes from and what was left out', () => {
   assert.equal(listedFileText({ tool: 'Glob', position: 1, reported: 2, shown: 2 }), 'File listed by Glob, 1 of 2 files the call reported')
   assert.equal(listedFileText({ tool: 'Grep', position: 2, reported: 47, shown: 3 }), 'File listed by Grep, 2 of 47 files the call reported; 3 shown, 44 not drawn')
+})
+
+test('the reading guide documents the file cards, their cap and what they never show (#438)', () => {
+  const guide = readFileSync(path.join(__dirname, '..', 'docs', 'reading-the-ui.md'), 'utf8')
+  const start = guide.indexOf('- **File cards from a search**')
+  assert.ok(start > 0, 'the Result pills list has a File cards entry')
+  const entry = guide.slice(start, guide.indexOf('\n', start))
+  assert.ok(entry.includes(`at most ${SEARCH_DISCOVERY.maxPerCall} cards`), 'the cap is the code constant')
+  for (const words of ['Found N files', 'files_with_matches', 'not drawn', 'tool_use_id', 'failed', 'cancelled']) {
+    assert.ok(entry.includes(words), `the entry says "${words}"`)
+  }
 })
