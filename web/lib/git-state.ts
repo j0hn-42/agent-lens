@@ -10,7 +10,8 @@
  *   state at the time of that call, never refreshed;
  * - an output line counts only when the command ran the git / gh subcommand that prints it and no other command of
  *   the line could have printed it (each segment runs that subcommand or a silent `git add`), and a command aimed at
- *   another repository (`-C`, `--git-dir`, `--work-tree`) proves nothing.
+ *   another repository (`-C`, `--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) or run after a
+ *   `cd` / `pushd` proves nothing.
  * With nothing observed the state stays undefined: no default branch.
  *
  * The same call (call node id or tool_use_id) is read once, so a replay never adds a commit nor moves the branch
@@ -84,7 +85,11 @@ const SEEN_MAX = 500
 
 const FAILED_PREFIX = '[FAILED]'
 const OTHER_REPO = /(?:^|[\s;&|(])git\s+(?:[^;&|\n]*\s)?(?:-C\s|--git-dir\b|--work-tree\b)/
-const AMEND = /\bcommit\b[^;&|\n]*\s--amend\b/
+/** Environment variables that point git at another repository */
+const OTHER_REPO_ENV = /(?:^|[\s;&|(])GIT_(?:DIR|WORK_TREE)=/
+/** A change of directory anywhere on the line: the repository of the git that follows is not proven */
+const CHDIR = /(?:^|[\s;&|(])(?:cd|pushd)\s+\S/
+const AMEND =/\bcommit\b[^;&|\n]*\s--amend\b/
 /** git subcommands that print nothing on success: running one next to a reading subcommand adds no line */
 const SILENT_GIT = new Set(['add'])
 const SHOW_CURRENT_ALONE =/^\s*git\s+branch\s+--show-current\s*$/
@@ -107,7 +112,7 @@ function readCall(command: string, result: string): Seen {
   const cmds = shellCommands(command)
   const git = new Set(cmds.filter(c => c.tool === 'git').map(c => c.sub))
   const gh = new Set(cmds.filter(c => c.tool === 'gh').map(c => c.sub))
-  const gitHere = git.size > 0 && !OTHER_REPO.test(command)
+  const gitHere = git.size > 0 && !OTHER_REPO.test(command) && !OTHER_REPO_ENV.test(command) && !CHDIR.test(command)
   const lines = result.split('\n')
   // The last line may stop mid-way when the result reached the capture limit
   const whole = result.length >= RESULT_CAPTURE_LIMIT ? lines.slice(0, -1) : lines
