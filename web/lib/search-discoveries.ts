@@ -54,9 +54,10 @@ function baseName(path: string): string {
 
 /**
  * File cards for the paths a successful search call listed, at most SEARCH_DISCOVERY.maxPerCall, in a column to
- * the right of the tool card, starting on it (they animate out). Ids are `disc-<agent>-<tool_use_id>-<index>`, so
- * a replayed result builds the same ids; a call without a tool_use_id gets no card, since nothing would make its
- * cards stable. The caller checks the call succeeded and skips ids already on screen.
+ * the right of the tool card, born in place: they fade in but do not move (a slide comes with #384 and its
+ * reduced-motion guard). Ids are `disc-<agent>-<tool_use_id>-<index>`, so a replayed result builds the same ids;
+ * a call without a tool_use_id gets no card, since nothing would make its cards stable. The caller checks the call
+ * succeeded and skips ids already on screen.
  */
 export function searchDiscoveries(
   call: Pick<ToolCallNode, 'agentId' | 'toolName' | 'inputData' | 'toolUseId' | 'x' | 'y'>,
@@ -68,19 +69,23 @@ export function searchDiscoveries(
   if (!listed) return []
   const shownPaths = listed.paths.slice(0, SEARCH_DISCOVERY.maxPerCall)
   const tool = canonicalTool(call.toolName)
-  return shownPaths.map((path, i) => ({
-    id: `disc-${call.agentId}-${call.toolUseId}-${i}`,
-    agentId: call.agentId,
-    type: 'file' as const,
-    label: baseName(path),
-    content: path,
-    x: call.x,
-    y: call.y,
-    targetX: call.x + SEARCH_DISCOVERY.offsetX,
-    targetY: call.y + (i - (shownPaths.length - 1) / 2) * SEARCH_DISCOVERY.gapY,
-    opacity: 0,
-    timestamp: time,
-    toolUseId: call.toolUseId,
-    listing: { tool, position: i + 1, reported: listed.reported, shown: shownPaths.length },
-  }))
+  return shownPaths.map((path, i) => {
+    const targetX = call.x + SEARCH_DISCOVERY.offsetX
+    const targetY = call.y + (i - (shownPaths.length - 1) / 2) * SEARCH_DISCOVERY.gapY
+    return {
+      id: `disc-${call.agentId}-${call.toolUseId}-${i}`,
+      agentId: call.agentId,
+      type: 'file' as const,
+      label: baseName(path),
+      content: path,
+      x: targetX,
+      y: targetY,
+      targetX,
+      targetY,
+      opacity: 0,
+      timestamp: time,
+      toolUseId: call.toolUseId,
+      listing: { tool, position: i + 1, reported: listed.reported, shown: shownPaths.length },
+    }
+  })
 }
