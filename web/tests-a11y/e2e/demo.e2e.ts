@@ -435,8 +435,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
   const activeLabel = (page: Page) =>
     page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null
-      // a toggle item (menuitemcheckbox, #380) counts as a menu item here
-      return el ? `${(el.getAttribute('role') ?? el.tagName.toLowerCase()).replace('menuitemcheckbox', 'menuitem')}:${(el.textContent ?? '').trim()}` : ''
+      return el ? `${el.getAttribute('role') ?? el.tagName.toLowerCase()}:${(el.textContent ?? '').trim()}` : ''
     })
   const graphHasFocus = (page: Page) =>
     page.evaluate(sel => document.activeElement === document.querySelector(sel), GRAPH)
@@ -488,15 +487,18 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
       const count = await items.count()
       assert.ok(count >= 2, `expected at least two menu items, got ${count}`)
       const labels = (await items.allTextContents()).map(s => s.trim())
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'first item is focused on open')
+      // the expected role is read from each item, so an action turned menuitemcheckbox by mistake still shows
+      const roles = await items.evaluateAll(els => els.map(e => e.getAttribute('role')))
+      const expected = (i: number) => `${roles[i]}:${labels[i]}`
+      assert.equal(await activeLabel(page), expected(0), 'first item is focused on open')
       await page.keyboard.press('ArrowDown')
-      assert.equal(await activeLabel(page), `menuitem:${labels[1]}`, 'ArrowDown moves to the next item')
+      assert.equal(await activeLabel(page), expected(1), 'ArrowDown moves to the next item')
       await page.keyboard.press('ArrowUp')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'ArrowUp moves back')
+      assert.equal(await activeLabel(page), expected(0), 'ArrowUp moves back')
       await page.keyboard.press('End')
-      assert.equal(await activeLabel(page), `menuitem:${labels[count - 1]}`, 'End focuses the last item')
+      assert.equal(await activeLabel(page), expected(count - 1), 'End focuses the last item')
       await page.keyboard.press('Home')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'Home focuses the first item')
+      assert.equal(await activeLabel(page), expected(0), 'Home focuses the first item')
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
     } finally { await close() }
