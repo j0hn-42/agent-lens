@@ -1,4 +1,5 @@
 import type { PanelId } from './panel-layout'
+import { FILE_TIMELINE_MAX_STEPS } from './file-timeline'
 
 // Fixed UI vocabulary (issue #32). Every panel title, aria-label, tooltip and empty state takes its words
 // from here, so one thing never has two names. Pure data: no React and no path-alias imports (node:test).
@@ -123,6 +124,19 @@ export function listedFileText(l: { tool: string; position: number; reported: nu
   const base = `File listed by ${l.tool}, ${l.position} of ${l.reported} files the call reported`
   return l.reported > l.shown ? `${base}; ${l.shown} shown, ${l.reported - l.shown} not drawn` : base
 }
+
+/** File timeline in the Files panel (#385): only calls observed to succeed are steps; commits are never inferred. */
+export const FILE_TIMELINE_LABELS = {
+  kinds: { read: 'read', edited: 'edited', written: 'written' },
+  noCallId: 'call id not reported',
+  noCommits: 'Commits are not shown: no observed event ties a file to a commit.',
+  /** "3 steps observed", "(incomplete)" when the relay could not replay some events */
+  summary: (n: number, incomplete: boolean) => `${n} step${n === 1 ? '' : 's'} observed${incomplete ? ' (incomplete)' : ''}`,
+  /** Screen-reader-only end of the summary, so each closed disclosure names its file */
+  summaryOf: (path: string) => ` of ${path}`,
+  omitted: (n: number) => `${n} earlier step${n === 1 ? '' : 's'} not kept (the ${FILE_TIMELINE_MAX_STEPS} most recent are listed)`,
+  list: (path: string) => `Steps of ${path}`,
+} as const
 
 /** "Why this tool?" and the causal chain of a failure (issue #231): each line says what was observed, or that it cannot be proven. */
 export const WHY_LABELS = {

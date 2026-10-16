@@ -4,7 +4,8 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState } from '@/lib/ui-glossary'
+import { emptyState, FILE_TIMELINE_LABELS } from '@/lib/ui-glossary'
+import { fileStepTotal, type FileTimeline } from '@/lib/file-timeline'
 import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, conflictHeading, describeConflictEditors } from '@/lib/file-conflicts'
@@ -43,6 +44,39 @@ function succeededNote(started: number, perAgent: readonly { succeeded: number }
   if (!perAgent) return ''
   const succeeded = perAgent.reduce((s, a) => s + a.succeeded, 0)
   return succeeded < started ? ` (${succeeded} succeeded)` : ''
+}
+
+/**
+ * The observed steps of one file (#385), oldest first, in a native disclosure: each step says its kind in words,
+ * its agent and its call id. Steps past the cap are counted; commits are never shown.
+ */
+function FileTimelineDetails({ path, timeline, label, incomplete }: {
+  path: string
+  timeline: FileTimeline
+  label: (agentKey: string) => string
+  incomplete: boolean
+}) {
+  const L = FILE_TIMELINE_LABELS
+  return (
+    <details className="mt-1 text-[11px] font-mono">
+      <summary className={`cursor-pointer min-h-6 rounded hover:brightness-125 ${FOCUS_RING_INSET}`} style={{ color: COLORS.textMuted }}>
+        {L.summary(fileStepTotal(timeline), incomplete)}<span className="sr-only">{L.summaryOf(path)}</span>
+      </summary>
+      {timeline.omitted > 0 && (
+        <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{L.omitted(timeline.omitted)}</p>
+      )}
+      <ol aria-label={L.list(path)} className="m-0 mt-0.5 pl-5 list-decimal space-y-0.5" start={timeline.omitted + 1}>
+        {timeline.steps.map(s => (
+          <li key={s.callId} style={{ color: COLORS.textPrimary }}>
+            <span className="font-semibold">{L.kinds[s.kind]}</span>
+            {' by '}{label(s.agentId)}
+            <span style={{ color: COLORS.textMuted }}>{' · '}{s.toolUseId ? <span className="break-all">call {s.toolUseId}</span> : L.noCallId}</span>
+          </li>
+        ))}
+      </ol>
+      <p className="m-0 mt-0.5" style={{ color: COLORS.textMuted }}>{L.noCommits}</p>
+    </details>
+  )
 }
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents, replayLost = 0 }: FileAttentionPanelProps) {
@@ -212,6 +246,9 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
                     </span>
                   )}
                 </div>
+                {file.timeline && fileStepTotal(file.timeline) > 0 && (
+                  <FileTimelineDetails path={file.path} timeline={file.timeline} label={label} incomplete={replayLost > 0} />
+                )}
               </li>
             )
           })}
