@@ -7,7 +7,7 @@ import { overlayHits } from './overlay-state'
 import { bubbleAlpha } from './bubble-utils'
 import { measureTextCached } from './render-cache'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 
 /** World-space bubbles attached to agents (used when zoomed in) */
 export function drawMessageBubblesWorld(
@@ -16,7 +16,7 @@ export function drawMessageBubblesWorld(
   time: number,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  const showText = lodForZoom(opts.zoom).details
+  const showText = lodOf(opts).details
   for (const agent of agents.values()) {
     if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
     // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible

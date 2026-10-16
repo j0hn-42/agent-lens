@@ -10,7 +10,7 @@ import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
@@ -660,7 +660,7 @@ export function drawAgents(
   now: number = Date.now(),
 ) {
   const { reducedMotion } = opts
-  const lod = lodForZoom(opts.zoom)
+  const lod = lodOf(opts)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
     if (!pointInView(opts.view, agent.x, agent.y, AGENT_CULL_EXTENT)) continue

@@ -10,7 +10,7 @@ import { END_NOT_OBSERVED } from '@/lib/ui-glossary'
 import { USAGE_LABELS } from '@/lib/usage'
 import { boxInView } from './view-cull'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 
 /** Glow and error halo around a card (world units) */
 const TOOL_CULL_SLACK = 24
@@ -23,7 +23,7 @@ export function drawToolCalls(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const { reducedMotion } = opts
-  const showText = lodForZoom(opts.zoom).details
+  const showText = lodOf(opts).details
   for (const [id, tool] of toolCalls) {
     if (tool.opacity < MIN_VISIBLE_OPACITY) continue
     if (!boxInView(opts.view, tool.x - TOOL_MAX_CARD_W / 2 - TOOL_CULL_SLACK, tool.y - TOOL_DRAW.expandedHeight / 2 - TOOL_CULL_SLACK, tool.x + TOOL_MAX_CARD_W / 2 + TOOL_CULL_SLACK, tool.y + TOOL_DRAW.expandedHeight / 2 + TOOL_CULL_SLACK)) continue

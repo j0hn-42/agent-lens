@@ -6,7 +6,7 @@ import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edg
 import { getGlowSprite } from './render-cache'
 import { pointInView, PARTICLE_CULL_EXTENT } from './view-cull'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
 export function buildEdgeMap(edges: Edge[]): Map<string, Edge> {
@@ -25,7 +25,7 @@ export function drawParticles(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const { reducedMotion } = opts
-  const showLabels = lodForZoom(opts.zoom).details
+  const showLabels = lodOf(opts).details
   for (const particle of particles) {
     const edge = edgeMap.get(particle.edgeId)
     if (!edge) continue

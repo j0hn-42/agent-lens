@@ -2,7 +2,7 @@ import type { Agent } from '@/lib/agent-types'
 import { SCENE } from '@/lib/colors'
 import { alphaHex } from '@/lib/utils'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 import {
   type ResolvedLink, type LinkState, linkCurve, curvePoint, curveTangent,
 } from './link-geometry'
@@ -62,7 +62,7 @@ export function drawLinks(
   time: number,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  const lod = lodForZoom(opts.zoom)
+  const lod = lodOf(opts)
   for (const r of links) {
     const curve = linkCurve(r, agents)
     if (!curve) continue
@@ -141,7 +141,7 @@ export function drawEdgeBubbles(
   hoveredLinkId: string | null | undefined,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  if (!lodForZoom(opts.zoom).details) return
+  if (!lodOf(opts).details) return
   const scale = opts.zoom > 0 ? opts.zoom : 1
   for (const b of bubbles) {
     const place = opts.plan?.get(planKey.edgeBubble(edgeBubblePlanId(b)))

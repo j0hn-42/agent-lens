@@ -157,6 +157,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   // Delegation path (#56): restarts whenever the selected node changes
   const pathAnimRef = useRef(createPathAnimation())
   const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
+  // Level of detail of the previous frame: the thresholds keep a hysteresis band so text does not blink (#378)
+  const lodRef = useRef<DrawOpts['lod']>(undefined)
   // Stable ref so the rAF loop always calls the latest draw without re-subscribing
   const drawRef = useRef<(timestamp: number) => void>(() => {})
 
@@ -263,6 +265,9 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       const opts = drawOptsRef.current
       opts.reducedMotion = reducedMotion
       opts.zoom = transform.scale
+      const lod = lodForZoom(transform.scale, lodRef.current)
+      lodRef.current = lod
+      opts.lod = lod
       opts.showCost = !!showCostOverlay
       opts.showStats = showStats
       opts.showSessionLabels = hasSeveralSessions(agents.values())
@@ -302,7 +307,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       for (const b of cappedEdgeBubbles) if (deps.heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod: lodForZoom(transform.scale),
+          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod,
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: deps.simTimeRef.current, teams: deps.teamsRef.current,
@@ -432,7 +437,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       // Focusable buttons over the edge bubbles, at the places the overlay plan chose
       if (deps.bubbleLayerRef.current) {
         const specs: BubbleButtonSpec[] = []
-        if (opts.plan && lodForZoom(transform.scale).details) {
+        if (opts.plan && lod.details) {
           for (const b of cappedEdgeBubbles) {
             const place = opts.plan.get(planKey.edgeBubble(b.key))
             if (!place || place.hidden || !place.rect) continue

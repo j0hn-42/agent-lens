@@ -193,9 +193,10 @@ test('hitTestAt prefers agent, then tool, then discovery', () => {
 })
 
 test('level of detail hides text below the thresholds', () => {
-  assert.deepEqual(lodForZoom(1), { labels: true, details: true })
-  assert.deepEqual(lodForZoom(LOD.detailMinZoom - 0.01), { labels: true, details: false })
-  assert.deepEqual(lodForZoom(LOD.labelMinZoom - 0.01), { labels: false, details: false })
+  assert.deepEqual(lodForZoom(1), { labels: true, details: true, cardText: true })
+  assert.deepEqual(lodForZoom(LOD.cardTextMinZoom - 0.01), { labels: true, details: true, cardText: false })
+  assert.deepEqual(lodForZoom(LOD.detailMinZoom - 0.01), { labels: true, details: false, cardText: false })
+  assert.deepEqual(lodForZoom(LOD.labelMinZoom - 0.01), { labels: false, details: false, cardText: false })
 })
 
 test('overlay layout stacks percent, stats and cost without overlap', () => {

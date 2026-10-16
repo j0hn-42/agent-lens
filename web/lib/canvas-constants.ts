@@ -538,10 +538,25 @@ export const HIT_DETECTION = {
 // ─── Level of detail (zoom thresholds) ──────────────────────────────────────
 
 export const LOD = {
-  /** Below this zoom, hide secondary text: stats, token labels, tool/discovery/bubble text, cost pills */
+  /**
+   * Smallest on-screen size (px) of a canvas text that follows the zoom (#378). Below 100% the agent
+   * labels are held at this size (the overlay plan then hides or shortens the ones that collide);
+   * tool-card and bubble text, drawn at 11 world px, is replaced by the card icon or the bubble count chip.
+   */
+  minTextPx: 11,
+  /** Below this zoom, hide secondary text: stats, token labels, discovery text, cost pills */
   detailMinZoom: 0.6,
-  /** Below this zoom, hide agent names and state labels too (only shapes remain) */
+  /** Below this zoom, a tool card is drawn as its icon and a bubble stack as its count chip: their 11 px text would fall under minTextPx (11 / 11) */
+  cardTextMinZoom: 1,
+  /** Below this zoom, hide agent names and state labels too (only shapes remain): the nodes are too small to carry a label held at minTextPx */
   labelMinZoom: 0.35,
+  /**
+   * Hysteresis of every threshold above: a level that is shown is dropped only once the zoom falls this
+   * fraction under its threshold, and shown again at the threshold itself. A zoom that hovers at a
+   * threshold (wheel steps, auto-fit easing) then flips a level once instead of making it blink.
+   * In the band, card text can be drawn down to minTextPx × (1 − hysteresis), about 10 px.
+   */
+  hysteresis: 0.08,
 } as const
 
 // ─── State presentation (colour + text, so state never relies on colour alone) ──
