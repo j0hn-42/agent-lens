@@ -178,6 +178,36 @@ test('top bar 390x844: folded with Hide inactive agents on, More says a filter i
   }
 })
 
+// Crossing 600 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
+const focusedName = (page: Page) => page.evaluate(`(() => { const a = document.activeElement; return !a || a === document.body ? 'BODY' : (a.getAttribute('aria-label') || a.textContent.trim()) })()`) as Promise<string>
+
+test('top bar: More has the focus and the window widens past 600 px, the focus stays in the bar', async () => {
+  const page = await open(390, 844)
+  try {
+    await page.locator('header button[aria-expanded]').focus()
+    await page.setViewportSize({ width: 700, height: 844 })
+    await page.waitForFunction(`!document.querySelector('header button[aria-expanded]')`)
+    const name = await focusedName(page)
+    assert.notEqual(name, 'BODY', 'the focus is not lost on <body>')
+    assert.ok(await page.evaluate(`document.querySelector('header').contains(document.activeElement)`), `the focus stays in the top bar (got "${name}")`)
+  } finally {
+    await page.context().close()
+  }
+})
+
+test('top bar: a filter has the focus and the window narrows under 600 px, the filter keeps it', async () => {
+  const page = await open(700, 844)
+  try {
+    await page.getByRole('button', { name: 'Hide inactive agents' }).focus()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.waitForFunction(`!!document.querySelector('header button[aria-expanded]')`)
+    assert.equal(await focusedName(page), 'Hide inactive agents', 'the focused filter is still rendered and focused')
+    assert.equal(await page.locator('header button[aria-expanded]').getAttribute('aria-expanded'), 'true', 'More opened to keep it')
+  } finally {
+    await page.context().close()
+  }
+})
+
 for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`timeline ${w}x${h}: header labels neither touch each other nor leave the canvas`, async () => {
     const page = await open(w, h)
