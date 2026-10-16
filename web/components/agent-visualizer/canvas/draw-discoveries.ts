@@ -56,6 +56,7 @@ export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Disc
       ctx.shadowBlur = 0
     }
 
+    // The colour bar is decorative (about 2.2:1): the type is given in text, in the tooltip and the a11y list
     ctx.fillStyle = typeColor + '60'
     ctx.fillRect(cardX, cardY, 2, cardH)
 
