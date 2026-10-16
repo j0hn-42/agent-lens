@@ -16,7 +16,8 @@ export function drawMessageBubblesWorld(
   time: number,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  const showText = lodOf(opts).details
+  // Under LOD.cardTextMinZoom the plan folds each stack into its count chip; bubbles are never drawn empty (#378)
+  const showText = lodOf(opts).cardText
   for (const agent of agents.values()) {
     if (agent.messageBubbles.length === 0 || !isAgentVisible(agent)) continue
     // Hovered / focused agents, paused playback and "never hide" keep their bubbles visible
@@ -30,6 +31,7 @@ export function drawMessageBubblesWorld(
       drawBubbleChip(ctx, agent, time, held, opts.zoom)
       continue
     }
+    if (!showText) continue
     const anchorX = agent.x + radius + AGENT_DRAW.bubbleAnchorOffset
     let cursorY = agent.y + AGENT_DRAW.bubbleCursorY
 

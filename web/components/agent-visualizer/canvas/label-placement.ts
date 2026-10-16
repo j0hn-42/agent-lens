@@ -42,6 +42,8 @@ export interface PlacementRequest {
   shiftBounds?: Rect
   /** Only shown when there is room at the preferred position (no fallback offsets tried) */
   fixed?: boolean
+  /** Only the compact form is tried (the full one would be unreadable at this zoom, #378) */
+  compactOnly?: boolean
 }
 
 export interface Obstacle {
@@ -123,7 +125,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
     const base = req.rect
     const candidates = req.fixed ? [{ dx: 0, dy: 0 }] : [{ dx: 0, dy: 0 }, ...(req.offsets ?? defaultOffsets(base.w, base.h))]
     let chosen: { dx: number; dy: number } | null = null
-    for (const c of candidates) {
+    for (const c of req.compactOnly && req.compact ? [] : candidates) {
       const r = { x: base.x + c.dx, y: base.y + c.dy, w: base.w, h: base.h }
       if (!inside(r, options.bounds)) continue
       if ((c.dx !== 0 || c.dy !== 0) && !inside(r, req.shiftBounds)) continue

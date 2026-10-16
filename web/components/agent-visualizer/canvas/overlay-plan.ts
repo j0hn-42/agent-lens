@@ -63,7 +63,8 @@ export interface OverlayPlanInput {
   viewport: { w: number; h: number }
   /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
   safeArea?: Rect
-  lod: { labels: boolean; details: boolean }
+  /** cardText false (or absent = true): agent bubbles are planned as their count chip only (#378) */
+  lod: { labels: boolean; details: boolean; cardText?: boolean }
   showStats: boolean
   showCost: boolean
   showSessionLabels: boolean
@@ -326,6 +327,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
           owner: id,
           fixed: true,
           ignoreObstacles: isPriority,
+          // Bubble text would fall under LOD.minTextPx on screen: the count chip stands for the stack
+          compactOnly: input.lod.cardText === false,
         })
       }
     }
