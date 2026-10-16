@@ -51,6 +51,8 @@ export interface SubagentFileInfo {
   parentAgentId?: string
   /** Set when the .meta.json describes an Agent Team teammate (in_process_teammate / teamName) */
   teammate?: TeammateMeta
+  /** The .meta.json says the user stopped this subagent (`stoppedByUser: true`): an end proven on disk (#446) */
+  stoppedByUser?: boolean
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -98,6 +100,7 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
   let toolUseId: string | undefined
   let parentAgentId: string | undefined
   let teammate: TeammateMeta | undefined
+  let stoppedByUser = false
   const metaPath = jsonlPath.replace(/\.jsonl$/, '.meta.json')
   // Size-capped, symlinks refused; the file may not exist for older Claude Code versions
   const meta = readJsonFileSafe(metaPath, TEAMMATE_META_MAX_BYTES)
@@ -120,6 +123,7 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
     if (name && name !== 'subagent') label = name
     toolUseId = pickString(rec, TOOL_USE_HINT_KEYS)
     parentAgentId = pickString(rec, PARENT_AGENT_HINT_KEYS)
+    stoppedByUser = rec.stoppedByUser === true
   }
   if (!toolUseId || !parentAgentId) {
     const first = readFirstEntry(jsonlPath)
@@ -128,7 +132,7 @@ export function resolveSubagentFileInfo(jsonlPath: string, fallbackIndex: number
       parentAgentId = parentAgentId ?? pickString(first, PARENT_AGENT_HINT_KEYS)
     }
   }
-  return { label: label || generateSubagentFallbackName('', fallbackIndex), agentId, toolUseId, parentAgentId, ...(teammate ? { teammate } : {}) }
+  return { label: label || generateSubagentFallbackName('', fallbackIndex), agentId, toolUseId, parentAgentId, ...(teammate ? { teammate } : {}), ...(stoppedByUser ? { stoppedByUser } : {}) }
 }
 
 /** Scan the subagents directory for new JSONL files and start tailing them */
@@ -310,9 +314,10 @@ function startWatchingSubagentFile(
     spawnFromRecord(delegate, session, record, sessionId)
   }
   // Dispatched in the history (#446): `spawned` comes from the prescan, nothing was emitted. Its spawn is
-  // owed while the history shows no end (emitCatchUpSpawns); an ended one is never brought back here.
+  // owed while the history shows no end (emitCatchUpSpawns); an ended one is never brought back here,
+  // nor one whose meta says the user stopped it (no task notification is written for that stop).
   if (record.historyOrder !== undefined) {
-    if (record.toolUseId && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
+    if (record.toolUseId && !info.stoppedByUser && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
       state.spawnEmitted = false
       state.catchUpSpawn = true
     } else {
