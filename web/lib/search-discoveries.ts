@@ -10,9 +10,13 @@ interface ListedPaths {
   reported: number
 }
 
-/** An absolute POSIX or Windows path on its own line; a `path:12:` content or count line is not one. */
+/**
+ * A whole path line under the header: Grep prints paths relative to the working directory, so no prefix is
+ * required. Empty, space-padded or control-character lines are not paths; a `path:12:` content or count line
+ * is not one either.
+ */
 function isPathLine(line: string): boolean {
-  if (!/^(\/|[A-Za-z]:[\\/])\S/.test(line)) return false
+  if (!line || /^\s|\s$/.test(line)) return false
   if (/[\u0000-\u001f\u007f]/.test(line)) return false
   return !/:\d+(:|$)/.test(line)
 }
@@ -20,7 +24,7 @@ function isPathLine(line: string): boolean {
 /**
  * The paths a successful Glob / Grep output lists itself (#438). Null unless the output starts with the tool's own
  * `Found N files` header (a list without it is not proven to be paths), Grep is not in content or count mode, and
- * at least one whole path line follows. Lines are read up to the first one that is not an absolute path; the last
+ * at least one whole path line follows. Lines are read up to the first one that is not a path line; the last
  * line of an output that reached the capture limit may be cut, so it is dropped. More paths than the header
  * reports means the output is not what it claims: null. The caller checks the call succeeded.
  */
