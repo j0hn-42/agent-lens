@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP, MIN_SHEET_H_WITH_BANNER,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -361,7 +361,7 @@ test('320 x 568, two panels and a banner: the sheet starts under the notice and 
 test('320 x 568, agent card alone and a banner: the card sheet does not cover the banner (#453 review)', () => {
   const l = phone(['detail'], 0, 74)
   assert.ok(l.rects.detail!.y >= l.area.y + topbarStack(0, 0, 74).bannerTop! + 74, `card at ${l.rects.detail!.y}`)
-  assert.ok(l.rects.detail!.h >= 96, "the card keeps a usable, scrolling sheet")
+  assert.ok(l.rects.detail!.h >= MIN_SHEET_H_WITH_BANNER, "the card keeps a usable, scrolling sheet")
 })
 
 test('a window too short even for the reduced floor: the notice band is kept, then nothing (#453 review)', () => {

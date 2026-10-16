@@ -218,10 +218,23 @@ export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0): { ba
   return { bannerTop, band: lowest > 0 ? lowest + 2 : 0 }
 }
 
-/** Band a sheet keeps free under the top bar for that column; none when it would leave no usable sheet. */
+/**
+ * Smallest sheet left under the column when a truncation banner is drawn (#453): lower than MIN_MAIN_H, so a phone
+ * (320 x 568, where the top bar wraps) keeps the banner, the only sign of a partial graph, visible; the sheet scrolls.
+ */
+export const MIN_SHEET_H_WITH_BANNER = 96
+
+/**
+ * Band a sheet keeps free under the top bar for that column. In order: the whole column (notice and banner) when it
+ * leaves MIN_MAIN_H, or, with a banner, MIN_SHEET_H_WITH_BANNER; else the notice alone (as before #453) when it leaves
+ * MIN_MAIN_H; else none (the sheet takes the room and may cover the column).
+ */
 function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0, bannerH = 0): number {
-  const { band } = topbarStack(hiddenCount, noticeH, bannerH)
-  return band > 0 && areaH - band >= MIN_MAIN_H ? band : 0
+  const full = topbarStack(hiddenCount, noticeH, bannerH)
+  const floor = full.bannerTop !== null ? MIN_SHEET_H_WITH_BANNER : MIN_MAIN_H
+  if (full.band > 0 && areaH - full.band >= floor) return full.band
+  const noticeOnly = topbarStack(hiddenCount, noticeH, 0).band
+  return noticeOnly > 0 && areaH - noticeOnly >= MIN_MAIN_H ? noticeOnly : 0
 }
 
 function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number, bannerH?: number): DockLayout {
