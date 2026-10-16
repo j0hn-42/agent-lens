@@ -47,7 +47,7 @@ test('"important" reads nothing for new agents; "all" does; the level is read at
   const { hook, setAgents, levelRef } = mount('important')
   setAgents([agent('A', 'idle')])
   act(() => hook.result.current.detectStateChanges())
-  assert.deepEqual(hook.result.current.announcements, [], 'important: a spawn is not announced')
+  assert.equal(hook.result.current.announcements.length, 0, 'important: a spawn is not announced')
   levelRef.current = 'all'
   setAgents([agent('A', 'idle'), agent('B', 'idle')])
   act(() => hook.result.current.detectStateChanges())
