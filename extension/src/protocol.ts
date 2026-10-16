@@ -432,6 +432,8 @@ export interface SubagentState {
   permissionTimer: NodeJS.Timeout | null
   permissionEmitted: boolean
   spawnEmitted: boolean
+  /** Its dispatch was read from the history at attach and shows no end: its spawn is still owed (#446) */
+  catchUpSpawn?: boolean
   /** agent_id parsed from the transcript file name (agent-<id>.jsonl) */
   agentId?: string
   /** Set for in-process Agent Team teammates (see teammate.ts) */
@@ -461,6 +463,8 @@ export interface WatchedSession {
   subagentWatchers: Map<string, SubagentState>
   /** Names of subagents already spawned (by transcript parser or file watcher) — prevents duplicate spawns */
   spawnedSubagents: Set<string>
+  /** agent_spawn emitted at attach for subagents launched in the history (#446), bounded by SUBAGENT_CATCH_UP_SPAWNS_MAX */
+  catchUpSpawns?: number
   /** Subagent names currently receiving inline progress events — file watcher skips these */
   inlineProgressAgents: Set<string>
   subagentsDirWatcher: import('fs').FSWatcher | null

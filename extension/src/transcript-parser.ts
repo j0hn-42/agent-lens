@@ -966,6 +966,8 @@ export class TranscriptParser {
                   const record = this.getSubagentRegistry(session.sessionId)
                     .registerDispatch(toolBlock.id, resolveSubagentChildName(toolBlock.input), ORCHESTRATOR_NAME)
                   record.spawned = true
+                  // Known, not announced: the subagent file watcher owes its spawn while it shows no end (#446)
+                  this.getSubagentRegistry(session.sessionId).markFromHistory(record)
                   session.spawnedSubagents.add(record.name)
                   this.subagentChildNames.set(toolBlock.id, record.name)
                   if (sanitizeTeamField(toolBlock.input.team_name) && this.teammateSpawnIds.size < 256) {
@@ -994,6 +996,9 @@ export class TranscriptParser {
                     toolUseId: resultBlock.tool_use_id, childName, parent: ORCHESTRATOR_NAME, sessionId: session.sessionId,
                     ...(asyncLaunch.agentId ? { agentId: asyncLaunch.agentId } : {}),
                   })
+                  // The receipt names the subagent's file (agent-<agentId>.jsonl): bind it to this dispatch (#446)
+                  const record = this.getSubagentRegistry(session.sessionId).getByToolUseId(resultBlock.tool_use_id)
+                  if (record && asyncLaunch.agentId) this.getSubagentRegistry(session.sessionId).bindFileKey(record, asyncLaunch.agentId)
                 }
                 // Clear matched pending tool call
                 session.pendingToolCalls.delete(resultBlock.tool_use_id)
@@ -1048,6 +1053,18 @@ export class TranscriptParser {
       session.fileTail = ''
       return []
     }
+  }
+
+  /**
+   * Is this subagent dispatch still open, as far as the transcript proves (#446)? A synchronous dispatch
+   * until its tool_result, a background one until a terminal <task-notification> (a SendMessage resume
+   * re-opens it, #433). A teammate spawn is not a subagent run (its own watcher announces it).
+   */
+  isSubagentDispatchOpen(session: WatchedSession, toolUseId: string): boolean {
+    if (this.teammateSpawnIds.has(toolUseId)) return false
+    const pending = session.pendingToolCalls.get(toolUseId)
+    if (pending && (pending.name === 'Agent' || pending.name === 'Task')) return true
+    return this.backgroundLaunches.has(toolUseId)
   }
 
   /** Pre-scan: a launch already notified as finished in the history is no longer open (nothing is emitted). */
