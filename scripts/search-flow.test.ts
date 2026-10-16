@@ -110,6 +110,13 @@ test('chips move only during SEARCH_FLOW.chipWindowS after the call completed (#
   assert.ok(at(10, { completeTime: undefined }).every(s => !s.moving), 'no completion time: nothing proves it just completed')
 })
 
+test('a stopped session clock (paused inside the window): no chip, so the pause cannot hold the full rate (#384)', () => {
+  const segs = searchFlowSegments([disc(0)], calls(call({ completeTime: 10 })), size, null)
+  assert.equal(segs.length, 1, 'the line stays')
+  assert.equal(segs[0].moving, false)
+  assert.equal(searchFlowMoves([disc(0)], calls(call({ completeTime: 10 })), size, null), false)
+})
+
 test('after the window: no chip and no full frame rate, even with the cards pinned (#384)', () => {
   const held = expiryHold.neverHide
   expiryHold.neverHide = true

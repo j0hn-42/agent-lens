@@ -16,18 +16,24 @@ export interface FlowSegment {
   /** 0-based rank among the segments of the same call, and how many the call has */
   index: number
   count: number
+  /** The call completed less than SEARCH_FLOW.chipWindowS ago (session time): only then does a chip travel */
+  moving: boolean
 }
 
 /**
  * The segments to draw. A card gets one only when it was made from a search (`listing`) and a tool call of the
  * same agent with the same `toolUseId` is present and complete: the link is the id, never a guess from position
  * or time. A card that has faded out or a call that has disappeared gives nothing. At most
- * SEARCH_DISCOVERY.maxPerCall segments per call, whatever the discoveries hold.
+ * SEARCH_DISCOVERY.maxPerCall segments per call, whatever the discoveries hold. A segment `moves` only during
+ * SEARCH_FLOW.chipWindowS of session time after the call's `completeTime` (none known: it does not move), so a
+ * card held on screen (Pin cards, pause) keeps a static line, never a chip. `simTime` null: the session clock is
+ * stopped (paused playback), nothing moves.
  */
 export function searchFlowSegments(
   discoveries: readonly Discovery[],
   toolCalls: ReadonlyMap<string, ToolCallNode>,
   cardSize: (toolCallId: string) => { w: number; h: number } | undefined,
+  simTime: number | null,
 ): FlowSegment[] {
   let byKey: Map<string, ToolCallNode> | null = null
   const perCall = new Map<string, number>()
@@ -57,10 +63,27 @@ export function searchFlowSegments(
       opacity: Math.min(d.opacity, call.opacity),
       index: n,
       count: 0,
+      moving: chipsMove(call.completeTime, simTime),
     })
   }
   for (const s of out) s.count = perCall.get(s.toolCallId) ?? 1
   return out
+}
+
+function chipsMove(completeTime: number | undefined, simTime: number | null): boolean {
+  if (completeTime == null || simTime == null) return false
+  const age = simTime - completeTime
+  return age >= 0 && age < SEARCH_FLOW.chipWindowS
+}
+
+/** Does a chip travel somewhere? Then the draw loop keeps its full frame rate (#384) */
+export function searchFlowMoves(
+  discoveries: readonly Discovery[],
+  toolCalls: ReadonlyMap<string, ToolCallNode>,
+  cardSize: (toolCallId: string) => { w: number; h: number } | undefined,
+  simTime: number | null,
+): boolean {
+  return discoveries.length > 0 && searchFlowSegments(discoveries, toolCalls, cardSize, simTime).some(s => s.moving)
 }
 
 /** Where a chip is along its line, in [0, 1): chips of one call are spread evenly so they never pile up */
@@ -71,7 +94,8 @@ function flowChipPosition(time: number, index: number, count: number): number {
 
 /**
  * A thin line with an arrowhead at the file card, always drawn: the direction (call to files) is carried by the
- * arrowhead, not by motion. Unless motion is calm, one chip per card also travels along the line; the chip
+ * arrowhead, not by motion. Unless motion is calm, and only while the segment `moves` (SEARCH_FLOW.chipWindowS
+ * after the call completed), one chip per card also travels along the line; the chip
  * count is the card count, so it is bounded by SEARCH_DISCOVERY.maxPerCall per call. No text is drawn.
  */
 export function drawSearchFlow(ctx: CanvasRenderingContext2D, segments: readonly FlowSegment[], time: number, opts: DrawOpts) {
@@ -102,7 +126,7 @@ export function drawSearchFlow(ctx: CanvasRenderingContext2D, segments: readonly
     ctx.lineTo(bx + uy * SEARCH_FLOW.arrowHalfWidth, by - ux * SEARCH_FLOW.arrowHalfWidth)
     ctx.closePath()
     ctx.fill()
-    if (!opts.reducedMotion) {
+    if (!opts.reducedMotion && s.moving) {
       const p = flowChipPosition(time, s.index, s.count)
       ctx.globalAlpha = s.opacity
       ctx.beginPath()

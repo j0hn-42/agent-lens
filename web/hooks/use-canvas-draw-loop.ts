@@ -20,7 +20,7 @@ import {
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
-import { searchFlowSegments, drawSearchFlow } from '@/components/agent-visualizer/canvas/search-flow'
+import { searchFlowSegments, searchFlowMoves, drawSearchFlow } from '@/components/agent-visualizer/canvas/search-flow'
 import { measureTextCached, getToolCardSize } from '@/components/agent-visualizer/canvas/render-cache'
 import type { Transform } from '@/components/agent-visualizer/canvas/camera-fit'
 import { sceneAgents, costScope } from '@/components/agent-visualizer/canvas/scene'
@@ -209,10 +209,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         MOTION_LAYERS.map(l => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, l) ? '1' : '0').join(''),
       ],
     })
-    // A chip travelling to a file card keeps the full frame rate, unless the links layer is calm (static line then)
-    const flowMoves = s.discoveries.length > 0
-      && !layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, 'links')
-      && searchFlowSegments(s.discoveries, s.toolCalls, getToolCardSize).length > 0
+    // A chip travelling to a file card (SEARCH_FLOW.chipWindowS after its Grep completed) keeps the full frame
+    // rate, unless the links layer is calm (static line then)
+    const flowMoves = !layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, 'links')
+      && searchFlowMoves(s.discoveries, s.toolCalls, getToolCardSize, s.isPlaying ? s.currentTime : null)
     const animating = flowMoves || sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
     const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
     if (!draw) perfRef.current.skippedFrames++
@@ -402,7 +402,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         deps.hoverTargetRef.current?.type === 'link' ? deps.hoverTargetRef.current.id : null,
         timeRef.current, opts,
       )
-      drawSearchFlow(ctx, searchFlowSegments(discoveries, toolCalls, getToolCardSize), timeRef.current, opts)
+      drawSearchFlow(ctx, searchFlowSegments(discoveries, toolCalls, getToolCardSize, deps.simulationRef.current.isPlaying ? deps.simTimeRef.current : null), timeRef.current, opts)
       opts.reducedMotion = calmOf('agents')
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
       drawBranchBadges(ctx, agents, deps.drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)

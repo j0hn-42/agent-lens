@@ -128,6 +128,8 @@ export const SEARCH_FLOW = {
   arrowHalfWidth: 3.5,
   /** Gap between a card edge and the end of the line */
   edgeGap: 2,
+  /** Seconds of session time after the call completed during which the chips travel; the line and arrowhead stay */
+  chipWindowS: 3,
 } as const
 /** Seconds a message bubble is considered visible (for pruning) */
 export const BUBBLE_VISIBLE_S = 12
