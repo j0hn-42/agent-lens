@@ -18,7 +18,7 @@ test('canvas menu: Toggle Stats and Toggle Grid expose the current state', () =>
   const off = contextMenuItems(false, actions(false, true))
   assert.equal(find(off, 'Toggle Stats')?.checked, false)
   assert.equal(find(off, 'Toggle Grid')?.checked, true)
-  assert.equal(find(off, 'Zoom to Fit')?.checked, undefined, 'a plain action has no state')
+  assert.deepEqual(off.filter(i => i.checked !== undefined).map(i => i.label), ['Toggle Stats', 'Toggle Grid'], 'only the two toggles carry a state')
 })
 
 test('agent menu: Toggle Stats exposes the current state', () => {
