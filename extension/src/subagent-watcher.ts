@@ -20,7 +20,7 @@ import {
 import {
   SESSION_ID_DISPLAY, ORCHESTRATOR_NAME, generateSubagentFallbackName, resolveSubagentChildName,
   SUBAGENT_ID_SUFFIX_LENGTH, TEAMMATE_MAX_PER_SESSION, TEAMMATE_META_MAX_BYTES, WORKFLOW_AGENT_TYPE,
-  SUBAGENT_CATCH_UP_SPAWNS_MAX,
+  SUBAGENT_CATCH_UP_SPAWNS_MAX, ACTIVE_SESSION_AGE_S,
 } from './constants'
 import { safeWatch, readTrackedLines, readLinesChunked, readJsonFileSafe, listSubagentTranscripts } from './fs-utils'
 import {
@@ -286,8 +286,10 @@ function startWatchingSubagentFile(
   // Bounded by the stat size (a tool_use written later must stay out of the dedup set, the tail
   // emits it) and streamed in chunks; an unfinished last line is kept in fileTail.
   const pendingToolUseIds = new Set<string>()
+  let mtimeMs: number | undefined
   try {
     const stat = fs.statSync(filePath)
+    mtimeMs = stat.mtimeMs
     for (const line of readLinesChunked(filePath, stat.size, undefined, state)) {
       if (!line.trim()) continue
       try {
@@ -321,7 +323,10 @@ function startWatchingSubagentFile(
   if (record.historyOrder !== undefined) {
     if (record.toolUseId && !info.stoppedByUser && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
       state.spawnEmitted = false
-      state.catchUpSpawn = true
+      // Announced at attach only if its file was written within ACTIVE_SESSION_AGE_S; an older one waits for
+      // its next line (readSubagentNewLines), still only while its dispatch shows no end
+      const recent = mtimeMs !== undefined && Date.now() - mtimeMs <= ACTIVE_SESSION_AGE_S * 1000
+      if (recent) state.catchUpSpawn = true
     } else {
       record.historyOrder = undefined
     }
