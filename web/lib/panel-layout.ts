@@ -222,7 +222,7 @@ export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0): { ba
  * Smallest sheet left under the column when a truncation banner is drawn (#453): lower than MIN_MAIN_H, so a phone
  * (320 x 568, where the top bar wraps) keeps the banner, the only sign of a partial graph, visible; the sheet scrolls.
  */
-export const MIN_SHEET_H_WITH_BANNER = 96
+const MIN_SHEET_H_WITH_BANNER = 96
 
 /**
  * Band a sheet keeps free under the top bar for that column. In order: the whole column (notice and banner) when it
