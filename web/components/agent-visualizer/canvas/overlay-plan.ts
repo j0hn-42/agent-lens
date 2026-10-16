@@ -20,6 +20,7 @@ import {
   orchestratorInfo,
 } from './team-style'
 import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
+import { labelScaleForZoom } from './draw-options'
 import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
 import {
@@ -220,6 +221,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     })
   }
 
+  const labelScale = labelScaleForZoom(s)
   for (const a of visible) {
     const id = a.id
     const r = agentDrawRadius(a)
@@ -249,11 +251,13 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const barShown = contextBarShown(a)
       const labelH = lines * AGENT_DRAW.stateLabelGap
       const blockH = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
-      const full = toScreen(t, a.x - wW / 2, top, wW, blockH)
+      // Drawn enlarged by labelScale around its top centre below 100% (held at LOD.minTextPx on screen, #378)
+      const k = labelScale
+      const full = toScreen(t, a.x - (wW * k) / 2, top, wW * k, blockH * k)
       const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
       const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
       const cW = measure(compactText) + LABEL_PAD * 2
-      const compact = toScreen(t, a.x - cW / 2, top, cW, barShown ? blockH : AGENT_DRAW.stateLabelGap)
+      const compact = toScreen(t, a.x - (cW * k) / 2, top, cW * k, (barShown ? blockH : AGENT_DRAW.stateLabelGap) * k)
       requests.push({
         id: planKey.label(id),
         priority: overlayPriority(PRIORITY.agentLabel, flags),

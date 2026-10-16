@@ -151,7 +151,8 @@ test('drawToolCalls: at 100% the card keeps its text (#378)', () => {
 
 test('bubbles: under the card-text zoom the stack folds into its count chip, no text under the minimum size (#378)', () => {
   const zoom = 0.7
-  const a = agent({ messageBubbles: [{ text: 'hello there', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 60 }] })
+  // A short stack: it ends above the label block, so only the level of detail can fold it
+  const a = agent({ messageBubbles: [{ text: 'hello there', time: 0, role: 'assistant', _cachedW: 200, _cachedH: 30 }] })
   const agents = map(a)
   const result = planOverlays(planInput(agents, zoom))
   const p = result.plan.get(planKey.bubbles(a.id))!
