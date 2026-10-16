@@ -13,6 +13,7 @@ import { recordToolStart, recordToolEnd } from '../../lib/waste'
 import { reviveFinished } from './revive-agent'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 import { searchDiscoveries } from '../../lib/search-discoveries'
+import { fileStepKind, recordFileStep } from '../../lib/file-timeline'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -277,6 +278,17 @@ export function handleToolCallEnd(
           const filePath = extractFilePath(tc.inputData, tc.args)
           const file = filePath ? state.fileAttention.get(filePath) : undefined
           if (file) state.fileAttention.set(filePath, withReader(file, agentName, r => ({ ...r, succeeded: r.succeeded + 1 })))
+        }
+        // One timeline step per call observed to succeed, tied to that call (#385); a failure or a cancellation adds none
+        const stepKind = fileStepKind(tc.toolName)
+        if (stepKind) {
+          const filePath = extractFilePath(tc.inputData, tc.args)
+          const file = filePath ? state.fileAttention.get(filePath) : undefined
+          const stepUseId = tc.toolUseId ?? toolUseId
+          const timeline = file && recordFileStep(file.timeline, {
+            kind: stepKind, callId: id, agentId: agentName, time: currentTime, ...(stepUseId ? { toolUseId: stepUseId } : {}),
+          }, toolState)
+          if (file && timeline !== file.timeline) state.fileAttention.set(filePath, { ...file, timeline })
         }
         // File cards for the paths a successful Glob / Grep output lists itself (#438); a replayed result reuses the ids
         if (toolState === 'complete') {

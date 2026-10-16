@@ -5,6 +5,7 @@ import type { UsageStatus, TokenSource } from './usage'
 import type { ModelSource } from './model-provenance'
 import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
+import type { FileTimeline } from './file-timeline'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -225,6 +226,8 @@ export interface FileAttention {
   editors?: FileEditor[]
   /** Read calls per agent, with how many were observed to succeed (#233) */
   readers?: FileReader[]
+  /** Ordered, bounded steps of the file, one per call observed to succeed (#385); absent: none yet */
+  timeline?: FileTimeline
 }
 
 export interface FileReader {
