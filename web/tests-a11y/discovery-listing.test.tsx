@@ -30,7 +30,8 @@ test('the graph list names a listed file card by the call it comes from', () => 
   const { getByRole } = render(createElement(GraphA11yList, {
     model, communications: [], announcements: [], focusedNode: null, onAgentClick: () => {}, onFocusNode: () => {},
   } as never))
-  assert.ok(getByRole('button', { name: `${ORIGIN}, for alpha: a.ts` }))
+  // The file name first: it is what tells the cards of one call apart
+  assert.ok(getByRole('button', { name: `a.ts: ${ORIGIN}, call by alpha` }))
 })
 
 test('a discovery from no call keeps its generic name', () => {
