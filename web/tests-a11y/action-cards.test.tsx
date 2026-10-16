@@ -25,12 +25,18 @@ const show = (toolName: string, inputData: Record<string, unknown>) =>
     />,
   )
 
-test('Edit: a +N -M summary with a spoken equivalent', () => {
+test('Edit: says what the figures are (lines replaced), not a diff count (#383)', () => {
   const { getByRole } = show('Edit', { file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })
   const summary = getByRole('group', { name: 'Edit summary' })
-  assert.match(summary.textContent ?? '', /\+2/)
-  assert.match(summary.textContent ?? '', /-3/)
-  assert.match(summary.textContent ?? '', /2 lines added, 3 lines removed/)
+  assert.equal(summary.textContent?.replace(/\s+/g, ' ').trim(), '3 lines replaced by 2')
+})
+
+test('Edit: an insertion and a deletion are named as such (#383)', () => {
+  const ins = show('Edit', { file_path: '/a.ts', old_string: '', new_string: 'a\nb' })
+  assert.equal(ins.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), '2 lines inserted')
+  cleanup()
+  const del = show('Edit', { file_path: '/a.ts', old_string: 'a', new_string: '' })
+  assert.equal(del.getByRole('group', { name: 'Edit summary' }).textContent?.trim(), '1 line deleted')
 })
 
 test('MultiEdit: every block is shown, numbered, with the block count', () => {
@@ -43,8 +49,8 @@ test('MultiEdit: every block is shown, numbered, with the block count', () => {
   })
   const summary = getByRole('group', { name: 'Edit summary' })
   assert.match(summary.textContent ?? '', /2 blocks/)
-  assert.match(summary.textContent ?? '', /\+3/)
-  assert.match(summary.textContent ?? '', /-2/)
+  assert.match(summary.textContent ?? '', /2 lines replaced by 3/)
+  assert.doesNotMatch(summary.textContent ?? '', /[+-]\d/)
   assert.equal(getAllByText(/^Block \d of 2$/).length, 2)
 })
 
