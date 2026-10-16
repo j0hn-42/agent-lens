@@ -38,11 +38,9 @@ function animateAgents(agents: SimulationState['agents'], deltaTime: number, cur
       else if (opacity < floor) { opacity = Math.min(floor, opacity + deltaTime * ANIM_SPEED.agentFadeIn); updated = true }
       if (scale > 0.8) { scale = Math.max(0.8, scale - deltaTime * ANIM_SPEED.agentScaleOut); updated = true }
     }
-    // Age on the simulation clock (same formula as a seek), not per frame: a hidden tab stops frames, not time
-    if (agent.state !== 'complete') {
-      const aged = Math.max(0, newTime - agent.spawnTime)
-      if (aged !== timeAlive) { timeAlive = aged; updated = true }
-    }
+    // Age on the simulation clock (same formula as a seek), not per frame; a complete agent keeps its lifetime
+    const aged = Math.max(0, (agent.state === 'complete' ? agent.completeTime ?? newTime : newTime) - agent.spawnTime)
+    if (aged !== timeAlive) { timeAlive = aged; updated = true }
     // Prune expired message bubbles
     // (skipped while the agent is hovered/focused, playback is paused, or "never hide" is on)
     if (messageBubbles.length > 0 && !isExpiryHeld('agent', id)) {

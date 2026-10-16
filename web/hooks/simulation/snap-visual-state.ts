@@ -23,6 +23,7 @@ export function snapVisualState(state: SimulationState, targetTime: number, tool
       // Main agent or archived agent that completed
       snapped.opacity = ARCHIVED_OPACITY
       snapped.scale = 1
+      snapped.timeAlive = Math.max(0, Math.min(agent.completeTime ?? targetTime, targetTime) - agent.spawnTime)
     }
     snapped.messageBubbles = agent.messageBubbles.filter(b => targetTime - b.time <= BUBBLE_VISIBLE_S)
     newAgents.set(id, snapped)
