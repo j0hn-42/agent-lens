@@ -1,6 +1,6 @@
-// #380 (1.4.3): the axe `color-contrast` rule, in a real browser, for each of the nine themes. jsdom cannot compute
-// contrast (the rule is off in axe.test.tsx) and demo.e2e.ts only checks the default theme, so a theme-specific
-// failure (e.g. "Result:" at 3.88:1 in Anthropic) went unseen. Runs against the demo app:
+// #380 (1.4.3): the axe `color-contrast` rule, in a real browser, for every theme (THEME_IDS). jsdom cannot compute
+// contrast (the rule is off in axe.test.tsx) and demo.e2e.ts only checks the default theme. This audits the initial
+// page (top bar) only; popups and panels are not opened. Runs against the demo app:
 //
 //   pnpm --dir web run test:e2e
 import { test, before, after } from 'node:test'
@@ -9,6 +9,7 @@ import { chromium, type Browser, type Page } from 'playwright'
 import { AxeBuilder } from '@axe-core/playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { THEME_IDS } from '@/lib/theme-tokens'
 
 let browser: Browser
 let server: DemoServer
@@ -22,8 +23,6 @@ after(async () => {
   await browser?.close()
   await server?.stop()
 })
-
-const THEMES = ['catppuccin-macchiato', 'graphite', 'midnight', 'ember', 'anthropic', 'contrast', 'catppuccin-mocha', 'catppuccin-frappe', 'neon'] as const
 
 /** Switch the theme through the Settings dialog, then close the dialog so only the page chrome is audited. */
 async function setTheme(page: Page, id: string) {
@@ -43,7 +42,7 @@ async function contrastFailures(page: Page) {
   }))
 }
 
-for (const id of THEMES) {
+for (const id of THEME_IDS) {
   test(`e2e: color-contrast, theme ${id}`, async () => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
     const page = await context.newPage()
