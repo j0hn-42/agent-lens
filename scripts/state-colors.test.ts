@@ -188,6 +188,8 @@ test('session list: a paused agent is not drawn with the idle colour (paused is 
 // colour must not look like another state on the canvas, in any theme. Catppuccin Frappe is the one exception, kept as a
 // todo: its official green (done) and yellow (tool call) are 0.089 apart, just under the threshold, on every surface (the
 // panels share it); the role values are the official ones, unmodified (docs/reading-the-ui.md), and the word tells them apart.
+// stateColor(y, id) is paletteFor(id)[y] by construction: this checks pairwise separation within the palette; the equality
+// tests guarantee the cross-surface identity.
 type State = (typeof STATES)[number]
 const CROSS_SURFACE_KNOWN: ReadonlyMap<string, ReadonlyArray<readonly [State, State]>> = new Map<string, ReadonlyArray<readonly [State, State]>>([
   ['catppuccin-frappe', [['complete', 'tool_calling'], ['tool_calling', 'complete']]],
@@ -195,7 +197,7 @@ const CROSS_SURFACE_KNOWN: ReadonlyMap<string, ReadonlyArray<readonly [State, St
 for (const id of THEME_IDS) {
   const known = CROSS_SURFACE_KNOWN.get(id) ?? []
   const isKnown = (x: string, y: string) => known.some(([a, b]) => a === x && b === y)
-  const name = `${id}: no panel state colour looks like another state on the canvas (deltaE >= ${MIN_DELTA_E})`
+  const name = `${id}: agent states are pairwise distinct (deltaE >= ${MIN_DELTA_E}), the same colours on the canvas and in the panels`
   if (known.length) test.todo(`${name}: ${known.map(([a, b]) => `${a}/${b}`).join(', ')} below the threshold`)
   test(known.length ? `${name}, except the known pairs` : name, () => {
     const p = paletteFor(id)
