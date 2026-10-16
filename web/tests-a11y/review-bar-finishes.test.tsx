@@ -6,6 +6,8 @@ import { render, cleanup } from '@testing-library/react'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { COLORS } from '@/lib/colors'
+import { contextMenuItems } from '@/components/agent-visualizer/selection-overlays'
+import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 
 afterEach(() => {
   cleanup()
@@ -42,4 +44,25 @@ test('live: the badge keeps the live color only while it says LIVE', () => {
   const label = live.container.querySelector('[data-live-badge] span:last-child') as HTMLElement
   assert.equal(label.textContent?.trim(), 'LIVE')
   assert.equal(label.style.color, normalized('color', COLORS.liveText))
+})
+
+test('canvas menu: "Zoom to fit" is spelled like everywhere else (shortcuts, palette)', () => {
+  const noopMenu = { toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: null }
+  const labels = contextMenuItems(false, noopMenu).map(i => i.label)
+  assert.ok(labels.includes('Zoom to fit'))
+  assert.ok(!labels.includes('Zoom to Fit'))
+})
+
+test('session search: the placeholder fits a narrow panel and the fields searched stay readable (title)', () => {
+  const { getByRole } = render(
+    <SessionListPanel
+      visible onClose={noop} sessions={[]} selectedSessionId="__all__" sessionsWithActivity={new Set()}
+      onSelectSession={noop} onCloseSession={noop} agents={new Map()} selectedAgentId={null} onSelectAgent={noop}
+      now={5000} observedSessionIds={new Set()}
+    />,
+  )
+  const input = getByRole('searchbox', { name: 'Search sessions' }) as HTMLInputElement
+  assert.ok(input.placeholder.length <= 20, `placeholder "${input.placeholder}" is cut in a narrow panel`)
+  assert.ok(!input.placeholder.includes('…') && !input.placeholder.includes('..'))
+  assert.match(input.title, /name, project, branch, agent/)
 })

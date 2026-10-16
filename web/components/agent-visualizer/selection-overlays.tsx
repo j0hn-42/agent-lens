@@ -43,7 +43,7 @@ interface ContextMenuActions {
   reloadSessionEvents: (() => void) | null
 }
 
-function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
+export function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
   if (onAgent) return [{ icon: '📊', label: 'Toggle Stats', onClick: a.toggleStats }]
   return [
     { icon: '🔍', label: 'Zoom to Fit', onClick: a.zoomToFit },
