@@ -137,3 +137,42 @@ test('390px, agent card open: Tab goes from the top bar to the banner, whose but
     await page.close()
   }
 })
+
+/** What is drawn at the centre of each button: '' when it is the button itself, else the element that covers it. */
+async function coveredButtons(frame: Frame, names: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {}
+  for (const name of names) {
+    out[name] = await frame.getByRole('button', { name, exact: true }).evaluate((el: Element) => {
+      const r = el.getBoundingClientRect()
+      const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return t === el || (t !== null && el.contains(t)) ? '' : (t ? t.outerHTML.slice(0, 160) : 'nothing')
+    })
+  }
+  return out
+}
+
+test('320 x 568 phone: the agent card, then Files with Details open, never cover the banner (#453 review)', async () => {
+  const page = await browser.newPage()
+  try {
+    const frame = await mountWithBanner(page, 320, 568)
+    await togglePanel(frame, /^Timeline/)
+    await frame.getByRole('button', { name: /^main\b/ }).first().evaluate((el: HTMLElement) => el.click())
+    await frame.locator('[data-dock-panel="detail"]').waitFor()
+    await waitForStableLayout(frame)
+    const card = await frame.evaluate(MEASURE) as Measure
+    assert.ok(card.banner && card.sheets.length === 1 && !overlap(card.sheets[0], card.banner), `the card sheet starts under the banner ${JSON.stringify(card)}`)
+    assert.ok(!card.notice || !overlap(card.sheets[0], card.notice), `the card sheet starts under the notice ${JSON.stringify(card)}`)
+    assert.deepEqual(await coveredButtons(frame, ['Details', 'Dismiss truncation warning']), { Details: '', 'Dismiss truncation warning': '' })
+
+    await togglePanel(frame, /^Files/)
+    await frame.locator('[data-dock-panel="files"]').waitFor()
+    await frame.getByRole('button', { name: 'Details', exact: true }).evaluate((el: HTMLElement) => el.click())
+    await waitForStableLayout(frame)
+    const files = await frame.evaluate(MEASURE) as Measure
+    assert.ok(files.banner && files.notice && files.sheets.length === 1, `notice, banner and one sheet ${JSON.stringify(files)}`)
+    assert.ok(!overlap(files.sheets[0], files.banner) && !overlap(files.sheets[0], files.notice), `the Files sheet starts under both ${JSON.stringify(files)}`)
+    assert.deepEqual(await coveredButtons(frame, ['Details', 'Dismiss truncation warning']), { Details: '', 'Dismiss truncation warning': '' })
+  } finally {
+    await page.close()
+  }
+})
