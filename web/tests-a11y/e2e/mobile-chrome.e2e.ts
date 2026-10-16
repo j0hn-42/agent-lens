@@ -5,10 +5,25 @@
 // toggles stay in the bar (they are the focus fallback of the panels they open).
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
+import fs from 'node:fs'
+import path from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
+import { AxeBuilder } from '@axe-core/playwright'
+import { compareViolations, type KnownViolation } from '../axe-compare'
 import { waitForStableLayout } from './stable-layout'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
 import { startDemoServer, type DemoServer } from './demo-server'
+
+const known: KnownViolation[] = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'known-violations.json'), 'utf8'))
+
+/** axe on the top bar only, serious and critical, against the shared allow-list (never widened here). */
+async function expectHeaderClean(page: Page, scenario: string) {
+  const results = await new AxeBuilder({ page }).include('header').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()
+  const serious = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical')
+  const { unexpected, stale } = compareViolations(scenario, serious.map(v => v.id), known)
+  assert.deepEqual(unexpected, [], `[${scenario}] new serious/critical axe violations in the top bar: ${serious.map(v => `${v.id}: ${v.nodes.slice(0, 3).map(n => n.target.join(' ')).join(' | ')}`).join('; ')}`)
+  assert.deepEqual(stale, [], `[${scenario}] allow-listed violations no longer occur`)
+}
 
 let browser: Browser
 let server: DemoServer
@@ -65,8 +80,9 @@ async function visibleControls(page: Page): Promise<Array<{ name: string; w: num
 }
 
 // Height budgets, folded: four rows at 390 px (Sessions; connection and More; the side panels; the other toggles),
-// five at 320 px where the side panels group itself needs two lines. Measured before #378: 193 and 290.5 px.
-for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
+// five at 320 px where the side panels group itself needs two lines; 599 px, the last folded width, fits in the
+// 390 px budget. Measured before #378: 193 and 290.5 px.
+for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
   test(`top bar ${w}x${h}: folded under 600 px it stays within ${budget} px, totals one named button away`, async () => {
     const page = await open(w, h)
     try {
@@ -99,6 +115,7 @@ for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number
       for (const c of await visibleControls(page)) {
         assert.ok(c.w >= 24 && c.h >= 24, `folded: "${c.name}" is ${c.w}x${c.h} px (2.5.8 needs 24x24)`)
       }
+      await expectHeaderClean(page, `e2e:topbar-folded-${w}`)
 
       // Keyboard: the disclosure opens with Enter and the next Tab stop is the first folded control
       await more.focus()
@@ -112,6 +129,7 @@ for (const [w, h, budget] of [[390, 844, 140], [320, 568, 180]] as Array<[number
       for (const c of await visibleControls(page)) {
         assert.ok(c.w >= 24 && c.h >= 24, `expanded: "${c.name}" is ${c.w}x${c.h} px`)
       }
+      await expectHeaderClean(page, `e2e:topbar-expanded-${w}`)
       // The panels move below the bar that grew
       const grown = await topbarBox(page)
       assert.ok(grown.height > bar.height, 'expanding shows more rows')
@@ -128,7 +146,7 @@ for (const [w, h] of [[600, 800], [640, 400], [1280, 800]] as Array<[number, num
   test(`top bar ${w}x${h}: nothing is folded at 600 px and wider`, async () => {
     const page = await open(w, h)
     try {
-      assert.equal(await page.getByRole('button', { name: /^More/ }).count() === 0 || !(await page.getByRole('button', { name: /^More/ }).isVisible()), true, 'no disclosure button')
+      assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
       assert.ok(await page.getByText(/tokens in context/).isVisible(), 'the token total is drawn')
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
     } finally {
@@ -154,7 +172,7 @@ for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
           assert.ok(l.left >= 0 && l.right <= f.width + 0.01, `"${l.text}" [${l.left.toFixed(1)}, ${l.right.toFixed(1)}] is cut by the ${f.width} px canvas`)
         }
         for (let i = 1; i < labels.length; i++) {
-          assert.ok(labels[i].left - labels[i - 1].right >= 4, `"${labels[i - 1].text}" and "${labels[i].text}" touch (${(labels[i].left - labels[i - 1].right).toFixed(1)} px)`)
+          assert.ok(labels[i].left - labels[i - 1].right >= 6 - 0.5, `"${labels[i - 1].text}" and "${labels[i].text}" touch (${(labels[i].left - labels[i - 1].right).toFixed(1)} px)`)
         }
       }
     } finally {
