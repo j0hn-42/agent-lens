@@ -263,5 +263,17 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     const after = h.events.slice(atAttach)
     assert.ok(after.findIndex(e => e.type === 'agent_spawn') < after.findIndex(e => e.type === 'tool_call_start'))
   })
+
+  it('a file bound to its dispatch only by its label proves nothing: no catch-up spawn', () => {
+    // Two synchronous "Explore" dispatches, the first finished, the second open; no meta names its tool_use_id
+    const { h } = attach(
+      [userText('Explore'), dispatch('toolu_e1', 'Explore', false), toolResult('toolu_e1', 'Report.'), dispatch('toolu_e2', 'Explore', false)],
+      [
+        { agentId: 'a0000000000000011', description: 'Explore' },
+        { agentId: 'a0000000000000012', description: 'Explore' },
+      ],
+    )
+    assert.deepEqual(spawnNames(h.events), [])
+  })
 })
 
