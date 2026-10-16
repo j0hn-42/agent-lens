@@ -26,7 +26,7 @@ test('only a call observed to succeed makes a step: an error or a cancellation l
   const t0: FileTimeline = { steps: [step(1)], omitted: 0 }
   assert.equal(recordFileStep(t0, step(2), 'error'), t0)
   assert.equal(recordFileStep(t0, step(3), 'cancelled'), t0)
-  assert.deepEqual(recordFileStep(t0, step(4), 'complete').steps.map(s => s.callId), ['c1', 'c4'])
+  assert.deepEqual(recordFileStep(t0, step(4), 'complete')?.steps.map(s => s.callId), ['c1', 'c4'])
   assert.equal(recordFileStep(undefined, step(5), 'error'), undefined)
 })
 
