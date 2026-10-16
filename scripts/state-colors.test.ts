@@ -188,7 +188,8 @@ test('session list: a paused agent is not drawn with the idle colour (paused is 
 // colour must not look like another state on the canvas, in any theme. Catppuccin Frappe is the one exception, kept as a
 // todo: its official green (done) and yellow (tool call) are 0.089 apart, just under the threshold, on every surface (the
 // panels share it); the role values are the official ones, unmodified (docs/reading-the-ui.md), and the word tells them apart.
-const CROSS_SURFACE_KNOWN: ReadonlyMap<string, ReadonlyArray<readonly [string, string]>> = new Map([
+type State = (typeof STATES)[number]
+const CROSS_SURFACE_KNOWN: ReadonlyMap<string, ReadonlyArray<readonly [State, State]>> = new Map<string, ReadonlyArray<readonly [State, State]>>([
   ['catppuccin-frappe', [['complete', 'tool_calling'], ['tool_calling', 'complete']]],
 ])
 for (const id of THEME_IDS) {

@@ -1,11 +1,12 @@
 import { Agent, NODE, CARD, TETHER } from '../../../lib/agent-types'
-import { SCENE, getStateColor } from '../../../lib/colors'
-import { STATE_COLOR_OVERRIDES } from '../../../lib/canvas-constants'
+import { SCENE } from '../../../lib/colors'
+import { sceneStateColor } from '../../../lib/scene-state-colors'
+import type { ThemeId } from '../../../lib/theme-tokens'
 import { measureTextCached } from './render-cache'
 
-/** Canvas state colour: SCENE value, except where the canvas needs a distinct hue (thinking, waiting_permission: SCENE.stateThinking / stateWaitingPermission). */
-export function stateColor(state: Agent['state']): string {
-  return STATE_COLOR_OVERRIDES[state] ?? getStateColor(state, SCENE)
+/** Canvas state colour: the theme's colour of that state, the one the panels use (#381). The rest of the scene reads SCENE. */
+export function stateColor(state: Agent['state'], theme: ThemeId): string {
+  return sceneStateColor(state, theme)
 }
 
 /** Truncate text with ellipsis to fit within maxWidth pixels */

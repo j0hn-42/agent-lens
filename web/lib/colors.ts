@@ -10,7 +10,8 @@
  *   a value at module load: it would go stale on a theme switch.
  * - SCENE is the scene palette: the page background and everything drawn on the canvas (nodes, links, halos,
  *   phase zones, particles, bloom, bubbles and tool cards, canvas labels, grid). It is the neon palette,
- *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme.
+ *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme. The one exception
+ *   is not in SCENE: the agent state colours of the canvas follow the theme, through lib/scene-state-colors.ts (#381).
  *
  * Extracted from agent-types.ts to keep that file focused on type definitions.
  * All colors are re-exported from agent-types.ts for backward compatibility.
