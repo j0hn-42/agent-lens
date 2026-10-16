@@ -9,6 +9,8 @@ import { THEME_IDS, THEME_LABELS, isThemeId } from "@/lib/theme-tokens"
 /**
  * Theme selector (three Catppuccin flavors, midnight, graphite, neon, ember, anthropic, high contrast). A native select: keyboard operable, announced with its name
  * ("Theme") and its current value by screen readers. The choice is persisted by setTheme (THEME_STORAGE_KEY).
+ * The proper names (Catppuccin, Midnight, Graphite, Neon, Ember, Anthropic) stay as they are in every language;
+ * High contrast says what the theme does, so it is translated (#373).
  */
 export function ThemeSelect({ id }: { id?: string } = {}) {
   const [theme, setTheme] = useTheme()
@@ -30,7 +32,7 @@ export function ThemeSelect({ id }: { id?: string } = {}) {
     >
       {THEME_IDS.map(id => (
         <option key={id} value={id} style={{ background: COLORS.surface, color: COLORS.ink }}>
-          {THEME_LABELS[id]}
+          {id === 'contrast' ? t('theme.contrast') : THEME_LABELS[id]}
         </option>
       ))}
     </select>
