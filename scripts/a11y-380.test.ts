@@ -10,7 +10,12 @@ test('the canvas focus rings take the --lens-focus token, not a hard-coded white
   assert.doesNotMatch(read('web/components/agent-visualizer/canvas.tsx'), /outline-white/)
 })
 
-test('the "Result:" label of the tool popup is not dimmed with an opacity (1.4.3)', () => {
+test('the tool result block carries no opacity or alpha-suffixed colour (1.4.3)', () => {
   const src = read('web/components/agent-visualizer/tool-detail-popup.tsx')
-  assert.doesNotMatch(src, /opacity-70[^\n]*Result:/)
+  const start = src.indexOf('aria-label="Tool result"')
+  const end = src.indexOf('</div>', start)
+  assert.ok(start > 0 && end > start, 'block found')
+  const block = src.slice(start, end)
+  assert.doesNotMatch(block, /opacity/)
+  assert.doesNotMatch(block, /\b(?:text|bg|border)-[\w[\]#-]+\/\d+/)
 })
