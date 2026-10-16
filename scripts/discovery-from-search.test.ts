@@ -80,6 +80,7 @@ test('Grep in content mode creates no card; in files_with_matches mode it does',
 test('the same tool_result replayed creates no second card', () => {
   const evs = search('Grep', 'Found 2 files\nsrc/a.ts\nsrc/b.ts')
   const once = run([spawn, ...evs])
+  assert.equal(once.discoveries.length, 2, 'the first result made the cards')
   const twice = run([evs[1], { ...evs[1], time: 3 }], once)
   assert.deepEqual(twice.discoveries.map(d => d.id), once.discoveries.map(d => d.id))
   // A fresh replay of the whole history rebuilds the same ids
@@ -89,6 +90,7 @@ test('the same tool_result replayed creates no second card', () => {
 test('a replayed tool_result arriving once the cards faded does not bring them back', () => {
   const evs = search('Grep', 'Found 1 file\nbackend/src/routes/auth.helpers.ts')
   let s = run([spawn, ...evs])
+  assert.equal(s.discoveries.length, 1, 'the first result made the card')
   // Let the cards hold then fade out through the animation loop (the existing purge)
   let t = 2
   while (s.discoveries.length > 0 && t < 2 + DISCOVERY_HOLD_S + 60) {
@@ -99,4 +101,24 @@ test('a replayed tool_result arriving once the cards faded does not bring them b
   assert.equal(s.discoveries.length, 0, 'the cards fade out and are purged')
   s = run([{ ...evs[1], time: t + 1 }], s)
   assert.equal(s.discoveries.length, 0)
+})
+
+test('a replayed tool_result for a call already complete creates no card, even once its cards are gone', () => {
+  const evs = search('Grep', 'Found 2 files\nsrc/a.ts\nsrc/b.ts')
+  const done = run([spawn, ...evs])
+  assert.equal(done.discoveries.length, 2)
+  assert.equal(Array.from(done.toolCalls.values())[0].state, 'complete')
+  // The call stays complete; only its cards are gone: a replay must not reopen the call to rebuild them
+  const replayed = run([{ ...evs[1], time: 3 }], { ...done, discoveries: [] })
+  assert.equal(replayed.discoveries.length, 0)
+})
+
+test('a card already on screen with the same id is not added twice', () => {
+  const evs = search('Grep', 'Found 1 file\nsrc/a.ts')
+  const started = run([spawn, evs[0]])
+  const existing = run([spawn, ...evs]).discoveries[0]
+  assert.ok(existing)
+  // The call is still running and its card is already there (a result seen through another path)
+  const ended = run([evs[1]], { ...started, discoveries: [existing] })
+  assert.deepEqual(ended.discoveries.map(d => d.id), [existing.id])
 })
