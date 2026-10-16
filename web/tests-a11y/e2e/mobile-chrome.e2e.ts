@@ -105,7 +105,7 @@ for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]]
       })
       assert.ok(await drawnWidth() <= 1, 'folded: the token total is not drawn')
       assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total')
-      assert.equal(await page.getByRole('button', { name: 'Hide inactive agents' }).count(), 0, 'folded: the filters are not in the Tab order')
+      assert.equal(await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
       // Always in the bar: the connection state, the Sessions button and the panel toggles
@@ -165,7 +165,7 @@ test('top bar 390x844: folded with Hide inactive agents on, More says a filter i
     assert.match(String(await more.textContent()), /^More · \d+ filters? on$/)
     // Turn the filter off: More no longer lists it
     await more.click()
-    const hide = page.getByRole('button', { name: 'Hide inactive agents' })
+    const hide = page.getByRole('button', { name: 'Hide inactive agents', exact: true })
     assert.equal(await hide.getAttribute('aria-pressed'), 'true', 'Hide inactive agents is on by default')
     await hide.click()
     assert.equal(await hide.getAttribute('aria-pressed'), 'false')
@@ -198,7 +198,7 @@ test('top bar: More has the focus and the window widens past 600 px, the focus s
 test('top bar: a filter has the focus and the window narrows under 600 px, the filter keeps it', async () => {
   const page = await open(700, 844)
   try {
-    await page.getByRole('button', { name: 'Hide inactive agents' }).focus()
+    await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })
     await page.waitForFunction(`!!document.querySelector('header button[aria-expanded]')`)
     assert.equal(await focusedName(page), 'Hide inactive agents', 'the focused filter is still rendered and focused')
