@@ -10,6 +10,7 @@ import { USAGE_LABELS } from '../../lib/ui-glossary'
 import type { Agent, ToolCallNode, FileAttention, FileEditor, FileReader, TimelineBlock } from '../../lib/agent-types'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
 import { recordToolStart, recordToolEnd } from '../../lib/waste'
+import { reviveFinished } from './revive-agent'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 
 /** Extract file path from tool input data or fall back to first token of args */
@@ -109,7 +110,8 @@ export function handleToolCallStart(
   const inputData = (payload.inputData && typeof payload.inputData === 'object' && !Array.isArray(payload.inputData))
     ? payload.inputData as Record<string, unknown> : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
-  const agent = state.agents.get(agentName)
+  // A finished agent that starts a call is live again (#433)
+  const agent = reviveFinished(state, agentName)
 
   if (agent) {
     // Dedup: skip if there's already a running tool call for the same agent+tool
@@ -235,14 +237,16 @@ export function handleToolCallEnd(
       if (id !== matchedId && tc.agentId === agentName && tc.state === 'running') stillRunning = tc
     }
     const nextState = stillRunning ? 'tool_calling' : 'idle'
+    // A late result for a finished agent proves no work: it stays finished (#433)
+    const finished = agent.state === 'complete'
     state.agents.set(agentName, {
       ...agent,
       // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime.
       // What the agent does next is unknown until its next event: neutral, never a 'thinking' nobody observed (#362).
       // Its turn is not over though: idle between two steps, not at rest.
-      state: nextState,
-      ...(nextState === 'idle' ? { awaitingNextEvent: true } : {}),
-      currentTool: stillRunning?.toolName,
+      state: finished ? 'complete' : nextState,
+      ...(nextState === 'idle' && !finished ? { awaitingNextEvent: true } : {}),
+      currentTool: finished ? undefined : stillRunning?.toolName,
       // A usage addressing no single instance never lands on an agent (it went to the remainder above)
       ...(target.kind === 'attributed'
         ? addToken(agent, tokenCost, tokenSource)

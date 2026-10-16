@@ -156,11 +156,13 @@ test('a revived subagent leaves the archive queue: the oldest archived one is ev
     events.push({ time: 3 + i * 2, type: 'agent_complete', payload: { name: `w${i}` } })
   }
   s = run(events, s)
-  // w0 resumes, then one more subagent finishes: the cap evicts w1 (oldest still archived), not the live w0
+  // w0 resumes, then two more subagents finish: the cap evicts w1 (oldest still archived), not the live w0
   s = run([
     { time: 1000, type: 'tool_call_start', payload: { agent: 'w0', tool: 'Bash', args: 'x' } },
     { time: 1001, type: 'agent_spawn', payload: { name: 'extra', parent: 'orchestrator' } },
     { time: 1002, type: 'agent_complete', payload: { name: 'extra' } },
+    { time: 1003, type: 'agent_spawn', payload: { name: 'extra2', parent: 'orchestrator' } },
+    { time: 1004, type: 'agent_complete', payload: { name: 'extra2' } },
   ], s)
   assert.ok(s.agents.has(agentKeyOf('s1', 'w0')))
   assert.equal(s.agents.get(agentKeyOf('s1', 'w0'))!.archived, false)
