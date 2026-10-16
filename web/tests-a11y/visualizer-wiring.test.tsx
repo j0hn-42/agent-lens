@@ -11,6 +11,7 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { clearPair } from '@/lib/pair-filter-store'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { withSlowFrames } from './slow-frames'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }
@@ -162,6 +163,6 @@ test('proven session links reach the canvas: a child session drawn with the dott
   resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive agents' choice of the first one is not carried over
   calls.length = 0
 
-  await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)
+  await withSlowFrames(8, () => mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)) // #440: fewer frames must not matter
   assert.ok(dots() > baseline, `a Task link is drawn between the two session halos (${dots()} vs ${baseline})`)
 })

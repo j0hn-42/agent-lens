@@ -15,6 +15,7 @@ import { createEmptyState } from '@/hooks/simulation/types'
 import type { Agent, Edge } from '@/lib/agent-types'
 import { A11Y_SNAPSHOT_MS } from '@/lib/canvas-constants'
 import { badgeRect, badgeSizeText } from '@/components/agent-visualizer/canvas/branch-collapse'
+import { withSlowFrames } from './slow-frames'
 
 if (typeof (globalThis as any).Path2D === 'undefined') {
   ;(globalThis as any).Path2D = class { addPath() {} moveTo() {} lineTo() {} closePath() {} arc() {} rect() {} bezierCurveTo() {} quadraticCurveTo() {} }
@@ -217,8 +218,11 @@ test('session links between two session halos are drawn dashed in the All view',
   cleanup()
 
   calls.length = 0
-  mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'task' }] })
-  await tick()
+  // Slow frames (#440): a link is proven by what it draws, not by how many frames real time allowed
+  await withSlowFrames(8, async () => {
+    mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'task' }] })
+    await tick()
+  })
   assert.ok(count('task') > baseline.task, 'a task link is drawn with the dotted 2:5 pattern')
   cleanup()
 
