@@ -33,3 +33,23 @@ test('the icon is decorative: aria-hidden, not part of the accessible name', () 
   const item = v.getByRole('menuitem', { name: 'Toggle Stats' })
   assert.equal(item.querySelector('[aria-hidden="true"]')?.textContent, '📊')
 })
+
+test('a toggle shows its state visibly too: a check mark when on, none when off, outside the accessible name', () => {
+  const v = render(
+    <GlassContextMenu
+      position={{ x: 10, y: 10 }}
+      onClose={() => {}}
+      items={[
+        { label: 'Stats', checked: true, onClick: () => {} },
+        { label: 'Grid', checked: false, onClick: () => {} },
+        { label: 'Zoom', onClick: () => {} },
+      ]}
+    />,
+  )
+  const mark = (el: HTMLElement) => el.querySelector('[data-check-mark]')
+  const on = v.getByRole('menuitemcheckbox', { name: 'Stats' })
+  assert.equal(mark(on)?.textContent, '✓')
+  assert.equal(mark(on)?.getAttribute('aria-hidden'), 'true')
+  assert.equal(mark(v.getByRole('menuitemcheckbox', { name: 'Grid' }))?.textContent, '')
+  assert.equal(mark(v.getByRole('menuitem', { name: 'Zoom' })), null, 'a plain action has no state to show')
+})
