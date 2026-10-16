@@ -110,8 +110,9 @@ export function handleToolCallStart(
   const inputData = (payload.inputData && typeof payload.inputData === 'object' && !Array.isArray(payload.inputData))
     ? payload.inputData as Record<string, unknown> : undefined
   const toolUseId = idString(payload.toolUseId) || undefined
-  // A finished agent that starts a call is live again (#433)
-  const agent = reviveFinished(state, agentName, ctx, currentTime)
+  // A finished agent that starts a call never seen before is live again, prompt or not (#433)
+  const seen = toolUseId !== undefined && state.agents.get(agentName)?.state === 'complete' && Array.from(state.toolCalls.values()).some(tc => tc.agentId === agentName && tc.toolUseId === toolUseId)
+  const agent = reviveFinished(state, agentName, ctx, currentTime, !seen)
 
   if (agent) {
     // Dedup: skip if there's already a running tool call for the same agent+tool
