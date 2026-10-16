@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
@@ -265,6 +265,7 @@ export function SessionListPanel({
   filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange,
 }: SessionListPanelProps) {
   const listRef = useRef<HTMLDivElement>(null)
+  const searchHintId = useId()
   // User-resizable width (persisted); the viewport clamp keeps it responsive (narrow viewports get a full-width sheet)
   const [wantedWidth, setWantedWidth] = useState(SESSIONS_PANEL_WIDTH)
   useEffect(() => { setWantedWidth(readStoredWidth()) }, [])
@@ -508,7 +509,7 @@ export function SessionListPanel({
             type="search"
             aria-label="Search sessions"
             placeholder="Search sessions"
-            title="Searches name, project, branch, agent"
+            aria-describedby={searchHintId}
             value={query}
             onChange={e => { setQuery(e.target.value); announceMatches({ ...filter, query: e.target.value }) }}
             className={`min-h-6 min-w-0 flex-1 rounded px-2 text-[11px] ${FOCUS_RING}`}
@@ -565,6 +566,8 @@ export function SessionListPanel({
               Clear filter
             </button>
           )}
+          {/* Visible text, not a title: a title shows only on mouse hover */}
+          <p id={searchHintId} className="m-0 w-full text-[10px]" style={{ color: COLORS.textMuted }}>Searches name, project, branch, agent</p>
           {filtering && (
             <p className="m-0 w-full" style={{ color: COLORS.textDim }}>
               Filter applies to this list only; the canvas still shows every session of the view, except that the project also narrows the All view.
