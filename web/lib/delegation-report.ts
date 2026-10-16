@@ -129,7 +129,7 @@ export function tokensText(row: Pick<DelegationRow, 'tokens'>): string {
 export function filesReadText(row: Pick<DelegationRow, 'filesReadCount' | 'readsNotConfirmed'>, lost = 0): string {
   const bounded = lost > 0 ? 'at least ' : ''
   if (row.filesReadCount === 0 && row.readsNotConfirmed === 0) return bounded ? 'none observed (incomplete)' : 'none observed'
-  const read = row.filesReadCount > 0 ? `${bounded}${pluralize(row.filesReadCount, 'file')}` : 'none confirmed'
+  const read = row.filesReadCount > 0 ? `${bounded}${pluralize(row.filesReadCount, 'file')}` : (bounded ? 'none confirmed (incomplete)' : 'none confirmed')
   return row.readsNotConfirmed > 0 ? `${read}, ${bounded}${row.readsNotConfirmed} not confirmed` : read
 }
 
@@ -149,7 +149,7 @@ export function durationText(d: DelegationDuration, lost = 0): string {
 
 export function resultText(r: DelegationResult, lost = 0): string {
   if (r.kind === 'not-returned') {
-    if (lost > 0) return 'No return observed (incomplete)'
+    if (lost > 0) return r.finished ? 'Finished, no return observed (incomplete)' : 'No return observed (incomplete)'
     return r.finished ? 'Finished, no return observed' : 'No return observed yet'
   }
   const text = r.excerpt.trim() ? `${r.excerpt}${r.truncated ? '…' : ''}` : 'empty report'
