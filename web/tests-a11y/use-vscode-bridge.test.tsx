@@ -267,11 +267,22 @@ test('event-loss (#366): a scope change reloads the view, so the next connection
   await act(async () => FakeES.last.open())
   await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { a: 3 } }))
   assert.deepEqual(result.current.eventLoss, { evicted: { a: 3 }, otherEvents: 0 })
+  // A reconnection before the scope change: the counter of connections is past the first one (#453: without it the
+  // test passed on code that took every figure, or that never reset the counter)
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
   await act(async () => { await result.current.setRelayScope('all') })
   assert.equal(result.current.eventLoss, null, 'the old graph is gone with its loss')
   await act(async () => FakeES.last.open())
   await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { b: 4 } }))
-  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 })
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 }, 'the first connection of the new graph counts: the counter was reset')
+  // And it is a first connection like any other: a later one is ignored
+  await act(async () => FakeES.last.fail())
+  await tick(BACKOFF_BASE_MS)
+  await act(async () => FakeES.last.open())
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { b: 40 } }))
+  assert.deepEqual(result.current.eventLoss, { evicted: { b: 4 }, otherEvents: 0 }, 'a reconnection after the scope change says nothing about the new graph')
 })
 
 test('event-loss (#453): All counts only the sessions it shows (finished ones hidden by default), never otherEvents then', async () => {
