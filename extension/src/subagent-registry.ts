@@ -28,6 +28,12 @@ export interface SubagentRecord {
    * agent_spawn was emitted. Rank of the dispatch in the history; cleared once announced or found ended.
    */
   historyOrder?: number
+  /**
+   * How its transcript file was bound to it: by the dispatch receipt naming the file ('fileKey'), by a
+   * tool_use_id hint of the file ('toolUseId'), by the label alone ('label', an order, not a proof), or a
+   * file-only record ('new'). Only a proven binding may announce a subagent from the history (#446).
+   */
+  boundBy?: 'fileKey' | 'toolUseId' | 'label' | 'new'
 }
 
 export class SubagentRegistry {
@@ -70,6 +76,7 @@ export class SubagentRegistry {
   bindFileKey(record: SubagentRecord, fileKey: string): void {
     if (record.fileKey || this.byFileKey.has(fileKey)) return
     record.fileKey = fileKey
+    record.boundBy = 'fileKey'
     this.byFileKey.set(fileKey, record)
   }
 
@@ -89,9 +96,11 @@ export class SubagentRegistry {
     if (claimed) return claimed
     let record = opts.toolUseId ? this.byToolUseId.get(opts.toolUseId) : undefined
     if (record && record.fileKey) record = undefined
-    if (!record) record = this.records.find(r => !r.fileKey && r.toolUseId && r.label === label)
-    if (!record) record = this.create(label, opts.parentName ?? ORCHESTRATOR_NAME)
+    let boundBy: SubagentRecord['boundBy'] = 'toolUseId'
+    if (!record) { record = this.records.find(r => !r.fileKey && r.toolUseId && r.label === label); boundBy = 'label' }
+    if (!record) { record = this.create(label, opts.parentName ?? ORCHESTRATOR_NAME); boundBy = 'new' }
     record.fileKey = fileKey
+    record.boundBy = boundBy
     this.byFileKey.set(fileKey, record)
     return record
   }

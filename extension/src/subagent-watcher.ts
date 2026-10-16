@@ -319,9 +319,10 @@ function startWatchingSubagentFile(
   }
   // Dispatched in the history (#446): `spawned` comes from the prescan, nothing was emitted. Its spawn is
   // owed while the history shows no end (emitCatchUpSpawns); an ended one is never brought back here,
-  // nor one whose meta says the user stopped it (no task notification is written for that stop).
+  // nor one whose meta says the user stopped it (no task notification is written for that stop), nor a
+  // file bound to its dispatch by the label alone (which dispatch it belongs to is not proven).
   if (record.historyOrder !== undefined) {
-    if (record.toolUseId && !info.stoppedByUser && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
+    if (record.toolUseId && !info.stoppedByUser && record.boundBy !== 'label' && parser.isSubagentDispatchOpen(session, record.toolUseId)) {
       state.spawnEmitted = false
       // Announced at attach only if its file was written within ACTIVE_SESSION_AGE_S; an older one waits for
       // its next line (readSubagentNewLines), still only while its dispatch shows no end
