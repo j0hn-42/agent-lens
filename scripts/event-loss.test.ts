@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { parseEventLoss, replayLostFor } from '../web/lib/event-loss'
+import { parseEventLoss, replayLostFor, boundedCount, replayLostSentence } from '../web/lib/event-loss'
 
 // `event-loss` SSE message of the relay (#366): untrusted, parsed field by field.
 
@@ -28,4 +28,19 @@ test('replayLostFor: a session reads its own count; a union view reads every ses
   assert.equal(replayLostFor(loss, 's3', false), 0, 'a session absent from the tally is not claimed as lossy')
   assert.equal(replayLostFor(loss, null, true), 17)
   assert.equal(replayLostFor(null, 's1', false), 0)
+})
+
+test('boundedCount: a total over an incomplete graph reads "at least", a zero is never a clean zero (#366)', () => {
+  assert.equal(boundedCount(3, 0, 'conflict'), '3 conflicts')
+  assert.equal(boundedCount(1, 0, 'tool error'), '1 tool error')
+  assert.equal(boundedCount(0, 0, 'tool error'), '0 tool errors')
+  assert.equal(boundedCount(3, 5, 'conflict'), 'at least 3 conflicts')
+  assert.equal(boundedCount(1, 5, 'tool error'), 'at least 1 tool error')
+  assert.equal(boundedCount(0, 5, 'tool error'), 'no tool error observed (incomplete)')
+})
+
+test('replayLostSentence names what is missing without claiming an exact figure', () => {
+  assert.equal(replayLostSentence(0), '')
+  assert.equal(replayLostSentence(1), 'at least 1 earlier event was not replayed by the relay')
+  assert.equal(replayLostSentence(7), 'at least 7 earlier events were not replayed by the relay')
 })
