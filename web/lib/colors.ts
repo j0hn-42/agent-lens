@@ -1,7 +1,8 @@
 /**
  * Color palette and role color definitions.
  *
- * Two palettes, one rule: the theme (any of the dark themes of theme-tokens.ts) applies to the INTERFACE ONLY.
+ * Two palettes, one rule: the theme (any of the dark themes of theme-tokens.ts) applies to the interface, and on the canvas
+ * to the agent state colours only (lib/scene-state-colors.ts).
  *
  * - COLORS is the interface palette (toolbar, menus, dialogs, side panels, legend, inspector, UI cards). It
  *   follows the active theme. Callers read `COLORS.<key>` at render time. The values are concrete colour
