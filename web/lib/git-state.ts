@@ -7,7 +7,8 @@
  * - a commit exists only when the output of `git commit` shows that line, for a call that completed without error;
  * - a PR state comes only from a gh output: the URL `gh pr create` prints (state "created"), the line of
  *   `gh pr merge` / `gh pr close`, or a `gh pr view --json` object carrying the number and the state. It is the
- *   state at the time of that call, never refreshed;
+ *   state at the time of that call, never refreshed. Its repository is the one the output names, else the one
+ *   `-R` / `--repo` names, else unknown;
  * - an output line counts only when the command ran the git / gh subcommand that prints it and no other command of
  *   the line could have printed it (each segment runs that subcommand or a silent `git add`), and a command aimed at
  *   another repository (`-C`, `--git-dir`, `--work-tree`, `GIT_DIR=`, `GIT_WORK_TREE=`) or run after a
@@ -104,7 +105,16 @@ const COMMIT_LINE = /^\[(.+?) (?:\(root-commit\) )?([0-9a-f]{7,40})\] (.*)$/
 const PR_MERGED = /^(?:✓ )?(?:Merged|Squashed and merged|Rebased and merged) pull request (?:([\w.-]+\/[\w.-]+))?#(\d{1,9})\b/
 const PR_CLOSED = /^(?:✓ )?Closed pull request (?:([\w.-]+\/[\w.-]+))?#(\d{1,9})\b/
 
-type Seen = { head?: Omit<GitHead, 'callId' | 'time'>; commits: Omit<GitCommit, 'callId' | 'toolUseId' | 'time'>[]; prs: Omit<GitPr, 'callId' | 'time'>[] }
+/** `gh … -R owner/name` / `--repo[=]owner/name`, an optional `github.com/` host prefix; another host is not read */
+const GH_REPO = /(?:^|\s)(?:-R|--repo)(?:=|\s+)(?:github\.com\/)?([\w.-]+\/[\w.-]+)(?=$|[\s;&|)])/g
+
+/** The repository the gh flags of the line name, when they all name the same one; null otherwise. */
+function ghRepoOf(command: string): string | null {
+  const repos = new Set([...command.matchAll(GH_REPO)].map(m => m[1]))
+  return repos.size === 1 ? [...repos][0] : null
+}
+
+type Seen ={ head?: Omit<GitHead, 'callId' | 'time'>; commits: Omit<GitCommit, 'callId' | 'toolUseId' | 'time'>[]; prs: Omit<GitPr, 'callId' | 'time'>[] }
 
 /** What one successful call's output proves, in the order printed. */
 function readCall(command: string, result: string): Seen {
@@ -126,6 +136,8 @@ function readCall(command: string, result: string): Seen {
   const commit = gitHere && only('git', ['commit']) && git.has('commit')
   const merge = only('gh', ['pr merge']) && gh.has('pr merge')
   const close = only('gh', ['pr close']) && gh.has('pr close')
+  // The repository of a PR the output does not name: the one the gh flags name, else unknown
+  const ghRepo = gh.size > 0 ? ghRepoOf(command) : null
   for (const [i, raw] of whole.entries()) {
     const line = raw.trimEnd()
     let m: RegExpExecArray | null
@@ -140,8 +152,8 @@ function readCall(command: string, result: string): Seen {
       const detached = m[1] === 'detached HEAD'
       out.commits.push({ sha: m[2], branch: detached ? null : m[1], message: m[3], amend: AMEND.test(command) })
       out.head = { ref: detached ? { kind: 'detached' } : { kind: 'branch', name: m[1] }, source: 'commit' }
-    } else if (merge && (m = PR_MERGED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'merged' })
-    else if (close && (m = PR_CLOSED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'closed' })
+    } else if (merge && (m = PR_MERGED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? ghRepo, state: 'merged' })
+    else if (close && (m = PR_CLOSED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? ghRepo, state: 'closed' })
   }
   if (gitHere && git.has('branch') && SHOW_CURRENT_ALONE.test(command)) {
     const names = whole.map(l => l.trim()).filter(Boolean)
@@ -153,7 +165,7 @@ function readCall(command: string, result: string): Seen {
     if (link?.kind === 'pr') out.prs.push({ number: link.number, repo: repoOfUrl(link.url), url: link.url, state: 'created' })
   }
   if (gh.has('pr view') && result.length < RESULT_CAPTURE_LIMIT) {
-    const pr = prFromJson(result)
+    const pr = prFromJson(result, ghRepo)
     if (pr) out.prs.push(pr)
   }
   return out
@@ -165,14 +177,14 @@ function repoOfUrl(url: string): string | null {
 }
 
 /** A `gh pr view --json` object that carries both the number and the state; null otherwise. */
-function prFromJson(result: string): Omit<GitPr, 'callId' | 'time'> | null {
+function prFromJson(result: string, ghRepo: string | null): Omit<GitPr, 'callId' | 'time'> | null {
   let v: unknown
   try { v = JSON.parse(result.trim()) } catch { return null }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null
   const o = v as Record<string, unknown>
   if (typeof o.number !== 'number' || !Number.isInteger(o.number) || o.number <= 0) return null
   const url = typeof o.url === 'string' && GITHUB_ISSUE_URL_RE.test(o.url) ? o.url : undefined
-  const base = { number: o.number, repo: url ? repoOfUrl(url) : null, ...(url ? { url } : {}) }
+  const base = { number: o.number, repo: url ? repoOfUrl(url) : ghRepo, ...(url ? { url } : {}) }
   if (o.state === 'MERGED') return { ...base, state: 'merged' }
   if (o.state === 'CLOSED') return { ...base, state: 'closed' }
   if (o.state === 'OPEN') return { ...base, state: o.isDraft === true ? 'draft' : 'open' }

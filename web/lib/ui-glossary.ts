@@ -152,7 +152,7 @@ export const GIT_STRIP_LABELS = {
   amended: 'amended',
   omittedCommits: (n: number) => `${n} earlier commit${n === 1 ? '' : 's'} not kept (the ${GIT_STRIP_MAX_COMMITS} most recent are listed)`,
   prsList: 'Pull requests observed',
-  pr: (n: number, repo: string | null) => `PR #${n}${repo ? ` (${repo})` : ''}`,
+  pr: (n: number, repo: string | null) => `PR #${n} (${repo ?? 'repository not reported'})`,
   prStates: { created: 'created', open: 'open', draft: 'open, draft', merged: 'merged', closed: 'closed' },
   omittedPrs: (n: number) => `${n} earlier PR${n === 1 ? '' : 's'} not kept (the ${GIT_STRIP_MAX_PRS} most recent are listed)`,
 } as const
