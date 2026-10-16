@@ -107,9 +107,8 @@ describe('the end of a resumed background subagent comes from its second notific
     assert.deepEqual(completions(h.events), ['Audit parser'])
     feed(sendMessage('toolu_send1'), sendResult('toolu_send1'), secondNotice('toolu_send1', 'u-n2'))
     assert.deepEqual(completions(h.events), ['Audit parser', 'Audit parser'])
-    const returns = ofType(h.events, 'subagent_return')
-    assert.equal(returns.length, 2)
-    assert.equal(returns[1].payload.toolUseId, 'toolu_bg1', 'the return stays attached to the original launch')
+    // The return keeps the original launch's tool_use id, which the normalizer already delivered once: only the end is new
+    assert.equal(ofType(h.events, 'subagent_return').length, 1)
   })
 
   it('the copies of the second notice (queue enqueue, user turn, queue remove) finish it once', () => {
