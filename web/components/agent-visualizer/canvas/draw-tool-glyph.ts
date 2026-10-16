@@ -17,6 +17,8 @@ export function drawToolGlyph(
   time: number,
   running: boolean,
   reducedMotion: boolean,
+  /** Stroke width (world px); the card icon passes a wider one so the shape stays visible zoomed out */
+  lineWidth = 1.3,
 ) {
   const s = size
   const animate = running && !reducedMotion
@@ -24,7 +26,7 @@ export function drawToolGlyph(
   ctx.translate(cx, cy)
   ctx.strokeStyle = color
   ctx.fillStyle = color
-  ctx.lineWidth = 1.3
+  ctx.lineWidth = lineWidth
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
   ctx.beginPath()

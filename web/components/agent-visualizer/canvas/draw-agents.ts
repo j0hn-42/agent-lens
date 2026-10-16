@@ -10,7 +10,7 @@ import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
@@ -486,16 +486,19 @@ function maskedOrchestrator(info: OrchestratorInfo | null, masked: boolean | und
 function drawAgentLabel(
   ctx: CanvasRenderingContext2D, agent: Agent, r: number, isHovered: boolean, color: string, showSession: boolean,
   orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
-): { extraLines: number; dx: number; dy: number } {
+  /** Size factor that holds the text at LOD.minTextPx on screen (labelScaleForZoom) */
+  scale = 1,
+): { extraLines: number; dx: number; dy: number; scale: number } {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
   // A stale node says so in words ("last known state: Working"): the state is no longer proven
   if (staleText) layout.statusLine = ellipsize(staleText, FRESHNESS_DRAW.labelMaxWidth, measure)
-  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0 }
+  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1 }
 
   ctx.save()
   ctx.translate(place.dx, place.dy)
+  scaleAbout(ctx, agent.x, agent.y + r + AGENT_DRAW.labelYOffset, scale)
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   const gap = AGENT_DRAW.stateLabelGap
@@ -506,7 +509,7 @@ function drawAgentLabel(
     ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
     fillLabelText(ctx, ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
     ctx.restore()
-    return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
+    return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale }
   }
 
   ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
@@ -555,7 +558,15 @@ function drawAgentLabel(
     fillLabelText(ctx, layout.sessionLine, agent.x, y)
   }
   ctx.restore()
-  return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy }
+  return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale }
+}
+
+/** Scale the drawing by `k` around (x, y): the label block grows from its top centre, under the node. */
+function scaleAbout(ctx: CanvasRenderingContext2D, x: number, y: number, k: number) {
+  if (k === 1) return
+  ctx.translate(x, y)
+  ctx.scale(k, k)
+  ctx.translate(-x, -y)
 }
 
 /**
@@ -660,7 +671,9 @@ export function drawAgents(
   now: number = Date.now(),
 ) {
   const { reducedMotion } = opts
-  const lod = lodForZoom(opts.zoom)
+  const lod = lodOf(opts)
+  // Below 100% the label is held at LOD.minTextPx on screen; the overlay plan thins out the ones that collide (#378)
+  const labelScale = labelScaleForZoom(opts.zoom)
   for (const [id, agent] of agents) {
     if (!isAgentVisible(agent)) continue
     if (!pointInView(opts.view, agent.x, agent.y, AGENT_CULL_EXTENT)) continue
@@ -709,9 +722,9 @@ export function drawAgents(
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
-        stale ? lastKnownStateText(agent.state) : undefined,
+        stale ? lastKnownStateText(agent.state) : undefined, labelScale,
       )
-      : { extraLines: 0, dx: 0, dy: 0 }
+      : { extraLines: 0, dx: 0, dy: 0, scale: 1 }
     ctx.globalAlpha = nodeAlpha
     const extraLines = labelDrawn.extraLines
 
@@ -720,9 +733,10 @@ export function drawAgents(
       if (agent.isMain) {
         drawContextRing(ctx, agent, r, time, reducedMotion, lod.details)
       }
-      // The bar hangs under the label: it follows the label when the placement shifted it
+      // The bar hangs under the label: it follows the label when the placement shifted or enlarged it
       ctx.save()
       ctx.translate(labelDrawn.dx, labelDrawn.dy)
+      scaleAbout(ctx, agent.x, agent.y + r + AGENT_DRAW.labelYOffset, labelDrawn.scale)
       drawContextComposition(ctx, agent, r, lod.details, extraLines * AGENT_DRAW.stateLabelGap)
       ctx.restore()
     }

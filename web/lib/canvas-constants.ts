@@ -371,14 +371,27 @@ export const TOOL_DRAW = {
   tokenFontSize: 11,
   /** Y offset for two-line card layout */
   twoLineOffset: 7,
+  /** Side (world px) of the square icon a card becomes when its text would be unreadable (LOD.cardTextMinZoom, #378) */
+  iconSize: 28,
+  /** Glyph size (world px) on that icon */
+  iconGlyphSize: 16,
+  /** Dot radius (world px) on the icon of a tool without glyph (MCP ring, unknown tools dot) */
+  iconDotRadius: 3.5,
+  /** Smallest on-screen radius (px) of that dot or ring */
+  iconDotMinPx: 2,
+  /** Smallest on-screen width (px) of the strokes on the icon: glyph, MCP ring, running ring, error cross */
+  iconMinStrokePx: 1.25,
+  /** On-screen half size (px) of the cross that marks a failed call on its icon */
+  iconErrorMarkPx: 3,
 } as const
 
 // ─── MCP tool call drawing constants ────────────────────────────────────────
 
 export const MCP_DRAW = {
   /** Server badge above the card */
-  badgeHeight: 11,
-  badgeFontSize: 9,
+  badgeHeight: 13,
+  /** LOD.minTextPx: the badge is only drawn with the card text, from 100 %, so it is never under that size there (#378) */
+  badgeFontSize: 11,
   badgePadX: 5,
   badgeGap: 3,
   /** Orbiting dots around a running MCP card */
@@ -538,10 +551,25 @@ export const HIT_DETECTION = {
 // ─── Level of detail (zoom thresholds) ──────────────────────────────────────
 
 export const LOD = {
-  /** Below this zoom, hide secondary text: stats, token labels, tool/discovery/bubble text, cost pills */
+  /**
+   * Smallest on-screen size (px) of a canvas text that follows the zoom (#378). Below 100% the agent
+   * labels are held at this size (the overlay plan then hides or shortens the ones that collide);
+   * tool-card and bubble text, drawn at 11 world px, is replaced by the card icon or the bubble count chip.
+   */
+  minTextPx: 11,
+  /** Below this zoom, hide secondary text: stats, token labels, discovery text, cost pills */
   detailMinZoom: 0.6,
-  /** Below this zoom, hide agent names and state labels too (only shapes remain) */
+  /** Below this zoom, a tool card is drawn as its icon and a bubble stack as its count chip: their 11 px text would fall under minTextPx (11 / 11) */
+  cardTextMinZoom: 1,
+  /** Below this zoom, hide agent names and state labels too (only shapes remain): the nodes are too small to carry a label held at minTextPx */
   labelMinZoom: 0.35,
+  /**
+   * Hysteresis of every threshold above: a level that is shown is dropped only once the zoom falls this
+   * fraction under its threshold, and shown again at the threshold itself. A zoom that hovers at a
+   * threshold (wheel steps, auto-fit easing) then flips a level once instead of making it blink.
+   * In the band, card text can be drawn down to minTextPx × (1 − hysteresis), about 10 px.
+   */
+  hysteresis: 0.08,
 } as const
 
 // ─── State presentation (colour + text, so state never relies on colour alone) ──

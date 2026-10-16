@@ -8,7 +8,7 @@ import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
 import { truncateText } from './draw-misc'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
@@ -47,7 +47,7 @@ export function drawCostLabels(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   // Cost pills are secondary text: hidden below the level-of-detail zoom threshold
-  if (!lodForZoom(opts.zoom).details) return
+  if (!lodOf(opts).details) return
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
   for (const [, agent] of agents) {

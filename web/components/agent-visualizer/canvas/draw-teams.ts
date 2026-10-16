@@ -1,6 +1,6 @@
 import { SCENE } from '../../../lib/colors'
 import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
 import { type Cluster, type PhaseLabel, clusterLabelLines, fitClusterLabelLines, haloAlphas } from './cluster-model'
 import { CLUSTER_DRAW } from '../../../lib/canvas-constants'
@@ -17,7 +17,7 @@ const HALO_LABEL_FONT = 12
  */
 export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   if (halos.length === 0) return
-  const lod = lodForZoom(opts.zoom)
+  const lod = lodOf(opts)
   for (const h of halos) {
     ctx.save()
     ctx.beginPath()
@@ -85,7 +85,7 @@ export function drawClusterHalos(
  * nodes it names. Drawn only at zoom levels where text is readable.
  */
 export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyArray<PhaseLabel>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
-  if (labels.length === 0 || !lodForZoom(opts.zoom).labels) return
+  if (labels.length === 0 || !lodOf(opts).labels) return
   ctx.save()
   ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
   ctx.textAlign = 'center'

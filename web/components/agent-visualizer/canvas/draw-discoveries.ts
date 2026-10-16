@@ -3,7 +3,7 @@ import { SCENE, getDiscoveryTypeColor } from '@/lib/colors'
 import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>) {
   for (const disc of discoveries) {
@@ -25,7 +25,7 @@ export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discover
 }
 
 export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, selectedDiscoveryId?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
-  const showText = lodForZoom(opts.zoom).details
+  const showText = lodOf(opts).details
   for (const disc of discoveries) {
     if (disc.opacity < MIN_VISIBLE_OPACITY) continue
 
