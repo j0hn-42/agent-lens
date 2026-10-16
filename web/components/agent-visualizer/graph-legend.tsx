@@ -101,7 +101,10 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
   }
 
   return (
+    // Not translated yet (#373): it says so with its own lang, inside canvas controls that follow the chosen locale
     <div
+      lang="en"
+      data-i18n-exempt=""
       className="pointer-events-auto max-w-[calc(100vw-24px)] font-mono text-xs"
       style={{ color: COLORS.textPrimary }}
     >

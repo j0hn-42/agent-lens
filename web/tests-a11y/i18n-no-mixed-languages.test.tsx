@@ -128,6 +128,8 @@ for (const locale of LOCALES) {
     fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['controls.view'] }))
     const panel = view.getByRole('dialog', { name: MESSAGES[locale]['controls.viewSettings'] })
     assert.equal(langOf(panel), locale, `the View panel declares lang=${locale}`)
+    // An exempt subtree (the legend, still English) must say so to a screen reader with its own lang
+    for (const e of Array.from(document.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
     const strings = surfaceStrings(document.body)
     assert.ok(strings.length > 5)
     assert.deepEqual(foreignWords(locale, strings), [])
