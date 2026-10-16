@@ -6,7 +6,7 @@ import { render, cleanup } from '@testing-library/react'
 
 import { ControlBar } from '@/components/agent-visualizer/control-bar'
 import { COLORS } from '@/lib/colors'
-import { contextMenuItems } from '@/components/agent-visualizer/selection-overlays'
+import { SelectionOverlays } from '@/components/agent-visualizer/selection-overlays'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 
 afterEach(() => {
@@ -47,10 +47,18 @@ test('live: the badge keeps the live color only while it says LIVE', () => {
 })
 
 test('canvas menu: "Zoom to fit" is spelled like everywhere else (shortcuts, palette)', () => {
-  const noopMenu = { toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: null }
-  const labels = contextMenuItems(false, noopMenu).map(i => i.label)
-  assert.ok(labels.includes('Zoom to fit'))
-  assert.ok(!labels.includes('Zoom to Fit'))
+  const props = {
+    selection: { contextMenu: { x: 10, y: 10 }, setContextMenu: noop },
+    inspector: { selectedAgent: null, selectedGone: false, goneName: null, delegation: [], toolWhy: null },
+    agents: new Map(), links: new Map(), droppedMessages: new Map(),
+    health: { byAgent: new Map(), bySession: new Map() },
+    bridge: { relayOrigin: null, launch: null, eventLoss: null },
+    selectedLinkId: null, onCloseLink: noop, onEscapeFromCard: noop,
+    menuActions: { toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: null },
+  } as unknown as React.ComponentProps<typeof SelectionOverlays>
+  const { getByRole, queryByRole } = render(<SelectionOverlays {...props} />)
+  assert.ok(getByRole('menuitem', { name: 'Zoom to fit' }))
+  assert.equal(queryByRole('menuitem', { name: 'Zoom to Fit' }), null)
 })
 
 test('session search: the placeholder fits a narrow panel and the fields searched stay readable (title)', () => {
