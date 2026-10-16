@@ -46,6 +46,23 @@ test('an output line is read only when the command ran the git subcommand that p
   assert.equal(rec(undefined, call('git log -1', "Switched to branch 'fake'")), undefined)
 })
 
+test('in a compound command, a line printed by another segment is never read as git output', () => {
+  // Another command may print anything: the line cannot be tied to the git subcommand
+  assert.equal(rec(undefined, call('git status && cat README.md', '## Install')), undefined)
+  assert.equal(rec(undefined, call('git status -s; head docs/a.md', ' M a.ts\n## Usage')), undefined)
+  assert.equal(rec(undefined, call('git checkout main && cat out.txt', "Switched to branch 'evil'")), undefined)
+  assert.equal(rec(undefined, call("echo '[x abcdef1] y' && git commit -m y", '[x abcdef1] y')), undefined)
+  // A rebase prints commit lines of its own: they are not commits of git commit
+  assert.equal(rec(undefined, call('git commit -m a && git rebase --continue', '[feat/x 1111111] a\n[detached HEAD 2222222] b\nSuccessfully rebased')), undefined)
+  // A silent git add before the reading subcommand changes nothing
+  assert.deepEqual(rec(undefined, call('git add -A && git commit -m a', '[feat/x 1111111] a'))?.commits.map(c => c.sha), ['1111111'])
+})
+
+test('the short status header is read on the first line of the output only', () => {
+  assert.equal(rec(undefined, call('git status -sb', ' M a.ts\n## fake')), undefined)
+  assert.deepEqual(rec(undefined, call('git status -sb', '## feat/z\n M a.ts'))?.head?.ref, { kind: 'branch', name: 'feat/z' })
+})
+
 test('a command aimed at another repository (-C, --git-dir, --work-tree) proves nothing for this agent', () => {
   assert.equal(rec(undefined, call('git -C ../other status', 'On branch other')), undefined)
   assert.equal(rec(undefined, call('git --git-dir=../o/.git status', 'On branch other')), undefined)
