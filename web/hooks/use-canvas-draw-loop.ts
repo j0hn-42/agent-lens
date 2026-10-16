@@ -20,7 +20,8 @@ import {
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
-import { measureTextCached } from '@/components/agent-visualizer/canvas/render-cache'
+import { searchFlowSegments, searchFlowMoves, drawSearchFlow } from '@/components/agent-visualizer/canvas/search-flow'
+import { measureTextCached, getToolCardSize } from '@/components/agent-visualizer/canvas/render-cache'
 import type { Transform } from '@/components/agent-visualizer/canvas/camera-fit'
 import { sceneAgents, costScope } from '@/components/agent-visualizer/canvas/scene'
 import type { CollapseMemory, CollapseView } from '@/components/agent-visualizer/canvas/branch-collapse'
@@ -208,7 +209,12 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         MOTION_LAYERS.map(l => layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, l) ? '1' : '0').join(''),
       ],
     })
-    const animating = sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
+    // A chip travelling to a file card (SEARCH_FLOW.chipWindowS after its Grep completed) keeps the full frame
+    // rate, unless the links layer is calm (static line then). It reads the scene the last frame drew (p, filtered by
+    // Hide inactive and closed branches, re-synced on every drawn frame), not the raw simulation: a hidden card draws nothing.
+    const flowMoves = !layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, 'links')
+      && searchFlowMoves(p.discoveries, p.toolCalls, getToolCardSize, s.isPlaying ? s.currentTime : null)
+    const animating = flowMoves || sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
     const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
     if (!draw) perfRef.current.skippedFrames++
     return !draw
@@ -397,6 +403,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         deps.hoverTargetRef.current?.type === 'link' ? deps.hoverTargetRef.current.id : null,
         timeRef.current, opts,
       )
+      drawSearchFlow(ctx, searchFlowSegments(discoveries, toolCalls, getToolCardSize, deps.simulationRef.current.isPlaying ? deps.simTimeRef.current : null), timeRef.current, opts)
       opts.reducedMotion = calmOf('agents')
       drawAgents(ctx, agents, selectedAgentId, hoveredAgentId, showStats, timeRef.current, opts)
       drawBranchBadges(ctx, agents, deps.drawPropsRef.current.collapse, opts.focusedAgentId ?? null, opts)

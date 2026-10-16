@@ -10,6 +10,7 @@ Why the canvas stays quiet when nothing moves, what it skips, and how to measure
   - Under **reduced motion** (OS preference or the "Freeze motion" toggle) the scene is redrawn on change, and otherwise every **250 ms** so clocks and expiries stay true.
   - Any pointer, wheel, key or focus event brings the loop back to full rate for one second, so hover and clicks answer immediately.
   - A scene with an active agent keeps its full frame rate: its pulses and comets are real animation, not a state to freeze.
+  - A Grep that completes with file cards keeps the full frame rate for **3 seconds** of session time (`SEARCH_FLOW.chipWindowS`, #384), while its chips travel to the cards; then its lines are static and no longer hold the rate, even if Pin cards keeps the cards. The **links** layer calmed or reduced motion: no chip, no full rate.
 - **Viewport culling.** The agent, tool card, edge and particle passes skip what lies outside the visible area plus a margin (96 screen px, and a per-element extent for labels, glows and trails). Zoomed on one cluster of a large fleet, the other clusters cost nothing.
 - Nothing is drawn from an invented state: a skipped frame leaves the last drawn frame on screen, and the fingerprint covers what moves.
 

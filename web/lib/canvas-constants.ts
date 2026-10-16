@@ -119,6 +119,18 @@ export const SEARCH_DISCOVERY = {
   /** Vertical distance between two cards of the same call */
   gapY: 40,
 } as const
+/** Flow from a search card to its file cards (#384, canvas/search-flow.ts) */
+export const SEARCH_FLOW = {
+  /** Trips a chip makes along its line per second */
+  speed: 0.45,
+  chipRadius: 2.5,
+  arrowLength: 7,
+  arrowHalfWidth: 3.5,
+  /** Gap between a card edge and the end of the line */
+  edgeGap: 2,
+  /** Seconds of session time after the call completed during which the chips travel; the line and arrowhead stay */
+  chipWindowS: 3,
+} as const
 /** Seconds a message bubble is considered visible (for pruning) */
 export const BUBBLE_VISIBLE_S = 12
 
