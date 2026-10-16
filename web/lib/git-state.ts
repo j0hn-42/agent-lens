@@ -8,7 +8,8 @@
  * - a PR state comes only from a gh output: the URL `gh pr create` prints (state "created"), the line of
  *   `gh pr merge` / `gh pr close`, or a `gh pr view --json` object carrying the number and the state. It is the
  *   state at the time of that call, never refreshed;
- * - an output line counts only when the command ran the git / gh subcommand that prints it, and a command aimed at
+ * - an output line counts only when the command ran the git / gh subcommand that prints it and no other command of
+ *   the line could have printed it (each segment runs that subcommand or a silent `git add`), and a command aimed at
  *   another repository (`-C`, `--git-dir`, `--work-tree`) proves nothing.
  * With nothing observed the state stays undefined: no default branch.
  *
@@ -16,7 +17,7 @@
  * back. Commits and PRs are bounded; the older ones are counted, never dropped silently.
  */
 import { GITHUB_ISSUE_URL_RE } from './issue-links'
-import { RESULT_CAPTURE_LIMIT, ghResultLink, shellCommands } from './action-summary'
+import { RESULT_CAPTURE_LIMIT, ghResultLink, shellCommands, shellSegments } from './action-summary'
 
 export type GitRef = { kind: 'branch'; name: string } | { kind: 'detached' }
 
@@ -84,7 +85,9 @@ const SEEN_MAX = 500
 const FAILED_PREFIX = '[FAILED]'
 const OTHER_REPO = /(?:^|[\s;&|(])git\s+(?:[^;&|\n]*\s)?(?:-C\s|--git-dir\b|--work-tree\b)/
 const AMEND = /\bcommit\b[^;&|\n]*\s--amend\b/
-const SHOW_CURRENT_ALONE = /^\s*git\s+branch\s+--show-current\s*$/
+/** git subcommands that print nothing on success: running one next to a reading subcommand adds no line */
+const SILENT_GIT = new Set(['add'])
+const SHOW_CURRENT_ALONE =/^\s*git\s+branch\s+--show-current\s*$/
 const REF_NAME = /^[\w][\w./-]*$/
 
 const SWITCHED = /^(?:Switched to (?:a new |and reset )?branch|Already on) '([^']+)'$/
@@ -108,24 +111,32 @@ function readCall(command: string, result: string): Seen {
   const lines = result.split('\n')
   // The last line may stop mid-way when the result reached the capture limit
   const whole = result.length >= RESULT_CAPTURE_LIMIT ? lines.slice(0, -1) : lines
-  const switching = gitHere && (git.has('checkout') || git.has('checkout -b') || git.has('switch'))
-  const status = gitHere && git.has('status')
-  const commit = gitHere && git.has('commit')
-  for (const raw of whole) {
+  // A line is tied to a subcommand only when no other command of the line could have printed it: every segment
+  // runs one of `subs`, or a git subcommand that prints nothing on success
+  const segs = shellSegments(command)
+  const only = (tool: 'git' | 'gh', subs: string[]) =>
+    segs.length > 0 && segs.every(s => s !== null && ((s.tool === tool && subs.includes(s.sub)) || (s.tool === 'git' && SILENT_GIT.has(s.sub))))
+  const switching = gitHere && only('git', ['checkout', 'checkout -b', 'switch']) && (git.has('checkout') || git.has('checkout -b') || git.has('switch'))
+  const status = gitHere && only('git', ['status']) && git.has('status')
+  const commit = gitHere && only('git', ['commit']) && git.has('commit')
+  const merge = only('gh', ['pr merge']) && gh.has('pr merge')
+  const close = only('gh', ['pr close']) && gh.has('pr close')
+  for (const [i, raw] of whole.entries()) {
     const line = raw.trimEnd()
     let m: RegExpExecArray | null
     if (switching && (m = SWITCHED.exec(line))) out.head = { ref: { kind: 'branch', name: m[1] }, source: 'checkout' }
     else if (switching && DETACHED_SWITCH.test(line)) out.head = { ref: { kind: 'detached' }, source: 'checkout' }
     else if (status && (m = STATUS_BRANCH.exec(line))) out.head = { ref: { kind: 'branch', name: m[1] }, source: 'status' }
     else if (status && STATUS_DETACHED.test(line)) out.head = { ref: { kind: 'detached' }, source: 'status' }
-    else if (status && (m = STATUS_SHORT.exec(line))) {
+    // The short header is the first line of `git status -sb`; further down, a "## x" line is not a header
+    else if (status && i === 0 && (m = STATUS_SHORT.exec(line))) {
       out.head = m[1] === 'HEAD' ? { ref: { kind: 'detached' }, source: 'status' } : { ref: { kind: 'branch', name: m[1] }, source: 'status' }
     } else if (commit && (m = COMMIT_LINE.exec(line))) {
       const detached = m[1] === 'detached HEAD'
       out.commits.push({ sha: m[2], branch: detached ? null : m[1], message: m[3], amend: AMEND.test(command) })
       out.head = { ref: detached ? { kind: 'detached' } : { kind: 'branch', name: m[1] }, source: 'commit' }
-    } else if (gh.has('pr merge') && (m = PR_MERGED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'merged' })
-    else if (gh.has('pr close') && (m = PR_CLOSED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'closed' })
+    } else if (merge && (m = PR_MERGED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'merged' })
+    else if (close && (m = PR_CLOSED.exec(line))) out.prs.push({ number: Number(m[2]), repo: m[1] ?? null, state: 'closed' })
   }
   if (gitHere && git.has('branch') && SHOW_CURRENT_ALONE.test(command)) {
     const names = whole.map(l => l.trim()).filter(Boolean)
