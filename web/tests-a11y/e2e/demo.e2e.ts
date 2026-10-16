@@ -435,7 +435,8 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
   const activeLabel = (page: Page) =>
     page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null
-      return el ? `${el.getAttribute('role') ?? el.tagName.toLowerCase()}:${(el.textContent ?? '').trim()}` : ''
+      // a toggle item (menuitemcheckbox, #380) counts as a menu item here
+      return el ? `${(el.getAttribute('role') ?? el.tagName.toLowerCase()).replace('menuitemcheckbox', 'menuitem')}:${(el.textContent ?? '').trim()}` : ''
     })
   const graphHasFocus = (page: Page) =>
     page.evaluate(sel => document.activeElement === document.querySelector(sel), GRAPH)
@@ -483,7 +484,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
       await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
       const menu = page.getByRole('menu', { name: 'Context menu' })
       await menu.waitFor()
-      const items = menu.getByRole('menuitem')
+      const items = menu.locator('[role="menuitem"], [role="menuitemcheckbox"]')
       const count = await items.count()
       assert.ok(count >= 2, `expected at least two menu items, got ${count}`)
       const labels = (await items.allTextContents()).map(s => s.trim())
@@ -505,7 +506,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     const { page, close } = await open()
     try {
       const menu = await openMenuByKeyboard(page)
-      assert.ok(await menu.getByRole('menuitem').count() >= 1)
+      assert.ok(await menu.locator('[role="menuitem"], [role="menuitemcheckbox"]').count() >= 1)
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
       assert.equal(await graphHasFocus(page), true, 'focus returns to the graph surface that opened the menu')
