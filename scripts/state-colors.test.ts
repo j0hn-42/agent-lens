@@ -113,6 +113,29 @@ test('timeline blocks stored with a scene colour paint the theme colour of their
   refreshColors('neon')
 })
 
+// The graph legend draws the canvas colours (stateColor), the session list and the timeline legend draw the theme ones
+// (COLORS). A panel state colour must therefore not look like another state on the canvas. In every theme listed here
+// the panel thinking (blue) is close to the canvas idle (cyan), and in some the panel idle is close to the canvas
+// thinking (Catppuccin, Midnight), the panel waiting to the canvas thinking (Graphite, Anthropic) or the panel idle to
+// the canvas tool call (Ember). Documented in docs/reading-the-ui.md; todo until the canvas reads the state-* roles.
+const CROSS_SURFACE_KNOWN = new Set<string>([
+  'catppuccin-macchiato', 'catppuccin-mocha', 'catppuccin-frappe', 'midnight', 'graphite', 'ember', 'anthropic',
+])
+for (const id of THEME_IDS) {
+  const name = `${id}: no panel state colour looks like another state on the canvas (deltaE >= ${MIN_DELTA_E})`
+  if (CROSS_SURFACE_KNOWN.has(id)) { test.todo(name); continue }
+  test(name, () => {
+    const p = paletteFor(id)
+    for (const x of STATES) {
+      for (const y of STATES) {
+        if (x === y) continue
+        const d = deltaE(p[x], stateColor(y))
+        assert.ok(d >= MIN_DELTA_E, `panel ${x} ${p[x]} vs canvas ${y} ${stateColor(y)}: deltaE ${d.toFixed(3)} < ${MIN_DELTA_E}`)
+      }
+    }
+  })
+}
+
 test('warnings that are not a permission wait (incomplete rollup, loop health) do not borrow the waiting colour', () => {
   const read = (f: string) => readFileSync(join(__dirname, '../web/components/agent-visualizer', f), 'utf8')
   const sessions = read('session-list-panel.tsx')
