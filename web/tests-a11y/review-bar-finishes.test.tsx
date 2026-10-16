@@ -65,19 +65,33 @@ test('live: the badge is in the live color while it says LIVE, and says somethin
   assert.equal(offline.style.color, normalized('color', COLORS.error))
 })
 
+const menuProps = (contextMenu: { x: number; y: number; agentId?: string }) => ({
+  selection: { contextMenu, setContextMenu: noop },
+  inspector: { selectedAgent: null, selectedGone: false, goneName: null, delegation: [], toolWhy: null },
+  agents: new Map(), links: new Map(), droppedMessages: new Map(),
+  health: { byAgent: new Map(), bySession: new Map() },
+  bridge: { relayOrigin: null, launch: null, eventLoss: null },
+  selectedLinkId: null, onCloseLink: noop, onEscapeFromCard: noop,
+  menuActions: { toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: null },
+  }) as unknown as React.ComponentProps<typeof SelectionOverlays>
+
 test('canvas menu: "Zoom to fit" is spelled like everywhere else (shortcuts, palette)', () => {
-  const props = {
-    selection: { contextMenu: { x: 10, y: 10 }, setContextMenu: noop },
-    inspector: { selectedAgent: null, selectedGone: false, goneName: null, delegation: [], toolWhy: null },
-    agents: new Map(), links: new Map(), droppedMessages: new Map(),
-    health: { byAgent: new Map(), bySession: new Map() },
-    bridge: { relayOrigin: null, launch: null, eventLoss: null },
-    selectedLinkId: null, onCloseLink: noop, onEscapeFromCard: noop,
-    menuActions: { toggleStats: noop, zoomToFit: noop, toggleGrid: noop, clearHistory: noop, reloadSessionEvents: null },
-  } as unknown as React.ComponentProps<typeof SelectionOverlays>
-  const { getByRole, queryByRole } = render(<SelectionOverlays {...props} />)
+  const { getByRole, queryByRole } = render(<SelectionOverlays {...menuProps({ x: 10, y: 10 })} />)
   assert.ok(getByRole('menuitem', { name: 'Zoom to fit' }))
   assert.equal(queryByRole('menuitem', { name: 'Zoom to Fit' }), null)
+})
+
+test('canvas and agent menus: every item is in sentence case (#383)', () => {
+  const labels = (r: ReturnType<typeof render>) => r.getAllByRole('menuitem').map(i => i.textContent?.replace(/^\W+/u, '').trim())
+  const canvas = labels(render(<SelectionOverlays {...menuProps({ x: 10, y: 10 })} />))
+  assert.ok(canvas.includes('Toggle stats') && canvas.includes('Toggle grid'), canvas.join(', '))
+  cleanup()
+  const agent = labels(render(<SelectionOverlays {...menuProps({ x: 10, y: 10, agentId: 'a1' })} />))
+  assert.deepEqual(agent, ['Toggle stats'])
+  for (const label of [...canvas, ...agent]) {
+    const rest = (label ?? '').split(' ').slice(1)
+    assert.ok(rest.every(w => w === w.toLowerCase()), `"${label}" is in sentence case`)
+  }
 })
 
 test('session search: the placeholder fits a narrow panel and the fields searched stay visible, as its description', () => {
