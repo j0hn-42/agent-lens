@@ -92,7 +92,7 @@ A tool card or a discovery card is drawn only with its agent: when **Hide inacti
 
 Some tool calls have their own card content in the popup and the transcript. Every figure comes from the call's own input; when the input does not carry it, nothing is shown.
 
-- **Edit / MultiEdit**: a `+N -M` summary (lines of `new_string` and `old_string`, summed over the blocks for MultiEdit, with the block count). The sign and a spoken equivalent ("2 lines added, 3 lines removed") carry the meaning, not the color. A MultiEdit whose blocks are incomplete shows no summary.
+- **Edit / MultiEdit**: a sentence such as "3 lines replaced by 2" (lines of `old_string` and `new_string`, summed over the blocks for MultiEdit, with the block count). It counts the two strings, it is not a diff, and it describes the request, not proof that the edit was applied. A MultiEdit whose blocks are incomplete shows no summary. `apply_patch` keeps `+N -M`, counted from the patch text.
 - **Write**: the number of lines of the content written. It does not say whether the file already existed, because the call does not prove it.
 - **Read**: the line range requested (`lines 10–59`, or `from line 100` when only an offset was given), from the call's `offset` and `limit`. Nothing is shown when the call states neither.
 - **Other runtimes**: tools named differently are drawn like the one they correspond to: Codex `shell` and `exec_command` (Bash), `update_plan` (TodoWrite), `web_search_call` (WebSearch); Copilot `bash`, `powershell`, `view` (Read), `edit` (Edit), `create` (Write), `grep` (Grep), `glob` (Glob), `web_fetch` (WebFetch), `task` (Task). The tool name shown is still the one the runtime reported.

@@ -125,13 +125,27 @@ function FilePath({ path: filePath }: { path: string }) {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. */
-function EditSummary({ stats }: { stats: EditStats }) {
+/** What an Edit / MultiEdit asks for, in words: the figures are the line counts of old_string and new_string, not a diff. */
+function replaceSentence({ added, removed }: EditStats): string {
+  if (removed === 0) return `${plural(added, 'line')} inserted`
+  if (added === 0) return `${plural(removed, 'line')} deleted`
+  return `${plural(removed, 'line')} replaced by ${added}`
+}
+
+/** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. A patch is a real
+ *  diff; an Edit / MultiEdit (`replace`) only has the two strings, so it says "N lines replaced by M". */
+function EditSummary({ stats, replace = false }: { stats: EditStats; replace?: boolean }) {
   return (
     <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
-      <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
-      <span aria-hidden="true" style={{ color: COLORS.diffRemoved }}>-{stats.removed}</span>
-      <span className="sr-only">{plural(stats.added, 'line')} added, {plural(stats.removed, 'line')} removed</span>
+      {replace ? (
+        <span style={{ color: COLORS.contentDim }}>{replaceSentence(stats)}</span>
+      ) : (
+        <>
+          <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
+          <span aria-hidden="true" style={{ color: COLORS.diffRemoved }}>-{stats.removed}</span>
+          <span className="sr-only">{plural(stats.added, 'line')} added, {plural(stats.removed, 'line')} removed</span>
+        </>
+      )}
       {stats.blocks != null && <span style={{ color: COLORS.contentDim }}>{plural(stats.blocks, 'block')}</span>}
     </div>
   )
@@ -178,7 +192,7 @@ function EditContent({ data, compact }: { data: Record<string, unknown>; compact
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} />}
+      {stats && <EditSummary stats={stats} replace />}
       <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
       <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
@@ -242,7 +256,7 @@ function MultiEditContent({ data, compact }: { data: Record<string, unknown>; co
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} />}
+      {stats && <EditSummary stats={stats} replace />}
       {edits.map((e, i) => (
         <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
           <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
