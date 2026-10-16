@@ -9,10 +9,11 @@ import { eventSessionId } from './process-event'
  */
 export function clearHistoryState(prev: SimulationState): SimulationState {
   const agents = new Map<string, Agent>()
-  // The clock restarts at 0, so the kept agents are born at 0 too (their age is measured from the clock)
+  // spawnTime is kept: the log keeps the spawns at their real time and the next event brings the clock back to
+  // the session time, so the age stays measured from the real birth (0 until then)
   for (const [id, agent] of prev.agents) {
     if (agent.state !== 'complete') {
-      agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0, spawnTime: 0 })
+      agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
     }
   }
 
