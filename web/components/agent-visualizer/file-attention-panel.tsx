@@ -2,13 +2,13 @@
 
 import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
-import { formatTokens, truncatePath, pluralize } from '@/lib/utils'
+import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { emptyState } from '@/lib/ui-glossary'
 import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
 import { deriveFileConflicts, conflictPath, conflictPathSet, conflictHeading, describeConflictEditors } from '@/lib/file-conflicts'
-import { replayLostSentence } from '@/lib/event-loss'
+import { boundedCount, replayLostSentence } from '@/lib/event-loss'
 import type { Agent } from '@/lib/agent-types'
 import { emptyWasteLedger, type WasteLedger } from '@/lib/waste'
 import { WasteSection } from './waste-section'
@@ -86,7 +86,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
           <WasteSection waste={waste} agents={agents} onOpenFile={onOpenFile} />
           {files.length === 0 && (
             <div className="text-[11px] font-mono py-2 text-center" style={{ color: COLORS.textMuted }}>
-              {emptyState('files')}
+              {replayLost > 0 ? 'No file observed (incomplete)' : emptyState('files')}
             </div>
           )}
           {conflicts.length === 0 && replayLost > 0 && (
@@ -224,7 +224,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
             borderTop: `1px solid ${COLORS.holoBorder08}`,
             color: COLORS.textMuted,
           }}>
-            <span>{pluralize(files.length, 'file')}</span>
+            <span>{boundedCount(files.length, replayLost, 'file')}</span>
             <span>{formatTokenUsage(combineUsage(files.map(fileUsage)))} tokens in file reads</span>
           </div>
         )}
