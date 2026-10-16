@@ -35,15 +35,34 @@ test('review: the button that resumes live is an action, not drawn in the alarmi
   assert.notEqual(button.style.color, normalized('color', COLORS.liveText), 'text is not the live red')
   assert.notEqual(button.style.borderColor, normalized('borderColor', COLORS.liveResumeBorder), 'border is not the live red')
   assert.notEqual(button.style.backgroundColor, normalized('backgroundColor', COLORS.liveResumeBg), 'fill is not the live red')
+  // Drawn like the other neutral actions of the bar
+  assert.equal(button.style.color, normalized('color', COLORS.textPrimary))
+  assert.equal(button.style.borderColor, normalized('borderColor', COLORS.controlBorder))
+  assert.equal(button.style.backgroundColor, normalized('backgroundColor', COLORS.holoBg10))
 })
 
-test('live: the badge keeps the live color only while it says LIVE', () => {
+test('live: the badge is in the live color while it says LIVE, and says something else when not live', () => {
   const live = render(
     <ControlBar isPlaying speed={1} currentTime={3} totalDuration={10} onPlayPause={noop} onRestart={noop} onSpeedChange={noop} timelineEvents={[]} connectionStatus="watching" />,
   )
-  const label = live.container.querySelector('[data-live-badge] span:last-child') as HTMLElement
+  const badgeText = (r: ReturnType<typeof render>) => r.container.querySelector('[data-live-badge] span:last-child') as HTMLElement
+  const label = badgeText(live)
   assert.equal(label.textContent?.trim(), 'LIVE')
   assert.equal(label.style.color, normalized('color', COLORS.liveText))
+  cleanup()
+  // Demo: another word, not in the live color
+  const demo = badgeText(render(
+    <ControlBar isPlaying speed={1} currentTime={3} totalDuration={10} onPlayPause={noop} onRestart={noop} onSpeedChange={noop} timelineEvents={[]} isDemo connectionStatus="watching" />,
+  ))
+  assert.equal(demo.textContent?.trim(), 'DEMO')
+  assert.notEqual(demo.style.color, normalized('color', COLORS.liveText))
+  cleanup()
+  // Offline: another word, in the error color (which the themes draw with the same danger red as live)
+  const offline = badgeText(render(
+    <ControlBar isPlaying speed={1} currentTime={3} totalDuration={10} onPlayPause={noop} onRestart={noop} onSpeedChange={noop} timelineEvents={[]} connectionStatus="disconnected" />,
+  ))
+  assert.notEqual(offline.textContent?.trim(), 'LIVE')
+  assert.equal(offline.style.color, normalized('color', COLORS.error))
 })
 
 test('canvas menu: "Zoom to fit" is spelled like everywhere else (shortcuts, palette)', () => {

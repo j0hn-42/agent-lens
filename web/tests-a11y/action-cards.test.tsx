@@ -87,8 +87,9 @@ test('MultiEdit: every block is shown, numbered, with the block count', () => {
     ],
   })
   const summary = getByRole('group', { name: 'Edit summary' })
-  assert.match(summary.textContent ?? '', /2 blocks/)
-  assert.match(summary.textContent ?? '', /2 lines replaced by 3/)
+  // Exact spans: the sentence and the block count are adjacent, "replaced by 32 blocks" must not pass
+  within(summary).getByText('2 blocks', { exact: true })
+  within(summary).getByText('2 lines replaced by 3', { exact: true })
   assert.doesNotMatch(summary.textContent ?? '', /[+-]\d/)
   assert.equal(getAllByText(/^Block \d of 2$/).length, 2)
 })
