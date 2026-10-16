@@ -219,5 +219,36 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     const child = ofType(h.events, 'agent_spawn').find(e => e.payload.name === 'Child')!
     assert.equal(child.payload.parent, 'Parent')
   })
+
+  it('a launch held back by the cap and notified as finished after the attach is not announced on its next line', () => {
+    const n = SUBAGENT_CATCH_UP_SPAWNS_MAX + 1
+    const history: unknown[] = [userText('Fan out')]
+    const subs: SubFile[] = []
+    for (let i = 0; i < n; i++) {
+      const agentId = `a${String(i + 1).padStart(16, '0')}`
+      const id = `toolu_g${i}`
+      history.push(dispatch(id, `Job ${i}`), receipt(id, agentId))
+      subs.push({ agentId, toolUseId: id, description: `Job ${i}` })
+    }
+    const { h, grow, lead, atAttach } = attach(history, subs)
+    const late = subs[n - 1]
+    assert.ok(!spawnNames(h.events.slice(0, atAttach)).includes(late.description), 'held back by the cap')
+    lead(notice(late.toolUseId!, late.agentId))
+    grow(late.agentId)
+    assert.ok(!spawnNames(h.events).includes(late.description), 'its end is now in the transcript')
+  })
+
+  it('an Agent Team spawn (team_name) is not a subagent run: no catch-up spawn for its file', () => {
+    const teamDispatch = {
+      type: 'assistant', uuid: 'a-team',
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_tm1', name: 'Agent', input: { description: 'Team job', prompt: 'x', team_name: 'demo-team', name: 'alice' } }] },
+    }
+    const { h, session } = attach(
+      [userText('Team up'), teamDispatch],
+      [{ agentId: 'a0000000000000009', toolUseId: 'toolu_tm1', description: 'Team job' }],
+    )
+    assert.equal(h.parser.isSubagentDispatchOpen(session, 'toolu_tm1'), false)
+    assert.deepEqual(spawnNames(h.events), [])
+  })
 })
 
