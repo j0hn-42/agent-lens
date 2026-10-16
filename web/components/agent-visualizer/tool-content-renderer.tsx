@@ -125,20 +125,35 @@ function FilePath({ path: filePath }: { path: string }) {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/** What an Edit / MultiEdit asks for, in words: the figures are the line counts of old_string and new_string, not a diff. */
-function replaceSentence({ added, removed }: EditStats): string {
-  if (removed === 0) return `${plural(added, 'line')} inserted`
-  if (added === 0) return `${plural(removed, 'line')} deleted`
-  return `${plural(removed, 'line')} replaced by ${added}`
+/** One old_string / new_string pair of an Edit or a MultiEdit block. */
+interface EditPair { old: string; next: string }
+
+const pairKind = ({ old, next }: EditPair) =>
+  old === '' ? (next === '' ? 'none' : 'insert') : next === '' ? 'delete' : 'replace'
+
+/** What an Edit / MultiEdit asks for, in words: the figures are the line counts of old_string and new_string, not a
+ *  diff. A verb only when every block is of one kind (a MultiEdit that inserts here and deletes there replaces
+ *  nothing); a deletion says "text removed from N lines", since old_string may be part of a line. Null when both
+ *  strings are empty everywhere. */
+function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair[]): string | null {
+  if (added === 0 && removed === 0) return null
+  const kinds = new Set(pairs.map(pairKind).filter(k => k !== 'none'))
+  const kind = kinds.size === 1 ? [...kinds][0] : null
+  if (kind === 'insert') return `${plural(added, 'line')} inserted`
+  if (kind === 'delete') return `text removed from ${plural(removed, 'line')}`
+  if (kind === 'replace') return `${plural(removed, 'line')} replaced by ${added}`
+  return `old: ${plural(removed, 'line')}, new: ${plural(added, 'line')}`
 }
 
 /** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. A patch is a real
- *  diff; an Edit / MultiEdit (`replace`) only has the two strings, so it says "N lines replaced by M". */
-function EditSummary({ stats, replace = false }: { stats: EditStats; replace?: boolean }) {
+ *  diff; an Edit / MultiEdit (`pairs`) only has the two strings, so it says what they are in words. */
+function EditSummary({ stats, pairs }: { stats: EditStats; pairs?: readonly EditPair[] }) {
+  const sentence = pairs ? replaceSentence(stats, pairs) : null
+  if (pairs && sentence == null) return null
   return (
     <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
-      {replace ? (
-        <span style={{ color: COLORS.contentDim }}>{replaceSentence(stats)}</span>
+      {sentence != null ? (
+        <span style={{ color: COLORS.contentDim }}>{sentence}</span>
       ) : (
         <>
           <span aria-hidden="true" style={{ color: COLORS.diffAdded }}>+{stats.added}</span>
@@ -192,7 +207,7 @@ function EditContent({ data, compact }: { data: Record<string, unknown>; compact
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} replace />}
+      {stats && <EditSummary stats={stats} pairs={[{ old: oldText, next: newText }]} />}
       <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
       <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
@@ -256,7 +271,7 @@ function MultiEditContent({ data, compact }: { data: Record<string, unknown>; co
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} replace />}
+      {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} />}
       {edits.map((e, i) => (
         <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
           <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
