@@ -167,9 +167,11 @@ export function scanSubagentsDir(
     // Start parents before children so a nested subagent can resolve its parent's name
     const isNested = (filePath: string) => (fresh.length > 1 && resolveSubagentFileInfo(filePath, 0).parentAgentId) ? 1 : 0
     const ordered = fresh.map(filePath => ({ filePath, rank: isNested(filePath) })).sort((x, y) => x.rank - y.rank)
-    for (const { filePath } of ordered) {
-      startWatchingSubagentFile(delegate, parser, filePath, sessionId)
-    }
+    // The parents' catch-up spawns (#446) go out before a child is started: a child with pending work is
+    // announced at once, and its parent must already exist on the web side to be its parent there
+    for (const { filePath } of ordered.filter(o => o.rank === 0)) startWatchingSubagentFile(delegate, parser, filePath, sessionId)
+    emitCatchUpSpawns(delegate, parser, session, sessionId)
+    for (const { filePath } of ordered.filter(o => o.rank === 1)) startWatchingSubagentFile(delegate, parser, filePath, sessionId)
     emitCatchUpSpawns(delegate, parser, session, sessionId)
     tickWorkflowGroups(delegate, session, sessionId, selection.workflows)
   } catch (err) { log.debug('Subagent dir scan failed:', err) }
