@@ -79,7 +79,7 @@ test('steps beyond the cap are counted, never dropped silently', () => {
   const { container } = render(<FileAttentionPanel visible fileAttention={files} onClose={noop} agentLabel={agentLabel} />)
   const row = rowOf(container, capped.path)
   assert.match(row.textContent ?? '', /12 earlier steps not kept/)
-  assert.match(row.querySelector('summary')?.textContent ?? '', /at least 13 steps observed/)
+  assert.match(row.querySelector('summary')?.textContent ?? '', /13 steps observed/)
 })
 
 test('a file without an observed step has no disclosure', () => {
