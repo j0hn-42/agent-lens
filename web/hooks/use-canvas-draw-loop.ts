@@ -210,9 +210,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ],
     })
     // A chip travelling to a file card (SEARCH_FLOW.chipWindowS after its Grep completed) keeps the full frame
-    // rate, unless the links layer is calm (static line then)
+    // rate, unless the links layer is calm (static line then). It reads the scene the last frame drew (p, filtered by
+    // Hide inactive and closed branches, re-synced on every drawn frame), not the raw simulation: a hidden card draws nothing.
     const flowMoves = !layerIsCalm(deps.globalReducedRef.current, deps.calmLayersRef.current, 'links')
-      && searchFlowMoves(s.discoveries, s.toolCalls, getToolCardSize, s.isPlaying ? s.currentTime : null)
+      && searchFlowMoves(p.discoveries, p.toolCalls, getToolCardSize, s.isPlaying ? s.currentTime : null)
     const animating = flowMoves || sceneAnimating(s.agents.values(), s.toolCalls.values(), s.particles.length, effects)
     const draw = gateRef.current.shouldDraw({ now: timestamp, stamp, reducedMotion, animating, moving: deps.isCameraBusy() || !!p.isDragging })
     if (!draw) perfRef.current.skippedFrames++
