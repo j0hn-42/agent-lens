@@ -21,7 +21,7 @@ type StateColors = Readonly<Record<AgentState, string>>
 const cache = new Map<ThemeId, StateColors>()
 
 /** The seven agent state colours of a theme (cached: the draw loop asks for them every frame). */
-export function sceneStateColors(theme: ThemeId): StateColors {
+function sceneStateColors(theme: ThemeId): StateColors {
   let colors = cache.get(theme)
   if (!colors) {
     const p = paletteFor(theme)

@@ -107,7 +107,7 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
   const bridge = readFileSync(join(root, 'web/lib/scene-state-colors.ts'), 'utf8')
   assert.doesNotMatch(bridge, /\bCOLORS\b|\bSCENE\b/, 'scene-state-colors ne touche ni COLORS ni SCENE')
   const exported = [...bridge.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]).sort()
-  assert.deepEqual(exported, ['sceneStateColor', 'sceneStateColors', 'sceneTheme'])
+  assert.deepEqual(exported, ['sceneStateColor', 'sceneTheme'])
   const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
   assert.match(loop, /opts\.theme = theme/, 'la boucle passe le thème au dessin par les options')
   assert.match(loop, /keys: \[[^\]]*sceneTheme\(\)/, 'un changement de thème redessine une scène immobile')
