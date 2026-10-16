@@ -11,7 +11,7 @@ import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSum
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
-import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, openPanelLabel } from "@/lib/ui-glossary"
+import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, openPanelLabel } from "@/lib/ui-glossary"
 import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
@@ -76,7 +76,7 @@ function GearIcon() {
 }
 
 /** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
-const CONTEXT_UNAVAILABLE_IN_VSCODE = 'Context: project CLAUDE.md, memory and issues come from the standalone relay, not available in VS Code'
+const CONTEXT_UNAVAILABLE_IN_VSCODE = `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} come from the standalone relay, not available in VS Code`
 const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
@@ -298,7 +298,7 @@ export const TopBar = memo(function TopBar({
         active={showSessions}
         pressed={showSessions}
         onClick={onToggleSessions}
-        title="Sessions and agents (L)"
+        title={`${SESSIONS_LIST_NAME} (L)`}
         shortcut="l"
         keepsInspector
         style={{ maxWidth: 'min(320px, 100%)' }}
@@ -412,7 +412,7 @@ export const TopBar = memo(function TopBar({
           }}>
             <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={() => onTogglePanel('files')} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={() => onTogglePanel('conversation')} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: project CLAUDE.md, memory, issues (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
+            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={() => onTogglePanel('context')} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
             <ToggleButton id={PANEL_BUTTON_IDS.system} active={showSystem} pressed={showSystem} onClick={() => onTogglePanel('system')} ariaLabel={openPanelLabel('system', 'Y')} title={`${PANEL_NAMES.system}: CPU, memory, disk (Y)`} shortcut="y" style={{ background: showSystem ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.system}</ToggleButton>
             {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
             <ToggleButton

@@ -443,3 +443,18 @@ test('migration: unavailable storage does not throw', () => {
   const safe = createPrefsStore({ storage: createSafeStorage(() => broken), schedule: manualSchedule().schedule })
   assert.deepEqual(safe.getSnapshot(), { ...D })
 })
+
+// --- 'Active only' of the Sessions list (#372): one more field of the blob, no key of its own ----------
+
+test('sessionListActiveOnly: on by default, booleans only, persisted in the blob', () => {
+  assert.equal(DEFAULT_UI_PREFS.sessionListActiveOnly, true)
+  for (const bad of ['false', 0, null, {}]) assert.equal(sanitizePref('sessionListActiveOnly', bad), true)
+  assert.equal(sanitizePref('sessionListActiveOnly', false), false)
+  const m = memStorage()
+  const s = manualSchedule()
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('sessionListActiveOnly', false); s.tick()
+  assert.deepEqual([...m.data.keys()], [UI_PREFS_STORAGE_KEY], 'stored in the preference blob, under no separate key')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().sessionListActiveOnly, false)
+  assert.equal(parsePrefs(env({ sessionListActiveOnly: false })).sessionListActiveOnly, false)
+})

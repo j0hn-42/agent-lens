@@ -90,6 +90,8 @@ export function PanelDock({
           filterRuntime={prefs.sessionFilterRuntime}
           filterBranch={prefs.sessionFilterBranch}
           scopeHint={scopeEmptyHint(bridge.relayScope)}
+          activeOnly={prefs.sessionListActiveOnly}
+          onActiveOnlyChange={v => setPref('sessionListActiveOnly', v)}
           onFilterChange={change => {
             if (change.projectId !== undefined) setPref('sessionFilterProject', change.projectId)
             if (change.runtime !== undefined) setPref('sessionFilterRuntime', change.runtime)

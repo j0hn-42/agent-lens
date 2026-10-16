@@ -128,3 +128,56 @@ test('hidden panels sentence (#410): names the open panels a sheet hides, nothin
   // Context takes the Files slot of the dock: it is named Context while it is the one open
   assert.equal(hiddenPanelsText(['files'], { context: true }), '1 panel hidden: Context. Close the panel shown to see it.')
 })
+
+test('one name per thing (#372): Context, Timeline and Sessions never take a second meaning', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  // "Context" is the project panel; the model's token window is always the "Context window"
+  assert.equal(g.CONTEXT_WINDOW_NAME, 'Context window')
+  assert.notEqual(g.CONTEXT_WINDOW_NAME, PANEL_NAMES.context)
+  assert.equal(g.PANEL_SUMMARIES.context, 'project CLAUDE.md, memory, issues')
+  // "Timeline" is the panel; the control-bar slider is the playback position
+  assert.equal(g.PLAYBACK_LABELS.position, 'Playback position')
+  assert.ok(!g.PLAYBACK_LABELS.position.includes(PANEL_NAMES.timeline))
+  // The list opened by L has one name in the top bar, the Shortcuts dialog and the palette
+  assert.equal(g.SESSIONS_LIST_NAME, 'Sessions and agents')
+  const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
+  assert.equal(byKey.get('l')!.description, `Toggle ${g.SESSIONS_LIST_NAME} list`)
+  assert.equal(byKey.get('p')!.description, `Toggle ${PANEL_NAMES.context} panel (${g.PANEL_SUMMARIES.context})`)
+})
+
+test('hiding a session says what it does and that it comes back (#372)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.SESSION_LIST_LABELS.hide, 'Hide session (reappears on new activity or after a reconnect)')
+  // The accessible name and the tooltip say the same thing, return after a reconnect included
+  assert.equal(g.SESSION_LIST_LABELS.hideNamed('Refactor'), 'Hide session Refactor (reappears on new activity or after a reconnect)')
+  assert.equal(g.SESSION_LIST_LABELS.hidden('Refactor'), 'Session hidden: Refactor')
+  assert.equal(g.SESSION_LIST_LABELS.hiddenUnnamed, 'Session hidden')
+  assert.equal(g.SESSION_LIST_LABELS.activeOnly, 'Active only')
+  // 'Active only' is not the 10-minute window of the 'All' view: the tooltip says the rule it applies
+  // A session-ended also comes from the relay when it stops watching (size cap, read error, scope change):
+  // the tooltip must not call every hidden session one whose end was observed
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /end was observed/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no longer watched/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /never heard from/)
+  assert.match(g.SESSION_LIST_LABELS.activeOnlyHelp, /no time limit/i)
+})
+
+test('the retired double meanings are gone from the UI code (#372)', () => {
+  const retired = ['Timeline position', 'Timeline scrubber', 'Context usage', 'Close session', 'Session closed', 'Toggle Sessions list', 'Hide sessions that are finished']
+  const hits: string[] = []
+  const walk = (dir: string) => {
+    if (!existsSync(dir)) return
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.next') walk(p); continue }
+      if (!/\.(ts|tsx)$/.test(e.name)) continue
+      readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+        const t = line.trim()
+        if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return
+        for (const word of retired) if (line.includes(word)) hits.push(`${p}:${i + 1}: ${word}`)
+      })
+    }
+  }
+  for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
+  assert.deepEqual(hits, [])
+})

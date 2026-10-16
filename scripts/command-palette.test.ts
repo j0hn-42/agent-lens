@@ -44,7 +44,7 @@ test('every panel the app has is reachable, under its glossary name', () => {
   const items = buildPaletteItems(source())
   const panels = items.filter(i => i.group === 'Panels').map(i => i.label)
   assert.deepEqual(panels, [
-    'Toggle Sessions list', 'Toggle Files panel', 'Toggle Conversation panel', 'Toggle Timeline panel',
+    'Toggle Sessions and agents list', 'Toggle Files panel', 'Toggle Conversation panel', 'Toggle Timeline panel',
     'Toggle Context panel', 'Toggle System panel', 'Toggle Stats panel', 'Toggle Cost overlay',
   ])
 })

@@ -1,4 +1,5 @@
 import type { LegendEntryId } from './legend-entries'
+import { CONTEXT_WINDOW_NAME } from './ui-glossary'
 
 export type TourTarget =
   | { kind: 'dom'; id: string }
@@ -49,7 +50,7 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
   { id: 'return', time: 9.4, target: { kind: 'agent', name: 'explore-agent' }, title: 'Results come back',
     body: 'The sub-agent is done: its outline is now dashed. A finished agent stays on screen, faded, as an archived agent you can still click. When playback runs, a green dot carries the result back to the parent; it is not shown while the tour holds the scene.',
     covers: ['particle-return', 'shape-complete', 'state-complete', 'team-archived'] },
-  { id: 'context', time: 9.7, target: { kind: 'dom', id: 'legend-context' }, opensLegend: true, title: 'Context usage',
+  { id: 'context', time: 9.7, target: { kind: 'dom', id: 'legend-context' }, opensLegend: true, title: CONTEXT_WINDOW_NAME,
     body: 'The context window fills up with five kinds of content. Each colour is one of them: the system prompt, your messages, tool results, reasoning and sub-agent results.',
     covers: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'] },
   { id: 'permission', time: 12.5, target: { kind: 'agent', name: ORCHESTRATOR }, title: 'Waiting for you',

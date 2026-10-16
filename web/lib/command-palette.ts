@@ -7,7 +7,7 @@ import { ALL_SESSIONS_ID, cleanLine, type SessionInfo } from './bridge-types'
 import { runtimeBadge } from './chrome-utils'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT } from './session-model'
 import { SHORTCUTS } from './shortcuts'
-import { HIERARCHY_TERMS, PANEL_NAMES } from './ui-glossary'
+import { HIERARCHY_TERMS, PANEL_NAMES, SESSIONS_LIST_NAME } from './ui-glossary'
 
 export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents'] as const
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number]
@@ -123,7 +123,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
       keywords, movesFocus: true, sensitive: false, run: () => src.togglePanel(id),
     })
   }
-  panel('sessions', 'Toggle Sessions list', 'l', ['agents'])
+  panel('sessions', `Toggle ${SESSIONS_LIST_NAME} list`, 'l', ['agents'])
   panel('files', `Toggle ${PANEL_NAMES.files} panel`, 'f', ['conflicts', 'edits'])
   panel('conversation', `Toggle ${PANEL_NAMES.conversation} panel`, 'c', ['messages', 'chat'])
   panel('timeline', `Toggle ${PANEL_NAMES.timeline} panel`, 't', ['events'])

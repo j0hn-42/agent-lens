@@ -142,7 +142,7 @@ test('shell: control bar in review mode (play button, scrubber, resume)', async 
   )
   // Guard against checking the wrong bar: these only exist in review mode.
   getByRole('button', { name: 'Play' })
-  getByRole('slider', { name: 'Timeline position' })
+  getByRole('slider', { name: 'Playback position' })
   await check('control-bar-review', container)
   const clear = getByRole('button', { name: 'Clear history' })
   await act(async () => { fireEvent.click(clear) })

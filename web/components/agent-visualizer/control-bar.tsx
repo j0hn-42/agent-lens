@@ -7,6 +7,7 @@ import { useThemeVersion } from '@/lib/theme'
 import { formatDuration, pluralize } from '@/lib/utils'
 import type { ConnectionStatus } from '@/lib/bridge-types'
 import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
+import { PLAYBACK_LABELS } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/focus-ring'
 
 interface ControlBarProps {
@@ -333,12 +334,12 @@ function ReviewControlBar({
 
         <TruncationMarker dropped={droppedEvents} />
 
-        {/* Timeline scrubber */}
+        {/* Playback position slider (the Timeline is the panel opened by T) */}
         <div
           ref={scrubberRef}
           role="slider"
           tabIndex={0}
-          aria-label="Timeline position"
+          aria-label={PLAYBACK_LABELS.position}
           aria-orientation="horizontal"
           aria-valuemin={0}
           aria-valuemax={Math.round(totalDuration)}

@@ -10,6 +10,7 @@ import { downloadText, EXPORT_FAILED_MESSAGE } from '@/lib/comms-export'
 import { buildSessionExport, renderReplayHtml, sessionExportFileName } from '@/lib/session-export'
 import { detectedSessions } from '@/lib/session-model'
 import { initSessionMemory, stepSessionMemory, type SessionMemoryState } from '@/lib/ui-preferences'
+import { SESSION_LIST_LABELS } from '@/lib/ui-glossary'
 
 type Bridge = ReturnType<typeof useVSCodeBridge>
 
@@ -49,7 +50,7 @@ export function useSessionActions({ bridge, uiPrefs, pushToast, sessionCacheRef 
       selectSession(remaining.length > 0 ? remaining[remaining.length - 1].id : ALL_SESSIONS_ID)
     }
     pushToast({
-      message: `Session closed${closed ? `: ${closed.label}` : ''}`,
+      message: closed ? SESSION_LIST_LABELS.hidden(closed.label) : SESSION_LIST_LABELS.hiddenUnnamed,
       actionLabel: 'Undo',
       onAction: () => {
         if (restoreSession(id) && wasSelected) selectSession(id)
