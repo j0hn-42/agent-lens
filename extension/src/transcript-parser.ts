@@ -38,7 +38,7 @@ import {
 } from './team-links'
 import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
-import { asyncLaunchOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
+import { asyncLaunchOf, resumedAgentOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
 
 const log = createLogger('TranscriptParser')
 
@@ -762,6 +762,11 @@ export class TranscriptParser {
     if (!pending) { return }
     const toolName = pending.name
     const isSubagentTool = toolName === 'Task' || toolName === 'Agent'
+    // A SendMessage that resumed a finished background subagent: its next completed notice finishes it again (#433)
+    if (toolName === 'SendMessage' && block.is_error !== true) {
+      const resumed = resumedAgentOf(toolUseResult)
+      if (resumed) this.backgroundLaunches.resume(resumed, sessionId ?? '')
+    }
     // Subagent reports are kept up to MESSAGE_MAX so the full report can be shown
     const result = summarizeResult(block.content, isSubagentTool ? MESSAGE_MAX : RESULT_MAX)
     const tokenCost = estimateTokensFromContent(block.content)
@@ -980,6 +985,10 @@ export class TranscriptParser {
                 const asyncLaunch = launched && (launched.name === 'Agent' || launched.name === 'Task')
                   && !this.teammateSpawnIds.has(resultBlock.tool_use_id) ? asyncLaunchOf(parsedEntry.toolUseResult) : null
                 const childName = this.subagentChildNames.get(resultBlock.tool_use_id)
+                if (launched?.name === 'SendMessage' && resultBlock.is_error !== true) {
+                  const resumed = resumedAgentOf(parsedEntry.toolUseResult)
+                  if (resumed) this.backgroundLaunches.resume(resumed, session.sessionId)
+                }
                 if (asyncLaunch && childName) {
                   this.backgroundLaunches.register({
                     toolUseId: resultBlock.tool_use_id, childName, parent: ORCHESTRATOR_NAME, sessionId: session.sessionId,

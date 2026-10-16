@@ -5,6 +5,7 @@ import { agentKeyOf, cappedString, DEFAULT_SESSION_ID, LABEL_LEN_NAME, LABEL_LEN
 import { pushTimelineBlock, closeTimelineBlock, type MutableEventState, type ProcessEventContext } from './process-event'
 import { idString } from './agent-keys'
 import { appendBoundedConversation } from './archive'
+import { reviveFinished, armResume } from './revive-agent'
 import { readTokenCost, readTokenSource } from '../../lib/usage'
 import { windowCoveringUsage } from '../../lib/context-window'
 import { resolveUsageTarget, addUnattributed } from '../../lib/attribution'
@@ -40,7 +41,8 @@ export function handleMessage(
   }
 
   // Update agent state and push message bubble to queue
-  const msgAgent = state.agents.get(agentName)
+  // A finished agent that got a prompt (#433) and then shows a thinking or assistant message is live again
+  const msgAgent = role === 'user' ? armResume(state, agentName) : reviveFinished(state, agentName, ctx, currentTime)
   if (msgAgent) {
     const bubbleRole: 'user' | 'thinking' | 'assistant' = role === 'user' ? 'user' : role === 'thinking' ? 'thinking' : 'assistant'
     const updates: Partial<typeof msgAgent> = {}

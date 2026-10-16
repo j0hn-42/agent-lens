@@ -195,7 +195,7 @@ export function handleAgentComplete(
     const { activeSince: _since, ...settled } = agent
     state.agents.set(name, {
       ...(Object.keys(lastHeard).length ? settled : agent), ...lastHeard,
-      state: 'complete', completeTime: currentTime, archived: true, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
+      state: 'complete', completeTime: currentTime, archived: true, resumePrompted: undefined, ...(agent.kind === 'teammate' ? { activity: 'done' as const } : {}),
     })
 
     completeTimelineEntry(state, name, currentTime, ctx)
