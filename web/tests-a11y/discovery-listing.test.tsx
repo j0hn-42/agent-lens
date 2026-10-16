@@ -3,8 +3,9 @@
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { createElement } from 'react'
-import { render, renderHook, act, cleanup } from '@testing-library/react'
+import { render, renderHook, act, cleanup, fireEvent } from '@testing-library/react'
 import { GraphA11yList } from '@/components/agent-visualizer/graph-a11y-list'
+import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { DiscoveryDetailPopup } from '@/components/agent-visualizer/discovery-detail-popup'
 import { buildA11yModel } from '@/components/agent-visualizer/canvas/a11y-model'
 import { describeTooltip } from '@/components/agent-visualizer/canvas/tooltip'
@@ -16,11 +17,11 @@ import type { Agent, Discovery } from '@/lib/agent-types'
 afterEach(cleanup)
 
 const listed: Discovery = {
-  id: 'disc-s1:a-tu1-0', agentId: 's1:a', type: 'file', label: 'a.ts', content: '/r/a.ts',
+  id: 'disc-s1:a-tu1-0', agentId: 's1:a', type: 'file', label: 'a.ts', content: 'src/a.ts',
   x: 0, y: 0, targetX: 0, targetY: 0, opacity: 0.9, timestamp: 1, toolUseId: 'tu1',
-  listing: { tool: 'Glob', position: 1, reported: 47, shown: 3 },
+  listing: { tool: 'Grep', position: 1, reported: 47, shown: 3 },
 }
-const ORIGIN = 'File listed by Glob, 1 of 47 files the call reported; 3 shown, 44 not drawn'
+const ORIGIN = 'File listed by Grep, 1 of 47 files the call reported; 3 shown, 44 not drawn'
 
 const agent = { id: 's1:a', name: 'alpha' } as unknown as Agent
 
@@ -52,8 +53,15 @@ test('the tooltip and the popup say where the card comes from', () => {
 })
 
 test('the legend describes file cards as listed paths, not pinned files', () => {
-  assert.match(LIVE_ENTRY_TEXT['disc-file'], /Glob or Grep/)
+  assert.match(LIVE_ENTRY_TEXT['disc-file'], /Grep/)
   assert.doesNotMatch(LIVE_ENTRY_TEXT['disc-file'], /pinned/)
+  // A real Glob output has no "Found N files" header, so a Glob never makes a card: neither text names it
+  assert.doesNotMatch(LIVE_ENTRY_TEXT['disc-file'], /Glob/)
+  const { container, getByRole } = render(createElement(GraphLegend, {}))
+  fireEvent.click(getByRole('button', { name: /Legend/ }))
+  const text = container.textContent ?? ''
+  assert.ok(text.includes('File: a path a Grep call listed'), 'the legend row')
+  assert.doesNotMatch(text, /Glob/)
 })
 
 test('clicking a listed file card opens a popup that still says where it comes from', () => {
