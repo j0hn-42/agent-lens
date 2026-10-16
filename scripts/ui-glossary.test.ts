@@ -181,3 +181,23 @@ test('the retired double meanings are gone from the UI code (#372)', () => {
   for (const r of ['web/lib', 'web/hooks', 'web/components', 'web/app']) walk(r)
   assert.deepEqual(hits, [])
 })
+
+test('the top bar disclosure under 600 px (#378): its visible text starts its accessible name (2.5.3)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.TOP_BAR_LABELS.more, 'More')
+  assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /tokens in context/)
+})
+
+test('folded with a filter on, the More button says so on screen and in its name (#378)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter')
+  assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters')
+  const one = g.TOP_BAR_LABELS.moreNameWithFilters(['Hide inactive agents'])
+  assert.equal(one, 'More · 1 filter on: totals and filters (Hide inactive agents)')
+  // 2.5.3: the accessible name starts with the visible text
+  assert.ok(one.startsWith(g.TOP_BAR_LABELS.moreWithFilters(1)))
+  const two = g.TOP_BAR_LABELS.moreNameWithFilters(['Hide inactive agents', 'Finished sessions hidden (3)'])
+  assert.ok(two.startsWith(g.TOP_BAR_LABELS.moreWithFilters(2)))
+  assert.match(two, /Hide inactive agents, Finished sessions hidden \(3\)/)
+})

@@ -44,6 +44,39 @@ export function timelineBlockState(block: Pick<TimelineBlock, 'type' | 'color'>)
   return block.type
 }
 
+/** Smallest space, in px, between two header labels of the Timeline (#378). */
+const TIMELINE_LABEL_GAP = 6
+
+/** Round steps of the time axis, in seconds. */
+const MARKER_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 18000, 36000, 86400]
+
+/**
+ * Vertical markers of the Timeline header (#378). The step is the old one (1 s up to a 10 s span, 2 s up to 20,
+ * 5 s up to 60, then 10 s) unless the labels would come closer than `labelWidth` + TIMELINE_LABEL_GAP at this
+ * width: then the next round step that leaves room. A label that the canvas edge would cut is moved inside it
+ * (`labelX`, its centre, ends at the edge); it is dropped (`labelled: false`) only if it would then touch the one before.
+ */
+export function timelineMarkers(
+  minTime: number, maxTime: number, barStart: number, barWidth: number, labelWidth: number, canvasWidth: number,
+): Array<{ t: number; x: number; labelX: number; labelled: boolean }> {
+  const span = Math.max(maxTime - minTime, 1)
+  const oldStep = span > 60 ? 10 : span > 20 ? 5 : span > 10 ? 2 : 1
+  const pxPerSecond = Math.max(barWidth, 1) / span
+  const minStep = (labelWidth + TIMELINE_LABEL_GAP) / pxPerSecond
+  const step = MARKER_STEPS.find(s => s >= oldStep && s >= minStep) ?? Math.ceil(minStep / 86400) * 86400
+  const half = labelWidth / 2
+  const markers: Array<{ t: number; x: number; labelX: number; labelled: boolean }> = []
+  let prevRight = -Infinity
+  for (let t = Math.ceil(minTime / step) * step; t <= maxTime; t += step) {
+    const x = barStart + ((t - minTime) / span) * barWidth
+    const labelX = Math.min(Math.max(x, half), canvasWidth - half)
+    const labelled = labelX - half - prevRight >= TIMELINE_LABEL_GAP
+    if (labelled) prevRight = labelX + half
+    markers.push({ t, x, labelX, labelled })
+  }
+  return markers
+}
+
 /** Overall [min, max] time range, extended to currentTime for running blocks. */
 export function computeTimelineRange(
   entries: readonly TimelineEntry[],
