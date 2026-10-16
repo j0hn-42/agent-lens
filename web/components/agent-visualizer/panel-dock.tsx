@@ -36,15 +36,13 @@ interface PanelDockProps {
   openFile: (filePath: string, line?: number) => void
   fetchContext: ComponentPropsOf<typeof ProjectContextPanel>['fetchContext']
   contextOrigin: string
-  /** Events the relay could not replay for the shown scope (#366): the conflicts of the files panel read as bounded */
-  replayLost?: number
 }
 
 type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
 export function PanelDock({
-  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, listAgents, agentLabel, openFile, fetchContext, contextOrigin, replayLost = 0,
+  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
 }: PanelDockProps) {
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
@@ -60,7 +58,7 @@ export function PanelDock({
           onClose={() => panels.setShowFileAttention(false)}
           onOpenFile={bridge.isVSCode ? openFile : undefined}
           agentLabel={agentLabel}
-          replayLost={replayLost}
+          replayLost={bridge.replayLost}
         />
       </div>
 

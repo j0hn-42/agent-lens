@@ -63,13 +63,22 @@ export function replayLostFor(loss: EventLoss | null, selectedId: string | null 
     for (const n of Object.values(loss.evicted)) total = add(total, n)
     return total
   }
-  const count = (sid: string) => (Object.hasOwn(loss.evicted, sid) ? loss.evicted[sid] : 0)
   if (parseTeamSelection(selectedId) !== null) {
     let total = 0
-    if (teamSessionIds) for (const sid of teamSessionIds) total = add(total, count(sid))
+    if (teamSessionIds) for (const sid of teamSessionIds) total = add(total, replayLostForSession(loss, sid))
     return total
   }
-  return count(selectedId)
+  return replayLostForSession(loss, selectedId)
+}
+
+/**
+ * Events the relay could not replay for ONE session (what an agent card reads for its agent's session): its
+ * own count only, 0 when the tally does not name it. Unlike replayLostFor, no session claims nothing (never
+ * the whole tally, never `otherEvents`).
+ */
+export function replayLostForSession(loss: EventLoss | null, sessionId: string | null | undefined): number {
+  if (!loss || !sessionId) return 0
+  return Object.hasOwn(loss.evicted, sessionId) ? loss.evicted[sessionId] : 0
 }
 
 /**
@@ -102,7 +111,7 @@ export function boundedCount(n: number, lost: number, singular: string, plural =
   return `at least ${n} ${n === 1 ? singular : plural}`
 }
 
-/** What is missing, as a count since the relay started (never an exact figure); empty when nothing is. */
+/** What is missing, as a lower bound (the figure of the graph's first connection, never an exact one); empty when nothing is. */
 export function replayLostSentence(lost: number): string {
   if (!(lost > 0)) return ''
   return lost === 1 ? 'at least 1 earlier event was not replayed by the relay' : `at least ${lost} earlier events were not replayed by the relay`
