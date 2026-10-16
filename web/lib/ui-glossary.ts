@@ -1,6 +1,6 @@
 import type { PanelId } from './panel-layout'
 import { FILE_TIMELINE_MAX_STEPS } from './file-timeline'
-import { GIT_STRIP_MAX_COMMITS } from './git-state'
+import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 
 // Fixed UI vocabulary (issue #32). Every panel title, aria-label, tooltip and empty state takes its words
 // from here, so one thing never has two names. Pure data: no React and no path-alias imports (node:test).
@@ -154,7 +154,7 @@ export const GIT_STRIP_LABELS = {
   prsList: 'Pull requests observed',
   pr: (n: number, repo: string | null) => `PR #${n}${repo ? ` (${repo})` : ''}`,
   prStates: { created: 'created', open: 'open', draft: 'open, draft', merged: 'merged', closed: 'closed' },
-  omittedPrs: (n: number) => `${n} earlier PR${n === 1 ? '' : 's'} not kept`,
+  omittedPrs: (n: number) => `${n} earlier PR${n === 1 ? '' : 's'} not kept (the ${GIT_STRIP_MAX_PRS} most recent are listed)`,
 } as const
 
 /** "Why this tool?" and the causal chain of a failure (issue #231): each line says what was observed, or that it cannot be proven. */
