@@ -227,8 +227,10 @@ test('session links between two session halos are drawn dashed in the All view',
   cleanup()
 
   calls.length = 0
-  mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'worktree' }] })
-  await tick()
+  await withSlowFrames(8, async () => {
+    mount(sim, { sessionLinks: [{ parentId: 's1', childId: 's2', kind: 'worktree' }] })
+    await tick()
+  })
   assert.ok(count('worktree') > baseline.worktree, 'a worktree link is drawn with the dashed 8:5 pattern')
 })
 
