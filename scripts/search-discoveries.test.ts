@@ -15,10 +15,20 @@ function provenListedPaths(toolName: string, inputData: Record<string, unknown> 
   return ds.length === 0 ? null : { paths: ds.map(d => d.content), reported: ds[0].listing!.reported }
 }
 
+// Outputs copied from real transcripts: Grep prints paths relative to the working directory
+const GREP_1 = 'Found 1 file\nbackend/src/routes/auth.helpers.ts'
+const GREP_3 = 'Found 3 files\nsrc/services/matches.ts\nsrc/services/seasons.ts\nsrc/routes/matches.ts'
+
+test('provenListedPaths: a real Grep output (relative paths) gives one path per line under its header', () => {
+  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, GREP_1), { paths: ['backend/src/routes/auth.helpers.ts'], reported: 1 })
+  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, GREP_3), { paths: ['src/services/matches.ts', 'src/services/seasons.ts', 'src/routes/matches.ts'], reported: 3 })
+})
+
 test('provenListedPaths: the paths listed under the tool\'s own "Found N files" header', () => {
-  assert.deepEqual(provenListedPaths('Glob', { pattern: '**/*.ts' }, 'Found 3 files\n/r/a.ts\n/r/b.ts\n/r/c.ts'), { paths: ['/r/a.ts', '/r/b.ts', '/r/c.ts'], reported: 3 })
-  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, 'Found 1 file\n/r/a.ts\n'), { paths: ['/r/a.ts'], reported: 1 })
-  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x', output_mode: 'files_with_matches' }, 'Found 2 files\n/r/a.ts\n/r/b.ts'), { paths: ['/r/a.ts', '/r/b.ts'], reported: 2 })
+  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, 'Found 1 file\nsrc/a.ts\n'), { paths: ['src/a.ts'], reported: 1 })
+  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x', output_mode: 'files_with_matches' }, 'Found 2 files\nsrc/a.ts\nsrc/b.ts'), { paths: ['src/a.ts', 'src/b.ts'], reported: 2 })
+  // Absolute paths are paths too
+  assert.deepEqual(provenListedPaths('Grep', { pattern: 'x' }, 'Found 1 file\n/r/a.ts'), { paths: ['/r/a.ts'], reported: 1 })
   // Copilot lower-case name, Windows paths
   assert.deepEqual(provenListedPaths('glob', undefined, 'Found 1 file\nC:\\repo\\a.ts'), { paths: ['C:\\repo\\a.ts'], reported: 1 })
   // The header may list fewer paths than it reports (a limit): the count stays the header's
@@ -26,7 +36,9 @@ test('provenListedPaths: the paths listed under the tool\'s own "Found N files" 
 })
 
 test('provenListedPaths: no header, no paths, a failure or another tool give nothing', () => {
-  assert.equal(provenListedPaths('Glob', {}, '/r/a.ts\n/r/b.ts'), null, 'a list without the header is not proven to be paths')
+  // A real Glob output is a bare list, without the header: no card
+  assert.equal(provenListedPaths('Glob', {}, 'src/a.ts\nsrc/b.ts'), null, 'a list without the header is not proven to be paths')
+  assert.equal(provenListedPaths('Glob', {}, '/r/a.ts\n/r/b.ts'), null)
   assert.equal(provenListedPaths('Glob', {}, 'No files found'), null)
   assert.equal(provenListedPaths('Glob', {}, 'Found 0 files'), null)
   assert.equal(provenListedPaths('Glob', {}, 'Found 2 files'), null, 'a header without lines lists nothing')
@@ -43,8 +55,10 @@ test('provenListedPaths: Grep in content or count mode gives nothing', () => {
 })
 
 test('provenListedPaths: only whole path lines, read up to the first line that is not one', () => {
-  assert.deepEqual(provenListedPaths('Glob', {}, 'Found 3 files\n/r/a.ts\nsee below\n/r/c.ts'), { paths: ['/r/a.ts'], reported: 3 })
-  assert.equal(provenListedPaths('Glob', {}, 'Found 2 files\nrelative/a.ts\n/r/b.ts'), null)
+  assert.deepEqual(provenListedPaths('Grep', {}, 'Found 3 files\nsrc/a.ts\n\nsrc/c.ts'), { paths: ['src/a.ts'], reported: 3 }, 'an empty line ends the list')
+  assert.deepEqual(provenListedPaths('Grep', {}, 'Found 3 files\nsrc/a.ts\n  (more)\nsrc/c.ts'), { paths: ['src/a.ts'], reported: 3 }, 'a line with leading space is not a path')
+  assert.deepEqual(provenListedPaths('Grep', {}, 'Found 3 files\nsrc/a.ts\nsrc/b.ts \nsrc/c.ts'), { paths: ['src/a.ts'], reported: 3 }, 'nor one with trailing space')
+  assert.equal(provenListedPaths('Grep', {}, 'Found 1 file\nsrc/a\u0007.ts'), null, 'a control character is not in a path')
   assert.deepEqual(provenListedPaths('Glob', {}, 'Found 2 files\n/r/a.ts\n/r/a.ts'), { paths: ['/r/a.ts'], reported: 2 }, 'a repeated line is one path')
   assert.equal(provenListedPaths('Glob', {}, 'Found 1 file\n/r/a.ts\n/r/b.ts'), null, 'more paths than the header reports: the output is not what it claims')
 })
