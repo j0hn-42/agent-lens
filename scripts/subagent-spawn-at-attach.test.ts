@@ -14,6 +14,7 @@ import * as path from 'node:path'
 import { processEventBatch } from '../web/hooks/simulation/process-event'
 import { createEmptyState } from '../web/hooks/simulation/types'
 import { stampEventTimes } from '../web/hooks/simulation/stamp-time'
+import { deriveFreshness } from '../web/hooks/simulation/freshness'
 import type { SimulationEvent } from '../web/lib/agent-types'
 
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-446-'))
@@ -47,6 +48,8 @@ describe('relay attached to a session whose background subagent is already runni
   const received: Ev[] = []
   /** The events as the relay sent them (before the page marks a batch as replayed) */
   const sent: Ev[] = []
+  /** Number of events of the lead session received before the subagents write again */
+  let atAttach = 0
 
   before(async () => {
     const ws = path.join(fakeHome, 'work', 'demo')
@@ -99,6 +102,7 @@ describe('relay attached to a session whose background subagent is already runni
     const ofLead = () => received.filter(e => e.sessionId === LEAD)
     for (let i = 0; i < 40 && !ofLead().some(e => e.type === 'agent_spawn'); i++) await sleep(100)
     await sleep(300)
+    atAttach = ofLead().length
     // Both subagents keep writing after the attach (the finished one too: it must stay finished)
     fs.appendFileSync(path.join(subDir, `agent-${OPEN_ID}.jsonl`), subLines(OPEN_ID, 2))
     fs.appendFileSync(path.join(subDir, `agent-${DONE_ID}.jsonl`), subLines(DONE_ID, 2))
@@ -144,4 +148,19 @@ describe('relay attached to a session whose background subagent is already runni
     assert.ok(open.toolCalls >= 1, 'its tool call is counted, not dropped')
     assert.ok(!agents.some(a => a.name === 'Done audit'))
   })
+
+  it('right after the attach, the web shows the running subagent idle, as a last known state read from history', () => {
+    const ctx = { syncForceSimulation: () => {}, findToolSlot: () => ({ x: 0, y: 0 }), getContextWindowSize: () => 200_000, blockIdCounter: { current: 0 }, skipForceSync: true }
+    const attachEvents = ofLead().slice(0, atAttach)
+    assert.ok(attachEvents.some(e => e.type === 'agent_spawn' && e.payload.name === 'Open audit'), 'announced at attach')
+    const stamped = stampEventTimes(attachEvents, 0, 0) as unknown as SimulationEvent[]
+    const now = Date.now()
+    const { state } = processEventBatch(stamped, createEmptyState(), ctx, { advanceClock: true, receivedAt: now })
+    const open = [...state.agents.values()].find(a => a.name === 'Open audit')
+    assert.ok(open)
+    assert.equal(open.state, 'idle')
+    assert.equal(open.freshnessSource, 'history')
+    assert.notEqual(deriveFreshness(open, now), 'fresh', 'never shown as live')
+  })
 })
+
