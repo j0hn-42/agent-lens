@@ -44,7 +44,6 @@ export function timelineBlockState(block: Pick<TimelineBlock, 'type' | 'color'>)
   return block.type
 }
 
-/** Overall [min, max] time range, extended to currentTime for running blocks. */
 /** Smallest space, in px, between two header labels of the Timeline (#378). */
 const TIMELINE_LABEL_GAP = 6
 
@@ -78,6 +77,7 @@ export function timelineMarkers(
   return markers
 }
 
+/** Overall [min, max] time range, extended to currentTime for running blocks. */
 export function computeTimelineRange(
   entries: readonly TimelineEntry[],
   currentTime: number,
