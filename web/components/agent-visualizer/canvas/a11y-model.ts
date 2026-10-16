@@ -16,6 +16,7 @@ import { formatToolName } from '../../../lib/mcp-tool'
 import { describeModel } from '../../../lib/model-provenance'
 import { STATE_LABEL_LONG, A11Y_HISTORY_MAX, A11Y_TOOLS_PER_AGENT, A11Y_ANNOUNCE_MAX } from '../../../lib/canvas-constants'
 import type { StateTransition } from './detect-state-changes'
+import type { AnnounceLevel } from '../../../lib/ui-preferences'
 import { resolveLinks, LINK_STATE_LABEL_TEXT } from './link-geometry'
 import {
   cleanText, teammateActivity, hasSeveralSessions, TEAM_DEFAULT_COLOR, orchestratorRole, isOrchestrator,
@@ -515,6 +516,9 @@ function isUrgent(t: StateTransition): boolean {
   return t.kind === 'agent_error' || t.kind === 'agent_waiting_permission'
 }
 
+/** Options of the announcement queue: the session wording and the verbosity level (default 'all'). */
+interface AnnounceOptions { multiSession?: boolean, level?: AnnounceLevel }
+
 interface PreparedAnnouncement { text: string, urgent: boolean }
 
 /** Dedupe key: the id of an event when it has a unique one, else its sentence. */
@@ -529,7 +533,9 @@ function dedupeKey(t: StateTransition, text: string): string {
  * known states and are neither urgent nor spared by the summary. The other changes collapse into
  * a count above the threshold, and messages are counted apart (their own unit).
  */
-function prepareAnnouncements(transitions: StateTransition[], opts: { multiSession?: boolean } = {}): PreparedAnnouncement[] {
+function prepareAnnouncements(transitions: StateTransition[], opts: AnnounceOptions = {}): PreparedAnnouncement[] {
+  // 'important' tells only the live actionable states; the calm ones and the messages are not read out at all.
+  const important = opts.level === 'important'
   const actionable: { text: string, urgent: boolean }[] = []
   const calm: string[] = []
   const messageLinks = new Map<string, { ids: Set<string>, reported: number }>()
@@ -542,6 +548,7 @@ function prepareAnnouncements(transitions: StateTransition[], opts: { multiSessi
     if (seen.has(key)) continue
     seen.add(key)
     if (isActionable(t)) actionable.push({ text, urgent: isUrgent(t) })
+    else if (important) continue
     else if (t.kind === 'message_sent') {
       if (!firstMessage) firstMessage = text
       const link = messageLinks.get(t.link ?? t.id) ?? { ids: new Set<string>(), reported: 0 }
@@ -589,7 +596,7 @@ export function createAnnouncementQueue(): AnnouncementQueue {
  * Returns the same queue object when nothing was added.
  */
 export function enqueueAnnouncements(
-  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: { multiSession?: boolean } = {},
+  queue: AnnouncementQueue, transitions: StateTransition[], max = A11Y_ANNOUNCE_MAX, opts: AnnounceOptions = {},
 ): AnnouncementQueue {
   const added = prepareAnnouncements(transitions, opts)
   if (added.length === 0) return queue
