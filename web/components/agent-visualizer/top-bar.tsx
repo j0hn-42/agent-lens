@@ -299,6 +299,12 @@ export const TopBar = memo(function TopBar({
   const [moreOpen, setMoreOpen] = useState(false)
   const moreId = useId()
   const folded = narrow && !moreOpen
+  // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
+  const activeFilters = [
+    hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
+    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount) : null,
+  ].filter((f): f is string => f !== null)
+  const showFilterCount = folded && activeFilters.length > 0
 
   // Publish the measured height so panels can offset themselves below the (wrapping) bar.
   useLayoutEffect(() => {
@@ -368,12 +374,12 @@ export const TopBar = memo(function TopBar({
           <ToggleButton
             active={moreOpen}
             onClick={() => setMoreOpen(v => !v)}
-            ariaLabel={TOP_BAR_LABELS.moreName}
+            ariaLabel={showFilterCount ? TOP_BAR_LABELS.moreNameWithFilters(activeFilters) : TOP_BAR_LABELS.moreName}
             title={TOP_BAR_LABELS.moreHelp}
             expanded={moreOpen}
             controls={moreId}
           >
-            {TOP_BAR_LABELS.more}
+            {showFilterCount ? TOP_BAR_LABELS.moreWithFilters(activeFilters.length) : TOP_BAR_LABELS.more}
           </ToggleButton>
         )}
         {/* What More shows; a plain box (display: contents) */}
