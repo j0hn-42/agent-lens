@@ -35,6 +35,10 @@ const finished: Ev[] = [
   { time: 4, type: 'agent_complete', payload: { name: 'impl-379' } },
 ]
 const agentOf = (s: SimulationState) => s.agents.get(KEY)!
+/** The prompt a resumed subagent receives ("Resuming agent"), written to its transcript as a user turn */
+const prompt = (time: number): Ev => ({ time, type: 'message', payload: { agent: 'impl-379', role: 'user', content: 'Resuming agent' } })
+const bash = (time: number): Ev => ({ time, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'pnpm test', toolUseId: `tu-${time}` } })
+const say = (time: number, role = 'assistant', content = 'je reprends'): Ev => ({ time, type: 'message', payload: { agent: 'impl-379', role, content } })
 
 test('a finished subagent is complete and archived', () => {
   const a = agentOf(run(finished))
@@ -43,8 +47,8 @@ test('a finished subagent is complete and archived', () => {
   assert.equal(a.completeTime, 4)
 })
 
-test('resumed subagent: its first tool_call_start makes it live again (not archived, no completeTime)', () => {
-  const s = run([...finished, { time: 10, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'pnpm test' } }])
+test('resumed subagent: prompt then tool_call_start makes it live again (not archived, no completeTime)', () => {
+  const s = run([...finished, prompt(9), bash(10)])
   const a = agentOf(s)
   assert.equal(a.state, 'tool_calling')
   assert.equal(a.archived, false)
@@ -54,16 +58,16 @@ test('resumed subagent: its first tool_call_start makes it live again (not archi
 })
 
 test('resumed subagent: its timeline entry is open again and shows the new tool call after "Done"', () => {
-  const s = run([...finished, { time: 10, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'pnpm test' } }])
+  const s = run([...finished, prompt(9), bash(10)])
   const entry = s.timelineEntries.get(KEY)!
   assert.equal(entry.endTime, undefined)
   const types = entry.blocks.map(b => b.type)
-  assert.deepEqual(types.slice(-2), ['complete', 'tool_call'])
+  assert.deepEqual(types.slice(-3), ['complete', 'idle', 'tool_call'])
   assert.equal(entry.blocks[entry.blocks.length - 1].endTime, undefined)
 })
 
-test('resumed subagent: an assistant message makes it live again, idle between two steps (no invented work)', () => {
-  const s = run([...finished, { time: 10, type: 'message', payload: { agent: 'impl-379', role: 'assistant', content: 'je reprends' } }])
+test('resumed subagent: prompt then assistant message makes it live again, idle between two steps (no invented work)', () => {
+  const s = run([...finished, prompt(9), say(10)])
   const a = agentOf(s)
   assert.equal(a.archived, false)
   assert.equal(a.completeTime, undefined)
@@ -72,10 +76,14 @@ test('resumed subagent: an assistant message makes it live again, idle between t
   assert.equal(isDoneAgent(a), false)
   assert.equal(a.messageBubbles[a.messageBubbles.length - 1].text, 'je reprends')
   assert.equal(s.timelineEntries.get(KEY)!.endTime, undefined)
+  // The "Done" block is not the last one of a live agent: a neutral, open block follows it
+  const last = s.timelineEntries.get(KEY)!.blocks.slice(-1)[0]
+  assert.equal(last.type, 'idle')
+  assert.equal(last.endTime, undefined)
 })
 
-test('resumed subagent: a thinking message makes it thinking again', () => {
-  const s = run([...finished, { time: 10, type: 'message', payload: { agent: 'impl-379', role: 'thinking', content: 'hmm' } }])
+test('resumed subagent: prompt then thinking message makes it thinking again', () => {
+  const s = run([...finished, prompt(9), say(10, 'thinking', 'hmm')])
   const a = agentOf(s)
   assert.equal(a.state, 'thinking')
   assert.equal(a.archived, false)
@@ -84,11 +92,33 @@ test('resumed subagent: a thinking message makes it thinking again', () => {
   assert.equal(last.type, 'thinking')
 })
 
-test('a user message is not work: a finished subagent stays finished', () => {
-  const a = agentOf(run([...finished, { time: 10, type: 'message', payload: { agent: 'impl-379', role: 'user', content: 'Resuming agent' } }]))
+test('a prompt alone is not work: a finished subagent stays finished', () => {
+  const a = agentOf(run([...finished, prompt(10)]))
   assert.equal(a.state, 'complete')
   assert.equal(a.archived, true)
   assert.equal(a.completeTime, 4)
+})
+
+test('a late assistant or thinking message of the turn that already ended (no prompt) does not bring it back', () => {
+  for (const role of ['assistant', 'thinking']) {
+    const a = agentOf(run([...finished, say(10, role, 'final report')]))
+    assert.equal(a.state, 'complete', role)
+    assert.equal(a.archived, true, role)
+    assert.equal(a.completeTime, 4, role)
+    assert.equal(isDoneAgent(a), true, role)
+  }
+})
+
+test('work before the prompt is the old turn: prompt after a late message does not retroactively revive it', () => {
+  const a = agentOf(run([...finished, say(8), prompt(9)]))
+  assert.equal(a.state, 'complete')
+  assert.equal(a.archived, true)
+})
+
+test('the prompt arms one resume: once live again and finished again, a late message does not revive it', () => {
+  const a = agentOf(run([...finished, prompt(9), bash(10), { time: 11, type: 'agent_complete', payload: { name: 'impl-379' } }, say(12)]))
+  assert.equal(a.state, 'complete')
+  assert.equal(a.archived, true)
 })
 
 test('a late tool_call_end of a call started before the end does not bring it back', () => {
@@ -131,7 +161,7 @@ test('inactivity completion (not a witnessed end) is undone by observed work, wi
   assert.equal(agentOf(s).state, 'complete')
   assert.equal(agentOf(s).activeSince, undefined)
   const closed = agentOf(s).activeMs
-  s = live([ev(10, 'tool_call_start', { agent: 'impl-379', tool: 'Bash', args: 'pnpm test' })], s, 2_000_000)
+  s = live([ev(9, 'message', { agent: 'impl-379', role: 'user', content: 'Resuming agent' }), ev(10, 'tool_call_start', { agent: 'impl-379', tool: 'Bash', args: 'pnpm test' })], s, 2_000_000)
   const a = agentOf(s)
   assert.equal(a.state, 'tool_calling')
   assert.equal(a.archived, false)
@@ -139,8 +169,8 @@ test('inactivity completion (not a witnessed end) is undone by observed work, wi
   assert.equal(a.activeMs, closed)
 })
 
-test('history replay: agent_complete followed by new activity in the same history is a real resume', () => {
-  const events = [...finished, { time: 10, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'x' } }]
+test('history replay: agent_complete, prompt and new activity in the same history is a real resume', () => {
+  const events = [...finished, prompt(9), bash(10)]
     .map(e => ({ ...e, sessionId: 's1' }) as SimulationEvent)
   const { state } = processEventBatch(events, createEmptyState(), ctx, { advanceClock: true })
   const a = agentOf(state)
@@ -158,6 +188,7 @@ test('a revived subagent leaves the archive queue: the oldest archived one is ev
   s = run(events, s)
   // w0 resumes, then two more subagents finish: the cap evicts w1 (oldest still archived), not the live w0
   s = run([
+    { time: 999, type: 'message', payload: { agent: 'w0', role: 'user', content: 'Resuming agent' } },
     { time: 1000, type: 'tool_call_start', payload: { agent: 'w0', tool: 'Bash', args: 'x' } },
     { time: 1001, type: 'agent_spawn', payload: { name: 'extra', parent: 'orchestrator' } },
     { time: 1002, type: 'agent_complete', payload: { name: 'extra' } },
@@ -175,7 +206,7 @@ test('a revived teammate is working again, not done', () => {
     { time: 1, type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true } },
     { time: 2, type: 'agent_spawn', payload: { name: 'impl-379', parent: 'orchestrator', kind: 'teammate', teamName: 't1' } },
     { time: 3, type: 'agent_complete', payload: { name: 'impl-379' } },
-    { time: 10, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'x' } },
+    prompt(9), bash(10),
   ])
   const a = agentOf(s)
   assert.equal(a.archived, false)
