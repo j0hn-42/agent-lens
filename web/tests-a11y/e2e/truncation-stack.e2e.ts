@@ -166,11 +166,19 @@ test('320 x 568 phone: the agent card, then Files with Details open, never cover
 
     await togglePanel(frame, /^Files/)
     await frame.locator('[data-dock-panel="files"]').waitFor()
-    await frame.getByRole('button', { name: 'Details', exact: true }).evaluate((el: HTMLElement) => el.click())
     await waitForStableLayout(frame)
     const files = await frame.evaluate(MEASURE) as Measure
     assert.ok(files.banner && files.notice && files.sheets.length === 1, `notice, banner and one sheet ${JSON.stringify(files)}`)
     assert.ok(!overlap(files.sheets[0], files.banner) && !overlap(files.sheets[0], files.notice), `the Files sheet starts under both ${JSON.stringify(files)}`)
+    assert.deepEqual(await coveredButtons(frame, ['Details', 'Dismiss truncation warning']), { Details: '', 'Dismiss truncation warning': '' })
+
+    // Details open: the banner is now taller than any band this area can keep. The sheet keeps the notice band, and
+    // the banner (z 55, above the Files sheet at z 40) stays on top with its buttons reachable.
+    await frame.getByRole('button', { name: 'Details', exact: true }).evaluate((el: HTMLElement) => el.click())
+    await waitForStableLayout(frame)
+    const open = await frame.evaluate(MEASURE) as Measure
+    assert.ok(open.banner && open.notice && open.sheets.length === 1, `notice, banner and one sheet ${JSON.stringify(open)}`)
+    assert.ok(!overlap(open.sheets[0], open.notice), `the Files sheet starts under the notice ${JSON.stringify(open)}`)
     assert.deepEqual(await coveredButtons(frame, ['Details', 'Dismiss truncation warning']), { Details: '', 'Dismiss truncation warning': '' })
   } finally {
     await page.close()
