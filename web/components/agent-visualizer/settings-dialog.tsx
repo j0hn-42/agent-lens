@@ -295,28 +295,28 @@ export function SettingsDialog({
           </Section>
 
           {presentation && (
-            <Section title="Presentation">
+            <Section title={t('settings.section.presentation')}>
               <SwitchRow
-                label="Presentation mode"
-                help="For demos and streaming (V). Stops with V, Esc or the button at the top of the canvas."
+                label={t('settings.presentation')}
+                help={t('settings.presentation.help')}
                 checked={presentation.active}
                 onChange={presentation.onActiveChange}
               />
               <SwitchRow
-                label="Subtitles of transitions"
-                help="A caption for each state change seen live. Nothing is said about what was already there."
+                label={t('settings.presentation.subtitles')}
+                help={t('settings.presentation.subtitles.help')}
                 checked={presentation.options.subtitles}
                 onChange={v => presentation.onOptionChange('subtitles', v)}
               />
               <SwitchRow
-                label="Mask sensitive data"
-                help="Hides prompts, paths, tool arguments, messages, session and team names. Counts, states and tool names stay."
+                label={t('settings.presentation.mask')}
+                help={t('settings.presentation.mask.help')}
                 checked={presentation.options.mask}
                 onChange={v => presentation.onOptionChange('mask', v)}
               />
               <SwitchRow
-                label="Follow the active agent"
-                help="The camera centres on the agent that worked last. Panning or zooming pauses it until another agent takes over."
+                label={t('settings.presentation.follow')}
+                help={t('settings.presentation.follow.help')}
                 checked={presentation.options.follow}
                 onChange={v => presentation.onOptionChange('follow', v)}
               />
