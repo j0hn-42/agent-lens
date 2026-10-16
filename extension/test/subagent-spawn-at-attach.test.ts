@@ -37,7 +37,17 @@ const notice = (id: string, agentId: string, status = 'completed') => userText(
   { uuid: `n-${id}` },
 )
 
-interface SubFile { agentId: string; toolUseId: string; description: string; entries?: unknown[] }
+interface SubFile {
+  agentId: string
+  /** Written in the meta when set */
+  toolUseId?: string
+  description: string
+  entries?: unknown[]
+  /** Extra meta fields (stoppedByUser, parentAgentId, ...) */
+  meta?: Record<string, unknown>
+  /** File mtime (ms); default: now */
+  mtimeMs?: number
+}
 
 describe('a subagent already running when the relay attaches (#446)', () => {
   let dir: string
@@ -52,10 +62,12 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     writeJsonl(main, history)
     const files = new Map<string, string>()
     for (const s of subs) {
-      fs.writeFileSync(path.join(subDir, `agent-${s.agentId}.meta.json`), JSON.stringify({ agentType: 'general-purpose', description: s.description, toolUseId: s.toolUseId }))
+      fs.writeFileSync(path.join(subDir, `agent-${s.agentId}.meta.json`), JSON.stringify({
+        agentType: 'general-purpose', description: s.description, ...(s.toolUseId ? { toolUseId: s.toolUseId } : {}), ...s.meta,
+      }))
       const file = path.join(subDir, `agent-${s.agentId}.jsonl`)
       // Between two calls: its last call already answered
-      writeJsonl(file, s.entries ?? [userText('Do it'), assistantToolUse(`${s.agentId}-t1`, 'Read', { file_path: '/a.ts' }), toolResult(`${s.agentId}-t1`)])
+      writeJsonl(file, s.entries ?? [userText('Do it'), assistantToolUse(`${s.agentId}-t1`, 'Read', { file_path: '/a.ts' }), toolResult(`${s.agentId}-t1`)], s.mtimeMs)
       files.set(s.agentId, file)
     }
     const session = makeSession({ filePath: main, subagentsDir: subDir })
@@ -71,7 +83,12 @@ describe('a subagent already running when the relay attaches (#446)', () => {
       fs.appendFileSync(file, jl(assistantText(`step ${n}`)) + jl(assistantToolUse(`${agentId}-t${n}`, 'Bash', { command: 'pnpm test' })))
       readSubagentNewLines(h.delegate, h.parser, file, 's1')
     }
-    return { h, session, grow, atAttach }
+    /** A new line of the lead transcript, read as the session watcher reads it */
+    const lead = (entry: unknown) => {
+      fs.appendFileSync(main, jl(entry))
+      h.parser.processTranscriptLine(JSON.stringify(entry), 'orchestrator', session.pendingToolCalls, session.seenToolUseIds, 's1')
+    }
+    return { h, session, grow, lead, atAttach }
   }
 
   const spawnNames = (events: AgentEvent[]) => ofType(events, 'agent_spawn').map(e => String(e.payload.name))
@@ -174,5 +191,15 @@ describe('a subagent already running when the relay attaches (#446)', () => {
     // Growth of an agent already announced adds no spawn
     grow(subs[0].agentId)
     assert.equal(ofType(h.events, 'agent_spawn').length, SUBAGENT_CATCH_UP_SPAWNS_MAX + 1)
+  })
+
+  it('a background launch the user stopped (meta stoppedByUser) is not drawn, even when its file grows', () => {
+    const { h, grow } = attach(
+      [userText('Audit'), dispatch('toolu_st1', 'Stopped'), receipt('toolu_st1', 'a0000000000000008'), userText('next')],
+      [{ agentId: 'a0000000000000008', toolUseId: 'toolu_st1', description: 'Stopped', meta: { requestShape: 'background', stoppedByUser: true } }],
+    )
+    assert.deepEqual(spawnNames(h.events), [], 'not at attach')
+    grow('a0000000000000008')
+    assert.deepEqual(spawnNames(h.events), [], 'not after growth')
   })
 })
