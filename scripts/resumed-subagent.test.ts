@@ -212,3 +212,30 @@ test('a revived teammate is working again, not done', () => {
   assert.equal(a.archived, false)
   assert.equal(a.activity, 'working')
 })
+
+test('a tool_call_start never seen before brings a finished agent back WITHOUT a prompt (rule chosen on purpose)', () => {
+  const s = run([...finished, bash(10)])
+  const a = agentOf(s)
+  assert.equal(a.state, 'tool_calling')
+  assert.equal(a.archived, false)
+  assert.equal(a.completeTime, undefined)
+  assert.equal(isDoneAgent(a), false)
+  assert.equal(s.timelineEntries.get(KEY)!.endTime, undefined)
+})
+
+// KNOWN TRADE-OFF, pinned here so nobody mistakes it for a guarantee: the fallback poll reads the main
+// transcript before the subagent files, so the last tool_use of a subagent that ended normally can reach
+// the web AFTER its agent_complete, with an id the web never saw. Nothing in the event proves it belongs to
+// the old turn (no transcript timestamp travels with it), so the agent is shown live again and stays so
+// until the next agent_complete. Accepted: hiding a real resume that has no prompt line is worse.
+test('known trade-off: the last tool_call_start of a turn read after agent_complete shows the agent live again', () => {
+  const a = agentOf(run([...finished, { time: 5, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Bash', args: 'last call', toolUseId: 'tu-late' } }]))
+  assert.equal(a.state, 'tool_calling')
+  assert.equal(a.archived, false)
+})
+
+test('a tool_call_start of a call already known (same toolUseId) does not bring a finished agent back', () => {
+  const a = agentOf(run([...finished, { time: 5, type: 'tool_call_start', payload: { agent: 'impl-379', tool: 'Read', args: 'a.ts', toolUseId: 'tu1' } }]))
+  assert.equal(a.archived, true)
+  assert.equal(a.completeTime, 4)
+})
