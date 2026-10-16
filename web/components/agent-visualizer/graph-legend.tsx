@@ -23,7 +23,7 @@ const contextSegmentList = (): Array<{ id: LegendEntryId; label: string; color: 
 ]
 
 const DISCOVERY_TYPES: Array<{ type: string; label: string }> = [
-  { type: 'file', label: 'File' },
+  { type: 'file', label: 'File: a path a Glob or Grep call listed' },
   { type: 'pattern', label: 'Pattern' },
   { type: 'finding', label: 'Finding' },
   { type: 'code', label: 'Code' },

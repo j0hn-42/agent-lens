@@ -4,6 +4,8 @@ import { useId } from 'react'
 import { POPUP } from '@/lib/agent-types'
 import { COLORS, getDiscoveryTypeColor } from '@/lib/colors'
 import { PanelHeader, DetailPopup } from './shared-ui'
+import { listedFileText } from '@/lib/ui-glossary'
+import type { Discovery } from '@/lib/agent-types'
 
 interface DiscoveryDetailPopupProps {
   /** Display name of the discovering agent; falls back to the raw id */
@@ -14,6 +16,8 @@ interface DiscoveryDetailPopupProps {
     label: string
     content: string
     agentId: string
+    /** Set for a file a Glob / Grep output listed (#438) */
+    listing?: Discovery['listing']
   }
   position: { x: number; y: number }
   onClose: () => void
@@ -63,6 +67,13 @@ export function DiscoveryDetailPopup({ discovery, agentName, position, onClose }
           }}
         >
           {discovery.content}
+        </div>
+      )}
+
+      {/* Origin: the call whose output listed this file (#438) */}
+      {discovery.listing && (
+        <div className="mt-1.5 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+          {listedFileText(discovery.listing)}
         </div>
       )}
 

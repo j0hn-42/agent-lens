@@ -9,6 +9,7 @@ import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { agentCostUsage } from '../../../lib/cost'
+import { listedFileText } from '../../../lib/ui-glossary'
 import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
@@ -236,6 +237,8 @@ export interface A11yDiscoveryItem {
   label: string
   content: string
   agentName: string
+  /** Where a file card listed by a Glob / Grep output comes from (#438); absent for a discovery from no call */
+  origin?: string
 }
 
 export interface A11yFileConflictItem {
@@ -389,6 +392,7 @@ export function buildA11yModel(
       label: clip(d.label, 80),
       content: clip(d.content, 160),
       agentName: agents.get(d.agentId)?.name ?? 'unknown agent',
+      ...(d.listing ? { origin: listedFileText(d.listing) } : {}),
     })),
   }
 }
