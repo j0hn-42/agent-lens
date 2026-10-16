@@ -107,7 +107,11 @@ test('announcements (#379): a named select with its help, reporting the chosen l
   assert.equal(select.value, 'all')
   assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Every change', 'Important only'])
   const help = document.getElementById(select.getAttribute('aria-describedby') ?? '')
-  assert.ok(help && /always announced/.test(help.textContent ?? ''), 'the help says urgent states are always announced')
+  const helpText = help?.textContent ?? ''
+  assert.ok(/the canvas announces only/.test(helpText), 'the help scopes the level to the canvas, the only region that reads it')
+  assert.ok(/connection, session and panel messages are still read/.test(helpText), 'the help says the other live regions are unchanged')
+  assert.ok(/never dropped/.test(helpText) && /the rest are counted/.test(helpText), 'the help says urgent states beyond three are counted, not each read')
+  assert.ok(!/always announced/.test(helpText), 'no claim that each urgent state is read')
   fireEvent.change(select, { target: { value: 'important' } })
   assert.deepEqual(levels, ['important'])
 })
