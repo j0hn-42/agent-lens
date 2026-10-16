@@ -107,7 +107,7 @@ By default the relay only discovers the Claude Code sessions of the workspace it
 
 - `--all-workspaces` (or `AGENT_LENS_ALL_WORKSPACES=1`) now only gives the **initial** scope; the selector changes it afterwards.
 - The discovery ceilings stay in force in every scope (200 project folders, 500 transcripts per folder, 256 MB per transcript, 25 watched sessions) and an overflow is shown next to the selector, never silent.
-- A project choice narrows the Sessions list and the **All** view of the canvas to that project; it does not change what the relay scans.
+- A project choice narrows the Sessions and agents list and the **All** view of the canvas to that project; it does not change what the relay scans.
 - Codex, Copilot, Pi, Gemini CLI and OpenCode sessions are matched to the workspace by their own watchers and are not affected by the scope. The VS Code extension has no selector: it reads the sessions of its own workspace.
 
 See [docs/relay-sources.md](docs/relay-sources.md) for the endpoint and its guards.

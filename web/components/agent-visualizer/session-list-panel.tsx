@@ -29,7 +29,7 @@ import {
 } from '@/lib/session-filter'
 import { summarizeAttention, sessionAttentionText, type AttentionSummary } from '@/lib/attention'
 import { sessionHealthText, type HealthVerdict } from '@/lib/loop-detection'
-import { SESSION_LIST_LABELS, emptyMatch } from '@/lib/ui-glossary'
+import { SESSION_LIST_LABELS, SESSIONS_LIST_NAME, emptyMatch } from '@/lib/ui-glossary'
 import { ALIAS_MAX_LENGTH, sanitizeAlias } from '@/lib/session-aliases'
 import { folderPrefixedLabel } from '@/lib/session-tabs'
 import { FreshnessAnnouncer } from './freshness-announcer'
@@ -472,7 +472,7 @@ export function SessionListPanel({
       labelledBy="session-list-title"
       attrs={{ id: 'sessions-panel', [INSPECTOR_KEEP_ATTR]: '' }}
     >
-      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label="Resize sessions panel" controls="sessions-panel" />
+      <DockResizer edge="right" bounds={bounds} width={panelWidth} onWidthChange={resizePanel} label={`Resize ${SESSIONS_LIST_NAME} panel`} controls="sessions-panel" />
       <div className="glass-card relative font-mono" style={{ background: COLORS.void }}>
         <PanelHeader
           onClose={onClose}
@@ -494,8 +494,8 @@ export function SessionListPanel({
             </button>
           )}
         >
-          <span className="text-[11px] tracking-wider" style={{ color: COLORS.textPrimary }}>
-            SESSIONS
+          <span className="text-[11px] uppercase tracking-wider" style={{ color: COLORS.textPrimary }}>
+            {SESSIONS_LIST_NAME}
           </span>
           <span className="text-[11px]" style={{ color: COLORS.textMuted }}>
             {activeCount} active / {sessions.length}
