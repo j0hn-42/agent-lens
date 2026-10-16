@@ -1,0 +1,98 @@
+import { test } from 'node:test'
+import { strict as assert } from 'node:assert'
+import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
+import { createEmptyState, agentKeyOf, type SimulationState } from '../web/hooks/simulation/types'
+import { computeNextFrame } from '../web/hooks/simulation/animate'
+import { DISCOVERY_HOLD_S } from '../web/lib/canvas-constants'
+import { RESULT_CAPTURE_LIMIT } from '../web/lib/action-summary'
+import type { SimulationEvent } from '../web/lib/agent-types'
+
+// #438: the canvas discoveries are fed by the Glob / Grep calls that succeed and list their files
+
+const ctx: ProcessEventContext = {
+  syncForceSimulation: () => {},
+  findToolSlot: () => ({ x: 40, y: 20 }),
+  getContextWindowSize: () => 200_000,
+  blockIdCounter: { current: 0 },
+  skipForceSync: true,
+}
+
+type Ev = Pick<SimulationEvent, 'type' | 'payload'> & { time?: number }
+
+function run(events: Ev[], from: SimulationState = createEmptyState()): SimulationState {
+  let state = from
+  for (const e of events) {
+    const time = e.time ?? 1
+    state = processEvent({ time, type: e.type, payload: e.payload, sessionId: 's1' }, { ...state, currentTime: time }, ctx)
+  }
+  return state
+}
+
+const spawn: Ev = { type: 'agent_spawn', payload: { name: 'a', isMain: true } }
+
+function search(tool: string, result: string, end: Record<string, unknown> = {}, inputData: Record<string, unknown> = { pattern: '*.ts' }, id = 'tu1'): Ev[] {
+  return [
+    { time: 1, type: 'tool_call_start', payload: { agent: 'a', tool, args: 'x', toolUseId: id, inputData } },
+    { time: 2, type: 'tool_call_end', payload: { agent: 'a', tool, result, toolUseId: id, ...end } },
+  ]
+}
+
+test('a completed Glob creates one file card per listed path, linked to its call', () => {
+  const s = run([spawn, ...search('Glob', 'Found 3 files\n/r/a.ts\n/r/b.ts\n/r/c.ts')])
+  assert.deepEqual(s.discoveries.map(d => d.content), ['/r/a.ts', '/r/b.ts', '/r/c.ts'])
+  assert.ok(s.discoveries.every(d => d.toolUseId === 'tu1' && d.agentId === agentKeyOf('s1', 'a') && d.type === 'file' && d.timestamp === 2))
+  assert.deepEqual(s.discoveries.map(d => [d.x, d.y]), [[40, 20], [40, 20], [40, 20]], 'they start on the tool card')
+  // The pill keeps reading the header
+  assert.deepEqual(Array.from(s.toolCalls.values())[0].resultPill, { kind: 'count', files: 3 })
+})
+
+test('an output cut at the capture limit gives cards only for its whole lines, with the reported count', () => {
+  const long = '/r/' + 'x'.repeat(60)
+  const result = `Found 47 files\n${long}1.ts\n${long}2.ts\n${long}3.ts`.slice(0, RESULT_CAPTURE_LIMIT)
+  const s = run([spawn, ...search('Glob', result)])
+  assert.deepEqual(s.discoveries.map(d => d.content), [`${long}1.ts`, `${long}2.ts`])
+  assert.ok(s.discoveries.every(d => d.listing?.reported === 47))
+})
+
+test('a failed or cancelled call creates no card, even with a file list in its output', () => {
+  const listing = 'Found 2 files\n/r/a.ts\n/r/b.ts'
+  assert.deepEqual(run([spawn, ...search('Glob', listing, { isError: true })]).discoveries, [])
+  assert.deepEqual(run([spawn, ...search('Glob', listing, { outcome: 'cancelled' })]).discoveries, [])
+})
+
+test('a call that lists no path creates no card', () => {
+  assert.deepEqual(run([spawn, ...search('Glob', 'No files found')]).discoveries, [])
+  assert.deepEqual(run([spawn, ...search('Glob', '/r/a.ts\n/r/b.ts')]).discoveries, [], 'no header, not proven')
+  assert.deepEqual(run([spawn, ...search('Glob', 'Found 0 files')]).discoveries, [])
+})
+
+test('Grep in content mode creates no card; in files_with_matches mode it does', () => {
+  const listing = 'Found 2 files\n/r/a.ts\n/r/b.ts'
+  assert.deepEqual(run([spawn, ...search('Grep', listing, {}, { pattern: 'x', output_mode: 'content' })]).discoveries, [])
+  assert.deepEqual(run([spawn, ...search('Grep', '/r/a.ts:3:const x = 1\n/r/b.ts:9:x()', {}, { pattern: 'x', output_mode: 'content' })]).discoveries, [])
+  assert.equal(run([spawn, ...search('Grep', listing, {}, { pattern: 'x', output_mode: 'files_with_matches' })]).discoveries.length, 2)
+})
+
+test('the same tool_result replayed creates no second card', () => {
+  const evs = search('Glob', 'Found 2 files\n/r/a.ts\n/r/b.ts')
+  const once = run([spawn, ...evs])
+  const twice = run([evs[1], { ...evs[1], time: 3 }], once)
+  assert.deepEqual(twice.discoveries.map(d => d.id), once.discoveries.map(d => d.id))
+  // A fresh replay of the whole history rebuilds the same ids
+  assert.deepEqual(run([spawn, ...evs]).discoveries.map(d => d.id), once.discoveries.map(d => d.id))
+})
+
+test('a replayed tool_result arriving once the cards faded does not bring them back', () => {
+  const evs = search('Glob', 'Found 1 file\n/r/a.ts')
+  let s = run([spawn, ...evs])
+  // Let the cards hold then fade out through the animation loop (the existing purge)
+  let t = 2
+  while (s.discoveries.length > 0 && t < 2 + DISCOVERY_HOLD_S + 60) {
+    const next = t + 0.1
+    s = computeNextFrame(s, 0.1, next, 1000, s, { useMockData: false, mockScenarioLength: 0, mockScenarioEndTime: 0 })
+    t = next
+  }
+  assert.equal(s.discoveries.length, 0, 'the cards fade out and are purged')
+  s = run([{ ...evs[1], time: t + 1 }], s)
+  assert.equal(s.discoveries.length, 0)
+})
