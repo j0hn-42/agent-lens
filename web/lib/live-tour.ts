@@ -10,6 +10,7 @@ import type { LegendPresence } from './legend-presence'
 import { CONTEXT_WINDOW_NAME } from './ui-glossary'
 import { cleanText } from '../components/agent-visualizer/canvas/team-style'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from './loop-detection'
+import { REPEAT_RULE_TEXT } from './repeat-marks'
 
 /** One sentence per legend entry. It describes the symbol, never the session: the facts come from the presence. */
 export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
@@ -43,7 +44,7 @@ export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
   orchestrator: 'A crown with a LEAD (team) or MAIN (session) badge marks the orchestrator.',
   'team-row': 'The legend lists each team with its member count.',
   'mark-loop': `A circular arrow on a node: a loop was observed (the same call ${REPEAT_THRESHOLD} times in a row with the same input, or ${CYCLE_THRESHOLD} read, edit, failure cycles on one file). It may be over. Open the agent for the evidence.`,
-  'mark-repeated': 'A double chevron on a node: repeated reads or calls were observed (same input, nothing seen in between that would change the answer). A repeat may be intended. The Files panel lists them.',
+  'mark-repeated': `A double chevron on a node: repeated reads or calls were observed (${REPEAT_RULE_TEXT}). A repeat may be intended. The Files panel lists them.`,
   'link-flight': 'Long purple dashes: a message is in flight.',
   'link-recent': 'A solid green line: a message arrived recently.',
   'link-error': 'A dotted red line: the message link reported an error.',

@@ -17,6 +17,10 @@ export type RepeatMark =
   | { kind: 'loop'; findings: LoopFinding[] }
   | { kind: 'repeated'; items: WasteItem[] }
 
+/** What the ledger proves for a repeat, per tool (lib/waste): the words of the legend and of the tour. */
+export const REPEAT_RULE_TEXT =
+  'a file read again with no edit seen in between, the same Glob run again with no write seen in between, or the same Bash command run again right after itself'
+
 /** Findings named in the text of a loop mark; the others are counted ("and N more") */
 const LOOP_FINDINGS_SPOKEN = 2
 
@@ -46,8 +50,10 @@ export function repeatMarks(
 
 /**
  * Words of a mark for the screen-reader outline: `short` follows the state on the agent button, `detail` gives
- * the evidence. Facts only ("repeated", never "wasted"), and no file path: the canvas has no text, and the
- * outline keeps the path out like the badge does (presentation mode, long paths).
+ * the evidence. Facts only ("repeated", never "wasted"). The words follow the evidence: reads, calls or both.
+ * A repeat mark names no file path (the canvas has no text, presentation mode, long paths). A loop mark speaks
+ * the text of its findings (`findingText`), which names the base name of the file for a read, edit, failure
+ * cycle: the screen-reader outline is not masked by presentation mode (docs/reading-the-ui.md).
  */
 export function repeatMarkText(mark: RepeatMark): { short: string; detail: string } {
   if (mark.kind === 'loop') {
@@ -59,5 +65,8 @@ export function repeatMarkText(mark: RepeatMark): { short: string; detail: strin
   const [top] = mark.items
   const more = mark.items.length - 1
   const tail = more > 0 ? `; and ${more} more in the Files panel` : ''
-  return { short: 'repeated calls observed', detail: `Repeated calls observed: ${describeWaste(top)}${tail}.` }
+  const reads = mark.items.some(i => i.kind === 'reread')
+  const calls = mark.items.some(i => i.kind !== 'reread')
+  const what = reads && calls ? 'reads and calls' : reads ? 'reads' : 'calls'
+  return { short: `repeated ${what} observed`, detail: `Repeated ${what} observed: ${describeWaste(top)}${tail}.` }
 }

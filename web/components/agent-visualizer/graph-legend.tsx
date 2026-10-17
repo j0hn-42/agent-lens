@@ -14,6 +14,7 @@ import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 import { useTheme } from '@/lib/theme'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
+import { REPEAT_RULE_TEXT } from '@/lib/repeat-marks'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -206,7 +207,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
 
           <Section section="repeats" title="Loops and repeats">
             <Row id="mark-loop" icon={<RepeatBadgeIcon kind="loop" />}>Circular arrow on a node: loop observed (the same call {REPEAT_THRESHOLD} times in a row with the same input, or {CYCLE_THRESHOLD} read → edit → failure cycles on one file). It may be over; open the agent for the evidence</Row>
-            <Row id="mark-repeated" icon={<RepeatBadgeIcon kind="repeated" />}>Double chevron on a node: repeated reads or calls observed (same input, nothing seen in between that would change the answer). A repeat may be intended; the Files panel lists them</Row>
+            <Row id="mark-repeated" icon={<RepeatBadgeIcon kind="repeated" />}>Double chevron on a node: repeated reads or calls observed ({REPEAT_RULE_TEXT}). A repeat may be intended; the Files panel lists them</Row>
           </Section>
 
           <Section section="links" title="Message links">
