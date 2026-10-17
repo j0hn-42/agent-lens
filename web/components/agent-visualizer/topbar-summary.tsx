@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { SUMMARY_KEY } from '@/lib/chrome-utils'
@@ -18,19 +18,40 @@ export function TopBarSummary({ compact, focusable, children }: { compact: strin
   // Escape hides the popover until the pointer or the focus leaves and comes back
   const [dismissed, setDismissed] = useState(false)
   const open = focusable && (hovered || focused) && !dismissed
+  const ref = useRef<HTMLSpanElement>(null)
+  const openRef = useRef(open)
+  openRef.current = open
+  // Native listeners: the block is a labelled group that only reveals text, not a control with its own action
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const enter = () => { setHovered(true); setDismissed(false) }
+    const leave = () => { setHovered(false); setDismissed(false) }
+    const focusIn = () => { setFocused(true); setDismissed(false) }
+    const focusOut = () => { setFocused(false); setDismissed(false) }
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && openRef.current) { e.stopPropagation(); setDismissed(true) } }
+    el.addEventListener('mouseenter', enter)
+    el.addEventListener('mouseleave', leave)
+    el.addEventListener('focusin', focusIn)
+    el.addEventListener('focusout', focusOut)
+    el.addEventListener('keydown', key)
+    return () => {
+      el.removeEventListener('mouseenter', enter)
+      el.removeEventListener('mouseleave', leave)
+      el.removeEventListener('focusin', focusIn)
+      el.removeEventListener('focusout', focusOut)
+      el.removeEventListener('keydown', key)
+    }
+  }, [])
   return (
     <span
+      ref={ref}
       data-testid="topbar-summary"
       data-open={open ? 'true' : 'false'}
       role="group"
       aria-label="Agents, tokens in context and cost"
       tabIndex={focusable ? 0 : undefined}
       className={`relative min-w-0 whitespace-nowrap rounded ${focusable ? FOCUS_RING : ''}`}
-      onMouseEnter={() => { setHovered(true); setDismissed(false) }}
-      onMouseLeave={() => { setHovered(false); setDismissed(false) }}
-      onFocus={() => { setFocused(true); setDismissed(false) }}
-      onBlur={() => { setFocused(false); setDismissed(false) }}
-      onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); setDismissed(true) } }}
     >
       <span data-testid="topbar-summary-compact" aria-hidden="true">{compact}</span>
       <span
