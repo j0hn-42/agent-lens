@@ -1,5 +1,6 @@
-// Le thème s'applique à l'interface et aux seules couleurs d'état des agents sur le canvas (#381) : le reste de la scène
-// (fond de page, liens, halos, particules, cartes, libellés, grille) lit SCENE, figé en neon dans tous les thèmes.
+// Le thème s'applique à l'interface et à la scène du canvas (#381) : couleurs d'état des agents, puis libellés, liens, halos,
+// cartes et grille, par scenePalette(thème) de lib/scene-state-colors.ts. SCENE reste la palette neon : c'est la scène de Neon
+// (épinglée par scene-neon.test.ts), celle d'un appel sans thème, et le fond de page (le sol de la scène) dans tous les thèmes.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -8,6 +9,7 @@ import { COLORS, SCENE, refreshColors, getStateColor, getDiscoveryTypeColor, con
 import { NEON_COLORS, paletteFor } from '../web/lib/theme-palette'
 import * as canvasConstants from '../web/lib/canvas-constants'
 import { PERF_OVERLAY, ORCHESTRATOR_DRAW, FRESHNESS_DRAW } from '../web/lib/canvas-constants'
+import { scenePalette } from '../web/lib/scene-state-colors'
 import { stateColor } from '../web/components/agent-visualizer/canvas/draw-misc'
 import { THEME_IDS, TOKENS, extraVars } from '../web/lib/theme-tokens'
 import { sessionColor, SESSION_PALETTE } from '../web/components/agent-visualizer/canvas/cluster-model'
@@ -32,9 +34,13 @@ for (const id of THEME_IDS) {
     assert.equal(PERF_OVERLAY.bgColor, 'rgba(0, 0, 0, 0.75)')
     assert.equal(PERF_OVERLAY.fpsGoodColor, '#44ff44')
     assert.equal('STATE_COLOR_OVERRIDES' in canvasConstants, false, 'plus de couleurs d\'état figées en neon pour le canvas')
-    assert.equal(ORCHESTRATOR_DRAW.accent, '#ffd166')
-    assert.equal(FRESHNESS_DRAW.staleColor, '#8a94a0')
-    assert.equal(FRESHNESS_DRAW.staleTextColor, '#c5ced8')
+    // Les couleurs de la couronne et d'un nœud périmé sont dans la palette de la scène (#381) : Neon garde ses valeurs
+    assert.equal('accent' in ORCHESTRATOR_DRAW, false)
+    assert.equal('staleColor' in FRESHNESS_DRAW || 'staleTextColor' in FRESHNESS_DRAW, false)
+    assert.equal(scenePalette('neon').crownAccent, '#ffd166')
+    assert.equal(scenePalette('neon').crownInk, '#11161c')
+    assert.equal(scenePalette('neon').staleMark, '#8a94a0')
+    assert.equal(scenePalette('neon').staleText, '#c5ced8')
     assert.equal(TEAM_DEFAULT_COLOR, '#b794f6')
     assert.deepEqual([...SESSION_PALETTE], ['#66ccff', '#7ee0a8', '#ffcc66', '#ff9ec7', '#b79cff', '#9ad0ff', '#ffa978', '#8de3de'])
     assert.ok(SESSION_PALETTE.includes(sessionColor('any-session')))
@@ -47,11 +53,13 @@ for (const id of THEME_IDS) {
   })
 }
 
-test('contrat (#381) : les couleurs d\'état du canvas suivent le thème passé explicitement, le reste de la scène reste neon', () => {
+test('contrat (#381) : la scène suit le thème passé explicitement (états et reste de la scène) ; SCENE reste la palette neon', () => {
   const states = ['idle', 'thinking', 'tool_calling', 'complete', 'error', 'paused', 'waiting_permission'] as const
   for (const id of THEME_IDS) {
     refreshColors(id === 'neon' ? 'graphite' : 'neon') // le thème des panneaux n'entre pas en compte : seul le thème passé compte
     for (const s of states) assert.equal(stateColor(s, id), (paletteFor(id) as Record<string, string>)[s], `${id} ${s}`)
+    const expected = id === 'neon' ? { ...NEON_COLORS } : { ...paletteFor(id), void: SCENE.void }
+    assert.deepEqual({ ...scenePalette(id) }, expected, `${id}: la scène prend la palette du thème, sur le sol de la scène`)
     assert.deepEqual({ ...SCENE }, { ...NEON_COLORS }, `${id}: SCENE reste neon`)
   }
   refreshColors('neon')
@@ -91,7 +99,7 @@ function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])
 }
 
-test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais la palette thématisée ; le thème n\'y entre que par scene-state-colors', () => {
+test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais la palette de l\'interface ; le thème n\'y entre que par scene-state-colors', () => {
   const files = [
     ...walk(join(root, 'web/components/agent-visualizer/canvas')),
     ...walk(join(root, 'web/hooks')),
@@ -105,11 +113,11 @@ test('garde : le code du canvas, de la simulation et du fond n\'utilise jamais l
     if (f.endsWith('use-canvas-draw-loop.ts')) continue
     assert.doesNotMatch(src, /\bsceneTheme\(/, `${f}: seule la boucle de dessin lit le thème actif (à chaque image)`)
   }
-  // Le seul pont entre le thème et la scène : il ne donne que les couleurs des états d'agent
+  // Le seul pont entre le thème et la scène : couleurs d'état, palette de la scène du thème et plancher de contraste (#381)
   const bridge = readFileSync(join(root, 'web/lib/scene-state-colors.ts'), 'utf8')
-  assert.doesNotMatch(bridge, /\bCOLORS\b|\bSCENE\b/, 'scene-state-colors ne touche ni COLORS ni SCENE')
+  assert.doesNotMatch(bridge, /\bCOLORS\b|from '\.\/colors'/, 'scene-state-colors ne touche pas COLORS (la palette des panneaux, qui suit le DOM)')
   const exported = [...bridge.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]).sort()
-  assert.deepEqual(exported, ['sceneStateColor', 'sceneTheme'])
+  assert.deepEqual(exported, ['sceneColor', 'sceneInk', 'scenePalette', 'sceneStateColor', 'sceneTheme'])
   const loop = readFileSync(join(root, 'web/hooks/use-canvas-draw-loop.ts'), 'utf8')
   assert.match(loop, /opts\.theme = theme/, 'la boucle passe le thème au dessin par les options')
   assert.match(loop, /keys: \[[^\]]*sceneTheme\(\)/, 'un changement de thème redessine une scène immobile')
@@ -202,13 +210,14 @@ test('carte de découverte : libellé et chemin >= 4,5:1 à l\'opacité 0.9, sur
   const CARD_OPACITY = 0.9 // plafond du fondu (animateDiscoveries)
   for (const id of THEME_IDS) {
     refreshColors(id)
-    for (const bg of [SCENE.cardBg, SCENE.cardBgSelected]) {
-      const card = over(bg, SCENE.void, CARD_OPACITY)
+    const scene = scenePalette(id) // la carte prend les couleurs du thème (#381)
+    for (const bg of [scene.cardBg, scene.cardBgSelected]) {
+      const card = over(bg, scene.void, CARD_OPACITY)
       for (const type of ['file', 'pattern', 'finding', 'code']) {
-        const label = over(getDiscoveryTypeColor(type, SCENE), card, CARD_OPACITY)
+        const label = over(getDiscoveryTypeColor(type, scene), card, CARD_OPACITY)
         assert.ok(ratio(label, card) >= 4.5, `${id}: libellé ${type} sur ${bg} (${ratio(label, card).toFixed(2)}:1)`)
       }
-      const path = over(SCENE.textMuted, card, CARD_OPACITY)
+      const path = over(scene.textMuted, card, CARD_OPACITY)
       assert.ok(ratio(path, card) >= 4.5, `${id}: chemin (textMuted) sur ${bg} (${ratio(path, card).toFixed(2)}:1)`)
     }
   }

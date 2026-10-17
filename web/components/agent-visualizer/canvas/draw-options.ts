@@ -32,7 +32,7 @@ export interface DrawOpts {
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
   /** Presentation mode (#245): free text (names, arguments, results, messages) is drawn as bullets; numbers, states and tool names are kept */
   maskText?: boolean
-  /** Theme of the agent state colours (#381): the only themed part of the scene. Absent = the default theme */
+  /** Theme of the scene (#381): agent states (absent = the default theme), labels, links, halos, cards and grid (absent = the neon scene) */
   theme?: ThemeId
   /** Loop / repeat mark per agent id (#377, lib/repeat-marks): a badge on the node. Absent = no badge */
   repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>

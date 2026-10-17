@@ -27,8 +27,9 @@ const TEXT = ['web', 'extension/src', 'app']
 
 // Only an access on a palette object counts: `.key` on any other object (`item.danger`, `this.delegate`, `PERF_OVERLAY.fpsWarning`)
 // says nothing about the palette. Palette objects in the code: COLORS (interface), SCENE (canvas), NEON_COLORS, and the
-// `palette` / `p` parameters and locals that receive one (colors.ts, scene-state-colors.ts, learn-more-link.tsx).
-const OBJ = '(?:COLORS|SCENE|NEON_COLORS|palette|p)'
+// `palette` / `p` parameters and locals that receive one (colors.ts, scene-state-colors.ts, learn-more-link.tsx), and the `scene`
+// locals of the canvas draw code that receive the scene palette of the theme (scenePalette, #381).
+const OBJ = '(?:COLORS|SCENE|NEON_COLORS|palette|p|scene)'
 
 function isRead(key: string): boolean {
   const re = new RegExp(
@@ -51,7 +52,7 @@ const KNOWN_UNREAD: string[] = [
   'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder', 'cardBgError', 'cardBgSelectedHolo',
   'userMsgBg', 'userMsgBorder', 'userText', 'assistantLabel', 'thinkingBgExpanded', 'thinkingBgCollapsed',
   'thinkingBorder', 'thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded', 'thinkingBorderLeft',
-  'onAccent', 'shadowCard', 'glassBlur', 'depthShadow',
+  'onAccent', 'shadowCard', 'glassBlur',
 ]
 
 test('every palette key is read by production code or is a known leftover', () => {

@@ -11,6 +11,7 @@ import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { STALE_AFTER_MS, FRESHNESS_DRAW, TERMINAL_STATUS_VISIBLE_MS } from '@/lib/canvas-constants'
+import { scenePalette } from '@/lib/scene-state-colors'
 import { SESSION_NOT_OBSERVED_TEXT, SESSION_NOT_OBSERVED_HELP } from '@/lib/session-model'
 import type { SessionInfo } from '@/lib/bridge-types'
 
@@ -292,7 +293,7 @@ const STALE_GREY = '#8a94a0'
 const STALE_TEXT = '#c5ced8' // neutral light grey, opaque: legible over the dark violet halo of a session (#145)
 
 test('canvas constants: the stale look is a grey, clearly dimmed (alpha well below 1)', () => {
-  assert.equal(FRESHNESS_DRAW.staleColor, STALE_GREY)
+  assert.equal(scenePalette('neon').staleMark, STALE_GREY)
   assert.equal(FRESHNESS_DRAW.staleAlpha, 0.45)
 })
 

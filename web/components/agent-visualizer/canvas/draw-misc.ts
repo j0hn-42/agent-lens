@@ -4,7 +4,7 @@ import { sceneStateColor } from '../../../lib/scene-state-colors'
 import type { ThemeId } from '../../../lib/theme-tokens'
 import { measureTextCached } from './render-cache'
 
-/** Canvas state colour: the theme's colour of that state, the one the panels use (#381). The rest of the scene reads SCENE. */
+/** Canvas state colour: the theme's colour of that state, the one the panels use (#381). The rest of the scene: scenePalette. */
 export function stateColor(state: Agent['state'], theme: ThemeId): string {
   return sceneStateColor(state, theme)
 }

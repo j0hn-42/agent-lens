@@ -1,6 +1,7 @@
 import type { Agent } from '../../../lib/agent-types'
 import { CONTEXT_RING } from '../../../lib/canvas-constants'
 import { SCENE } from '../../../lib/colors'
+import type { ScenePalette } from '../../../lib/scene-state-colors'
 import { qualify, usageFromAgent } from '../../../lib/usage'
 
 /** Does the main agent draw its context percentage label above the ring? (pure: shared by the draw and the placement code) */
@@ -27,7 +28,8 @@ export function contextAlertLevel(usage: number, assumed: boolean): ContextAlert
   return usage > CONTEXT_RING.criticalThreshold ? 'critical' : usage > CONTEXT_RING.warningThreshold ? 'warning' : 'none'
 }
 
-export function contextPercentColor(usage: number, assumed: boolean): string {
+/** Colour of the percentage label in a scene palette (the theme's, #381); the neon scene by default. */
+export function contextPercentColor(usage: number, assumed: boolean, palette: ScenePalette = SCENE): string {
   const level = contextAlertLevel(usage, assumed)
-  return level === 'critical' ? SCENE.error : level === 'warning' ? SCENE.tool : SCENE.textDim
+  return level === 'critical' ? palette.error : level === 'warning' ? palette.tool : palette.textDim
 }
