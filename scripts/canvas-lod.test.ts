@@ -8,7 +8,8 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
 import { LOD, AGENT_DRAW, STATS_OVERLAY, COST_DRAW } from '../web/lib/canvas-constants'
-import { lodForZoom, type LevelOfDetail } from '../web/components/agent-visualizer/canvas/draw-options'
+import { lodForZoom, discoveryCardScale, type LevelOfDetail } from '../web/components/agent-visualizer/canvas/draw-options'
+import { hitTestAt, focusShapeFor } from '../web/components/agent-visualizer/canvas/hit-detection'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawToolCalls } from '../web/components/agent-visualizer/canvas/draw-tool-calls'
 import { drawMessageBubblesWorld } from '../web/components/agent-visualizer/canvas/draw-bubbles'
@@ -426,4 +427,25 @@ test('drawPhaseLabels, drawClusterHalos and drawClusterLabels (the halo layers o
   }
   assert.ok(phaseAt > 0, 'phase labels drawn at some zoom')
   assert.ok(titlesAt > 0, 'halo titles drawn at some zoom')
+})
+
+test('discovery cards: the click target and the focus ring follow the card as drawn, enlarged in the hysteresis band (#378)', () => {
+  const disc: any = { id: 'd1', agentId: 's1:main', type: 'file', label: 'canvas-constants.ts', content: 'LOD floor\n11 px', x: 500, y: 300, targetX: 500, targetY: 300, opacity: 1, timestamp: 0 }
+  const scene = { agents: new Map(), toolCalls: new Map(), discoveries: [disc] }
+  for (const zoom of [0.93, 0.96, 1, 1.5]) {
+    for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
+      const rec = recordingContext(zoom)
+      drawDiscoveries(rec.ctx, [disc], new Map(), null, opts(zoom, { lod }))
+      // World size of the card as drawn (the recorder gives its on-screen size)
+      const card = rec.rects[0]
+      const drawnW = card.screenW / zoom
+      const drawnH = card.screenH / zoom
+      const inside = { x: disc.x + drawnW / 2 - 0.5, y: disc.y + drawnH / 2 - 0.5 }
+      assert.deepEqual(hitTestAt(inside.x, inside.y, scene, 0, zoom, lod), { type: 'discovery', id: 'd1' },
+        `zoom ${zoom}${lod.detailText ? ' (text shown)' : ''}: a click just inside the drawn corner (card ${drawnW.toFixed(1)} x ${drawnH.toFixed(1)})`)
+      const ring = focusShapeFor({ type: 'discovery', id: 'd1' } as any, scene, discoveryCardScale({ zoom, lod }))
+      assert.ok(ring && ring.kind === 'rect' && Math.abs(ring.w - drawnW) < 1e-6 && Math.abs(ring.h - drawnH) < 1e-6,
+        `zoom ${zoom}: focus ring ${JSON.stringify(ring)} around the drawn card ${drawnW} x ${drawnH}`)
+    }
+  }
 })

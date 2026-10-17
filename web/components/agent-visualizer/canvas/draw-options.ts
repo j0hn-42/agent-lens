@@ -74,6 +74,14 @@ export function textHoldScale(worldPx: number, zoom: number): number {
   return Math.max(1, LOD.minTextPx / (worldPx * zoom))
 }
 
+/**
+ * Factor a discovery card is drawn at: enlarged to hold its 11 px text at LOD.minTextPx in the hysteresis
+ * band of detailText, 1 elsewhere. Shared by the draw code, the hit test and the focus ring (#378).
+ */
+export function discoveryCardScale(opts: Pick<DrawOpts, 'zoom' | 'lod'>): number {
+  return lodOf(opts).detailText ? textHoldScale(11, opts.zoom) : 1
+}
+
 /** Level of detail of a frame: the one the draw loop computed (with hysteresis), else the plain rule. */
 export function lodOf(opts: Pick<DrawOpts, 'zoom' | 'lod'>): LevelOfDetail {
   return opts.lod ?? lodForZoom(opts.zoom)
