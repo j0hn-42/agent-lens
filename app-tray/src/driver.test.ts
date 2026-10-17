@@ -184,6 +184,29 @@ describe('startDriver with a fake relay and a fake binary', () => {
     await until(() => states().slice(states().indexOf(tr('tray.sessions.many', { n: 2 }))).includes(tr('tray.sessions.unknown')))
   })
 
+  it('logs one fixed line per change of probe state, never one per probe', async () => {
+    let calls = 0
+    // ok, ok, 6 failures, then ok again
+    const flaky = ((u: string, init: RequestInit) => (++calls <= 2 || calls > 8 ? fetch(u, init) : Promise.reject(new TypeError('connect ECONNREFUSED 127.0.0.1:1234')))) as unknown as typeof fetch
+    const r = rig({}, {}, { fetch: flaky })
+    await until(() => calls > 10)
+    const probeLogs = r.logs.filter(l => l.includes('/status'))
+    assert.deepEqual(probeLogs, ['/status probe failed: unreachable', '/status probe answers again'])
+  })
+
+  it('names each failure kind once, without the raw answer', async () => {
+    for (const [mode, kind] of [['status-500', 'http-error'], ['status-bad-json', 'invalid-json']]) {
+      const r = rig({ FAKE_RELAY_MODE: mode })
+      await sleep(400)
+      assert.deepEqual(r.logs.filter(l => l.includes('/status')), [`/status probe failed: ${kind}`], mode)
+      r.handle.stop()
+      await r.handle.done
+    }
+    const r = rig({ FAKE_RELAY_MODE: 'status-hang' }, {}, { probeTimeoutMs: 60 })
+    await sleep(500)
+    assert.deepEqual(r.logs.filter(l => l.includes('/status')), ['/status probe failed: timeout'])
+  })
+
   it('opens and copies the URL built from the relay port, nothing else', async () => {
     const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('open'), click('copyUrl')]) })
     await until(() => r.opened.length === 1 && r.copied.length === 1)

@@ -269,10 +269,22 @@ export function startDriver(opts: DriverOptions): DriverHandle {
     if (violations >= MAX_PROTOCOL_VIOLATIONS) fail('too many invalid lines from the tray binary; stopping')
   }
 
+  // One fixed line per change of probe state (the kind only, never the body or the error text), so a
+  // lasting failure is visible on stderr without one line every few seconds
+  let lastProbeKind: StatusProbe['kind'] = 'not-started'
+  function logProbeChange(kind: StatusProbe['kind']) {
+    if (kind === lastProbeKind) return
+    const previous = lastProbeKind
+    lastProbeKind = kind
+    if (kind !== 'ok') log(`/status probe failed: ${kind}`)
+    else if (previous !== 'not-started') log('/status probe answers again')
+  }
+
   async function poll() {
     if (stopping || port === null) return
     probe = await probeStatus(port, { fetch: doFetch, timeoutMs: opts.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS, now, signal: abort.signal })
     if (stopping) return
+    logProbeChange(probe.kind)
     refreshMenu()
     // No overlapping requests: the next one is scheduled when this one is over
     pollTimer = setTimeout(() => { void poll() }, pollMs)

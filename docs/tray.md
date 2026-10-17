@@ -26,7 +26,7 @@ node --import tsx app-tray/src/cli.ts --tray-bin <path-to-the-native-binary>
 | `--attach <port>` | do not start a relay: query the one already listening on `127.0.0.1:<port>` |
 | `--relay-entry <file>` | the relay to start instead of `app/dist/app.js` |
 
-Exit codes: `0` quit, `1` failure while running (the relay or the binary died, the relay printed no URL, the relay did not stop), `2` bad command line. Diagnostics go to stderr, prefixed `agent-lens-tray:`. The labels are in French when `LC_ALL`, `LC_MESSAGES` or `LANG` starts with `fr`, in English otherwise (the `tray.*` keys of the UI catalogue).
+Exit codes: `0` quit, `1` failure while running (the relay or the binary died, the relay printed no URL, the relay did not stop), `2` bad command line. Diagnostics go to stderr, prefixed `agent-lens-tray:`. When the state of the `/status` probe changes, one line says so: `/status probe failed: <kind>` (`unreachable`, `timeout`, `http-error` or `invalid-json`, never the answer itself) and `/status probe answers again`. The labels are in French when `LC_ALL`, `LC_MESSAGES` or `LANG` starts with `fr`, in English otherwise (the `tray.*` keys of the UI catalogue).
 
 By default the driver starts `app/dist/app.js --port 0 --no-open` itself and reads the URL from the relay's `Server running at http://127.0.0.1:<port>` line. Only that exact line is trusted: another host, an invalid port or extra text is ignored.
 
