@@ -123,6 +123,9 @@ test('#420: runtime problems are read strictly and bounded', () => {
   // Control characters are removed and the text is capped
   const [one] = parse([{ runtime: 'opencode', message: `OpenCode: \u001b[2Jbad${'x'.repeat(1000)}` }])
   assert.equal(/[\u0000-\u001f]/.test(one.message), false)
+  // The one definition of forbidden characters (web/lib/control-chars.ts): bidi and invisible ones too
+  const [bidi] = parse([{ runtime: 'opencode', message: 'OpenCode: \u202eevil\u200b\u2066x\ufeff' }])
+  assert.equal(bidi.message, 'OpenCode: evilx')
   assert.ok(one.message.length <= 300)
   // At most one entry per watched runtime
   assert.equal(parse([{ runtime: 'opencode', message: 'a' }, { runtime: 'opencode', message: 'b' }]).length, 1)

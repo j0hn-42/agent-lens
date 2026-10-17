@@ -20,6 +20,7 @@ import { AgentEvent, SessionInfo } from './protocol'
 import { ACTIVE_SESSION_AGE_S, OPENCODE_MAX_WATCHED_SESSIONS, PREVIEW_MAX, SCAN_INTERVAL_MS, SESSION_ID_DISPLAY } from './constants'
 import { foldPathCase, isPathInside, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import { ostr } from './event-normalize'
 import {
   openOpenCodeDb, resolveOpenCodeDbPath,
@@ -41,11 +42,8 @@ const DATA_VERSION_RECHECK_MS = 60_000
 const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
 const ROOT_HOPS_MAX = 16
-const CWD_MAX = 4096
 /** Longest reason given for an unreadable database (#420). */
 const STATUS_PROBLEM_MAX = 300
-/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
 
 export interface OpenCodeWatcherOptions {
   /** Database file to read; default: resolved from the process environment (opencode-db.ts). */
@@ -476,8 +474,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   private safeDirectory(directory: string | null): string | undefined {
-    if (!directory || directory.length > CWD_MAX || UNSAFE_PATH_CHARS.test(directory)) return undefined
-    return path.isAbsolute(directory) ? directory : undefined
+    return displayCwd(directory)
   }
 
   private matchesWorkspace(directory: string | undefined): boolean {

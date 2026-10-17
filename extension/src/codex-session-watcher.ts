@@ -21,6 +21,7 @@ import {
 } from './constants'
 import { safeWatch, readTrackedLines, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
 } from './codex-rollout-parser'
@@ -37,16 +38,6 @@ const SCAN_DAYS = 3
  *  Filenames look like: rollout-2026-04-22T09-15-00-{uuid}.jsonl */
 const SESSION_ID_FROM_FILENAME = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{36})\.jsonl$/
 
-/** A cwd longer than this is not a path this adapter shows. */
-const CWD_MAX = 4096
-/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
-
-/** session_meta.cwd as shown to the user: only an absolute, clean, bounded path (#420); anything else is left out. */
-function displayCwd(cwd: string | null): string | undefined {
-  if (!cwd || cwd.length > CWD_MAX || UNSAFE_PATH_CHARS.test(cwd)) return undefined
-  return path.isAbsolute(cwd) ? cwd : undefined
-}
 
 interface WatchedCodexSession {
   sessionId: string

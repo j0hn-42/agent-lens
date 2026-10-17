@@ -7,6 +7,7 @@
  */
 import type { SessionInfo } from './bridge-types'
 import { projectOptions } from './session-filter'
+import { CONTROL_ALL } from './control-chars'
 
 export type RelayScope = 'workspace' | 'all'
 
@@ -53,8 +54,6 @@ function parseDiscovery(status: Record<string, unknown>): DiscoveryLimits | null
 }
 
 const RUNTIME_PROBLEM_MAX = 300
-// eslint-disable-next-line no-control-regex
-const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g
 
 /** Only a runtime the relay says it watches, one entry each, its sentence cleaned and capped. */
 function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[] {
@@ -66,7 +65,7 @@ function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[]
     const { runtime, message } = p as Record<string, unknown>
     if (typeof runtime !== 'string' || !watched.includes(runtime) || out.some(o => o.runtime === runtime)) continue
     if (typeof message !== 'string') continue
-    const text = message.replace(UNSAFE_TEXT, '').trim().slice(0, RUNTIME_PROBLEM_MAX)
+    const text = message.replace(CONTROL_ALL, '').trim().slice(0, RUNTIME_PROBLEM_MAX)
     if (text) out.push({ runtime, message: text })
   }
   return out
