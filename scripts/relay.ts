@@ -744,8 +744,8 @@ export interface RelayOptions {
 }
 
 export interface RelayRemotePairingOptions {
-  /** --token-file: the token of this start is written there, mode 0600 (replaced at every start, never read back).
-   *  A write failure makes createRelay throw. */
+  /** --token-file: the token of this start is written there (replaced at every start, never read back). POSIX: mode
+   *  0600. Windows: the mode is ignored and the file inherits the ACL of its folder. A write failure makes createRelay throw. */
   tokenFile?: string
   /** Receives the token once, at creation, to print the pairing URL. The relay never logs nor serves it. */
   onToken?: (token: string) => void

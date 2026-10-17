@@ -2,7 +2,8 @@
  * Remote pairing, step 2 of #241: what a tunnel Host (--allow-host) has to show before it reads anything.
  *
  * - A pairing token of 256 random bits is drawn at every start, kept in memory, optionally written to --token-file
- *   (mode 0600, replaced at every start, never read back). It is never logged and never served.
+ *   (mode 0600 on POSIX; on Windows the mode is ignored and the file inherits the ACL of its folder; replaced at every
+ *   start, never read back). It is never logged and never served.
  * - EventSource sends no header, so the token travels in the URL FRAGMENT: https://<tunnel>/#pair=<token>. A fragment
  *   is never sent to a server nor written in an access log. The app posts it to POST /pair.
  * - POST /pair compares it in constant time and answers with a separate random pairing id in a cookie
@@ -11,6 +12,15 @@
  * - Every failure (wrong / missing token, malformed body, wrong Content-Type, oversized body) is the same 401
  *   'Unauthorized'. POST /pair has its own rate limiter, keyed on the tunnel name (its peer is always 127.0.0.1), debited
  *   by failures only, after the token was compared: past the budget a failure gets 429, the right token still pairs.
+ *
+ * Lifetime and revocation (a deliberate choice of this first version):
+ * - The token is REUSABLE for the whole run of the relay: every device that has it can pair, again and again.
+ * - At most REMOTE_PAIR_MAX_SESSIONS (8) pairings at once; past it, 503 until one expires.
+ * - Each pairing lives REMOTE_PAIR_SESSION_TTL_MS (12 h), then the device pairs again with the token.
+ * - Nothing revokes one pairing or the token on its own: restarting the relay draws a new token and forgets every
+ *   pairing, that is how everything is revoked.
+ * - The web side must drop the fragment with history.replaceState BEFORE it posts the token, so the token does not
+ *   stay in the address bar, the history or a bookmark.
  *
  * Loopback is untouched: a loopback Host never needs nor gets a pairing.
  */
@@ -93,8 +103,10 @@ export function pairingUrl(host: string, token: string): string {
 }
 
 /**
- * --token-file: writes the token, mode 0600, through a temporary file renamed over the target (a symlink in its
- * place is replaced, never followed; a wider existing file is replaced too). Throws on any failure: the start stops.
+ * --token-file: writes the token through a temporary file renamed over the target (a symlink in its place is replaced,
+ * never followed; a wider existing file is replaced too). Throws on any failure: the start stops.
+ * POSIX: mode 0600 (owner only). Windows: the mode is ignored, the file inherits the ACL of its folder; pick a folder
+ * only you can read (e.g. under %USERPROFILE%). Nothing is refused there, it is documented.
  */
 export function writeTokenFile(file: string, token: string): void {
   const dir = path.dirname(path.resolve(file))
