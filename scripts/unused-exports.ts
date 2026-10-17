@@ -10,6 +10,8 @@ const ROOT = join(__dirname, '..')
 const SCOPES = ['web/lib', 'web/hooks', 'web/components']
 /** Everything that ships or runs: production code outside the scopes included (pages, relay, scripts). */
 const REFERENCE_ROOTS = ['web/app', 'web/lib', 'web/hooks', 'web/components', 'web/src', 'extension/src', 'app/src', 'scripts']
+/** The bundle entry points (vite.config.app.ts, vite.config.webview.ts): they ship, so what they import is used. */
+const ENTRY_FILES = ['web/app-entry.tsx', 'web/webview-entry.tsx']
 const SKIP_DIR = new Set(['node_modules', '.next', 'dist', 'out', 'fixtures', 'tests-a11y', 'tests-e2e', 'e2e'])
 const TEST_FILE = /\.(test|spec)\.[tj]sx?$/
 
@@ -46,7 +48,7 @@ export interface UnusedExport { file: string; name: string }
 /** Exports of the scopes that no other production file mentions. `files` is injectable for tests. */
 export function findUnusedExports(files?: Record<string, string>): UnusedExport[] {
   const sources: Record<string, string> = files ?? Object.fromEntries(
-    [...new Set(REFERENCE_ROOTS.flatMap(r => walk(join(ROOT, r))))].map(f => [relative(ROOT, f), readFileSync(f, 'utf8')]))
+    [...new Set([...REFERENCE_ROOTS.flatMap(r => walk(join(ROOT, r))), ...ENTRY_FILES.map(f => join(ROOT, f))])].map(f => [relative(ROOT, f), readFileSync(f, 'utf8')]))
   const inScope = (f: string) => SCOPES.some(s => f.startsWith(s + '/'))
   const unused: UnusedExport[] = []
   for (const [file, src] of Object.entries(sources)) {

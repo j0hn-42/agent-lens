@@ -204,14 +204,32 @@ describe('createRemotePairing (POST /pair, cookie check, caps)', () => {
     })
   })
 
-  it('refuses another method (405), another Host, a loopback Host or another origin (403)', async () => {
+  it('refuses another method (405), another Host or another origin (403), a loopback Host with any origin but its own http one', async () => {
     const pairing = createRemotePairing({ token, allowedHosts: [TUNNEL], rate: { burst: 100, perSecond: 100 } })
     await withServer(pairing, async send => {
       assert.equal((await send({ method: 'GET' })).status, 405)
-      for (const headers of [{ Host: 'evil.example' }, { Host: '127.0.0.1' }, { Origin: 'https://evil.example' }, { Origin: `http://${TUNNEL}` }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+      for (const headers of [
+        { Host: 'evil.example' }, { Origin: 'https://evil.example' }, { Origin: `http://${TUNNEL}` }, { 'Sec-Fetch-Site': 'cross-site' },
+        { Host: '127.0.0.1:4000', Origin: 'https://127.0.0.1:4000' }, { Host: '127.0.0.1:4000', Origin: 'http://127.0.0.1:4001' },
+        { Host: '127.0.0.1:4000', Origin: `https://${TUNNEL}` }, { Host: 'localhost:4000', Origin: 'http://127.0.0.1:4000' },
+        { Host: '127.0.0.1:4000', 'Sec-Fetch-Site': 'same-site' },
+      ]) {
         const r = await send({ headers, body: JSON.stringify({ token }) })
         assert.equal(r.status, 403, JSON.stringify(headers))
         assert.equal(r.headers['set-cookie'], undefined)
+      }
+    })
+  })
+
+  it('pairs on a loopback Host too (an SSH -L tunnel or a port forward, #517): its own http origin, or none', async () => {
+    const pairing = createRemotePairing({ token, allowedHosts: [TUNNEL], rate: { burst: 100, perSecond: 100 } })
+    await withServer(pairing, async send => {
+      const wrong = await send({ headers: { Host: '127.0.0.1:4000', Origin: 'http://127.0.0.1:4000' }, body: JSON.stringify({ token: newPairingToken() }) })
+      assert.equal(wrong.status, 401)
+      for (const headers of [{ Host: '127.0.0.1:4000', Origin: 'http://127.0.0.1:4000' }, { Host: 'LOCALHOST:4000', Origin: 'http://localhost:4000', 'Sec-Fetch-Site': 'same-origin' }, { Host: '[::1]:4000' }]) {
+        const r = await send({ headers, body: JSON.stringify({ token }) })
+        assert.equal(r.status, 204, JSON.stringify(headers))
+        assert.match(cookieOf(r), new RegExp(`^${PAIR_COOKIE}=`))
       }
     })
   })

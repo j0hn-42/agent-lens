@@ -24,7 +24,7 @@ if (isCliCommand(command)) {
   const args = parseArgs(process.argv.slice(2))
 
   // Remote access (#241): fail closed before any setup or listening
-  const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host, remote: args.remote })
+  const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host, remote: args.remote, tokenFile: args.tokenFile })
   if (remoteError) {
     console.error(`Agent Lens: ${remoteError}`)
     process.exit(2)
@@ -42,7 +42,8 @@ if (isCliCommand(command)) {
   // Ensure hooks are configured
   ensureSetup()
 
-  // Start the server
+  // Start the server. A failure (a --token-file that cannot be written, #517) stops the start like a refused flag:
+  // exit code 2 and the reason on stderr (the token is never part of it)
   startServer({
     port: args.port,
     openBrowser: args.open,
@@ -52,5 +53,10 @@ if (isCliCommand(command)) {
     imports: args.imports,
     webhooks: args.webhooks,
     ...(args.allowLaunch ? { launchRepos: args.launchRepos } : {}),
+    // Remote access (#241, #517): remoteStartupError above guarantees a token file whenever a name is allowed
+    ...(args.allowHosts.length > 0 && args.tokenFile ? { remote: { allowedHosts: args.allowHosts, tokenFile: args.tokenFile } } : {}),
+  }).catch((err: unknown) => {
+    console.error(`Agent Lens: ${err instanceof Error ? err.message : 'the server could not start'}`)
+    process.exit(2)
   })
 }

@@ -53,7 +53,7 @@ set -g status-interval 5
 curl -fsS --max-time 1 http://127.0.0.1:3001/statusline || echo "lens off"
 ```
 
-`GET /statusline?format=json` returns `{ live, active, idle, atLeast, text }`. The route answers `503` when the observation is unavailable; the `|| echo "lens off"` above shows that instead of a false zero. Like the other routes it is loopback only, rate-limited, and refuses requests from another site.
+`GET /statusline?format=json` returns `{ live, active, idle, atLeast, text }`. The route answers `503` when the observation is unavailable; the `|| echo "lens off"` above shows that instead of a false zero. Like the other routes it is loopback only, rate-limited, and refuses requests from another site. While the app runs with `--allow-host`, every loopback route needs the pairing cookie, so the headless commands get `relay answered HTTP 401` (see [Remote access](remote-access.md)).
 
 ## Webhooks
 

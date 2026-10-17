@@ -384,26 +384,43 @@ export function computeDockLayout(input: DockInput): DockLayout {
 export interface PopupPlacement { left: number; top: number; width: number; maxHeight: number }
 
 /**
+ * Smallest height left to a popup (WCAG 1.4.10 Reflow, 2.4.7): its close button, a title and a few lines of body, about
+ * five 32 px rows, readable with its own scrollbar. Below it the cards' slot is no longer kept in full (see placePopup).
+ */
+const POPUP_MIN_H = 160
+
+/**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
  * bar (never over either), nor over the permission cards that sit right under the top bar (#410): their measured
- * slot is kept free, and a popup on top of them would hide a pending decision. Wider-than-viewport popups shrink;
- * taller ones get a maxHeight to scroll.
+ * slot is kept free where the popup overlaps them horizontally (permissionsX / permissionsW, the whole width when
+ * unknown), and a popup on top of them would hide a pending decision. That reservation has a floor: when the cards
+ * leave less than POPUP_MIN_H (200 % zoom, 320 px phone, cards at their 60vh cap), the popup takes POPUP_MIN_H and covers
+ * only the lower part of the cards, never their heading; Escape closes it and gives the cards back. Wider-than-viewport
+ * popups shrink; taller ones get a maxHeight to scroll.
  */
 export function placePopup(
   anchor: { x: number; y: number },
   size: { w: number; h: number },
-  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number },
+  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number; permissionsX?: number; permissionsW?: number },
   offsetY = 20,
 ): PopupPlacement {
   const margin = 8
   const vw = env.viewport.w
   const width = Math.max(0, Math.min(size.w, vw - 2 * margin))
-  const minTop = Math.min(env.topbarH + permissionsBand(env.permissionsH), env.viewport.h)
-  const maxBottom = Math.max(minTop, env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP)
+  const left = Math.round(clamp(finite(anchor.x, 0) - width / 2, margin, vw - width - margin))
+  const bottomLimit = env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP
+  const topLimit = Math.min(env.topbarH, env.viewport.h)
+  const px = env.permissionsX
+  const pw = env.permissionsW
+  const overlapsCards = !Number.isFinite(px) || !Number.isFinite(pw) || (left < (px as number) + (pw as number) && left + width > (px as number))
+  const band = overlapsCards ? permissionsBand(env.permissionsH) : 0
+  // Under the cards, but never leaving less than POPUP_MIN_H (or less than the whole free column when that is smaller)
+  const minTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
+  const maxBottom = Math.max(minTop, bottomLimit)
   const maxHeight = Math.max(0, maxBottom - minTop)
   const height = Math.min(size.h, maxHeight)
   return {
-    left: Math.round(clamp(finite(anchor.x, 0) - width / 2, margin, vw - width - margin)),
+    left,
     top: Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)),
     width,
     maxHeight,
@@ -423,6 +440,9 @@ export interface DockEnv {
   bannerH?: number
   /** Height of the drawn permission cards (absent when none is drawn, #410). */
   permissionsH?: number
+  /** Left edge and width of the drawn permission cards: a popup clear of them horizontally is not pushed down. */
+  permissionsX?: number
+  permissionsW?: number
 }
 
 export interface DockSnapshot { layout: DockLayout; env: DockEnv; open: readonly PanelId[] }
@@ -468,8 +488,12 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
   const bannerH = banner && !banner.closest('[aria-hidden="true"]') && !banner.closest('[inert]') ? Math.max(0, Math.ceil(banner.getBoundingClientRect().height)) : 0
   // The cards are an obstacle for the docks (above) and take a slot at the top of the column over a sheet (#410)
   const perm = doc.querySelector<HTMLElement>('[data-permission-requests]')
-  const permissionsH = perm && !perm.closest('[aria-hidden="true"]') && !perm.closest('[inert]') ? Math.max(0, Math.ceil(perm.getBoundingClientRect().height)) : 0
-  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH }
+  const permRect = perm && !perm.closest('[aria-hidden="true"]') && !perm.closest('[inert]') ? perm.getBoundingClientRect() : null
+  const permissionsH = permRect ? Math.max(0, Math.ceil(permRect.height)) : 0
+  return {
+    viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH,
+    ...(permRect && permissionsH > 0 ? { permissionsX: Math.floor(permRect.left), permissionsW: Math.ceil(permRect.width) } : {}),
+  }
 }
 
 type Listener = () => void
