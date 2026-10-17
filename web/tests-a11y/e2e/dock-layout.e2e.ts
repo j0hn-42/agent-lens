@@ -10,6 +10,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -62,9 +63,10 @@ async function collect(page: Page): Promise<{ panels: Box[]; foreign: Box[]; top
 async function open(page: Page, w: number, h: number, withConversation: boolean) {
   await page.setViewportSize({ width: w, height: h })
   await page.goto(server.url, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Timeline', exact: true }).waitFor()
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
-  await page.getByRole('button', { name: 'Timeline', exact: true }).click({ timeout: 5000 })
+  // Under 768 px Timeline is behind More (#476)
+  await (await topbarButton(page, 'Timeline')).click({ timeout: 5000 })
   // Select the agent LAST, and without moving focus: the card closes when focus moves to another control. The
   // graph outline button is visually hidden, so activate it through the DOM. Selecting opens Conversation on a wide viewport.
   await page.getByRole('button', { name: /^Refactor the payment/ }).first().evaluate((el: HTMLElement) => el.click())

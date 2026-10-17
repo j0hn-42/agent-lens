@@ -4,10 +4,11 @@ import { COLORS } from '@/lib/colors'
 import { MOTION_LAYERS, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale } from '@/lib/messages'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 
 const BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + `${FOCUS_RING} disabled:opacity-60`
+  + `${TOUCH_TARGET} ${FOCUS_RING} disabled:opacity-60`
 
 interface MotionLayerControlsProps {
   locale: Locale

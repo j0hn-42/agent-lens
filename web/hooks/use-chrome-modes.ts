@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useFullscreen } from '@/hooks/use-fullscreen'
 import { usePresentationMode, usePresentationMaskAttribute, usePresentationSubtitle } from '@/hooks/use-presentation'
-import { FULLSCREEN_BUTTON_ID } from '@/components/agent-visualizer/top-bar'
+import { FULLSCREEN_BUTTON_ID, TOPBAR_MORE_ID } from '@/components/agent-visualizer/top-bar'
 import type { useAgentSimulation } from '@/hooks/use-agent-simulation'
 
 /**
@@ -28,7 +28,8 @@ export function useChromeModes(agents: ReturnType<typeof useAgentSimulation>['ag
     wasImmersiveRef.current = immersive
     setFullscreenNote(immersive ? 'Full screen on' : 'Full screen off')
     if (immersive) exitFullscreenRef.current?.focus()
-    else document.getElementById(FULLSCREEN_BUTTON_ID)?.focus()
+    // Under 768 px the button may be folded behind More (#476)
+    else (document.getElementById(FULLSCREEN_BUTTON_ID) ?? document.getElementById(TOPBAR_MORE_ID))?.focus()
   }, [immersive])
 
   // Presentation mode (#245): options persist, the mode does not. Escape stops it once nothing else is open.

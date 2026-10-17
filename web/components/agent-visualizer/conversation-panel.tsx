@@ -31,7 +31,7 @@ import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { PANEL_BUTTON_IDS } from './top-bar'
+import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from './top-bar'
 import { truncateName } from '@/lib/truncate-name'
 
 export interface ConversationPanelProps {
@@ -186,7 +186,7 @@ export function ConversationPanel({
     // An open agent card (the panel was opened by selecting that agent) keeps focus: moving it to the pill or
     // the top bar button would close the card, so one Escape would close two things.
     const target = document.querySelector<HTMLElement>('[data-dock-panel="detail"]')
-      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation)
+      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation) ?? document.getElementById(TOPBAR_MORE_ID)
     target?.focus({ preventScroll: true })
   }, [open])
 
@@ -414,7 +414,7 @@ export function ConversationPanel({
         style={{ background: COLORS.panelBg, backdropFilter: 'blur(24px)', borderLeft: `1px solid ${COLORS.holoBorder10}` }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0 max-md:flex-wrap" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               {CONVERSATION_LABELS.title}
@@ -430,7 +430,8 @@ export function ConversationPanel({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Under 768 px the 44 px Close button must stay inside a 320 px drawer: the actions wrap (#476) */}
+          <div className="flex items-center gap-1 flex-shrink-0 max-md:flex-shrink max-md:min-w-0 max-md:flex-wrap max-md:justify-end">
             <button
               type="button"
               aria-pressed={showTools}
