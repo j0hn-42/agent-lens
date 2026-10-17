@@ -9,6 +9,9 @@ import { computeClusters } from '../web/components/agent-visualizer/canvas/clust
 import { lodForZoom } from '../web/components/agent-visualizer/canvas/draw-options'
 import { rectsOverlap, overlayPriority, PRIORITY } from '../web/components/agent-visualizer/canvas/label-placement'
 import { EDGE_BUBBLE, PLACEMENT } from '../web/lib/canvas-constants'
+import { TOUCH_TARGET_PX } from '../web/lib/mobile-view'
+import { findEdgeBubbleAt } from '../web/components/agent-visualizer/canvas/hit-detection'
+import { setOverlayHits, clearOverlayHits } from '../web/components/agent-visualizer/canvas/overlay-state'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function agent(over: Record<string, unknown> = {}): any {
@@ -153,9 +156,10 @@ function tightPlan(count: number, over: Record<string, unknown> = {}) {
   const selected = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
   assert.equal(selected.length, count)
   const { w, h } = selected[0]
-  const bubbles = selected.map(b => ({ ...b, anchor: { x: 0.6 * w + w / 2, y: h + 10 } }))
+  const pad = Number(over.touchTargetPx ?? 0) // touch zones grow around the drawn rects: keep them inside the viewport
+  const bubbles = selected.map(b => ({ ...b, anchor: { x: 0.6 * w + w / 2 + pad, y: h + 10 + pad } }))
   const far = agentsOf(agent({ id: 's1:lead', x: 9000, y: 9000, isMain: true }), agent({ id: 's1:child', x: 9600, y: 9000 }))
-  const res = planFor(bubbles, far, { viewport: { w: 1.6 * w, h }, ...over })
+  const res = planFor(bubbles, far, { viewport: { w: 1.6 * w + pad * 2, h: h + pad * 2 }, ...over })
   return { bubbles, res, plan: (i: number) => res.plan.get(planKey.edgeBubble(bubbles[i].key))! }
 }
 
@@ -232,6 +236,49 @@ test('collision: a held bubble wins the contested spot over an ordinary one', ()
   assert.equal(plan(1).collapsed, false)
   assert.equal(plan(1).dx, 0, 'the held (newest) bubble keeps its preferred spot')
   assert.equal(plan(0).hidden, true, 'the ordinary older bubble has no chip form and gives way')
+})
+
+// ─── Touch targets and hidden bubbles (#514) ────────────────────────────────
+
+test('touch: below 768 px a placed bubble zone is at least 44x44, the chip too; wide screens are unchanged', () => {
+  assert.equal(TOUCH_TARGET_PX, 44)
+  const f = fixture([msg({ timestamp: 10 })])
+  const bubbles = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
+  const at = { transform: { x: 100, y: 300, scale: 1 } }
+  const plain = planFor(bubbles, f.agents, at).plan.get(planKey.edgeBubble(bubbles[0].key))!.rect!
+  assert.ok(plain.h < TOUCH_TARGET_PX, 'fixture: the drawn bubble is under 44 px high')
+  const res = planFor(bubbles, f.agents, { ...at, touchTargetPx: TOUCH_TARGET_PX })
+  const rect = res.plan.get(planKey.edgeBubble(bubbles[0].key))!.rect!
+  assert.ok(rect.w >= TOUCH_TARGET_PX && rect.h >= TOUCH_TARGET_PX, `zone ${rect.w}x${rect.h}`)
+  const chip = tightPlan(2, { touchTargetPx: TOUCH_TARGET_PX }).plan(1)
+  assert.equal(chip.collapsed, true)
+  assert.ok(chip.rect!.w >= TOUCH_TARGET_PX && chip.rect!.h >= TOUCH_TARGET_PX, 'the count chip zone follows the target')
+})
+
+test('touch: the 44 px zones of the bubbles never overlap each other', () => {
+  const f = fixture([
+    msg({ id: 'a', timestamp: 10 }), msg({ id: 'b', timestamp: 10.1 }), msg({ id: 'c', timestamp: 10.2 }),
+  ])
+  const bubbles = selectEdgeBubbles(f.resolved, f.agents, 11, { measure: t => t.length * 6.6 })
+  const res = planFor(bubbles, f.agents, { touchTargetPx: TOUCH_TARGET_PX })
+  const zones = [...res.hits.edgeBubbleRects.values()]
+  assert.ok(zones.length >= 1)
+  for (const z of zones) assert.ok(z.w >= TOUCH_TARGET_PX && z.h >= TOUCH_TARGET_PX)
+  for (let i = 0; i < zones.length; i++) for (let j = i + 1; j < zones.length; j++) assert.equal(rectsOverlap(zones[i], zones[j]), false)
+})
+
+test('hit test: a bubble hidden by the plan is not clickable where it would have been drawn', () => {
+  const { bubbles, res, plan } = tightPlan(3)
+  assert.equal(plan(1).hidden, true, 'fixture: the middle bubble is hidden')
+  assert.equal(res.hits.edgeBubbleRects.has(bubbles[1].key), false)
+  for (const key of res.hits.edgeBubbleRects.keys()) assert.equal(res.plan.get(planKey.edgeBubble(key))!.hidden, false)
+  setOverlayHits(res.hits)
+  try {
+    // The canvas keeps one rectangle per link, the newest placed bubble (here the chip)
+    const r = plan(2).rect!
+    assert.equal(findEdgeBubbleAt(r.x + r.w / 2, r.y + r.h / 2, 1), 'L1')
+    assert.equal(findEdgeBubbleAt(-5000, -5000, 1), null)
+  } finally { clearOverlayHits() }
 })
 
 // ─── Selection cost ─────────────────────────────────────────────────────────
