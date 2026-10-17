@@ -284,6 +284,12 @@ export const NEON_COLORS = {
   swimlaneMessage: '#e0b0ff',
   textMutedOpaque: '#8fcfef',
   crownAccent: '#ffd166',
+
+  // Canvas labels (#381): the word on the LEAD / MAIN pill (on crownAccent), the grey of a stale node and of its
+  // "last known state" line (state colours say "live"; the word says stale)
+  crownInk: '#11161c',
+  staleMark: '#8a94a0',
+  staleText: '#c5ced8',
 } as const
 
 export type ColorKey = keyof typeof NEON_COLORS
@@ -575,6 +581,9 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     swimlaneMessage: delegate,
     textMutedOpaque: muted,
     crownAccent: accent,
+    crownInk: t['on-accent'],
+    staleMark: t['context-system'],
+    staleText: muted,
   }
 }
 

@@ -6,6 +6,8 @@
 import './canvas-recorder'
 import { recordingContext, stubDocument, type DrawnOp } from './canvas-recorder'
 import type { ThemeId } from '../web/lib/theme-tokens'
+import { SCENE } from '../web/lib/colors'
+import { scenePalette } from '../web/lib/scene-state-colors'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawLinks, drawEdgeBubbles } from '../web/components/agent-visualizer/canvas/draw-links'
 import {
@@ -124,3 +126,70 @@ export function paintOf(family: Family, theme?: ThemeId): string[] {
   }
   return out
 }
+
+// ─── Measuring what is painted ───────────────────────────────────────────────
+
+export type Rgb = [number, number, number]
+
+/** [r, g, b, a] of '#rrggbb', '#rrggbbaa' or 'rgb(a)(...)'; null for a gradient or a pattern */
+export function parse(value: string): [number, number, number, number] | null {
+  const v = value.trim()
+  if (/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v)) {
+    const n = (i: number) => parseInt(v.slice(i, i + 2), 16)
+    return [n(1), n(3), n(5), v.length === 9 ? n(7) / 255 : 1]
+  }
+  const m = v.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/)
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])] : null
+}
+export const over = (value: string, bg: Rgb, alpha = 1): Rgb => {
+  const [r, g, b, a] = parse(value)!
+  const k = a * alpha
+  return [r * k + bg[0] * (1 - k), g * k + bg[1] * (1 - k), b * k + bg[2] * (1 - k)]
+}
+export const lum = ([r, g, b]: Rgb) => {
+  const f = (c: number) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4 }
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+}
+export const ratio = (a: Rgb, b: Rgb) => { const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x); return (hi + 0.05) / (lo + 0.05) }
+export const solid = (hex: string): Rgb => parse(hex)!.slice(0, 3) as Rgb
+export const same = (a: string, b: string) => { const p = parse(a), q = parse(b); return !!p && !!q && p.every((v, i) => Math.abs(v - q[i]) < 1e-6) }
+
+export interface Paint { family: Family; kind: 'text' | 'mark'; color: string; alpha: number; ground: Rgb[]; what: string }
+
+/** Plates and grounds the scene draws texts on (not marks themselves) */
+export const GROUND_KEYS = ['void', 'cardBgDark', 'cardBg', 'cardBgSelected', 'cardBgError', 'nodeInterior', 'cardBgFaintOverlay', 'holoBg05'] as const
+
+/** Every text and non-text mark a family paints in a theme, with the grounds it can sit on. */
+export function paints(family: Family, theme: ThemeId): Paint[] {
+  const p = scenePalette(theme)
+  const ground = solid(SCENE.void)
+  // Grounds: the scene ground, the dark plate under labels, and the discovery card (faded to its 0.9 cap) over it
+  const grounds: Rgb[] = [ground, over(p.cardBgDark, ground), over(p.cardBg, ground, 0.9), over(p.cardBgSelected, ground, 0.9)]
+  const out: Paint[] = []
+  for (const op of drawFamily(family, theme) as DrawnOp[]) {
+    // A single symbol drawn with fillText (the ◇ / ◆ / ⚙ state glyph in a node) is an icon: a non-text mark
+    const isText = (op.name === 'fillText' && /[\p{L}\p{N}]/u.test(String(op.args[0]))) || op.name === 'strokeText'
+    const isStroke = op.name === 'stroke' || op.name === 'strokeRect' || op.name === 'strokeText'
+    const isFill = op.name === 'fill' || op.name === 'fillRect' || op.name === 'fillText'
+    if (!isStroke && !isFill) continue
+    const color = isStroke ? op.strokeStyle : op.fillStyle
+    const c = parse(color)
+    if (!c) continue // gradient: the scan line, decorative
+    // A contour in the ground colour (the knockout around label text) is not a mark
+    if (isStroke && same(color.slice(0, 7), SCENE.void)) continue
+    if (op.name === 'strokeText') continue
+    if (!isText && GROUND_KEYS.some(k => same(color, p[k]))) continue
+    // A tint (a halo or zone fill, a depth particle) is a ground, not a mark
+    if (op.name !== 'fillText' && isFill && c[3] * op.globalAlpha < 0.2) continue
+    // The LEAD / MAIN word sits on its pill
+    const onPill = isText && same(color, p.crownInk)
+    out.push({ family, kind: isText ? 'text' : 'mark', color, alpha: op.globalAlpha, ground: onPill ? [solid(p.crownAccent)] : grounds, what: `${op.name} ${color} a=${Number(op.globalAlpha.toFixed(4))}` })
+  }
+  return out
+}
+
+export const contrastOf = (x: Paint) => Math.min(...x.ground.map(g => ratio(over(x.color, g, x.alpha), g)))
+
+/** The grid (hex grid, depth particles) is decoration: not measured. */
+export const MEASURED: Family[] = FAMILIES.filter(f => f !== 'grid')
+

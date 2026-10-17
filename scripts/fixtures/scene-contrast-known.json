@@ -1,0 +1,107 @@
+{
+ "catppuccin-macchiato": {
+  "labels": [
+   "stroke #494d64 a=1",
+   "stroke #7dc4e425 a=1",
+   "stroke #a6da9525 a=1",
+   "stroke #a6da9560 a=1",
+   "stroke #c6a0f625 a=1",
+   "stroke #ed8796 a=0.35",
+   "stroke #eed49f25 a=1",
+   "stroke rgba(73, 77, 100, 0.6) a=1",
+   "strokeRect #494d64 a=1"
+  ]
+ },
+ "catppuccin-mocha": {
+  "labels": [
+   "stroke #45475a a=1",
+   "stroke #74c7ec25 a=1",
+   "stroke #a6e3a125 a=1",
+   "stroke #a6e3a160 a=1",
+   "stroke #cba6f725 a=1",
+   "stroke #f38ba8 a=0.35",
+   "stroke #f9e2af25 a=1",
+   "stroke rgba(69, 71, 90, 0.6) a=1",
+   "strokeRect #45475a a=1"
+  ]
+ },
+ "catppuccin-frappe": {
+  "labels": [
+   "stroke #51576d a=1",
+   "stroke #85c1dc25 a=1",
+   "stroke #a6d18925 a=1",
+   "stroke #a6d18960 a=1",
+   "stroke #ca9ee625 a=1",
+   "stroke #e5c89025 a=1",
+   "stroke #e78284 a=0.35",
+   "stroke rgba(81, 87, 109, 0.6) a=1",
+   "strokeRect #51576d a=1"
+  ]
+ },
+ "midnight": {
+  "labels": [
+   "stroke #2c3562 a=1",
+   "stroke #5fd4e625 a=1",
+   "stroke #6ed79925 a=1",
+   "stroke #6ed79960 a=1",
+   "stroke #9fa8ff25 a=1",
+   "stroke #f26683 a=0.35",
+   "stroke #f4d79725 a=1",
+   "stroke rgba(44, 53, 98, 0.6) a=1",
+   "strokeRect #2c3562 a=1"
+  ]
+ },
+ "graphite": {
+  "labels": [
+   "stroke #343436 a=1",
+   "stroke #8fb8ff25 a=1",
+   "stroke #8fd3a825 a=1",
+   "stroke #8fd3a860 a=1",
+   "stroke #d4d4d625 a=1",
+   "stroke #e0b25c25 a=1",
+   "stroke #ee8a8a a=0.35",
+   "stroke rgba(52, 52, 54, 0.6) a=1",
+   "strokeRect #343436 a=1"
+  ]
+ },
+ "neon": {
+  "labels": [
+   "stroke #66ccff25 a=1",
+   "stroke #66ffaa25 a=1",
+   "stroke #66ffaa60 a=1",
+   "stroke #b79cff25 a=1",
+   "stroke #ff5566 a=0.35",
+   "stroke #ffbb4425 a=1",
+   "stroke rgba(100, 200, 255, 0.06) a=1",
+   "stroke rgba(102, 204, 255, 0.22) a=1",
+   "strokeRect rgba(102, 204, 255, 0.22) a=1"
+  ]
+ },
+ "ember": {
+  "labels": [
+   "stroke #43362b a=1",
+   "stroke #9fb4e825 a=1",
+   "stroke #a3ca8825 a=1",
+   "stroke #a3ca8860 a=1",
+   "stroke #e17260 a=0.35",
+   "stroke #e6a95725 a=1",
+   "stroke #f4d48125 a=1",
+   "stroke rgba(67, 54, 43, 0.6) a=1",
+   "strokeRect #43362b a=1"
+  ]
+ },
+ "anthropic": {
+  "labels": [
+   "fillText #d9775790 a=1",
+   "stroke #34322e a=1",
+   "stroke #8fa77425 a=1",
+   "stroke #8fa77460 a=1",
+   "stroke #a8b4f025 a=1",
+   "stroke #d9775725 a=1",
+   "stroke #e3b34125 a=1",
+   "stroke #ec698f a=0.35",
+   "stroke rgba(52, 50, 46, 0.6) a=1",
+   "strokeRect #34322e a=1"
+  ]
+ }
+}

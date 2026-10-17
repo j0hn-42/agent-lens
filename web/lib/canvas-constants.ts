@@ -684,8 +684,8 @@ export const ORCHESTRATOR_DRAW = {
   badgeHeight: 16,
   /** Gap between the node top and the badge */
   badgeGap: 14,
-  /** Accent of the crown badge (the crown SHAPE and the text carry the meaning, not the colour) */
-  accent: '#ffd166',
+  // Colours of the crown and of the pill: crownAccent / crownInk of the scene palette (lib/scene-state-colors.ts, #381).
+  // The crown SHAPE and the text carry the meaning, not the colour.
 } as const
 
 /**
@@ -778,10 +778,8 @@ export const FRESHNESS_TICK_MS = 1000
 export const FRESHNESS_ANNOUNCE_MAX_NAMES = 3
 
 export const FRESHNESS_DRAW = {
-  /** Neutral grey of a stale node (state colours say "live") */
-  staleColor: '#8a94a0',
-  /** Colour of the "last known state" label: opaque light grey, >= 4.5:1 on the void and on the violet session halo */
-  staleTextColor: '#c5ced8',
+  // Colours: staleMark (the grey of a stale node; state colours say "live") and staleText (its "last known state" label, opaque,
+  // >= 4.5:1 on the void and on the violet session halo) of the scene palette (lib/scene-state-colors.ts, #381)
   /** Alpha multiplier applied to a stale node (the label text stays fully opaque) */
   staleAlpha: 0.45,
   /** Max width (px) of the "last known state" line */
