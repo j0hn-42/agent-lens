@@ -125,11 +125,29 @@ export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerRes
   return true
 }
 
-/** Why the start must stop (exit code 2), or null. v1 never listens outside loopback and needs the token for --allow-host. */
-export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string }): string | null {
-  if (opts.host !== undefined && !['127.0.0.1', 'localhost'].includes(opts.host.trim().toLowerCase())) {
-    return `--host ${echo(opts.host)}: Agent Lens only listens on loopback (127.0.0.1). For remote access, forward a named tunnel `
-      + '(Tailscale serve) to it and name it with --allow-host (#241).'
+const TUNNEL_HINT = 'For remote access, forward a named tunnel (Tailscale serve) to 127.0.0.1 and name it with --allow-host (#241).'
+
+/**
+ * Why the start must stop (exit code 2), or null. Reads its arguments only, never the environment (#474): listening
+ * outside loopback takes an explicit --host AND an explicit --remote, and there is no default address (never an
+ * implicit 0.0.0.0). v1 is tunnel only, so even both flags are refused until token authentication and TLS ship;
+ * --allow-host needs the token too.
+ */
+export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string; remote?: boolean }): string | null {
+  const host = opts.host
+  const loopbackHost = host !== undefined && ['127.0.0.1', 'localhost'].includes(host.trim().toLowerCase())
+  if (opts.remote) {
+    // A security flag is never ignored: --remote without a real address to listen on is a mistake, not a no-op
+    if (host === undefined || host.trim() === '') {
+      return '--remote needs an explicit --host <address>: there is no default address (never 0.0.0.0). ' + TUNNEL_HINT
+    }
+    if (loopbackHost) return `--remote with --host ${echo(host)} does nothing: loopback is already the default. Leave out --remote.`
+    return `--remote --host ${echo(host)}: listening outside loopback is refused until token authentication and TLS ship `
+      + '(#241): the event stream carries prompts, tool outputs and file contents. ' + TUNNEL_HINT
+  }
+  if (host !== undefined && !loopbackHost) {
+    return `--host ${echo(host)}: Agent Lens only listens on loopback (127.0.0.1); another address needs an explicit --remote `
+      + '(no environment variable), and is refused even then until token authentication and TLS ship. ' + TUNNEL_HINT
   }
   if (opts.allowHosts.length === 0) return null
   const { hosts, errors } = parseAllowedHosts(opts.allowHosts)

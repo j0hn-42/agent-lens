@@ -1,5 +1,10 @@
 import { DEFAULT_RELAY_PORT } from '../../extension/src/constants'
 
+/** Value of --host / --allow-host, or undefined when it is missing or is the next flag (never swallowed, #474). */
+function securityFlagValue(next: string | undefined): string | undefined {
+  return next === undefined || next.startsWith('-') ? undefined : next
+}
+
 /** Parse CLI arguments. Keeps it simple — no dependencies. */
 export function parseArgs(argv: string[]) {
   let port = DEFAULT_RELAY_PORT
@@ -12,6 +17,7 @@ export function parseArgs(argv: string[]) {
   let allowLaunch = false
   const launchRepos: string[] = []
   let host: string | undefined
+  let remote = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -30,8 +36,12 @@ export function parseArgs(argv: string[]) {
       i++
     } else if (arg === '--allow-host') {
       // Without value, '' is kept so that the start refuses it (#241): a security flag is never ignored
-      allowHosts.push(argv[i + 1] ?? '')
-      i++
+      const value = securityFlagValue(argv[i + 1])
+      allowHosts.push(value ?? '')
+      if (value !== undefined) i++
+    } else if (arg === '--remote') {
+      // The only way to ask for listening outside loopback (#474): never an environment variable
+      remote = true
     } else if (arg === '--allow-launch') {
       allowLaunch = true
     } else if (arg === '--launch-repo' && argv[i + 1]) {
@@ -39,8 +49,9 @@ export function parseArgs(argv: string[]) {
       i++
     } else if (arg === '--host') {
       // Kept so that the start refuses it (#241): an unknown flag would be silently ignored
-      host = argv[i + 1] ?? ''
-      i++
+      const value = securityFlagValue(argv[i + 1])
+      host = value ?? ''
+      if (value !== undefined) i++
     } else if (arg === '--all-workspaces') {
       allWorkspaces = true
     } else if (arg === '--verbose' || arg === '-v') {
@@ -76,8 +87,12 @@ Options:
                        See docs/launch-security.md
   --launch-repo <o/n>  Repository (owner/name) an agent may be launched on. Repeatable. It
                        must also be the workspace's origin remote
-  --host <address>     Only loopback (127.0.0.1) is accepted: there is no listening
-                       outside loopback, use a tunnel and --allow-host
+  --host <address>     Only loopback (127.0.0.1) is accepted. Any other address needs
+                       --remote, and is refused even then until token authentication
+                       and TLS ship (#241): use a tunnel and --allow-host
+  --remote             Explicit opt-in for --host outside loopback (no environment
+                       variable, no default address: never 0.0.0.0 implicitly).
+                       Refused at startup for now (#241)
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)
@@ -85,5 +100,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, allowLaunch, launchRepos }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, remote, allowLaunch, launchRepos }
 }
