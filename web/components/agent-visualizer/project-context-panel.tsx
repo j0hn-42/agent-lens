@@ -11,6 +11,7 @@ import { CapabilitiesSection } from './capabilities-section'
 import { ResumeSection } from './resume-section'
 import type { ResumableSession } from '@/lib/resume-command'
 import { PanelHeader, SlidingPanel, useDockPanel, dockAttrs } from './shared-ui'
+import { PANEL_NAMES } from '@/lib/ui-glossary'
 
 /** Same bound as the relay (extension PROJECT_CONTEXT_MAX_FILE_BYTES) */
 const LIMIT_KB = 64
@@ -91,6 +92,7 @@ function ContextDock({ children }: { children: (maxHeight: number | string) => R
       zIndex={Z.sidePanel}
       width={rect?.w ?? 360}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
+      label={PANEL_NAMES.context}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       {children(rect?.h ?? '70vh')}

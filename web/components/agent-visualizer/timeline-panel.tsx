@@ -1,6 +1,6 @@
 'use client'
 
-import { emptyState } from '@/lib/ui-glossary'
+import { emptyState, PANEL_NAMES } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS, uiColor } from '@/lib/colors'
@@ -366,6 +366,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
       width={dockRect?.w}
       className="motion-reduce:transition-none"
       attrs={{ ...dockAttrs('timeline', 'bottom', dock, visible), 'data-sensitive': '' }}
+      label={PANEL_NAMES.timeline}
       style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
       <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>
