@@ -385,18 +385,20 @@ export interface PopupPlacement { left: number; top: number; width: number; maxH
 
 /**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
- * bar (never over either). Wider-than-viewport popups shrink; taller ones get a maxHeight to scroll.
+ * bar (never over either), nor over the permission cards that sit right under the top bar (#410): their measured
+ * slot is kept free, and a popup on top of them would hide a pending decision. Wider-than-viewport popups shrink;
+ * taller ones get a maxHeight to scroll.
  */
 export function placePopup(
   anchor: { x: number; y: number },
   size: { w: number; h: number },
-  env: { viewport: Viewport; topbarH: number; controlBarH: number },
+  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number },
   offsetY = 20,
 ): PopupPlacement {
   const margin = 8
   const vw = env.viewport.w
   const width = Math.max(0, Math.min(size.w, vw - 2 * margin))
-  const minTop = Math.min(env.topbarH, env.viewport.h)
+  const minTop = Math.min(env.topbarH + permissionsBand(env.permissionsH), env.viewport.h)
   const maxBottom = Math.max(minTop, env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP)
   const maxHeight = Math.max(0, maxBottom - minTop)
   const height = Math.min(size.h, maxHeight)
