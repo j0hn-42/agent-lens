@@ -216,15 +216,31 @@ describe('createRemotePairing (POST /pair, cookie check, caps)', () => {
     })
   })
 
-  it(`has its own rate limiter (burst ${REMOTE_PAIR_RATE_BURST}), keyed on the tunnel name, not on the User-Agent`, async () => {
+  it(`has its own rate limiter for failures (burst ${REMOTE_PAIR_RATE_BURST}), keyed on the tunnel name, not on the User-Agent nor X-Forwarded-For`, async () => {
     const pairing = createRemotePairing({ token, allowedHosts: [TUNNEL] })
     await withServer(pairing, async send => {
       const statuses: number[] = []
-      for (let i = 0; i < REMOTE_PAIR_RATE_BURST + 2; i++) statuses.push((await send({ body: '{}', headers: { 'User-Agent': `ua-${i}` } })).status)
+      for (let i = 0; i < REMOTE_PAIR_RATE_BURST + 2; i++) {
+        statuses.push((await send({ body: '{}', headers: { 'User-Agent': `ua-${i}`, 'X-Forwarded-For': `203.0.113.${i}` } })).status)
+      }
       assert.deepEqual(statuses.slice(0, REMOTE_PAIR_RATE_BURST), Array(REMOTE_PAIR_RATE_BURST).fill(401))
-      assert.equal(statuses[REMOTE_PAIR_RATE_BURST], 429)
-      // Even the right token waits: a brute force cannot outpace the bucket
-      assert.equal((await send({ body: JSON.stringify({ token }) })).status, 429)
+      assert.deepEqual(statuses.slice(REMOTE_PAIR_RATE_BURST), [429, 429], 'wrong attempts stay limited')
+      // Every kind of failure is limited, not only a wrong token
+      for (const c of [{ body: JSON.stringify({ token: newPairingToken() }) }, { body: JSON.stringify({ token }), headers: { 'Content-Type': 'text/plain' } }]) {
+        assert.equal((await send(c)).status, 429, JSON.stringify(c).slice(0, 80))
+      }
+    })
+  })
+
+  it('a bucket emptied by wrong attempts does not lock the owner out: the right token still gets 204 (no denial of service)', async () => {
+    const pairing = createRemotePairing({ token, allowedHosts: [TUNNEL] })
+    await withServer(pairing, async send => {
+      for (let i = 0; i < REMOTE_PAIR_RATE_BURST + 3; i++) await send({ body: JSON.stringify({ token: newPairingToken() }) })
+      assert.equal((await send({ body: '{}' })).status, 429, 'the bucket is empty')
+      const r = await send({ body: JSON.stringify({ token }) })
+      assert.equal(r.status, 204, r.body)
+      assert.match(cookieOf(r), new RegExp(`^${PAIR_COOKIE}=`))
+      assert.equal((await send({ body: '{}' })).status, 429, 'a success refills nothing for the wrong attempts')
     })
   })
 
