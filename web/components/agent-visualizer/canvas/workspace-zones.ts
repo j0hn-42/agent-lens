@@ -6,6 +6,7 @@
  */
 import { WORKSPACE_ZONE } from '../../../lib/canvas-constants'
 import type { Cluster } from './cluster-model'
+import { estimateTextWidth } from './edge-bubbles'
 
 export interface WorkspaceZone {
   projectId: string
@@ -62,12 +63,15 @@ export interface WorkspaceHeaderBox {
 
 /**
  * Chip of the zone header at `zoom`, shared by the draw code and the overlay plan (a halo title must not
- * cover it, #378). `measure(text, fontPx)` gives the width of `text` at that font size.
+ * cover it, #378). Both size it with the same estimate (estimateTextWidth, no canvas in the plan), so the
+ * drawn chip is the reserved one; the draw code bounds the text to the chip's inner width (fillText maxWidth).
+ * A masked name keeps its length (maskText), so it gives the same chip.
  */
 export function workspaceHeaderRect(
   z: Pick<WorkspaceZone, 'x' | 'y' | 'w' | 'name' | 'sessionCount' | 'teamCount'>, zoom: number,
-  measure: (text: string, fontPx: number) => number, text: string = zoneHeaderText(z),
+  text: string = zoneHeaderText(z),
 ): WorkspaceHeaderBox {
+  const measure = estimateTextWidth
   const k = Math.max(1, 1 / Math.max(zoom || 1, 1e-3))
   const fontPx = WORKSPACE_ZONE.headerFontSize * k
   const pad = 8 * k

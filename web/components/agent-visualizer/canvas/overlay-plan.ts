@@ -256,7 +256,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
   }
   for (const z of input.workspaceZones ?? []) {
-    const h = workspaceHeaderRect(z, s, estimateTextWidth)
+    const h = workspaceHeaderRect(z, s)
     const rect = toScreen(t, h.x, h.y, h.w, h.h)
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
   }

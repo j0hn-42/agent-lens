@@ -131,15 +131,36 @@ const SAFE_768: Rect = { x: 0, y: 181, w: 768, h: 1024 - 181 - 110 }
 const centred = (scale: number) => ({ x: 384 - 400 * scale, y: 560 - 600 * scale, scale })
 const screenOf = (t: { x: number; y: number; scale: number }, r: Rect): Rect => ({ x: r.x * t.scale + t.x, y: r.y * t.scale + t.y, w: r.w * t.scale, h: r.h * t.scale })
 
-test('workspaceHeaderRect: the header chip is drawn where the overlay plan reserves it (#378)', () => {
+/** The recording context with a font measure that differs from the plan's estimate (a real font is never exactly 0.6 em) */
+function wideFontContext(zoom: number, emPerChar: number) {
+  const rec = recordingContext(zoom)
+  const font = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(rec.ctx.font))?.[1] ?? 10)
+  const ctx = new Proxy(rec.ctx as unknown as Record<string | symbol, unknown>, {
+    get(target, prop) {
+      if (prop === 'measureText') return (s: string) => ({ width: String(s).length * font() * emPerChar })
+      return target[prop]
+    },
+    set(target, prop, value) { target[prop] = value; return true },
+  }) as unknown as CanvasRenderingContext2D
+  return { ...rec, ctx }
+}
+
+test('workspaceHeaderRect: the header chip is drawn where the overlay plan reserves it, whatever the font measures (#378)', () => {
   const { zones } = twoProjects()
   for (const zoom of [0.4, 1, 1.5]) {
-    const rec = recordingContext(zoom)
-    drawWorkspaceZones(rec.ctx, zones.slice(0, 1), { reducedMotion: true, zoom, showCost: false, showStats: false })
-    const header = workspaceHeaderRect(zones[0], zoom, (text, px) => text.length * px * 0.6)
-    const chip = rec.rects.find(r => Math.abs(r.y - header.y) < 1e-6 && Math.abs(r.x - header.x) < 1e-6)
-    assert.ok(chip, `zoom ${zoom}: a chip at the reserved spot ${JSON.stringify(header)} (drawn: ${JSON.stringify(rec.rects)})`)
-    assert.ok(Math.abs(chip!.w - header.w) < 1e-6 && Math.abs(chip!.h - header.h) < 1e-6, `zoom ${zoom}: same size`)
+    for (const em of [0.5, 0.6, 0.7]) {
+      const rec = wideFontContext(zoom, em)
+      drawWorkspaceZones(rec.ctx, zones.slice(0, 1), { reducedMotion: true, zoom, showCost: false, showStats: false })
+      // The rect the overlay plan reserves (planOverlays calls workspaceHeaderRect the same way)
+      const header = workspaceHeaderRect(zones[0], zoom)
+      const chip = rec.rects.find(r => Math.abs(r.y - header.y) < 1e-6 && Math.abs(r.x - header.x) < 1e-6)
+      assert.ok(chip, `zoom ${zoom}, ${em} em: a chip at the reserved spot ${JSON.stringify(header)} (drawn: ${JSON.stringify(rec.rects)})`)
+      assert.ok(Math.abs(chip!.w - header.w) < 1e-6 && Math.abs(chip!.h - header.h) < 1e-6, `zoom ${zoom}, ${em} em: same size`)
+      // The text stays inside the chip: fillText gets the inner width as its maxWidth
+      const fill = rec.ops.find(o => o.name === 'fillText')!
+      assert.ok(typeof fill.args[3] === 'number' && (fill.args[3] as number) <= header.w - 2 * header.pad + 1e-6,
+        `zoom ${zoom}, ${em} em: text bounded to the chip (maxWidth ${String(fill.args[3])})`)
+    }
   }
 })
 
@@ -148,7 +169,7 @@ test('planOverlays: a halo title never covers the header of a workspace zone (#3
   for (const scale of [0.3, 0.4, 0.5, 0.6, 0.7]) {
     const transform = centred(scale)
     const plain = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale) })).plan
-    const headers = zones.map(z => screenOf(transform, workspaceHeaderRect(z, scale, (text, px) => text.length * px * 0.6)))
+    const headers = zones.map(z => screenOf(transform, workspaceHeaderRect(z, scale)))
     const before = clusters.some(c => { const p = plain.get(planKey.cluster(c.key)); return p?.rect && headers.some(h => rectsOverlap(p.rect!, h)) })
     if (scale <= 0.5) assert.ok(before, `precondition at ${scale}: without the headers a title lands on one`)
     const { plan } = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale), workspaceZones: zones }))
