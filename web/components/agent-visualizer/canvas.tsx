@@ -146,9 +146,29 @@ export function AgentCanvas(props: CanvasProps) {
 
   // ─── Tooltip target (hover or keyboard focus) ──────────────────────────
   const focusedForTooltip = hasFocus ? focusedNode : null
-  const tooltipTarget: NavNode | null = hoveredAgentId
+  const rawTooltipTarget: NavNode | null = hoveredAgentId
     ? { type: 'agent', id: hoveredAgentId }
     : focusedForTooltip
+  // Escape dismisses the tooltip of the current target (WCAG 1.4.13) without moving pointer or focus;
+  // another target brings it back
+  const rawTooltipTargetRef = useRef<NavNode | null>(null)
+  rawTooltipTargetRef.current = rawTooltipTarget
+  const [dismissedTip, setDismissedTip] = useState<NavNode | null>(null)
+  const rawTipKey = rawTooltipTarget ? `${rawTooltipTarget.type}:${rawTooltipTarget.id}` : null
+  useEffect(() => {
+    setDismissedTip(d => (d && `${d.type}:${d.id}` === rawTipKey ? d : null))
+  }, [rawTipKey])
+  useEffect(() => {
+    if (!rawTipKey) return
+    // Document level: a hovered tooltip shows while the focus is elsewhere. Not stopped: the global
+    // Escape order (panels, selection) still runs
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDismissedTip(rawTooltipTargetRef.current) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [rawTipKey])
+  const tooltipTarget: NavNode | null = rawTooltipTarget && dismissedTip && sameNode(dismissedTip, rawTooltipTarget)
+    ? null
+    : rawTooltipTarget
   tooltipTargetRef.current = tooltipTarget
   const tooltipContent = tooltipTarget ? describeTooltip(tooltipTarget, simulationRef.current) : null
 
