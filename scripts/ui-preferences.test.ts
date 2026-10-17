@@ -458,3 +458,40 @@ test('sessionListActiveOnly: on by default, booleans only, persisted in the blob
   assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().sessionListActiveOnly, false)
   assert.equal(parsePrefs(env({ sessionListActiveOnly: false })).sessionListActiveOnly, false)
 })
+
+// --- 'Show finished sessions' (#372): moved into the blob, its former key is read once as a migration ----------
+
+const LEGACY_FINISHED = 'agent-lens:show-finished-sessions'
+
+test('showFinished: off by default, booleans only, persisted in the blob under no separate key', () => {
+  assert.equal(DEFAULT_UI_PREFS.showFinished, false)
+  for (const bad of ['true', 1, null, {}]) assert.equal(sanitizePref('showFinished', bad), false)
+  assert.equal(sanitizePref('showFinished', true), true)
+  const m = memStorage(); const s = manualSchedule()
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('showFinished', true); s.tick()
+  assert.deepEqual([...m.data.keys()], [UI_PREFS_STORAGE_KEY])
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, true)
+})
+
+test('showFinished migration: the former key keeps its meaning (only "true" turns it on) when the blob lacks the field', () => {
+  const m = memStorage()
+  m.data.set(LEGACY_FINISHED, 'true')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ showStats: true }))
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, true)
+  m.data.set(LEGACY_FINISHED, 'yes')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false)
+  m.data.set(LEGACY_FINISHED, 'true')
+  m.data.set(UI_PREFS_STORAGE_KEY, env({ showFinished: false }))
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false, 'the blob wins')
+})
+
+test('showFinished migration: reset forgets the former key too', () => {
+  const m = memStorage(); const s = manualSchedule()
+  m.data.set(LEGACY_FINISHED, 'true')
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  assert.equal(store.getSnapshot().showFinished, true)
+  store.reset(); s.tick()
+  assert.equal(m.data.has(LEGACY_FINISHED), false)
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showFinished, false)
+})
