@@ -20,6 +20,16 @@ afterEach(() => { cleanup(); document.body.replaceChildren(); clearPair(); reset
 
 const post = (data: unknown) => vscodeBridge!.dispatch(data)
 const wait = (ms = 200) => act(async () => { await new Promise(r => setTimeout(r, ms)) })
+/** Poll an observable condition (inside act) instead of sleeping a fixed time: a loaded machine is slower, not wrong (#440). */
+async function waitUntil(cond: () => boolean, what: string, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!cond()) {
+    if (Date.now() > deadline) assert.fail(`timeout waiting for: ${what}`)
+    await wait(50)
+  }
+}
+const outlineAgents = (r: ReturnType<typeof render>) =>
+  Array.from(r.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] li > button'))
 const key = (k: string) => act(async () => { fireEvent.keyDown(document.body, { key: k }) })
 
 /** Demo mode: the shell has agents and messages without a relay. */
@@ -29,7 +39,8 @@ async function mountDemo() {
   await wait(100)
   const demo = r.queryByRole('button', { name: 'Load demo' })
   if (demo) await act(async () => { fireEvent.click(demo) })
-  await wait(2500)
+  await waitUntil(() => outlineAgents(r).length > 0, 'the demo agents are in the outline')
+  await wait(100)
   return r
 }
 
@@ -111,7 +122,7 @@ test('selecting an agent opens the Conversation panel on that agent (no second c
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
-  await wait(1500)
+  await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   assert.equal(conversationRegion(r), null)
   // the canvas outline lists the agents as buttons: clicking one selects it like a canvas click
   const agentButton = Array.from(r.container.querySelectorAll<HTMLButtonElement>('section[aria-label="Agent graph outline"] li > button'))
@@ -147,7 +158,7 @@ async function mountWithAgents() {
     post(spawn('sa', 'worker-a', { parent: 'main-a' }))
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
-  await wait(1500)
+  await waitUntil(() => outlineAgents(r).some(b => (b.textContent ?? '').startsWith('worker-a')), 'worker-a is in the outline')
   return r
 }
 

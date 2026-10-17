@@ -164,6 +164,11 @@ test('proven session links reach the canvas: a child session drawn with the dott
   resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive agents' choice of the first one is not carried over
   calls.length = 0
 
-  await withSlowFrames(8, () => mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)) // #440: fewer frames must not matter
+  await withSlowFrames(8, async () => { // #440: fewer frames must not matter
+    await mountWith([SA, info('sb', 'child-run', { parentSessionId: 'sa' })], spawns)
+    // The link shows once the layout has placed both halos: wait for that, not for a fixed time a loaded machine may overrun
+    const deadline = Date.now() + 20_000
+    while (dots() <= baseline && Date.now() < deadline) await wait(50)
+  })
   assert.ok(dots() > baseline, `a Task link is drawn between the two session halos (${dots()} vs ${baseline})`)
 })
