@@ -267,3 +267,38 @@ test('the Files panel is found by the repeated reads and calls it lists', () => 
     assert.equal(searchPalette(items, q).find(s => s.group === 'Panels')?.items[0]?.label, 'Toggle Files panel', q)
   }
 })
+
+// Global entry to launch an agent (#377): the launch itself stays in the agent card, which lists the issues labelled
+// agent:<role> with their Launch button; the palette only leads there, one entry per role and session
+
+test('launch entries are absent while the relay does not offer launches, or without an agent bearing a role', () => {
+  const agents = [{ id: 'k1', name: 'fe', sessionId: 's1', role: 'frontend-engineer' }]
+  assert.equal(buildPaletteItems(source({ agents })).filter(i => i.id.startsWith('launch:')).length, 0)
+  assert.equal(buildPaletteItems(source({ agents: [{ id: 'k1', name: 'main', sessionId: 's1' }], launchAvailable: true })).filter(i => i.id.startsWith('launch:')).length, 0)
+})
+
+test('one launch entry per role and session opens the card of the first agent bearing it', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({
+    launchAvailable: true,
+    agents: [
+      { id: 'k1', name: 'fe-1', sessionId: 's1', sessionLabel: 'web', role: 'frontend-engineer' },
+      { id: 'k2', name: 'fe-2', sessionId: 's1', sessionLabel: 'web', role: 'frontend-engineer' },
+      { id: 'k3', name: 'qa', sessionId: 's1', sessionLabel: 'web', role: 'qa-engineer' },
+      { id: 'k4', name: 'fe-3', sessionId: 's2', sessionLabel: 'api', role: 'frontend-engineer' },
+    ],
+  }))
+  const launches = items.filter(i => i.id.startsWith('launch:'))
+  assert.deepEqual(launches.map(i => i.label), [
+    'Launch an agent on an issue labelled agent:frontend-engineer',
+    'Launch an agent on an issue labelled agent:qa-engineer',
+    'Launch an agent on an issue labelled agent:frontend-engineer',
+  ])
+  assert.ok(launches.every(i => i.group === 'Actions' && i.movesFocus && i.sensitive))
+  assert.equal(launches[0].detail, 'from the card of fe-1, session web')
+  assert.equal(launches[2].detail, 'from the card of fe-3, session api')
+  launches[0].run()
+  assert.deepEqual(calls, ['agent:k1'])
+  assert.equal(new Set(items.map(i => i.id)).size, items.length)
+  assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Launch an agent on an issue labelled agent:qa-engineer')
+})

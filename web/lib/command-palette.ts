@@ -45,6 +45,8 @@ export interface PaletteAgent {
   sessionLabel?: string
   kind?: 'main' | 'subagent' | 'teammate'
   isMain?: boolean
+  /** Its agent:<role> label (agentRoleOf), read only for the launch entries */
+  role?: string
 }
 
 export interface PaletteSource {
@@ -78,6 +80,8 @@ export interface PaletteSource {
   notifications?: { on: boolean; run: () => void }
   /** The themes of Settings > Appearance, under the names the theme select gives them */
   themes?: { current: string; options: ReadonlyArray<{ id: string; label: string }>; set: (id: string) => void }
+  /** The relay serving this page accepts launches (#229): each role of the view gets a launch entry (#377) */
+  launchAvailable?: boolean
   togglePanel: (panel: PalettePanel) => void
   selectSession: (id: string) => void
   selectAgent: (id: string) => void
@@ -147,6 +151,26 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   action('shortcuts', 'Show keyboard shortcuts', act.openShortcuts, '?', ['help', 'keys'])
   action('settings', 'Open settings', act.openSettings, ',', ['preferences', 'theme', 'notifications'])
 
+  // Launching stays in the agent card (its issues labelled agent:<role>, each with its Launch button and confirmation):
+  // these entries open the card of the first agent of each role and session. Nothing says an issue is open (#377)
+  const agents = Array.from(src.agents)
+  if (src.launchAvailable) {
+    const seen = new Set<string>()
+    for (const a of agents) {
+      const role = cleanLine(a.role, MAX_LABEL)
+      const name = cleanLine(a.name, MAX_LABEL)
+      const key = `${a.sessionId}\n${role}`
+      if (!role || !name || seen.has(key)) continue
+      seen.add(key)
+      const session = cleanLine(a.sessionLabel, MAX_LABEL)
+      items.push({
+        id: `launch:${a.sessionId}:${role}`, group: 'Actions', label: `Launch an agent on an issue labelled agent:${role}`,
+        detail: `from the card of ${name}${session ? `, session ${session}` : ''}`,
+        keywords: ['launch', 'start', 'run', 'spawn', 'issue', 'new agent'], movesFocus: true, sensitive: true, run: () => src.selectAgent(a.id),
+      })
+    }
+  }
+
   const panel = (id: PalettePanel, label: string, key: string | undefined, keywords: string[] = []) => {
     items.push({
       id: `panel:${id}`, group: 'Panels', label, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined,
@@ -178,7 +202,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
     })
   }
 
-  for (const a of src.agents) {
+  for (const a of agents) {
     const label = cleanLine(a.name, MAX_LABEL)
     if (!label) continue
     items.push({

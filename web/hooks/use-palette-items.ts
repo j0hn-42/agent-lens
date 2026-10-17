@@ -7,6 +7,7 @@ import type { usePanelsState } from '@/hooks/use-panels-state'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 import { buildPaletteItems } from '@/lib/command-palette'
 import { formatAttention } from '@/lib/attention'
+import { agentRoleOf } from '@/lib/issue-links'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { useTheme } from '@/lib/theme'
 import { THEME_IDS, THEME_LABELS, isThemeId } from '@/lib/theme-tokens'
@@ -19,7 +20,7 @@ const THEME_OPTIONS = THEME_IDS.map(id => ({ id, label: THEME_LABELS[id] }))
 interface PaletteInput {
   open: boolean
   singleKeyEnabled: boolean
-  bridge: Pick<Bridge, 'selectedSessionId' | 'sessions' | 'selectSession' | 'useMockData'>
+  bridge: Pick<Bridge, 'selectedSessionId' | 'sessions' | 'selectSession' | 'useMockData' | 'launch' | 'relayOrigin'>
   /** The agents the sessions list shows */
   listAgents: ReturnType<typeof useAgentSimulation>['agents']
   panels: Pick<Panels, 'setShowSessions' | 'setShowTimeline' | 'setShowStats' | 'setShowSystem' | 'setShowHexGrid' | 'toggleExclusivePanel'>
@@ -52,11 +53,14 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
     // One real session whose events are in memory: never the demo, a union view or an empty session
     const exportable = !bridge.useMockData && sessionId && !isUnionSelection(sessionId) && canExport(sessionId) ? sessionId : null
     const attentionText = formatAttention(waiting, errors)
+    // The agent card offers its Launch buttons under the same two conditions (selection-overlays, agent-detail-card)
+    const launchAvailable = bridge.launch !== null && bridge.relayOrigin !== null
     return buildPaletteItems({
       singleKeyEnabled,
       selectedSessionId: sessionId,
       sessions: bridge.sessions,
-      agents: listAgents.values(),
+      agents: launchAvailable ? Array.from(listAgents.values(), a => ({ ...a, role: agentRoleOf(a) })) : listAgents.values(),
+      launchAvailable,
       actions: {
         togglePlayPause,
         zoomToFit,
@@ -83,7 +87,7 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
       selectSession: bridge.selectSession,
       selectAgent,
     })
-  }, [open, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
+  }, [open, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, bridge.launch, bridge.relayOrigin, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
     setShowHexGrid, toggleMute, openShortcuts, openSettings, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
     startTour, tourLabel, notifyState, toggleNotify, theme, setTheme, setShowSessions, setShowTimeline, setShowStats, setShowSystem, toggleExclusivePanel, selectAgent])
 }
