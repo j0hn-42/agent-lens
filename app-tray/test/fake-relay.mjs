@@ -1,5 +1,6 @@
 // Test double of the relay (#335): prints the same URL line as app/src/server.ts and serves /status.
-// Env: FAKE_RELAY_MODE = ok | no-url | foreign-url | status-500 | status-bad-json | status-foreign | status-huge | status-hang | ignore-term | ignore-ipc
+// Env: FAKE_RELAY_MODE = ok | no-url | foreign-url | status-500 | status-bad-json | status-foreign | status-huge | status-hang | ignore-term | ignore-ipc | disconnect-ipc
+//      (disconnect-ipc: closes its end of the IPC channel once listening, and keeps running)
 //      FAKE_RELAY_COUNT = sessionCount (default 2), FAKE_RELAY_MARK = file written when SIGTERM ("SIGTERM") or, started
 //      with an IPC channel and --ipc-stop, the exact stop message of the driver ("IPC") is received (#513),
 //      FAKE_RELAY_EXIT_AFTER_MS = exit with code 4 after this delay.
@@ -28,6 +29,7 @@ server.listen(0, '127.0.0.1', () => {
     console.log(` Server running at http://127.0.0.1:${port}`)
   } else if (mode !== 'no-url') console.log(`Server running at http://127.0.0.1:${port}`)
   console.log('Waiting for agent events...\n')
+  if (mode === 'disconnect-ipc' && typeof process.send === 'function') setTimeout(() => process.disconnect(), 50)
 })
 
 process.on('SIGTERM', () => {
