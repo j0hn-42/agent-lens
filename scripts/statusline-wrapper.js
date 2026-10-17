@@ -1,8 +1,8 @@
 /**
  * Contenu du script de barre d'état installé en ~/.claude/agent-lens/statusline.js (#467).
  *
- * Claude Code l'exécute comme commande `statusLine`. Il enveloppe la commande d'origine de l'utilisateur (enregistrée
- * dans statusline-original.json) sans rien changer à son affichage, et transmet en parallèle le seul `rate_limits`
+ * Claude Code l'exécute comme commande `statusLine`. Il enveloppe la commande d'origine de l'utilisateur (transportée en
+ * base64url dans la commande elle-même, aucun fichier d'état) sans rien changer à son affichage, et transmet en parallèle le seul `rate_limits`
  * au relais. La barre de l'utilisateur prime : l'envoi est secondaire, borné à 300 ms, et toute erreur est avalée.
  */
 'use strict'
