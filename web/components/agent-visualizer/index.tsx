@@ -32,6 +32,7 @@ import { useChromeData } from "@/hooks/use-chrome-data"
 import { usePaletteItems } from "@/hooks/use-palette-items"
 import { usePanelsState } from "@/hooks/use-panels-state"
 import { useTourController } from "@/hooks/use-tour-controller"
+import { quotaStreamActive } from "@/lib/quota"
 import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
 import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
@@ -225,6 +226,9 @@ export function AgentVisualizer() {
   const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
     seek: handleSeek, play, isGuidedDemo, frameRef, setTourShowsInactive,
   })
+  // The quota only comes from the relay stream: no gauge, and no setting that would do nothing, in VS Code, the demo or the tour
+  const quotaSourceActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData, tourActive: tour.active })
+  const quotaSettingActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData })
 
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
@@ -265,7 +269,7 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
-        quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota}
+        quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota && quotaSourceActive}
       />
       </div>
 
@@ -401,7 +405,7 @@ export function AgentVisualizer() {
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel },
-          quota: { show: showQuota, onShowChange: updateShowQuota },
+          quota: quotaSettingActive ? { show: showQuota, onShowChange: updateShowQuota } : undefined,
           notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },
         }}
         palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}

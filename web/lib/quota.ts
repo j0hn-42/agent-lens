@@ -67,3 +67,10 @@ export function quotaGaugeState(runtime: string | undefined, snapshot: QuotaSnap
   if (!fiveHour && !sevenDay) return { kind: 'unknown' }
   return { kind: 'claude', fiveHour, sevenDay, ageMinutes: age <= FRESH_MS ? null : Math.floor(age / MIN_MS) }
 }
+
+/** The quota only ever comes from the relay stream: VS Code, the demo and the guided tour (mock data) have no source, so nothing
+ *  quota-related is shown there (an "unknown" with a setup hint would send the user after something that cannot work).
+ *  `relayOrigin` is null when there is no relay link, '' for a relay on the page's own origin. */
+export function quotaStreamActive(s: { relayOrigin: string | null; isVSCode: boolean; useMockData: boolean; tourActive?: boolean }): boolean {
+  return s.relayOrigin !== null && !s.isVSCode && !s.useMockData && !s.tourActive
+}

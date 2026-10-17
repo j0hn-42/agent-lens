@@ -483,7 +483,7 @@ export const TopBar = memo(function TopBar({
             </span>
           )}
         </span>
-        {showQuota && <QuotaGauges state={quotaState} now={quotaNow} interactive={!folded} />}
+        {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
         </div>
         </div>
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseQuotaMessage, quotaGaugeState, acceptQuota, type QuotaSnapshotView } from '../web/lib/quota'
+import { parseQuotaMessage, quotaGaugeState, acceptQuota, quotaStreamActive, type QuotaSnapshotView } from '../web/lib/quota'
 
 const NOW = 1_790_000_000_000
 const MIN = 60_000
@@ -151,4 +151,14 @@ test('quotaGaugeState : runtime undefined (aucune session) : snapshot récent = 
   assert.equal((quotaGaugeState(undefined, snap(), NOW + 6 * MIN) as { ageMinutes: number }).ageMinutes, 6)
   assert.deepEqual(quotaGaugeState(undefined, null, NOW), { kind: 'hidden' })
   assert.deepEqual(quotaGaugeState(undefined, snap(), NOW + 31 * MIN), { kind: 'unknown' })
+})
+
+test('quotaStreamActive : seul le flux du relais est une source (ni VS Code, ni démo, ni visite guidée)', () => {
+  const relay = { relayOrigin: 'http://127.0.0.1:3001', isVSCode: false, useMockData: false }
+  assert.equal(quotaStreamActive(relay), true)
+  assert.equal(quotaStreamActive({ ...relay, relayOrigin: '' }), true, 'relais sur la même origine')
+  assert.equal(quotaStreamActive({ ...relay, relayOrigin: null }), false)
+  assert.equal(quotaStreamActive({ ...relay, isVSCode: true }), false)
+  assert.equal(quotaStreamActive({ ...relay, useMockData: true }), false)
+  assert.equal(quotaStreamActive({ ...relay, tourActive: true }), false)
 })

@@ -324,7 +324,7 @@
           "anthropic": "#8fa774",
           "contrast": "#86ffb7"
         },
-        "usage": "Quota gauges (top bar): bar and text of a window with plenty left (25 % or more). Always paired with the percentage in words. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+        "usage": "Quota gauges (top bar): bar and text of a window with plenty left (25 % or more). Always paired with the percentage in words. Text 4.5:1 or more, fill 3:1 or more on the bar ground (`surface`, or `void` in Neon); the track is a `control-border` outline, not a filled bar."
       },
       {
         "name": "quota-low",
@@ -339,7 +339,7 @@
           "anthropic": "#e8935a",
           "contrast": "#ffb070"
         },
-        "usage": "Quota gauges (top bar): bar and text of a window running low (under 25 % left). Always paired with the word \"low\" and an icon. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+        "usage": "Quota gauges (top bar): bar and text of a window running low (under 25 % left). Always paired with the word \"low\" and an icon. Text 4.5:1 or more, fill 3:1 or more on the bar ground (`surface`, or `void` in Neon); the track is a `control-border` outline, not a filled bar."
       },
       {
         "name": "quota-critical",
@@ -354,7 +354,7 @@
           "anthropic": "#e5707a",
           "contrast": "#ff8686"
         },
-        "usage": "Quota gauges (top bar): bar and text of a nearly exhausted window (under 10 % left). Always paired with the word \"critical\" and an icon. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+        "usage": "Quota gauges (top bar): bar and text of a nearly exhausted window (under 10 % left). Always paired with the word \"critical\" and an icon. Text 4.5:1 or more, fill 3:1 or more on the bar ground (`surface`, or `void` in Neon); the track is a `control-border` outline, not a filled bar."
       },
       {
         "name": "state-thinking",
