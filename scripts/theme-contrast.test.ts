@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { SCENE } from '../web/lib/colors'
 import { paletteFor, type ColorKey } from '../web/lib/theme-palette'
 import { THEME_IDS, TOKENS, extraVars, type ThemeId } from '../web/lib/theme-tokens'
+import { TOPBAR_TOOLTIP } from '../web/lib/chrome-utils'
 
 type Rgb = [number, number, number]
 
@@ -306,3 +307,17 @@ test('neon: the panel and feed colours keep their historical values', () => {
 test('contrast: the focus ring is visibly distinct from the accent (>= 1.2:1)', () => {
   assert.ok(ratio(rgb(TOKENS.contrast.focus), rgb(TOKENS.contrast.accent)) >= 1.2)
 })
+
+// #523: the tooltip of a top bar panel button (its name, shortcut and what it shows) is drawn over the canvas and the
+// docked panels. Its text must read >= 4.5:1 in every theme, on the ground the tooltip really paints (over the scene void).
+for (const id of THEME_IDS) {
+  test(`${id}: top bar tooltip text is >= 4.5:1 on its ground`, () => {
+    const p = paletteFor(id)
+    const groundValue: string = TOPBAR_TOOLTIP.ground.startsWith('--')
+      ? extraVars(id)[TOPBAR_TOOLTIP.ground]
+      : p[TOPBAR_TOOLTIP.ground as ColorKey]
+    const ground = groundValue === 'transparent' ? rgb(SCENE.void) : over(groundValue, rgb(SCENE.void))
+    const c = ratio(over(p[TOPBAR_TOOLTIP.text], ground), ground)
+    assert.ok(c >= 4.5, `${TOPBAR_TOOLTIP.text} on ${TOPBAR_TOOLTIP.ground}=${groundValue}: ${c.toFixed(2)}`)
+  })
+}

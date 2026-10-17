@@ -213,13 +213,17 @@ test('375x667, reduced motion: the drawer appears without sliding', async () => 
   }
 })
 
-test('768x900: the mobile branches are off (no More, no drawer)', async () => {
+// #523: the top bar folds behind More under 1024 px, but the mobile branches (drawers, 44 px targets) stay under 768 px
+test('768x900: the bar is folded behind More, the mobile branches are off (no drawer, no 44 px target)', async () => {
   const context = await browser.newContext({ viewport: { width: 768, height: 900 } })
   const page = await context.newPage()
   try {
     await page.goto(server.url, { waitUntil: 'networkidle' })
-    await page.getByRole('button', { name: 'Timeline', exact: true }).waitFor()
-    assert.equal(await page.locator('header').getByRole('button', { name: /^More/ }).count(), 0)
+    const more = page.locator('header').getByRole('button', { name: /^More/ })
+    await more.waitFor()
+    assert.equal(await more.getAttribute('aria-expanded'), 'false')
+    assert.equal(await page.locator('header').getByRole('button', { name: 'Commands', exact: true }).count(), 1, 'Commands stays in the folded bar from 768 px')
+    assert.ok((await more.boundingBox())!.height < 44, 'no 44 px target at 768 px')
     await page.getByRole('button', { name: /^Sessions/ }).click()
     await page.locator('#sessions-panel').waitFor()
     assert.equal(await page.locator('[data-mobile-drawer]').count(), 0)
