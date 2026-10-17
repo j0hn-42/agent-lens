@@ -6,7 +6,7 @@
  * Pure: no React, no d3, no DOM.
  */
 import type { Agent, TeamSummary } from '../../lib/agent-types'
-import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT } from '../../lib/canvas-constants'
+import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT, WORKSPACE_ZONE } from '../../lib/canvas-constants'
 import { findTeam, teamOfAgent, phaseOfAgent } from './team-key'
 import { visibleAgents } from '../../lib/inactive-agents'
 
@@ -134,9 +134,51 @@ function groupByProject(clusters: ClusterInput[]): ClusterInput[] {
   return out
 }
 
+function placeItems(items: Array<{ key: string; radius: number }>): ClusterAnchor[] {
+  if (items.length === 0) return []
+  if (items.length === 1) return [{ key: items[0].key, x: 0, y: 0, radius: items[0].radius }]
+  return items.length <= CLUSTER_LAYOUT.maxRingClusters ? ringAnchors(items) : spiralAnchors(items)
+}
+
+/**
+ * Several projects on screen: each project is laid out on its own, then wrapped in the box of its zone (the
+ * discs plus the zone padding). The boxes are placed as discs that enclose them, so two zones never intersect.
+ * A cluster without project is a block of its own and sits outside every zone.
+ */
+function blockAnchors(unique: ClusterInput[]): ClusterAnchor[] {
+  const sizeOf = new Map(unique.map(c => [c.key, c.size]))
+  const blocks: Array<{ key: string; radius: number; members: ClusterAnchor[]; dx: number; dy: number }> = []
+  const byProject = new Map<string, ClusterInput[]>()
+  for (const c of unique) if (c.projectId) byProject.set(c.projectId, [...(byProject.get(c.projectId) ?? []), c])
+  const emitted = new Set<string>()
+  for (const c of unique) {
+    if (!c.projectId) {
+      blocks.push({ key: c.key, radius: clusterRadius(c.size), members: [{ key: c.key, x: 0, y: 0, radius: clusterRadius(c.size) }], dx: 0, dy: 0 })
+      continue
+    }
+    if (emitted.has(c.projectId)) continue
+    emitted.add(c.projectId)
+    const members = placeItems(byProject.get(c.projectId)!.map(m => ({ key: m.key, radius: clusterRadius(sizeOf.get(m.key) ?? 1) })))
+    const x0 = Math.min(...members.map(m => m.x - m.radius)) - WORKSPACE_ZONE.padSide
+    const x1 = Math.max(...members.map(m => m.x + m.radius)) + WORKSPACE_ZONE.padSide
+    const y0 = Math.min(...members.map(m => m.y - m.radius)) - WORKSPACE_ZONE.padTop
+    const y1 = Math.max(...members.map(m => m.y + m.radius)) + WORKSPACE_ZONE.padSide
+    const dx = (x0 + x1) / 2, dy = (y0 + y1) / 2
+    blocks.push({ key: `project:${c.projectId}`, radius: Math.hypot(x1 - x0, y1 - y0) / 2, members, dx, dy })
+  }
+  const centres = new Map(placeItems(blocks.map(b => ({ key: b.key, radius: b.radius }))).map(a => [a.key, a]))
+  const out: ClusterAnchor[] = []
+  for (const b of blocks) {
+    const at = centres.get(b.key)!
+    for (const m of b.members) out.push({ key: m.key, radius: m.radius, x: at.x + m.x - b.dx, y: at.y + m.y - b.dy })
+  }
+  return out
+}
+
 /**
  * Anchor of every cluster, in the order given (first appearance, a project's clusters together). One cluster is centred on
- * (0,0). Discs (anchor, radius) never overlap. Pure and deterministic.
+ * (0,0). Discs (anchor, radius) never overlap. With several projects each one gets its own block (see {@link blockAnchors}).
+ * Pure and deterministic.
  */
 export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Map<string, ClusterAnchor> {
   const seen = new Set<string>()
@@ -146,12 +188,12 @@ export function computeClusterAnchors(clusters: ReadonlyArray<ClusterInput>): Ma
     seen.add(c.key)
     unique.push(c)
   }
-  const items = groupByProject(unique).map(c => ({ key: c.key, radius: clusterRadius(c.size) }))
+  const grouped = groupByProject(unique)
+  const several = new Set(grouped.map(c => c.projectId).filter(Boolean)).size >= 2
+  const list = several
+    ? blockAnchors(grouped)
+    : placeItems(grouped.map(c => ({ key: c.key, radius: clusterRadius(c.size) })))
   const out = new Map<string, ClusterAnchor>()
-  if (items.length === 0) return out
-  const list = items.length === 1
-    ? [{ key: items[0].key, x: 0, y: 0, radius: items[0].radius }]
-    : items.length <= CLUSTER_LAYOUT.maxRingClusters ? ringAnchors(items) : spiralAnchors(items)
   for (const a of list) out.set(a.key, a)
   return out
 }
