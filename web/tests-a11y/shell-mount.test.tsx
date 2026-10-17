@@ -83,8 +83,11 @@ function shiftClickAt(el: Element, x: number, y: number) {
 /** Shift-click scan over the area where the layout puts the agents, until `done` holds (jsdom has no layout).
  *  A Shift-click on the agent already picked toggles it off, so a hit on the same agent must be undone, not counted. */
 function shiftClickScan(el: Element, done: () => boolean): boolean {
-  for (let x = 280; x <= 520; x += 4) {
-    for (let y = 130; y <= 270; y += 4) {
+  // Step 8: an agent is hit within at least 12 px of its centre (HIT_DETECTION.minAgentRadiusPx), so no agent slips between
+  // two probes. Step 4 cost 10-25 s per pass on a loaded machine (2000 probes, each a React update): the 25 s deadline
+  // then left room for one or two passes, and the first one often runs before the layout has settled (#440).
+  for (let x = 280; x <= 520; x += 8) {
+    for (let y = 130; y <= 270; y += 8) {
       const before = getPair()
       shiftClickAt(el, x, y)
       if (done()) return true
