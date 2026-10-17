@@ -175,6 +175,8 @@ export interface DockInput {
   noticeH?: number
   /** Measured height of the truncation banner (0 / absent when none is drawn): a sheet keeps it free (#453). */
   bannerH?: number
+  /** Measured height of the permission cards (0 / absent when none is drawn): a sheet keeps a slot for them (#410). */
+  permissionsH?: number
 }
 
 export interface DockLayout {
@@ -189,6 +191,8 @@ export interface DockLayout {
   topbar: Rect
   controlBar: Rect
   rightWidth: number
+  /** Band a sheet keeps free right under the top bar for the permission cards, 0 in dock mode (#410). */
+  permissionsBand: number
 }
 
 export function controlBarRect(viewport: Viewport, controlBarH: number): Rect {
@@ -209,13 +213,23 @@ export const BANNER_MIN_TOP = 44
  * at least SHEET_NOTICE_H - 4 high; the banner goes right under it, never above its own slot. Heights are the measured
  * ones (an unmeasured or invalid value counts as nothing drawn), so a wrapped line grows the band instead of being cut.
  */
-export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0): { bannerTop: number | null; band: number } {
+export function topbarStack(hiddenCount: number, noticeH = 0, bannerH = 0, permissionsH = 0): { bannerTop: number | null; band: number } {
+  const perm = permissionsBand(permissionsH)
   const notice = hiddenCount > 0 ? Math.max(SHEET_NOTICE_H - 4, Math.ceil(Math.max(0, finite(noticeH, 0)))) : 0
   const banner = Math.ceil(Math.max(0, finite(bannerH, 0)))
-  const noticeBottom = notice > 0 ? TOPBAR_STACK_TOP + notice : 0
-  const bannerTop = banner > 0 ? Math.max(BANNER_MIN_TOP, noticeBottom > 0 ? noticeBottom + TOPBAR_STACK_GAP : 0) : null
-  const lowest = bannerTop !== null ? bannerTop + banner : noticeBottom
+  const noticeBottom = notice > 0 ? perm + TOPBAR_STACK_TOP + notice : 0
+  const bannerTop = banner > 0 ? (noticeBottom > 0 ? Math.max(BANNER_MIN_TOP, noticeBottom + TOPBAR_STACK_GAP) : perm + BANNER_MIN_TOP) : null
+  const lowest = bannerTop !== null ? bannerTop + banner : noticeBottom > 0 ? noticeBottom : perm
   return { bannerTop, band: lowest > 0 ? lowest + 2 : 0 }
+}
+
+/**
+ * Slot of the permission cards (#410): they sit right under the top bar, so in a sheet they take the top of the column
+ * and the notice and the banner go under them. Their measured height plus a gap; 0 when none is drawn or invalid.
+ */
+export function permissionsBand(permissionsH = 0): number {
+  const h = Math.ceil(Math.max(0, finite(permissionsH, 0)))
+  return h > 0 ? h + TOPBAR_STACK_GAP : 0
 }
 
 /**
@@ -229,20 +243,25 @@ const MIN_SHEET_H_WITH_BANNER = 96
  * leaves MIN_MAIN_H, or, with a banner, MIN_SHEET_H_WITH_BANNER; else the notice alone (as before #453) when it leaves
  * MIN_MAIN_H; else none (the sheet takes the room and may cover the column).
  */
-function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0, bannerH = 0): number {
-  const full = topbarStack(hiddenCount, noticeH, bannerH)
-  const floor = full.bannerTop !== null ? MIN_SHEET_H_WITH_BANNER : MIN_MAIN_H
-  if (full.band > 0 && areaH - full.band >= floor) return full.band
-  const noticeOnly = topbarStack(hiddenCount, noticeH, 0).band
-  return noticeOnly > 0 && areaH - noticeOnly >= MIN_MAIN_H ? noticeOnly : 0
+function sheetNoticeBand(areaH: number, hiddenCount: number, noticeH = 0, bannerH = 0, permissionsH = 0): { band: number; permissions: number } {
+  // The permission slot is kept only when everything still leaves a usable sheet; else the cards cover it as before
+  for (const perm of permissionsH > 0 ? [permissionsH, 0] : [0]) {
+    const full = topbarStack(hiddenCount, noticeH, bannerH, perm)
+    const floor = full.bannerTop !== null ? MIN_SHEET_H_WITH_BANNER : MIN_MAIN_H
+    if (full.band > 0 && areaH - full.band >= floor) return { band: full.band, permissions: permissionsBand(perm) }
+    const noticeOnly = topbarStack(hiddenCount, noticeH, 0, perm).band
+    if (noticeOnly > 0 && areaH - noticeOnly >= MIN_MAIN_H) return { band: noticeOnly, permissions: permissionsBand(perm) }
+  }
+  return { band: 0, permissions: 0 }
 }
 
-function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number, bannerH?: number): DockLayout {
+function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>, open: readonly PanelId[], reason: 'narrow' | 'no-room', noticeH?: number, bannerH?: number, permissionsH?: number): DockLayout {
   const { area } = base
   const newest = open[open.length - 1]
   // Other open panels are hidden: keep a band under the top bar for the notice that names them (#410), and for the
-  // truncation banner under it (#453), which a sheet must not slide under even when it is the only open panel
-  const band = sheetNoticeBand(area.h, open.length - 1, noticeH, bannerH)
+  // truncation banner under it (#453), which a sheet must not slide under even when it is the only open panel; the
+  // permission cards take the top of that column (#410)
+  const { band, permissions } = sheetNoticeBand(area.h, open.length - 1, noticeH, bannerH, permissionsH)
   const sheet: Rect = { x: 8, y: area.y + band, w: Math.max(0, area.w - 0), h: area.h - band }
   return {
     ...base,
@@ -250,10 +269,11 @@ function sheetLayout(base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>, open: 
     sheetReason: reason,
     rects: newest ? { [newest]: sheet } : {},
     hidden: open.slice(0, -1),
+    permissionsBand: permissions,
   }
 }
 
-function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden'>): Partial<Record<PanelId, Rect>> | null {
+function tryDock(input: DockInput, base: Omit<DockLayout, 'mode' | 'rects' | 'hidden' | 'permissionsBand'>): Partial<Record<PanelId, Rect>> | null {
   const { viewport: vp, open } = input
   const { area, rightWidth: rw } = base
   const rects: Partial<Record<PanelId, Rect>> = {}
@@ -352,11 +372,11 @@ export function computeDockLayout(input: DockInput): DockLayout {
     rightWidth: clampDockWidth(input.rightWidth ?? RIGHT_DOCK.default, vp.w),
   }
   const open = Array.from(new Set(input.open))
-  if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [] }
-  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH)
+  if (open.length === 0) return { ...base, mode: 'dock', rects: {}, hidden: [], permissionsBand: 0 }
+  if (vp.w < SHEET_BREAKPOINT) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'narrow', input.noticeH, input.bannerH, input.permissionsH)
   const rects = tryDock({ ...input, viewport: vp, open }, base)
-  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH)
-  return { ...base, mode: 'dock', rects, hidden: [] }
+  if (!rects) return sheetLayout({ ...base, area: { ...area, x: 8, w: Math.max(0, vp.w - 16) } }, open, 'no-room', input.noticeH, input.bannerH, input.permissionsH)
+  return { ...base, mode: 'dock', rects, hidden: [], permissionsBand: 0 }
 }
 
 // ─── Popups ─────────────────────────────────────────────────────────────────
@@ -399,6 +419,8 @@ export interface DockEnv {
   noticeH?: number
   /** Height of the drawn truncation banner (absent when none is drawn, #453). */
   bannerH?: number
+  /** Height of the drawn permission cards (absent when none is drawn, #410). */
+  permissionsH?: number
 }
 
 export interface DockSnapshot { layout: DockLayout; env: DockEnv; open: readonly PanelId[] }
@@ -442,7 +464,10 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
   // The banner is an obstacle for the docks (above) and takes its own band over a sheet (#453)
   const banner = doc.querySelector<HTMLElement>('[data-truncation-banner]')
   const bannerH = banner && !banner.closest('[aria-hidden="true"]') && !banner.closest('[inert]') ? Math.max(0, Math.ceil(banner.getBoundingClientRect().height)) : 0
-  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH }
+  // The cards are an obstacle for the docks (above) and take a slot at the top of the column over a sheet (#410)
+  const perm = doc.querySelector<HTMLElement>('[data-permission-requests]')
+  const permissionsH = perm && !perm.closest('[aria-hidden="true"]') && !perm.closest('[inert]') ? Math.max(0, Math.ceil(perm.getBoundingClientRect().height)) : 0
+  return { viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH }
 }
 
 type Listener = () => void
