@@ -503,14 +503,31 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
 }
 
 /**
- * Opaque plate in the scene background under a label block of `lines` lines, `width` wide, centred on `x`
- * from `top` (#378). Edges and links are drawn before the nodes: one passing under the label stops at the
+ * Opaque plate in the scene background under a label block whose lines, centred on `x` from `top`, are
+ * `widths` wide (#378). Edges and links are drawn before the nodes: one passing under the label stops at the
  * plate instead of cutting the letters. It covers no data: only what is drawn under the label.
+ * - One rounded rectangle per line, fitted to that line with a margin of the text outline: no dark block as
+ *   wide as the widest line cutting through the node's glow, ripples or halo.
+ * - It starts 1 px above the first line, never higher: an edge leaving the node downward stays visible from
+ *   the rim to the text. The lines touch, so the edge is not shown between them as a dashed stroke (dashes
+ *   mean "not proven" on a link).
+ * - Opaque whenever the label is drawn, even while the agent fades in or out: the text fades, the edges
+ *   still do not show through its letters. Nothing is painted when the label is fully transparent.
  */
-function fillLabelPlate(ctx: CanvasRenderingContext2D, x: number, top: number, width: number, lines: number, scene: ScenePalette) {
+function fillLabelPlate(ctx: CanvasRenderingContext2D, x: number, top: number, widths: number[], scene: ScenePalette) {
+  if (ctx.globalAlpha <= 0 || widths.length === 0) return
   const pad = AGENT_DRAW.labelHaloWidth
+  const gap = AGENT_DRAW.stateLabelGap
+  ctx.save()
+  ctx.globalAlpha = 1
   ctx.fillStyle = scene.void
-  ctx.fillRect(x - width / 2 - pad, top - pad, width + pad * 2, lines * AGENT_DRAW.stateLabelGap + pad * 2)
+  ctx.beginPath()
+  widths.forEach((w, i) => {
+    // Each line overlaps the next by 1 px so the plate has no seam
+    ctx.roundRect(x - w / 2 - pad, top + i * gap - 1, w + pad * 2, gap + 1, pad)
+  })
+  ctx.fill()
+  ctx.restore()
 }
 
 /**
@@ -551,7 +568,7 @@ function drawAgentLabel(
   if (place.collapsed) {
     // Crowded: one line "name · status" (the full label is in the tooltip and the outline)
     const line = ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure)
-    fillLabelPlate(ctx, agent.x, y, measure(line), 1, scene)
+    fillLabelPlate(ctx, agent.x, y, [measure(line)], scene)
     ctx.fillStyle = ink(isHovered ? scene.textPrimary : scene.textDim)
     fillLabelText(ctx, line, agent.x, y, scene)
     ctx.restore()
@@ -568,10 +585,11 @@ function drawAgentLabel(
     pill = { bw, rw: rest ? measure(rest) + 6 : 0, rest }
   }
   {
+    // Widths in drawing order: names, status, pill line, session line
     const widths = [...layout.nameLines.map(measure), measure(layout.statusLine)]
     if (pill) widths.push(pill.bw + pill.rw)
     if (layout.sessionLine) widths.push(measure(layout.sessionLine))
-    fillLabelPlate(ctx, agent.x, y, Math.max(...widths), widths.length, scene)
+    fillLabelPlate(ctx, agent.x, y, widths, scene)
   }
 
   ctx.fillStyle = ink(isHovered ? scene.textPrimary : scene.textDim)
