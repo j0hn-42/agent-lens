@@ -3,7 +3,7 @@ import { SCENE, getDiscoveryTypeColor } from '@/lib/colors'
 import { SEARCH_DISCOVERY, SEARCH_FLOW, MIN_VISIBLE_OPACITY, getDiscoveryCardDimensions } from '@/lib/canvas-constants'
 import type { DrawOpts } from './draw-options'
 
-/** A line from a completed Grep tool card (Glob makes no card, #451) to one of the file cards its output listed (#384) */
+/** A line from a completed Glob or Grep tool card to one of the file cards its output listed (#384) */
 export interface FlowSegment {
   discoveryId: string
   toolCallId: string

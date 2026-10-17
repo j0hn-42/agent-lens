@@ -265,6 +265,8 @@ export function ConversationPanel({
         // Companion of the agent card: an obstacle for the dock layout (the card is placed beside / below
         // it), and focus moving to the pill (focus return) must not close the card
         data-companion-panel=""
+        // Laid over the canvas without reserving an edge: the halo titles and other canvas texts move off it (#378)
+        data-canvas-cover=""
         className="absolute"
         style={{ top: FEED_TOP, left: 12, zIndex: Z.info, pointerEvents: 'auto', maxWidth: 'calc(100vw - 24px)' }}
       >

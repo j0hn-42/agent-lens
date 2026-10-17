@@ -85,6 +85,8 @@ interface DrawLoopDeps {
   updateDragLerp: CanvasDragLerp
   refreshInsetsIfStale: (w: number, h: number, timestamp: number) => void
   getSafeArea: (w: number, h: number) => ReturnType<typeof import('@/components/agent-visualizer/canvas/camera-fit').safeRect>
+  /** UI over the canvas that reserves no edge (the collapsed Conversation pill), in canvas px */
+  getCovers: () => ReadonlyArray<import('@/components/agent-visualizer/canvas/camera-fit').Rect>
   effectsRef: MutableRefObject<VisualEffect[]>
   detectStateChanges: () => void
 }
@@ -301,6 +303,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       // Halos follow the agents that appear, finish or get hidden without jumping (a snap under reduced motion)
       haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters
+      const workspaceZones = computeWorkspaceZones(clusters)
       const hoverTarget = deps.hoverTargetRef.current
       const hoveredLinkId = hoverTarget?.type === 'link' ? hoverTarget.id : null
       const edgeBubbles: KeyedEdgeBubble[] = []
@@ -325,6 +328,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
           isBubbleHeld: id => expiryHold.neverHide || expiryHold.paused || expiryHold.agentIds.has(id),
           // Cards are drawn above labels and bubbles: keep those texts off them (#378)
           toolCards: toolCardRects(toolCalls.values(), toolCardSize),
+          // Halo titles move off the workspace headers and the collapsed Conversation pill (#378)
+          workspaceZones, covers: deps.getCovers(),
         })
         : EMPTY_PLAN
       if (overlay === EMPTY_PLAN) clearOverlayHits(); else setOverlayHits(overlay.hits)
@@ -387,7 +392,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
       opts.reducedMotion = calmOf('links')
-      drawWorkspaceZones(ctx, computeWorkspaceZones(clusters), opts)
+      drawWorkspaceZones(ctx, workspaceZones, opts)
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawSessionLinks(ctx, sessionLinkSegments(clusters, deps.sessionLinksRef.current ?? []), opts)
       drawPhaseLabels(ctx, phaseLabels(agents.values()), opts)

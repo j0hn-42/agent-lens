@@ -24,8 +24,12 @@ registerHooks({
 export interface DrawnText { text: string; screenPx: number }
 export interface DrawnRect { x: number; y: number; w: number; h: number; screenW: number; screenH: number }
 
-/** One call on the context, with the line width and dash in effect and the uniform scale (colours left out) */
-export interface DrawnOp { name: string; args: unknown[]; lineWidth: number; lineDash: number[]; scale: number }
+/** One call on the context, with the line width and dash in effect and the uniform scale */
+export interface DrawnOp {
+  name: string; args: unknown[]; lineWidth: number; lineDash: number[]; scale: number
+  /** Paint state in effect (#378): lets a test check that a plate under a text is opaque and drawn in a theme token */
+  fillStyle: string; globalAlpha: number; textAlign: string; textBaseline: string; font: string
+}
 
 export interface Recording {
   ctx: CanvasRenderingContext2D
@@ -40,16 +44,17 @@ export function recordingContext(zoom: number): Recording {
   const texts: DrawnText[] = []
   const rects: DrawnRect[] = []
   const ops: DrawnOp[] = []
-  const stack: { scale: number; lineWidth: unknown; lineDash: number[] }[] = []
+  const saved = ['lineWidth', 'fillStyle', 'globalAlpha', 'textAlign', 'textBaseline', 'font'] as const
+  const stack: { scale: number; lineDash: number[]; values: Record<string, unknown> }[] = []
   let scale = zoom
   let lineDash: number[] = []
-  const state: Record<string | symbol, unknown> = { font: '10px sans-serif', globalAlpha: 1, lineWidth: 1 }
+  const state: Record<string | symbol, unknown> = { font: '10px sans-serif', globalAlpha: 1, lineWidth: 1, fillStyle: '#000000', textAlign: 'start', textBaseline: 'alphabetic' }
   const fontPx = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(state.font))?.[1] ?? 10)
   const methods: Record<string, (...args: number[] | unknown[]) => unknown> = {
-    save: () => { stack.push({ scale, lineWidth: state.lineWidth, lineDash }) },
+    save: () => { stack.push({ scale, lineDash, values: Object.fromEntries(saved.map(k => [k, state[k]])) }) },
     restore: () => {
       const top = stack.pop()
-      if (top) { scale = top.scale; state.lineWidth = top.lineWidth; lineDash = top.lineDash }
+      if (top) { scale = top.scale; lineDash = top.lineDash; Object.assign(state, top.values) }
     },
     setLineDash: (...a) => { lineDash = [...(a[0] as number[])] },
     scale: (...a) => { scale *= Number(a[0]) },
@@ -66,7 +71,11 @@ export function recordingContext(zoom: number): Recording {
     getLineDash: () => [...lineDash],
   }
   const call = (name: string) => (...args: unknown[]) => {
-    ops.push({ name, args, lineWidth: Number(state.lineWidth), lineDash: [...lineDash], scale })
+    ops.push({
+      name, args, lineWidth: Number(state.lineWidth), lineDash: [...lineDash], scale,
+      fillStyle: String(state.fillStyle), globalAlpha: Number(state.globalAlpha),
+      textAlign: String(state.textAlign), textBaseline: String(state.textBaseline), font: String(state.font),
+    })
     return methods[name] ? methods[name](...(args as number[])) : undefined
   }
   const ctx = new Proxy(state, {

@@ -11,10 +11,16 @@ export interface ContextMenuActions {
   clearHistory: () => void
   /** Only offered on a real session */
   reloadSessionEvents: (() => void) | null
+  /** Agent menu only: open the right-clicked agent's detail card (#377) */
+  showAgentDetails?: (() => void) | null
 }
 
 export function contextMenuItems(onAgent: boolean, a: ContextMenuActions): ComponentProps<typeof GlassContextMenu>['items'] {
-  if (onAgent) return [{ icon: '📊', label: 'Toggle stats', checked: a.showStats, onClick: a.toggleStats }]
+  if (onAgent) return [
+    ...(a.showAgentDetails ? [{ icon: 'ℹ', label: 'Show details', onClick: a.showAgentDetails }] : []),
+    { icon: '🔍', label: 'Zoom to fit', onClick: a.zoomToFit },
+    { icon: '📊', label: 'Toggle stats', checked: a.showStats, onClick: a.toggleStats },
+  ]
   return [
     { icon: '🔍', label: 'Zoom to fit', onClick: a.zoomToFit },
     { icon: '📊', label: 'Toggle stats', checked: a.showStats, onClick: a.toggleStats },

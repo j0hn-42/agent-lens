@@ -37,3 +37,11 @@ export function updateSettings(
 
 export function readSettingsPaths(discoveryDir: string): string[]
 export function recordSettingsPath(discoveryDir: string, settingsPath: string): void
+
+export const STATUSLINE_COMMAND_MARKER: RegExp
+export class StatusLineOriginalError extends Error {}
+export function isStatusLineWrapper(statusLine: unknown): boolean
+export function encodeStatusLineCommand(baseCommand: string, original: Record<string, unknown> | null): string
+export function decodeStatusLineOriginal(statusLine: unknown): Record<string, unknown> | null
+/** Restored value (null = key removed), or undefined when the statusLine was not ours. */
+export function restoreStatusLineInFile(filePath: string): Record<string, unknown> | null | undefined

@@ -298,7 +298,7 @@ test('PanelDock: the Active only choice goes to the preferences store and surviv
       sessions, selectedSessionId: 'live', sessionsWithActivity: new Set(['live']), sessionModels: new Map(),
       selectSession: noop, renameSession: noop, useMockData: true, isVSCode: false, connectionStatus: 'connected',
       teams: new Map(), teamWorking: new Map(), teamSummaries: new Map(), teamMemberCounts: new Map(), relayScope: null,
-      systemStats: [],
+      systemStats: [], quota: null,
     },
     selection: { selectedAgentId: null, handleAgentClick: noop },
     attention: undefined, health: { bySession: undefined },

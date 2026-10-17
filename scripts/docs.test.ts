@@ -341,3 +341,12 @@ test('the reading guide says a silence never ends a session, only an observed en
   const finished = guide.split('\n').find(l => l.startsWith('| **Session finished**'))
   assert.ok(finished?.includes('observed'), 'the Session finished trigger says it needs an observed end')
 })
+
+test('the reading guide says a Glob has file cards, a flow, and a count from numFiles (#451)', () => {
+  const lines = read('docs/reading-the-ui.md').split('\n')
+  const flow = lines.find(l => l.startsWith('- **Flow to the file cards**'))
+  assert.ok(flow?.includes('from a Grep or Glob tool card'), 'the flow starts from a Grep or Glob card')
+  const cards = lines.find(l => l.startsWith('- **File cards from a search**'))
+  assert.ok(cards?.includes('`numFiles` for a Glob'), 'the Glob count is numFiles')
+  assert.ok(!cards?.includes("the count is the header's."), "the count is not always the header's")
+})

@@ -1,5 +1,5 @@
 /**
- * Remote access guards, step 1 of #241 (pure functions, no server).
+ * Remote access guards, step 1 of #241 (pure functions; one loopback server for the POST /pair gate of #475).
  *
  * v1 is "tunnel only": the relay keeps listening on 127.0.0.1 and an SSH / Tailscale tunnel forwards to it.
  * The tunnel's peer is loopback, so the only new thing a request can carry is a Host header naming the
@@ -7,9 +7,12 @@
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import * as http from 'node:http'
 import {
   parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
+  bindRemoteAuth, gateRemoteRequest, type RemoteAuth,
 } from './remote-access'
+import { listenLoopback } from './server-hardening'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 
 describe('parseAllowedHosts', () => {
@@ -181,5 +184,80 @@ describe('remoteStartupError (fail closed at startup)', () => {
   it('a valid --allow-host is refused while token authentication is not shipped', () => {
     assert.equal(REMOTE_AUTH_AVAILABLE, false)
     assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
+  })
+})
+
+describe('gateRemoteRequest: POST /pair never kills the relay (#475)', () => {
+  const TUNNEL = 'box.tail1234.ts.net'
+
+  /** Anyone who reaches the tunnel can send POST /pair: a rejection of handlePair must never become an unhandled one. */
+  async function pairWith(handlePair: RemoteAuth['handlePair'], requests = 1): Promise<{ status: number; body: string; unhandled: unknown[]; logs: string[] }> {
+    const allowed = [TUNNEL]
+    bindRemoteAuth(allowed, { handlePair, isPaired: () => false })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    // Every console channel: a line on any of them counts
+    const logs: string[] = []
+    const saved = { log: console.log, warn: console.warn, error: console.error, info: console.info }
+    for (const k of Object.keys(saved) as (keyof typeof saved)[]) console[k] = (...args: unknown[]) => { logs.push(args.map(String).join(' ')) }
+    const server = http.createServer((req, res) => { if (!gateRemoteRequest(req, res, allowed, 'api')) res.writeHead(404).end() })
+    const port = await listenLoopback(server, 0)
+    try {
+      let reply = { status: 0, body: '' }
+      for (let i = 0; i < requests; i++) reply = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/pair', agent: false,
+          headers: { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json' } }, res => {
+          let body = ''
+          res.setEncoding('utf8')
+          res.on('data', c => { body += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        })
+        req.setTimeout(2000, () => req.destroy(new Error('no answer: the response was left open')))
+        req.on('error', reject)
+        req.end('{}')
+      })
+      // Let a dropped rejection surface before the listener goes away
+      await new Promise(r => setTimeout(r, 50))
+      return { ...reply, unhandled, logs }
+    } finally {
+      Object.assign(console, saved)
+      process.off('unhandledRejection', onUnhandled)
+      server.close()
+    }
+  }
+
+  it('a handlePair that rejects before answering: the same 401 without detail, no unhandled rejection', async () => {
+    const r = await pairWith(async () => { throw new Error('secret detail') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 401)
+    assert.equal(r.body, 'Unauthorized')
+  })
+
+  it('a handlePair that rejects after its headers: the response is ended, no unhandled rejection', async () => {
+    const r = await pairWith(async (_req, res) => { res.writeHead(204); throw new Error('late') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 204)
+  })
+
+  it('a handlePair that rejects leaves one fixed log line per interval, nothing of the request or the error', async () => {
+    const SECRET = 'tok_0123456789abcdef secret detail from 203.0.113.7'
+    const r = await pairWith(async () => { const e = new TypeError(SECRET); throw e }, 3)
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 401)
+    assert.equal(r.body, 'Unauthorized', 'the answer stays the uniform 401')
+    assert.equal(r.logs.length, 1, `exactly one line for 3 failures in a row, got ${JSON.stringify(r.logs)}`)
+    const line = r.logs[0]
+    assert.match(line, /POST \/pair/, 'the line names the step')
+    assert.match(line, /TypeError/, 'the line carries the error class')
+    assert.ok(!line.includes('secret') && !line.includes('tok_') && !line.includes('203.0.113.7'), `no detail of the error: ${line}`)
+    assert.ok(!line.includes(TUNNEL), `nothing of the request: ${line}`)
+  })
+
+  it('an error name that is not a plain identifier is not echoed into the log', async () => {
+    const r = await pairWith(async () => { const e = new Error('x'); e.name = 'tok_\nforged line'; throw e })
+    assert.equal(r.status, 401)
+    assert.equal(r.logs.length, 1)
+    assert.ok(!r.logs[0].includes('tok_') && !r.logs[0].includes('forged'), `the name is replaced: ${r.logs[0]}`)
   })
 })

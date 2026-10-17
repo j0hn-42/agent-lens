@@ -70,13 +70,12 @@ test('the tooltip and the popup say where the card comes from', () => {
 test('the legend describes file cards as listed paths, not pinned files', () => {
   assert.match(LIVE_ENTRY_TEXT['disc-file'], /Grep/)
   assert.doesNotMatch(LIVE_ENTRY_TEXT['disc-file'], /pinned/)
-  // A real Glob output has no "Found N files" header, so a Glob never makes a card: neither text names it
-  assert.doesNotMatch(LIVE_ENTRY_TEXT['disc-file'], /Glob/)
+  // A Glob whose structured result proves its listing makes cards too (#451): both texts name it
+  assert.match(LIVE_ENTRY_TEXT['disc-file'], /Glob/)
   const { container, getByRole } = render(createElement(GraphLegend, {}))
   fireEvent.click(getByRole('button', { name: /Legend/ }))
   const text = container.textContent ?? ''
-  assert.ok(text.includes('File: a path a Grep call listed'), 'the legend row')
-  assert.doesNotMatch(text, /Glob/)
+  assert.ok(text.includes('File: a path a Grep or Glob call listed'), 'the legend row')
 })
 
 test('clicking a listed file card opens a popup that still says where it comes from', () => {
