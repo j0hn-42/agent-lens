@@ -271,6 +271,8 @@ export interface TopBarProps {
   attention?: { waiting: number; errors: number }
   /** Select the first blocked agent */
   onJumpToAttention?: () => void
+  /** Opens the command palette (also Ctrl+K / Cmd+K); the button is hidden when omitted (#377) */
+  onOpenPalette?: () => void
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
@@ -287,7 +289,7 @@ export const TopBar = memo(function TopBar({
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
-  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
+  attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
@@ -521,6 +523,22 @@ export const TopBar = memo(function TopBar({
               shortcut="z"
             >
               <FullscreenIcon />
+            </ToggleButton>
+          )}
+          {onOpenPalette && (
+            <ToggleButton
+              active={false}
+              onClick={onOpenPalette}
+              ariaLabel="Commands"
+              title="Command palette: actions, panels, sessions, agents and themes (Ctrl+K / Cmd+K)"
+              shortcut="Control+K Meta+K"
+              hasDialog
+            >
+              <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="7" cy="7" r="5" />
+                <path d="M11 11l4 4" />
+              </svg>
+              <span aria-hidden="true" className="ml-1 hidden sm:inline">Commands</span>
             </ToggleButton>
           )}
           {onOpenSettings && (

@@ -267,7 +267,7 @@ export function AgentVisualizer() {
         onToggleStats={() => setShowStats(prev => !prev)}
         onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
-        onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings}
+        onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings} onOpenPalette={openPalette}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
       />
       </div>
