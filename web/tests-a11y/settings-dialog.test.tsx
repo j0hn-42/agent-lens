@@ -78,6 +78,12 @@ test('the quota gauges switch reflects the preference and reports the new value 
   assert.equal((view.getByRole('switch', { name: /Quota gauges/ }) as HTMLInputElement).checked, false)
 })
 
+test('the quota setting explains that Claude Code needs the status line wrapper, with the command (#467)', () => {
+  const view = render(<SettingsDialog {...dialogProps({ quota: { show: true, onShowChange: () => {} } })} />)
+  assert.ok(view.getByText(/node scripts\/setup\.js --statusline/), 'the enabling command is in the help')
+  assert.ok(view.getByText(/without the status line wrapper|no quota is shown/i))
+})
+
 test('without the quota prop the dialog has no quota switch', () => {
   const view = render(<SettingsDialog {...dialogProps()} />)
   assert.equal(view.queryByRole('switch', { name: /Quota/ }), null)

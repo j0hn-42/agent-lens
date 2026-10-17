@@ -290,13 +290,22 @@ test('top bar: showQuota false renders nothing of it', () => {
   assert.doesNotMatch(view.container.textContent ?? '', /quota|% left|% restant/i)
 })
 
-test('top bar: a Claude session without a snapshot says the quota is unknown; no session selected shows nothing', () => {
+test('top bar: a Claude session that never received a snapshot shows nothing of the quota; no session selected neither', () => {
   setLocaleChoice('en')
   const claudeNone = render(<TopBar {...base} quota={null} selectedRuntime="claude" />)
-  assert.match(claudeNone.container.textContent ?? '', /quota: unknown for now/)
+  assert.doesNotMatch(claudeNone.container.textContent ?? '', /quota/i)
+  assert.equal(claudeNone.container.querySelector('[data-testid="topbar-quota"]'), null)
   cleanup()
   const none = render(<TopBar {...base} selectedSessionId={ALL_SESSIONS_ID} quota={null} />)
   assert.doesNotMatch(none.container.textContent ?? '', /quota/i)
+})
+
+test('top bar: a snapshot that existed and expired (over 30 min) says the quota is unknown', () => {
+  setLocaleChoice('en')
+  const old = { ...snapshot(), receivedAt: Date.now() - 31 * 60_000 }
+  const view = render(<TopBar {...base} quota={old} selectedRuntime="claude" />)
+  assert.match(view.container.textContent ?? '', /quota: unknown for now/)
+  assert.equal(view.queryAllByRole('meter').length, 0)
 })
 
 test('top bar: the quota is on by default (showQuota omitted)', () => {
