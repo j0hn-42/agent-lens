@@ -4,7 +4,7 @@ import { memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExt
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
-import { formatTokenUsage, formatCostUsage, spokenCostUsage, type UsageTotal } from "@/lib/usage"
+import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
 import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, spokenAllSummary, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
@@ -482,7 +482,7 @@ export const TopBar = memo(function TopBar({
               <span aria-hidden="true">{'\u00b7 '}</span>
               {/* "~$2.10" on screen, "context cost estimate $2.10" for assistive technology (#364) */}
               <span aria-hidden="true">{contextText.cost}</span>
-              <span className="sr-only">, {costUsage ? spokenCostUsage(costUsage) : `${COST_LABELS.name} ${formatCost(totalCost)}`}</span>
+              <span className="sr-only">, {contextText.spoken}</span>
               {unattributedCost > 0 && (
                 <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
                   {' '}(incl. <span aria-hidden="true">{COST_LABELS.mark}</span>{formatCost(unattributedCost)} unattributed)

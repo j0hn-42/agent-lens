@@ -193,8 +193,8 @@ test('empty-state checklist (#371): workspace and session are unknown, not faile
 test('top bar: tokens and cost that are not reported each name what is missing (#383)', () => {
   const none = { value: null, status: 'unavailable', estimated: false } as const
   const ok = { value: 1200, status: 'available', estimated: false } as const
-  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', cost: 'cost not reported' })
-  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', cost: 'cost not reported' })
+  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', cost: 'cost not reported', spoken: 'cost not reported' })
+  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', cost: 'cost not reported', spoken: 'cost not reported' })
   assert.equal(topBarContextText(none, ok).tokens, 'tokens not reported')
   assert.match(topBarContextText(ok, ok).cost, /^~\$/)
 })
