@@ -1,5 +1,5 @@
 // Test double of the relay (#335): prints the same URL line as app/src/server.ts and serves /status.
-// Env: FAKE_RELAY_MODE = ok | no-url | status-500 | status-bad-json | status-foreign | status-huge | status-hang | ignore-term
+// Env: FAKE_RELAY_MODE = ok | no-url | foreign-url | status-500 | status-bad-json | status-foreign | status-huge | status-hang | ignore-term
 //      FAKE_RELAY_COUNT = sessionCount (default 2), FAKE_RELAY_MARK = file written when SIGTERM is received,
 //      FAKE_RELAY_EXIT_AFTER_MS = exit with code 4 after this delay.
 import http from 'node:http'
@@ -21,7 +21,11 @@ const server = http.createServer((req, res) => {
 
 server.listen(0, '127.0.0.1', () => {
   const { port } = server.address()
-  if (mode !== 'no-url') console.log(`Server running at http://127.0.0.1:${port}`)
+  if (mode === 'foreign-url') {
+    // Lines close to the real one, none of which may be trusted
+    for (const l of [`http://0.0.0.0:${port}`, `http://localhost:${port}`, `http://127.0.0.1:${port}/x`, `https://127.0.0.1:${port}`]) console.log(`Server running at ${l}`)
+    console.log(` Server running at http://127.0.0.1:${port}`)
+  } else if (mode !== 'no-url') console.log(`Server running at http://127.0.0.1:${port}`)
   console.log('Waiting for agent events...\n')
 })
 

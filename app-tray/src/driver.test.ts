@@ -2,6 +2,8 @@
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { translate } from '../../web/lib/messages'
@@ -110,6 +112,28 @@ describe('probeStatus: every failure is a kind, never a value', () => {
     await probeStatus(3456, o(f))
     assert.equal(seen[0][0], 'http://127.0.0.1:3456/status')
     assert.equal(seen[0][1].redirect, 'error')
+  })
+  it('reads a body of exactly 64 KiB, refuses one byte more', async () => {
+    const body = (size: number) => { const head = '{"p":"'; return `${head}${'x'.repeat(size - head.length - 2)}"}` }
+    assert.equal(body(64 * 1024).length, 64 * 1024)
+    assert.equal((await probeStatus(3001, o(json(body(64 * 1024))))).kind, 'ok')
+    assert.deepEqual(await probeStatus(3001, o(json(body(64 * 1024 + 1)))), { kind: 'invalid-json' })
+  })
+  it('refuses a redirect, even to another loopback path that answers valid JSON', async () => {
+    const hits: string[] = []
+    const server = http.createServer((req, res) => {
+      hits.push(req.url ?? '')
+      if (req.url === '/status') { res.writeHead(302, { location: '/elsewhere' }).end(); return }
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"relayVersion":"0.10.0","sessionCount":7}')
+    })
+    await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+    try {
+      const { port } = server.address() as AddressInfo
+      assert.deepEqual(await probeStatus(port, { fetch, timeoutMs: 2000, now: () => 42 }), { kind: 'unreachable' })
+      assert.deepEqual(hits, ['/status'], 'the redirect target is never requested')
+    } finally {
+      await new Promise(r => server.close(r))
+    }
   })
 })
 
@@ -227,6 +251,13 @@ describe('startDriver with a fake relay and a fake binary', () => {
     assert.equal(await r.handle.done, 1)
     assert.ok(r.logs.some(l => l.includes('no URL')))
     assert.equal(r.received().length, 0, 'no icon without a proven URL')
+  })
+
+  it('trusts no relay line other than the exact loopback URL line', async () => {
+    const r = rig({ FAKE_RELAY_MODE: 'foreign-url' }, {}, { startupTimeoutMs: 500 })
+    assert.equal(await Promise.race([r.handle.done, sleep(3000).then(() => 'still running')]), 1)
+    assert.ok(r.logs.some(l => l.includes('no URL')))
+    assert.equal(r.received().length, 0, 'no icon for a foreign host, path, scheme or padded line')
   })
 
   it('ends with an error when the relay dies', async () => {
