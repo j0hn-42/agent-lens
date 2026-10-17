@@ -9,6 +9,7 @@ import type { ConnectionStatus } from '@/lib/bridge-types'
 import { blurFlagAction, liveBadge, formatTruncatedHistory, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText } from '@/lib/chrome-utils'
 import { PLAYBACK_LABELS } from '@/lib/ui-glossary'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 
 interface ControlBarProps {
   isPlaying: boolean
@@ -115,7 +116,7 @@ function useScrubberEvents(timelineEvents: TimelineEvent[], totalDuration: numbe
  *  (COLORS.scrubberFill starts at 30% alpha, which fails that ratio at the left end). */
 const scrubberFill = () => `linear-gradient(90deg, ${COLORS.accent}, ${COLORS.focus})`
 
-const BTN_BASE = `min-h-6 min-w-6 rounded font-mono text-[11px] ${FOCUS_RING}`
+const BTN_BASE = `min-h-6 min-w-6 ${TOUCH_TARGET} rounded font-mono text-[11px] ${FOCUS_RING}`
 const BAR_CLASS = 'absolute bottom-4 left-4 right-4 mx-auto'
 /** Same box as controlBarRect() in lib/panel-layout (which the docks keep clear of). */
 const BAR_STYLE: import("react").CSSProperties = { pointerEvents: 'auto', maxWidth: `min(${POPUP.controlBarMaxWidth}px, calc(100vw - 32px))`, zIndex: Z.controlBar }
@@ -345,7 +346,7 @@ function ReviewControlBar({
           aria-valuemax={Math.round(totalDuration)}
           aria-valuenow={Math.round(Math.min(currentTime, totalDuration))}
           aria-valuetext={scrubberValueText(currentTime, totalDuration)}
-          className={`flex-1 min-w-12 relative h-8 flex items-center group cursor-pointer rounded touch-none ${FOCUS_RING}`}
+          className={`flex-1 min-w-12 relative h-8 ${TOUCH_TARGET} flex items-center group cursor-pointer rounded touch-none ${FOCUS_RING}`}
           onKeyDown={handleScrubberKeyDown}
           onPointerDown={(e) => {
             e.preventDefault()

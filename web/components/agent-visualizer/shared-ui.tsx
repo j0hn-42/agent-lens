@@ -11,7 +11,7 @@ import {
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { DRAWER_FOCUSABLE, nextTrapTarget } from '@/lib/mobile-view'
+import { DRAWER_FOCUSABLE, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
 import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
 
@@ -36,7 +36,7 @@ export function CloseButton({ onClick, className = '', label = 'Close' }: CloseB
       onClick={onClick}
       aria-label={label}
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
+      className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
