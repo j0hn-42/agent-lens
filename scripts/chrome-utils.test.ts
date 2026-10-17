@@ -4,7 +4,7 @@ import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, topBarContextText, formatAgentCountsCompact, topBarContextCompact, topBarUnattributedCompact, spokenCompactSummary, SUMMARY_KEY, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  agentActivityCounts, topBarContextText, formatAgentCountsCompact, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -190,111 +190,32 @@ test('empty-state checklist (#371): workspace and session are unknown, not faile
   assert.equal(up[2].ok, false)
 })
 
+// #523: the totals are no longer drawn in the top bar; screen readers still read them there (the Cost panel is a canvas)
 test('top bar: tokens and cost that are not reported each name what is missing (#383)', () => {
   const none = { value: null, status: 'unavailable', estimated: false } as const
   const ok = { value: 1200, status: 'available', estimated: false } as const
-  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', cost: 'cost not reported', spoken: 'cost not reported' })
-  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', cost: 'cost not reported', spoken: 'cost not reported' })
+  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', spoken: 'cost not reported' })
+  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', spoken: 'cost not reported' })
   assert.equal(topBarContextText(none, ok).tokens, 'tokens not reported')
-  assert.match(topBarContextText(ok, ok).cost, /^~\$/)
+  assert.match(topBarContextText(ok, ok).spoken, /^context cost estimate \$/)
 })
 
 test('top bar: partial, estimated and value-less available totals are qualified or named missing (#383)', () => {
-  const none = { value: null, status: 'unavailable', estimated: false } as const
   const partial = { value: 1200, status: 'partial', estimated: false } as const
   const estimated = { value: 1200, status: 'available', estimated: true } as const
   const noValue = { value: null, status: 'available', estimated: false } as const
   assert.equal(topBarContextText(partial, partial).tokens, 'at least 1.2k tokens in context')
-  assert.match(topBarContextText(partial, partial).cost, /^at least ~\$/)
-  assert.match(topBarContextText(estimated, estimated).cost, /^~\$.* estimated$/)
+  assert.match(topBarContextText(partial, partial).spoken, /^context cost estimate at least \$/)
+  assert.match(topBarContextText(estimated, estimated).spoken, /^context cost estimate \$.* estimated$/)
   assert.equal(topBarContextText(noValue, noValue).tokens, 'tokens not reported')
-  assert.equal(topBarContextText(noValue, noValue).cost, 'cost not reported')
   assert.equal(topBarContextText(noValue, noValue).spoken, 'cost not reported')
+  assert.equal(topBarContextText({ value: 5_300_000, status: 'partial', estimated: true }, noValue).tokens, 'at least 5.3M estimated tokens in context')
 })
 
-test('top bar: the spoken cost says the same thing as the visible one (#383)', () => {
-  const none = { value: null, status: 'unavailable', estimated: false } as const
-  const partial = { value: 2.1, status: 'partial', estimated: true } as const
-  assert.equal(topBarContextText(none, none).spoken, 'cost not reported')
-  const t = topBarContextText(partial, partial)
-  assert.match(t.cost, /at least ~\$2\.1/)
-  assert.match(t.spoken, /^context cost estimate at least \$2\.1/)
-})
-
-// #497: the summary of the top bar was two lines long ("30 agents: 0 active - 4 last known state - 26 done" then
-// "at least 5.3M estimated tokens in context· at least ~$40.49 estimated"). The compact form keeps every qualifier.
-const partialEst = { value: 5_300_000, status: 'partial', estimated: true } as const
-const partialEstCost = { value: 40.49, status: 'partial', estimated: true } as const
-
-test('compact summary (#497): the real long text is shorter and keeps "at least" and "estimated" as symbols', () => {
-  const longCounts = formatAgentCounts(0, 26, 4)
-  const compactCounts = formatAgentCountsCompact(0, 26, 4)
-  assert.equal(longCounts, '30 agents: 0 active - 4 last known state - 26 done')
-  assert.equal(compactCounts, '30 agents: 0 active · 4 last known · 26 done')
-  const long = topBarContextText(partialEst, partialEstCost)
-  assert.equal(long.tokens, 'at least 5.3M estimated tokens in context')
-  const c = topBarContextCompact(partialEst, partialEstCost)
-  assert.equal(c.tokens, '≥~5.3M ctx tokens')
-  assert.equal(c.cost, '≥~$40.49 est.')
-  const longLen = [longCounts, long.tokens, long.cost].join(' - ').length
-  const compactLen = [compactCounts, c.tokens, c.cost].join(' · ').length
-  assert.ok(compactLen <= 90 && compactLen < longLen - 40, `${compactLen} vs ${longLen}`)
-})
-
-test('compact summary (#497): a figure never loses its qualifier, nothing is rounded or recomputed', () => {
-  const plain = { value: 1200, status: 'available', estimated: false } as const
-  const usd = { value: 1.2, status: 'available', estimated: false } as const
-  assert.equal(topBarContextCompact(plain, plain).tokens, '1.2k ctx tokens')
-  assert.equal(topBarContextCompact(plain, usd).cost, '~$1.20')
-  assert.equal(topBarContextCompact({ ...plain, estimated: true }, plain).tokens, '~1.2k ctx tokens')
-  assert.equal(topBarContextCompact({ ...plain, status: 'partial' }, plain).tokens, '≥1.2k ctx tokens')
-  assert.equal(topBarContextCompact(plain, { ...usd, estimated: true }).cost, '~$1.20 est.')
-  assert.equal(topBarContextCompact(plain, { ...usd, status: 'partial' }).cost, '≥~$1.20')
-  // the same amount as the long text
-  assert.equal(topBarContextCompact(partialEst, partialEstCost).cost.replace(/[≥~]|est\./g, '').trim(), topBarContextText(partialEst, partialEstCost).cost.replace(/at least|~|estimated/g, '').trim())
-})
-
-test('compact summary (#497): missing figures say so, as in the long text', () => {
-  const none = { value: null, status: 'unavailable', estimated: false } as const
-  assert.deepEqual(topBarContextCompact(none, none), { tokens: 'tokens not reported', cost: 'cost not reported' })
-})
-
-test('compact agent counts (#497): zero kinds are not listed, the total stays', () => {
+test('agent counts (#497): the full wording for screen readers, the compact one drawn; zero kinds are not listed', () => {
+  assert.equal(formatAgentCounts(0, 26, 4), '30 agents: 0 active - 4 last known state - 26 done')
+  assert.equal(formatAgentCountsCompact(0, 26, 4), '30 agents: 0 active · 4 last known · 26 done')
   assert.equal(formatAgentCountsCompact(2, 3), '5 agents: 2 active · 3 done')
   assert.equal(formatAgentCountsCompact(1, 1, 0, 1, 1), '4 agents: 1 active · 1 idle · 1 error · 1 done')
   assert.equal(formatAgentCountsCompact(1, 0), '1 agent: 1 active · 0 done')
-})
-
-test('compact summary key (#497) defines every symbol', () => {
-  assert.match(SUMMARY_KEY, /≥ at least/)
-  assert.match(SUMMARY_KEY, /~ estimated/)
-  assert.match(SUMMARY_KEY, /ctx/)
-  assert.match(SUMMARY_KEY, /est\./)
-})
-
-// #497 review: the long text says "(incl. ~$0.03 unattributed)"; the compact line must not drop it, and the part is
-// qualified like the cost it belongs to ("≥" when partial, "est." when priced from estimated tokens)
-test('compact summary (#497): the unattributed part of the cost keeps a compact, qualified marker', () => {
-  const usd = { value: 1.2, status: 'available', estimated: false } as const
-  assert.equal(topBarUnattributedCompact(usd, 0.03), 'incl. ~$0.030 unattr.')
-  assert.equal(topBarUnattributedCompact({ ...usd, status: 'partial' }, 0.03), 'incl. ≥~$0.030 unattr.')
-  assert.equal(topBarUnattributedCompact({ ...usd, estimated: true }, 0.03), 'incl. ~$0.030 est. unattr.')
-  assert.equal(topBarUnattributedCompact(partialEstCost, 0.03), 'incl. ≥~$0.030 est. unattr.')
-  assert.equal(topBarUnattributedCompact(usd, 0), null, 'nothing unattributed: no marker')
-  assert.equal(topBarUnattributedCompact({ value: null, status: 'unavailable', estimated: false }, 0.03), null, 'no cost reported: no part of it')
-  assert.match(SUMMARY_KEY, /unattr\. /, 'the key defines "unattr."')
-})
-
-// WCAG 2.5.3: the name of the summary group contains the words drawn, in the same order, with the symbols in words
-test('compact summary (#497): the spoken name keeps every visible word, symbols in words', () => {
-  const compact = '30 agents: 0 active · 4 last known · 26 done · ≥~5.3M ctx tokens · ≥~$40.49 est. · incl. ≥~$0.030 est. unattr.'
-  const spoken = spokenCompactSummary(compact)
-  assert.equal(spoken, '30 agents: 0 active, 4 last known, 26 done, at least estimated 5.3M ctx tokens, at least estimated $40.49 est., incl. at least estimated $0.030 est. unattr.')
-  assert.doesNotMatch(spoken, /[≥~·]/)
-  let from = 0
-  for (const word of compact.replace(/[≥~·]/g, ' ').split(/\s+/).filter(Boolean)) {
-    const at = spoken.indexOf(word, from)
-    assert.ok(at >= 0, `"${word}" is in the spoken name after position ${from}`)
-    from = at + word.length
-  }
 })

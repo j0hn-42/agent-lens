@@ -5,7 +5,6 @@ import assert from 'node:assert/strict'
 import { SCENE } from '../web/lib/colors'
 import { paletteFor, type ColorKey } from '../web/lib/theme-palette'
 import { THEME_IDS, TOKENS, extraVars, type ThemeId } from '../web/lib/theme-tokens'
-import { SUMMARY_POPOVER } from '../web/lib/chrome-utils'
 
 type Rgb = [number, number, number]
 
@@ -307,22 +306,3 @@ test('neon: the panel and feed colours keep their historical values', () => {
 test('contrast: the focus ring is visibly distinct from the accent (>= 1.2:1)', () => {
   assert.ok(ratio(rgb(TOKENS.contrast.focus), rgb(TOKENS.contrast.accent)) >= 1.2)
 })
-
-// #497: the full text of the top bar summary is a popover over the canvas, with the key of the symbols under it. Its
-// text and its key must read >= 4.5:1 in every theme, on the ground the popover really paints (over the scene void).
-for (const id of THEME_IDS) {
-  test(`${id}: top bar summary popover text and key are >= 4.5:1 on their ground`, () => {
-    const p = paletteFor(id)
-    const groundValue: string = SUMMARY_POPOVER.ground.startsWith('--')
-      ? extraVars(id)[SUMMARY_POPOVER.ground]
-      : p[SUMMARY_POPOVER.ground as ColorKey]
-    const ground = groundValue === 'transparent' ? rgb(SCENE.void) : over(groundValue, rgb(SCENE.void))
-    const [r, g, b, a] = parse(p[SUMMARY_POPOVER.text])
-    const failures: string[] = []
-    for (const [part, alpha] of [['text', 1], ['key', SUMMARY_POPOVER.keyOpacity]] as const) {
-      const c = ratio(over(`rgba(${r}, ${g}, ${b}, ${a * alpha})`, ground), ground)
-      if (c < 4.5) failures.push(`${part}: ${SUMMARY_POPOVER.text} x${alpha} on ${SUMMARY_POPOVER.ground}=${groundValue}: ${c.toFixed(2)}`)
-    }
-    assert.deepEqual(failures, [])
-  })
-}

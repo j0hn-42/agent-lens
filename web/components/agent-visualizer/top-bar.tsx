@@ -3,15 +3,15 @@
 import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
-import { formatTokens, formatCost, pluralize } from "@/lib/utils"
-import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
+import { formatCost, pluralize } from "@/lib/utils"
+import type { UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, formatAllSummary, spokenAllSummary, topBarContextText, topBarContextCompact, topBarUnattributedCompact, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
-import { CONVERSATION_LABELS, COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, TOP_BAR_LABELS, openPanelLabel } from "@/lib/ui-glossary"
+import { CONVERSATION_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, TOP_BAR_LABELS, openPanelLabel } from "@/lib/ui-glossary"
 import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
@@ -19,7 +19,6 @@ import { formatAttention } from "@/lib/attention"
 import { useLocale } from "@/lib/locale"
 import { translate, type MessageKey } from "@/lib/messages"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
-import { TopBarSummary } from "./topbar-summary"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
 import { QuotaGauges } from "./quota-gauges"
 import { quotaGaugeState, type QuotaSnapshotView } from "@/lib/quota"
@@ -360,30 +359,26 @@ export const TopBar = memo(function TopBar({
   // The age and the expiry of the quota move with the clock; it ticks once a minute, only while there is a snapshot to age
   const quotaNow = useMinuteClock(showQuota && quota !== null)
   const quotaState = quotaGaugeState(selectedRuntime, quota, quotaNow)
+  // #523 (user request): the bar draws no token total and no cost any more (the Cost panel draws the view's, the
+  // Sessions panel each session's, the inspector each agent's). The agent counts by state are totalled nowhere else, so
+  // they stay drawn. The Cost panel is a canvas that screen readers do not read: they keep the totals here, after the counts.
+  const allAgentCount = activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount
+  const sessionCountText = pluralize(allSessionCount ?? sessions.length, 'session')
+  const drawnCounts = isAllMode
+    ? `${sessionCountText} \u00b7 ${pluralize(allAgentCount, 'agent')}`
+    : formatAgentCountsCompact(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)
   const contextText = topBarContextText(
     tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
   )
-  // The line that is drawn (#497): the full wording is the popover and the text for screen readers
-  const allAgentCount = activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount
-  const compactContext = topBarContextCompact(
-    tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
-    costUsage ?? { value: totalCost, status: 'available', estimated: false },
-  )
-  // The long text names the unattributed part outside All: so does the short one, qualified like the cost (#497 review)
-  const compactUnattributed = isAllMode
-    ? null
-    : topBarUnattributedCompact(costUsage ?? { value: totalCost, status: 'available', estimated: false }, unattributedCost)
-  const compactSummary = [
-    isAllMode
-      ? `${pluralize(allSessionCount ?? sessions.length, 'session')} \u00b7 ${pluralize(allAgentCount, 'agent')}`
-      : formatAgentCountsCompact(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount),
-    compactContext.tokens,
-    compactContext.cost,
-    compactUnattributed,
-  ].filter((part): part is string => part !== null).join(' \u00b7 ')
-  // While the summary popover is open the bar rises above the docked panels, which it is drawn over (#497 review)
-  const [summaryOpen, setSummaryOpen] = useState(false)
+  const costReported = (costUsage?.value ?? totalCost) !== null && costUsage?.status !== 'unavailable'
+  const spokenTotals = [
+    // Full wording ("last known state"); screen readers skip the "-" (#364)
+    isAllMode ? `${sessionCountText}, ${pluralize(allAgentCount, 'agent')}` : formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount),
+    contextText.spoken,
+    !isAllMode && unattributedCost > 0 && costReported ? `including ${formatCost(unattributedCost)} unattributed` : null,
+    contextText.tokens,
+  ].filter((part): part is string => part !== null).join(', ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
   const activeFilters: { text: string; lang: string }[] = [
@@ -411,7 +406,7 @@ export const TopBar = memo(function TopBar({
     <header
       ref={rootRef}
       className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px] max-md:max-h-[calc(100dvh-24px)] max-md:overflow-y-auto"
-      style={{ zIndex: summaryOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
+      style={{ zIndex: Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
       <ToggleButton
@@ -529,37 +524,10 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
         )}
         <div className={folded ? 'sr-only' : 'contents'}>
-        <TopBarSummary compact={compactSummary} focusable={!folded} onOpenChange={setSummaryOpen}>
-        {isAllMode ? (
-          // Union of every session: sessions - agents - cost (each agent priced with its own model)
-          <span data-testid="topbar-all-summary">
-            {/* "~$1.23" on screen; screen readers skip "~" and "-", so they get the estimate in words (#364) */}
-            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, allAgentCount, costUsage ?? totalCost)}</span>
-            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, allAgentCount, costUsage ?? totalCost)}</span>
-          </span>
-        ) : (
-          <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
-        )}
-        <span aria-hidden="true">{' \u00b7 '}</span>
-        <span className="sr-only">, </span>
-        <span>
-          {/* A sum of what each context holds now, not of what was consumed (#364) */}
-          {contextText.tokens}
-          {!isAllMode && (
-            <span data-testid="topbar-cost" title={COST_LABELS.method} style={{ color: COLORS.complete }}>
-              {' '}<span aria-hidden="true">{'\u00b7 '}</span>
-              {/* "~$2.10" on screen, "context cost estimate $2.10" for assistive technology (#364) */}
-              <span aria-hidden="true">{contextText.cost}</span>
-              <span className="sr-only">, {contextText.spoken}</span>
-              {unattributedCost > 0 && (
-                <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">
-                  {' '}(incl. <span aria-hidden="true">{COST_LABELS.mark}</span>{formatCost(unattributedCost)} unattributed)
-                </span>
-              )}
-            </span>
-          )}
+        <span data-testid="topbar-agent-counts" className="md:whitespace-nowrap">
+          <span aria-hidden="true">{drawnCounts}</span>
+          <span className="sr-only">{spokenTotals}</span>
         </span>
-        </TopBarSummary>
         {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
         </div>
 

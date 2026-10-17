@@ -223,7 +223,8 @@ export function drawCostSummaryPanel(
   const restRows = hasRest ? 1 : 0
   // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
   const headerCostText = formatCostUsage(costUsage)
-  // Kept short: "in context" would overflow the 212 px panel on a wrapped "at least … estimated" line; the top bar says it (#364)
+  // Kept short: "in context" would overflow the 212 px panel on a wrapped "at least … estimated" line (#364); screen readers read
+  // "tokens in context" in the top bar, which no longer draws it (#523)
   const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
   ctx.font = 'bold 12px monospace'
   const headerCostW = ctx.measureText(headerCostText).width

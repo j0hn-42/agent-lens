@@ -187,7 +187,8 @@ test('the top bar disclosure under 768 px (#378, #476): its visible text starts 
   assert.equal(g.TOP_BAR_LABELS.more, 'More')
   assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
   assert.equal(g.TOP_BAR_LABELS.moreName, 'More: panels, totals and filters')
-  assert.match(g.TOP_BAR_LABELS.moreHelp, /tokens in context/)
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /agent counts/)
+  assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /tokens|cost/, 'no token total or cost in the bar any more (#523)')
   assert.match(g.TOP_BAR_LABELS.moreHelp, /768 px/)
 })
 

@@ -225,7 +225,7 @@ export const SESSION_LIST_LABELS = {
 export const TOP_BAR_LABELS = {
   more: 'More',
   moreName: 'More: panels, totals and filters',
-  moreHelp: 'Panel buttons, agent counts, tokens in context, cost and the view filters (folded under 768 px wide)',
+  moreHelp: 'Panel buttons, agent counts and the view filters (folded under 768 px wide)',
   /** Folded with filters on: the visible text says the canvas is filtered (short: it shares a row at 320 px) */
   moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'}`,
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */

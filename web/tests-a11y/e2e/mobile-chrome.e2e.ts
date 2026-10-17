@@ -93,8 +93,8 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
 
       const more = page.getByRole('button', { name: /^More/ })
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
-      // The drawn totals are the compact summary (#497); the full text stays for screen readers
-      const totals = page.locator('header').getByTestId('topbar-summary-compact')
+      // The drawn totals are the agent counts (#523: tokens and cost are no longer drawn); the full text stays for screen readers
+      const totals = page.locator('header').getByTestId('topbar-agent-counts').locator('[aria-hidden="true"]')
       // Folded, the totals are visually hidden (sr-only, 1 px) but stay in the accessibility tree
       // Width actually drawn: the narrowest box among the text and its ancestors in the bar (sr-only clips to 1 px)
       const drawnWidth = () => totals.evaluate((el: Element) => {
@@ -105,8 +105,8 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
         }
         return w
       })
-      assert.ok(await drawnWidth() <= 1, 'folded: the token total is not drawn')
-      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total')
+      assert.ok(await drawnWidth() <= 1, 'folded: the agent counts are not drawn')
+      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total (#523: read, not drawn)')
       assert.equal(await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
@@ -124,7 +124,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       await more.focus()
       await page.keyboard.press('Enter')
       assert.equal(await more.getAttribute('aria-expanded'), 'true')
-      assert.ok(await drawnWidth() > 1, 'expanded: the token total is drawn')
+      assert.ok(await drawnWidth() > 1, 'expanded: the agent counts are drawn')
       await page.keyboard.press('Tab')
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
       assert.match(String(next), /Notifications|Hide inactive agents|Show finished|finished/, `Tab after More reaches a folded control (got "${next}")`)
@@ -154,7 +154,7 @@ for (const [w, h] of [[768, 900], [1280, 800]] as Array<[number, number]>) {
     const page = await open(w, h)
     try {
       assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
-      assert.ok(await page.getByTestId('topbar-summary-compact').isVisible(), 'the token total is drawn')
+      assert.ok(await page.getByTestId('topbar-agent-counts').isVisible(), 'the agent counts are drawn')
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
     } finally {
       await page.context().close()
