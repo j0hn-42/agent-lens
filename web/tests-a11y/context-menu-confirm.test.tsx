@@ -1,14 +1,14 @@
 // Sensitive context-menu items (#374): an item with `confirmLabel` needs a second activation, like the
 // "Clear history" button of the control bar. The first one arms it (label changes, menu stays open, announced),
 // the second runs it; Escape closes the menu without running anything.
-import { test, afterEach } from 'node:test'
+import { test, afterEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 
 import { GlassContextMenu } from '@/components/agent-visualizer/glass-context-menu'
 
-afterEach(() => { cleanup(); document.body.replaceChildren() })
+afterEach(() => { cleanup(); document.body.replaceChildren(); mock.timers.reset() })
 
 const setup = () => {
   const log: string[] = []
@@ -33,6 +33,9 @@ test('a plain item runs and closes at once', () => {
 
 test('a confirm item: first activation arms it, nothing runs, the menu stays open and the focus stays put', async () => {
   const { v, log } = setup()
+  // The menu ignores a second activation for 400 ms of Date.now(): a controlled clock, since on a loaded machine the real time
+  // between the two clicks can exceed 400 ms and the guard would expire before the "double click" (#440)
+  mock.timers.enable({ apis: ['Date'], now: 1_700_000_000_000 })
   const item = v.getByRole('menuitem', { name: /Clear history/ })
   act(() => { item.focus() })
   await act(async () => { fireEvent.click(item) })
@@ -42,7 +45,7 @@ test('a confirm item: first activation arms it, nothing runs, the menu stays ope
   assert.match(v.getByRole('status').textContent ?? '', /Confirm clear history/)
   await act(async () => { fireEvent.click(armed) })
   assert.deepEqual(log, [], 'a second click right after arming (double click) is ignored')
-  await act(async () => { await new Promise(r => setTimeout(r, 450)) })
+  mock.timers.tick(450)
   await act(async () => { fireEvent.click(armed) })
   assert.deepEqual(log, ['clear', 'close'])
 })
