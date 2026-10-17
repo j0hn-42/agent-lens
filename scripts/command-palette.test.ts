@@ -302,3 +302,76 @@ test('one launch entry per role and session opens the card of the first agent be
   assert.equal(new Set(items.map(i => i.id)).size, items.length)
   assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Find issues to launch for agent:qa-engineer')
 })
+
+// ---- French palette (#503): the language of the text changes, nothing else ----
+
+const FR_PANELS = ['Fichiers', 'Conversation', 'Contexte', 'Système', 'Coût', 'Chronologie', 'Statistiques']
+
+test('French: the panels are named in French, the Sessions list keeps its catalog name', () => {
+  const items = buildPaletteItems(source({ locale: 'fr' }))
+  const panels = items.filter(i => i.group === 'Panels').map(i => i.label)
+  assert.deepEqual(panels, [
+    'Basculer la liste Sessions et agents', 'Basculer le panneau Fichiers', 'Basculer le panneau Conversation', 'Basculer le panneau Chronologie',
+    'Basculer le panneau Contexte', 'Basculer le panneau Système', 'Basculer le panneau Statistiques', 'Basculer la superposition Coût',
+  ])
+  for (const name of FR_PANELS) assert.ok(panels.some(p => p.endsWith(name)), name)
+})
+
+test('the English palette is unchanged when no locale is given or en is asked', () => {
+  const extras = { notifications: { on: true, run: () => {} }, themes: { current: 'neon', options: [{ id: 'neon', label: 'Neon' }], set: () => {} } }
+  const a = buildPaletteItems(source(extras))
+  const b = buildPaletteItems(source({ locale: 'en', ...extras }))
+  const shape = (xs: PaletteItem[]) => xs.map(i => ({ ...i, run: undefined }))
+  assert.deepEqual(shape(b), shape(a))
+  assert.ok(a.some(i => i.label === 'Turn notifications off'))
+  assert.ok(a.some(i => i.label === 'Theme: Neon' && i.detail === 'current theme'))
+})
+
+test('French: a command is found by its French name and by its English name', () => {
+  const items = buildPaletteItems(source({ locale: 'fr', actions: { ...source().actions, togglePresentation: () => {}, clearHistory: () => {} } }))
+  const found = (q: string) => searchPalette(items, q).flatMap(s => s.items).map(i => i.id)
+  const cases: Array<[string, string, string]> = [
+    ['action:play', 'lecture', 'play'], ['action:fit', 'ajuster le zoom', 'zoom to fit'], ['action:fullscreen', 'plein écran', 'full screen'],
+    ['action:presentation', 'mode présentation', 'presentation mode'], ['action:grid', 'grille hexagonale', 'hex grid'],
+    ['action:mute', 'couper', 'mute'], ['action:clear-history', 'effacer l’historique', 'clear history'],
+    ['action:shortcuts', 'raccourcis clavier', 'keyboard shortcuts'], ['action:settings', 'ouvrir les réglages', 'open settings'],
+    ['panel:files', 'panneau fichiers', 'files panel'], ['panel:timeline', 'chronologie', 'timeline'], ['panel:stats', 'statistiques', 'stats panel'],
+    ['panel:cost', 'coût', 'cost overlay'], ['panel:system', 'système', 'system panel'], ['panel:context', 'contexte', 'context panel'],
+    [`session:${ALL_SESSIONS_ID}`, 'toutes les sessions', 'all sessions'],
+  ]
+  for (const [id, fr, en] of cases) {
+    assert.ok(found(fr).includes(id), `"${fr}" finds ${id}`)
+    assert.ok(found(en).includes(id), `"${en}" finds ${id}`)
+  }
+  // Accents are optional when typing
+  assert.ok(found('systeme').includes('panel:system'))
+  assert.ok(found('evenements').includes('panel:timeline'))
+})
+
+test('French: the tour label comes from the tour, so it declares lang=en; the others do not', () => {
+  const tour = { label: 'Tour this session', run: () => {} }
+  const items = buildPaletteItems(source({ locale: 'fr', tour }))
+  assert.equal(items.find(i => i.id === 'action:tour')?.lang, 'en')
+  assert.ok(items.filter(i => i.id !== 'action:tour').every(i => i.lang === undefined))
+  assert.equal(buildPaletteItems(source({ tour })).find(i => i.id === 'action:tour')?.lang, undefined)
+})
+
+test('French: details keep every fact, in French', () => {
+  assert.equal(sessionDetail(session('s1', { status: 'completed', projectName: 'alpha', branch: 'main' }), 'fr'), 'alpha, main, terminée')
+  assert.equal(sessionDetail(session('s1', { imported: true }), 'fr'), 'importée - pas en direct')
+  assert.equal(sessionDetail(session('s1', { indexedOnly: true }), 'fr'), 'indexée - non observée')
+  assert.equal(agentDetail({ id: 'a', name: 'x', sessionId: 's', sessionLabel: 'payments', kind: 'subagent' }, 'fr'), 'Sous-agent, session payments')
+  const items = buildPaletteItems(source({ locale: 'fr', selectedSessionId: ALL_SESSIONS_ID, themes: { current: 'neon', options: [{ id: 'neon', label: 'Neon' }, { id: 'ember', label: 'Ember' }], set: () => {} } }))
+  assert.equal(items.find(i => i.id === `session:${ALL_SESSIONS_ID}`)?.detail, 'vue actuelle')
+  assert.equal(items.find(i => i.id === 'theme:neon')?.detail, 'thème actuel')
+  assert.equal(items.find(i => i.id === 'theme:ember')?.label, 'Thème : Ember')
+})
+
+test('French: the result count keeps the real numbers, 0 and 1 are singular', () => {
+  const sec = (n: number, hidden = 0) => [{ group: 'Actions' as const, items: Array.from({ length: n }, () => ({}) as PaletteItem), hidden }]
+  assert.equal(paletteStatus([], 'fr'), 'Aucune commande correspondante')
+  assert.equal(paletteStatus(sec(1), 'fr'), '1 résultat')
+  assert.equal(paletteStatus(sec(3), 'fr'), '3 résultats')
+  assert.equal(paletteStatus(sec(8, 5), 'fr'), '8 résultats affichés, 5 de plus : continuez à taper pour affiner')
+  assert.equal(paletteStatus(sec(8, 5)), '8 results shown, 5 more: keep typing to narrow')
+})
