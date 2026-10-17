@@ -58,14 +58,22 @@ export function useAttentionSummary({ sim, agentsRef, bridge, selectAgent, selec
   // Each jump goes to the blocked agent after the selected one (or after the last jump, when the selection is not a
   // blocked agent: an agent of another session is not in this view, so its session is selected instead) (#377)
   const lastJumpRef = useRef<string | null>(null)
-  const jumpToAttention = useCallback(() => {
+  const nextTarget = useCallback(() => {
     const current = selectedAgentId && attention.blockedIds.has(selectedAgentId) ? selectedAgentId : lastJumpRef.current
-    const target = nextAttentionTarget(attention, current)
+    return nextAttentionTarget(attention, current)
+  }, [attention, selectedAgentId])
+  const jumpToAttention = useCallback(() => {
+    const target = nextTarget()
     if (!target) return
     lastJumpRef.current = target.id
     if (agentsRef.current?.has(target.id)) selectAgent(target.id)
     else bridge.selectSession(target.sessionId)
-  }, [attention, selectedAgentId, selectAgent, bridge, agentsRef])
+  }, [nextTarget, selectAgent, bridge, agentsRef])
+  /** The next jump selects an agent of this view (its card takes the focus), not another session */
+  const nextAttentionInView = useCallback(() => {
+    const target = nextTarget()
+    return target !== null && Boolean(agentsRef.current?.has(target.id))
+  }, [nextTarget, agentsRef])
 
-  return { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention }
+  return { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention, nextAttentionInView }
 }

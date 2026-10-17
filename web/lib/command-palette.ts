@@ -2,6 +2,7 @@
  * Command palette (#243): the items it lists and the search over them. Pure (no React).
  * Nothing here states more than the session list or the agent list already proved: a session is never
  * called "active" or "running", an agent never gets a state. The palette finds things; the panels show them.
+ * A command that the view cannot run now (no blocked agent, no tour, no events to export) is left out (#377).
  */
 import { ALL_SESSIONS_ID, cleanLine, type SessionInfo } from './bridge-types'
 import { runtimeBadge } from './chrome-utils'
@@ -9,7 +10,7 @@ import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT } from './session-model'
 import { SHORTCUTS } from './shortcuts'
 import { HIERARCHY_TERMS, PANEL_NAMES, SESSIONS_LIST_NAME } from './ui-glossary'
 
-export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents'] as const
+export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents', 'Themes'] as const
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number]
 
 /** Panels the palette can toggle (the Sessions list included). */
@@ -60,7 +61,23 @@ export interface PaletteSource {
     toggleMute: () => void
     openShortcuts: () => void
     openSettings: () => void
+    /** The commands below are listed only when given: the view can run them now (#377) */
+    togglePresentation?: () => void
+    clearHistory?: () => void
+    /** Saves the session of the current view; given only while it has events in memory */
+    exportSession?: () => void
   }
+  /** The tour the legend offers, under the same label; absent while none can start */
+  tour?: { label: string; run: () => void }
+  /**
+   * Next agent waiting for a permission or in error: `detail` is the top bar counter text; absent when none.
+   * `movesFocus`: the next one is in this view (its card takes the focus), not in another session
+   */
+  attention?: { detail: string; movesFocus: boolean; run: () => void }
+  /** Browser notifications toggle; absent when unsupported or blocked by the browser */
+  notifications?: { on: boolean; run: () => void }
+  /** The themes of Settings > Appearance, under the names the theme select gives them */
+  themes?: { current: string; options: ReadonlyArray<{ id: string; label: string }>; set: (id: string) => void }
   togglePanel: (panel: PalettePanel) => void
   selectSession: (id: string) => void
   selectAgent: (id: string) => void
@@ -106,14 +123,27 @@ export function agentDetail(a: PaletteAgent): string {
 export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   const items: PaletteItem[] = []
   const { actions: act } = src
-  const action = (id: string, label: string, run: () => void, key: string | undefined, keywords: string[] = [], movesFocus = false) => {
-    items.push({ id: `action:${id}`, group: 'Actions', label, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined, keywords, movesFocus, sensitive: false, run })
+  const action = (id: string, label: string, run: () => void, key: string | undefined, keywords: string[] = [], movesFocus = false, detail?: string) => {
+    items.push({ id: `action:${id}`, group: 'Actions', label, detail, shortcut: key ? shortcutOf(key, src.singleKeyEnabled) : undefined, keywords, movesFocus, sensitive: false, run })
+  }
+  // What needs the user comes first; its detail is the top bar counter text, nothing more (#377)
+  if (src.attention) {
+    action('next-attention', 'Go to the next agent that needs you', src.attention.run, undefined,
+      ['waiting', 'permission', 'blocked', 'error', 'attention', 'answer'], src.attention.movesFocus, src.attention.detail || undefined)
   }
   action('play', 'Play / pause', act.togglePlayPause, ' ', ['resume', 'review', 'live'])
   action('fit', 'Zoom to fit all agents', act.zoomToFit, 'F', ['view', 'center'])
   action('fullscreen', 'Toggle full screen', act.toggleFullscreen, 'z', ['immersive'], true)
+  if (act.togglePresentation) action('presentation', 'Toggle presentation mode', act.togglePresentation, 'v', ['present', 'demo', 'mask', 'subtitles', 'screen share'])
   action('grid', 'Toggle hex grid', act.toggleHexGrid, 'g', ['background'])
   action('mute', 'Mute / unmute audio', act.toggleMute, 'm', ['sound'])
+  if (act.exportSession) action('export', 'Export this session as an HTML replay', act.exportSession, undefined, ['download', 'save', 'share', 'replay', 'file'])
+  if (act.clearHistory) action('clear-history', 'Clear history', act.clearHistory, undefined, ['reset', 'forget', 'restart', 'timeline'])
+  if (src.notifications) {
+    action('notifications', src.notifications.on ? 'Turn notifications off' : 'Turn notifications on', src.notifications.run, undefined,
+      ['notify', 'alert', 'browser'])
+  }
+  if (src.tour) action('tour', src.tour.label, src.tour.run, undefined, ['tour', 'onboarding', 'help', 'learn', 'legend', 'guide'], true)
   action('shortcuts', 'Show keyboard shortcuts', act.openShortcuts, '?', ['help', 'keys'])
   action('settings', 'Open settings', act.openSettings, ',', ['preferences', 'theme', 'notifications'])
 
@@ -124,7 +154,7 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
     })
   }
   panel('sessions', `Toggle ${SESSIONS_LIST_NAME} list`, 'l', ['agents'])
-  panel('files', `Toggle ${PANEL_NAMES.files} panel`, 'f', ['conflicts', 'edits'])
+  panel('files', `Toggle ${PANEL_NAMES.files} panel`, 'f', ['conflicts', 'edits', 'repeated reads and calls', 'waste'])
   panel('conversation', `Toggle ${PANEL_NAMES.conversation} panel`, 'c', ['messages', 'chat'])
   panel('timeline', `Toggle ${PANEL_NAMES.timeline} panel`, 't', ['events'])
   panel('context', `Toggle ${PANEL_NAMES.context} panel`, 'p', ['claude.md', 'memory', 'issues'])
@@ -155,6 +185,16 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
       id: `agent:${a.id}`, group: 'Agents', label, detail: agentDetail(a) || undefined,
       keywords: [], movesFocus: true, sensitive: true, run: () => src.selectAgent(a.id),
     })
+  }
+
+  if (src.themes) {
+    const { current, set } = src.themes
+    for (const t of src.themes.options) {
+      items.push({
+        id: `theme:${t.id}`, group: 'Themes', label: `Theme: ${t.label}`, detail: t.id === current ? 'current theme' : undefined,
+        keywords: ['appearance', 'colors', 'colours'], movesFocus: false, sensitive: false, run: () => set(t.id),
+      })
+    }
   }
   return items
 }

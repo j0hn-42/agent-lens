@@ -164,7 +164,7 @@ export function AgentVisualizer() {
 
   const agentsRef = useRef(agents)
   agentsRef.current = agents
-  const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention } = useAttentionSummary({
+  const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention, nextAttentionInView } = useAttentionSummary({
     sim: { agents, unattributed, foreignAttention, conversations, droppedMessages, catchUp },
     agentsRef, bridge, selectAgent: selection.handleAgentClick, selectedAgentId: selection.selectedAgentId,
   })
@@ -212,14 +212,22 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
-  const paletteItems = usePaletteItems({
-    open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
-    actions: { togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings },
-  })
   const scopeProps = useScopeControls(bridge, uiPrefs)
 
   const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
     seek: handleSeek, play, isGuidedDemo, frameRef, setTourShowsInactive,
+  })
+
+  const paletteItems = usePaletteItems({
+    open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
+    actions: {
+      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings,
+      togglePresentation: presentation.toggle, clearHistory: handleClearHistory,
+    },
+    exportSession: { can: sessionActions.canExportSession, run: sessionActions.handleExportSession },
+    tour: { start: tourBridge.startTour, label: tourBridge.startTourLabel },
+    attention: { waiting: attention.waiting, errors: attention.errors, jump: jumpToAttention, nextInView: nextAttentionInView },
+    notify: { state: notifyState, toggle: toggleNotify },
   })
 
   return (
