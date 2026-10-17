@@ -33,6 +33,8 @@ export interface DriverOptions {
   stopTimeoutMs?: number
   /** Bytes written to the binary and not yet read by it, beyond which the binary is stopped (default 64 KiB) */
   maxPendingWriteBytes?: number
+  /** Minimum delay between two runs of the same click action (open, copyUrl); default 1 s */
+  clickCooldownMs?: number
   now?: () => number
   fetch?: typeof fetch
   open?: (url: string, port: number) => Promise<boolean>
@@ -54,6 +56,7 @@ export const DEFAULT_POLL_INTERVAL_MS = 5000
 const DEFAULT_PROBE_TIMEOUT_MS = 2000
 const DEFAULT_STARTUP_TIMEOUT_MS = 15_000
 const DEFAULT_STOP_TIMEOUT_MS = 5000
+const DEFAULT_CLICK_COOLDOWN_MS = 1000
 /** A /status answer is a small JSON document; anything bigger is not read */
 const MAX_STATUS_BYTES = 64 * 1024
 const MAX_RELAY_LINE_BYTES = 4096
@@ -208,16 +211,32 @@ export function startDriver(opts: DriverOptions): DriverHandle {
 
   const fail = (message: string) => { log(message); void shutdown(1) }
 
+  // Each open or copy starts a process (openers are detached): one run at a time per action, and a
+  // minimum delay between two, so a binary repeating a click cannot start a process per line
+  const cooldownMs = opts.clickCooldownMs ?? DEFAULT_CLICK_COOLDOWN_MS
+  const actionsRunning = new Set<MenuItem['id']>()
+  const lastActionAt = new Map<MenuItem['id'], number>()
+
   async function onClick(id: MenuItem['id']) {
     const item = lastMenu?.items.find(i => i.id === id)
     if (!item || !item.enabled) return
     if (id === 'quit') { void shutdown(0); return }
     const url = port === null ? null : localRelayUrl(port)
     if (url === null || port === null) return
-    if (id === 'open') {
-      if (!(await open(url, port))) log('could not open the browser; open ' + url + ' by hand')
-    } else if (id === 'copyUrl') {
-      if (!(await copy(url, port))) log('could not copy to the clipboard (no clipboard tool found?); the URL is ' + url)
+    if (id !== 'open' && id !== 'copyUrl') return
+    const at = now()
+    const last = lastActionAt.get(id)
+    if (actionsRunning.has(id) || (last !== undefined && at - last < cooldownMs)) return
+    actionsRunning.add(id)
+    lastActionAt.set(id, at)
+    try {
+      if (id === 'open') {
+        if (!(await open(url, port))) log('could not open the browser; open ' + url + ' by hand')
+      } else if (!(await copy(url, port))) {
+        log('could not copy to the clipboard (no clipboard tool found?); the URL is ' + url)
+      }
+    } finally {
+      actionsRunning.delete(id)
     }
   }
 

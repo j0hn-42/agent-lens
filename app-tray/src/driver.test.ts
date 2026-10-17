@@ -193,6 +193,25 @@ describe('startDriver with a fake relay and a fake binary', () => {
     assert.deepEqual(r.copied[0], [url, port])
   })
 
+  it('starts at most one opener per second for a burst of clicks', async () => {
+    const burst = [...Array.from({ length: 50 }, () => click('open')), ...Array.from({ length: 50 }, () => click('copyUrl'))]
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify(burst) })
+    await until(() => r.opened.length >= 1)
+    await sleep(3500) // 100 clicks, 30 ms apart
+    assert.ok(r.opened.length >= 1 && r.opened.length <= 3, `open ran ${r.opened.length} times`)
+    assert.ok(r.copied.length >= 1 && r.copied.length <= 3, `copy ran ${r.copied.length} times`)
+  })
+
+  it('never runs a second opener while the first one is still running', async () => {
+    let calls = 0
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify(Array.from({ length: 20 }, () => click('open'))) },
+      { clickCooldownMs: 0, open: () => { calls++; return new Promise<boolean>(() => {}) } })
+    await until(() => calls >= 1)
+    await sleep(800)
+    assert.equal(calls, 1)
+    r.handle.stop()
+  })
+
   it('logs, without crashing, when the browser or the clipboard is not available', async () => {
     const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('open'), click('copyUrl'), click('quit')]) },
       { open: async () => false, copy: async () => false })

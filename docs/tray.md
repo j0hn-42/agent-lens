@@ -46,7 +46,7 @@ The menu is rebuilt after every probe of `GET /status` (every 5 seconds, one req
 | Quit and stop the relay | the driver started the relay: sends it `SIGTERM`, which runs its normal clean-up, then closes the icon |
 | Close the icon, the relay keeps running | the driver only attached (`--attach`): closes the icon, the relay is not touched |
 
-The state items are not actions (disabled).
+The state items are not actions (disabled). Open and Copy each run one at a time, at most once per second: a click that arrives while the previous one is still running, or less than a second after it, is ignored.
 
 ## Safety
 
