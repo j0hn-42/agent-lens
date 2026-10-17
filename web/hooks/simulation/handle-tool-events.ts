@@ -298,7 +298,7 @@ export function handleToolCallEnd(
         }
         // File cards for the paths a successful Glob / Grep output lists itself (#438); a replayed result reuses the ids
         if (toolState === 'complete') {
-          const cards = searchDiscoveries({ ...tc, toolUseId: tc.toolUseId ?? toolUseId }, result, currentTime)
+          const cards = searchDiscoveries({ ...tc, toolUseId: tc.toolUseId ?? toolUseId }, result, currentTime, payload.listing)
           for (const d of cards) if (!state.discoveries.some(x => x.id === d.id)) state.discoveries.push(d)
         }
         state.waste = recordToolEnd(state.waste, id, tokenCost, tokenSource, state.wasteToken,
