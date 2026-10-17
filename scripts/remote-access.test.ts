@@ -9,7 +9,8 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import {
-  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
+  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey,
+  requiresRemotePairing,
   bindRemoteAuth, gateRemoteRequest, type RemoteAuth,
 } from './remote-access'
 import { listenLoopback } from './server-hardening'
@@ -52,6 +53,14 @@ describe('parseAllowedHosts', () => {
 
 describe('classifyHost (DNS rebinding: the Host must be loopback or EXACTLY an allowed name)', () => {
   const allowed = ['box.tail1234.ts.net', 'lens.example.com:8443']
+
+  it('asks for the pairing through an allowed Host, and on a loopback Host only when an allow list exists (#517)', () => {
+    assert.equal(requiresRemotePairing('allowed', allowed), true)
+    assert.equal(requiresRemotePairing('loopback', allowed), true, 'SSH -L / port forward: a loopback Host may be remote')
+    // Without an allow list (no --allow-host), loopback is exactly as before: no pairing
+    assert.equal(requiresRemotePairing('loopback', []), false)
+    assert.equal(requiresRemotePairing('foreign', allowed), false, 'a foreign Host is refused (403) before any pairing')
+  })
 
   it('keeps loopback Host headers loopback', () => {
     for (const h of ['127.0.0.1:3001', 'localhost:3001', 'localhost', '[::1]:3001']) assert.equal(classifyHost(h, allowed), 'loopback', h)
@@ -159,6 +168,17 @@ describe('remoteStartupError (fail closed at startup)', () => {
     assert.notEqual(remoteStartupError({ allowHosts: [], host: '' }), null)
   })
 
+  it('--host ::1 is IPv6 loopback: refused because the server listens on 127.0.0.1 only, without sending the user to --remote (#478 review, point 6)', () => {
+    for (const host of ['::1', '[::1]', ' ::1 ', '0:0:0:0:0:0:0:1']) {
+      for (const remote of [false, true]) {
+        const err = remoteStartupError({ allowHosts: [], host, remote }) ?? ''
+        assert.match(err, /127\.0\.0\.1/, `${host} remote=${remote}`)
+        assert.match(err, /IPv6/, `${host} remote=${remote}`)
+        assert.doesNotMatch(err, /needs an explicit --remote|--remote --host/, `${host} remote=${remote}`)
+      }
+    }
+  })
+
   it('an empty --host asks for an address, not for --remote (#474)', () => {
     const err = remoteStartupError({ allowHosts: [], host: '' }) ?? ''
     assert.match(err, /--host needs an address/)
@@ -181,9 +201,21 @@ describe('remoteStartupError (fail closed at startup)', () => {
     assert.match(remoteStartupError({ allowHosts: ['*.ts.net'] }) ?? '', /--allow-host/)
   })
 
-  it('a valid --allow-host is refused while token authentication is not shipped', () => {
-    assert.equal(REMOTE_AUTH_AVAILABLE, false)
-    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
+  it('--allow-host needs --token-file; --token-file needs --allow-host and a path (#517)', () => {
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /--token-file/)
+    assert.match(remoteStartupError({ allowHosts: [], tokenFile: '/tmp/t' }) ?? '', /--token-file[^]*--allow-host/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '' }) ?? '', /--token-file needs a path/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '  ' }) ?? '', /--token-file needs a path/)
+    // A malformed name is still reported for what it is
+    assert.match(remoteStartupError({ allowHosts: ['*.ts.net'], tokenFile: '/tmp/t' }) ?? '', /--allow-host: /)
+  })
+
+  it('a valid --allow-host with --token-file starts: the pairing is wired into the command (#517)', () => {
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '/home/me/.agent-lens/pair-token' }), null)
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net', 'lens.example.com:8443'], tokenFile: 't', host: '127.0.0.1' }), null)
+    // Still refused without the token file, and listening outside loopback is still refused
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }), null)
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: 't', host: '0.0.0.0', remote: true }), null)
   })
 })
 

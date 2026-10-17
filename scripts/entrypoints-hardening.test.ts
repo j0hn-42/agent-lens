@@ -275,11 +275,38 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     })
   }
 
-  it('--allow-host stops the start while token authentication is not shipped', async () => {
+  it('--allow-host without --token-file stops the start, and names --token-file (#517)', async () => {
     const r = await runToExit(['--allow-host', 'box.tail1234.ts.net'])
     assert.equal(r.code, 2, r.out)
     assert.match(r.out, /--allow-host/)
-    assert.match(r.out, /token/i)
+    assert.match(r.out, /--token-file/)
+  })
+
+  it('--token-file without --allow-host, or without a path, stops the start: a security flag is never a no-op (#517)', async () => {
+    const alone = await runToExit(['--token-file', path.join(fakeHome, 'unused-token')])
+    assert.equal(alone.code, 2, alone.out)
+    assert.match(alone.out, /--token-file/)
+    assert.equal(fs.existsSync(path.join(fakeHome, 'unused-token')), false, 'nothing written')
+    for (const args of [['--allow-host', 'box.tail1234.ts.net', '--token-file'], ['--allow-host', 'box.tail1234.ts.net', '--token-file=']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /--token-file/)
+    }
+  })
+
+  it('a --token-file that cannot be written (missing folder) stops the start before listening (#517)', async () => {
+    const r = await runToExit(['--allow-host', 'box.tail1234.ts.net', '--token-file', path.join(fakeHome, 'missing-dir', 'token')])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /Agent Lens:/)
+  })
+
+  it('--host ::1 stops the start without sending the user to --remote: the server listens on 127.0.0.1 only (#478 review, point 6)', async () => {
+    for (const args of [['--host', '::1'], ['--host', '[::1]'], ['--host=::1']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /127\.0\.0\.1/)
+      assert.doesNotMatch(r.out, /--remote/, `${args.join(' ')}: ::1 is loopback, --remote is not the answer`)
+    }
   })
 
   it('an invalid --allow-host and a non-loopback --host stop the start', async () => {
@@ -316,6 +343,106 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
       const r = await runToExit(args)
       assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
     }
+  })
+})
+
+describe('app entry point: --allow-host with --token-file pairs end to end (#517)', () => {
+  const TUNNEL = 'box.tail1234.ts.net'
+  const tokenDir = path.join(fakeHome, 'pairing')
+  const tokenFile = path.join(tokenDir, 'token')
+  const OLD = 'old content of a world-readable file'
+  let r: Running
+  let token = ''
+
+  function send(method: string, urlPath: string, headers: http.OutgoingHttpHeaders = {}, body?: string): Promise<Reply> {
+    return new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: r.port, method, path: urlPath, agent: false, headers: { 'User-Agent': `pair-${Math.random()}`, ...headers } }, res => {
+        let out = ''
+        res.setEncoding('utf8')
+        // An open stream (/events 200) is enough: do not wait for its end
+        if (res.headers['content-type']?.includes('text/event-stream')) { req.destroy(); return resolve({ status: res.statusCode ?? 0, headers: res.headers, body: '' }) }
+        res.on('data', c => { out += c })
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }))
+      })
+      req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error(`${method} ${urlPath}: no answer`)))
+      req.on('error', reject)
+      req.end(body)
+    })
+  }
+  const cookieOf = (reply: Reply) => String(reply.headers['set-cookie']?.[0] ?? '').split(';')[0]
+  const tunnelPost = (body: string, headers: http.OutgoingHttpHeaders = {}) =>
+    send('POST', '/pair', { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json', ...headers }, body)
+
+  before(async () => {
+    fs.mkdirSync(tokenDir, { recursive: true })
+    // A file left world-readable by someone else: it is replaced by an owner-only one, never written through
+    fs.writeFileSync(tokenFile, OLD, { mode: 0o644 })
+    if (process.platform !== 'win32') fs.chmodSync(tokenFile, 0o644)
+    r = await start(ENTRIES[1], ['--allow-host', TUNNEL, '--token-file', tokenFile])
+    // The banner is printed right after the listening line: let it arrive
+    await new Promise(res => setTimeout(res, SIGNAL_SETTLE_MS))
+    token = fs.readFileSync(tokenFile, 'utf8').trim()
+  })
+  after(() => { if (r && r.child.exitCode === null) r.child.kill('SIGKILL') })
+
+  it('writes a fresh 256-bit token to --token-file, owner only (0600), replacing a wider file', () => {
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/)
+    assert.ok(!token.includes(OLD))
+    if (process.platform !== 'win32') assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600)
+  })
+
+  it('never prints the token when the output is not a terminal (a pipe, a service log): the banner points to the file', () => {
+    const out = r.output()
+    assert.ok(!out.includes(token), 'the token reached a non-terminal output')
+    assert.ok(out.includes(tokenFile), 'the banner names the token file')
+    assert.ok(out.includes(`https://${TUNNEL}/#pair=`), 'the banner gives the tunnel pairing URL (without the token)')
+    assert.ok(out.includes(`http://127.0.0.1:${r.port}/#pair=`), 'the banner gives the local pairing URL (without the token)')
+  })
+
+  it('through the tunnel Host: no cookie 401, wrong or missing token 401 with no cookie, the right token 204 + cookie that opens /status', async () => {
+    assert.equal((await send('GET', '/status', { Host: TUNNEL })).status, 401)
+    assert.equal((await send('GET', '/events', { Host: TUNNEL })).status, 401)
+    const other = token.startsWith('A') ? `B${token.slice(1)}` : `A${token.slice(1)}`
+    for (const body of [JSON.stringify({ token: other }), '{}', '']) {
+      const bad = await tunnelPost(body)
+      assert.equal(bad.status, 401, body)
+      assert.equal(bad.headers['set-cookie'], undefined)
+    }
+    assert.equal((await tunnelPost(JSON.stringify({ token }), { Origin: 'https://evil.example' })).status, 403)
+    const ok = await tunnelPost(JSON.stringify({ token }))
+    assert.equal(ok.status, 204, ok.body)
+    const cookie = cookieOf(ok)
+    assert.match(cookie, /^__Host-agent-lens-pair=[A-Za-z0-9_-]{43}$/)
+    assert.ok(!cookie.includes(token), 'the cookie is not the token')
+    assert.equal((await send('GET', '/status', { Host: TUNNEL, Cookie: cookie })).status, 200)
+    assert.equal((await send('GET', '/events', { Host: TUNNEL, Cookie: cookie })).status, 200)
+    // The pairing opens the read-only surface only
+    assert.equal((await send('GET', '/observations', { Host: TUNNEL, Cookie: cookie })).status, 403)
+  })
+
+  it('on a loopback Host too (an SSH -L tunnel, a port forward): every data route needs the pairing; the page that pairs still loads', async () => {
+    for (const host of [`127.0.0.1:${r.port}`, `localhost:${r.port}`, `[::1]:${r.port}`]) {
+      for (const p of ['/status', '/events', '/observations', '/statusline', '/issue-links?role=qa-engineer']) {
+        const reply = await send('GET', p, { Host: host })
+        assert.equal(reply.status, 401, `GET ${p} Host: ${host}`)
+        assert.equal(reply.body, 'Unauthorized')
+      }
+      assert.equal((await send('POST', '/scope', { Host: host, 'Content-Type': 'application/json' }, '{"scope":"all"}')).status, 401, `POST /scope Host: ${host}`)
+      assert.equal((await send('GET', '/', { Host: host })).status, 200, `the static app on ${host}`)
+    }
+    const local = `127.0.0.1:${r.port}`
+    const wrong = await send('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json' }, '{}')
+    assert.equal(wrong.status, 401)
+    assert.equal((await send('POST', '/pair', { Host: local, Origin: 'https://evil.example', 'Content-Type': 'application/json' }, JSON.stringify({ token }))).status, 403)
+    const ok = await send('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json' }, JSON.stringify({ token }))
+    assert.equal(ok.status, 204, ok.body)
+    const cookie = cookieOf(ok)
+    assert.equal((await send('GET', '/status', { Host: local, Cookie: cookie })).status, 200)
+    assert.equal((await send('GET', '/observations', { Host: local, Cookie: cookie })).status, 200)
+  })
+
+  it('never logs the token, even after pairing', () => {
+    assert.ok(!r.output().includes(token))
   })
 })
 
