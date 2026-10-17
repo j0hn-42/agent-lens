@@ -31,6 +31,8 @@ export interface SettingsDialogProps {
   onSingleKeyEnabledChange: (enabled: boolean) => void
   /** Opens the keyboard shortcuts dialog (this dialog closes first) */
   onOpenShortcuts: () => void
+  /** Restores the defaults of the preference blob (#372); the 'Reset preferences' button is left out when absent */
+  onResetPrefs?: () => void
   /** Presentation mode (#245) and its three options; the section is left out when absent */
   presentation?: {
     active: boolean
@@ -111,6 +113,68 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       </h3>
       {children}
     </section>
+  )
+}
+
+/**
+ * 'Reset preferences' (#372): two native buttons, nothing is reset before the second one. The help says what is reset and
+ * what is kept. Focus moves to the confirmation, and back to the reset button after a cancel or a reset.
+ */
+function ResetSection({ onReset }: { onReset: () => void }) {
+  const t = useT()
+  const helpId = useId()
+  const [asking, setAsking] = useState(false)
+  const [done, setDone] = useState(false)
+  const resetRef = useRef<HTMLButtonElement>(null)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  const focusNext = useRef<'confirm' | 'reset' | null>(null)
+  useEffect(() => {
+    if (focusNext.current === 'confirm') confirmRef.current?.focus()
+    else if (focusNext.current === 'reset') resetRef.current?.focus()
+    focusNext.current = null
+  }, [asking])
+  const buttonStyle = { background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }
+  const buttonClass = `min-h-6 rounded px-2 py-1 text-[11px] font-mono ${FOCUS_RING}`
+  return (
+    <Section title={t('settings.section.reset')}>
+      <p id={helpId} className="m-0 mb-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.reset.help')}</p>
+      {asking ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{t('settings.reset.ask')}</span>
+          <button
+            ref={confirmRef}
+            type="button"
+            className={buttonClass}
+            style={buttonStyle}
+            onClick={() => { onReset(); setDone(true); focusNext.current = 'reset'; setAsking(false) }}
+          >
+            {t('settings.reset.confirm')}
+          </button>
+          <button
+            type="button"
+            className={buttonClass}
+            style={buttonStyle}
+            onClick={() => { focusNext.current = 'reset'; setAsking(false) }}
+          >
+            {t('settings.reset.cancel')}
+          </button>
+        </div>
+      ) : (
+        <button
+          ref={resetRef}
+          type="button"
+          aria-describedby={helpId}
+          className={buttonClass}
+          style={buttonStyle}
+          onClick={() => { setDone(false); focusNext.current = 'confirm'; setAsking(true) }}
+        >
+          {t('settings.reset')}
+        </button>
+      )}
+      <p role="status" className="m-0 mt-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>
+        {done ? t('settings.reset.done') : ''}
+      </p>
+    </Section>
   )
 }
 
@@ -203,14 +267,15 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
 }
 
 /**
- * Modal "Settings" dialog: one place for the preferences that already persist under their own
- * keys (theme, sound, hex grid, finished sessions, inactive agents, single-key shortcuts).
- * It only reads and writes those stores, it never persists anything itself.
+ * Modal "Settings" dialog: one place for the preferences (theme, language, sound, hex grid, finished sessions,
+ * inactive agents, single-key shortcuts...). It only reads and writes their stores, it never persists anything
+ * itself; 'Reset preferences' (#372) resets the preference blob only, as its help says.
  * Focus is trapped while open, Escape closes it and focus returns to the previously focused element.
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
   hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements,
+  onResetPrefs,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
   const t = useT()
@@ -379,6 +444,8 @@ export function SettingsDialog({
               {t('settings.shortcuts')}
             </button>
           </Section>
+
+          {onResetPrefs && <ResetSection onReset={onResetPrefs} />}
         </GlassCard>
       </div>
     </div>

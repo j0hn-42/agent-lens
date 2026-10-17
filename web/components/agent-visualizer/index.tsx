@@ -413,7 +413,7 @@ export function AgentVisualizer() {
           open: showSettings, onClose: closeSettings, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
           muted: isMuted, onToggleMute: handleToggleMute, showFinished: bridge.showFinished, onShowFinishedChange: bridge.setShowFinished,
           hideInactive, onHideInactiveChange: updateHideInactive, singleKeyEnabled: singleKeyShortcuts,
-          onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts,
+          onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel },
           notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },

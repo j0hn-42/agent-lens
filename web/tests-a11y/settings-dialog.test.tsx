@@ -115,3 +115,27 @@ test('announcements (#379): a named select with its help, reporting the chosen l
   fireEvent.change(select, { target: { value: 'important' } })
   assert.deepEqual(levels, ['important'])
 })
+
+test('reset preferences (#372): asks first, says what it resets and keeps, then calls the reset once; absent without the prop', () => {
+  const none = render(<SettingsDialog {...dialogProps()} />)
+  assert.equal(none.queryByRole('button', { name: 'Reset preferences' }), null)
+  cleanup()
+  let resets = 0
+  const view = render(<SettingsDialog {...dialogProps({ onResetPrefs: () => { resets++ } })} />)
+  const reset = view.getByRole('button', { name: 'Reset preferences' })
+  const help = document.getElementById(reset.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+  assert.ok(/Theme, language, sound, notifications and presentation are kept/.test(help), 'the help names what is not reset')
+  assert.ok(/finished sessions/.test(help) && /inactive agents/.test(help), 'the help names the view filters it resets')
+  fireEvent.click(reset)
+  assert.equal(resets, 0, 'nothing is reset before the confirmation')
+  const confirm = view.getByRole('button', { name: 'Reset now' })
+  assert.equal(document.activeElement, confirm, 'focus moves to the confirmation')
+  fireEvent.click(view.getByRole('button', { name: 'Cancel' }))
+  assert.equal(resets, 0)
+  assert.equal(document.activeElement, view.getByRole('button', { name: 'Reset preferences' }), 'cancel gives the focus back')
+  fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
+  fireEvent.click(view.getByRole('button', { name: 'Reset now' }))
+  assert.equal(resets, 1)
+  assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
+  assert.equal(document.activeElement, view.getByRole('button', { name: 'Reset preferences' }))
+})
