@@ -21,6 +21,7 @@ import { CopilotSessionWatcher } from '../extension/src/copilot-session-watcher'
 import { PiSessionWatcher } from '../extension/src/pi-session-watcher'
 import { GeminiSessionWatcher } from '../extension/src/gemini-session-watcher'
 import { OpenCodeSessionWatcher } from '../extension/src/opencode-session-watcher'
+import { lifecycleTags } from '../extension/src/session-runtime'
 import { readSessionIndex, mergeIndexedSessions, withIndexedFacts, filterIndexedByWorkspace, type IndexOpener, type SessionIndexResult } from '../extension/src/session-index'
 import {
   SCAN_INTERVAL_MS, ACTIVE_SESSION_AGE_S, SESSION_ID_DISPLAY, ORCHESTRATOR_NAME,
@@ -320,7 +321,8 @@ let launchKillAll: (() => void) | null = null
 /** Adds the facts of the session index (declared parent, cwd) to a session entry; set up by createRelay. */
 let enrichSession: (info: SessionInfo) => SessionInfo = info => info
 
-function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string) {
+/** `tags`: the runtime and directory a watcher puts on its lifecycle event, for a session the relay does not hold itself (#420). */
+function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessionId: string, label: string, tags: Partial<SessionInfo> = {}) {
   if (type === 'started') {
     launchSessionSeen?.(sessionId)
     const live = sessions.get(sessionId)
@@ -332,7 +334,7 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     // is not activity (#365)
     const base: SessionInfo = live
       ? toSessionInfo(live)
-      : { id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
+      : { ...tags, id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
     broadcast(JSON.stringify({
       type: 'session-started',
       session: enrichSession({ ...base, label, status: 'active' } as SessionInfo),
@@ -1032,7 +1034,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     openCodeWatcher = new OpenCodeSessionWatcher(workspace)
     openCodeWatcher.onEvent((event) => broadcastEvent(event))
     openCodeWatcher.onSessionLifecycle((lifecycle) => {
-      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+      // Runtime and cwd ride on session-started: a session started while the page is open gets its badge (#420)
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
     openCodeWatcher.start()
   }

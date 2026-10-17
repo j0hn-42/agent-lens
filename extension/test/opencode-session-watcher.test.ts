@@ -7,7 +7,7 @@ import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'node:path'
 import fs from 'node:fs'
-import { OpenCodeSessionWatcher } from '../src/opencode-session-watcher'
+import { OpenCodeSessionWatcher, homeRelative } from '../src/opencode-session-watcher'
 import { ACTIVE_SESSION_AGE_S, OPENCODE_MAX_WATCHED_SESSIONS } from '../src/constants'
 import type { AgentEvent } from '../src/protocol'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
@@ -178,6 +178,45 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     w.start()
     const expected = Array.from({ length: OPENCODE_MAX_WATCHED_SESSIONS }, (_, i) => `ses_${i}`).sort()
     assert.deepEqual(w.getActiveSessions().map(s => s.id).sort(), expected)
+  })
+
+  it('#420: the cap warning shows again once the followed sessions dropped below the cap', () => {
+    const { fx, w, clock } = setup()
+    const n = OPENCODE_MAX_WATCHED_SESSIONS + 3
+    for (let i = 0; i < n; i++) fx.session(`ses_${i}`, { created: T0 - 5000, updated: T0 - 1000 - i })
+    const warn = mock.method(console, 'warn', () => undefined)
+    const capWarnings = () => warn.mock.calls.filter(c => /Plafond/.test(c.arguments.join(' '))).length
+    try {
+      w.start()
+      assert.equal(capWarnings(), 1)
+      // Every session goes idle and is released: the cap is no longer reached
+      clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
+      w.scanNow()
+      assert.equal(w.isActive(), false)
+      // A new burst of activity reaches the cap again: it is reported again
+      clock.t += 1000
+      for (let i = 0; i < n; i++) fx.message(`msg_${i}`, `ses_${i}`, clock.t, { ...userMsg, time: { created: clock.t } })
+      w.scanNow()
+      assert.equal(w.getActiveSessions().length, OPENCODE_MAX_WATCHED_SESSIONS)
+      assert.equal(capWarnings(), 2)
+    } finally { warn.mock.restore() }
+  })
+
+  it('#420: activity of an old session pushed out of the remembered rows still attaches it (lookup by id)', () => {
+    const { fx, w, lifecycle, clock } = setup()
+    const old = T0 - (ACTIVE_SESSION_AGE_S + 3600) * 1000
+    fx.batch(() => {
+      fx.session('ses_old', { created: old - 10, updated: old - 10 })
+      // More session rows than the watcher remembers, all read after ses_old
+      for (let i = 0; i < 5100; i++) fx.session(`ses_n${i}`, { created: old + i, updated: old + i })
+    })
+    w.start()
+    for (let i = 0; i < 30; i++) w.scanNow()
+    assert.equal(lifecycle.length, 0, 'no old session is attached without activity')
+    clock.t = T0 + 1000
+    fx.message('msg_old', 'ses_old', clock.t, { ...userMsg, time: { created: clock.t } })
+    w.scanNow()
+    assert.deepEqual(lifecycle.map(l => [l.type, l.sessionId]), [['started', 'ses_old']])
   })
 
   it('survives a failing poll and recovers on the next one', () => {
@@ -489,5 +528,17 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(w.isSessionActive('ses_c'), true, 'the new database is read')
     assert.equal(w.isSessionActive('ses_a'), false, 'the replaced database is no longer served')
     fx.close()
+  })
+})
+
+describe('homeRelative (#420)', () => {
+  it('shortens a path under the home directory to ~', () => {
+    assert.equal(homeRelative('/home/u/.local/share/opencode/opencode.db', '/home/u'), '~/.local/share/opencode/opencode.db')
+  })
+  it('leaves the path as is when the home directory is empty, relative, or only a prefix of a name', () => {
+    assert.equal(homeRelative('/data/opencode.db', ''), '/data/opencode.db')
+    assert.equal(homeRelative('/data/opencode.db', 'data'), '/data/opencode.db')
+    assert.equal(homeRelative('/home/user2/opencode.db', '/home/u'), '/home/user2/opencode.db')
+    assert.equal(homeRelative('/x/home/u/opencode.db', '/home/u'), '/x/home/u/opencode.db')
   })
 })
