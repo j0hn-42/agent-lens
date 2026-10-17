@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * vscode:uninstall script — runs when the extension is uninstalled.
- * Removes Agent Lens hooks from ALL known Claude Code settings files,
+ * Removes Agent Lens hooks from ALL known Claude Code settings files, puts back the user's own statusLine
+ * where the Agent Lens status line wrapper was installed (#467),
  * then deletes the entire ~/.claude/agent-lens/ directory.
  *
  * Hook detection and the settings write are the shared ones (./claude-hooks.js): Windows
@@ -17,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const {
-  isAgentLensHook, removeAgentLensHooks, updateSettings, claudeConfigDir, readSettingsPaths,
+  isAgentLensHook, removeAgentLensHooks, updateSettings, claudeConfigDir, readSettingsPaths, restoreStatusLineInFile,
 } = require('./claude-hooks');
 
 function discoveryDir() {
@@ -29,6 +30,15 @@ function removeHooksFromFile(settingsPath) {
   try {
     updateSettings(settingsPath, removeAgentLensHooks, { deleteIfEmpty: true });
   } catch { /* best effort: unreadable or unwritable file left as is */ }
+}
+
+/** Put the user's own statusLine back (#467) before the wrapper script disappears; an unreadable file is left as is. */
+function restoreStatusLine(settingsPath) {
+  try {
+    restoreStatusLineInFile(settingsPath);
+  } catch (err) {
+    console.error(`Agent Lens: statusLine not restored in ${settingsPath}: ${err && err.message}`);
+  }
 }
 
 function globalSettingsPaths(dir = discoveryDir()) {
@@ -70,7 +80,8 @@ function main() {
   for (const workspace of collectWorkspaces(dir)) {
     files.add(path.resolve(workspace, '.claude', 'settings.local.json'));
   }
-  for (const file of files) { removeHooksFromFile(file); }
+  // statusLine first: a file left with nothing but hooks is then emptied and removed by removeHooksFromFile
+  for (const file of files) { restoreStatusLine(file); removeHooksFromFile(file); }
 
   // Delete entire agent-lens directory (manifests, discovery files, hook script)
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }

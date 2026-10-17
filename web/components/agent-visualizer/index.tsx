@@ -32,6 +32,7 @@ import { useChromeData } from "@/hooks/use-chrome-data"
 import { usePaletteItems } from "@/hooks/use-palette-items"
 import { usePanelsState } from "@/hooks/use-panels-state"
 import { useTourController } from "@/hooks/use-tour-controller"
+import { quotaStreamActive } from "@/lib/quota"
 import { useSessionViewSwap } from "@/hooks/use-session-view-swap"
 import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
@@ -80,6 +81,10 @@ export function AgentVisualizer() {
   // 'Hide inactive agents': on by default, persisted with the other UI preferences
   const hideInactive = prefs.hideInactive
   const updateHideInactive = useCallback((hide: boolean) => setPref('hideInactive', hide), [setPref])
+  // Quota gauges of the top bar (#467): the runtime of the selected session decides what they say (undefined = none selected)
+  const showQuota = prefs.showQuota
+  const updateShowQuota = useCallback((show: boolean) => setPref('showQuota', show), [setPref])
+  const selectedRuntime = bridge.sessions.find(sess => sess.id === bridge.selectedSessionId)?.runtime
   const updateAnnounceLevel = useCallback((level: AnnounceLevel) => setPref('announceLevel', level), [setPref])
   // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
   // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
@@ -219,6 +224,9 @@ export function AgentVisualizer() {
   const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
     seek: handleSeek, play, isGuidedDemo, frameRef, setTourShowsInactive,
   })
+  // The quota only comes from the relay stream: no gauge, and no setting that would do nothing, in VS Code, the demo or the tour
+  const quotaSourceActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData, tourActive: tour.active })
+  const quotaSettingActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData })
   // Offered once, on the first launch, as soon as the legend can start a tour (#377)
   const tourOffer = useTourOffer({
     canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
@@ -275,6 +283,7 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings} onOpenPalette={openPalette}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
+        quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota && quotaSourceActive}
       />
       </div>
 
@@ -416,6 +425,7 @@ export function AgentVisualizer() {
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel },
+          quota: quotaSettingActive ? { show: showQuota, onShowChange: updateShowQuota } : undefined,
           notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },
         }}
         palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}

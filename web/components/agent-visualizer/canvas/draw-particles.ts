@@ -6,7 +6,7 @@ import { bezierPoint, resolveEdgeTarget, computeControlPoints } from './draw-edg
 import { getGlowSprite } from './render-cache'
 import { pointInView, PARTICLE_CULL_EXTENT } from './view-cull'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 
 /** Pre-build edge lookup map. Call once per frame, pass to drawParticles. */
 export function buildEdgeMap(edges: Edge[]): Map<string, Edge> {
@@ -25,7 +25,9 @@ export function drawParticles(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const { reducedMotion } = opts
-  const showLabels = lodOf(opts).details
+  // Hidden where the label would fall under LOD.minTextPx, held at it in the hysteresis band (#378)
+  const showLabels = lodOf(opts).detailText
+  const labelPx = PARTICLE_DRAW.labelFontSize * textHoldScale(PARTICLE_DRAW.labelFontSize, opts.zoom)
   for (const particle of particles) {
     const edge = edgeMap.get(particle.edgeId)
     if (!edge) continue
@@ -101,7 +103,7 @@ export function drawParticles(
     // only kept for particles of edges that carry no link (no bubble would show the text).
     if (showLabels && !opts.edgeBubbles && particle.label && t > PARTICLE_DRAW.labelMinT && t < PARTICLE_DRAW.labelMaxT) {
       ctx.fillStyle = particle.color + 'aa'
-      ctx.font = `${PARTICLE_DRAW.labelFontSize}px monospace`
+      ctx.font = `${labelPx}px monospace`
       ctx.textAlign = 'center'
       ctx.fillText(opts.maskText ? maskText(particle.label) : particle.label, px, py + PARTICLE_DRAW.labelYOffset)
     }

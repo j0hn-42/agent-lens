@@ -42,6 +42,9 @@ const children: FakeChild[] = []
 const kills: Array<[number, string]> = []
 const journal: JournalEntry[] = []
 let tokenSeen = ''
+/** Pairing cookie of the tunnel client (#475) */
+let cookie = ''
+let pairToken = ''
 
 interface Reply { status: number; body: string; headers: http.IncomingHttpHeaders }
 let ua = 0
@@ -116,7 +119,7 @@ describe('relay launch (#229)', () => {
     await assert.rejects(createRelay({ workspace: ws, runtime: 'claude', launch: { repos: [REPO], maxConcurrent: 1.5 } }), /maxConcurrent/)
     let pid = 7000
     relay = await createRelay({
-      workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL],
+      workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], remotePairing: { onToken: t => { pairToken = t } },
       launch: {
         repos: [REPO], token: TOKEN, maxConcurrent: 2, rate: { burst: 1000, perSecond: 1000 }, onToken: t => { tokenSeen = t },
         journal: { append: e => { journal.push(e); return true } },
@@ -133,10 +136,14 @@ describe('relay launch (#229)', () => {
       if (isStatusPath(req.url)) return relay.handleStatus(req, res)
       if (isLaunchPath(req.url)) return relay.handleLaunch(req, res)
       if (req.url?.startsWith('/events')) return relay.handleSSE(req, res)
+      if (req.url === '/pair' && relay.remotePairing) return void relay.remotePairing.handlePair(req, res)
       res.writeHead(404); res.end()
     })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     port = (server.address() as { port: number }).port
+    const paired = await request('POST', '/pair', { body: JSON.stringify({ token: pairToken }), headers: { Host: TUNNEL, 'Content-Type': 'application/json' } })
+    cookie = String(paired.headers['set-cookie']?.[0] ?? '').split(';')[0]
+    assert.ok(cookie, `pairing failed: ${paired.status}`)
   })
 
   after(() => { relay.dispose(); server.close(); fs.rmSync(fakeHome, { recursive: true, force: true }) })
@@ -198,16 +205,16 @@ describe('relay launch (#229)', () => {
   })
 
   it('a tunnel Host never receives the launches: not in the stream, not in /status', async () => {
-    const remote = await openSse({ Host: TUNNEL })
+    const remote = await openSse({ Host: TUNNEL, Cookie: cookie })
     await new Promise(res => setTimeout(res, 300))
     assert.equal(relay.debugState().remoteSseClients, 1, 'the tunnel client is really connected')
     assert.equal(remote.messages.some(m => m.type === 'launch-list' || m.type === 'launch'), false)
     remote.close()
-    const status = await request('GET', '/status', { headers: { Host: TUNNEL } })
+    const status = await request('GET', '/status', { headers: { Host: TUNNEL, Cookie: cookie } })
     assert.equal(status.status, 200)
     assert.equal('launch' in JSON.parse(status.body), false)
     // And the launch routes are loopback only, token or not
-    const viaTunnel = await launch(230, { Host: TUNNEL })
+    const viaTunnel = await launch(230, { Host: TUNNEL, Cookie: cookie })
     assert.equal(viaTunnel.status, 403)
   })
 

@@ -20,6 +20,9 @@ import { useLocale } from "@/lib/locale"
 import { translate, type MessageKey } from "@/lib/messages"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
+import { QuotaGauges } from "./quota-gauges"
+import { quotaGaugeState, type QuotaSnapshotView } from "@/lib/quota"
+import { useMinuteClock } from "@/hooks/use-minute-clock"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
 import { isMobileView as isNarrow, subscribeMobileView as subscribeNarrow } from "@/hooks/use-mobile-view"
 
@@ -281,6 +284,12 @@ export interface TopBarProps {
   onToggleNotify?: () => void
   /** Scope of the session discovery (#291): shown permanently when a relay reports its scope */
   scope?: ScopeSelectorProps
+  /** Subscription quota snapshot of the relay (#467); null until it sends one (always null in VS Code and demo mode) */
+  quota?: QuotaSnapshotView | null
+  /** Runtime of the selected session ('claude', 'copilot', ...); undefined = no session selected */
+  selectedRuntime?: string
+  /** Settings > Show the quota gauges; on by default */
+  showQuota?: boolean
 }
 
 export const TopBar = memo(function TopBar({
@@ -293,6 +302,7 @@ export const TopBar = memo(function TopBar({
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
+  quota = null, selectedRuntime, showQuota = true,
 }: TopBarProps) {
   const { locale } = useLocale()
   const t = (key: MessageKey) => translate(locale, key)
@@ -346,6 +356,9 @@ export const TopBar = memo(function TopBar({
     target?.focus({ preventScroll: true })
   }, [narrow])
   const folded = narrow && !moreOpen
+  // The age and the expiry of the quota move with the clock; it ticks once a minute, only while there is a snapshot to age
+  const quotaNow = useMinuteClock(showQuota && quota !== null)
+  const quotaState = quotaGaugeState(selectedRuntime, quota, quotaNow)
   const contextText = topBarContextText(
     tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
@@ -522,6 +535,7 @@ export const TopBar = memo(function TopBar({
             </span>
           )}
         </span>
+        {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
         </div>
 
         {!folded && (

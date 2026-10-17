@@ -65,6 +65,14 @@ test('closed: a pill with the latest message and its role as visible text; click
   assert.equal(r.queryByRole('button', { name: /^Open Conversation/ }), null, 'the pill is replaced by the panel')
 })
 
+test('the collapsed pill is a cover for the canvas text (data-canvas-cover): halo titles move off it (#378)', () => {
+  const r = panel()
+  const pill = r.getByRole('button', { name: /^Open Conversation/ })
+  assert.ok(pill.closest('[data-canvas-cover]'), 'the pill (or its wrapper) is tagged data-canvas-cover')
+  fireEvent.click(pill)
+  assert.equal(document.querySelector('[data-canvas-cover]'), null, 'the open panel reserves its dock instead (no cover left)')
+})
+
 test('without any message there is no pill, but an opened panel shows the one empty state', () => {
   const r = panel({ conversations: new Map(), initialOpen: false })
   assert.equal(r.queryByRole('button', { name: /^Open Conversation/ }), null)

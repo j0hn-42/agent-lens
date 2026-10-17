@@ -44,6 +44,8 @@ export interface UiPrefs {
   showFiles: boolean
   showConversation: boolean
   showCostOverlay: boolean
+  /** Quota gauges in the top bar (#467): on by default */
+  showQuota: boolean
   /** 'Hide inactive agents' (#219): on by default */
   hideInactive: boolean
   /** 'Show finished sessions' (#36, in the blob since #372): the 'All' view also lists sessions idle for more than 10 minutes; off by default */
@@ -77,6 +79,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   showFiles: false,
   showConversation: false,
   showCostOverlay: false,
+  showQuota: true,
   hideInactive: true,
   showFinished: false,
   singleKeyShortcuts: true,

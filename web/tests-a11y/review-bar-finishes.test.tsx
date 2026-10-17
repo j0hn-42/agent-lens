@@ -87,7 +87,7 @@ test('canvas and agent menus: every item is in sentence case (#383)', () => {
   assert.ok(canvas.includes('Toggle stats') && canvas.includes('Toggle grid'), canvas.join(', '))
   cleanup()
   const agent = labels(render(<SelectionOverlays {...menuProps({ x: 10, y: 10, agentId: 'a1' })} />))
-  assert.deepEqual(agent, ['Toggle stats'])
+  assert.deepEqual(agent, ['Show details', 'Zoom to fit', 'Toggle stats'])
   for (const label of [...canvas, ...agent]) {
     const rest = (label ?? '').split(' ').slice(1)
     assert.ok(rest.every(w => w === w.toLowerCase()), `"${label}" is in sentence case`)

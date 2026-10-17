@@ -25,6 +25,7 @@ import { extractToolUseLinks } from './team-links'
 import { createLogger } from './logger'
 import { SessionNormalizer, CountersRegistry, sharedCounters } from './event-normalize'
 import { isSafeId } from './hook-guards'
+import { isQuotaPath } from './relay-guards'
 import { PermissionGate, sha256Json, decisionProof } from './permission-gate'
 
 const log = createLogger('HookServer')
@@ -89,6 +90,9 @@ export interface HookServerControl {
   token: string
 }
 
+/** A route injected by the relay (POST /quota, #467): it answers the request itself. */
+export type QuotaHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+
 export class HookServer implements vscode.Disposable {
   private server: http.Server | null = null
   private port: number
@@ -99,6 +103,7 @@ export class HookServer implements vscode.Disposable {
   /** SubagentStop transcript reads run one at a time with a bounded queue */
   private readonly transcriptLimiter = new AsyncLimiter(SUBAGENT_TRANSCRIPT_CONCURRENCY, SUBAGENT_TRANSCRIPT_MAX_QUEUE)
   private disposed = false
+  private quotaHandler: QuotaHandler | null = null
   /** Per-session input normalizers (bounded like sessionState): every emitted event goes through one */
   private readonly normalizers = new Map<string, SessionNormalizer>()
   /** Counters for requests that cannot be attributed to a session (invalid JSON, invalid session_id) */
@@ -161,12 +166,35 @@ export class HookServer implements vscode.Disposable {
     res.end(msg, () => req.socket.destroy())
   }
 
+  /** Route POST /quota to `handler` (the relay's, with its own guards); null removes it and the path answers 404. */
+  setQuotaHandler(handler: QuotaHandler | null): void {
+    this.quotaHandler = handler
+  }
+
+  private quotaFailed(res: http.ServerResponse, e: unknown): void {
+    log.error('Quota handler failed:', e)
+    if (!res.headersSent) { res.writeHead(500, { 'Content-Type': 'text/plain' }); res.end('Internal Server Error') } else { res.destroy() }
+  }
+
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const remote = req.socket.remoteAddress
     if (!isLoopbackAddress(remote)) { return this.reject(req, res, 403, 'Forbidden') }
     // Host check stops DNS rebinding; hook clients (Node/curl) never send Origin, browsers always do on cross-site POSTs.
     if (!isLoopbackHostHeader(req.headers.host)) { return this.reject(req, res, 403, 'Forbidden') }
     if (req.headers.origin !== undefined) { return this.reject(req, res, 403, 'Forbidden') }
+
+    // Subscription quota from the status line script (#467): it only knows this port. Before hook validation,
+    // malformed counting and the hook IP limiter (the route has its own guards); no handler = not a route here.
+    if (isQuotaPath(req.url)) {
+      const handler = this.quotaHandler
+      if (!handler) { return this.reject(req, res, 404, 'Not Found') }
+      try {
+        Promise.resolve(handler(req, res)).catch(e => this.quotaFailed(res, e))
+      } catch (e) {
+        this.quotaFailed(res, e)
+      }
+      return
+    }
 
     if (req.method !== 'POST') {
       res.writeHead(200, { 'Content-Type': 'text/plain' })

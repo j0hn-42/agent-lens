@@ -217,6 +217,21 @@ test('popups stay inside the viewport and between the bars', () => {
   }
 })
 
+test('popups never cover the permission cards under the top bar (#410)', () => {
+  for (const [w, h] of VIEWPORTS) {
+    for (const permissionsH of [0, 120, 260]) {
+      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH }
+      const slot = TOPBAR_H + (permissionsH > 0 ? permissionsH + 4 : 0)
+      for (const anchor of [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w / 2, y: h / 2 }]) {
+        const p = placePopup(anchor, { w: 320, h: 200 }, env)
+        const label = `${w}x${h} perm=${permissionsH} @${anchor.x},${anchor.y}`
+        assert.ok(p.top >= Math.min(slot, h), `${label}: under the cards (top ${p.top} < ${slot})`)
+        assert.ok(p.top + Math.min(200, p.maxHeight) <= Math.max(h - 16 - BAR_H - 8, p.top), `${label}: above the control bar`)
+      }
+    }
+  }
+})
+
 test('freeIntervals / findFreeSpot', () => {
   const blockers: Rect[] = [{ x: 0, y: 100, w: 100, h: 100 }]
   assert.deepEqual(freeIntervals(blockers, 0, 100, 0, 500), [[0, 92], [208, 500]])

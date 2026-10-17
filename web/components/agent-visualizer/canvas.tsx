@@ -88,7 +88,7 @@ export function AgentCanvas(props: CanvasProps) {
     drawPropsRef, hideInactiveRef, collapseMemoryRef, collapseViewRef, handleToggleBranch, handleClusterClickRef,
   } = useCanvasDrawProps(props, { hasFocus, focusedNode, dimensions })
 
-  const { getInsets, getSafeArea, refreshInsetsIfStale } = useCanvasInsets(mainCanvasRef)
+  const { getInsets, getSafeArea, getCovers, refreshInsetsIfStale } = useCanvasInsets(mainCanvasRef)
 
   // ─── Camera ─────────────────────────────────────────────────────────────
   const {
@@ -141,7 +141,7 @@ export function AgentCanvas(props: CanvasProps) {
     heldBubbleKeysRef, selectedClusterKeyRef, clustersRef,
     linksPropRef, teamsRef, sessionsRef, sessionLinksRef,
     presentationRef, reducedMotionRef: prefs.reducedMotionRef, animationsPausedRef: prefs.animationsPausedRef, globalReducedRef: prefs.globalReducedRef, calmLayersRef: prefs.calmLayersRef, neverHideRef: prefs.neverHideRef,
-    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, effectsRef, detectStateChanges,
+    updateCamera, isCameraBusy, updateDragLerp, refreshInsetsIfStale, getSafeArea, getCovers, effectsRef, detectStateChanges,
   })
 
   // ─── Tooltip target (hover or keyboard focus) ──────────────────────────

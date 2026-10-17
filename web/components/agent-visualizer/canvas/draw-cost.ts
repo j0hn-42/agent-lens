@@ -8,7 +8,7 @@ import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
 import { truncateText } from './draw-misc'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercent } from './draw-agents'
 import { isAgentVisible, agentDrawOpacity, agentDrawRadius } from './team-style'
@@ -46,8 +46,9 @@ export function drawCostLabels(
   toolCalls: Map<string, ToolCallNode>,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  // Cost pills are secondary text: hidden below the level-of-detail zoom threshold
-  if (!lodOf(opts).details) return
+  // Cost pills are secondary text: hidden where 11 px would fall under LOD.minTextPx, held at it in the hysteresis band (#378)
+  if (!lodOf(opts).detailText) return
+  const textScale = textHoldScale(11, opts.zoom)
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
   for (const [, agent] of agents) {
@@ -77,6 +78,12 @@ export function drawCostLabels(
 
     ctx.save()
     ctx.translate(place.dx, place.dy)
+    // Enlarged around the bottom centre of the pill, as the overlay plan reserves it
+    if (textScale !== 1) {
+      ctx.translate(agent.x, pillY + pillH)
+      ctx.scale(textScale, textScale)
+      ctx.translate(-agent.x, -(pillY + pillH))
+    }
     ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
     // Pill background

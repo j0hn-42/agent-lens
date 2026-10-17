@@ -51,7 +51,7 @@ export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
   'ctx-tool-results': 'Tool results: part of the context window.',
   'ctx-reasoning': 'Reasoning: part of the context window.',
   'ctx-subagent': 'Sub-agent results: part of the context window.',
-  'disc-file': 'File: a path a successful Grep call (files_with_matches) listed in its output, at most a few per call.',
+  'disc-file': 'File: a path a successful Grep call (files_with_matches) or Glob call listed, at most a few per call.',
   'disc-pattern': 'Pattern: an agent pinned a pattern.',
   'disc-finding': 'Finding: an agent pinned a finding.',
   'disc-code': 'Code: an agent pinned a piece of code.',

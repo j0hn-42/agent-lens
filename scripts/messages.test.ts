@@ -39,7 +39,7 @@ test('translate fills placeholders and falls back to the default locale for an u
 
 // Step 2: the catalog covers the canvas controls and the settings dialog
 // units and a word that is the same in both languages
-const SAME_IN_BOTH = new Set<string>(['controls.seconds', 'controls.minutes', 'controls.zoomGroup', 'settings.section.notifications', 'settings.language.fr', 'settings.language.en', 'permission.rowTitle', 'permission.session', 'permission.withSubject', 'permission.actionNameShort', 'permission.deadlineMin', 'permission.deadlineSec', 'topbar.notify'])
+const SAME_IN_BOTH = new Set<string>(['controls.seconds', 'controls.minutes', 'controls.zoomGroup', 'settings.section.notifications', 'settings.language.fr', 'settings.language.en', 'permission.rowTitle', 'permission.session', 'permission.withSubject', 'permission.actionNameShort', 'permission.deadlineMin', 'permission.deadlineSec', 'topbar.notify', 'quota.window.fiveHour'])
 
 test('a French message is not a copy of the English one', () => {
   for (const k of Object.keys(MESSAGES.fr) as MessageKey[]) {

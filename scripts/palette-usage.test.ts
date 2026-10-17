@@ -1,6 +1,6 @@
 // #382: a palette key nothing reads is a false guarantee (the contrast tests vouch for a colour that is never painted) and a
-// colour to maintain for nothing. Every key of the palette is read by production code (`COLORS.<key>`, `SCENE.<key>`, a
-// destructuring or a quoted key), or is listed in KNOWN_UNREAD below. The list is a ratchet: it only shrinks. A key that
+// colour to maintain for nothing. Every key of the palette is read by production code (`COLORS.<key>`, `SCENE.<key>`, `palette.<key>`, a
+// destructuring of a palette object or a quoted index), or is listed in KNOWN_UNREAD below. The list is a ratchet: it only shrinks. A key that
 // gets read again must leave the list, a new key must be read, and a dead key is deleted from theme-palette.ts.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -25,8 +25,17 @@ const TEXT = ['web', 'extension/src', 'app']
   .flatMap(d => { try { return sources(join(ROOT, d)) } catch { return [] } })
   .map(f => readFileSync(f, 'utf8'))
 
+// Only an access on a palette object counts: `.key` on any other object (`item.danger`, `this.delegate`, `PERF_OVERLAY.fpsWarning`)
+// says nothing about the palette. Palette objects in the code: COLORS (interface), SCENE (canvas), NEON_COLORS, and the
+// `palette` / `p` parameters and locals that receive one (colors.ts, scene-state-colors.ts, learn-more-link.tsx).
+const OBJ = '(?:COLORS|SCENE|NEON_COLORS|palette|p)'
+
 function isRead(key: string): boolean {
-  const re = new RegExp(`(\\.|\\?\\.|['"\`])${key}\\b|[{,]\\s*${key}\\s*[,}:]`)
+  const re = new RegExp(
+    `\\b${OBJ}\\??\\.${key}\\b` +
+    `|\\b${OBJ}\\[['"\`]${key}['"\`]\\]` +
+    `|\\{[^{}]*\\b${key}\\b[^{}]*\\}\\s*=\\s*${OBJ}\\b`,
+  )
   return TEXT.some(t => re.test(t))
 }
 
