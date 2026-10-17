@@ -12,6 +12,9 @@
  * - Every failure (wrong / missing token, malformed body, wrong Content-Type, oversized body) is the same 401
  *   'Unauthorized'. POST /pair has its own rate limiter, keyed on the tunnel name (its peer is always 127.0.0.1), debited
  *   by failures only, after the token was compared: past the budget a failure gets 429, the right token still pairs.
+ *   That limiter only changes the status of a failure: it neither slows nor caps the attempts, and every request is
+ *   still read and compared. What one request costs is bounded by REMOTE_PAIR_BODY_MAX_BYTES and
+ *   REMOTE_PAIR_BODY_TIMEOUT_MS; what makes guessing hopeless is the 256 bits of the token, not the limiter.
  *
  * Lifetime and revocation (a deliberate choice of this first version):
  * - The token is REUSABLE for the whole run of the relay: every device that has it can pair, again and again.
@@ -188,8 +191,10 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
     }
     if (req.method !== 'POST') return plain(res, 405, 'Method not allowed', { Allow: 'POST' })
     // Only failures use the bucket, and only once the token was compared: a client who keeps the bucket empty with
-    // wrong attempts cannot lock the owner out (the right token always passes). 256 bits make the brute force moot;
-    // the bucket bounds the cost of wrong attempts. Its key is the tunnel name (X-Forwarded-For is never read).
+    // wrong attempts cannot lock the owner out (the right token always passes). The bucket only turns a failure's 401
+    // into 429: it does not slow the attempts down, each one is still read and compared. The cost of one request is
+    // bounded by REMOTE_PAIR_BODY_MAX_BYTES and REMOTE_PAIR_BODY_TIMEOUT_MS; the 256 bits of the token are what make
+    // brute force moot. Its key is the tunnel name (X-Forwarded-For is never read).
     const fail = (extra: http.OutgoingHttpHeaders = {}) => limiter.allow(remoteRateKey(host), now())
       ? plain(res, 401, 'Unauthorized', extra)
       : plain(res, 429, 'Too many requests', { 'Retry-After': '10', ...extra })
