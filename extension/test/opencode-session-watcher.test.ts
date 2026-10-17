@@ -11,13 +11,19 @@ import { OpenCodeSessionWatcher, homeRelative } from '../src/opencode-session-wa
 import { ACTIVE_SESSION_AGE_S, OPENCODE_MAX_WATCHED_SESSIONS } from '../src/constants'
 import type { AgentEvent } from '../src/protocol'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
-import { OpenCodeFixture, sqliteAvailable, tmpDir } from './helpers/opencode-fixture'
+import { OpenCodeFixture, cleanupFixtures, sqliteAvailable, tmpDir } from './helpers/opencode-fixture'
 
 const T0 = Date.UTC(2026, 9, 14, 12, 0, 0)
 const userMsg = { role: 'user', time: { created: T0 }, agent: 'build', model: { providerID: 'p', modelID: 'm' } }
 
 let watchers: OpenCodeSessionWatcher[] = []
-afterEach(() => { for (const w of watchers) w.dispose(); watchers = [] })
+// Watchers first (they hold a read connection), then the fixtures' handles and directories (#420)
+afterEach(() => {
+  try { for (const w of watchers) w.dispose() } finally {
+    watchers = []
+    cleanupFixtures()
+  }
+})
 
 function setup(workspace: string | null = '/w', clock = { t: T0 }) {
   const dir = tmpDir()
@@ -159,7 +165,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.deepEqual(w.getActiveSessions().map(s => s.id).sort(), ['ses_ctl', 'ses_rel'])
     // The reader already strips control characters from the directory; the watcher keeps its own check
     // and drops a relative path. Either way no control character and no relative path reaches the cwd.
-    for (const s of w.getActiveSessions()) assert.ok(s.cwd === undefined || (path.isAbsolute(s.cwd) && !/[\u0000-\u001f\u007f-\u009f]/.test(s.cwd)))
+    assert.equal(w.getActiveSessions().find(s => s.id === 'ses_ctl')?.cwd, '/w/[2Jx', 'the escape character is stripped by the reader')
     assert.equal(w.getActiveSessions().find(s => s.id === 'ses_rel')?.cwd, undefined)
     const strict = setup('/w')
     strict.fx.session('ses_rel', { dir: '../w', created: T0 - 5000, updated: T0 - 1000 })
