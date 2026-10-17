@@ -271,7 +271,7 @@ function tagText(value: string | undefined): string | undefined {
 }
 
 /** Tags of a watcher's lifecycle (runtime, cwd...): untrusted text like the other session fields, bounded the same way (#420). */
-function boundedTags(tags: Partial<SessionInfo>): Partial<SessionInfo> {
+export function boundedTags(tags: Partial<SessionInfo>): Partial<SessionInfo> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(tags)) {
     const text = typeof value === 'string' ? tagText(value) : undefined
