@@ -607,23 +607,6 @@ export const STATE_LABEL_SHORT: Readonly<Record<string, string>> = {
   waiting_permission: 'waiting',
 }
 
-/**
- * Shape of the agent state marker in the session list (#381): one shape per state, so the marker never relies on its
- * colour, or on the pulse (gone under prefers-reduced-motion), to tell two states apart (WCAG 1.4.1). The row also says
- * the state in words.
- */
-export const STATE_MARKER_SHAPE = {
-  idle: 'ring',
-  thinking: 'disc',
-  tool_calling: 'square',
-  waiting_permission: 'diamond',
-  paused: 'bars',
-  complete: 'check',
-  error: 'cross',
-} as const satisfies Readonly<Record<string, string>>
-
-export type StateMarkerShape = (typeof STATE_MARKER_SHAPE)[keyof typeof STATE_MARKER_SHAPE]
-
 /** Full state text used by the DOM mirror, legend and tooltip */
 export const STATE_LABEL_LONG: Readonly<Record<string, string>> = {
   idle: 'idle',
