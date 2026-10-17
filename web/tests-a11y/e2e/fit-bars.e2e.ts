@@ -1,5 +1,5 @@
 // Framing against the bars (#378, lot 4), measured in a real browser on the tour demo (`pnpm --dir web run test:e2e`).
-// On develop @ aa20e5b, after "Fit to view" with the Cost overlay at 1024 x 768, the workspace frame of the
+// On develop @ fe29117, after "Fit to view" with the Cost overlay at 1024 x 768, the workspace frame of the
 // docs-site session ended at y 670 while the canvas controls (Legend, Tour, zoom, View) start at y 666 on top
 // of the playback bar: the fit only reserved the playback bar, and the workspace frames were not framed.
 // Every card, pill, frame and text the canvas draws in world space must stay between the top bar and the
