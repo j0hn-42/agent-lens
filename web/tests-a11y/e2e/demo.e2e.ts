@@ -250,6 +250,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             view: rect(Array.from(document.querySelectorAll('button')).find(b => (b.textContent || '').trim() === 'View')),
             viewPanel: rect(q('[role="dialog"][aria-label="View settings"]')),
             panel: rect(q('[data-dock-panel="files"]')),
+            tourOffer: rect(q('[data-tour-offer]')),
           }
         })()`) as Promise<Record<string, { x: number; y: number; w: number; h: number } | null>>
         type R = { x: number; y: number; w: number; h: number }
@@ -261,7 +262,12 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
             assert.ok(!hit(r[names[i]]!, r[names[j]]!), `${where} @${width}px: ${names[i]} ${JSON.stringify(r[names[i]])} overlaps ${names[j]} ${JSON.stringify(r[names[j]])}`)
           }
         }
-        check(await rectsOf(), ['legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
+        // The tour offer of the first launch (#377) shows from 600 px wide, clear of the other overlays
+        if (width >= 600) {
+          await page.locator('[data-tour-offer]').waitFor({ timeout: 15_000 })
+          await waitForStableLayout(page)
+        }
+        check(await rectsOf(), [...(width >= 600 ? ['tourOffer'] : []), 'legend', 'zoomIn', 'fit', 'view', 'controlBar'], 'canvas overlays')
         // The View panel opens from the keyboard, stays clear of the legend and the control bar, and Escape gives the focus back.
         const viewButton = page.getByRole('button', { name: 'View', exact: true })
         await viewButton.focus()

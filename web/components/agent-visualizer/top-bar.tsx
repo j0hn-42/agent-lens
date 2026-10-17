@@ -264,8 +264,10 @@ export interface TopBarProps {
   onToggleFullscreen?: () => void
   /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
   attention?: { waiting: number; errors: number }
-  /** Select the first blocked agent */
+  /** Select the next blocked agent (the first one on the first click, #377) */
   onJumpToAttention?: () => void
+  /** Opens the command palette (also Ctrl+K / Cmd+K); the button is hidden when omitted (#377) */
+  onOpenPalette?: () => void
   /** Browser notifications opt-in; absent or 'unsupported' = no control */
   notifyState?: NotifyState
   onToggleNotify?: () => void
@@ -282,10 +284,14 @@ export const TopBar = memo(function TopBar({
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
-  attention, onJumpToAttention, notifyState = 'unsupported', onToggleNotify, scope,
+  attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
+  // With two or more, each click goes to the next one (#377); with one, there is no "next" to promise
+  const attentionMany = attention ? attention.waiting + attention.errors > 1 : false
+  // Outside VS Code no permission card is drawn here (#240): say where a permission is answered
+  const answerWhere = isVSCode ? '' : ' A permission is answered where the agent runs (its terminal or editor), not on this page.'
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
@@ -300,11 +306,15 @@ export const TopBar = memo(function TopBar({
   const regionRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
   const refocusAfterWiden = useRef(false)
+  const paletteRef = useRef<HTMLButtonElement>(null)
+  const refocusAfterNarrow = useRef(false)
   const subscribe = useCallback((onChange: () => void) => subscribeNarrow(() => {
     const active = typeof document === 'undefined' ? null : document.activeElement
     if (isNarrow()) {
       // A control that folds has the focus: open More in the same render, so it stays mounted
       if (active && regionRef.current?.contains(active)) setMoreOpen(true)
+      // Commands is not drawn under 768 px: its focus goes to More
+      else if (active && active === paletteRef.current) refocusAfterNarrow.current = true
     } else if (active && active === moreRef.current) {
       refocusAfterWiden.current = true
     }
@@ -312,6 +322,11 @@ export const TopBar = memo(function TopBar({
   }), [])
   const narrow = useSyncExternalStore(subscribe, isNarrow, () => false)
   useLayoutEffect(() => {
+    if (narrow && refocusAfterNarrow.current) {
+      refocusAfterNarrow.current = false
+      moreRef.current?.focus({ preventScroll: true })
+      return
+    }
     if (narrow || !refocusAfterWiden.current) return
     refocusAfterWiden.current = false
     // More is gone: its first control (a filter) takes the focus, else the first view control
@@ -387,8 +402,10 @@ export const TopBar = memo(function TopBar({
             type="button"
             data-testid="attention-counter"
             onClick={onJumpToAttention}
-            aria-label={`${attentionText}. Go to the first agent that needs you`}
-            title="Agents of this view that wait for a permission or failed. Click to select the first one."
+            aria-label={`${attentionText}. ${attentionMany ? 'Go to the next agent that needs you' : 'Go to the agent that needs you'}`}
+            title={(attentionMany
+              ? 'Agents that wait for a permission or failed. Each click selects the next one, waiting agents first.'
+              : 'The agent that waits for a permission or failed. Click to select it.') + answerWhere}
             className={`min-h-6 ${TOUCH_TARGET} px-2 rounded font-bold ${FOCUS_RING}`}
             style={{
               background: COLORS.toggleInactive,
@@ -526,6 +543,24 @@ export const TopBar = memo(function TopBar({
               shortcut="z"
             >
               <FullscreenIcon />
+            </ToggleButton>
+          )}
+          {/* Not under 768 px: one more button wraps the folded bar onto another row (#378 height budget) */}
+          {onOpenPalette && !narrow && (
+            <ToggleButton
+              buttonRef={paletteRef}
+              active={false}
+              onClick={onOpenPalette}
+              ariaLabel="Commands"
+              title="Command palette: actions, panels, sessions, agents and themes (Ctrl+K / Cmd+K)"
+              shortcut="Control+K Meta+K"
+              hasDialog
+            >
+              <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="7" cy="7" r="5" />
+                <path d="M11 11l4 4" />
+              </svg>
+              <span aria-hidden="true" className="ml-1 hidden sm:inline">Commands</span>
             </ToggleButton>
           )}
           {onOpenSettings && (

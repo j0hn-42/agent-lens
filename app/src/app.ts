@@ -24,7 +24,7 @@ if (isCliCommand(command)) {
   const args = parseArgs(process.argv.slice(2))
 
   // Remote access (#241): fail closed before any setup or listening
-  const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host })
+  const remoteError = remoteStartupError({ allowHosts: args.allowHosts, host: args.host, remote: args.remote })
   if (remoteError) {
     console.error(`Agent Lens: ${remoteError}`)
     process.exit(2)

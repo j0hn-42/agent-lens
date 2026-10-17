@@ -222,7 +222,8 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
           </p>
         </div>
       )}
-      <div className="flex items-center gap-2">
+      {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378) */}
+      <div data-canvas-inset="bottom" className="flex items-center gap-2">
         <button
           type="button"
           onClick={toggle}
