@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef } from 'react'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
@@ -32,15 +32,37 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
   const sectionRef = useRef<HTMLElement>(null)
   // Above the canvas controls, which sit above the control bar: the card never covers them
   const { controlBarH } = useDockSnapshot().env
-  const body = `A short tour explains what is on screen. It stays available from ${label} next to the Legend, and from Commands (Ctrl+K).`
+  const body = `A short tour explains what is on screen. It stays available from ${label} next to the Legend, and from Commands (Ctrl+K / Cmd+K).`
 
   const dismiss = () => {
     const hadFocus = sectionRef.current?.contains(document.activeElement) ?? false
+    heldFocusRef.current = false
     onDismiss()
     if (!hadFocus) return
     const target = document.getElementById(GUIDED_TOUR_BUTTON_ID) ?? document.getElementById('visualizer-main')
     target?.focus({ preventScroll: true })
   }
+  // Closed by something else while it held the focus (under 600 px, presentation, full screen): the focus would
+  // fall to <body> with the unmounted card, so it goes where Not now sends it
+  const heldFocusRef = useRef(false)
+  useEffect(() => {
+    const el = sectionRef.current
+    if (!el) return
+    const onIn = () => { heldFocusRef.current = true }
+    const onOut = (e: FocusEvent) => { if (e.relatedTarget instanceof Node && !el.contains(e.relatedTarget)) heldFocusRef.current = false }
+    el.addEventListener('focusin', onIn)
+    el.addEventListener('focusout', onOut)
+    return () => { el.removeEventListener('focusin', onIn); el.removeEventListener('focusout', onOut) }
+  }, [open])
+  useLayoutEffect(() => {
+    if (open || !heldFocusRef.current) return
+    heldFocusRef.current = false
+    const active = document.activeElement
+    if (active && active !== document.body && active.isConnected) return
+    const target = document.getElementById(GUIDED_TOUR_BUTTON_ID) ?? document.getElementById('visualizer-main')
+    target?.focus({ preventScroll: true })
+  }, [open])
+
   const dismissRef = useRef(dismiss)
   dismissRef.current = dismiss
 

@@ -164,8 +164,8 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
       seen.add(key)
       const session = cleanLine(a.sessionLabel, MAX_LABEL)
       items.push({
-        id: `launch:${a.sessionId}:${role}`, group: 'Actions', label: `Launch an agent on an issue labelled agent:${role}`,
-        detail: `from the card of ${name}${session ? `, session ${session}` : ''}`,
+        id: `launch:${a.sessionId}:${role}`, group: 'Actions', label: `Find issues to launch for agent:${role}`,
+        detail: `opens the card of ${name}${session ? `, session ${session}` : ''}`,
         keywords: ['launch', 'start', 'run', 'spawn', 'issue', 'new agent'], movesFocus: true, sensitive: true, run: () => src.selectAgent(a.id),
       })
     }

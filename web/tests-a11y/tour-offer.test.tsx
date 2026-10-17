@@ -63,6 +63,18 @@ test('Escape inside the offer dismisses it and the focus goes to the tour button
   assert.equal(document.activeElement?.id, GUIDED_TOUR_BUTTON_ID)
 })
 
+test('closed by something else while it holds the focus, the offer hands it to the tour button, not to <body>', () => {
+  const r = mount(true)
+  r.getByRole('button', { name: 'Not now' }).focus()
+  r.rerender(
+    <main id="visualizer-main" tabIndex={-1}>
+      <button type="button" id={GUIDED_TOUR_BUTTON_ID}>Tour this session</button>
+      <TourOffer open={false} label="Tour this session" onStart={() => {}} onDismiss={() => {}} />
+    </main>,
+  )
+  assert.equal(document.activeElement?.id, GUIDED_TOUR_BUTTON_ID)
+})
+
 test('the offer has no axe violation', async () => {
   const r = mount(true)
   const results = await axe.run(r.container, { rules: { 'color-contrast': { enabled: false }, region: { enabled: false } } })

@@ -290,15 +290,15 @@ test('one launch entry per role and session opens the card of the first agent be
   }))
   const launches = items.filter(i => i.id.startsWith('launch:'))
   assert.deepEqual(launches.map(i => i.label), [
-    'Launch an agent on an issue labelled agent:frontend-engineer',
-    'Launch an agent on an issue labelled agent:qa-engineer',
-    'Launch an agent on an issue labelled agent:frontend-engineer',
+    'Find issues to launch for agent:frontend-engineer',
+    'Find issues to launch for agent:qa-engineer',
+    'Find issues to launch for agent:frontend-engineer',
   ])
   assert.ok(launches.every(i => i.group === 'Actions' && i.movesFocus && i.sensitive))
-  assert.equal(launches[0].detail, 'from the card of fe-1, session web')
-  assert.equal(launches[2].detail, 'from the card of fe-3, session api')
+  assert.equal(launches[0].detail, 'opens the card of fe-1, session web')
+  assert.equal(launches[2].detail, 'opens the card of fe-3, session api')
   launches[0].run()
   assert.deepEqual(calls, ['agent:k1'])
   assert.equal(new Set(items.map(i => i.id)).size, items.length)
-  assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Launch an agent on an issue labelled agent:qa-engineer')
+  assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Find issues to launch for agent:qa-engineer')
 })

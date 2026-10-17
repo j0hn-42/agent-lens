@@ -378,6 +378,12 @@ export function AgentVisualizer() {
       />
       </div>
 
+      {/* Drawn just above the canvas controls: next to them in the Tab order too (#377) */}
+      <TourOffer
+        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
+        onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
+      />
+
       <PanelDock
         panels={panels} sim={{ fileAttention, waste, agents, timelineEntries, currentTime }} bridge={bridge} selection={selection}
         attention={attention} health={health} sessionActions={sessionActions} uiPrefs={uiPrefs} allSessionCount={allSessionCount}
@@ -390,10 +396,6 @@ export function AgentVisualizer() {
           <GuidedTourCard steps={tourSteps} index={tour.index} stale={tourStale} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={exitTour} />
         </>
       )}
-      <TourOffer
-        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
-        onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
-      />
 
       <ToastRegion
         toasts={toasts}
