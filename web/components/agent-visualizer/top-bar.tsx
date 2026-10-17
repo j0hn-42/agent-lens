@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
+import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
@@ -16,6 +16,8 @@ import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
+import { useLocale } from "@/lib/locale"
+import { translate, type MessageKey } from "@/lib/messages"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
 import { QuotaGauges } from "./quota-gauges"
@@ -89,7 +91,7 @@ export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -105,6 +107,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   /** aria-keyshortcuts value */
   shortcut?: string
   ariaLabel?: string
+  /** id of the element that names the button (aria-labelledby) */
+  labelledBy?: string
   /** True when the button opens a modal dialog */
   hasDialog?: boolean
   /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
@@ -114,6 +118,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   /** aria-expanded of a disclosure button, with the id of what it shows */
   expanded?: boolean
   controls?: string
+  /** Language of this button's text when it is a translated control (#373); the others follow the page */
+  lang?: string
 }) {
   return (
     <button
@@ -123,12 +129,14 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       onClick={onClick}
       aria-pressed={pressed}
       aria-label={ariaLabel}
+      aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       aria-expanded={expanded}
       aria-controls={controls}
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
+      lang={lang}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
       className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
@@ -296,6 +304,8 @@ export const TopBar = memo(function TopBar({
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
   quota = null, selectedRuntime, showQuota = true,
 }: TopBarProps) {
+  const { locale } = useLocale()
+  const t = (key: MessageKey) => translate(locale, key)
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
   // With two or more, each click goes to the next one (#377); with one, there is no "next" to promise
@@ -311,6 +321,7 @@ export const TopBar = memo(function TopBar({
   // assistive technology (sr-only).
   const [moreOpen, setMoreOpen] = useState(false)
   const moreId = useId()
+  const moreNameId = useId()
   // Crossing 768 px (resize, browser zoom) unmounts More or the folded controls: keep the focus out of <body> (2.4.3).
   // The focus is read in the media query handler, before React renders the new width.
   const regionRef = useRef<HTMLDivElement>(null)
@@ -353,10 +364,11 @@ export const TopBar = memo(function TopBar({
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
   )
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
-  const activeFilters = [
-    hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
-    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount) : null,
-  ].filter((f): f is string => f !== null)
+  // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
+  const activeFilters: { text: string; lang: string }[] = [
+    hideInactive && onToggleHideInactive ? { text: t('topbar.hideInactive'), lang: locale } : null,
+    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? { text: TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount), lang: 'en' } : null,
+  ].filter((f): f is { text: string; lang: string } => f !== null)
   const showFilterCount = folded && activeFilters.length > 0
   // Under 768 px a panel button folds More again: the panel opens as a drawer below a short bar, and the focus waits on
   // More (the button is gone) until the drawer takes it; More is also where it comes back when the drawer closes
@@ -439,13 +451,27 @@ export const TopBar = memo(function TopBar({
             buttonRef={moreRef}
             active={moreOpen}
             onClick={() => setMoreOpen(v => !v)}
-            ariaLabel={showFilterCount ? TOP_BAR_LABELS.moreNameWithFilters(activeFilters) : TOP_BAR_LABELS.moreName}
+            ariaLabel={showFilterCount ? undefined : TOP_BAR_LABELS.moreName}
+            labelledBy={showFilterCount ? moreNameId : undefined}
             title={TOP_BAR_LABELS.moreHelp}
             expanded={moreOpen}
             controls={moreId}
           >
             {showFilterCount ? TOP_BAR_LABELS.moreWithFilters(activeFilters.length) : TOP_BAR_LABELS.more}
           </ToggleButton>
+        )}
+        {narrow && showFilterCount && (
+          // The accessible name of More, in parts: each filter keeps the language of its button (read through aria-labelledby)
+          <span id={moreNameId} hidden lang="en">
+            {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).before}
+            {activeFilters.map((f, i) => (
+              <Fragment key={f.text}>
+                {i > 0 && ', '}
+                <span lang={f.lang}>{f.text}</span>
+              </Fragment>
+            ))}
+            {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).after}
+          </span>
         )}
         {/* What More shows; a plain box (display: contents) */}
         <div id={moreId} ref={regionRef} className="contents">
@@ -454,11 +480,10 @@ export const TopBar = memo(function TopBar({
             active={notifyState === 'on'}
             pressed={notifyState === 'on'}
             onClick={onToggleNotify}
-            title={notifyState === 'denied'
-              ? 'Notifications are blocked in the browser settings'
-              : 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)'}
+            lang={locale}
+            title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
           >
-            {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
+            {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
           </ToggleButton>
         )}
         {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
@@ -476,9 +501,10 @@ export const TopBar = memo(function TopBar({
             active={hideInactive}
             pressed={hideInactive}
             onClick={() => onToggleHideInactive(!hideInactive)}
-            title="Hide agents that are idle or done"
+            lang={locale}
+            title={t('topbar.hideInactive.title')}
           >
-            Hide inactive agents
+            {t('topbar.hideInactive')}
           </ToggleButton>
         )}
         <div className={folded ? 'sr-only' : 'contents'}>
@@ -545,8 +571,9 @@ export const TopBar = memo(function TopBar({
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}
-            ariaLabel={isMuted ? 'Unmute sound effects' : 'Mute sound effects'}
-            title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+            ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
+            title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}
+            lang={locale}
             shortcut="m"
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}
@@ -556,8 +583,9 @@ export const TopBar = memo(function TopBar({
               id={FULLSCREEN_BUTTON_ID}
               active={false}
               onClick={onToggleFullscreen}
-              ariaLabel="Enter full screen"
-              title="Full screen (Z)"
+              ariaLabel={t('topbar.fullscreen')}
+              title={t('topbar.fullscreen.title')}
+              lang={locale}
               shortcut="z"
             >
               <FullscreenIcon />
@@ -569,8 +597,9 @@ export const TopBar = memo(function TopBar({
               buttonRef={paletteRef}
               active={false}
               onClick={onOpenPalette}
-              ariaLabel="Commands"
-              title="Command palette: actions, panels, sessions, agents and themes (Ctrl+K / Cmd+K)"
+              ariaLabel={t('topbar.commands')}
+              title={t('topbar.commands.title')}
+              lang={locale}
               shortcut="Control+K Meta+K"
               hasDialog
             >
@@ -578,15 +607,16 @@ export const TopBar = memo(function TopBar({
                 <circle cx="7" cy="7" r="5" />
                 <path d="M11 11l4 4" />
               </svg>
-              <span aria-hidden="true" className="ml-1 hidden sm:inline">Commands</span>
+              <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.commands')}</span>
             </ToggleButton>
           )}
           {onOpenSettings && (
             <ToggleButton
               active={false}
               onClick={onOpenSettings}
-              ariaLabel="Settings"
-              title="Settings (,)"
+              ariaLabel={t('settings.title')}
+              title={t('topbar.settings.title')}
+              lang={locale}
               shortcut=","
               hasDialog
             >
@@ -596,13 +626,14 @@ export const TopBar = memo(function TopBar({
           <ToggleButton
             active={false}
             onClick={onOpenShortcuts}
-            ariaLabel="Keyboard shortcuts"
-            title="Keyboard shortcuts (?)"
+            ariaLabel={t('topbar.shortcuts')}
+            title={t('topbar.shortcuts.title')}
+            lang={locale}
             shortcut="?"
             hasDialog
           >
             <span aria-hidden="true">?</span>
-            <span aria-hidden="true" className="ml-1 hidden sm:inline">Shortcuts</span>
+            <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.shortcuts.short')}</span>
           </ToggleButton>
         </div>
         )}
