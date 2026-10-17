@@ -5,7 +5,8 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 
-import { AgentDetailCard } from '@/components/agent-visualizer/agent-detail-card'
+import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
+import { LinkPanel } from '@/components/agent-visualizer/link-panel'
 import { DetailPopup } from '@/components/agent-visualizer/shared-ui'
 
 afterEach(() => {
@@ -21,9 +22,34 @@ test('the inspector card stays open when the focus moves to another control', ()
   const other = document.createElement('button')
   document.body.appendChild(other)
   let closed = 0
-  render(<AgentDetailCard agent={agent} onClose={() => { closed++ }} />)
+  const view = render(<AgentDetailCard agent={agent} onClose={() => { closed++ }} />)
   other.focus()
   assert.equal(closed, 0)
+  fireEvent.keyDown(view.getByRole('dialog'), { key: 'Escape' })
+  assert.equal(closed, 1)
+})
+
+test('the link panel stays open when the focus moves to another control, and Escape still closes it', () => {
+  const other = document.createElement('button')
+  document.body.appendChild(other)
+  let closed = 0
+  const link = { id: 'L1', from: 'a', to: 'b', kind: 'spawn', sessionId: 's', dropped: 0, messages: [] } as never
+  const view = render(<LinkPanel link={link} agents={new Map()} onClose={() => { closed++ }} />)
+  other.focus()
+  assert.equal(closed, 0)
+  fireEvent.keyDown(view.getByRole('dialog'), { key: 'Escape' })
+  assert.equal(closed, 1)
+})
+
+test('the "no longer listed" card stays open when the focus moves to another control, and Escape still closes it', () => {
+  const other = document.createElement('button')
+  document.body.appendChild(other)
+  let closed = 0
+  const view = render(<AgentGoneCard name="reviewer" onClose={() => { closed++ }} />)
+  other.focus()
+  assert.equal(closed, 0)
+  fireEvent.keyDown(view.getByRole('dialog'), { key: 'Escape' })
+  assert.equal(closed, 1)
 })
 
 test('the tool popup stays open when the focus moves to another control, and Escape still closes it', () => {
