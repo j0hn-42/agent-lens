@@ -42,7 +42,9 @@ function mount() {
   let lastTime: number | null = null
   const view = renderHook(() => {
     const sim = useAgentSimulation({
-      useMockData: false, externalEvents: pending, sessionFilter: null,
+      // The catch-up budget reads the real performance.now(), which the mocked clock does not cover: a stalled
+      // machine would defer the second event of a batch and break the "committed at once" check (#440)
+      useMockData: false, externalEvents: pending, sessionFilter: null, catchUpFrameBudgetMs: Number.POSITIVE_INFINITY,
       onExternalEventsConsumed: () => { consumed++; pending.length = 0 },
     })
     // The clock advances on every frame: a new currentTime in a render means a new state was committed
