@@ -114,6 +114,8 @@ What the guards will enforce once the token exists (tested now through the app's
 | `Host` exactly a `--allow-host` name (case-insensitive; with the port only if one was given) | read-only surface: `GET`/`HEAD` on `/events`, `/status` and the static app |
 | same, on `/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope` or any other method | `403` |
 | same, with an `Origin` other than `https://<name>` (the dev origins included) or a `Sec-Fetch-Site` other than `same-origin` / `none` | `403` |
+| `Host` allowed, `/events` or `/status` without a live pairing cookie (#475, `scripts/remote-access.ts:197`) | `401`; the static app is served without it |
+| `Host` allowed, `POST /pair` with the token (`createRemotePairing` in `scripts/remote-pairing.ts`) | `204` and the `__Host-` cookie; a wrong token `401`, then `429` when the bucket is empty. No command can create a pairing yet (#517): reachable in tests only |
 | two `Host` headers | `403` |
 | any other `Host` (suffix or prefix look-alikes, trailing dot, other port), static files included | `403` (DNS rebinding) |
 | more than 4 SSE streams through allowed names (`RELAY_MAX_REMOTE_SSE_CLIENTS`) | `503` + `Retry-After`; local tabs are not counted against it |

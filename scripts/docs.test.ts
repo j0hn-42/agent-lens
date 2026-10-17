@@ -357,7 +357,11 @@ test('the remote access page says what ships, and nothing that does not exist ye
   const args = read('app/src/args.ts')
   const guards = read('scripts/remote-access.ts')
   // Every flag the page names is one the CLI parses (no example that would fail)
+  // --token-file is the one flag the page names as NOT wired yet (#517): the command must not parse it
+  const notYet = new Set(['--token-file'])
+  for (const flag of notYet) assert.ok(!args.includes(`'${flag}'`), `${flag} is parsed: update the page, #517 landed`)
   for (const flag of new Set(doc.match(/--[a-z][a-z-]*/g) ?? [])) {
+    if (notYet.has(flag)) continue
     assert.ok(args.includes(`'${flag}'`), `docs/remote-access.md names ${flag}, which app/src/args.ts does not parse`)
   }
   // --allow-host is refused at startup while the pairing is not wired in, and the page says so
