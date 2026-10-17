@@ -73,7 +73,8 @@ function run(file: string, args: readonly string[], opts: RunOptions): Promise<b
       if (!opts.runningIsOk) child?.kill?.()
       finish(opts.runningIsOk)
     }, opts.waitMs)
-    timer.unref?.()
+    // Not unref'd: the pending promise must keep the event loop alive until the delay settles it. The timer is
+    // bounded by waitMs and cleared by finish().
     if (opts.input !== undefined && child.stdin) {
       child.stdin.on('error', () => finish(false))
       child.stdin.end(opts.input)
