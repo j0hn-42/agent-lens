@@ -1,4 +1,4 @@
-import { USAGE_LABELS, COST_LABELS } from './ui-glossary'
+import { USAGE_LABELS, COST_LABELS, CTX_TOKENS_LABELS } from './ui-glossary'
 import { formatTokens, formatCost } from './utils'
 
 /** How complete a total is: every part known, some parts known (lower bound), or nothing known. */
@@ -69,6 +69,11 @@ export function qualify(usage: UsageTotal, text: string): string {
 
 export function formatTokenUsage(usage: UsageTotal): string {
   return qualify(usage, usage.value === null ? '' : formatTokens(usage.value))
+}
+
+/** "at least 5.3M estimated ctx tokens": the token total of the Cost panel, the size of the contexts now (#545 review). */
+export function formatCtxTokenUsage(usage: UsageTotal): string {
+  return `${formatTokenUsage(usage)} ${CTX_TOKENS_LABELS.unit}`
 }
 
 /** "~$2.10": a cost is always the context priced at a blended rate, an estimate even on reported tokens (#364). */

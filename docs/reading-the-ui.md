@@ -261,7 +261,7 @@ Every cost in Agent Lens is a **context cost estimate**, never a bill: the token
 - **For screen readers** the same figure is said in words, "context cost estimate $2.10", in the node summaries, the halo announcements and the top bar (read after the agent counts, not drawn). The cost notification says "Context cost estimate reached ~$5.20".
 - **What it misses.** It is the size of the context now, not a sum of the calls: it drops after a compaction (from ~$2.10 to ~$0.40 after `/compact`), it ignores cache reads (cheaper than input) and cache writes, and it does not add up the earlier calls that each re-sent the context. Read it as "what the current context weighs", not as what the session has cost.
 
-The token total, **N tokens in context** (the Cost panel shows it as "N tokens" for lack of room), adds up what each agent's context holds now. It is not a consumption either, and it drops after a compaction too.
+The token total, **N tokens in context** (the Cost panel shows it as "N ctx tokens" for lack of room, and the graph legend defines "ctx tokens"), adds up what each agent's context holds now. It is not a consumption either, and it drops after a compaction too.
 
 **The top bar summary was removed** ([#523](https://github.com/j0hn-42/agent-lens/issues/523), at the user's request): the short line of #497 (`30 agents: 0 active · 4 last known · 26 done · ≥~5.3M ctx tokens · ≥~$40.49 est.`), its popover and its key of symbols are gone. The agent counts moved to the header of the Sessions panel, the totals are in the Cost panel (drawn) and in the bar for screen readers only; see **Top bar layout** above.
 

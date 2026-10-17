@@ -6,7 +6,7 @@ import { STATE_LABEL_SHORT, STATE_LABEL_LONG, LEGEND_OPEN_KEY } from '@/lib/canv
 import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './canvas/draw-misc'
 import type { A11yTeamItem } from './canvas/a11y-model'
-import { CONTEXT_WINDOW_NAME, memberNoun } from '@/lib/ui-glossary'
+import { CONTEXT_WINDOW_NAME, CTX_TOKENS_LABELS, memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
 import { LEGEND_ENTRIES, LEGEND_ENTRY_IDS, type LegendEntryId, type LegendSectionId } from '@/lib/legend-entries'
 import { FOCUS_RING } from '@/lib/focus-ring'
@@ -241,6 +241,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
 
           </ShownContext.Provider>
 
+          <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>{CTX_TOKENS_LABELS.help}</p>
           <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>
             Not observed, at least, estimated: <LearnMoreLink />
           </p>

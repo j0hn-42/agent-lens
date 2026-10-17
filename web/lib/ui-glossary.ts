@@ -95,6 +95,12 @@ export const USAGE_LABELS = {
   estimated: 'estimated',
 } as const
 
+/** The token total of the Cost panel (#545 review): short for "tokens in context", defined in the graph legend. */
+export const CTX_TOKENS_LABELS = {
+  unit: 'ctx tokens',
+  help: 'ctx tokens (Cost panel total): the tokens the contexts of the view hold now, not a consumption; the figure drops after a compaction.',
+} as const
+
 /** A cost is the tokens now in the context priced at a blended rate, never a bill (#364): "~" on screen,
  *  the name in words for assistive technology, the method in tooltips. */
 export const COST_LABELS = {

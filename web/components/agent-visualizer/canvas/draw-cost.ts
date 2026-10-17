@@ -3,7 +3,7 @@ import { SCENE } from '../../../lib/colors'
 import { COST_DRAW, COST_PANEL } from '../../../lib/canvas-constants'
 import { formatTokens, formatCost } from '../../../lib/utils'
 import { agentCost, modelCostRate, agentCostUsage } from '../../../lib/cost'
-import { USAGE_LABELS, formatCostUsage, formatTokenUsage, type UsageTotal } from '../../../lib/usage'
+import { USAGE_LABELS, formatCostUsage, formatCtxTokenUsage, type UsageTotal } from '../../../lib/usage'
 import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
@@ -223,9 +223,10 @@ export function drawCostSummaryPanel(
   const restRows = hasRest ? 1 : 0
   // En-tête : tokens sous le coût quand la ligne dépasserait la largeur du panneau (zoom 200 % / 400 %)
   const headerCostText = formatCostUsage(costUsage)
-  // Kept short: "in context" would overflow the 212 px panel on a wrapped "at least … estimated" line (#364); screen readers read
-  // "tokens in context" in the top bar, which no longer draws it (#523)
-  const headerTokensText = `${formatTokenUsage(tokenUsage)} tokens`
+  // "ctx tokens", short for "tokens in context" (the 212 px panel has no room for it on a wrapped "at least … estimated"
+  // line, #364), defined in the graph legend: the size of the contexts now, not a consumption (#545 review). Screen
+  // readers read "tokens in context" in the top bar, which no longer draws it (#523)
+  const headerTokensText = formatCtxTokenUsage(tokenUsage)
   ctx.font = 'bold 12px monospace'
   const headerCostW = ctx.measureText(headerCostText).width
   ctx.font = '11px monospace'
