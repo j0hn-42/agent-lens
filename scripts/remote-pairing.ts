@@ -8,7 +8,9 @@
  *   is never sent to a server nor written in an access log. The app posts it to POST /pair.
  * - POST /pair compares it in constant time and answers with a separate random pairing id in a cookie
  *   `__Host-...; HttpOnly; Secure; SameSite=Strict; Path=/`. The cookie never carries the token; the relay keeps only
- *   the SHA-256 of each id, with an expiry, at most REMOTE_PAIR_MAX_SESSIONS of them.
+ *   the SHA-256 of each id, with an expiry and the Host class it was issued on, at most REMOTE_PAIR_MAX_SESSIONS of them.
+ *   A pairing opens only that Host class (#535): a cookie obtained through the tunnel Host reads nothing on a loopback
+ *   Host, and a loopback pairing reads nothing through the tunnel.
  * - Every failure (wrong / missing token, malformed body, wrong Content-Type, oversized body) is the same 401
  *   'Unauthorized'. POST /pair has its own rate limiter, keyed on the tunnel name (its peer is always 127.0.0.1), debited
  *   by failures only, after the token was compared: past the budget a failure gets 429, the right token still pairs.
@@ -150,8 +152,10 @@ export interface RemotePairing {
   readonly token: string
   /** POST /pair. Answers by itself: 403 / 405 / 429 / 401 / 503 / 204 + cookie. */
   handlePair: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>
-  /** True when the request carries a live pairing cookie. Says nothing about the Host: callers check it first. */
-  isPaired: (req: Pick<http.IncomingMessage, 'headers'>) => boolean
+  /** True when the request carries a live pairing cookie issued on the same Host class as the request's (#535): a
+   *  pairing made through the tunnel Host does not open a loopback Host, and back. A foreign Host is never paired.
+   *  Callers still check the peer and the Host first. */
+  isPaired: (req: Pick<http.IncomingMessage, 'headers' | 'headersDistinct'>) => boolean
   pairedCount: () => number
 }
 
@@ -159,6 +163,9 @@ function plain(res: http.ServerResponse, code: number, text: string, extra: http
   res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...extra })
   res.end(text)
 }
+
+/** The Host classes a pairing can be issued on (a foreign Host never pairs). */
+type PairedHostClass = 'allowed' | 'loopback'
 
 const idKey = (id: string) => crypto.createHash('sha256').update(id, 'utf8').digest('hex')
 
@@ -169,22 +176,23 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
   const ttlMs = options.ttlMs ?? REMOTE_PAIR_SESSION_TTL_MS
   const now = options.now ?? Date.now
   const limiter = new KeyedRateLimiter(options.rate?.burst ?? REMOTE_PAIR_RATE_BURST, options.rate?.perSecond ?? REMOTE_PAIR_RATE_PER_S, 16)
-  /** SHA-256 of each pairing id -> expiry. The ids themselves are not kept. */
-  const sessions = new Map<string, number>()
+  /** SHA-256 of each pairing id -> expiry and the Host class it was issued on (#535). The ids themselves are not kept. */
+  const sessions = new Map<string, { until: number; cls: PairedHostClass }>()
 
   const prune = () => {
     const t = now()
-    for (const [k, until] of sessions) if (until <= t) sessions.delete(k)
+    for (const [k, s] of sessions) if (s.until <= t) sessions.delete(k)
   }
 
-  const isPaired = (req: Pick<http.IncomingMessage, 'headers'>): boolean => {
+  const isPaired = (req: Pick<http.IncomingMessage, 'headers' | 'headersDistinct'>): boolean => {
     const id = readPairCookie(req.headers.cookie)
     if (id === null) return false
     const key = idKey(id)
-    const until = sessions.get(key)
-    if (until === undefined) return false
-    if (until <= now()) { sessions.delete(key); return false }
-    return true
+    const session = sessions.get(key)
+    if (session === undefined) return false
+    if (session.until <= now()) { sessions.delete(key); return false }
+    // Bound to the Host class it was issued on (#535): a cookie of the tunnel Host does not open a loopback Host
+    return session.cls === requestHostClass(req, options.allowedHosts)
   }
 
   const handlePair = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
@@ -193,7 +201,7 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
     // A tunnel Host from its https origin; a loopback Host (SSH -L, port forward, #517) from its own http origin
     const cls = requestHostClass(req, options.allowedHosts)
     const crossOrigin = cls === 'allowed' ? isRemoteCrossOrigin(req.headers, host) : cls === 'loopback' ? isLoopbackPairCrossOrigin(req.headers, host) : true
-    if (!isLoopbackAddress(req.socket.remoteAddress) || crossOrigin) {
+    if (!isLoopbackAddress(req.socket.remoteAddress) || crossOrigin || cls === 'foreign') {
       return plain(res, 403, 'Forbidden')
     }
     if (req.method !== 'POST') return plain(res, 405, 'Method not allowed', { Allow: 'POST' })
@@ -216,7 +224,7 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
     prune()
     if (sessions.size >= maxSessions) return plain(res, 503, 'Too many clients', { 'Retry-After': '60' })
     const id = newPairingToken()
-    sessions.set(idKey(id), now() + ttlMs)
+    sessions.set(idKey(id), { until: now() + ttlMs, cls })
     res.writeHead(204, { 'Cache-Control': 'no-store', 'Set-Cookie': pairCookieHeader(id, ttlMs / 1000) })
     res.end()
   }
