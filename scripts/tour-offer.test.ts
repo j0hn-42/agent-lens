@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { TOUR_OFFER_STORAGE_KEY, markTourOffered, readTourOffered, shouldOfferTour } from '../web/lib/tour-offer'
+import { markTourOffered, readTourOffered, shouldOfferTour } from '../web/lib/tour-offer'
 
 // The tour is offered once, on the first launch (#377): remembered in this browser, never when it cannot be remembered
 
@@ -12,6 +12,7 @@ function memory(initial: Record<string, string> = {}) {
     data,
   }
 }
+const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered' // the key docs/reading-the-ui.md names
 const throwing = {
   getItem: () => { throw new Error('blocked') },
   setItem: () => { throw new Error('blocked') },

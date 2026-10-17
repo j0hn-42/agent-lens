@@ -8,7 +8,7 @@ import axe from 'axe-core'
 import { TourOffer } from '@/components/agent-visualizer/tour-offer'
 import { useTourOffer } from '@/hooks/use-tour-offer'
 import { GUIDED_TOUR_BUTTON_ID } from '@/components/agent-visualizer/guided-tour-context'
-import { TOUR_OFFER_STORAGE_KEY } from '@/lib/tour-offer'
+const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered'
 
 beforeEach(() => { try { window.localStorage.clear() } catch { /* none */ } })
 afterEach(() => { cleanup(); document.body.replaceChildren() })

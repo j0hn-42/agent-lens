@@ -4,7 +4,7 @@
  * (private window, blocked site data) cannot remember it, so the offer is not made rather than made on every visit.
  */
 
-export const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered'
+const TOUR_OFFER_STORAGE_KEY = 'agent-lens:tour-offered'
 
 export type TourOffered = 'yes' | 'no' | 'unknown'
 
