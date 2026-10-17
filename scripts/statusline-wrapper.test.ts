@@ -23,18 +23,23 @@ interface Run { stdout: string; stderr: string; code: number | null; ms: number 
 let home: string
 let dir: string
 
+// L'original voyage dans l'argument de la commande : JSON de la statusLine d'origine en base64url (ou null)
+let arg: string | undefined
+const encode = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url')
+
 function setOriginal(command: string | null) {
-  fs.writeFileSync(path.join(dir, 'statusline-original.json'), JSON.stringify({ command }))
+  arg = encode(command === null ? null : { type: 'command', command })
 }
 
 function setInstance(port: number, pid = process.pid) {
   fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify({ workspace, pid, port }))
 }
 
-function runWrapper(stdin: string): Promise<Run> {
+function runWrapper(stdin: string, env: NodeJS.ProcessEnv = {}): Promise<Run> {
   return new Promise(resolve => {
     const t0 = Date.now()
-    const child = spawn(process.execPath, [scriptPath], { env: { ...process.env, HOME: home, USERPROFILE: home } })
+    const args = arg === undefined ? [scriptPath] : [scriptPath, arg]
+    const child = spawn(process.execPath, args, { env: { ...process.env, HOME: home, USERPROFILE: home, ...env } })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', d => { stdout += d })
@@ -92,6 +97,7 @@ beforeEach(() => {
   home = fs.mkdtempSync(path.join(root, 'home-'))
   dir = path.join(home, '.claude', 'agent-lens')
   fs.mkdirSync(dir, { recursive: true })
+  arg = undefined
 })
 
 describe('statusline-wrapper : transmission de la commande d\'origine', () => {
@@ -133,9 +139,58 @@ describe('statusline-wrapper : transmission de la commande d\'origine', () => {
     assert.deepEqual([r.stdout, r.stderr, r.code], ['', '', 0])
   })
 
-  it('sans fichier d\'origine : n\'affiche rien, code 0', async () => {
+  it('conserve les clés en plus de la statusLine d\'origine sans les interpréter', async () => {
+    arg = encode({ type: 'command', command: 'echo hi', padding: 2, refreshInterval: 5 })
     const r = await runWrapper(STDIN)
-    assert.deepEqual([r.stdout, r.stderr, r.code], ['', '', 0])
+    assert.deepEqual([r.stdout, r.code], ['hi\n', 0])
+  })
+
+  for (const [label, value] of [
+    ['argument manquant', undefined],
+    ['base64 corrompu', '!!!pas-du-base64***'],
+    ['JSON corrompu', Buffer.from('{ nope').toString('base64url')],
+    ['forme inattendue', Buffer.from('[1]').toString('base64url')],
+  ] as const) {
+    it(`${label} : une ligne claire sur stderr, aucune commande lancée, code 0`, async () => {
+      const marker = path.join(root, `marker-${label.length}.txt`)
+      fs.rmSync(marker, { force: true })
+      arg = value
+      const r = await runWrapper(STDIN)
+      assert.equal(r.stdout, '')
+      assert.equal(r.code, 0)
+      assert.equal(r.stderr.trim().split('\n').length, 1)
+      assert.match(r.stderr, /Agent Lens: statusLine d'origine illisible, lancez `node scripts\/setup\.js --restore-statusline`/)
+      assert.equal(fs.existsSync(marker), false)
+    })
+  }
+
+  it('garde de récursion : AGENT_LENS_STATUSLINE déjà posée, aucun fils lancé, une ligne sur stderr', async () => {
+    const marker = path.join(root, 'rec-marker.txt')
+    fs.rmSync(marker, { force: true })
+    setOriginal(`touch '${marker}'; echo hi`)
+    const r = await runWrapper(STDIN, { AGENT_LENS_STATUSLINE: '1' })
+    assert.equal(r.stdout, '')
+    assert.equal(r.stderr.trim().split('\n').length, 1)
+    assert.equal(fs.existsSync(marker), false)
+  })
+
+  it('pose AGENT_LENS_STATUSLINE=1 dans l\'environnement du fils', async () => {
+    setOriginal('printf %s "$AGENT_LENS_STATUSLINE"')
+    const r = await runWrapper(STDIN, { AGENT_LENS_STATUSLINE: '' })
+    assert.equal(r.stdout, '1')
+  })
+
+  const bash = ['/bin/bash', '/usr/bin/bash'].find(b => fs.existsSync(b))
+  it('exécute la commande avec le shell de l\'utilisateur ($SHELL) : construction propre à bash', { skip: !bash || process.platform === 'win32' ? 'bash absent ou Windows' : false }, async () => {
+    setOriginal('if [[ "abc" == a* ]]; then printf bash-ok; fi')
+    const r = await runWrapper(STDIN, { SHELL: bash })
+    assert.equal(r.stdout, 'bash-ok')
+    assert.equal(r.code, 0)
+  })
+
+  it('$SHELL absent ou invalide : repli sur /bin/sh', { skip: process.platform === 'win32' ? 'Windows' : false }, async () => {
+    setOriginal('printf sh-ok')
+    for (const SHELL of ['', '/nexiste/pas']) assert.equal((await runWrapper(STDIN, { SHELL })).stdout, 'sh-ok')
   })
 })
 

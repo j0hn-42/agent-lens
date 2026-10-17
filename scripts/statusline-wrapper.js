@@ -118,12 +118,40 @@ function sendQuota(body, cwd, done) {
   sendTier(0);
 }
 
+// The original statusLine travels in the command itself: the one argument is base64url JSON of the whole object
+// (or null when the user had none). Returns { command } (null = nothing to run) or { bad: true }.
 function originalCommand() {
   try {
-    const o = JSON.parse(fs.readFileSync(path.join(DIR, 'statusline-original.json'), 'utf8'));
-    if (o && typeof o.command === 'string' && o.command.trim()) return o.command;
-  } catch {}
-  return null;
+    const arg = process.argv[2];
+    if (typeof arg !== 'string' || !/^[A-Za-z0-9_-]+$/.test(arg)) return { bad: true };
+    const o = JSON.parse(Buffer.from(arg, 'base64url').toString('utf8'));
+    if (o === null) return { command: null };
+    if (typeof o !== 'object' || Array.isArray(o)) return { bad: true };
+    return { command: typeof o.command === 'string' && o.command.trim() ? o.command : null };
+  } catch { return { bad: true }; }
+}
+
+// Same shell as Claude Code: Git Bash when installed, else PowerShell on Windows (documented); on Unix the
+// docs only say "a shell", so the user's $SHELL, falling back to /bin/sh.
+function shellInvocation(command) {
+  if (IS_WIN) {
+    const bases = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')];
+    for (const base of bases) {
+      if (!base) continue;
+      const bash = path.join(base, 'Git', 'bin', 'bash.exe');
+      if (fs.existsSync(bash)) return { file: bash, args: ['-c', command] };
+    }
+    return { file: 'powershell', args: ['-NoProfile', '-Command', command] };
+  }
+  const sh = process.env.SHELL;
+  if (sh && path.isAbsolute(sh)) {
+    try { fs.accessSync(sh, fs.constants.X_OK); return { file: sh, args: ['-c', command] }; } catch {}
+  }
+  return { file: '/bin/sh', args: ['-c', command] };
+}
+
+function warn(message) {
+  try { process.stderr.write('Agent Lens: ' + message + '\\n'); } catch {}
 }
 
 const chunks = [];
@@ -134,6 +162,8 @@ process.stdin.on('error', run);
 
 function run() {
   if (started) return; started = true;
+  // Recursion guard: the original command (or something it runs) led back here. Run nothing.
+  if (process.env.AGENT_LENS_STATUSLINE) { warn('statusLine d\\'Agent Lens appelée en boucle, commande d\\'origine non lancée'); process.exit(0); }
   const input = Buffer.concat(chunks);
   let childDone = false;
   let sendDone = false;
@@ -148,11 +178,14 @@ function run() {
     try { sendQuota(body, cwd, () => { sendDone = true; maybeExit(); }); } catch { sendDone = true; }
   } else sendDone = true;
 
-  const command = originalCommand();
+  const original = originalCommand();
+  if (original.bad) warn('statusLine d\\'origine illisible, lancez \x60node scripts/setup.js --restore-statusline\x60');
+  const command = original.command;
   if (!command) { childDone = true; return maybeExit(); }
   let child;
   try {
-    child = spawn(command, { shell: true, stdio: ['pipe', 'inherit', 'inherit'] });
+    const sh = shellInvocation(command);
+    child = spawn(sh.file, sh.args, { stdio: ['pipe', 'inherit', 'inherit'], env: Object.assign({}, process.env, { AGENT_LENS_STATUSLINE: '1' }) });
   } catch { childDone = true; exitCode = 127; return maybeExit(); }
   child.stdin.on('error', () => {});
   child.stdin.end(input);
