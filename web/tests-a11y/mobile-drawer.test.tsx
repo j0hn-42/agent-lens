@@ -78,6 +78,21 @@ test('under 768 px: Tab from the last control wraps to the first, Shift+Tab from
   assert.equal(document.activeElement, last)
 })
 
+test('under 768 px: a roving-tabindex row (tabindex -1) after the last Tab stop does not open a gap in the trap', () => {
+  setMobileView(true)
+  const view = render(
+    <SlidingPanel visible position={{ top: 0 }} zIndex={1} label="Sessions">
+      <CloseButton onClick={() => {}} />
+      <button type="button">Row 1</button>
+      <button type="button" tabIndex={-1}>Row 2</button>
+    </SlidingPanel>,
+  )
+  const row1 = view.getByRole('button', { name: 'Row 1' })
+  row1.focus()
+  fireEvent.keyDown(row1, { key: 'Tab' })
+  assert.equal(document.activeElement, view.getByRole('button', { name: 'Close' }))
+})
+
 test('under 768 px: Tab in the middle is left to the browser', () => {
   setMobileView(true)
   const view = render(<Drawer visible />)

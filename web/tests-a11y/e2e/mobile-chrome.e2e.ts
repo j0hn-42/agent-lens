@@ -1,8 +1,8 @@
 // Phone-width chrome (#378, lot 3), measured in a real browser against the demo app (`pnpm --dir web run test:e2e`).
 // On develop @ b177753 the top bar took 193 px of 844 at 390 px wide and 290 px of 568 at 320 px (every
 // control and every total on its own wrapped line), and the Timeline drew its last header label half outside
-// the canvas ("0:0"). Under 600 px the totals and filters now fold behind a named disclosure button; the panel
-// toggles stay in the bar (they are the focus fallback of the panels they open).
+// the canvas ("0:0"). Under 600 px the totals and filters then folded behind a named disclosure button; since #476
+// the fold starts under 768 px and also takes the panel buttons (More is the focus fallback of the panels they open).
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
 import fs from 'node:fs'
@@ -13,6 +13,7 @@ import { compareViolations, type KnownViolation } from '../axe-compare'
 import { waitForStableLayout } from './stable-layout'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 const known: KnownViolation[] = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'known-violations.json'), 'utf8'))
 
@@ -64,7 +65,7 @@ async function open(w: number, h: number): Promise<Page> {
   await context.addInitScript(TICK_RECORDER)
   const page = await context.newPage()
   await page.goto(server.url, { waitUntil: 'networkidle' })
-  await page.getByRole('button', { name: 'Timeline', exact: true }).waitFor()
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
   return page
 }
@@ -79,11 +80,11 @@ async function visibleControls(page: Page): Promise<Array<{ name: string; w: num
     .map(el => { const r = el.getBoundingClientRect(); return { name: el.getAttribute('aria-label') || el.textContent.trim(), w: r.width, h: r.height } })`) as Promise<Array<{ name: string; w: number; h: number }>>
 }
 
-// Height budgets, folded: four rows at 390 px (Sessions; connection and More; the side panels; the other toggles),
-// five at 320 px where the side panels group itself needs two lines; 599 px, the last folded width, fits in the
-// 390 px budget. Measured before #378: 193 and 290.5 px.
-for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
-  test(`top bar ${w}x${h}: folded under 600 px it stays within ${budget} px, totals one named button away`, async () => {
+// Height budgets, folded (#476: the panel buttons fold too, every control is 44 px high): Sessions, then the
+// connection state and More, on two or three rows; 767 px is the last folded width. Measured before #378: 193 and
+// 290.5 px; after #378 (600 px fold, 24 px controls): 138 and 166.5 px.
+for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]] as Array<[number, number, number]>) {
+  test(`top bar ${w}x${h}: folded under 768 px it stays within ${budget} px, totals one named button away`, async () => {
     const page = await open(w, h)
     try {
       const bar = await topbarBox(page)
@@ -108,12 +109,13 @@ for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]]
       assert.equal(await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
-      // Always in the bar: the connection state, the Sessions button and the panel toggles
+      // Folded under 768 px (#476): the panel buttons are behind More, not rendered (no hidden Tab stop)
       for (const name of ['Timeline', 'Stats', 'Files']) {
-        assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `${name} stays in the bar`)
+        assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is folded behind More`)
       }
+      assert.ok(await page.locator('header').getByRole('button', { name: /^Sessions/ }).isVisible(), 'Sessions stays in the bar')
       for (const c of await visibleControls(page)) {
-        assert.ok(c.w >= 24 && c.h >= 24, `folded: "${c.name}" is ${c.w}x${c.h} px (2.5.8 needs 24x24)`)
+        assert.ok(c.w >= 44 && c.h >= 44, `folded: "${c.name}" is ${c.w}x${c.h} px (44x44 under 768 px, #476)`)
       }
       await expectHeaderClean(page, `e2e:topbar-folded-${w}`)
 
@@ -126,8 +128,11 @@ for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]]
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
       assert.match(String(next), /Notifications|Hide inactive agents|Show finished|finished/, `Tab after More reaches a folded control (got "${next}")`)
       assert.ok(await noHorizontalScroll(page), 'expanded: no horizontal page scroll')
+      for (const name of ['Timeline', 'Stats', 'Files']) {
+        assert.ok(await page.getByRole('button', { name, exact: true }).isVisible(), `expanded: ${name} is shown`)
+      }
       for (const c of await visibleControls(page)) {
-        assert.ok(c.w >= 24 && c.h >= 24, `expanded: "${c.name}" is ${c.w}x${c.h} px`)
+        assert.ok(c.w >= 44 && c.h >= 44, `expanded: "${c.name}" is ${c.w}x${c.h} px`)
       }
       await expectHeaderClean(page, `e2e:topbar-expanded-${w}`)
       // The panels move below the bar that grew
@@ -141,9 +146,10 @@ for (const [w, h, budget] of [[599, 800, 140], [390, 844, 140], [320, 568, 180]]
   })
 }
 
-// 600 px and wider (1280 px is also 640 px at 200 % browser zoom): nothing folds, no disclosure button
-for (const [w, h] of [[600, 800], [640, 400], [1280, 800]] as Array<[number, number]>) {
-  test(`top bar ${w}x${h}: nothing is folded at 600 px and wider`, async () => {
+// 768 px and wider nothing folds, no disclosure button (#476; 600 px before). 1280 px at 200 % browser zoom is
+// 640 px wide, so it folds now: it is checked with the folded widths above
+for (const [w, h] of [[768, 900], [1280, 800]] as Array<[number, number]>) {
+  test(`top bar ${w}x${h}: nothing is folded at 768 px and wider`, async () => {
     const page = await open(w, h)
     try {
       assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
@@ -179,14 +185,14 @@ test('top bar 390x844: folded with Hide inactive agents on, More says a filter i
   }
 })
 
-// Crossing 600 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
+// Crossing 768 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
 const focusedName = (page: Page) => page.evaluate(`(() => { const a = document.activeElement; return !a || a === document.body ? 'BODY' : (a.getAttribute('aria-label') || a.textContent.trim()) })()`) as Promise<string>
 
-test('top bar: More has the focus and the window widens past 600 px, the focus stays in the bar', async () => {
+test('top bar: More has the focus and the window widens past 768 px, the focus stays in the bar', async () => {
   const page = await open(390, 844)
   try {
     await page.locator('header button[aria-expanded]').focus()
-    await page.setViewportSize({ width: 700, height: 844 })
+    await page.setViewportSize({ width: 800, height: 844 })
     await page.waitForFunction(`!document.querySelector('header button[aria-expanded]')`)
     const name = await focusedName(page)
     assert.notEqual(name, 'BODY', 'the focus is not lost on <body>')
@@ -196,8 +202,8 @@ test('top bar: More has the focus and the window widens past 600 px, the focus s
   }
 })
 
-test('top bar: a filter has the focus and the window narrows under 600 px, the filter keeps it', async () => {
-  const page = await open(700, 844)
+test('top bar: a filter has the focus and the window narrows under 768 px, the filter keeps it', async () => {
+  const page = await open(800, 844)
   try {
     await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })
@@ -213,7 +219,7 @@ for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`timeline ${w}x${h}: header labels neither touch each other nor leave the canvas`, async () => {
     const page = await open(w, h)
     try {
-      await page.getByRole('button', { name: 'Timeline', exact: true }).click()
+      await (await topbarButton(page, 'Timeline')).click()
       await page.locator('[data-dock-panel="timeline"]').waitFor()
       await page.waitForTimeout(4000) // several redraws while the demo runs
       const frames = await page.evaluate('window.__timelineFrames') as Frame[]
@@ -237,7 +243,7 @@ for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`conversation ${w}x${h}: the sheet ends above the control bar and below the top bar`, async () => {
     const page = await open(w, h)
     try {
-      await page.getByRole('button', { name: /^Conversation/ }).first().click()
+      await (await topbarButton(page, /^Conversation/)).first().click()
       const panel = page.locator('[data-dock-panel="conversation"]')
       await panel.waitFor()
       await waitForStableLayout(page)

@@ -50,7 +50,7 @@ async function openWithFakeRelay(width: number, height: number) {
   }))
   await host.goto(`${server.url}/__host`)
   const page = (await (await host.locator('#app').elementHandle())!.contentFrame())!
-  await page.getByRole('button', { name: 'Files' }).waitFor()
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   const post = (data: unknown) => host.evaluate((d) => (document.getElementById('app') as HTMLIFrameElement).contentWindow!.postMessage(d, '*'), data)
   await post({ type: '__vscode-bridge-init' })
   await post({ type: 'config', showMockData: false })
@@ -62,7 +62,7 @@ async function openWithFakeRelay(width: number, height: number) {
   }
   // The top bar counts what React knows: wait until both agents of the shown session are in it
   await page.getByText(/2 agents/).first().waitFor()
-  // Idle agents are hidden by default. Under 600 px the filter is behind More (#378)
+  // Idle agents are hidden by default. Under 768 px the filter is behind More (#378, #476)
   const more = page.getByRole('button', { name: /^More/ })
   if (await more.count()) await more.evaluate((el: HTMLElement) => el.click())
   await page.getByRole('button', { name: /Hide inactive agents/ }).evaluate((el: HTMLElement) => el.click())

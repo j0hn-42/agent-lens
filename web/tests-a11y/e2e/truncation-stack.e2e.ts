@@ -9,6 +9,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Frame, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 let browser: Browser
 let server: DemoServer
@@ -30,7 +31,7 @@ async function mountWithBanner(page: Page, w: number, h: number): Promise<Frame>
   await page.setContent(`<!doctype html><html lang="en"><head><title>frame</title></head><body style="margin:0">
     <iframe id="app" title="Agent Lens" src="${server.url}" style="border:0;width:100vw;height:100vh;display:block"></iframe></body></html>`)
   const frame = (await (await page.$('#app'))!.contentFrame())!
-  await frame.getByRole('button', { name: 'Timeline', exact: true }).waitFor({ timeout: 120_000 })
+  await frame.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor({ timeout: 120_000 })
   const now = Date.now()
   await page.evaluate((msgs) => {
     const target = (document.getElementById('app') as HTMLIFrameElement).contentWindow!
@@ -65,7 +66,8 @@ type Measure = { topbar: Box; notice: Box | null; banner: Box | null; sheets: Bo
 const IS_ON_TOP = `(el) => { const r = el.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!top && (top === el || el.contains(top)) }`
 
 async function togglePanel(frame: Frame, name: RegExp) {
-  await frame.getByRole('button', { name }).first().evaluate((el: HTMLElement) => el.click())
+  // Under 768 px the panel buttons are behind More, which folds again after each one (#476)
+  await (await topbarButton(frame, name)).first().evaluate((el: HTMLElement) => el.click())
 }
 
 for (const w of [320, 390, 600, 899]) {
@@ -122,8 +124,8 @@ test('390px, agent card open: Tab goes from the top bar to the banner, whose but
     await waitForStableLayout(frame)
     const m = await frame.evaluate(MEASURE) as Measure
     assert.ok(m.banner && m.sheets.length === 1 && !overlap(m.sheets[0], m.banner), `the card sheet starts under the banner ${JSON.stringify(m)}`)
-    // The last button of the top bar: the banner comes next in the Tab order
-    await frame.getByRole('button', { name: 'Keyboard shortcuts' }).focus()
+    // The last button of the top bar (More once it is folded under 768 px, #476): the banner comes next in the Tab order
+    await frame.locator('header button').last().focus()
     const seen: string[] = []
     for (let i = 0; i < 12 && !seen.includes('Dismiss truncation warning'); i++) {
       await page.keyboard.press('Tab')

@@ -16,6 +16,7 @@ import { compareViolations, type KnownViolation } from '../axe-compare'
 import { findInvisibleFocusables, FOCUSABLE_SELECTOR } from './focus-audit'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { topbarButton } from './topbar-fold'
 
 const known: KnownViolation[] = JSON.parse(
   fs.readFileSync(path.join(__dirname, '..', 'known-violations.json'), 'utf8'),
@@ -43,7 +44,8 @@ async function open(options: { width?: number; height?: number; reducedMotion?: 
   })
   const page = await context.newPage()
   await page.goto(BASE_URL)
-  await page.getByRole('button', { name: 'Files' }).waitFor()
+  // The Sessions button is in the bar at every width (under 768 px Files is folded behind More, #476)
+  await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
   await waitForStableLayout(page)
   return { page, close: () => context.close() }
 }
@@ -188,7 +190,8 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
   // Click like a user; if another element intercepts the pointer, record it and fall back to the keyboard
   // so the remaining steps still run.
   async function openPanelChecked(page: Page, name: RegExp, f: Findings, where: string) {
-    const btn = page.getByRole('button', { name }).first()
+    // Under 768 px the panel buttons are behind More (#476)
+    const btn = (await topbarButton(page, name)).first()
     try {
       await btn.click({ timeout: 3000 })
     } catch {
@@ -198,8 +201,10 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
       await btn.focus()
       await page.keyboard.press('Space')
     }
+    // Under 768 px More folds again once a panel opens: the panel is then a drawer and its button is not rendered
     await page.waitForFunction(
-      (source: string) => Array.from(document.querySelectorAll('button[aria-pressed="true"]')).some(b => new RegExp(source, 'i').test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? ''))),
+      (source: string) => !!document.querySelector('[data-mobile-drawer]')
+        || Array.from(document.querySelectorAll('button[aria-pressed="true"]')).some(b => new RegExp(source, 'i').test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? ''))),
       name.source,
     )
     await waitForStableLayout(page)
@@ -274,7 +279,7 @@ describe('demo mode: reflow and zoom (WCAG 1.4.10)', () => {
         await page.mouse.click(2, 2)
         assert.equal(await page.getByRole('dialog', { name: 'View settings' }).count(), 0, 'a click outside closes the panel')
         await waitForStableLayout(page)
-        await page.getByRole('button', { name: /^Context/ }).first().click()
+        await (await topbarButton(page, /^Context/)).first().click()
         await waitForStableLayout(page)
         check(await rectsOf(), ['panel', 'topbar', 'controlBar'], 'context panel')
       } finally { await close() }

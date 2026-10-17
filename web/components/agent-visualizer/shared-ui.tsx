@@ -387,7 +387,11 @@ function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
     if (!active || !el) return
     const onTab = (e: KeyboardEvent) => {
       if (e.key !== 'Tab') return
-      const items = Array.from(el.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE)).filter(n => !n.closest('[inert]') && !n.closest('[hidden]'))
+      // Only what Tab can reach: a roving-tabindex row (tabindex -1) or a control that is not drawn (display: none,
+      // visibility: hidden) is skipped by the browser, so it must not count as the first or last one
+      // (checkVisibility is missing in jsdom: kept there)
+      const items = Array.from(el.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[inert]') && !n.closest('[hidden]')
+        && (typeof n.checkVisibility !== 'function' || n.checkVisibility({ visibilityProperty: true })))
       const active = document.activeElement instanceof HTMLElement && el.contains(document.activeElement) ? document.activeElement : null
       const target = nextTrapTarget(items, active, e.shiftKey)
       if (!target) return

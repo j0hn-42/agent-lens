@@ -414,7 +414,7 @@ export function ConversationPanel({
         style={{ background: COLORS.panelBg, backdropFilter: 'blur(24px)', borderLeft: `1px solid ${COLORS.holoBorder10}` }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
+        <div className="flex items-center justify-between gap-2 px-3 py-2 flex-shrink-0 max-md:flex-wrap" style={{ borderBottom: `1px solid ${COLORS.holoBorder08}` }}>
           <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <h2 id={titleId} className="m-0 text-[11px] font-mono tracking-widest font-semibold" style={{ color: COLORS.panelLabel }}>
               {CONVERSATION_LABELS.title}
@@ -430,7 +430,8 @@ export function ConversationPanel({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Under 768 px the 44 px Close button must stay inside a 320 px drawer: the actions wrap (#476) */}
+          <div className="flex items-center gap-1 flex-shrink-0 max-md:flex-shrink max-md:min-w-0 max-md:flex-wrap max-md:justify-end">
             <button
               type="button"
               aria-pressed={showTools}
