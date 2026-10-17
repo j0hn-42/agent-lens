@@ -43,6 +43,11 @@ export interface SettingsDialogProps {
     level: AnnounceLevel
     onLevelChange: (level: AnnounceLevel) => void
   }
+  /** Quota gauges of the top bar (#467); the switch is left out when absent */
+  quota?: {
+    show: boolean
+    onShowChange: (show: boolean) => void
+  }
   /** Notification channel and rules (#225); the section is left out when absent */
   notifications?: {
     state: NotifyState
@@ -210,7 +215,7 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  */
 export function SettingsDialog({
   open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
-  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements,
+  hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
 }: SettingsDialogProps) {
   const { locale, choice, setChoice } = useLocale()
   const t = useT()
@@ -309,6 +314,7 @@ export function SettingsDialog({
               <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
             </div>
             <SwitchRow label={t('settings.hexGrid')} help={t('settings.hexGrid.help')} checked={hexGrid} onChange={onHexGridChange} />
+            {quota && <SwitchRow label={t('settings.quota')} help={t('settings.quota.help')} checked={quota.show} onChange={quota.onShowChange} />}
           </Section>
 
           <Section title={t('settings.section.sound')}>

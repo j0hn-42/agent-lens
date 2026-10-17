@@ -78,6 +78,10 @@ export function AgentVisualizer() {
   // 'Hide inactive agents': on by default, persisted with the other UI preferences
   const hideInactive = prefs.hideInactive
   const updateHideInactive = useCallback((hide: boolean) => setPref('hideInactive', hide), [setPref])
+  // Quota gauges of the top bar (#467): the runtime of the selected session decides what they say (undefined = none selected)
+  const showQuota = prefs.showQuota
+  const updateShowQuota = useCallback((show: boolean) => setPref('showQuota', show), [setPref])
+  const selectedRuntime = bridge.sessions.find(sess => sess.id === bridge.selectedSessionId)?.runtime
   const updateAnnounceLevel = useCallback((level: AnnounceLevel) => setPref('announceLevel', level), [setPref])
   // The guided tour shows the idle and finished agents its steps talk about, without touching the preference
   // A copy of tour.active: the tour hook needs the simulation's seek, so it is created after useAgentSimulation
@@ -261,6 +265,7 @@ export function AgentVisualizer() {
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
         onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
+        quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota}
       />
       </div>
 
@@ -396,6 +401,7 @@ export function AgentVisualizer() {
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts,
           presentation: { active: presentationOn, onActiveChange: v => presentation.setActive(v), options: presentation.options, onOptionChange: presentation.setOption },
           announcements: { level: prefs.announceLevel, onLevelChange: updateAnnounceLevel },
+          quota: { show: showQuota, onShowChange: updateShowQuota },
           notifications: { state: notifyState, onToggle: toggleNotify, rules: notifyRules, onRulesChange: setNotifyRules },
         }}
         palette={{ open: showPalette, onClose: closePalette, items: paletteItems }}
