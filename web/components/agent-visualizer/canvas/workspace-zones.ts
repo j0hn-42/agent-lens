@@ -45,6 +45,42 @@ export function computeWorkspaceZones(clusters: ReadonlyArray<Cluster>): Workspa
   return zones.sort((a, b) => (a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0))
 }
 
+export interface WorkspaceHeaderBox {
+  /** Header text, cut with an ellipsis to the zone width */
+  text: string
+  /** World-space chip */
+  x: number
+  y: number
+  w: number
+  h: number
+  /** Font size and inner padding (world px) */
+  fontPx: number
+  pad: number
+  /** World units per screen px below zoom 1 (the header keeps its on-screen size), else 1 */
+  k: number
+}
+
+/**
+ * Chip of the zone header at `zoom`, shared by the draw code and the overlay plan (a halo title must not
+ * cover it, #378). `measure(text, fontPx)` gives the width of `text` at that font size.
+ */
+export function workspaceHeaderRect(
+  z: Pick<WorkspaceZone, 'x' | 'y' | 'w' | 'name' | 'sessionCount' | 'teamCount'>, zoom: number,
+  measure: (text: string, fontPx: number) => number, text: string = zoneHeaderText(z),
+): WorkspaceHeaderBox {
+  const k = Math.max(1, 1 / Math.max(zoom || 1, 1e-3))
+  const fontPx = WORKSPACE_ZONE.headerFontSize * k
+  const pad = 8 * k
+  // Never wider than the zone itself: a long name is cut, not drawn over its neighbour
+  const maxW = Math.max(0, z.w - 2 * pad - 2 * WORKSPACE_ZONE.cornerRadius)
+  let shown = text
+  while (shown.length > 1 && measure(shown, fontPx) > maxW) shown = shown.slice(0, -2) + '…'
+  return {
+    text: shown, x: z.x + WORKSPACE_ZONE.cornerRadius, y: z.y + 12 * k,
+    w: measure(shown, fontPx) + 2 * pad, h: fontPx + 2 * pad * 0.6, fontPx, pad, k,
+  }
+}
+
 /** "Workspace alpha · 2 sessions · 1 team": the zone header, which says its kind in words. */
 export function zoneHeaderText(z: Pick<WorkspaceZone, 'name' | 'sessionCount' | 'teamCount'>): string {
   const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`

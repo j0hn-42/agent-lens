@@ -24,6 +24,7 @@ import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
 import { labelScaleForZoom, textHoldScale } from './draw-options'
 import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
+import { workspaceHeaderRect, type WorkspaceZone } from './workspace-zones'
 import {
   placeRects, overlayPriority, PRIORITY, type PlacementRequest, type Placement, type Rect, type Obstacle, type OverlayPlan,
 } from './label-placement'
@@ -137,6 +138,10 @@ export interface OverlayPlanInput {
    * bubbles, so these texts are moved off them, collapsed or hidden rather than left underneath (#378).
    */
   toolCards?: Iterable<Rect>
+  /** Workspace zones drawn this frame: no overlay covers their header chip (a halo title moves off it, #378) */
+  workspaceZones?: ReadonlyArray<WorkspaceZone>
+  /** Screen rectangles of UI laid over the canvas without reserving an edge (the collapsed Conversation pill): no overlay goes under them (#378) */
+  covers?: Iterable<Rect>
 }
 
 /**
@@ -245,6 +250,14 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const rect = toScreen(t, card.x, card.y, card.w, card.h)
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
   }
+  for (const z of input.workspaceZones ?? []) {
+    const h = workspaceHeaderRect(z, s, estimateTextWidth)
+    const rect = toScreen(t, h.x, h.y, h.w, h.h)
+    if (onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
+  for (const rect of input.covers ?? []) {
+    if (rect.w > 0 && rect.h > 0 && onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
 
   // ─── Cluster labels (essential: never hidden, kept at the least-overlapping spot) ───
   const clusterRects = new Map<string, Rect>()
@@ -271,6 +284,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       essential: true,
       // Drawn in screen space after the tool cards: a card under it never covers it, so it does not move it (#378)
       aboveHard: true,
+      // Moved off a workspace header or a pill, it stays clear of the top bar and the control bar
+      shiftBounds: labelArea,
     })
   }
 

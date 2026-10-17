@@ -4,7 +4,7 @@ import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-o
 import { type TeamHalo, haloLabelAnchor } from './team-style'
 import { type Cluster, type PhaseLabel, clusterLabelLines, fitClusterLabelLines, haloAlphas } from './cluster-model'
 import { CLUSTER_DRAW, WORKSPACE_ZONE } from '../../../lib/canvas-constants'
-import { type WorkspaceZone, zoneHeaderText } from './workspace-zones'
+import { type WorkspaceZone, zoneHeaderText, workspaceHeaderRect } from './workspace-zones'
 import { planKey } from './overlay-plan'
 import type { OverlayPlan } from './label-placement'
 import type { SessionLinkSegment } from './session-link-model'
@@ -92,18 +92,9 @@ export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: Readonl
     ctx.lineWidth = 2 * k
     ctx.stroke()
 
-    const font = WORKSPACE_ZONE.headerFontSize * k
-    const pad = 8 * k
+    ctx.font = `600 ${WORKSPACE_ZONE.headerFontSize * k}px monospace`
     const text = zoneHeaderText(opts.maskText ? { ...z, name: maskText(z.name) } : z)
-    ctx.font = `600 ${font}px monospace`
-    // Never wider than the zone itself: a long name is cut, not drawn over its neighbour
-    const maxW = Math.max(0, z.w - 2 * pad - 2 * WORKSPACE_ZONE.cornerRadius)
-    let shown = text
-    while (shown.length > 1 && ctx.measureText(shown).width > maxW) shown = shown.slice(0, -2) + '…'
-    const w = ctx.measureText(shown).width + 2 * pad
-    const h = font + 2 * pad * 0.6
-    const x = z.x + WORKSPACE_ZONE.cornerRadius
-    const y = z.y + 12 * k
+    const { text: shown, x, y, w, h, pad } = workspaceHeaderRect(z, opts.zoom, s => ctx.measureText(s).width, text)
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, 6 * k)
     ctx.fillStyle = SCENE.cardBgDark
