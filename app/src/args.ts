@@ -5,8 +5,8 @@ function optionValue(next: string | undefined): string | undefined {
   return next === undefined || next.startsWith('-') ? undefined : next
 }
 
-/** --host=<v>, --allow-host=<v>, --remote=<v>: read, never ignored as an unknown argument (#474). */
-const SECURITY_FLAG_WITH_EQUALS = /^(--host|--allow-host|--remote)=(.*)$/s
+/** --host=<v>, --allow-host=<v>, --remote=<v>, --token-file=<v>: read, never ignored as an unknown argument (#474, #517). */
+const SECURITY_FLAG_WITH_EQUALS = /^(--host|--allow-host|--remote|--token-file)=(.*)$/s
 
 /** Parse CLI arguments. Keeps it simple — no dependencies. */
 export function parseArgs(argv: string[]) {
@@ -21,6 +21,7 @@ export function parseArgs(argv: string[]) {
   const launchRepos: string[] = []
   let host: string | undefined
   let remote = false
+  let tokenFile: string | undefined
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -29,6 +30,7 @@ export function parseArgs(argv: string[]) {
       const [, flag, value] = withEquals
       if (flag === '--host') host = value
       else if (flag === '--allow-host') allowHosts.push(value)
+      else if (flag === '--token-file') tokenFile = value
       // Whatever its value, --remote=<v> is an explicit request: fail closed, the start decides
       else remote = true
     } else if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
@@ -48,6 +50,11 @@ export function parseArgs(argv: string[]) {
       // Without value, '' is kept so that the start refuses it (#241): a security flag is never ignored
       const value = optionValue(argv[i + 1])
       allowHosts.push(value ?? '')
+      if (value !== undefined) i++
+    } else if (arg === '--token-file') {
+      // Without value, '' is kept so that the start refuses it (#517)
+      const value = optionValue(argv[i + 1])
+      tokenFile = value ?? ''
       if (value !== undefined) i++
     } else if (arg === '--remote') {
       // The only way to ask for listening outside loopback (#474): never an environment variable
@@ -91,6 +98,9 @@ Options:
                        tunnel has a loopback Host and is not covered).
                        Read-only surface only. Refused at startup until token
                        authentication ships (#241). See docs/relay-sources.md
+  --token-file <path>  With --allow-host: the pairing token of this start is written there
+                       (owner only on Linux and macOS; on Windows the file inherits its
+                       folder's access rights). Replaced at every start. See docs/remote-access.md
   --allow-launch       Let the UI start a headless agent on an issue (#229). OFF by default.
                        Needs --launch-repo; a token is printed once at startup and must be
                        sent as "Authorization: Bearer". Loopback only, never through a tunnel.
@@ -110,5 +120,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, remote, allowLaunch, launchRepos }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, tokenFile, host, remote, allowLaunch, launchRepos }
 }

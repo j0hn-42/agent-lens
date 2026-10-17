@@ -30,6 +30,8 @@ interface ServerOptions {
   webhooks?: string[]
   /** --launch-repo (#229); present only with --allow-launch */
   launchRepos?: string[]
+  /** --allow-host and --token-file (#241, #517); present only together (remoteStartupError) */
+  remote?: { allowedHosts: string[]; tokenFile: string }
 }
 
 type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleLaunch' | 'handleObservations' | 'handleIssueLinks'>
@@ -37,8 +39,8 @@ type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'han
 /**
  * Request handler of the standalone app. The tunnel Host names accepted besides loopback (#241) are read from the
  * relay (`relay.allowedHosts`, validated by createRelay): the gate and the relay's own guards share one list and
- * cannot disagree. They reach only the read-only surface (gateRemoteRequest). startServer creates the relay
- * without any until token authentication ships: --allow-host is refused at startup (remoteStartupError).
+ * cannot disagree. They reach only the read-only surface (gateRemoteRequest). startServer passes them, with the
+ * --token-file of the pairing (#517), only when the start allowed them (remoteStartupError).
  */
 export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
   const allowedHosts = relay.allowedHosts
@@ -108,6 +110,8 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
 
   const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}),
     ...(options.launchRepos ? { launch: { repos: options.launchRepos, onToken: token => console.log(`${launchTokenNotice(token, options.launchRepos ?? [])}\n`) } } : {}),
+    // createRelay validates the names again and writes the token file; any failure rejects here, before listening
+    ...(options.remote ? { allowedHosts: options.remote.allowedHosts, remotePairing: { tokenFile: options.remote.tokenFile } } : {}),
   })
 
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay))

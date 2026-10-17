@@ -206,7 +206,7 @@ const TUNNEL_HINT = 'For remote access, forward a named tunnel (Tailscale serve)
  * implicit 0.0.0.0). v1 is tunnel only, so even both flags are refused until token authentication and TLS ship;
  * --allow-host needs the token too.
  */
-export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string; remote?: boolean }): string | null {
+export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string; remote?: boolean; tokenFile?: string }): string | null {
   const host = opts.host
   const loopbackHost = host !== undefined && ['127.0.0.1', 'localhost'].includes(host.trim().toLowerCase())
   if (opts.remote) {
@@ -223,9 +223,18 @@ export function remoteStartupError(opts: { allowHosts: readonly string[]; host?:
     return `--host ${echo(host)}: Agent Lens only listens on loopback (127.0.0.1); another address needs an explicit --remote `
       + '(no environment variable), and is refused even then until token authentication and TLS ship. ' + TUNNEL_HINT
   }
-  if (opts.allowHosts.length === 0) return null
+  const tokenFile = opts.tokenFile
+  // A security flag is never a no-op: --token-file alone would write nothing and pair nothing
+  if (opts.allowHosts.length === 0) {
+    return tokenFile === undefined ? null : '--token-file only goes with --allow-host <name>: without a tunnel name there is nothing to pair.'
+  }
   const { hosts, errors } = parseAllowedHosts(opts.allowHosts)
   if (errors.length > 0) return `--allow-host: ${errors.join('; ')}`
+  if (tokenFile === undefined) {
+    return '--allow-host needs --token-file <path>: the pairing token of this start is written there (owner only), '
+      + 'and it is printed only on a terminal, never in a log (#517).'
+  }
+  if (tokenFile.trim() === '') return '--token-file needs a path (a file in a folder only you can read).'
   if (hosts.length > 0 && !REMOTE_AUTH_AVAILABLE) {
     return '--allow-host is refused until token pairing is wired into this command (#241): the event stream carries prompts, '
       + 'tool outputs and file contents, and anyone who reaches the tunnel would read them.'

@@ -62,6 +62,17 @@ describe('parseArgs', () => {
     // Any value given to --remote is still an explicit request: fail closed, the start refuses it
     assert.equal(parseArgs(['--remote=0']).remote, true)
   })
+  it('--token-file: undefined by default, the path when given, \'\' without value so that the start refuses it (#517)', () => {
+    assert.equal(parseArgs([]).tokenFile, undefined)
+    assert.equal(parseArgs(['--token-file', '/home/me/.agent-lens/pair-token']).tokenFile, '/home/me/.agent-lens/pair-token')
+    assert.equal(parseArgs(['--token-file=/tmp/t']).tokenFile, '/tmp/t')
+    assert.equal(parseArgs(['--token-file=']).tokenFile, '')
+    assert.equal(parseArgs(['--token-file']).tokenFile, '')
+    // Never swallows the next flag
+    const a = parseArgs(['--token-file', '--allow-host', 'box.ts.net'])
+    assert.equal(a.tokenFile, '')
+    assert.deepEqual(a.allowHosts, ['box.ts.net'])
+  })
   it('an option that takes a value does not swallow a following flag (#474)', () => {
     for (const opt of ['--import', '--webhook', '--launch-repo']) {
       const a = parseArgs([opt, '--host', '0.0.0.0'])

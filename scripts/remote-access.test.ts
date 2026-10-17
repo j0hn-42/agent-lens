@@ -181,6 +181,15 @@ describe('remoteStartupError (fail closed at startup)', () => {
     assert.match(remoteStartupError({ allowHosts: ['*.ts.net'] }) ?? '', /--allow-host/)
   })
 
+  it('--allow-host needs --token-file; --token-file needs --allow-host and a path (#517)', () => {
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /--token-file/)
+    assert.match(remoteStartupError({ allowHosts: [], tokenFile: '/tmp/t' }) ?? '', /--token-file[^]*--allow-host/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '' }) ?? '', /--token-file needs a path/)
+    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '  ' }) ?? '', /--token-file needs a path/)
+    // A malformed name is still reported for what it is
+    assert.match(remoteStartupError({ allowHosts: ['*.ts.net'], tokenFile: '/tmp/t' }) ?? '', /--allow-host: /)
+  })
+
   it('a valid --allow-host is refused while token authentication is not shipped', () => {
     assert.equal(REMOTE_AUTH_AVAILABLE, false)
     assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
