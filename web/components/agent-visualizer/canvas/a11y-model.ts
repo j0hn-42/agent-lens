@@ -311,6 +311,15 @@ export function buildGraphLabel(
   return `Agent graph: ${parts.join(', ')}`
 }
 
+/** Clipped args of the complete call that made a file card: same agent, same `toolUseId` (the key the canvas arrow uses, #384). Undefined when no such call is present: nothing is guessed (#458). */
+function completeCallArgs(toolCalls: Map<string, ToolCallNode>, d: Discovery): string | undefined {
+  if (!d.toolUseId) return undefined
+  for (const t of toolCalls.values()) {
+    if (t.state === 'complete' && t.toolUseId === d.toolUseId && t.agentId === d.agentId) return clip(t.args, 60) || undefined
+  }
+  return undefined
+}
+
 export function buildA11yModel(
   agents: Map<string, Agent>,
   toolCalls: Map<string, ToolCallNode>,
@@ -393,7 +402,7 @@ export function buildA11yModel(
       label: clip(d.label, 80),
       content: clip(d.content, 160),
       agentName: agents.get(d.agentId)?.name ?? 'unknown agent',
-      ...(d.listing ? { origin: listedFileText(d.listing) } : {}),
+      ...(d.listing ? { origin: listedFileText({ ...d.listing, pattern: completeCallArgs(toolCalls, d) }) } : {}),
     })),
   }
 }

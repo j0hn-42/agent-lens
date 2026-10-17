@@ -35,6 +35,21 @@ test('the graph list names a listed file card by the call it comes from', () => 
   assert.ok(getByRole('button', { name: `a.ts: ${ORIGIN}, call by alpha` }))
 })
 
+test('two complete Grep calls of one agent: each file card says which pattern listed it (#458)', () => {
+  const call = (id: string, toolUseId: string, args: string, state = 'complete') =>
+    [id, { id, agentId: 's1:a', toolName: 'Grep', state, args, toolUseId }] as const
+  const toolCalls = new Map([call('t1', 'tu1', 'foo'), call('t2', 'tu2', 'bar'), call('t3', 'tu3', 'baz', 'running')]) as never
+  const d = (id: string, toolUseId: string): Discovery => ({ ...listed, id, toolUseId, listing: { tool: 'Grep', position: 1, reported: 2, shown: 2 } })
+  const other = { ...d('d4', 'tu1'), agentId: 's1:b' }
+  const model = buildA11yModel(new Map([['s1:a', agent], ['s1:b', { id: 's1:b', name: 'beta' } as unknown as Agent]]), toolCalls,
+    [d('d1', 'tu1'), d('d2', 'tu2'), d('d3', 'tu3'), other], new Map())
+  const origins = model.discoveries.map(x => x.origin)
+  assert.equal(origins[0], 'File listed by Grep "foo", 1 of 2 files the call reported')
+  assert.equal(origins[1], 'File listed by Grep "bar", 1 of 2 files the call reported')
+  assert.equal(origins[2], 'File listed by Grep, 1 of 2 files the call reported', 'call not complete: nothing invented')
+  assert.equal(origins[3], 'File listed by Grep, 1 of 2 files the call reported', 'same id, other agent: no match')
+})
+
 test('a discovery from no call keeps its generic name', () => {
   const plain: Discovery = { ...listed, id: 'd2', toolUseId: undefined, listing: undefined }
   const model = buildA11yModel(new Map([['s1:a', agent]]), new Map(), [plain], new Map())
