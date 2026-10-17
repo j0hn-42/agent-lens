@@ -33,10 +33,15 @@ export interface AttentionSummary {
   /** Ids of the counted agents by kind (notification rules, #225) */
   waitingIds: Set<string>
   errorIds: Set<string>
+  /** Every counted agent in jump order: waiting ones first (a permission blocks work), then errors (#377) */
+  order: AttentionTarget[]
 }
 
+export interface AttentionTarget { id: string; sessionId: string }
+
 export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number): AttentionSummary {
-  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set(), waitingIds: new Set(), errorIds: new Set() }
+  const out: AttentionSummary = { waiting: 0, errors: 0, total: 0, firstAgentId: null, firstSessionId: null, bySession: new Map(), blockedIds: new Set(), waitingIds: new Set(), errorIds: new Set(), order: [] }
+  const errorOrder: AttentionTarget[] = []
   let firstError: string | null = null
   let firstErrorSession: string | null = null
   for (const a of agents) {
@@ -48,10 +53,10 @@ export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number
     if (freshness !== 'fresh' && freshness !== 'error' && !pending) continue
     const entry = out.bySession.get(a.sessionId) ?? { waiting: 0, errors: 0 }
     if (a.state === 'waiting_permission') {
-      entry.waiting++; out.waiting++; out.waitingIds.add(a.id)
+      entry.waiting++; out.waiting++; out.waitingIds.add(a.id); out.order.push({ id: a.id, sessionId: a.sessionId })
       if (out.firstAgentId === null) { out.firstAgentId = a.id; out.firstSessionId = a.sessionId }
     } else {
-      entry.errors++; out.errors++; out.errorIds.add(a.id)
+      entry.errors++; out.errors++; out.errorIds.add(a.id); errorOrder.push({ id: a.id, sessionId: a.sessionId })
       if (firstError === null) { firstError = a.id; firstErrorSession = a.sessionId }
     }
     out.bySession.set(a.sessionId, entry)
@@ -59,7 +64,19 @@ export function summarizeAttention(agents: Iterable<AttentionAgent>, now: number
   }
   if (out.firstAgentId === null) { out.firstAgentId = firstError; out.firstSessionId = firstErrorSession }
   out.total = out.waiting + out.errors
+  out.order.push(...errorOrder)
   return out
+}
+
+/**
+ * The blocked agent after `currentId` in jump order, wrapping around; the first one when `currentId` is not
+ * (or no longer) counted. Null when nothing is blocked. Lets the counter reach every agent, not only the first.
+ */
+export function nextAttentionTarget(summary: Pick<AttentionSummary, 'order'>, currentId: string | null): AttentionTarget | null {
+  const { order } = summary
+  if (order.length === 0) return null
+  const at = currentId === null ? -1 : order.findIndex(t => t.id === currentId)
+  return order[(at + 1) % order.length]
 }
 
 /** "2 waiting / 1 error": zero parts are left out; empty when nothing is blocked. */

@@ -37,7 +37,7 @@ const byLabel = (items: PaletteItem[], label: string) => {
 }
 
 test('palette groups are fixed and ordered', () => {
-  assert.deepEqual([...PALETTE_GROUPS], ['Actions', 'Panels', 'Sessions', 'Agents'])
+  assert.deepEqual([...PALETTE_GROUPS], ['Actions', 'Panels', 'Sessions', 'Agents', 'Themes'])
 })
 
 test('every panel the app has is reachable, under its glossary name', () => {
@@ -185,4 +185,120 @@ test('names of sessions and agents are sensitive (presentation mode blurs them),
     const expected = i.group === 'Agents' || (i.group === 'Sessions' && i.id !== `session:${ALL_SESSIONS_ID}`)
     assert.equal(i.sensitive, expected, i.id)
   }
+})
+
+// Commands that were missing (#377): offered only while they can run, never with a state the palette cannot prove
+
+test('optional commands are absent when the view cannot run them', () => {
+  const items = buildPaletteItems(source())
+  const labels = items.map(i => i.label)
+  for (const l of ['Toggle presentation mode', 'Clear history', 'Export this session as an HTML replay', 'Go to the next agent that needs you', 'Turn notifications on', 'Turn notifications off', 'Tour this session']) {
+    assert.ok(!labels.includes(l), l)
+  }
+  assert.equal(items.filter(i => i.group === 'Themes').length, 0)
+})
+
+test('presentation, clear history and export run their handler, with the V shortcut only while it works', () => {
+  calls.length = 0
+  const actions = { ...source().actions, togglePresentation: rec('present'), clearHistory: rec('clear'), exportSession: rec('export') }
+  const items = buildPaletteItems(source({ actions }))
+  byLabel(items, 'Toggle presentation mode').run()
+  byLabel(items, 'Clear history').run()
+  byLabel(items, 'Export this session as an HTML replay').run()
+  assert.deepEqual(calls, ['present', 'clear', 'export'])
+  assert.equal(byLabel(items, 'Toggle presentation mode').shortcut, 'V')
+  assert.equal(byLabel(buildPaletteItems(source({ actions, singleKeyEnabled: false })), 'Toggle presentation mode').shortcut, undefined)
+  assert.equal(searchPalette(items, 'download')[0]?.items[0]?.label, 'Export this session as an HTML replay')
+})
+
+test('the tour is offered under the label the legend uses, and moves focus to its card', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({ tour: { label: 'Tour this session', run: rec('tour') } }))
+  const it = byLabel(items, 'Tour this session')
+  assert.equal(it.group, 'Actions')
+  assert.equal(it.movesFocus, true)
+  it.run()
+  assert.deepEqual(calls, ['tour'])
+  assert.equal(searchPalette(items, 'onboarding')[0]?.items[0]?.label, 'Tour this session')
+})
+
+test('the next blocked agent is offered with the counter text only, first in Actions', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({ attention: { detail: '2 waiting / 1 error', movesFocus: true, run: rec('next') } }))
+  const it = byLabel(items, 'Go to the next agent that needs you')
+  assert.equal(it.detail, '2 waiting / 1 error')
+  assert.equal(it.movesFocus, true)
+  assert.equal(items.filter(i => i.group === 'Actions')[0], it)
+  it.run()
+  assert.deepEqual(calls, ['next'])
+  assert.equal(searchPalette(items, 'permission')[0]?.items[0]?.label, 'Go to the next agent that needs you')
+  // The next one is in another session: the view switches, no card takes the focus, so the palette gives it back
+  const other = buildPaletteItems(source({ attention: { detail: '1 waiting', movesFocus: false, run: rec('next') } }))
+  assert.equal(byLabel(other, 'Go to the next agent that needs you').movesFocus, false)
+})
+
+test('the notification command names the change it makes', () => {
+  calls.length = 0
+  const off = buildPaletteItems(source({ notifications: { on: false, run: rec('notify') } }))
+  byLabel(off, 'Turn notifications on').run()
+  const on = buildPaletteItems(source({ notifications: { on: true, run: rec('notify') } }))
+  byLabel(on, 'Turn notifications off').run()
+  assert.deepEqual(calls, ['notify', 'notify'])
+})
+
+test('each theme is a command of its own group, the current one marked, found by "theme"', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({
+    themes: { current: 'neon', options: [{ id: 'midnight', label: 'Midnight' }, { id: 'neon', label: 'Neon' }], set: id => { calls.push(`theme:${id}`) } },
+  }))
+  const themes = items.filter(i => i.group === 'Themes')
+  assert.deepEqual(themes.map(i => i.label), ['Theme: Midnight', 'Theme: Neon'])
+  assert.equal(byLabel(items, 'Theme: Neon').detail, 'current theme')
+  assert.equal(byLabel(items, 'Theme: Midnight').detail, undefined)
+  byLabel(items, 'Theme: Midnight').run()
+  assert.deepEqual(calls, ['theme:midnight'])
+  assert.equal(searchPalette(items, 'theme').find(s => s.group === 'Themes')?.items.length, 2)
+  assert.ok(themes.every(i => !i.sensitive))
+})
+
+test('the Files panel is found by the repeated reads and calls it lists', () => {
+  const items = buildPaletteItems(source())
+  for (const q of ['waste', 'repeated']) {
+    assert.equal(searchPalette(items, q).find(s => s.group === 'Panels')?.items[0]?.label, 'Toggle Files panel', q)
+  }
+})
+
+// Global entry to launch an agent (#377): the launch itself stays in the agent card, which lists the issues labelled
+// agent:<role> with their Launch button; the palette only leads there, one entry per role and session
+
+test('launch entries are absent while the relay does not offer launches, or without an agent bearing a role', () => {
+  const agents = [{ id: 'k1', name: 'fe', sessionId: 's1', role: 'frontend-engineer' }]
+  assert.equal(buildPaletteItems(source({ agents })).filter(i => i.id.startsWith('launch:')).length, 0)
+  assert.equal(buildPaletteItems(source({ agents: [{ id: 'k1', name: 'main', sessionId: 's1' }], launchAvailable: true })).filter(i => i.id.startsWith('launch:')).length, 0)
+})
+
+test('one launch entry per role and session opens the card of the first agent bearing it', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({
+    launchAvailable: true,
+    agents: [
+      { id: 'k1', name: 'fe-1', sessionId: 's1', sessionLabel: 'web', role: 'frontend-engineer' },
+      { id: 'k2', name: 'fe-2', sessionId: 's1', sessionLabel: 'web', role: 'frontend-engineer' },
+      { id: 'k3', name: 'qa', sessionId: 's1', sessionLabel: 'web', role: 'qa-engineer' },
+      { id: 'k4', name: 'fe-3', sessionId: 's2', sessionLabel: 'api', role: 'frontend-engineer' },
+    ],
+  }))
+  const launches = items.filter(i => i.id.startsWith('launch:'))
+  assert.deepEqual(launches.map(i => i.label), [
+    'Find issues to launch for agent:frontend-engineer',
+    'Find issues to launch for agent:qa-engineer',
+    'Find issues to launch for agent:frontend-engineer',
+  ])
+  assert.ok(launches.every(i => i.group === 'Actions' && i.movesFocus && i.sensitive))
+  assert.equal(launches[0].detail, 'opens the card of fe-1, session web')
+  assert.equal(launches[2].detail, 'opens the card of fe-3, session api')
+  launches[0].run()
+  assert.deepEqual(calls, ['agent:k1'])
+  assert.equal(new Set(items.map(i => i.id)).size, items.length)
+  assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Find issues to launch for agent:qa-engineer')
 })

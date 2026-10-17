@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  attentionTitle, baseTitle, formatAttention, newlyBlocked, sessionAttentionText, summarizeAttention, type AttentionAgent,
+  attentionTitle, baseTitle, formatAttention, newlyBlocked, nextAttentionTarget, sessionAttentionText, summarizeAttention, type AttentionAgent,
 } from '../web/lib/attention'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 
@@ -60,4 +60,28 @@ test('attention: only agents blocked since the last check are reported for a not
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set(['a', 'b'])), ['b'])
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set(['a'])), [])
   assert.deepEqual(newlyBlocked(new Set(['a']), new Set()), [])
+})
+
+// "Next" on the counter (#377): every blocked agent is reachable, waiting ones first, in turn
+
+test('attention: the jump order lists waiting agents first, then errors, each with its session', () => {
+  const sum = summarizeAttention([a('e1', 's1', 'error'), a('w1', 's1', 'waiting_permission'), a('w2', 's2', 'waiting_permission'), a('t', 's1', 'thinking')], NOW)
+  assert.deepEqual(sum.order, [
+    { id: 'w1', sessionId: 's1' }, { id: 'w2', sessionId: 's2' }, { id: 'e1', sessionId: 's1' },
+  ])
+})
+
+test('attention: next target cycles from the current one and wraps around', () => {
+  const sum = summarizeAttention([a('w1', 's1', 'waiting_permission'), a('w2', 's2', 'waiting_permission'), a('e1', 's1', 'error')], NOW)
+  assert.equal(nextAttentionTarget(sum, null)?.id, 'w1')
+  assert.equal(nextAttentionTarget(sum, 'w1')?.id, 'w2')
+  assert.equal(nextAttentionTarget(sum, 'w2')?.id, 'e1')
+  assert.equal(nextAttentionTarget(sum, 'e1')?.id, 'w1')
+  assert.deepEqual(nextAttentionTarget(sum, 'w1'), { id: 'w2', sessionId: 's2' })
+})
+
+test('attention: an unknown or no-longer-blocked current agent restarts at the first target', () => {
+  const sum = summarizeAttention([a('w1', 's1', 'waiting_permission'), a('e1', 's1', 'error')], NOW)
+  assert.equal(nextAttentionTarget(sum, 'gone')?.id, 'w1')
+  assert.equal(nextAttentionTarget(summarizeAttention([], NOW), 'w1'), null)
 })
