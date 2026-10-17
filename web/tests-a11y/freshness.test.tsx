@@ -145,7 +145,7 @@ function agentRow(container: HTMLElement, name: string): HTMLElement {
   assert.ok(btn, `agent row ${name}`)
   return btn
 }
-const markerOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span.rounded-full')!
+const markerOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span[data-state-marker]')!
 const detailOf = (row: HTMLElement) => row.querySelector<HTMLElement>('span.shrink-0:not([aria-hidden]):not(.tabular-nums)')!
 
 function panelAgent(id: string, state: string, over: Record<string, unknown> = {}) {
