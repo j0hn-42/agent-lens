@@ -9,6 +9,9 @@
  * What it does:
  *   1. Installs the hook forwarding script at ~/.claude/agent-lens/hook.js
  *   2. Configures Claude Code hooks in <CLAUDE_CONFIG_DIR or ~/.claude>/settings.json
+ *   3. Installs the status line wrapper at ~/.claude/agent-lens/statusline.js and points the settings.json
+ *      `statusLine` at it. It runs the user's own status line unchanged (saved in statusline-original.json,
+ *      restorable with restoreStatusLine) and forwards the subscription quota (#467).
  *
  * The hook script and discovery files always live under ~/.claude/agent-lens, whatever the
  * account: every account's settings.json points to that one stable hook.js.
@@ -30,8 +33,14 @@ const {
   claudeConfigDir, recordSettingsPath,
 } = require('../extension/scripts/claude-hooks.js')
 
+const { getStatuslineScriptContent } = require('./statusline-wrapper.js')
+
 const DISCOVERY_DIR = path.join(os.homedir(), '.claude', 'agent-lens')
 const HOOK_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'hook.js')
+const STATUSLINE_SCRIPT_PATH = path.join(DISCOVERY_DIR, 'statusline.js')
+const STATUSLINE_ORIGINAL_PATH = path.join(DISCOVERY_DIR, 'statusline-original.json')
+// Whatever the install path or quoting, a statusLine command running our wrapper contains this.
+const STATUSLINE_COMMAND_MARKER = /agent-lens[\\/]statusline\.js/
 
 function settingsPath() {
   return path.join(claudeConfigDir(), 'settings.json')
@@ -202,6 +211,77 @@ function configureHooks(options = {}) {
   console.log('Configured Claude Code hooks in:', target)
 }
 
+// ─── Status line wrapper (#467) ─────────────────────────────────────────────
+
+function writeFileAtomic(target, content, mode) {
+  if (!fs.existsSync(DISCOVERY_DIR)) fs.mkdirSync(DISCOVERY_DIR, { recursive: true })
+  const tmpPath = target + `.${process.pid}.tmp`
+  fs.writeFileSync(tmpPath, content, mode ? { mode } : undefined)
+  fs.renameSync(tmpPath, target)
+}
+
+function ensureStatuslineScript() {
+  const script = getStatuslineScriptContent()
+  try {
+    if (fs.existsSync(STATUSLINE_SCRIPT_PATH) && fs.readFileSync(STATUSLINE_SCRIPT_PATH, 'utf8') === script) {
+      console.log('Status line script already up to date:', STATUSLINE_SCRIPT_PATH)
+      return
+    }
+  } catch {}
+  writeFileAtomic(STATUSLINE_SCRIPT_PATH, script, 0o755)
+  console.log('Installed status line script:', STATUSLINE_SCRIPT_PATH)
+}
+
+function isStatusLineWrapper(statusLine) {
+  return !!statusLine && typeof statusLine.command === 'string' && STATUSLINE_COMMAND_MARKER.test(statusLine.command)
+}
+
+/**
+ * Points `statusLine` at the wrapper. The user's own statusLine is saved whole (so restoreStatusLine puts back
+ * exactly what was there) and is never overwritten by the wrapper itself. A statusLine that is not a command is left alone.
+ */
+function configureStatusLine(options = {}) {
+  const target = options.settingsPath || settingsPath()
+  const wrapperCommand = options.statuslineCommand || `"${resolveNodePath()}" "${STATUSLINE_SCRIPT_PATH}"`
+
+  const changed = updateSettings(target, settings => {
+    const current = settings.statusLine
+    if (current !== undefined && current !== null && !isStatusLineWrapper(current)) {
+      if (typeof current !== 'object' || Array.isArray(current) || current.type !== 'command' || typeof current.command !== 'string') {
+        console.log('Left the status line unchanged (not a command):', target)
+        return
+      }
+    }
+    // Saved in the mutate step: updateSettings has already refused an unreadable file, so nothing is written then.
+    if (!isStatusLineWrapper(current)) {
+      const original = current === undefined || current === null ? null : current
+      writeFileAtomic(STATUSLINE_ORIGINAL_PATH, JSON.stringify({ command: original ? original.command : null, original }, null, 2) + '\n')
+    }
+    settings.statusLine = { ...(current && typeof current === 'object' ? current : {}), type: 'command', command: wrapperCommand }
+  })
+  try { recordSettingsPath(DISCOVERY_DIR, target) } catch {}
+  console.log(changed ? 'Configured the Claude Code status line wrapper in:' : 'Status line wrapper already configured in:', target)
+}
+
+/** Puts back exactly the saved original statusLine (or removes the key if there was none). */
+function restoreStatusLine(options = {}) {
+  const target = options.settingsPath || settingsPath()
+  let saved
+  try { saved = JSON.parse(fs.readFileSync(STATUSLINE_ORIGINAL_PATH, 'utf8')) } catch { return }
+  if (!saved || typeof saved !== 'object') return
+  const original = saved.original !== undefined ? saved.original
+    : (typeof saved.command === 'string' ? { type: 'command', command: saved.command } : null)
+  const settings = readSettingsStrict(target)
+  // Only our own wrapper is replaced: a statusLine the user changed since is theirs.
+  if (!settings || !isStatusLineWrapper(settings.statusLine)) return
+  updateSettings(target, s => {
+    if (original) s.statusLine = original
+    else delete s.statusLine
+  })
+  try { fs.unlinkSync(STATUSLINE_ORIGINAL_PATH) } catch {}
+  console.log('Restored the original status line in:', target)
+}
+
 // ─── Detection ──────────────────────────────────────────────────────────────
 
 function isAlreadySetup() {
@@ -210,6 +290,11 @@ function isAlreadySetup() {
   // An outdated hook.js (older release) must be redeployed: not "set up" until its content is current
   try {
     if (fs.readFileSync(HOOK_SCRIPT_PATH, 'utf8') !== getHookScriptContent()) return false
+  } catch { return false }
+  // Same for the status line wrapper, which must also be the settings.json statusLine
+  try {
+    if (fs.readFileSync(STATUSLINE_SCRIPT_PATH, 'utf8') !== getStatuslineScriptContent()) return false
+    if (!isStatusLineWrapper(readSettingsStrict(settingsPath())?.statusLine)) return false
   } catch { return false }
 
   // Check current hooks are configured in settings.json (legacy agent-flow hooks do not count, #175)
@@ -229,6 +314,8 @@ function ensureSetup() {
   try {
     ensureHookScript()
     configureHooks()
+    ensureStatuslineScript()
+    configureStatusLine()
   } catch (err) {
     if (!(err instanceof SettingsUnreadableError)) throw err
     // Never block the app on a settings file we refuse to touch; say so on every start.
@@ -238,7 +325,7 @@ function ensureSetup() {
 }
 
 module.exports = {
-  ensureSetup, getHookScriptContent, isAlreadySetup, configureHooks, updateSettingsFile: updateSettings, readSettingsStrict,
+  ensureSetup, getHookScriptContent, getStatuslineScriptContent, isAlreadySetup, configureHooks, configureStatusLine, restoreStatusLine, updateSettingsFile: updateSettings, readSettingsStrict,
   claudeConfigDir, SettingsUnreadableError, isAgentLensHook, HOOK_COMMAND_MARKER, LEGACY_HOOK_COMMAND_MARKER,
 }
 
@@ -255,6 +342,8 @@ if (require.main === module) {
   try {
     ensureHookScript()
     configureHooks()
+    ensureStatuslineScript()
+    configureStatusLine()
   } catch (err) {
     if (!(err instanceof SettingsUnreadableError)) throw err
     console.error(`\nHooks NOT configured: ${err.message}`)
