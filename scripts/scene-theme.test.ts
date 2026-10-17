@@ -14,7 +14,7 @@ import { SCENE } from '../web/lib/colors'
 import { scenePalette, sceneInk, sceneColor } from '../web/lib/scene-state-colors'
 
 /** Families of the scene that follow the theme so far (#381) */
-const THEMED: Family[] = ['labels']
+const THEMED: Family[] = ['labels',  'links']
 
 // ─── The scene follows the theme ─────────────────────────────────────────────
 
@@ -43,6 +43,13 @@ test('labels: agent names, session line and token label take the text colours of
   }
 })
 
+test('links: each link state is stroked in the role colour of the theme', () => {
+  for (const id of THEME_IDS) {
+    const p = scenePalette(id)
+    const strokes = drawFamily('links', id).filter(o => o.name === 'stroke').map(o => o.strokeStyle.slice(0, 7))
+    for (const key of ['dispatch', 'return', 'error', 'holoBase'] as const) assert.ok(strokes.includes(p[key]), `${id}: ${key} ${p[key]} stroked`)
+  }
+})
 
 
 

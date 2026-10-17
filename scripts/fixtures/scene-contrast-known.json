@@ -10,6 +10,9 @@
    "stroke #eed49f25 a=1",
    "stroke rgba(73, 77, 100, 0.6) a=1",
    "strokeRect #494d64 a=1"
+  ],
+  "links": [
+   "stroke #cad3f559 a=1"
   ]
  },
  "catppuccin-mocha": {
@@ -23,6 +26,9 @@
    "stroke #f9e2af25 a=1",
    "stroke rgba(69, 71, 90, 0.6) a=1",
    "strokeRect #45475a a=1"
+  ],
+  "links": [
+   "stroke #cdd6f459 a=1"
   ]
  },
  "catppuccin-frappe": {
@@ -36,6 +42,10 @@
    "stroke #e78284 a=0.35",
    "stroke rgba(81, 87, 109, 0.6) a=1",
    "strokeRect #51576d a=1"
+  ],
+  "links": [
+   "stroke #c6d0f559 a=1",
+   "stroke #ca9ee6 a=0.5"
   ]
  },
  "midnight": {
@@ -49,6 +59,10 @@
    "stroke #f4d79725 a=1",
    "stroke rgba(44, 53, 98, 0.6) a=1",
    "strokeRect #2c3562 a=1"
+  ],
+  "links": [
+   "stroke #9fa8ff a=0.5",
+   "stroke #e3e7ff59 a=1"
   ]
  },
  "graphite": {
@@ -62,6 +76,9 @@
    "stroke #ee8a8a a=0.35",
    "stroke rgba(52, 52, 54, 0.6) a=1",
    "strokeRect #343436 a=1"
+  ],
+  "links": [
+   "stroke #ececec59 a=1"
   ]
  },
  "neon": {
@@ -75,6 +92,9 @@
    "stroke rgba(100, 200, 255, 0.06) a=1",
    "stroke rgba(102, 204, 255, 0.22) a=1",
    "strokeRect rgba(102, 204, 255, 0.22) a=1"
+  ],
+  "links": [
+   "stroke #aaeeff59 a=1"
   ]
  },
  "ember": {
@@ -88,6 +108,9 @@
    "stroke #f4d48125 a=1",
    "stroke rgba(67, 54, 43, 0.6) a=1",
    "strokeRect #43362b a=1"
+  ],
+  "links": [
+   "stroke #f1e7db59 a=1"
   ]
  },
  "anthropic": {
@@ -102,6 +125,10 @@
    "stroke #ec698f a=0.35",
    "stroke rgba(52, 50, 46, 0.6) a=1",
    "strokeRect #34322e a=1"
+  ],
+  "links": [
+   "stroke #d97757 a=0.5",
+   "stroke #faf9f559 a=1"
   ]
  }
 }

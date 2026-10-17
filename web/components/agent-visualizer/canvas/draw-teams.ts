@@ -1,4 +1,5 @@
 import { SCENE } from '../../../lib/colors'
+import { scenePalette, sceneColor } from '../../../lib/scene-state-colors'
 import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
@@ -231,10 +232,12 @@ export function drawClusterLabels(
 export function drawSessionLinks(ctx: CanvasRenderingContext2D, segments: ReadonlyArray<SessionLinkSegment>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   if (segments.length === 0) return
   const k = Math.max(1, 1 / Math.max(opts.zoom || 1, 1e-3))
+  const scene = scenePalette(opts.theme)
+  const tone = sceneColor(opts.theme, 'mark', scene.textMuted)
   for (const s of segments) {
     ctx.save()
-    ctx.strokeStyle = SCENE.textMuted
-    ctx.fillStyle = SCENE.textMuted
+    ctx.strokeStyle = tone
+    ctx.fillStyle = tone
     ctx.lineWidth = 1.5 * k
     ctx.setLineDash(s.kind === 'worktree' ? [8 * k, 5 * k] : [2 * k, 5 * k])
     ctx.beginPath()

@@ -1,5 +1,5 @@
 import type { Agent } from '@/lib/agent-types'
-import { SCENE } from '@/lib/colors'
+import { scenePalette, sceneColor, sceneInk, type ScenePalette } from '@/lib/scene-state-colors'
 import { alphaHex } from '@/lib/utils'
 import { maskText } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
@@ -20,11 +20,14 @@ interface LinkStyle {
   alpha: number
 }
 
-const LINK_STYLES: Record<LinkState, LinkStyle> = {
-  in_flight: { color: SCENE.dispatch, width: 3, dash: [9, 5], alpha: 0.95 },
-  recent: { color: SCENE.return, width: 2.5, dash: [], alpha: 0.85 },
-  error: { color: SCENE.error, width: 2.5, dash: [2, 4], alpha: 0.95 },
-  idle: { color: SCENE.holoBase, width: 1.75, dash: [], alpha: 0.5 },
+/** Style of a link state in a scene palette (the theme's, #381) */
+function linkStyle(state: LinkState, scene: ScenePalette): LinkStyle {
+  switch (state) {
+    case 'in_flight': return { color: scene.dispatch, width: 3, dash: [9, 5], alpha: 0.95 }
+    case 'recent': return { color: scene.return, width: 2.5, dash: [], alpha: 0.85 }
+    case 'error': return { color: scene.error, width: 2.5, dash: [2, 4], alpha: 0.95 }
+    case 'idle': return { color: scene.holoBase, width: 1.75, dash: [], alpha: 0.5 }
+  }
 }
 
 /** Line width grows slowly with the message count (never more than +2 px). */
@@ -63,10 +66,14 @@ export function drawLinks(
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   const lod = lodOf(opts)
+  const scene = scenePalette(opts.theme)
   for (const r of links) {
     const curve = linkCurve(r, agents)
     if (!curve) continue
-    const style = LINK_STYLES[r.state]
+    const style = linkStyle(r.state, scene)
+    // In High contrast the line, its chevron and the badge outline reach 3:1 (#381); elsewhere the style as given
+    const line = sceneInk(opts.theme, 'mark', style.color, style.alpha)
+    const solid = sceneColor(opts.theme, 'mark', style.color)
     const selected = r.id === selectedLinkId
     const hovered = r.id === hoveredLinkId
     const width = linkWidth(style.width, r.count) + (selected || hovered ? 1 : 0)
@@ -82,14 +89,14 @@ export function drawLinks(
     // Selection halo: a wide soft stroke under the line (not colour-only: it is also thicker)
     if (selected) {
       path()
-      ctx.strokeStyle = SCENE.textPrimary + alphaHex(0.35)
+      ctx.strokeStyle = sceneColor(opts.theme, 'mark', scene.textPrimary, alphaHex(0.35))
       ctx.lineWidth = width + 6
       ctx.stroke()
     }
 
     path()
-    ctx.strokeStyle = style.color
-    ctx.globalAlpha = style.alpha
+    ctx.strokeStyle = line.color
+    ctx.globalAlpha = line.alpha
     ctx.lineWidth = width
     ctx.setLineDash(style.dash)
     // Dashes crawl towards the receiver while a message is in flight (decoration, motion-safe)
@@ -103,7 +110,7 @@ export function drawLinks(
     const dirSign = r.lastBackward ? -1 : 1
     const at = curvePoint(curve, r.lastBackward ? 0.38 : 0.62)
     const tan = curveTangent(curve, r.lastBackward ? 0.38 : 0.62)
-    drawChevron(ctx, at.x, at.y, tan.x * dirSign, tan.y * dirSign, 5 + width * 0.5, style.color)
+    drawChevron(ctx, at.x, at.y, tan.x * dirSign, tan.y * dirSign, 5 + width * 0.5, solid)
 
     // Count badge at the middle
     if (lod.labels && r.count > 0) {
@@ -114,12 +121,12 @@ export function drawLinks(
       const h = 16
       ctx.beginPath()
       ctx.roundRect(mid.x - w / 2, mid.y - h / 2, w, h, 8)
-      ctx.fillStyle = SCENE.cardBgDark
+      ctx.fillStyle = scene.cardBgDark
       ctx.fill()
-      ctx.strokeStyle = style.color
+      ctx.strokeStyle = solid
       ctx.lineWidth = selected || hovered ? 2 : 1
       ctx.stroke()
-      ctx.fillStyle = SCENE.textPrimary
+      ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(text, mid.x, mid.y + 0.5)
@@ -143,6 +150,7 @@ export function drawEdgeBubbles(
 ) {
   if (!lodOf(opts).details) return
   const scale = opts.zoom > 0 ? opts.zoom : 1
+  const scene = scenePalette(opts.theme)
   for (const b of bubbles) {
     const place = opts.plan?.get(planKey.edgeBubble(edgeBubblePlanId(b)))
     if (!place || place.hidden) continue
@@ -154,7 +162,9 @@ export function drawEdgeBubbles(
     const rect = collapsed
       ? { x: baseX + off.dx, y: baseY + b.h - PLACEMENT.chipH / scale + off.dy, w: PLACEMENT.chipW / scale, h: PLACEMENT.chipH / scale }
       : { x: baseX + off.dx, y: baseY + off.dy, w: b.w, h: b.h }
-    const color = b.isError ? SCENE.error : b.type === 'return' ? SCENE.return : b.type === 'dispatch' ? SCENE.dispatch : SCENE.holoBase
+    const color = b.isError ? scene.error : b.type === 'return' ? scene.return : b.type === 'dispatch' ? scene.dispatch : scene.holoBase
+    const stem = sceneInk(opts.theme, 'mark', color, 0.7)
+    const solid = sceneColor(opts.theme, 'mark', color)
     const emphasised = b.linkId === selectedLinkId || b.linkId === hoveredLinkId
 
     ctx.save()
@@ -164,21 +174,21 @@ export function drawEdgeBubbles(
     ctx.beginPath()
     ctx.moveTo(sx, sy)
     ctx.lineTo(b.anchor.x, b.anchor.y)
-    ctx.strokeStyle = color
-    ctx.globalAlpha = 0.7
+    ctx.strokeStyle = stem.color
+    ctx.globalAlpha = stem.alpha
     ctx.lineWidth = 1 / scale + 0.5
     ctx.stroke()
     ctx.beginPath()
     ctx.arc(b.anchor.x, b.anchor.y, 2.5, 0, Math.PI * 2)
-    ctx.fillStyle = color
+    ctx.fillStyle = stem.color
     ctx.fill()
     ctx.globalAlpha = 1
 
     ctx.beginPath()
     ctx.roundRect(rect.x, rect.y, rect.w, rect.h, collapsed ? 8 / scale : 5)
-    ctx.fillStyle = SCENE.cardBgDark
+    ctx.fillStyle = scene.cardBgDark
     ctx.fill()
-    ctx.strokeStyle = color
+    ctx.strokeStyle = solid
     // Error bubbles are dotted: the state is not carried by colour alone
     ctx.setLineDash(b.isError ? [2, 3] : [])
     ctx.lineWidth = emphasised ? 2 : 1
@@ -186,7 +196,7 @@ export function drawEdgeBubbles(
     ctx.setLineDash([])
 
     ctx.font = `${EDGE_BUBBLE.fontSize}px monospace`
-    ctx.fillStyle = SCENE.textPrimary
+    ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
     if (collapsed) {
       // Count chip: how many messages the link shows; the text is the number only
       ctx.font = `${EDGE_BUBBLE.fontSize / scale}px monospace`
