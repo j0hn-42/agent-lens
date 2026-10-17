@@ -2,7 +2,7 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, formatCost, pluralize } from './utils'
+import { formatDuration, formatCost, formatTokens, pluralize } from './utils'
 import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
 import { formatCostUsage, formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
@@ -21,6 +21,29 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { token
     cost: costText,
     // Same figure in words for assistive technology (no "~"); a missing one reads as it is shown
     spoken: missing(cost) ? costText : spokenCostUsage(cost),
+  }
+}
+
+/** Key of the symbols of the compact summary (#497), shown in its popover and described in reading-the-ui.md. */
+export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx tokens in context'
+
+/** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
+function compactMark(u: UsageTotal): string {
+  return `${u.status === 'partial' ? '≥' : ''}${u.estimated ? '~' : ''}`
+}
+
+/**
+ * Compact texts of the top bar (#497): same figures as `topBarContextText`, qualifiers as symbols ("≥~5.3M ctx tokens",
+ * "≥~$40.49 est."). A cost is always "~" (a context priced at a blended rate); "est." adds that its tokens are estimated.
+ * Nothing is rounded or recomputed here.
+ */
+export function topBarContextCompact(tokens: UsageTotal, cost: UsageTotal): { tokens: string; cost: string } {
+  const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
+  return {
+    tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${compactMark(tokens)}${formatTokens(tokens.value as number)} ctx tokens`,
+    cost: missing(cost)
+      ? `cost ${USAGE_LABELS.unavailable}`
+      : `${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(cost.value as number)}${cost.estimated ? ' est.' : ''}`,
   }
 }
 
@@ -171,6 +194,12 @@ export function formatAgentCounts(active: number, done: number, stale = 0, idle 
   const idleText = idle > 0 ? ` - ${idle} idle` : ''
   const errorText = error > 0 ? ` - ${error} error` : ''
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
+}
+
+/** Compact "30 agents: 0 active · 4 last known · 26 done": the full wording is `formatAgentCounts` (popover, screen readers). */
+export function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+  const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
+  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
 }
 
 /** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */

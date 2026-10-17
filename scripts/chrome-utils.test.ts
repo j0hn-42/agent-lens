@@ -4,7 +4,7 @@ import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, topBarContextText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  agentActivityCounts, topBarContextText, formatAgentCountsCompact, topBarContextCompact, SUMMARY_KEY, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -219,4 +219,55 @@ test('top bar: the spoken cost says the same thing as the visible one (#383)', (
   const t = topBarContextText(partial, partial)
   assert.match(t.cost, /at least ~\$2\.1/)
   assert.match(t.spoken, /^context cost estimate at least \$2\.1/)
+})
+
+// #497: the summary of the top bar was two lines long ("30 agents: 0 active - 4 last known state - 26 done" then
+// "at least 5.3M estimated tokens in context· at least ~$40.49 estimated"). The compact form keeps every qualifier.
+const partialEst = { value: 5_300_000, status: 'partial', estimated: true } as const
+const partialEstCost = { value: 40.49, status: 'partial', estimated: true } as const
+
+test('compact summary (#497): the real long text is shorter and keeps "at least" and "estimated" as symbols', () => {
+  const longCounts = formatAgentCounts(0, 26, 4)
+  const compactCounts = formatAgentCountsCompact(0, 26, 4)
+  assert.equal(longCounts, '30 agents: 0 active - 4 last known state - 26 done')
+  assert.equal(compactCounts, '30 agents: 0 active · 4 last known · 26 done')
+  const long = topBarContextText(partialEst, partialEstCost)
+  assert.equal(long.tokens, 'at least 5.3M estimated tokens in context')
+  const c = topBarContextCompact(partialEst, partialEstCost)
+  assert.equal(c.tokens, '≥~5.3M ctx tokens')
+  assert.equal(c.cost, '≥~$40.49 est.')
+  const longLen = [longCounts, long.tokens, long.cost].join(' - ').length
+  const compactLen = [compactCounts, c.tokens, c.cost].join(' · ').length
+  assert.ok(compactLen <= 90 && compactLen < longLen - 40, `${compactLen} vs ${longLen}`)
+})
+
+test('compact summary (#497): a figure never loses its qualifier, nothing is rounded or recomputed', () => {
+  const plain = { value: 1200, status: 'available', estimated: false } as const
+  const usd = { value: 1.2, status: 'available', estimated: false } as const
+  assert.equal(topBarContextCompact(plain, plain).tokens, '1.2k ctx tokens')
+  assert.equal(topBarContextCompact(plain, usd).cost, '~$1.20')
+  assert.equal(topBarContextCompact({ ...plain, estimated: true }, plain).tokens, '~1.2k ctx tokens')
+  assert.equal(topBarContextCompact({ ...plain, status: 'partial' }, plain).tokens, '≥1.2k ctx tokens')
+  assert.equal(topBarContextCompact(plain, { ...usd, estimated: true }).cost, '~$1.20 est.')
+  assert.equal(topBarContextCompact(plain, { ...usd, status: 'partial' }).cost, '≥~$1.20')
+  // the same amount as the long text
+  assert.equal(topBarContextCompact(partialEst, partialEstCost).cost.replace(/[≥~]|est\./g, '').trim(), topBarContextText(partialEst, partialEstCost).cost.replace(/at least|~|estimated/g, '').trim())
+})
+
+test('compact summary (#497): missing figures say so, as in the long text', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  assert.deepEqual(topBarContextCompact(none, none), { tokens: 'tokens not reported', cost: 'cost not reported' })
+})
+
+test('compact agent counts (#497): zero kinds are not listed, the total stays', () => {
+  assert.equal(formatAgentCountsCompact(2, 3), '5 agents: 2 active · 3 done')
+  assert.equal(formatAgentCountsCompact(1, 1, 0, 1, 1), '4 agents: 1 active · 1 idle · 1 error · 1 done')
+  assert.equal(formatAgentCountsCompact(1, 0), '1 agent: 1 active · 0 done')
+})
+
+test('compact summary key (#497) defines every symbol', () => {
+  assert.match(SUMMARY_KEY, /≥ at least/)
+  assert.match(SUMMARY_KEY, /~ estimated/)
+  assert.match(SUMMARY_KEY, /ctx/)
+  assert.match(SUMMARY_KEY, /est\./)
 })
