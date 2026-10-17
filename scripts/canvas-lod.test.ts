@@ -15,7 +15,7 @@ import { drawMessageBubblesWorld } from '../web/components/agent-visualizer/canv
 import { drawCostLabels } from '../web/components/agent-visualizer/canvas/draw-cost'
 import { drawDiscoveries } from '../web/components/agent-visualizer/canvas/draw-discoveries'
 import { drawParticles } from '../web/components/agent-visualizer/canvas/draw-particles'
-import { drawPhaseLabels, drawTeamHalos } from '../web/components/agent-visualizer/canvas/draw-teams'
+import { drawPhaseLabels, drawClusterHalos, drawClusterLabels } from '../web/components/agent-visualizer/canvas/draw-teams'
 import { getToolCardSize } from '../web/components/agent-visualizer/canvas/render-cache'
 import { planOverlays, planKey } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { setOverlayHits, clearOverlayHits } from '../web/components/agent-visualizer/canvas/overlay-state'
@@ -397,18 +397,33 @@ test('drawDiscoveries and drawParticles: their text is never drawn under the min
   assert.ok(drawnAt > 0, 'discovery and particle text drawn at some zoom')
 })
 
-test('drawPhaseLabels and drawTeamHalos: halo and phase labels are never drawn under the minimum on-screen size (#378)', () => {
+// drawTeamHalos is not called by the draw loop (use-canvas-draw-loop.ts draws drawClusterHalos, drawPhaseLabels
+// and drawClusterLabels): the check covers the layers that are actually drawn.
+test('drawPhaseLabels, drawClusterHalos and drawClusterLabels (the halo layers of the draw loop): no text under the minimum on-screen size (#378)', () => {
   const labels: any[] = [{ clusterKey: 'c1', phase: 'build', text: 'Phase Build', x: 300, y: 200, memberIds: ['a', 'b'] }]
-  const halos: any[] = [{ name: 'release', color: '#aa66ff', cx: 300, cy: 300, r: 120, memberIds: ['a', 'b', 'c'] }]
-  let drawnAt = 0
+  const agents = map(
+    mainAgent({ x: 300, y: 300 }), agent({ id: 's1:worker', x: 420, y: 320 }),
+    agent({ id: 's2:main', agentKey: 's2:main', sessionId: 's2', isMain: true, parentId: null, parentKey: null, x: 900, y: 300 }),
+  )
+  const clusters = computeClusters(agents.values())
+  let phaseAt = 0
+  let titlesAt = 0
   for (const zoom of SECONDARY_ZOOMS) {
     for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
-      const rec = recordingContext(zoom)
-      drawPhaseLabels(rec.ctx, labels, opts(zoom, { lod }))
-      drawTeamHalos(rec.ctx, halos, opts(zoom, { lod }))
-      assert.deepEqual(tooSmall(rec), [], `zoom ${zoom}`)
-      if (rec.texts.length === 2) drawnAt++
+      // World space, under the camera: the phase chips and the halos (which carry no text of their own)
+      const world = recordingContext(zoom)
+      drawPhaseLabels(world.ctx, labels, opts(zoom, { lod }))
+      drawClusterHalos(world.ctx, clusters, null, opts(zoom, { lod }))
+      assert.deepEqual(tooSmall(world), [], `zoom ${zoom}: world-space halo layers`)
+      if (world.texts.some(t => t.text === 'Phase Build')) phaseAt++
+      // Screen space, after the camera: the halo titles placed by the overlay plan
+      const { plan } = planOverlays(planInput(agents, zoom, { lod }))
+      const screen = recordingContext(1)
+      drawClusterLabels(screen.ctx, clusters, plan, null, null, opts(zoom, { lod, plan }))
+      assert.deepEqual(tooSmall(screen), [], `zoom ${zoom}: halo titles`)
+      if (screen.texts.length > 0) titlesAt++
     }
   }
-  assert.ok(drawnAt > 0, 'phase and halo labels drawn at some zoom')
+  assert.ok(phaseAt > 0, 'phase labels drawn at some zoom')
+  assert.ok(titlesAt > 0, 'halo titles drawn at some zoom')
 })
