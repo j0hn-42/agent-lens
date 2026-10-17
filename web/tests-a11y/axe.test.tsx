@@ -240,6 +240,34 @@ test('shell: top bar with the attention counter and the notification option (#12
   await check('top-bar-attention', container)
 })
 
+// #467: the quota gauges of the top bar, in each state and with the reset tooltip open
+test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip open', async () => {
+  const resetsAt = Math.floor((Date.now() + 3_600_000) / 1000)
+  const quota = {
+    fiveHour: { remainingPercent: 38, resetsAt }, sevenDay: { remainingPercent: 4, resetsAt: resetsAt + 86_400 },
+    receivedAt: Date.now() - 12 * 60_000,
+  }
+  const { container, getAllByRole } = render(<><TopBar {...topBarProps} quota={quota} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  assert.equal(getAllByRole('meter').length, 2)
+  await check('top-bar-quota', container)
+  await act(async () => { fireEvent.focus(container.querySelector<HTMLElement>('[role="group"][tabindex="0"]')!) })
+  assert.ok(container.querySelector('[role="tooltip"]'))
+  await check('top-bar-quota-tooltip', container)
+})
+
+test('shell: top bar with the quota unknown, not available and without subscription', async () => {
+  const unknown = render(<><TopBar {...topBarProps} quota={null} selectedRuntime="claude" /><main id="visualizer-main" /></>)
+  await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[role="group"][tabindex="0"]')!) })
+  assert.ok(unknown.container.querySelector('[role="tooltip"]'))
+  await check('top-bar-quota-unknown', unknown.container)
+  unknown.unmount()
+  for (const runtime of ['copilot', 'opencode']) {
+    const { container, unmount } = render(<><TopBar {...topBarProps} selectedRuntime={runtime} /><main id="visualizer-main" /></>)
+    await check(`top-bar-quota-${runtime}`, container)
+    unmount()
+  }
+})
+
 // The panel is controlled by its parent (open / pill): this wrapper plays the part of the shell.
 function Conversation(props: Omit<ConversationPanelProps, 'open' | 'onOpen' | 'onClose'> & { initialOpen?: boolean }) {
   const { initialOpen = false, ...rest } = props

@@ -32,6 +32,7 @@ import {
   RELAY_ISSUE_LINKS_MAX_GH_IN_FLIGHT, RELAY_ISSUE_LINKS_MAX_PROBES_PER_WINDOW, RELAY_ISSUE_LINKS_PROBE_WINDOW_MS,
   RELAY_SESSION_INDEX_CACHE_MS, SESSION_TAG_MAX, RELAY_CONTEXT_RATE_BURST, RELAY_CONTEXT_RATE_PER_S,
   RELAY_SCOPE_RATE_BURST, RELAY_LAUNCH_RATE_BURST, RELAY_LAUNCH_RATE_PER_S, RELAY_SCOPE_RATE_PER_S, RELAY_MAX_PROJECT_DIRS, RELAY_MAX_FILES_PER_DIR,
+  RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S,
 } from '../extension/src/constants'
 import { claudeConfigDir, claudeProjectsDir, claudeTeamsDir, discoveryDir } from '../extension/src/claude-config-dir'
 import { purgeStaleDiscoveryFiles } from '../extension/src/discovery-purge'
@@ -63,6 +64,8 @@ import { parseWebhookDestinations, parseWebhookEvents, createWebhookDispatcher, 
 import { createObservationsRoute } from './routes/observations'
 import { createStatusLineRoute } from './routes/statusline'
 import { createScopeRoute, type RelayScope } from './routes/scope'
+import { createQuotaRoute } from './routes/quota'
+import { createQuotaStore } from './quota'
 import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './routes/launch'
 import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
 import { createFileJournal } from './launch-journal'
@@ -671,6 +674,9 @@ export interface Relay {
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
   handleScope: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
+  /** POST /quota: the subscription quota posted by the status line script (#467), same guards as /scope. Served by the
+   *  HookServer on the discovery port (the relay installs it there); not mounted on the public HTTP server. */
+  handleQuota: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /launch and /launch/<id>/stop (#229): 404 unless the relay was started with --allow-launch */
   handleLaunch: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** True when launching agents from the relay is on (--allow-launch) */
@@ -1200,9 +1206,26 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   }
   const scopeLimiter = new KeyedRateLimiter(RELAY_SCOPE_RATE_BURST, RELAY_SCOPE_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
   const handleScope = createScopeRoute({ limiter: scopeLimiter, apply: setScope })
+  // Subscription quota (#467): last state kept in memory, sent to local clients only (never a tunnel Host)
+  const quotaStore = createQuotaStore()
+  const quotaLimiter = new KeyedRateLimiter(RELAY_QUOTA_RATE_BURST, RELAY_QUOTA_RATE_PER_S, RELAY_STATUS_RATE_MAX_KEYS)
+  const handleQuota = createQuotaRoute({
+    limiter: quotaLimiter,
+    accept: body => {
+      const quota = quotaStore.accept(body)
+      // A copy: the store keeps its own object, which no message may alias
+      broadcastLocal(JSON.stringify({ type: 'quota', quota: { ...quota } }))
+      return quota
+    },
+  })
+
+  // The status line script only knows the discovery port, which is the HookServer's: it serves POST /quota
+  // through this route, with the route's own guards (#467). Removed again when the relay is disposed.
+  hookServer?.setQuotaHandler(handleQuota)
 
   return {
     handleScope,
+    handleQuota,
     handleLaunch,
     launchEnabled: launchSupervisor !== null,
     setScope,
@@ -1316,6 +1339,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         if (launches.length > 0) sendSSE(res, { type: 'launch-list', launches })
       }
 
+      // Local clients get the last subscription quota (#467); a tunnel Host never does
+      const quota = quotaStore.current()
+      if (quota && hostClass !== 'allowed') sendSSE(res, { type: 'quota', quota: { ...quota } })
+
       // Replay buffered events: only the requested session with ?session=<id>,
       // otherwise every session's buffer (most recent active session last).
       const sorted = sessionList.filter(s => !s.indexedOnly).sort((a, b) => {
@@ -1401,6 +1428,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       })
       if (wantClaude) {
         removeDiscoveryFile()
+        hookServer?.setQuotaHandler(null)
         hookServer?.dispose()
         scanTicker?.stop()
         teamWatcher?.dispose()

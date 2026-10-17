@@ -87,3 +87,56 @@ describe('uninstall.js', () => {
     assert.equal(fs.existsSync(path.join(home, '.claude', 'agent-lens')), false)
   })
 })
+
+describe('uninstall.js : restauration de la statusLine (#467)', () => {
+  const wrapperFor = (original: unknown) =>
+    `"/usr/bin/node" "/home/x/.claude/agent-lens/statusline.js" ${Buffer.from(JSON.stringify(original)).toString('base64url')}`
+  const userLine = { type: 'command', command: 'bash ~/bar.sh', padding: 1 }
+  const read = (p: string) => JSON.parse(fs.readFileSync(p, 'utf-8'))
+  const write = (p: string, v: unknown) => {
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, typeof v === 'string' ? v : JSON.stringify(v, null, 2))
+  }
+  let home: string
+  const dirs = ['a', 'b', 'c', 'd', 'e']
+  const corrupt = JSON.stringify({ statusLine: { type: 'command', command: '"node" "/h/.claude/agent-lens/statusline.js" !!!' }, hooks: {} })
+  const unreadable = '{ "statusLine": '
+  let stderr = ''
+  const file = (d: string) => path.join(home, d, 'settings.json')
+
+  before(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'al-uninstall-sl-'))
+    const lensDir = path.join(home, '.claude', 'agent-lens')
+    write(file('a'), { model: 'm', statusLine: { ...userLine, command: wrapperFor(userLine) }, hooks: { Stop: [{ hooks: [posixHook] }] } })
+    write(file('b'), { statusLine: { type: 'command', command: wrapperFor(null) }, hooks: { Stop: [{ hooks: [posixHook] }] } })
+    // statusLine changée depuis par l'utilisateur : laissée intacte
+    write(file('c'), { statusLine: { type: 'command', command: 'echo neuf' } })
+    write(file('d'), corrupt)
+    write(file('e'), unreadable)
+    write(path.join(lensDir, 'settings-paths.txt'), dirs.map(file).join('\n') + '\n')
+    write(path.join(lensDir, 'statusline.js'), '// wrapper')
+    const res = spawnSync(process.execPath, [UNINSTALL], { env: { ...process.env, HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: '' }, encoding: 'utf-8' })
+    assert.equal(res.status, 0, res.stderr)
+    stderr = res.stderr
+  })
+  after(() => fs.rmSync(home, { recursive: true, force: true }))
+
+  it('remet la statusLine d\'origine de chaque compte enregistré', () => {
+    assert.deepEqual(read(file('a')), { model: 'm', statusLine: userLine })
+  })
+
+  it('retire la clé quand il n\'y en avait pas (et supprime le fichier devenu vide)', () => {
+    assert.equal(fs.existsSync(file('b')), false)
+  })
+
+  it('laisse une statusLine que l\'utilisateur a changée depuis', () => {
+    assert.deepEqual(read(file('c')), { statusLine: { type: 'command', command: 'echo neuf' } })
+  })
+
+  it('argument corrompu ou fichier illisible : fichier intact, message, la désinstallation continue', () => {
+    assert.equal(fs.readFileSync(file('d'), 'utf-8'), corrupt)
+    assert.equal(fs.readFileSync(file('e'), 'utf-8'), unreadable)
+    assert.match(stderr, /statusLine/)
+    assert.equal(fs.existsSync(path.join(home, '.claude', 'agent-lens')), false)
+  })
+})
