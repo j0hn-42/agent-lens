@@ -317,6 +317,8 @@ export function startDriver(opts: DriverOptions): DriverHandle {
       if ('spawn' in opts.relay) port = await startRelay(opts.relay.spawn)
       else if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65535) throw new Error('invalid relay port')
     } catch (err) {
+      // Stopped on purpose while the relay was starting: shutdown already runs, nothing failed
+      if (stopping) return
       fail(err instanceof Error ? err.message : String(err))
       return
     }

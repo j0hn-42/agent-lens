@@ -332,6 +332,16 @@ describe('startDriver with a fake relay and a fake binary', () => {
     assert.ok(r.logs.some(l => l.includes('did not stop after SIGTERM')))
   })
 
+  it('stop() while the relay is starting is not reported as a startup failure', async () => {
+    const r = rig({ FAKE_RELAY_MODE: 'no-url' }, {}, { startupTimeoutMs: 3000 })
+    await sleep(200)
+    r.handle.stop()
+    // (no check of the SIGTERM mark: under load the fake relay may not have installed its handler yet)
+    assert.equal(await r.handle.done, 0)
+    assert.deepEqual(r.logs, [], 'no "the relay exited before printing its URL"')
+    assert.equal(r.received().length, 0, 'no icon')
+  })
+
   it('stop() follows the quit path', async () => {
     const r = rig()
     await until(() => state(r))
