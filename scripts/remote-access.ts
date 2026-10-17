@@ -22,6 +22,7 @@ import type * as http from 'http'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
 import { applySecurityHeaders, type ResponseKind } from './server-hardening'
+import { createLogger } from '../extension/src/logger'
 
 /** Flipped once the commands wire the pairing (#241, after #475); until then --allow-host stops the start. */
 export const REMOTE_AUTH_AVAILABLE = false
@@ -132,6 +133,25 @@ export function isRemotePaired(req: Pick<http.IncomingMessage, 'headers'>, allow
   return remoteAuths.get(allowed)?.isPaired(req) ?? false
 }
 
+/** Same channel as the relay's other warnings (shown without --verbose). */
+const remoteLog = createLogger('Relay')
+/** At most one log line per interval and allow list: anyone who reaches the tunnel can send POST /pair at will. */
+const PAIR_FAILURE_LOG_INTERVAL_MS = 60_000
+const lastPairFailureLog = new WeakMap<readonly string[], number>()
+
+/**
+ * A handlePair rejection is a bug, not a wrong token: the operator must see it. The line is fixed: the step and the
+ * error class only (a plain identifier, else "Error"), never its message, the token, a cookie or an address.
+ */
+function logPairFailure(allowed: readonly string[], err: unknown): void {
+  const now = Date.now()
+  const last = lastPairFailureLog.get(allowed)
+  if (last !== undefined && now - last < PAIR_FAILURE_LOG_INTERVAL_MS) return
+  lastPairFailureLog.set(allowed, now)
+  const name = err instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(err.name) ? err.name : 'Error'
+  remoteLog.warn(`POST /pair: the pairing handler failed (${name}), answered 401; further failures are not logged for ${PAIR_FAILURE_LOG_INTERVAL_MS / 1000} s`)
+}
+
 /** The data routes of the remote surface: they need the pairing cookie. */
 function needsPairing(url: string | undefined): boolean {
   const pathname = (url ?? '').split('?')[0]
@@ -161,8 +181,9 @@ export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerRes
     const auth = remoteAuths.get(allowed)
     if (!auth) return answer(res, 'api', 403, 'Forbidden')
     // Anyone who reaches the tunnel can send this: a rejection must never become an unhandled one (it would stop the
-    // relay). Same 401 as any pairing failure, nothing of the error is sent or logged.
-    auth.handlePair(req, res).catch(() => {
+    // relay). Same 401 as any pairing failure, nothing of the error is sent; one fixed, rate-limited log line.
+    auth.handlePair(req, res).catch((err: unknown) => {
+      try { logPairFailure(allowed, err) } catch { /* logging must not change the answer */ }
       try {
         if (!res.headersSent) answer(res, 'api', 401, 'Unauthorized')
         else if (!res.writableEnded) res.end()
