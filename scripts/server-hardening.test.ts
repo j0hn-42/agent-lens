@@ -121,6 +121,17 @@ describe('methods', () => {
     for (const m of ['PUT', 'DELETE', 'PATCH']) assert.equal((await request(port, m, '/scope')).status, 405, `${m} /scope`)
   })
 
+  it('POST passes the method guard on /quota too (#467), look-alikes stay 405', async () => {
+    const { port } = await start(routed('api'))
+    assert.equal((await request(port, 'POST', '/quota')).status, 200)
+    assert.equal((await request(port, 'POST', '/quota?x=1')).status, 200)
+    for (const p of ['/quota/', '/quotas', '/%71uota']) {
+      const r = await request(port, 'POST', p)
+      assert.equal(r.status, 405, `POST ${p}`)
+      assert.equal(r.headers.allow, 'GET, HEAD, OPTIONS')
+    }
+  })
+
   it('POST also passes on /launch and /launch/<16 hex>/stop (#229); look-alikes stay 405', async () => {
     const { port } = await start(routed('api'))
     for (const p of ['/launch', '/launch?x=1', '/launch/0123456789abcdef/stop']) {

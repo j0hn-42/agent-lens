@@ -40,7 +40,8 @@ describe('POST /quota (#467)', () => {
   before(async () => {
     const generous = createQuotaRoute({ limiter: new KeyedRateLimiter(1000, 1000, 10), accept: body => { accepted++; return store.accept(body) } })
     const strict = createQuotaRoute({ limiter: new KeyedRateLimiter(2, 0.0001, 10), accept: body => { accepted++; return store.accept(body) } })
-    server = http.createServer((req, res) => { void (req.url?.startsWith('/strict') ? strict : generous)(req, res) })
+    const strictUa = createQuotaRoute({ limiter: new KeyedRateLimiter(2, 0.0001, 10), accept: body => { accepted++; return store.accept(body) } })
+    server = http.createServer((req, res) => { void (req.url?.startsWith('/strict-ua') ? strictUa : req.url?.startsWith('/strict') ? strict : generous)(req, res) })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     port = (server.address() as { port: number }).port
   })
@@ -89,6 +90,12 @@ describe('POST /quota (#467)', () => {
       assert.equal(r.status, 408)
       assert.equal(store.current(), snapshot)
       assert.equal(accepted, calls)
+    })
+
+    it('429 : la clé est le pair seul, changer de User-Agent ne remet pas la rafale à zéro', async () => {
+      const statuses: number[] = []
+      for (let i = 0; i < 4; i++) statuses.push((await post(VALID, { ...JSON_HEADERS, 'User-Agent': `ua-${i}` }, '/strict-ua')).status)
+      assert.deepEqual(statuses, [200, 200, 429, 429])
     })
 
     it('429 au-delà de la rafale', async () => {

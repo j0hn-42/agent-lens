@@ -506,8 +506,8 @@ export const EPHEMERAL_PORT = 0
 export const LOOPBACK_HOST = '127.0.0.1'
 /** HTTP methods the local servers accept (anything else gets 405) */
 export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
-/** The only path that also accepts POST (#291): the route behind it applies its own guards and strict body check */
-export const SERVER_POST_PATHS = ['/scope'] as const
+/** The paths that also accept POST (#291, #467): the route behind each applies its own guards and strict body check */
+export const SERVER_POST_PATHS = ['/scope', '/quota'] as const
 /** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 /** Content-Security-Policy of the static app shell: same-origin assets only, no framing, no forms */

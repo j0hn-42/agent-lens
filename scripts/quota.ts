@@ -17,6 +17,9 @@ export interface QuotaSnapshot extends QuotaWindows {
   receivedAt: number
 }
 
+/** Date JS maximale (8.64e15 ms) en secondes : au-delà, la valeur ne désigne aucune date. */
+const MAX_RESETS_AT = 8.64e12
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -26,7 +29,7 @@ function parseWindow(value: unknown): QuotaWindow | null {
   const used = value.used_percentage
   const resets = value.resets_at
   if (typeof used !== 'number' || !Number.isFinite(used) || used < 0 || used > 100) return null
-  if (typeof resets !== 'number' || !Number.isInteger(resets) || resets < 0) return null
+  if (typeof resets !== 'number' || !Number.isInteger(resets) || resets < 0 || resets > MAX_RESETS_AT) return null
   return { usedPercentage: used, resetsAt: resets }
 }
 
@@ -44,7 +47,7 @@ export function parseQuotaBody(text: string): QuotaWindows | null {
   if (!isRecord(limits)) return null
   const result: QuotaWindows = { fiveHour: null, sevenDay: null }
   for (const [key, field] of [['five_hour', 'fiveHour'], ['seven_day', 'sevenDay']] as const) {
-    if (!(key in limits)) continue
+    if (!Object.hasOwn(limits, key)) continue
     const parsed = parseWindow(limits[key])
     if (!parsed) return null
     result[field] = parsed

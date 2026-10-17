@@ -42,11 +42,17 @@ test('parseQuotaBody refuse ce qui n’est pas prouvable', () => {
     body({ five_hour: win(1, 1.5) }),
     body({ five_hour: win(1, -1) }),
     body({ five_hour: win(1, '2') }),
+    body({ five_hour: win(1, 1e300) }),
+    body({ five_hour: win(1, 8.64e12 + 1) }),
     body({ five_hour: { used_percentage: 1 } }),
     body({ five_hour: null }),
     body({ five_hour: win(1, 2), seven_day: win(500, 2) }),
   ]
   for (const text of bad) assert.equal(parseQuotaBody(text), null, text)
+})
+
+test('resets_at accepté jusqu\'à la date JS maximale exprimée en secondes', () => {
+  assert.deepEqual(parseQuotaBody(body({ five_hour: win(1, 8.64e12) })), { fiveHour: { usedPercentage: 1, resetsAt: 8.64e12 }, sevenDay: null })
 })
 
 test('le store renvoie null avant tout accept', () => {

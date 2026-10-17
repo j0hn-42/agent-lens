@@ -18,7 +18,8 @@ export interface QuotaRouteDeps {
 }
 
 export function createQuotaRoute(deps: QuotaRouteDeps): RouteHandler {
-  return guardedRoute({ limiter: deps.limiter, methods: ['POST'], rejectCrossOrigin: true }, async (req, res) => {
+  // Clé = pair seul : Origin et User-Agent sont choisis par le client, et chaque POST accepté diffuse un message
+  return guardedRoute({ limiter: deps.limiter, methods: ['POST'], rejectCrossOrigin: true, rateKey: req => req.socket.remoteAddress ?? '' }, async (req, res) => {
     if (!isJsonContentType(req.headers['content-type'])) return sendPlain(res, 415, 'Content-Type must be application/json')
     const body = await readLimitedBody(req, RELAY_QUOTA_BODY_MAX_BYTES, RELAY_QUOTA_BODY_TIMEOUT_MS)
     if (res.destroyed) return
