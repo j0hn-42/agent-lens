@@ -145,6 +145,7 @@ export function remoteStartupError(opts: { allowHosts: readonly string[]; host?:
     return `--remote --host ${echo(host)}: listening outside loopback is refused until token authentication and TLS ship `
       + '(#241): the event stream carries prompts, tool outputs and file contents. ' + TUNNEL_HINT
   }
+  if (host !== undefined && host.trim() === '') return '--host needs an address (only 127.0.0.1 / localhost are accepted).'
   if (host !== undefined && !loopbackHost) {
     return `--host ${echo(host)}: Agent Lens only listens on loopback (127.0.0.1); another address needs an explicit --remote `
       + '(no environment variable), and is refused even then until token authentication and TLS ship. ' + TUNNEL_HINT

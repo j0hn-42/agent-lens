@@ -21,16 +21,26 @@ async function main() {
   const launchRepos: string[] = []
   let workspaceArg: string | undefined
   let remoteFlag: string | undefined
+  let unknownOption: string | undefined
+  // An option's value is never a flag: '--import --host' must not swallow --host (#474)
+  const valueAt = (i: number): string | undefined => (args[i] !== undefined && !args[i].startsWith('-') ? args[i] : undefined)
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--import') { if (args[i + 1]) imports.push(args[i + 1]); i++ }
-    else if (args[i] === '--allow-launch') allowLaunch = true
-    else if (args[i] === '--launch-repo') { if (args[i + 1]) launchRepos.push(args[i + 1]); i++ }
-    else if (REMOTE_FLAGS.includes(args[i])) remoteFlag = args[i]
-    else if (!workspaceArg) workspaceArg = args[i]
+    const arg = args[i]
+    if (arg === '--import') { const v = valueAt(i + 1); if (v !== undefined) { imports.push(v); i++ } }
+    else if (arg === '--allow-launch') allowLaunch = true
+    else if (arg === '--launch-repo') { const v = valueAt(i + 1); if (v !== undefined) { launchRepos.push(v); i++ } }
+    // --host, --remote, --allow-host, also in their --flag=value form
+    else if (REMOTE_FLAGS.some(f => arg === f || arg.startsWith(`${f}=`))) remoteFlag ??= arg.split('=')[0]
+    else if (arg.startsWith('-')) unknownOption ??= arg
+    else if (!workspaceArg) workspaceArg = arg
   }
   // Remote access (#241, #474): the dev relay has no remote mode. A security flag is refused, never read as the workspace
   if (remoteFlag) {
     console.error(`Agent Lens: ${remoteFlag}: the dev relay only listens on loopback (127.0.0.1) and takes no remote access flag.`)
+    process.exit(2)
+  }
+  if (unknownOption) {
+    console.error(`Agent Lens: unknown option ${JSON.stringify(unknownOption.slice(0, 64))}: usage dev-relay [workspace] [--import <path>]... [--allow-launch --launch-repo <owner/name>]...`)
     process.exit(2)
   }
   // Launching an agent from the UI (#229) is OFF unless asked for, and then needs an explicit repository list (fail closed)
