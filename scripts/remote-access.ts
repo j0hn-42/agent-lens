@@ -1,24 +1,29 @@
 /**
- * Remote access guards, step 1 of #241.
+ * Remote access guards, steps 1 and 2 of #241.
  *
  * v1 is "tunnel only": the relay never listens outside 127.0.0.1. A tunnel that exposes a name (Tailscale serve)
  * forwards to it, so its peer is loopback and the only thing that changes is the Host header, which names the
  * tunnel. `--allow-host <name>` adds such a name to an explicit list (no wildcard, no suffix match: DNS rebinding).
- * An SSH -L tunnel is NOT covered: the remote browser opens http://localhost:<port>, its Host is loopback and it
- * gets the loopback surface. Step 2 (token) has to cover that case too.
  * A request whose Host is on the list only reaches a strict read-only surface (/events, /status, the static
- * app); /context, /issue-links, /observations, /statusline and POST /scope stay loopback only.
+ * app, and POST /pair); /context, /issue-links, /observations, /statusline and POST /scope stay loopback only (403).
  *
- * The SSE stream carries prompts, tool outputs and file contents. Until token authentication ships (step 2 of
- * #241), REMOTE_AUTH_AVAILABLE is false and the start refuses --allow-host: the wiring below is exercised by
- * tests, never by a running app.
+ * Step 2 (#475): /events and /status through an allowed Host also need the pairing cookie of POST /pair
+ * (remote-pairing.ts), else 401. The static app is served without it: it is the page that pairs, and it holds no
+ * data. An allow list and its pairing are bound together by createRelay (bindRemoteAuth); an allow list without a
+ * pairing reads nothing (401), so no caller can open the surface by forgetting the token.
+ * An SSH -L tunnel is NOT a tunnel Host: the remote browser opens http://localhost:<port>, its Host is loopback and
+ * it gets the loopback surface. That needs SSH credentials on this machine, i.e. a local user (out of the threat
+ * model of #241); loopback is deliberately left unchanged.
+ *
+ * REMOTE_AUTH_AVAILABLE stays false until the commands wire the pairing in (--token-file, pairing URL banner, the web
+ * side of /#pair=): the start still refuses --allow-host, and the wiring below is exercised by tests only.
  */
 import type * as http from 'http'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
 import { applySecurityHeaders, type ResponseKind } from './server-hardening'
 
-/** Flipped by the token authentication step of #241; until then --allow-host stops the start. */
+/** Flipped once the commands wire the pairing (#241, after #475); until then --allow-host stops the start. */
 export const REMOTE_AUTH_AVAILABLE = false
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
@@ -108,21 +113,59 @@ export function remoteRateKey(host: string): string {
   return `remote|${host.toLowerCase()}`
 }
 
+/** What an allow list needs from its pairing (implemented by remote-pairing.ts). */
+export interface RemoteAuth {
+  handlePair: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>
+  isPaired: (req: Pick<http.IncomingMessage, 'headers'>) => boolean
+}
+
+/** Each validated allow list (by identity) and its pairing. Bound once by createRelay; never from a request. */
+const remoteAuths = new WeakMap<readonly string[], RemoteAuth>()
+
+export function bindRemoteAuth(allowed: readonly string[], auth: RemoteAuth): void {
+  if (remoteAuths.has(allowed)) throw new Error('remote access: this allow list already has a pairing')
+  remoteAuths.set(allowed, auth)
+}
+
+/** True only when the allow list has a pairing AND the request carries one of its live cookies (fail closed). */
+export function isRemotePaired(req: Pick<http.IncomingMessage, 'headers'>, allowed: readonly string[]): boolean {
+  return remoteAuths.get(allowed)?.isPaired(req) ?? false
+}
+
+/** The data routes of the remote surface: they need the pairing cookie. */
+function needsPairing(url: string | undefined): boolean {
+  const pathname = (url ?? '').split('?')[0]
+  return pathname === '/events' || pathname === '/status'
+}
+
+function answer(res: http.ServerResponse, kind: ResponseKind, code: 401 | 403, text: string): true {
+  applySecurityHeaders(res, kind)
+  res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
+  res.end(text)
+  return true
+}
+
 /**
  * First gate of the app server: 403 for a non-loopback peer, a foreign Host (static files included), and, for
- * an allowed Host, anything outside the read-only surface or from another origin. True when it answered.
+ * an allowed Host, anything outside the read-only surface or from another origin; POST /pair is answered here by the
+ * pairing; /events and /status without a live pairing cookie get 401. True when it answered.
+ * A loopback Host goes through untouched: /pair is not one of its routes.
  */
 export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerResponse, allowed: readonly string[], kind: ResponseKind): boolean {
   const host = req.headers.host
   const cls = requestHostClass(req, allowed)
-  const refused = !isLoopbackAddress(req.socket.remoteAddress)
-    || cls === 'foreign'
-    || (cls === 'allowed' && (!isRemoteReadOnlyRoute(req.method, req.url) || isRemoteCrossOrigin(req.headers, host ?? '')))
-  if (!refused) return false
-  applySecurityHeaders(res, kind)
-  res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' })
-  res.end('Forbidden')
-  return true
+  if (!isLoopbackAddress(req.socket.remoteAddress) || cls === 'foreign') return answer(res, kind, 403, 'Forbidden')
+  if (cls === 'loopback') return false
+  if (isRemoteCrossOrigin(req.headers, host ?? '')) return answer(res, kind, 403, 'Forbidden')
+  if ((req.url ?? '').split('?')[0] === '/pair') {
+    const auth = remoteAuths.get(allowed)
+    if (!auth) return answer(res, 'api', 403, 'Forbidden')
+    void auth.handlePair(req, res)
+    return true
+  }
+  if (!isRemoteReadOnlyRoute(req.method, req.url)) return answer(res, kind, 403, 'Forbidden')
+  if (needsPairing(req.url) && !isRemotePaired(req, allowed)) return answer(res, kind, 401, 'Unauthorized')
+  return false
 }
 
 const TUNNEL_HINT = 'For remote access, forward a named tunnel (Tailscale serve) to 127.0.0.1 and name it with --allow-host (#241).'
@@ -154,7 +197,7 @@ export function remoteStartupError(opts: { allowHosts: readonly string[]; host?:
   const { hosts, errors } = parseAllowedHosts(opts.allowHosts)
   if (errors.length > 0) return `--allow-host: ${errors.join('; ')}`
   if (hosts.length > 0 && !REMOTE_AUTH_AVAILABLE) {
-    return '--allow-host is refused until token authentication is shipped (#241): the event stream carries prompts, '
+    return '--allow-host is refused until token pairing is wired into this command (#241): the event stream carries prompts, '
       + 'tool outputs and file contents, and anyone who reaches the tunnel would read them.'
   }
   return null

@@ -231,20 +231,15 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
     }
   })
 
-  it('rate-limits remote clients by tunnel name, whatever their User-Agent (the tunnel peer is always 127.0.0.1)', async () => {
-    const statuses: number[] = []
-    for (let i = 0; i < RELAY_SSE_RATE_BURST + 5; i++) {
-      const r = await request('GET', '/events', { Host: TUNNEL, 'User-Agent': `ua-${i}` }, undefined, true)
-      statuses.push(r.status)
-      open.pop()?.destroy()
-      if (r.status === 429) break
-    }
-    assert.ok(statuses.includes(429), statuses.join(','))
-    assert.equal((await request('GET', '/events', {}, undefined, true)).status, 200, 'local clients keep their own bucket')
-  })
-
   describe('pairing (#475): the tunnel Host reads nothing without the cookie of POST /pair', () => {
     const json = { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json', Cookie: '' }
+
+    before(async () => {
+      // The cap test above leaves remote streams open: free their slots
+      for (const r of open.splice(0)) r.destroy()
+      for (let i = 0; i < 50 && relay.debugState().remoteSseClients > 0; i++) await new Promise(r => setTimeout(r, 20))
+      assert.equal(relay.debugState().remoteSseClients, 0)
+    })
 
     it('createRelay wrote the token of this start to --token-file, mode 0600, and gave the same one to onToken', () => {
       assert.match(pairToken, /^[A-Za-z0-9_-]{43}$/)
@@ -330,5 +325,18 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
       assert.equal(pair.headers['set-cookie'], undefined)
       assert.equal((await request('GET', '/pair')).headers['set-cookie'], undefined)
     })
+  })
+
+  // Last: it uses up the tunnel's SSE bucket
+  it('rate-limits remote clients by tunnel name, whatever their User-Agent (the tunnel peer is always 127.0.0.1)', async () => {
+    const statuses: number[] = []
+    for (let i = 0; i < RELAY_SSE_RATE_BURST + 5; i++) {
+      const r = await request('GET', '/events', { Host: TUNNEL, 'User-Agent': `ua-${i}` }, undefined, true)
+      statuses.push(r.status)
+      open.pop()?.destroy()
+      if (r.status === 429) break
+    }
+    assert.ok(statuses.includes(429), statuses.join(','))
+    assert.equal((await request('GET', '/events', {}, undefined, true)).status, 200, 'local clients keep their own bucket')
   })
 })

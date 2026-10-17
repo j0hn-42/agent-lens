@@ -8,6 +8,12 @@ import * as http from 'node:http'
 import * as net from 'node:net'
 import { KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { guardedRoute, sendJson } from './guard'
+import { bindRemoteAuth } from '../remote-access'
+
+/** Allow list bound to a stand-in pairing (#475): the cookie 'paired=1' counts as paired */
+const ALLOWED = Object.freeze(['box.tail1234.ts.net'])
+const PAIRED = { Cookie: 'paired=1' }
+bindRemoteAuth(ALLOWED, { handlePair: async () => {}, isPaired: req => req.headers.cookie === 'paired=1' })
 
 let server: http.Server
 let port = 0
@@ -29,8 +35,10 @@ describe('guardedRoute', () => {
   before(async () => {
     const open = guardedRoute({ limiter: new KeyedRateLimiter(1000, 1000, 10) }, (req, res) => { calls++; sendJson(req, res, 200, { ok: true }) })
     const strict = guardedRoute({ limiter: new KeyedRateLimiter(2, 0.0001, 10), rejectCrossOrigin: true }, (req, res) => { calls++; sendJson(req, res, 200, { ok: true }) })
-    const remote = guardedRoute({ limiter: new KeyedRateLimiter(1000, 1000, 10), rejectCrossOrigin: true, allowedHosts: ['box.tail1234.ts.net'] }, (req, res) => { calls++; sendJson(req, res, 200, { ok: true }) })
-    server = http.createServer((req, res) => { void (req.url?.startsWith('/strict') ? strict : req.url?.startsWith('/remote') ? remote : open)(req, res) })
+    const remote = guardedRoute({ limiter: new KeyedRateLimiter(1000, 1000, 10), rejectCrossOrigin: true, allowedHosts: ALLOWED }, (req, res) => { calls++; sendJson(req, res, 200, { ok: true }) })
+    // Same names, but a list no pairing was bound to: nothing passes (fail closed)
+    const unbound = guardedRoute({ limiter: new KeyedRateLimiter(1000, 1000, 10), rejectCrossOrigin: true, allowedHosts: ['box.tail1234.ts.net'] }, (req, res) => { calls++; sendJson(req, res, 200, { ok: true }) })
+    server = http.createServer((req, res) => { void (req.url?.startsWith('/strict') ? strict : req.url?.startsWith('/remote') ? remote : req.url?.startsWith('/unbound') ? unbound : open)(req, res) })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     port = (server.address() as { port: number }).port
   })
@@ -59,16 +67,28 @@ describe('guardedRoute', () => {
     const before = calls
     assert.equal((await request('GET', { Host: 'box.tail1234.ts.net' })).status, 403, 'route sans liste : loopback seul')
     assert.equal(calls, before)
-    assert.equal((await request('GET', { Host: 'box.tail1234.ts.net' }, '/remote')).status, 200)
-    assert.equal((await request('GET', { Host: 'box.tail1234.ts.net', Origin: 'https://box.tail1234.ts.net' }, '/remote')).status, 200)
+    assert.equal((await request('GET', { Host: 'box.tail1234.ts.net', ...PAIRED }, '/remote')).status, 200)
+    assert.equal((await request('GET', { Host: 'box.tail1234.ts.net', Origin: 'https://box.tail1234.ts.net', ...PAIRED }, '/remote')).status, 200)
     for (const headers of [
       { Host: 'box.tail1234.ts.net', Origin: 'http://box.tail1234.ts.net' },
       { Host: 'box.tail1234.ts.net', Origin: 'http://localhost:3000' },
       { Host: 'box.tail1234.ts.net', 'Sec-Fetch-Site': 'cross-site' },
       { Host: 'box.tail1234.ts.net.evil.example' },
       { Host: 'evil.example' },
-    ]) assert.equal((await request('GET', headers, '/remote')).status, 403, JSON.stringify(headers))
+    ]) assert.equal((await request('GET', { ...headers, ...PAIRED }, '/remote')).status, 403, JSON.stringify(headers))
     assert.equal(calls, before + 2)
+  })
+
+  it('allowedHosts (#475) : sans appairage, 401 sans détail et sans appeler le handler ; loopback inchangé', async () => {
+    const before = calls
+    for (const headers of [{ Host: 'box.tail1234.ts.net' }, { Host: 'box.tail1234.ts.net', Cookie: 'paired=0' }]) {
+      const r = await request('GET', headers, '/remote')
+      assert.equal(r.status, 401, JSON.stringify(headers))
+      assert.equal(r.body, 'Unauthorized')
+    }
+    assert.equal((await request('GET', { Host: 'box.tail1234.ts.net', ...PAIRED }, '/unbound')).status, 401, 'a list without a pairing reads nothing')
+    assert.equal(calls, before)
+    assert.equal((await request('GET', {}, '/remote')).status, 200, 'loopback needs no cookie')
   })
 
   it('allowedHosts (#241) : deux en-têtes Host = 403 sans appeler le handler, même si le premier est autorisé ou loopback', async () => {

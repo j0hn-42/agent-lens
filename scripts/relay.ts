@@ -66,7 +66,8 @@ import { createScopeRoute, type RelayScope } from './routes/scope'
 import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './routes/launch'
 import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
 import { createFileJournal } from './launch-journal'
-import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey } from './remote-access'
+import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey, bindRemoteAuth, isRemotePaired } from './remote-access'
+import { createRemotePairing, writeTokenFile, type RemotePairing } from './remote-pairing'
 
 /** Period of the machine health sample (#357) */
 const SYSTEM_INTERVAL_MS = 2_000
@@ -682,6 +683,8 @@ export interface Relay {
   webhookStats: () => WebhookStats | null
   /** The validated tunnel Host allow list (#241): the one list the app gate and the relay guards both use */
   readonly allowedHosts: readonly string[]
+  /** Pairing of the tunnel Hosts (#475): POST /pair and the cookie check. Null without an allow list. */
+  readonly remotePairing: RemotePairing | null
   /** Clean up all resources */
   dispose: () => void
   /** Counters for tests and diagnostics: connected clients, shared scan timer, refresh executions, watched sessions, wake-up watchers */
@@ -732,9 +735,24 @@ export interface RelayOptions {
    *  with their own https origin and RELAY_MAX_REMOTE_SSE_CLIENTS streams; the other routes stay loopback only.
    *  An invalid value makes createRelay throw (fail closed). Default: none. */
   allowedHosts?: string[]
+  /** Pairing of the tunnel Hosts (#475). With allowedHosts, a pairing always exists, with a token drawn at this start;
+   *  these options only say where the token goes. Refused without allowedHosts (a security option is never a no-op). */
+  remotePairing?: RelayRemotePairingOptions
   /** Launching an agent on an issue (#229). Absent = OFF: POST /launch answers 404. Present = ON, which needs an explicit
    *  repository allow-list; an invalid value makes createRelay throw (fail closed). Only a local flag sets it, never a request. */
   launch?: RelayLaunchOptions
+}
+
+export interface RelayRemotePairingOptions {
+  /** --token-file: the token of this start is written there, mode 0600 (replaced at every start, never read back).
+   *  A write failure makes createRelay throw. */
+  tokenFile?: string
+  /** Receives the token once, at creation, to print the pairing URL. The relay never logs nor serves it. */
+  onToken?: (token: string) => void
+  // Injectable for tests
+  token?: string
+  maxSessions?: number
+  rate?: { burst: number; perSecond: number }
 }
 
 export interface RelayLaunchOptions {
@@ -795,7 +813,20 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // Tunnel Host names (#241): validated here too, so that no caller can pass a wildcard or an IP (fail closed)
   const remoteHosts = parseAllowedHosts(options.allowedHosts ?? [])
   if (remoteHosts.errors.length > 0) throw new Error(`allowedHosts: ${remoteHosts.errors.join('; ')}`)
-  const allowedHosts: readonly string[] = remoteHosts.hosts
+  const allowedHosts: readonly string[] = Object.freeze(remoteHosts.hosts)
+  // Pairing (#475): one per allow list, token drawn now; a token file that cannot be written stops the start here
+  let remotePairing: RemotePairing | null = null
+  if (options.remotePairing && allowedHosts.length === 0) throw new Error('remotePairing: needs at least one allowedHosts name')
+  if (allowedHosts.length > 0) {
+    const p = options.remotePairing
+    remotePairing = createRemotePairing({
+      allowedHosts,
+      ...(p?.token !== undefined ? { token: p.token } : {}),
+      ...(p?.maxSessions !== undefined ? { maxSessions: p.maxSessions } : {}),
+      ...(p?.rate ? { rate: p.rate } : {}),
+    })
+    if (p?.tokenFile !== undefined) writeTokenFile(p.tokenFile, remotePairing.token)
+  }
   // Launching (#229): validated before anything is started, so a bad flag stops the relay instead of silently disabling the guard
   let launchAllowlist: ReadonlySet<string> | null = null
   if (options.launch) {
@@ -809,6 +840,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     launchAllowlist = list.value
   }
   relayCreated = true
+  if (remotePairing) {
+    bindRemoteAuth(allowedHosts, remotePairing)
+    options.remotePairing?.onToken?.(remotePairing.token)
+  }
   maxSessionFileBytes = options.maxSessionFileBytes ?? RELAY_MAX_SESSION_FILE_BYTES
 
   // Webhooks (#236): a URL may hold a secret, so problems are reported without it
@@ -1212,6 +1247,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     handleObservations,
     handleStatusLine,
     allowedHosts,
+    remotePairing,
 
     handleSSE(req: http.IncomingMessage, res: http.ServerResponse) {
       applySecurityHeaders(res, 'api')
@@ -1230,6 +1266,12 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       if (crossOrigin) {
         res.writeHead(403, { 'Content-Type': 'text/plain' })
         res.end('Forbidden')
+        return
+      }
+      // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work
+      if (hostClass === 'allowed' && !isRemotePaired(req, allowedHosts)) {
+        res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
+        res.end('Unauthorized')
         return
       }
       // Through a tunnel the peer is always 127.0.0.1: one bucket per tunnel name, not per client-chosen User-Agent
