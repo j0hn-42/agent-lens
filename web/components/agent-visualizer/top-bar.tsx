@@ -310,11 +310,15 @@ export const TopBar = memo(function TopBar({
   const regionRef = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
   const refocusAfterWiden = useRef(false)
+  const paletteRef = useRef<HTMLButtonElement>(null)
+  const refocusAfterNarrow = useRef(false)
   const subscribe = useCallback((onChange: () => void) => subscribeNarrow(() => {
     const active = typeof document === 'undefined' ? null : document.activeElement
     if (isNarrow()) {
       // A folded filter has the focus: open More in the same render, so the filter stays mounted
       if (active && regionRef.current?.contains(active)) setMoreOpen(true)
+      // Commands is not drawn under 600 px: its focus goes to More
+      else if (active && active === paletteRef.current) refocusAfterNarrow.current = true
     } else if (active && active === moreRef.current) {
       refocusAfterWiden.current = true
     }
@@ -322,6 +326,11 @@ export const TopBar = memo(function TopBar({
   }), [])
   const narrow = useSyncExternalStore(subscribe, isNarrow, () => false)
   useLayoutEffect(() => {
+    if (narrow && refocusAfterNarrow.current) {
+      refocusAfterNarrow.current = false
+      moreRef.current?.focus({ preventScroll: true })
+      return
+    }
     if (narrow || !refocusAfterWiden.current) return
     refocusAfterWiden.current = false
     // More is gone: its first control (a filter) takes the focus, else the first view control
@@ -531,8 +540,10 @@ export const TopBar = memo(function TopBar({
               <FullscreenIcon />
             </ToggleButton>
           )}
-          {onOpenPalette && (
+          {/* Not under 600 px: one more button wraps the folded bar onto another row (#378 height budget) */}
+          {onOpenPalette && !narrow && (
             <ToggleButton
+              buttonRef={paletteRef}
               active={false}
               onClick={onOpenPalette}
               ariaLabel="Commands"

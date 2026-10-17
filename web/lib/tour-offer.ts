@@ -39,8 +39,10 @@ export interface TourOfferInput {
   guidedDemo: boolean
   immersive: boolean
   presentation: boolean
+  /** Under 600 px wide the card would cover the canvas controls: not offered there (the legend button stays) */
+  narrow: boolean
 }
 
 export function shouldOfferTour(i: TourOfferInput): boolean {
-  return i.offered === 'no' && i.canStart && !i.tourActive && !i.guidedDemo && !i.immersive && !i.presentation
+  return i.offered === 'no' && i.canStart && !i.tourActive && !i.guidedDemo && !i.immersive && !i.presentation && !i.narrow
 }

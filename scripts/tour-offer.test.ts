@@ -37,7 +37,7 @@ test('tour offer: marking it stores the key once', () => {
   assert.equal(readTourOffered(s), 'yes')
 })
 
-const base = { offered: 'no' as const, canStart: true, tourActive: false, guidedDemo: false, immersive: false, presentation: false }
+const base = { offered: 'no' as const, canStart: true, tourActive: false, guidedDemo: false, immersive: false, presentation: false, narrow: false }
 
 test('tour offer: shown on a first launch while a tour can start', () => {
   assert.equal(shouldOfferTour(base), true)
@@ -54,4 +54,8 @@ test('tour offer: not shown while no tour can start, one runs, in the guided dem
   assert.equal(shouldOfferTour({ ...base, guidedDemo: true }), false)
   assert.equal(shouldOfferTour({ ...base, immersive: true }), false)
   assert.equal(shouldOfferTour({ ...base, presentation: true }), false)
+})
+
+test('tour offer: not shown under 600 px wide, where it would cover the canvas controls', () => {
+  assert.equal(shouldOfferTour({ ...base, narrow: true }), false)
 })

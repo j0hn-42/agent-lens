@@ -6,8 +6,11 @@ import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
+import { useDockSnapshot } from './shared-ui'
 
 const TITLE = 'New to Agent Lens?'
+/** Room kept for the row of canvas controls (legend button, zoom, View) that sits right above the control bar */
+const CANVAS_CONTROLS_ROW = 40
 const BUTTON_CLASS = `inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono ${FOCUS_RING}`
 
 interface TourOfferProps {
@@ -27,6 +30,8 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
   const titleId = useId()
   const bodyId = useId()
   const sectionRef = useRef<HTMLElement>(null)
+  // Above the canvas controls, which sit above the control bar: the card never covers them
+  const { controlBarH } = useDockSnapshot().env
   const body = `A short tour explains what is on screen. It stays available from ${label} next to the Legend, and from Commands (Ctrl+K).`
 
   const dismiss = () => {
@@ -59,11 +64,12 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
       {open && (
         <section
           ref={sectionRef}
+          data-tour-offer=""
           aria-labelledby={titleId}
           aria-describedby={bodyId}
           className="pointer-events-auto absolute left-1/2 w-[min(26rem,calc(100vw-24px))] -translate-x-1/2 rounded-md p-3 font-mono text-xs"
           style={{
-            bottom: CONTROL_BAR_BOTTOM + DOCK_GAP + 64,
+            bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP + CANVAS_CONTROLS_ROW + DOCK_GAP,
             zIndex: Z.detailCard,
             background: COLORS.panelBg,
             border: `1px solid ${COLORS.glassBorder}`,
