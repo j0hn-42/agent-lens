@@ -93,7 +93,8 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
 
       const more = page.getByRole('button', { name: /^More/ })
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
-      const totals = page.locator('header').getByText(/tokens in context/)
+      // The drawn totals are the compact summary (#497); the full text stays for screen readers
+      const totals = page.locator('header').getByTestId('topbar-summary-compact')
       // Folded, the totals are visually hidden (sr-only, 1 px) but stay in the accessibility tree
       // Width actually drawn: the narrowest box among the text and its ancestors in the bar (sr-only clips to 1 px)
       const drawnWidth = () => totals.evaluate((el: Element) => {
@@ -153,7 +154,7 @@ for (const [w, h] of [[768, 900], [1280, 800]] as Array<[number, number]>) {
     const page = await open(w, h)
     try {
       assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
-      assert.ok(await page.getByText(/tokens in context/).isVisible(), 'the token total is drawn')
+      assert.ok(await page.getByTestId('topbar-summary-compact').isVisible(), 'the token total is drawn')
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
     } finally {
       await page.context().close()
@@ -221,6 +222,8 @@ for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`timeline ${w}x${h}: header labels neither touch each other nor leave the canvas`, async () => {
     const page = await open(w, h)
     try {
+      // A real pointer click (#497 review): the unfolded bar must stay above the canvas controls (Legend), or a touch on
+      // Timeline opens the legend instead
       await (await topbarButton(page, 'Timeline')).click()
       await page.locator('[data-dock-panel="timeline"]').waitFor()
       await page.waitForTimeout(4000) // several redraws while the demo runs

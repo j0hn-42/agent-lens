@@ -2,7 +2,7 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, formatCost, pluralize } from './utils'
+import { formatDuration, formatCost, formatTokens, pluralize } from './utils'
 import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
 import { formatCostUsage, formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
@@ -22,6 +22,56 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { token
     // Same figure in words for assistive technology (no "~"); a missing one reads as it is shown
     spoken: missing(cost) ? costText : spokenCostUsage(cost),
   }
+}
+
+/** Key of the symbols of the compact summary (#497), shown in its popover and described in reading-the-ui.md. */
+export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx = the context size, in tokens · unattr. = the part of the cost tied to no single agent'
+
+/**
+ * Inks of the summary popover (#497), measured in every theme by scripts/theme-contrast.test.ts: `ground` is a palette
+ * key or a theme variable, `text` the palette key of its text, `keyOpacity` the opacity of the key of the symbols.
+ */
+export const SUMMARY_POPOVER = { ground: 'panelBg', text: 'textMuted', keyOpacity: 1 } as const
+
+/** Time the pointer has to go from the summary to its popover across the rows of the bar between them (WCAG 1.4.13). */
+export const SUMMARY_CLOSE_DELAY_MS = 300
+
+/** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
+function compactMark(u: UsageTotal): string {
+  return `${u.status === 'partial' ? '≥' : ''}${u.estimated ? '~' : ''}`
+}
+
+/**
+ * Compact texts of the top bar (#497): same figures as `topBarContextText`, qualifiers as symbols ("≥~5.3M ctx tokens",
+ * "≥~$40.49 est."). A cost is always "~" (a context priced at a blended rate); "est." adds that its tokens are estimated.
+ * Nothing is rounded or recomputed here.
+ */
+export function topBarContextCompact(tokens: UsageTotal, cost: UsageTotal): { tokens: string; cost: string } {
+  const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
+  return {
+    tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${compactMark(tokens)}${formatTokens(tokens.value as number)} ctx tokens`,
+    cost: missing(cost)
+      ? `cost ${USAGE_LABELS.unavailable}`
+      : `${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(cost.value as number)}${cost.estimated ? ' est.' : ''}`,
+  }
+}
+
+/**
+ * Compact marker of the part of the cost tied to no single agent (#497 review): the long text says "(incl. ~$0.03
+ * unattributed)". It is a part of the cost, so it carries the same qualifiers ("≥" partial, "est." estimated tokens).
+ * Null when nothing is unattributed or no cost is reported.
+ */
+export function topBarUnattributedCompact(cost: UsageTotal, unattributed: number): string | null {
+  if (!(unattributed > 0) || cost.status === 'unavailable' || cost.value === null) return null
+  return `incl. ${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(unattributed)}${cost.estimated ? ' est.' : ''} unattr.`
+}
+
+/**
+ * The compact summary in words, the accessible name of its group: it keeps every word drawn, in the same order
+ * (WCAG 2.5.3), with "≥" and "~" said as "at least" and "estimated" and the separators as commas.
+ */
+export function spokenCompactSummary(compact: string): string {
+  return compact.replace(/ · /g, ', ').replace(/≥/g, 'at least ').replace(/~/g, 'estimated ')
 }
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
@@ -171,6 +221,12 @@ export function formatAgentCounts(active: number, done: number, stale = 0, idle 
   const idleText = idle > 0 ? ` - ${idle} idle` : ''
   const errorText = error > 0 ? ` - ${error} error` : ''
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
+}
+
+/** Compact "30 agents: 0 active · 4 last known · 26 done": the full wording is `formatAgentCounts` (popover, screen readers). */
+export function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+  const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
+  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
 }
 
 /** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */

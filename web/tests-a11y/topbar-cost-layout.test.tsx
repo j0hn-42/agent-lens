@@ -31,7 +31,7 @@ test('a partial estimated token total and a partial estimated cost are separated
   const { container } = render(<TopBar {...base} tokenUsage={partial} costUsage={cost} unattributedCost={0.03} />)
   const text = container.textContent ?? ''
   assert.doesNotMatch(text, /estimated\s*at least/, 'no "estimated" glued to the next "at least"')
-  assert.match(text, /tokens in context\s*·\s*at least/)
+  assert.match(text, /tokens in context\s+·\s+at least/, 'a space on each side of the separator (#497)')
 })
 
 test('cost panel top follows the published top bar height', () => {

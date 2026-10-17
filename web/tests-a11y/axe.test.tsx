@@ -250,14 +250,14 @@ test('shell: top bar with the quota gauges (ok, low, critical, aged), tooltip op
   const { container, getAllByRole } = render(<><TopBar {...topBarProps} quota={quota} selectedRuntime="claude" /><main id="visualizer-main" /></>)
   assert.equal(getAllByRole('meter').length, 2)
   await check('top-bar-quota', container)
-  await act(async () => { fireEvent.focus(container.querySelector<HTMLElement>('[role="group"][tabindex="0"]')!) })
+  await act(async () => { fireEvent.focus(container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
   assert.ok(container.querySelector('[role="tooltip"]'))
   await check('top-bar-quota-tooltip', container)
 })
 
 test('shell: top bar with the quota unknown, not available and without subscription', async () => {
   const unknown = render(<><TopBar {...topBarProps} quota={null} selectedRuntime="claude" /><main id="visualizer-main" /></>)
-  await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[role="group"][tabindex="0"]')!) })
+  await act(async () => { fireEvent.focus(unknown.container.querySelector<HTMLElement>('[data-testid="topbar-quota"] [role="group"][tabindex="0"]')!) })
   assert.ok(unknown.container.querySelector('[role="tooltip"]'))
   await check('top-bar-quota-unknown', unknown.container)
   unknown.unmount()
