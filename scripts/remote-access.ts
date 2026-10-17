@@ -160,7 +160,16 @@ export function gateRemoteRequest(req: http.IncomingMessage, res: http.ServerRes
   if ((req.url ?? '').split('?')[0] === '/pair') {
     const auth = remoteAuths.get(allowed)
     if (!auth) return answer(res, 'api', 403, 'Forbidden')
-    void auth.handlePair(req, res)
+    // Anyone who reaches the tunnel can send this: a rejection must never become an unhandled one (it would stop the
+    // relay). Same 401 as any pairing failure, nothing of the error is sent or logged.
+    auth.handlePair(req, res).catch(() => {
+      try {
+        if (!res.headersSent) answer(res, 'api', 401, 'Unauthorized')
+        else if (!res.writableEnded) res.end()
+      } catch {
+        res.destroy()
+      }
+    })
     return true
   }
   if (!isRemoteReadOnlyRoute(req.method, req.url)) return answer(res, kind, 403, 'Forbidden')
