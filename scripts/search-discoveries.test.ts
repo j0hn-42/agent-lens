@@ -131,7 +131,8 @@ test('the reading guide documents the file cards, their cap and what they never 
   for (const words of ['Found N files', 'files_with_matches', 'not drawn', 'tool_use_id', 'failed', 'cancelled', 'each whole path line under the header', 'relative']) {
     assert.ok(entry.includes(words), `the entry says "${words}"`)
   }
-  // A real Glob output has no header: the entry says it makes no card, and never that paths must be absolute
-  assert.ok(entry.includes('A Glob gets no card'), 'the entry says a Glob makes no card')
+  // A real Glob output has no header: the entry says its cards come from the structured result (#451), and never that paths must be absolute
+  assert.ok(entry.includes('structured result') && entry.includes('numFiles') && entry.includes('truncated'), 'the entry says where a Glob card comes from')
+  assert.ok(!entry.includes('A Glob gets no card'))
   assert.ok(!entry.includes('absolute path line'))
 })

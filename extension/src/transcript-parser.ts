@@ -36,6 +36,7 @@ import {
   buildLinkId, extractToolUseLinks, parseTeamNotifications, isTeamNotification, sanitizeAgentName, sanitizeMessageContent,
   MessageDeduper, type TeamLinkEvents,
 } from './team-links'
+import { globListingOf } from './search-listing'
 import { sanitizeTeamField, parseTeammateSpawnResult, type TeammateSpawnResult } from './teammate'
 import { createLogger } from './logger'
 import { asyncLaunchOf, resumedAgentOf, parseTaskNotifications, BackgroundLaunches } from './background-subagents'
@@ -796,6 +797,7 @@ export class TranscriptParser {
       ? block.is_error
       : !isSubagentTool && detectError(result)
     const errorMessage = isError ? result.slice(0, FAILED_RESULT_MAX) : undefined
+    const listing = isError ? null : globListingOf(toolName, toolUseResult)
 
     // A teammate spawn returns immediately ("spawned"): the teammate keeps living, so it neither
     // returns nor completes here.
@@ -855,6 +857,8 @@ export class TranscriptParser {
         tokenSource: 'estimated',
         toolUseId: block.tool_use_id,
         ...(discovery ? { discovery } : {}),
+        // The files a Glob's structured result proves it listed (#451); a failed call lists none
+        ...(!isError && listing ? { listing } : {}),
         ...(isError ? { isError, errorMessage } : {}),
         ...(isError && INTERRUPTED_RESULT.test(result) ? { outcome: 'cancelled' } : {}),
       },
