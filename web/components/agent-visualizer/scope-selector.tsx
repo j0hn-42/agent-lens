@@ -2,6 +2,7 @@
 
 import { COLORS } from "@/lib/colors"
 import { FOCUS_RING } from "@/lib/focus-ring"
+import { TOUCH_TARGET } from "@/lib/mobile-view"
 import type { SessionInfo } from "@/lib/bridge-types"
 import { parseScopeValue, scopeNotices, scopeOptions, scopeSummary, scopeValue, type RelayScopeState, type ScopeChoice } from "@/lib/relay-scope"
 import { projectOptions } from "@/lib/session-filter"
@@ -41,7 +42,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
         title="Scope of the sessions: this workspace, one project, or all workspaces"
         value={value}
         onChange={e => { const choice = parseScopeValue(e.target.value); if (choice) onChoose(choice) }}
-        className={`min-h-6 px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer max-w-[14rem] ${FOCUS_RING}`}
+        className={`min-h-6 ${TOUCH_TARGET} px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer max-w-[14rem] ${FOCUS_RING}`}
         style={{ background: COLORS.toggleInactive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary, colorScheme: "inherit" }}
       >
         {options.map(o => (

@@ -221,16 +221,16 @@ export const SESSION_LIST_LABELS = {
   hiddenUnnamed: 'Session hidden',
 } as const
 
-/** Top bar under 600 px (#378): the totals and the view filters fold behind this disclosure button. */
+/** Top bar under 768 px (#378, #476): the panel buttons, the totals and the view filters fold behind this disclosure button. */
 export const TOP_BAR_LABELS = {
   more: 'More',
-  moreName: 'More: totals and filters',
-  moreHelp: 'Agent counts, tokens in context, cost and the view filters (folded under 600 px wide)',
+  moreName: 'More: panels, totals and filters',
+  moreHelp: 'Panel buttons, agent counts, tokens in context, cost and the view filters (folded under 768 px wide)',
   /** Folded with filters on: the visible text says the canvas is filtered (short: it shares a row at 320 px) */
   moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'}`,
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */
   moreNameWithFilters: (names: readonly string[]) =>
-    `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: totals and filters (${names.join(', ')})`,
+    `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: panels, totals and filters (${names.join(', ')})`,
   /** Filter names used in those strings */
   filterHideInactive: 'Hide inactive agents',
   filterFinishedHidden: (count: number) => `Finished sessions hidden (${count})`,

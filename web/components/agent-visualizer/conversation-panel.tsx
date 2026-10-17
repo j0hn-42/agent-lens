@@ -31,7 +31,7 @@ import { ChevronIcon, ArrowDownIcon, SearchIcon } from './feed-icons'
 import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { PANEL_BUTTON_IDS } from './top-bar'
+import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from './top-bar'
 import { truncateName } from '@/lib/truncate-name'
 
 export interface ConversationPanelProps {
@@ -186,7 +186,7 @@ export function ConversationPanel({
     // An open agent card (the panel was opened by selecting that agent) keeps focus: moving it to the pill or
     // the top bar button would close the card, so one Escape would close two things.
     const target = document.querySelector<HTMLElement>('[data-dock-panel="detail"]')
-      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation)
+      ?? pillRef.current ?? document.getElementById(PANEL_BUTTON_IDS.conversation) ?? document.getElementById(TOPBAR_MORE_ID)
     target?.focus({ preventScroll: true })
   }, [open])
 
