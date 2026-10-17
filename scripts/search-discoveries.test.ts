@@ -114,6 +114,14 @@ test('listedFileText says where the card comes from and what was left out', () =
   assert.equal(listedFileText({ tool: 'Grep', position: 2, reported: 47, shown: 3 }), 'File listed by Grep, 2 of 47 files the call reported; 3 shown, 44 not drawn')
 })
 
+test('listedFileText names the Grep pattern when the call is known, nothing otherwise (#458)', () => {
+  const l = { tool: 'Grep', position: 1, reported: 47, shown: 47 }
+  assert.equal(listedFileText({ ...l, pattern: 'foo' }), 'File listed by Grep "foo", 1 of 47 files the call reported')
+  assert.equal(listedFileText({ ...l, pattern: 'foo', shown: 3 }), 'File listed by Grep "foo", 1 of 47 files the call reported; 3 shown, 44 not drawn')
+  assert.equal(listedFileText({ ...l, pattern: '' }), 'File listed by Grep, 1 of 47 files the call reported')
+  assert.equal(listedFileText({ ...l, pattern: undefined }), 'File listed by Grep, 1 of 47 files the call reported')
+})
+
 test('the reading guide documents the file cards, their cap and what they never show (#438)', () => {
   const guide = readFileSync(path.join(__dirname, '..', 'docs', 'reading-the-ui.md'), 'utf8')
   const start = guide.indexOf('- **File cards from a search**')

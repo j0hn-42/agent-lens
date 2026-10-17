@@ -120,9 +120,10 @@ export const EXPIRED_WARNING = 'Expired, end not observed: the result is unknown
 export const RESULT_WITHOUT_END_WARNING = `Result reported, ${END_NOT_OBSERVED}.`
 
 /** Where a file card made from a Glob / Grep output comes from (#438): its index in the list, the count the
- *  tool's header reported, and how many cards the call has, so the paths not drawn are said, never hidden. */
-export function listedFileText(l: { tool: string; position: number; reported: number; shown: number }): string {
-  const base = `File listed by ${l.tool}, ${l.position} of ${l.reported} files the call reported`
+ *  tool's header reported, and how many cards the call has, so the paths not drawn are said, never hidden. `pattern`: the clipped args of the complete call of the same
+ *  agent and tool_use_id, when it is known (#458); absent, nothing is invented. */
+export function listedFileText(l: { tool: string; position: number; reported: number; shown: number; pattern?: string }): string {
+  const base = `File listed by ${l.tool}${l.pattern ? ` "${l.pattern}"` : ''}, ${l.position} of ${l.reported} files the call reported`
   return l.reported > l.shown ? `${base}; ${l.shown} shown, ${l.reported - l.shown} not drawn` : base
 }
 
