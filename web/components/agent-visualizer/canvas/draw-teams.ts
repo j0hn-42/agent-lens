@@ -1,6 +1,6 @@
 import { SCENE } from '../../../lib/colors'
 import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { type TeamHalo, haloLabelAnchor } from './team-style'
 import { type Cluster, type PhaseLabel, clusterLabelLines, fitClusterLabelLines, haloAlphas } from './cluster-model'
 import { CLUSTER_DRAW, WORKSPACE_ZONE } from '../../../lib/canvas-constants'
@@ -12,13 +12,30 @@ import type { SessionLinkSegment } from './session-link-model'
 const HALO_LABEL_FONT = 12
 
 /**
+ * World-space halo and phase labels follow the zoom: drawn only where their text reaches LOD.minTextPx on
+ * screen (LevelOfDetail.detailText), enlarged around their anchor to hold that size in the hysteresis band.
+ * The cluster labels drawn in screen space (drawClusterLabels) keep naming the groups below that zoom (#378).
+ */
+function haloLabelScale(opts: DrawOpts): number | null {
+  const lod = lodOf(opts)
+  return lod.labels && lod.detailText ? textHoldScale(HALO_LABEL_FONT, opts.zoom) : null
+}
+
+function scaleAround(ctx: CanvasRenderingContext2D, x: number, y: number, k: number) {
+  if (k === 1) return
+  ctx.translate(x, y)
+  ctx.scale(k, k)
+  ctx.translate(-x, -y)
+}
+
+/**
  * Translucent cluster halo behind every team with several members, with the team name above it.
  * Colours come from `TeamHalo.color`, which is already validated as '#rrggbb'.
  * Drawn first, under edges and nodes.
  */
 export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   if (halos.length === 0) return
-  const lod = lodOf(opts)
+  const labelScale = haloLabelScale(opts)
   for (const h of halos) {
     ctx.save()
     ctx.beginPath()
@@ -32,8 +49,9 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
     ctx.stroke()
     ctx.setLineDash([])
 
-    if (lod.labels) {
+    if (labelScale !== null) {
       const anchor = haloLabelAnchor(h)
+      scaleAround(ctx, anchor.x, anchor.y, labelScale)
       const text = `${opts.maskText ? maskText(h.name) : h.name} (${h.memberIds.length})`
       ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
       const w = ctx.measureText(text).width + 14
@@ -130,16 +148,18 @@ export function drawClusterHalos(
 
 /**
  * Phase labels of the workflows (#146): a small chip above each phase sub-group, in world space like the
- * nodes it names. Drawn only at zoom levels where text is readable.
+ * nodes it names. Drawn only at zoom levels where its text reaches LOD.minTextPx on screen (haloLabelScale).
  */
 export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyArray<PhaseLabel>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
-  if (labels.length === 0 || !lodOf(opts).labels) return
-  ctx.save()
-  ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
+  const labelScale = haloLabelScale(opts)
+  if (labels.length === 0 || labelScale === null) return
   const hgt = 20
   for (const l of labels) {
+    ctx.save()
+    scaleAround(ctx, l.x, l.y, labelScale)
+    ctx.font = `600 ${HALO_LABEL_FONT}px monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
     const w = ctx.measureText(l.text).width + 14
     ctx.beginPath()
     ctx.roundRect(l.x - w / 2, l.y - hgt, w, hgt, 6)
@@ -152,8 +172,8 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
     ctx.setLineDash([])
     ctx.fillStyle = SCENE.textPrimary
     ctx.fillText(opts.maskText ? maskText(l.text) : l.text, l.x, l.y - hgt / 2 + 1)
+    ctx.restore()
   }
-  ctx.restore()
 }
 
 /**

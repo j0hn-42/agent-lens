@@ -45,6 +45,8 @@ export interface LevelOfDetail {
   details: boolean
   /** Tool-card and message-bubble text; false = card icon and bubble count chip (#378) */
   cardText: boolean
+  /** Secondary text that follows the zoom: stats box, cost pill, context %, discovery text, particle labels, phase and halo labels (#378) */
+  detailText: boolean
 }
 
 /**
@@ -57,7 +59,17 @@ export function lodForZoom(zoom: number, previous?: LevelOfDetail): LevelOfDetai
     labels: keep(LOD.labelMinZoom, previous?.labels),
     details: keep(LOD.detailMinZoom, previous?.details),
     cardText: keep(LOD.cardTextMinZoom, previous?.cardText),
+    detailText: keep(LOD.detailTextMinZoom, previous?.detailText),
   }
+}
+
+/**
+ * Factor that holds a text drawn at `worldPx` world px at LOD.minTextPx on screen: 1 where it already
+ * reaches that size, more below (the hysteresis band of the level that shows it). Never under 1.
+ */
+export function textHoldScale(worldPx: number, zoom: number): number {
+  if (!(zoom > 0) || !(worldPx > 0)) return 1
+  return Math.max(1, LOD.minTextPx / (worldPx * zoom))
 }
 
 /** Level of detail of a frame: the one the draw loop computed (with hysteresis), else the plain rule. */
@@ -70,8 +82,7 @@ export function lodOf(opts: Pick<DrawOpts, 'zoom' | 'lod'>): LevelOfDetail {
  * than LOD.minTextPx on screen: 1 from the zoom where the label font reaches that size, more below.
  */
 export function labelScaleForZoom(zoom: number): number {
-  if (!(zoom > 0)) return 1
-  return Math.max(1, LOD.minTextPx / (AGENT_DRAW.labelFontSize * zoom))
+  return textHoldScale(AGENT_DRAW.labelFontSize, zoom)
 }
 
 export interface FlashLimiter {
