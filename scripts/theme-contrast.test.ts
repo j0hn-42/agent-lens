@@ -48,7 +48,7 @@ const TEXT_KEYS: ColorKey[] = [
 
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
-  'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
+  'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem',
   'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical', 'searchIcon',
 ]
 

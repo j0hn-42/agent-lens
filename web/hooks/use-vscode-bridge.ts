@@ -6,8 +6,9 @@ import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAlias
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
 import {
-  activeSessionIds, finishedSessionIds, parseShowFinished, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject, SHOW_FINISHED_STORAGE_KEY,
+  activeSessionIds, finishedSessionIds, shouldStampActivity, pruneReplayStamps, visibilityKey, restrictToProject,
 } from '@/hooks/simulation/session-visibility'
+import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import {
   vscodeBridge, type ConnectionStatus, type AgentEvent, type SessionInfo, type BridgeNotice,
   type PermissionBridgeMessage, type PermissionRequestMessage,
@@ -229,9 +230,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     selectedSessionIdRef.current = ALL_SESSIONS_ID
     setSelectedSessionId(ALL_SESSIONS_ID)
   }, [updateSessions])
-  // 'All' shows only the active sessions unless the user asked for the finished ones too
-  const [showFinished, setShowFinishedState] = useState(false)
-  const showFinishedRef = useRef(false)
+  // 'All' shows only the active sessions unless the user asked for the finished ones too. The choice lives in the
+  // preference blob (#372): Settings, the top bar, another tab and 'Reset preferences' all write the same field.
+  const { prefs: uiPrefs, setPref: setUiPref } = useUiPreferences()
+  const showFinished = uiPrefs.showFinished
+  const showFinishedRef = useRef(showFinished)
   const lastEventAtRef = useRef<Map<string, number>>(new Map())
   /** Sessions shown in 'All' (null = every one); read synchronously by the event filter */
   const visibleRef = useRef<ReadonlySet<string> | null>(null)
@@ -284,21 +287,15 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
 
   const setShowFinished = useCallback((show: boolean) => {
     showFinishedRef.current = show
-    setShowFinishedState(show)
-    try { localStorage.setItem(SHOW_FINISHED_STORAGE_KEY, String(show)) } catch { /* storage unavailable */ }
+    setUiPref('showFinished', show)
     recomputeVisible()
-  }, [recomputeVisible])
+  }, [recomputeVisible, setUiPref])
 
-  // Restore the persisted preference once on mount
+  // Follow the stored preference: the value restored after hydration, another tab, a reset from Settings
   useEffect(() => {
-    try {
-      if (parseShowFinished(localStorage.getItem(SHOW_FINISHED_STORAGE_KEY))) {
-        showFinishedRef.current = true
-        setShowFinishedState(true)
-      }
-    } catch { /* storage unavailable */ }
+    showFinishedRef.current = showFinished
     recomputeVisible()
-  }, [recomputeVisible])
+  }, [showFinished, recomputeVisible])
   const [sessionsWithActivity, setSessionsWithActivity] = useState<Set<string>>(new Set())
   const [relayUnreachable, setRelayUnreachable] = useState(false)
   const [relayScope, setRelayScopeState] = useState<RelayScopeState | null>(null)

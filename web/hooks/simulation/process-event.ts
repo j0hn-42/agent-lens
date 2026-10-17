@@ -19,6 +19,7 @@ import { handleSubagentDispatch, handleSubagentReturn } from './handle-subagent-
 import { handleAgentLink, handleMessageSent } from './handle-link-events'
 import { handleTeamInfo, handleAgentActivity } from './handle-team-events'
 import { heardFrom, historyFrom, importedFrom } from './freshness'
+import { isHistoricalEvent, dropNewParticles, settleEntryAnimations } from './settle-replayed'
 import { advanceAgentActiveTime } from './track-active-time'
 
 export interface ProcessEventContext {
@@ -128,6 +129,7 @@ function copyCollections(prev: SimulationState): MutableEventState {
 /** Run the handler of one event on the mutable collections, at `currentTime`. */
 function applyEvent(event: SimulationEvent, currentTime: number, state: MutableEventState, ctx: ProcessEventContext): void {
   const sid = eventSessionId(event)
+  const keptParticles = state.particles.length
   switch (event.type) {
     case 'agent_spawn':       handleAgentSpawn(event.payload, currentTime, state, ctx, sid); break
     case 'agent_complete':    handleAgentComplete(event.payload, currentTime, state, ctx, sid); break
@@ -147,6 +149,8 @@ function applyEvent(event: SimulationEvent, currentTime: number, state: MutableE
     case 'permission_requested': handlePermissionRequested(event.payload, currentTime, state, ctx, sid); break
     case 'normalization_stats': state.normalizationStats.set(sid, parseNormalizationStats(event.payload)); break
   }
+  // A replayed or imported event describes the past: no particle travels for it
+  if (isHistoricalEvent(event)) dropNewParticles(state, keptParticles)
   // Particles normally expire as frames animate; a burst of events between two frames must not pile them up
   if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES)
 }
@@ -237,12 +241,14 @@ export function processEventBatch(
   const writes = receivedAt !== undefined ? recordAgentWrites(state.agents) : null
   let currentTime = prev.currentTime
   let processed = 0
+  let allHistorical = true
   try {
     for (let i = from; i < events.length; i++) {
       const event = events[i]
       if (opts.advanceClock) currentTime = event.time
       writes?.before.clear()
       applyEvent(event, currentTime, state, ctx)
+      if (!isHistoricalEvent(event)) allHistorical = false
       if (writes && receivedAt !== undefined) {
         for (const [id, before] of writes.before) {
           const agent = Map.prototype.get.call(state.agents, id) as Agent | undefined
@@ -259,5 +265,7 @@ export function processEventBatch(
   } finally {
     writes?.restore()
   }
+  // A batch made only of history shows where it ends up; a mixed one keeps the entry animation of its live events
+  if (allHistorical) settleEntryAnimations(state)
   return { state: publish(prev, state, currentTime), processed }
 }

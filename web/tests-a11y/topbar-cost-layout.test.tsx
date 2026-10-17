@@ -71,3 +71,10 @@ test('All mode: the summary keeps "~" on screen and says the estimate in words t
   assert.equal(el.querySelector('[aria-hidden="true"]')?.textContent, '3 sessions - 1 agent - ~$1.23')
   assert.equal(el.querySelector('.sr-only')?.textContent, `3 sessions, 1 agent, ${COST_LABELS.name} $1.23`)
 })
+
+test('unavailable usage names what is missing, on screen and for assistive technology (#383)', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  const { container, getByTestId } = render(<TopBar {...base} totalTokens={0} totalCost={0} tokenUsage={none} costUsage={none} />)
+  assert.match(container.textContent ?? '', /tokens not reported\s*·\s*cost not reported/)
+  assert.doesNotMatch(getByTestId('topbar-cost').textContent ?? '', /context cost estimate not reported/)
+})

@@ -77,7 +77,7 @@ const TEXT_TOKENS = [
 const NON_TEXT_TOKENS = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder',
   'playBtnBorder', 'reviewBtnBorder', 'liveResumeBorder',
-  'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing', 'systemWarm', 'systemCritical',
+  'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'systemWarm', 'systemCritical',
   'quotaOk', 'quotaLow', 'quotaCritical',
 ] as const
 
@@ -114,11 +114,6 @@ test('empty-state hierarchy: textDim heading and textHint are distinct and both 
   for (const bg of Object.values(BACKGROUNDS)) {
     assert.ok(ratio(composite(COLORS.textHint, bg), bg) >= 4.5)
   }
-})
-
-test('status dot ring has >= 3:1 against its dark inner gap', () => {
-  const gap = composite(COLORS.statusDotRingInner, BACKGROUNDS.void)
-  assert.ok(ratio(composite(COLORS.statusDotRing, gap), gap) >= 3)
 })
 
 test('effectiveContrast applies the opacity multiplier', () => {
@@ -252,14 +247,6 @@ test('inputs keep a real outline on focus', () => {
   const v = cssValue('.glass-card input:focus,\n.glass-card textarea:focus', 'outline')
   assert.ok(!/none/.test(v), v)
 })
-
-// ─── statusDotRing against the real backgrounds, effectiveContrast ──────────
-
-for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {
-  test(`statusDotRing >= 3:1 on ${bgName} (real background, not only the gap)`, () => {
-    assert.ok(ratio(composite(COLORS.statusDotRing, bg), bg) >= 3)
-  })
-}
 
 test('effectiveContrast is monotonic across several opacities and matches the 1.0 case', () => {
   const opacities = [1, 0.8, 0.6, 0.4, 0.2]

@@ -3,11 +3,13 @@
  *
  * Pure (no React, no direct `window` access) so it can be unit-tested with node:test.
  *
+ * One blob holds the view preferences. hide-inactive and single-key shortcuts moved in with #219,
+ * show-finished-sessions with #372; their former standalone keys are read once as a migration (see
+ * LEGACY_BOOLEAN_PREFS) and removed by a reset, so no existing choice is lost and none comes back.
+ *
  * Not stored here on purpose:
- * - mute / show-finished-sessions still persist under their own keys (use-audio-effects,
- *   SHOW_FINISHED_STORAGE_KEY in hooks/simulation/session-visibility.ts): reuse those, never duplicate them.
- *   hide-inactive and single-key shortcuts live here since #219; their former keys are read once as a
- *   migration (see LEGACY_BOOLEAN_PREFS);
+ * - mute (use-audio-effects), theme, language, notifications and presentation keep their own stores:
+ *   reuse those, never duplicate them. 'Reset preferences' (Settings) therefore leaves them alone;
  * - playback speed: it is locked outside review mode, restoring it would be a trap.
  *
  * Trust model: whatever sits in localStorage may be hand-edited, written by an older/newer build or
@@ -18,6 +20,7 @@
 
 import { HIDE_INACTIVE_STORAGE_KEY, parseHideInactive } from './inactive-agents'
 import { SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parseSingleKeyPreference } from './shortcuts'
+import { SHOW_FINISHED_STORAGE_KEY, parseShowFinished } from '../hooks/simulation/session-visibility'
 
 /** localStorage key of the preference blob */
 export const UI_PREFS_STORAGE_KEY = 'agent-lens:ui-prefs'
@@ -45,6 +48,8 @@ export interface UiPrefs {
   showQuota: boolean
   /** 'Hide inactive agents' (#219): on by default */
   hideInactive: boolean
+  /** 'Show finished sessions' (#36, in the blob since #372): the 'All' view also lists sessions idle for more than 10 minutes; off by default */
+  showFinished: boolean
   /** 'Enable single-key shortcuts' (WCAG 2.1.4, #219): on by default */
   singleKeyShortcuts: boolean
   /** Last selected session tab, restored with restoreSelectedSessionId (null = none) */
@@ -76,6 +81,7 @@ export const DEFAULT_UI_PREFS: Readonly<UiPrefs> = Object.freeze({
   showCostOverlay: false,
   showQuota: true,
   hideInactive: true,
+  showFinished: false,
   singleKeyShortcuts: true,
   lastSelectedSessionId: null,
   dockRightWidth: DOCK_RIGHT_WIDTH_DEFAULT,
@@ -147,11 +153,13 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
 }
 
 /**
- * Former standalone keys of preferences now held by the blob (#219). Read only when the blob has no
- * valid value for the field, with the semantics those keys always had (only the string 'false' disables).
+ * Former standalone keys of preferences now held by the blob (#219, #372). Read only when the blob has no
+ * valid value for the field, with the semantics each key always had.
  */
-const LEGACY_BOOLEAN_PREFS: ReadonlyArray<{ pref: 'hideInactive' | 'singleKeyShortcuts'; storageKey: string; parse: (raw: string | null) => boolean }> = [
+const LEGACY_BOOLEAN_PREFS: ReadonlyArray<{ pref: 'hideInactive' | 'showFinished' | 'singleKeyShortcuts'; storageKey: string; parse: (raw: string | null) => boolean }> = [
   { pref: 'hideInactive', storageKey: HIDE_INACTIVE_STORAGE_KEY, parse: parseHideInactive },
+  // #372: only the exact string 'true' turned it on
+  { pref: 'showFinished', storageKey: SHOW_FINISHED_STORAGE_KEY, parse: parseShowFinished },
   { pref: 'singleKeyShortcuts', storageKey: SINGLE_KEY_SHORTCUTS_STORAGE_KEY, parse: parseSingleKeyPreference },
 ]
 

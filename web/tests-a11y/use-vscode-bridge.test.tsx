@@ -8,6 +8,7 @@ import { renderHook, cleanup, act } from '@testing-library/react'
 import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-bridge'
+import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 
@@ -57,6 +58,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  resetDefaultUiPreferencesStore() // 'Show finished sessions' lives in the shared preference store (#372)
   mock.timers.reset()
   mock.restoreAll()
   for (const k of ENV_KEYS) setEnv(k, savedEnv[k])

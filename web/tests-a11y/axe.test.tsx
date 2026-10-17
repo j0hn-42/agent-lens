@@ -352,9 +352,11 @@ test('dialog: settings with announcements (#379)', async () => {
       singleKeyEnabled onSingleKeyEnabledChange={noop}
       onOpenShortcuts={noop}
       announcements={{ level: 'important', onLevelChange: noop }}
+      onResetPrefs={noop}
     />,
   )
   assert.ok(within(container).getByRole('combobox', { name: 'Announcement level' }), 'the announcements section is rendered')
+  assert.ok(within(container).getByRole('button', { name: 'Reset preferences' }), 'the reset section is rendered (#372)')
   await check('settings-dialog', container)
 })
 
