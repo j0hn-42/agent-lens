@@ -9,8 +9,8 @@ const GAP = 4
 const MARGIN = 8
 
 /**
- * Tooltip of a top bar button (#523): what a panel icon means (its name, its shortcut, what the panel shows). It is a
- * role="tooltip" linked by aria-describedby, so the text is in the page for assistive technology at every width. It is
+ * Tooltip of a top bar button (#523): what a panel icon means (its name and shortcut; for some panels what it shows). It
+ * is a role="tooltip", linked by the button's aria-describedby when it says more than the button's name. It is
  * drawn below the button on hover and on keyboard focus, stays open while the pointer is over the button or the tooltip
  * (the pointer has TOOLTIP_CLOSE_DELAY_MS to cross the gap), and Escape closes it wherever the focus is, without moving
  * the focus (WCAG 1.4.13); opened by hover, that Escape does nothing else. A click on the button hides it until the next
