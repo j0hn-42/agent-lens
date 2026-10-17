@@ -186,3 +186,27 @@ test('320 x 568 phone: the agent card, then Files with Details open, never cover
     await page.close()
   }
 })
+
+// #476: under 768 px an open panel is a drawer that keeps Tab in its cycle; the truncation notice drawn above it is
+// part of that cycle (the drawer is not aria-modal), so its buttons stay reachable from the keyboard
+test('390px, Timeline drawer open: Tab cycles through the drawer and the notice, never the rest of the page (#476)', async () => {
+  const page = await browser.newPage()
+  try {
+    const frame = await mountWithBanner(page, 390, 844)
+    await togglePanel(frame, /^Timeline/)
+    const drawer = frame.locator('[data-mobile-drawer]')
+    await drawer.waitFor()
+    assert.equal(await drawer.getAttribute('aria-modal'), null)
+    await frame.waitForFunction(`!!document.activeElement && !!document.activeElement.closest('[data-mobile-drawer]')`)
+    const seen = new Set<string>()
+    for (let i = 0; i < 30; i++) {
+      await page.keyboard.press('Tab')
+      const where = await frame.evaluate(`(() => { const a = document.activeElement; if (!a || a === document.body) return 'body'; if (a.closest('[data-mobile-drawer]')) return 'drawer'; if (a.closest('[data-truncation-banner]')) return 'banner:' + (a.getAttribute('aria-label') || a.textContent.trim()); return 'outside:' + (a.getAttribute('aria-label') || a.textContent.trim()) })()`) as string
+      assert.ok(where === 'drawer' || where.startsWith('banner:'), `Tab ${i + 1} went ${where}`)
+      seen.add(where.split(':')[0])
+    }
+    assert.ok(seen.has('banner') && seen.has('drawer'), `both are reached (${[...seen].join(', ')})`)
+  } finally {
+    await page.close()
+  }
+})

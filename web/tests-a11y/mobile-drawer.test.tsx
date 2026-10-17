@@ -42,11 +42,12 @@ test('768 px and wider: an open panel stays a plain region (no dialog, no trap)'
   assert.equal(document.activeElement, last, 'Tab is left to the browser')
 })
 
-test('under 768 px: an open panel is a modal dialog named by its heading', async () => {
+test('under 768 px: an open panel is a dialog named by its heading', async () => {
   setMobileView(true)
   const view = render(<Drawer visible />)
   const dialog = view.getByRole('dialog')
-  assert.equal(dialog.getAttribute('aria-modal'), 'true')
+  // Not modal: the permission cards and the truncation notice stay drawn above it and reachable (#410, #453)
+  assert.equal(dialog.getAttribute('aria-modal'), null)
   assert.equal(dialog.getAttribute('aria-labelledby'), 'drawer-title')
   assert.ok(dialog.hasAttribute('data-mobile-drawer'))
   const results = await axe.run(view.container, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })
@@ -160,14 +161,45 @@ test('under 768 px: the drawer keeps its reduced-motion opt-out', () => {
   assert.match(view.getByRole('dialog').className, /motion-reduce:transition-none/)
 })
 
-test('nextTrapTarget: wraps only at the ends, never with nothing to focus', () => {
+test('nextTrapTarget: wraps only at the ends of a segment, never with nothing to focus', () => {
   const items = ['a', 'b', 'c']
-  assert.equal(nextTrapTarget(items, 'c', false), 'a')
-  assert.equal(nextTrapTarget(items, 'a', true), 'c')
-  assert.equal(nextTrapTarget(items, 'b', false), null)
-  assert.equal(nextTrapTarget(items, 'b', true), null)
+  assert.equal(nextTrapTarget([items], 'c', false), 'a')
+  assert.equal(nextTrapTarget([items], 'a', true), 'c')
+  assert.equal(nextTrapTarget([items], 'b', false), null)
+  assert.equal(nextTrapTarget([items], 'b', true), null)
   // Focus on the container itself (or outside): Tab goes to the first, Shift+Tab to the last
-  assert.equal(nextTrapTarget(items, null, false), 'a')
-  assert.equal(nextTrapTarget(items, null, true), 'c')
-  assert.equal(nextTrapTarget([], null, false), null)
+  assert.equal(nextTrapTarget([items], null, false), 'a')
+  assert.equal(nextTrapTarget([items], null, true), 'c')
+  assert.equal(nextTrapTarget([[]], null, false), null)
+  // Two surfaces (permission cards, then the drawer): their ends join, empty ones are skipped
+  assert.equal(nextTrapTarget([['p'], [], items], 'p', false), 'a')
+  assert.equal(nextTrapTarget([['p'], [], items], 'a', true), 'p')
+  assert.equal(nextTrapTarget([['p'], items], 'c', false), 'p')
+  assert.equal(nextTrapTarget([['p'], items], 'p', true), 'c')
+})
+
+test('under 768 px: Tab cycles through the drawer and the permission cards and truncation notice drawn above it', () => {
+  setMobileView(true)
+  const view = render(
+    <>
+      <div data-permission-requests=""><button type="button">Allow</button></div>
+      <div data-truncation-banner=""><button type="button">Details</button></div>
+      <button type="button">Top bar button</button>
+      <Drawer visible />
+    </>,
+  )
+  const allow = view.getByRole('button', { name: 'Allow' })
+  const details = view.getByRole('button', { name: 'Details' })
+  const close = view.getByRole('button', { name: 'Close' })
+  const last = view.getByRole('button', { name: 'Last' })
+  last.focus()
+  fireEvent.keyDown(last, { key: 'Tab' })
+  assert.equal(document.activeElement?.textContent, allow.textContent, 'from the last control of the drawer to the permission cards')
+  fireEvent.keyDown(allow, { key: 'Tab', shiftKey: true })
+  assert.equal(document.activeElement?.textContent, last.textContent, 'and back')
+  details.focus()
+  fireEvent.keyDown(details, { key: 'Tab' })
+  assert.equal(document.activeElement?.textContent, close.textContent, 'from the notice into the drawer, skipping the top bar')
+  fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+  assert.equal(document.activeElement?.textContent, details.textContent)
 })

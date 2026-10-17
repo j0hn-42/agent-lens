@@ -1,5 +1,5 @@
 // Mobile view (#476, #241 PR 4), measured in a real browser against the demo app (`pnpm --dir web run test:e2e`).
-// At 375x667: the chrome controls are drawn at least 44x44 px, an open panel is a modal drawer (focus moved in, kept
+// At 375x667: the chrome controls are drawn at least 44x44 px, an open panel is a drawer (focus moved in, kept
 // in by Tab, given back on close), zoom and fit buttons stand in for pinch and drag, touch-action: none stays on the
 // canvas, nothing scrolls sideways at 320 px, landscape works and reduced motion stops the drawer's slide.
 import { test, before, after } from 'node:test'
@@ -89,7 +89,7 @@ test('375x667: the folded top bar is short and every chrome control is at least 
   }
 })
 
-test('375x667: Sessions opens a modal drawer; Tab stays inside, Escape closes it and gives the focus back', async () => {
+test('375x667: Sessions opens a drawer; Tab stays inside, Escape closes it and gives the focus back', async () => {
   const page = await open(375, 667)
   try {
     const sessions = page.locator('header').getByRole('button', { name: /^Sessions/ })
@@ -97,7 +97,8 @@ test('375x667: Sessions opens a modal drawer; Tab stays inside, Escape closes it
     await page.keyboard.press('Enter')
     const drawer = page.getByRole('dialog', { name: /Sessions/i })
     await drawer.waitFor()
-    assert.equal(await drawer.getAttribute('aria-modal'), 'true')
+    // Not aria-modal: the permission cards and the truncation notice above it stay in reach (#410, #453)
+    assert.equal(await drawer.getAttribute('aria-modal'), null)
     await page.waitForFunction(`!!document.activeElement && !!document.activeElement.closest('[data-mobile-drawer]')`)
     const box = (await drawer.boundingBox())!
     assert.ok(box.x >= 0 && box.x + box.width <= 375 + 0.5 && box.width >= 375 - 16 - 1, `the drawer spans the width (${box.x}, ${box.width})`)
