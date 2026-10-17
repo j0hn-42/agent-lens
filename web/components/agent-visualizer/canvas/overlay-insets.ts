@@ -35,14 +35,16 @@ export function measureOverlayInsets(canvas: HTMLElement | null, doc: Document |
   const container = canvas.closest('[data-agent-canvas-root]')
   const rects: OverlayRect[] = []
   for (const el of Array.from(doc.querySelectorAll<HTMLElement>(OVERLAY_SELECTOR))) {
-    if (container && container.contains(el)) continue
+    const role = overlayRoleOf(el)
+    // Inside the canvas root only an explicit edge counts: the canvas controls row on the playback bar (#378)
+    if (container && container.contains(el) && !role.edge) continue
     if (el.contains(canvas)) continue
     // A header / toolbar nested in another overlay panel is part of that panel, not a bar of its own
     const outer = el.parentElement?.closest(OVERLAY_SELECTOR)
     if (outer && !outer.contains(canvas)) continue
     const r = el.getBoundingClientRect()
     if (r.width <= 0 || r.height <= 0) continue
-    rects.push({ x: r.left, y: r.top, w: r.width, h: r.height, ...overlayRoleOf(el) })
+    rects.push({ x: r.left, y: r.top, w: r.width, h: r.height, ...role })
   }
   const insets = classifyOverlayInsets(rects, canvasRect)
   // The top bar publishes its measured height (bar + offset + breathing room)

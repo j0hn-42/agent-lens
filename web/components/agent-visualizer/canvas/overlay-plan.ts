@@ -41,7 +41,7 @@ export function contextBlockHeight(radius: number, extraLines: number): number {
 }
 
 /** World size, at 100 %, of the label block drawn under an agent (its top is a.y + r + AGENT_DRAW.labelYOffset). */
-interface AgentLabelBlock {
+export interface AgentLabelBlock {
   w: number
   h: number
   /** One-line form "name · status", with the context bar still hanging under it */
@@ -55,7 +55,7 @@ interface AgentLabelBlock {
  * widest line ("4.3k estimated / 1M tokens, window assumed"). The token line is drawn with the details
  * level only. Below 100 % the block is drawn enlarged by labelScaleForZoom around its top centre.
  */
-function agentLabelBlock(
+export function agentLabelBlock(
   a: Agent, r: number, measure: (text: string) => number,
   options: { showSession: boolean; orchestrator: ReturnType<typeof orchestratorInfo>; details: boolean },
 ): AgentLabelBlock {

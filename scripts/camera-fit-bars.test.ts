@@ -21,6 +21,11 @@ function agent(over: Record<string, unknown> = {}): any {
   }
 }
 
+type FitContent = (boundsAt: (k: number | null) => cameraFit.WorldBounds, viewport: { width: number; height: number }) => cameraFit.Transform | null
+/** Bounds with the label blocks enlarged k times, or without them (null), as the camera hook builds them */
+const boundsAt = (agents: any[], labelBlock: () => { w: number; h: number } | null) => (k: number | null) =>
+  computeFitBounds(k === null ? { agents, simTime: 0 } : { agents, simTime: 0, labelBlock, labelScale: k } as any)
+
 function fakeEl(attrs: Record<string, string>, matchesBar: boolean, r: Rect): any {
   const el: any = {
     getAttribute: (k: string) => attrs[k] ?? null,
@@ -68,11 +73,11 @@ test('computeFitBounds: the workspace zones drawn around the halos are framed (#
 })
 
 test('fitContent: below 100 % the label blocks are framed at the size they are drawn (#378)', () => {
-  const fitContent = (cameraFit as Record<string, unknown>).fitContent as undefined | ((...a: unknown[]) => cameraFit.Transform | null)
+  const fitContent = (cameraFit as Record<string, unknown>).fitContent as undefined | FitContent
   assert.equal(typeof fitContent, 'function', 'camera-fit exports fitContent')
   // Two agents far apart vertically: the fit lands well under 100 %, where labels are drawn enlarged
   const top = agent({ id: 'a', x: 0, y: 0 })
-  const bottom = agent({ id: 'b', x: 0, y: 1100 })
+  const bottom = agent({ id: 'b', x: 0, y: 1700 })
   const block = { w: 280, h: 70 }
   const viewport = { width: 1024, height: 768 }
   const drawnBlock = (t: cameraFit.Transform, a: any) => {
@@ -88,22 +93,22 @@ test('fitContent: below 100 % the label blocks are framed at the size they are d
   assert.ok(plain.scale < 1 && plain.scale >= 0.35, `precondition: labels drawn enlarged at ${plain.scale}`)
   assert.ok(drawnBlock(plain, bottom).b > viewport.height, 'precondition: the plain fit cuts the bottom label')
 
-  const t = fitContent!({ agents: [top, bottom], simTime: 0, labelBlock: () => block }, viewport)!
+  const t = fitContent!(boundsAt([top, bottom], () => block), viewport)!
   for (const a of [top, bottom]) {
     const d = drawnBlock(t, a)
     assert.ok(d.t >= -0.5 && d.b <= viewport.height + 0.5 && d.l >= -0.5 && d.r <= viewport.width + 0.5, `label of ${a.id} ${JSON.stringify(d)} at zoom ${t.scale}`)
   }
   // Without label blocks it is the plain fit
-  assert.deepEqual(fitContent!({ agents: [top, bottom], simTime: 0 }, viewport), plain)
+  assert.deepEqual(fitContent!(boundsAt([top, bottom], () => null), viewport), plain)
 })
 
 test('fitContent: under the zoom where labels are hidden, they no longer stretch the fit (#378)', () => {
-  const fitContent = (cameraFit as Record<string, unknown>).fitContent as undefined | ((...a: unknown[]) => cameraFit.Transform | null)
+  const fitContent = (cameraFit as Record<string, unknown>).fitContent as undefined | FitContent
   assert.equal(typeof fitContent, 'function', 'camera-fit exports fitContent')
   const agents = [agent({ id: 'a', x: 0, y: 0 }), agent({ id: 'b', x: 0, y: 6000 })]
   const viewport = { width: 1024, height: 768 }
   const plain = fitToView(computeFitBounds({ agents, simTime: 0 }), viewport)!
   assert.ok(plain.scale < 0.3, `precondition: labels hidden at ${plain.scale}`)
-  const t = fitContent!({ agents, simTime: 0, labelBlock: () => ({ w: 280, h: 70 }) }, viewport)!
+  const t = fitContent!(boundsAt(agents, () => ({ w: 280, h: 70 })), viewport)!
   assert.ok(Math.abs(t.scale - plain.scale) < 1e-9, `${t.scale} vs ${plain.scale}`)
 })

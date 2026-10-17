@@ -1,11 +1,15 @@
 import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import {
-  computeFitBounds, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
-  type Transform, type Insets, type AutoFitState,
+  computeFitBounds, fitContent, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
+  type Transform, type Insets, type AutoFitState, type FitBoundsInput,
 } from '@/components/agent-visualizer/canvas/camera-fit'
 import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
-import { CAMERA } from '@/lib/canvas-constants'
+import { computeWorkspaceZones } from '@/components/agent-visualizer/canvas/workspace-zones'
+import { agentLabelBlock, type AgentLabelBlock } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { estimateTextWidth } from '@/components/agent-visualizer/canvas/edge-bubbles'
+import { agentDrawRadius, hasSeveralSessions, orchestratorInfo } from '@/components/agent-visualizer/canvas/team-style'
+import { CAMERA, AGENT_DRAW } from '@/lib/canvas-constants'
 import { INITIAL_FOLLOW, pickFollowAgent, stepFollow, followTransform, type FollowState } from '@/lib/presentation'
 
 export type { Transform }
@@ -110,12 +114,22 @@ export function useCanvasCamera({
     // No result cache: the simulation mutates its Maps in place, so a reference-keyed cache would keep
     // the bounds of the first (unsettled) layout forever.
     const clusters = clustersRef?.current ?? []
-    const bounds = computeFitBounds({
-      agents: agents.values(), toolCalls: toolCalls.values(), discoveries, clusters, focusScope,
-      simTime: simTimeRef.current ?? 0,
-    })
+    // Label blocks are framed at their drawn size (enlarged below 100 %), with the session line the draw
+    // loop adds when several sessions are on screen (#378). Measured once per fit, not once per refit round.
+    const showSession = hasSeveralSessions(agents.values())
+    const measure = (text: string) => estimateTextWidth(text, AGENT_DRAW.labelFontSize)
+    const blocks = new Map<Agent, AgentLabelBlock>()
+    const labelBlock = (a: Agent) => {
+      let b = blocks.get(a)
+      if (!b) { b = agentLabelBlock(a, agentDrawRadius(a), measure, { showSession, orchestrator: orchestratorInfo(a), details: true }); blocks.set(a, b) }
+      return b
+    }
+    const input: FitBoundsInput = {
+      agents: Array.from(agents.values()), toolCalls: Array.from(toolCalls.values()), discoveries, clusters, focusScope,
+      zones: computeWorkspaceZones(clusters), simTime: simTimeRef.current ?? 0,
+    }
     const insets = fitInsets(getInsets?.(), !focusScope && clusters.length > 0)
-    return fitToView(bounds, dimensions, insets)
+    return fitContent(k => computeFitBounds(k === null ? input : { ...input, labelBlock, labelScale: k }), dimensions, insets)
   }, [getDescendantIds, drawPropsRef, simTimeRef, clustersRef, getInsets])
 
   const doZoomToFit = useCallback(() => {
