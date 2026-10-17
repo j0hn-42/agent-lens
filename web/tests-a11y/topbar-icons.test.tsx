@@ -144,6 +144,37 @@ test('Escape closes a tooltip opened by hover while the focus is elsewhere, and 
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
 })
 
+test('a click on the button closes its tooltip (it would cover the panel it opens) and the next Escape reaches the page', async () => {
+  for (const press of [(el: HTMLElement) => fireEvent.pointerDown(el), (el: HTMLElement) => fireEvent.click(el)]) {
+    const view = render(<TopBar {...base} />)
+    const timeline = view.getByRole('button', { name: 'Timeline' })
+    const tip = tooltipOf(timeline)!
+    const hoverBox = timeline.parentElement!
+    fireEvent.mouseEnter(hoverBox)
+    assert.ok(shown(tip), 'hover opens it')
+    press(timeline)
+    // The click focuses the button: still hidden, the pointer has not left
+    act(() => timeline.focus())
+    assert.ok(!shown(tip), 'the click closed it, the pointer still on the button')
+    let reached = false
+    const late = () => { reached = true }
+    document.addEventListener('keydown', late)
+    try {
+      fireEvent.keyDown(timeline, { key: 'Escape' })
+    } finally {
+      document.removeEventListener('keydown', late)
+    }
+    assert.equal(reached, true, 'one Escape reaches the page (closes the panel just opened)')
+    // The pointer leaves and comes back: the tooltip shows again
+    act(() => timeline.blur())
+    fireEvent.mouseLeave(hoverBox)
+    await act(async () => { await new Promise(r => setTimeout(r, TOOLTIP_CLOSE_DELAY_MS + 50)) })
+    fireEvent.mouseEnter(hoverBox)
+    assert.ok(shown(tip), 'the next hover shows it again')
+    cleanup()
+  }
+})
+
 test('opened by the keyboard focus alone, Escape hides the tooltip and still reaches the page (closing panels one by one)', () => {
   const view = render(<TopBar {...base} />)
   const files = view.getByRole('button', { name: 'Files' })
