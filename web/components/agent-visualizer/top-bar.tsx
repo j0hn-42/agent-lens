@@ -269,7 +269,7 @@ export interface TopBarProps {
   onToggleFullscreen?: () => void
   /** Agents of the view waiting for a permission or in error (#126); the counter shows when any */
   attention?: { waiting: number; errors: number }
-  /** Select the first blocked agent */
+  /** Select the next blocked agent (the first one on the first click, #377) */
   onJumpToAttention?: () => void
   /** Opens the command palette (also Ctrl+K / Cmd+K); the button is hidden when omitted (#377) */
   onOpenPalette?: () => void
@@ -293,6 +293,10 @@ export const TopBar = memo(function TopBar({
 }: TopBarProps) {
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
+  // With two or more, each click goes to the next one (#377); with one, there is no "next" to promise
+  const attentionMany = attention ? attention.waiting + attention.errors > 1 : false
+  // Outside VS Code no permission card is drawn here (#240): say where a permission is answered
+  const answerWhere = isVSCode ? '' : ' A permission is answered where the agent runs (its terminal or editor), not on this page.'
   const rootRef = useRef<HTMLElement>(null)
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
@@ -385,8 +389,10 @@ export const TopBar = memo(function TopBar({
             type="button"
             data-testid="attention-counter"
             onClick={onJumpToAttention}
-            aria-label={`${attentionText}. Go to the first agent that needs you`}
-            title="Agents of this view that wait for a permission or failed. Click to select the first one."
+            aria-label={`${attentionText}. ${attentionMany ? 'Go to the next agent that needs you' : 'Go to the agent that needs you'}`}
+            title={(attentionMany
+              ? 'Agents that wait for a permission or failed. Each click selects the next one, waiting agents first.'
+              : 'The agent that waits for a permission or failed. Click to select it.') + answerWhere}
             className={`min-h-6 px-2 rounded font-bold ${FOCUS_RING}`}
             style={{
               background: COLORS.toggleInactive,
