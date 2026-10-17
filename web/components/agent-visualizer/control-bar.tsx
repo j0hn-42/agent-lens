@@ -431,9 +431,10 @@ function ReviewControlBar({
             aria-label="Resume live"
             className={`${BTN_BASE} px-2.5 py-1 font-semibold transition-all motion-safe:hover:scale-105 shrink-0`}
             style={{
-              background: COLORS.liveResumeBg,
-              border: `1px solid ${COLORS.liveResumeBorder}`,
-              color: COLORS.liveText,
+              // An action, like Review: the live red belongs to the badge that says the flux is live
+              background: COLORS.holoBg10,
+              border: `1px solid ${COLORS.controlBorder}`,
+              color: COLORS.textPrimary,
             }}
           >
             <span aria-hidden="true">▶ </span>LIVE

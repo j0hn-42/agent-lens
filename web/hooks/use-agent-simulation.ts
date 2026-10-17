@@ -5,7 +5,6 @@ import {
   Agent,
   Edge,
   SimulationEvent,
-  type TimelineEntry,
 } from '@/lib/agent-types'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
@@ -15,14 +14,14 @@ import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
 import { createEmptyState, MAX_EVENT_LOG } from './simulation/types'
-import { processEventBatch, eventSessionId, type ProcessEventContext } from './simulation/process-event'
+import { processEventBatch, type ProcessEventContext } from './simulation/process-event'
 import { findToolSlot } from './simulation/tool-slot'
 import {
   createCatchUp, enqueueCatchUp, runCatchUpSlice, catchUpProgress, clearCatchUp, copyCatchUp,
   CATCH_UP_FRAME_BUDGET_MS, type CatchUpQueue, type CatchUpProgress,
 } from './simulation/catch-up'
 import { stampEventTimes, droppedFromLog, effectiveSpeed, applySessionOffsets } from './simulation/stamp-time'
-import { agentKeyOf } from './simulation/types'
+import { clearHistoryState } from './simulation/clear-history'
 import { computeNextFrame } from './simulation/animate'
 import { snapVisualState } from './simulation/snap-visual-state'
 import { carryFreshness } from './simulation/freshness'
@@ -327,39 +326,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
       return
     }
     // Keep active agents but clear completed state and visual history
-    const prev = frameRef.current
-    const agents = new Map<string, Agent>()
-    for (const [id, agent] of prev.agents) {
-      if (agent.state !== 'complete') {
-        agents.set(id, { ...agent, toolCalls: 0, toolErrors: 0, messageBubbles: [], timeAlive: 0 })
-      }
-    }
-
-    const edges = prev.edges.filter(e =>
-      e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to)
-    )
-
-    const timelineEntries = new Map<string, TimelineEntry>()
-    for (const [id, entry] of prev.timelineEntries) {
-      if (agents.has(id)) {
-        timelineEntries.set(id, { ...entry, blocks: [] })
-      }
-    }
-
-    const conversations: SimulationState['conversations'] = new Map()
-    for (const id of agents.keys()) conversations.set(id, [])
-
-    const keptLocalIds = new Set(Array.from(agents.values()).map(a => a.id))
-    const eventLog = prev.eventLog.filter(e =>
-      e.type === 'agent_spawn' && typeof e.payload?.name === 'string'
-      && keptLocalIds.has(agentKeyOf(eventSessionId(e), e.payload.name))
-    )
-
-    const next = {
-      ...createEmptyState({ isPlaying: true, speed: prev.speed }),
-      agents, edges, timelineEntries, conversations,
-      eventLog, eventIndex: eventLog.length,
-    }
+    const next = clearHistoryState(frameRef.current)
     commitState(next)
     setTimeout(() => syncForceSimulation(next.agents, next.edges), 0)
   }, [syncForceSimulation, commitState, publishCatchUp])
