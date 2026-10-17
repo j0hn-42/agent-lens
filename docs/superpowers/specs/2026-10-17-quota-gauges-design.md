@@ -1,7 +1,7 @@
 # Jauges de quota d'abonnement : spécification de conception
 
 Date : 2026-10-17
-Statut : proposition, en attente de validation. Aucun code de production n'est écrit avant cette validation. Aucune issue n'existe encore : à créer avant l'implémentation (rôle `agent:frontend-engineer` ou `agent:backend-engineer` selon le découpage).
+Statut : validé ; issue #467.
 
 ## 1. Intention
 

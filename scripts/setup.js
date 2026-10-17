@@ -246,13 +246,24 @@ function planStatusLine(current, baseCommand) {
   return { ...current, type: 'command', command: encodeStatusLineCommand(baseCommand, current) }
 }
 
-/** Points `statusLine` at the wrapper, keeping the user's own statusLine whole inside its command. */
+class StatusLineChangedError extends Error {
+  constructor(target) {
+    super(`${target} changed since the preview: nothing was written. Run the command again to see the new state.`)
+    this.name = 'StatusLineChangedError'
+  }
+}
+
+/**
+ * Points `statusLine` at the wrapper, keeping the user's own statusLine whole inside its command.
+ * With `options.expected` (what a preview showed), anything else is refused: the file changed meanwhile.
+ */
 function configureStatusLine(options = {}) {
   const target = options.settingsPath || settingsPath()
   const baseCommand = options.statuslineCommand || defaultStatuslineCommand()
   let skipped = false
   const changed = updateSettings(target, settings => {
     const next = planStatusLine(settings.statusLine, baseCommand)
+    if (options.expected !== undefined && JSON.stringify(next) !== JSON.stringify(options.expected)) throw new StatusLineChangedError(target)
     if (next) settings.statusLine = next
     else skipped = true
   })
@@ -301,6 +312,7 @@ async function runStatuslineCli({ argv, stdin, stdout, isTTY, settingsPath: forc
     if (!next) { out(`The statusLine of ${target} is not a command: left unchanged.`); return 0 }
     out(`Settings file: ${target}`)
     out(`Current statusLine: ${current === undefined ? '(none)' : JSON.stringify(current)}`)
+    if (current === undefined) out('You have no status line today: your bar stays empty (the wrapper prints nothing), but it still runs and forwards the quota.')
     out(`New statusLine:     ${JSON.stringify(next)}`)
     out('Your own status line keeps running unchanged inside it; undo with: node scripts/setup.js --restore-statusline')
     if (!argv.includes('--yes')) {
@@ -309,10 +321,10 @@ async function runStatuslineCli({ argv, stdin, stdout, isTTY, settingsPath: forc
       if (!YES_ANSWER.test(await askLine(stdin))) { out('Nothing changed.'); return 0 }
     }
     ensureStatuslineScript()
-    configureStatusLine({ settingsPath: target })
+    configureStatusLine({ settingsPath: target, expected: next })
     return 0
   } catch (err) {
-    if (!(err instanceof SettingsUnreadableError || err instanceof StatusLineOriginalError)) throw err
+    if (!(err instanceof SettingsUnreadableError || err instanceof StatusLineOriginalError || err instanceof StatusLineChangedError)) throw err
     out(`Status line NOT changed: ${err.message}`)
     return 1
   }

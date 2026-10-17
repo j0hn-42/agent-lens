@@ -211,6 +211,26 @@ describe('setup.js --statusline / --restore-statusline', () => {
     assert.deepEqual(decodeArg(line.command), USER_LINE)
   })
 
+  it('sans statusLine d\'origine : l\'aperçu dit que la barre restera vide', async () => {
+    fs.writeFileSync(settings, JSON.stringify({ model: 'x' }))
+    await run(['--statusline'], '\n')
+    assert.match(out, /\(none\)/)
+    assert.match(out, /stays empty/)
+  })
+
+  it('fichier modifié entre le "y" et l\'écriture : abandonne sans écrire, avec un message clair', async () => {
+    const stdin = new PassThrough()
+    out = ''
+    const done = setup.runStatuslineCli({ argv: ['--statusline'], stdin, stdout: { write: s => (out += s) }, isTTY: true })
+    while (!out.includes('Apply?')) await new Promise(r => setTimeout(r, 10))
+    const changed = JSON.stringify({ statusLine: { type: 'command', command: 'echo autre' } })
+    fs.writeFileSync(settings, changed)
+    stdin.end('y\n')
+    assert.equal(await done, 1)
+    assert.match(out, /changed since the preview/)
+    assert.equal(fs.readFileSync(settings, 'utf-8'), changed)
+  })
+
   it('--yes passe la question, même sans TTY', async () => {
     assert.equal(await run(['--statusline', '--yes'], null, false), 0)
     assert.match(read(settings).statusLine.command, /statusline\.js/)
