@@ -9,12 +9,12 @@ import type { GaugeView, QuotaGaugeState } from '@/lib/quota'
 
 /** Under this share of the window left (after rounding, as displayed) the gauge is "low", and under the second one "critical".
  *  The level is always said in words and with an icon beside the colour. */
-export const QUOTA_LOW_BELOW = 25
-export const QUOTA_CRITICAL_BELOW = 10
+const QUOTA_LOW_BELOW = 25
+const QUOTA_CRITICAL_BELOW = 10
 
 type Level = 'ok' | 'low' | 'critical'
 
-export function quotaLevel(displayedPercent: number): Level {
+function quotaLevel(displayedPercent: number): Level {
   return displayedPercent < QUOTA_CRITICAL_BELOW ? 'critical' : displayedPercent < QUOTA_LOW_BELOW ? 'low' : 'ok'
 }
 
