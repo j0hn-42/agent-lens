@@ -50,10 +50,15 @@ const FR_NAMES: Record<(typeof PANELS)[number], string> = {
 const nameKey = (p: string) => `topbar.panel.${p}.name` as MessageKey
 const tipKey = (p: string) => `topbar.panel.${p}.tooltip` as MessageKey
 
-const tooltipOf = (button: HTMLElement) => {
+/** The role=tooltip drawn next to the button (in its hover box), linked or not by aria-describedby. */
+const tooltipOf = (button: HTMLElement) => button.parentElement?.querySelector<HTMLElement>('[role="tooltip"]') ?? null
+/** The tooltip linked by aria-describedby (read after the name), or null. */
+const describedTooltipOf = (button: HTMLElement) => {
   const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
   return ids.map(id => document.getElementById(id)).find(el => el?.getAttribute('role') === 'tooltip') ?? null
 }
+/** The panels whose tooltip says what the panel shows; the others only repeat the name and the shortcut. */
+const DESCRIBED = new Set(['context', 'system', 'cost'])
 const shown = (tip: HTMLElement | null) => !!tip && !tip.hidden
 
 test('messages: the names and tooltips of the seven panels exist in English and French; English names are the former ones', () => {
@@ -91,7 +96,25 @@ for (const locale of ['en', 'fr'] as const) {
   })
 }
 
-test('each panel button has a role=tooltip linked by aria-describedby and no native title (no double bubble)', () => {
+for (const locale of ['en', 'fr'] as const) {
+  test(`a tooltip that only repeats the name and the shortcut is not read a second time (aria-describedby only when it says more, ${locale})`, () => {
+    setLocaleChoice(locale)
+    const view = render(<TopBar {...base} />)
+    for (const p of PANELS) {
+      const button = view.getByRole('button', { name: (locale === 'en' ? EN_NAMES : FR_NAMES)[p] })
+      const described = describedTooltipOf(button)
+      if (DESCRIBED.has(p)) {
+        assert.ok(described, `${p}: its tooltip says what the panel shows, linked by aria-describedby`)
+        assert.equal(described!.textContent, MESSAGES[locale][tipKey(p)])
+      } else {
+        assert.equal(button.getAttribute('aria-describedby'), null, `${p}: "${tooltipOf(button)?.textContent}" repeats "${button.getAttribute('aria-label')}"`)
+        assert.ok(tooltipOf(button), `${p}: the tooltip is still drawn on hover and focus`)
+      }
+    }
+  })
+}
+
+test('each panel button has a role=tooltip and no native title (no double bubble)', () => {
   const view = render(<TopBar {...base} />)
   for (const p of PANELS) {
     const button = view.getByRole('button', { name: EN_NAMES[p] })

@@ -25,9 +25,9 @@ const props: TopBarProps = {
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
-/** The tooltip text of a button: its role=tooltip (aria-describedby, #523) or its native title (Sessions). */
+/** The tooltip text of a button: its role=tooltip next to it (#523; linked by aria-describedby when it says more than the name) or its native title (Sessions). */
 const tipText = (btn: HTMLElement) => {
-  const tip = (btn.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)).find(el => el?.getAttribute('role') === 'tooltip')
+  const tip = btn.parentElement?.querySelector('[role="tooltip"]')
   return tip?.textContent ?? btn.getAttribute('title') ?? ''
 }
 
@@ -64,6 +64,7 @@ test('in VS Code the Context button exposes why the panel is unavailable', () =>
   assert.ok(btn, 'the Context button stays visible')
   // Its tooltip, linked by aria-describedby, so screen readers read it after the name (#523)
   assert.match(tipText(btn), /standalone relay.*not available in VS Code/i)
+  assert.match(document.getElementById(btn.getAttribute('aria-describedby') ?? '')?.textContent ?? '', /not available in VS Code/)
 })
 
 // #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the

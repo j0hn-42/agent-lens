@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, hiddenPanelsText,
+  PANEL_NAMES, PANEL_SUMMARIES, COST_LABELS, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
 import { MESSAGES } from '../web/lib/messages'
@@ -37,6 +37,12 @@ test('the Conversation button is named with its shortcut and the pill/close cont
   assert.equal(MESSAGES.en['topbar.panel.context.name'], `${PANEL_NAMES.context} (P)`)
   assert.equal(MESSAGES.en['topbar.panel.system.name'], `${PANEL_NAMES.system} (Y)`)
   assert.equal(MESSAGES.en['topbar.panel.cost.name'], `$${PANEL_NAMES.cost}`)
+  // One source for the English tooltips (#545 review): built from the glossary, never a copy that can drift
+  assert.equal(MESSAGES.en['topbar.panel.cost.tooltip'], `Cost overlay ($). ${COST_LABELS.method}`)
+  assert.equal(MESSAGES.en['topbar.panel.context.tooltip'], `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`)
+  const catalog = readFileSync(join('web/lib', 'messages.ts'), 'utf8')
+  assert.equal(catalog.includes(COST_LABELS.method), false, 'messages.ts does not copy COST_LABELS.method by hand')
+  assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'messages.ts does not copy PANEL_SUMMARIES.context by hand')
   assert.equal(CONVERSATION_LABELS.open, 'Open Conversation')
   assert.equal(CONVERSATION_LABELS.close, 'Close Conversation')
 })

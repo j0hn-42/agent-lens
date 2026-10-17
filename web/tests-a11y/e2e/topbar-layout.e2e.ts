@@ -162,7 +162,9 @@ test('1100x900: an icon shows its tooltip on hover and on focus; Escape closes i
   const page = await open(1100)
   try {
     const files = page.locator('header').getByRole('button', { name: 'Files', exact: true })
-    const tipId = await files.getAttribute('aria-describedby')
+    // Its tooltip repeats the name and the shortcut, so it is not linked by aria-describedby (#545 review): found next to it
+    assert.equal(await files.getAttribute('aria-describedby'), null)
+    const tipId = await page.locator('#topbar-toggle-files').evaluate((b: Element) => b.parentElement!.querySelector('[role="tooltip"]')!.id)
     assert.ok(tipId)
     const tip = page.locator(`[id="${tipId}"]`)
     assert.equal(await tip.getAttribute('role'), 'tooltip')
