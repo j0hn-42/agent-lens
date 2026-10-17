@@ -349,6 +349,9 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
   }
   assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
   assert.ok(fs.existsSync(path.join(root, 'app-tray/src/driver.ts')))
+  // The next probe starts 5 s after the previous one ends: 5 to 7 s apart with the 2 s time limit
+  assert.ok(!doc.includes('every 5 seconds'), 'the probe is not sent every 5 seconds')
+  assert.ok(doc.includes('5 seconds after the previous probe ends'))
 })
 
 test('the reading guide says a Glob has file cards, a flow, and a count from numFiles (#451)', () => {

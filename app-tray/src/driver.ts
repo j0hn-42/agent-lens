@@ -26,7 +26,7 @@ export interface DriverOptions {
   /** The native menu binary */
   tray: CommandSpec
   locale: Locale
-  /** Seconds between two /status requests: 5 s, well under the limiter of /status (5 per second) */
+  /** Delay between the end of a /status request and the start of the next (5 s), well under the limiter of /status (5 per second) */
   pollIntervalMs?: number
   probeTimeoutMs?: number
   startupTimeoutMs?: number

@@ -6,7 +6,10 @@
  */
 import type { MessageKey } from '../../web/lib/messages'
 
-/** The driver polls every 5 s: three missed polls and the last answer no longer counts as current. */
+/**
+ * The driver starts a probe 5 s after the previous one ends (5 to 7 s apart with the 2 s time limit):
+ * after 15 s, at least two later probes have ended and the last answer no longer counts as current.
+ */
 export const STALE_AFTER_MS = 15_000
 
 export type StatusProbe =

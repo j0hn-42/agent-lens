@@ -32,9 +32,9 @@ By default the driver starts `app/dist/app.js --port 0 --no-open` itself and rea
 
 ## What the menu shows, and what it never shows
 
-The menu is rebuilt after every probe of `GET /status` (every 5 seconds, one request at a time, a 2 second time limit). It follows [Reading the UI](reading-the-ui.md): nothing is shown that cannot be proven.
+The menu is rebuilt after every probe of `GET /status` (one request at a time, a 2 second time limit; the next one starts 5 seconds after the previous probe ends, so probes are 5 to 7 seconds apart). It follows [Reading the UI](reading-the-ui.md): nothing is shown that cannot be proven.
 
-- "n sessions tracked" is `sessionCount` of a **valid, recent** `/status` answer from an Agent Lens relay (a `relayVersion` of the expected form). A recent answer is one received less than 15 seconds ago.
+- "n sessions tracked" is `sessionCount` of a **valid, recent** `/status` answer from an Agent Lens relay (a `relayVersion` of the expected form). A recent answer is one received less than 15 seconds ago: by then at least two later probes have ended, and a failed probe already says unknown.
 - When `/status` does not answer, times out, answers an error, answers something that is not JSON or is larger than 64 KiB, comes from something else than Agent Lens, or lacks `sessionCount`, the item says **unknown**. The last known count is never shown as current.
 - "Untracked sessions: at least k" appears only when `skippedSessions` is valid and the total is above zero. Read it as "at least".
 - The tooltip (the accessible name of the icon) repeats the state in text. The state is never carried by a colour or an animation alone.
