@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
-  combineUsage, usageFromAgent, formatTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
+  combineUsage, usageFromAgent, formatTokenUsage, formatCtxTokenUsage, formatCostUsage, readTokenCost, readTokenSource, USAGE_LABELS, effectiveTokenStatus, isValue,
 } from '../web/lib/usage'
 
 test('combineUsage: unavailable parts degrade an otherwise exact total to partial', () => {
@@ -64,4 +64,10 @@ test('isValue: only finite non-negative numbers', () => {
   assert.equal(isValue(0), true)
   assert.equal(isValue(3.5), true)
   for (const bad of [-1, NaN, Infinity, '5', null, undefined]) assert.equal(isValue(bad), false)
+})
+
+test('the Cost panel token total says "ctx tokens" (#545 review): the size of the contexts now, not a consumption', () => {
+  assert.equal(formatCtxTokenUsage({ value: 5_300_000, status: 'partial', estimated: true }), 'at least 5.3M estimated ctx tokens')
+  assert.equal(formatCtxTokenUsage({ value: 11_000, status: 'available', estimated: false }), '11k ctx tokens')
+  assert.equal(formatCtxTokenUsage({ value: 11_000, status: 'available', estimated: false }), `${formatTokenUsage({ value: 11_000, status: 'available', estimated: false })} ctx tokens`)
 })
