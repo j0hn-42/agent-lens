@@ -198,3 +198,51 @@ test('planOverlays: a halo title never lands under the collapsed Conversation pi
     assert.ok(p.rect!.y >= SAFE_768.y - 1e-6, `zoom ${scale}: title moved under the top bar`)
   }
 })
+
+test('planOverlays: a halo title never covers the Workspace header chip as drawn (#378)', () => {
+  // The chip is read from what drawWorkspaceZones really draws (a font a little wider than the estimate),
+  // not recomputed with workspaceHeaderRect: a plan that reserves another box than the drawn one fails here.
+  const { clusters, zones } = twoProjects()
+  for (const scale of [0.3, 0.4, 0.5]) {
+    const transform = centred(scale)
+    const rec = wideFontContext(scale, 0.65)
+    drawWorkspaceZones(rec.ctx, zones, { reducedMotion: true, zoom: scale, showCost: false, showStats: false })
+    const k = Math.max(1, 1 / scale)
+    const drawn = zones.map(z => rec.rects.find(r => Math.abs(r.y - (z.y + 12 * k)) < 1e-6 && r.x > z.x)!)
+    assert.ok(drawn.every(Boolean), `zoom ${scale}: one chip drawn per zone`)
+    const headers = drawn.map(r => screenOf(transform, r))
+    const plain = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale) })).plan
+    assert.ok(clusters.some(c => { const p = plain.get(planKey.cluster(c.key)); return p?.rect && headers.some(h => rectsOverlap(p.rect!, h)) }),
+      `precondition at ${scale}: without the headers a title lands on a drawn chip`)
+    const { plan } = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale), workspaceZones: zones }))
+    for (const c of clusters) {
+      const p = plan.get(planKey.cluster(c.key))
+      if (!p?.rect) continue
+      for (const h of headers) assert.equal(rectsOverlap(p.rect, h), false, `zoom ${scale}: ${c.key} title ${JSON.stringify(p.rect)} on drawn chip ${JSON.stringify(h)}`)
+    }
+  }
+})
+
+test('drawWorkspaceZones: a wide-glyph (CJK) name is not squeezed by fillText maxWidth (#378)', () => {
+  // Full-width glyphs are 1 em wide, not the 0.6 em the plan estimates for a Latin monospace
+  const name = '支払いサービス基盤'
+  const two = twoProjects()
+  const zones = computeWorkspaceZones(two.clusters.map((c, i) => (i === 0 ? { ...c, projectName: name } : c)))
+  const glyph = (ch: string) => (/[　-鿿]/.test(ch) ? 1 : 0.6)
+  for (const zoom of [0.5, 1]) {
+    const rec = recordingContext(zoom)
+    const font = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(rec.ctx.font))?.[1] ?? 10)
+    const ctx = new Proxy(rec.ctx as unknown as Record<string | symbol, unknown>, {
+      get(target, prop) {
+        if (prop === 'measureText') return (s: string) => ({ width: [...String(s)].reduce((w, ch) => w + glyph(ch) * font(), 0) })
+        return target[prop]
+      },
+      set(target, prop, value) { target[prop] = value; return true },
+    }) as unknown as CanvasRenderingContext2D
+    drawWorkspaceZones(ctx, zones.slice(0, 1), { reducedMotion: true, zoom, showCost: false, showStats: false })
+    const fill = rec.ops.find(o => o.name === 'fillText')!
+    const k = Math.max(1, 1 / zoom)
+    const natural = [...String(fill.args[0])].reduce((w, ch) => w + glyph(ch) * 13 * k, 0)
+    assert.ok(natural <= (fill.args[3] as number) + 1e-6, `zoom ${zoom}: "${String(fill.args[0])}" needs ${natural} px, chip gives ${String(fill.args[3])} (text squeezed)`)
+  }
+})
