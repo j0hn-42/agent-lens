@@ -9,7 +9,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { OpenCodeFixture } from '../extension/test/helpers/opencode-fixture'
 
-export { statusOf } from './relay-gemini-fixture'
+export { statusOf } from './relay-status-of'
 
 export const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-opencode-'))
 process.env.HOME = fakeHome
