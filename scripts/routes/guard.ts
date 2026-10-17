@@ -58,7 +58,8 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
       return sendPlain(res, 403, 'Forbidden')
     }
     // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason. The pairing of
-    // a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest)
+    // a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest), the first step of
+    // every createRelay caller that passes allowedHosts (remote-gate-wiring.test.ts, #535)
     if (hostClass === 'allowed' && !isRemotePaired(req, options.allowedHosts ?? [])) {
       return sendPlain(res, 401, 'Unauthorized', { 'Cache-Control': 'no-store' })
     }
