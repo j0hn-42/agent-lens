@@ -239,15 +239,11 @@ export const NEON_COLORS = {
   scrollbarThumb: 'rgba(102,204,255,0.5)', // >= 3:1 non-text — scrollbar thumb (mirrors globals.css)
 
   // Status dot rings (non-color-only state cue)
-  statusDotRing: '#aaeeff',      // >= 3:1 non-text — light ring around a status dot on void/glass
-  statusDotRingInner: '#050510', // dark gap between dot and ring; ring-vs-gap contrast >= 3:1
 
   // Design tokens by role (neon values of the design system; new keys, nothing above depends on them)
   surface: '#0a0f1e',
-  surfaceRaised: '#121a30',
   edge: '#1c3750',
   ink: '#aaeeff',
-  inkMuted: '#7fc3e0',
   accent: '#66ccff',
   onAccent: '#050510',
   focus: '#99e0ff',
@@ -260,34 +256,18 @@ export const NEON_COLORS = {
   glassBlur: 'blur(20px)',
 
   // Canvas scene colours (added for the canvas zone; neon keeps the literals the canvas always used)
-  perfBg: 'rgba(0, 0, 0, 0.75)',
-  perfText: '#cccccc',
-  fpsGood: '#44ff44',
-  fpsCaution: '#ffaa00',
-  fpsWarning: '#ff4444',
   /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too). The canvas
    *  draws these two states in them; the `state-thinking` / `state-waiting` tokens carry them for every theme's interface. */
   stateThinking: '#b79cff',
   stateWaitingPermission: '#ff7ad9',
   /** Crown badge (LEAD / MAIN): fill and text on it */
-  crownFill: '#ffd166',
-  crownText: '#11161c',
   /** Stale node and its "last known state" label */
-  staleNode: '#8a94a0',
   staleText: '#c5ced8',
   /** Halo of a teammate whose team colour is missing */
   teamDefault: '#b794f6',
   /** Shadow under an agent node */
   depthShadow: 'rgba(0, 0, 0, 0.5)',
   /** Halo colours of sessions */
-  session0: '#66ccff',
-  session1: '#7ee0a8',
-  session2: '#ffcc66',
-  session3: '#ff9ec7',
-  session4: '#b79cff',
-  session5: '#9ad0ff',
-  session6: '#ffa978',
-  session7: '#8de3de',
 
   commDispatchBg: 'rgba(80,140,255,0.14)',
   commDispatchBgSelected: 'rgba(80,140,255,0.26)',
@@ -563,14 +543,10 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     scrollBtnText: accent,
     scrollbarThumb: ctl,
 
-    statusDotRing: ink,
-    statusDotRingInner: ground,
 
     surface,
-    surfaceRaised: raised,
     edge,
     ink,
-    inkMuted: muted,
     accent,
     onAccent: t['on-accent'],
     focus: t.focus,
@@ -582,27 +558,11 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     shadowCard,
     glassBlur: 'none',
 
-    perfBg: rgba(surface, 0.9),
-    perfText: ink,
-    fpsGood: ok,
-    fpsCaution: warn,
-    fpsWarning: danger,
     stateThinking: t['state-thinking'],
     stateWaitingPermission: t['state-waiting'],
-    crownFill: accent,
-    crownText: t['on-accent'],
-    staleNode: t['context-system'],
     staleText: muted,
     teamDefault: delegate,
     depthShadow: 'rgba(0, 0, 0, 0)',
-    session0: accent,
-    session1: ok,
-    session2: warn,
-    session3: delegate,
-    session4: info,
-    session5: mix(ok, info, 0.5),
-    session6: mix(warn, danger, 0.5),
-    session7: mix(delegate, danger, 0.5),
 
     commDispatchBg: rgba(info, 0.08),
     commDispatchBgSelected: rgba(info, 0.14),
