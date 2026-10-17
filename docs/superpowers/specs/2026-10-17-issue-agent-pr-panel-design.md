@@ -118,3 +118,7 @@ Chaque partie peut être une issue séparée, avec les étiquettes `agent:<rôle
 4. **Sessions et durée.** Une session terminée garde sa chaîne tant qu'elle reste dans la liste des sessions du relais (règle existante des sessions terminées). L'« historique » d'un lien remplacé n'existe qu'en mémoire : un redémarrage du relais l'efface. Rien n'est persisté côté relais.
 5. **Une preuve se transmet.** Si agent → PR est prouvé et PR → issue est prouvé (`closingIssuesReferences`), alors agent → issue est affiché « prouvé, via la PR #n ».
 6. **Deux agents sur la même issue sans preuve.** Les deux liens sont affichés, chacun avec son niveau, avec la mention « 2 agents annoncent #n ». Une confirmation de l'utilisateur ne remplace jamais une preuve : si un autre agent a le lien prouvé, les deux sont affichés et le conflit est dit. Le panneau ne choisit jamais un gagnant à la place de l'utilisateur.
+
+## 9. Confirmé par l'utilisateur (2026-10-17)
+
+Décisions : (a) le panneau vise l'app autonome, le relais de développement et le mode démo, **pas** le webview VS Code dans cette livraison ; (b) rien n'est conservé après un redémarrage du relais, les liens sont recalculés et les « Confirmer #n » restent dans le navigateur ; (c) les issues sans agent listées sont celles étiquetées `agent:*` seulement. Cela valide les points 2, 3 et 4 du §8.
