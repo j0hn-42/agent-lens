@@ -44,7 +44,8 @@ test('toggle is hidden when there is nothing to show and outside the All tab; th
   assert.equal(single.queryByRole('button', { name: /Show finished sessions/ }), null)
   single.unmount()
   const all = render(<TopBar {...base} allSessionCount={3} finishedSessionCount={4} onToggleShowFinished={noop} />)
-  assert.ok(all.getByText(/^3 sessions · /))
+  // #523: the bar draws no summary any more (the Sessions panel header draws it); the count read there is the shown sessions
+  assert.match(all.getByTestId('topbar-spoken-totals').textContent ?? '', /^3 sessions, /)
 })
 
 test('a pressed toggle stays reachable even when the finished count drops to 0', () => {
