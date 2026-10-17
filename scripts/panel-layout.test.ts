@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -11,6 +11,8 @@ const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640
 const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
 const TOPBAR_H = 68
 const BAR_H = 56
+/** Floor of a popup's height (POPUP_MIN_H in panel-layout.ts, not exported). */
+const POPUP_MIN_H = 160
 
 /** Every subset of the docked panels (including the empty one). */
 function subsets<T>(items: T[]): T[][] {

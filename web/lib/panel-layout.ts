@@ -387,7 +387,7 @@ export interface PopupPlacement { left: number; top: number; width: number; maxH
  * Smallest height left to a popup (WCAG 1.4.10 Reflow, 2.4.7): its close button, a title and a few lines of body, about
  * five 32 px rows, readable with its own scrollbar. Below it the cards' slot is no longer kept in full (see placePopup).
  */
-export const POPUP_MIN_H = 160
+const POPUP_MIN_H = 160
 
 /**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
