@@ -17,7 +17,7 @@ function relativeLinks(file: string): string[] {
     .filter(t => t && !/^[a-z]+:/i.test(t))
 }
 
-for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md']) {
+for (const file of ['README.md', 'CONTRIBUTING.md', 'docs/reading-the-ui.md', 'docs/headless.md', 'docs/mcp-server.md', 'docs/launch-security.md', 'docs/tray.md']) {
   test(`${file}: every relative link resolves`, () => {
     const dir = path.dirname(path.join(root, file))
     for (const target of relativeLinks(file)) {
@@ -340,6 +340,18 @@ test('the reading guide says a silence never ends a session, only an observed en
   assert.match(guide, /SessionEnd/)
   const finished = guide.split('\n').find(l => l.startsWith('| **Session finished**'))
   assert.ok(finished?.includes('observed'), 'the Session finished trigger says it needs an observed end')
+})
+
+test('the tray doc says what is shipped, what is not, and what the menu never shows (#335)', () => {
+  const doc = read('docs/tray.md')
+  for (const needle of ['not part of this repository yet', 'unknown', 'at least', 'SIGTERM', 'SIGKILL', 'No shell', '1024 bytes', 'Windows', 'Orca', '/statusline', '--tray-bin', '--attach']) {
+    assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
+  }
+  assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
+  assert.ok(fs.existsSync(path.join(root, 'app-tray/src/driver.ts')))
+  // The next probe starts 5 s after the previous one ends: 5 to 7 s apart with the 2 s time limit
+  assert.ok(!doc.includes('every 5 seconds'), 'the probe is not sent every 5 seconds')
+  assert.ok(doc.includes('5 seconds after the previous probe ends'))
 })
 
 test('the reading guide says a Glob has file cards, a flow, and a count from numFiles (#451)', () => {
