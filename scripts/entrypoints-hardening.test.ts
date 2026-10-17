@@ -298,6 +298,13 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     const r = await runToExit(['--allow-host', 'box.tail1234.ts.net', '--token-file', path.join(fakeHome, 'missing-dir', 'token')])
     assert.equal(r.code, 2, r.out)
     assert.match(r.out, /Agent Lens:/)
+    // The write itself failed (#535): not one of the flag refusals, which also exit with 2 before any setup
+    assert.match(r.out, /ENOENT|no such file/i, `the reason is the failed write:\n${r.out}`)
+    assert.doesNotMatch(r.out, /needs --token-file|refused/, `not a flag refusal:\n${r.out}`)
+    assert.doesNotMatch(r.out, /Server running at/, 'stopped before listening')
+    // The token of this start is never printed: no pairing URL, no 256-bit base64url value
+    assert.doesNotMatch(r.out, /#pair=|[A-Za-z0-9_-]{43}/, `no token in the output:\n${r.out}`)
+    assert.equal(fs.existsSync(path.join(fakeHome, 'missing-dir')), false, 'nothing created')
   })
 
   it('--host ::1 stops the start without sending the user to --remote: the server listens on 127.0.0.1 only (#478 review, point 6)', async () => {
