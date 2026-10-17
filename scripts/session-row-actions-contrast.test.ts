@@ -41,7 +41,9 @@ function rowAction(glyph: string): { opacity: number; colorKey: 'textMuted' | 't
   const cls = button.match(/className=\{`([^`]*)`\}/)?.[1] ?? ''
   // The first opacity utility without a state variant is the resting one
   const resting = cls.split(/\s+/).find(c => /^opacity-\d+$/.test(c))
-  const opacity = resting ? Number(resting.slice('opacity-'.length)) / 100 : 1
+  // No silent fallback to 1: a class the pattern no longer reads would make the check pass on full opacity
+  assert.ok(resting, `${glyph}: resting opacity not found`)
+  const opacity = Number(resting.slice('opacity-'.length)) / 100
   const colorKey = button.match(/color: COLORS\.(\w+)/)?.[1]
   assert.ok(colorKey === 'textMuted' || colorKey === 'tabClose', `${glyph}: unexpected colour ${colorKey}`)
   return { opacity, colorKey }
