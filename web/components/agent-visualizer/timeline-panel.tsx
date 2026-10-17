@@ -4,6 +4,7 @@ import { emptyState } from '@/lib/ui-glossary'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS, uiColor } from '@/lib/colors'
+import { truncateName } from '@/lib/truncate-name'
 import { formatDuration } from '@/lib/utils'
 import {
   buildTimelineRows,
@@ -184,7 +185,7 @@ function drawTimeline(
     // Agent label
     ctx.textAlign = 'right'
     ctx.fillStyle = COLORS.textPrimary
-    const name = entry.agentName.length > MAX_NAME_CHARS ? entry.agentName.slice(0, MAX_NAME_CHARS) + '..' : entry.agentName
+    const name = truncateName(entry.agentName, MAX_NAME_CHARS)
     ctx.fillText(name, LABEL_WIDTH - 6, y + ROW_HEIGHT / 2 + 4)
 
     // Background track
