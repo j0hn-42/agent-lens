@@ -9,9 +9,12 @@ import {
   sanitizeTeamInfo, parseTeammateExtras, sanitizeColor, createTeamTracker, teamSessionIds, MAX_TEAM_MEMBERS,
 } from '../web/hooks/simulation/team-info'
 import { effectiveSpeed, computeSessionOffsets, applySessionOffsets, stampEventTimes } from '../web/hooks/simulation/stamp-time'
-import { buildTabModel, formatTeamSummary, runtimeBadge, formatAgentCounts } from '../web/lib/chrome-utils'
+import { buildTabModel, formatTeamSummary, runtimeBadge, viewCountsText } from '../web/lib/chrome-utils'
 import { teamSelectionId, parseTeamSelection, isUnionSelection, ALL_SESSIONS_ID, isSessionInfo } from '../web/lib/bridge-types'
 import type { SimulationEvent } from '../web/lib/agent-types'
+
+/** The full wording of viewCountsText for one session (formatAgentCounts is internal since #523). */
+const formatAgentCounts = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).spoken
 
 const ctx: ProcessEventContext = {
   syncForceSimulation: () => {},

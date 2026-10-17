@@ -3,9 +3,13 @@ import { strict as assert } from 'node:assert'
 import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
-  formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, topBarContextText, formatAgentCountsCompact, viewCountsText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
+  agentActivityCounts, topBarContextText, viewCountsText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
+
+/** The two wordings of viewCountsText for one session (formatAgentCounts / formatAgentCountsCompact are internal since #523). */
+const formatAgentCounts = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).spoken
+const formatAgentCountsCompact = (active: number, done: number, stale = 0, idle = 0, error = 0) => viewCountsText({ active, done, stale, idle, error }, null).drawn
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
   assert.equal(sessionStatusKind({ status: 'active' }, true, false), 'new-activity')

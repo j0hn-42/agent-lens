@@ -175,7 +175,7 @@ export function scrubberValueText(current: number, total: number): string {
  * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
  * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
  */
-export function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const staleText = stale > 0 ? ` - ${stale} last known state` : ''
   const idleText = idle > 0 ? ` - ${idle} idle` : ''
   const errorText = error > 0 ? ` - ${error} error` : ''
@@ -183,7 +183,7 @@ export function formatAgentCounts(active: number, done: number, stale = 0, idle 
 }
 
 /** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the Sessions panel header (#523); the full wording (`formatAgentCounts`) is read by screen readers. */
-export function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
 }

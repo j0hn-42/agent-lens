@@ -8,7 +8,7 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup } from '@testing-library/react'
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
-import { formatAgentCounts } from '@/lib/chrome-utils'
+import { viewCountsText } from '@/lib/chrome-utils'
 import { COST_LABELS } from '@/lib/ui-glossary'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 
@@ -61,7 +61,7 @@ test('screen readers still get the agent counts in the bar, in the full wording,
   const { getByTestId } = render(<TopBar {...base} />)
   const totals = getByTestId('topbar-spoken-totals')
   assert.ok(totals.classList.contains('sr-only'), 'read, never drawn')
-  assert.equal(totals.textContent!.startsWith(formatAgentCounts(0, 26, 4)), true, totals.textContent!)
+  assert.equal(totals.textContent!.startsWith(viewCountsText({ active: 0, done: 26, stale: 4, idle: 0, error: 0 }, null).spoken), true, totals.textContent!)
   assert.equal(totals.getAttribute('tabindex'), null, 'plain text, not a Tab stop')
 })
 

@@ -7,7 +7,6 @@ import { render, cleanup } from '@testing-library/react'
 import axe from 'axe-core'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
-import { formatAgentCounts, formatAgentCountsCompact } from '@/lib/chrome-utils'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { setLocaleChoice } from '@/lib/locale'
 
@@ -40,10 +39,10 @@ function drawnText(el: Element): string {
 test('the Sessions panel header draws the agent counts by state that the top bar drew', async () => {
   const { getByTestId, container } = render(panel())
   const el = getByTestId('sessions-agent-counts')
-  assert.equal(drawnText(el).trim(), formatAgentCountsCompact(0, 26, 4))
-  assert.equal(el.querySelector('[aria-hidden="true"]')?.textContent, formatAgentCountsCompact(0, 26, 4))
+  assert.equal(drawnText(el).trim(), '30 agents: 0 active · 4 last known · 26 done')
+  assert.equal(el.querySelector('[aria-hidden="true"]')?.textContent, '30 agents: 0 active · 4 last known · 26 done')
   // Real DOM text for screen readers, in the full wording ("last known state")
-  assert.equal(el.querySelector('.sr-only')?.textContent, formatAgentCounts(0, 26, 4))
+  assert.equal(el.querySelector('.sr-only')?.textContent, '30 agents: 0 active - 4 last known state - 26 done')
   // In the panel header, before the search
   const header = container.querySelector('#session-list-title')!.closest('div')!.parentElement!
   assert.ok(header.contains(el) || header.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING, 'below the title')
