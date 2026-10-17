@@ -7,7 +7,7 @@ import * as http from 'http'
 import { isLoopbackAddress, type KeyedRateLimiter } from '../../extension/src/hook-guards'
 import { statusRateKey, isCrossOriginRequest } from '../../extension/src/relay-guards'
 import { applySecurityHeaders } from '../server-hardening'
-import { requestHostClass, isRemoteCrossOrigin, isRemotePaired, remoteRateKey, requiresRemotePairing } from '../remote-access'
+import { requestHostClass, isRemoteCrossOrigin, isRemotePaired, remoteRateKey } from '../remote-access'
 
 export type RouteHandler = (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
 
@@ -57,9 +57,9 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
     if (hostClass === 'allowed' && isRemoteCrossOrigin(req.headers, req.headers.host ?? '')) {
       return sendPlain(res, 403, 'Forbidden')
     }
-    // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason. With an allow
-    // list, a loopback Host too (SSH -L, port forward, #517); without one, loopback is unchanged
-    if (requiresRemotePairing(hostClass, options.allowedHosts ?? []) && !isRemotePaired(req, options.allowedHosts ?? [])) {
+    // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason. The pairing of
+    // a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest)
+    if (hostClass === 'allowed' && !isRemotePaired(req, options.allowedHosts ?? [])) {
       return sendPlain(res, 401, 'Unauthorized', { 'Cache-Control': 'no-store' })
     }
     if (hostClass === 'loopback' && options.rejectCrossOrigin && isCrossOriginRequest(req.headers, req.headers.host)) {

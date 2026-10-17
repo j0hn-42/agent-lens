@@ -280,9 +280,9 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
         for (const p of ['/events', '/status']) {
           assert.equal(await get(p, { Host: TUNNEL }), 401, `${p} without cookie`)
           assert.equal(await get(p, { Host: TUNNEL, Cookie: cookie }), 200, `${p} with cookie`)
-          // With an allow list, a loopback Host may be an SSH -L tunnel or a port forward (#517): the cookie is asked too
-          assert.equal(await get(p, { Host: '127.0.0.1' }), 401, `${p} on loopback without cookie`)
-          assert.equal(await get(p, { Host: '127.0.0.1', Cookie: cookie }), 200, `${p} on loopback with cookie`)
+          // The relay alone leaves a loopback Host to the app gate, which asks it for the cookie while remote access is on
+          // (#517, tested below through createAppRequestHandler and in entrypoints-hardening.test.ts)
+          assert.equal(await get(p, { Host: '127.0.0.1' }), 200, `${p} on loopback, relay alone`)
         }
       } finally {
         bare.close()
