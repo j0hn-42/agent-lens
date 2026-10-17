@@ -1,7 +1,8 @@
 // #523: layout of the top bar measured in a real browser against the demo app (`pnpm --dir web run test:e2e`).
 // From 1024 px up the bar is TWO ordered rows: row 1 = Sessions, scope, connection state, attention and the filters;
-// row 2 = the agent counts (and quota gauges), the panel buttons and the tools. The token and cost totals are no longer
-// drawn (#523, user request), so a single row was measured first: it does not fit at 1440 px (see the pull request). The assignment is fixed and there is one DOM order, so the Tab order is the
+// row 2 = the quota gauges, the panel buttons and the tools. The bar draws no summary text any more (#523, user request:
+// no tokens, no cost, no agent counts; the counts are drawn in the Sessions panel header), so a single row was measured
+// first: it does not fit at 1440 px (see the pull request). The assignment is fixed and there is one DOM order, so the Tab order is the
 // same at 1440, 1280, 1100 and 1024 px. The seven panel buttons are icons under 1280 px (labels from 1280 px), at
 // least 24 x 24 px, and keep their accessible name. Under 1024 px the bar folds behind More into one row (Commands
 // stays in it from 768 px); the 44 px targets and drawers stay under 768 px. --topbar-h follows the bar in each case.
@@ -48,7 +49,7 @@ interface Layout {
 const measure = (page: Page) => page.evaluate(`(() => {
   const header = document.querySelector('header')
   const box = el => { if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height } }
-  const visible = [...header.querySelectorAll('button, select, [data-testid="topbar-agent-counts"]')].filter(el => {
+  const visible = [...header.querySelectorAll('button, select')].filter(el => {
     const r = el.getBoundingClientRect()
     return r.width > 1 && r.height > 1 && !el.closest('.sr-only')
   })
@@ -102,7 +103,7 @@ const expectPublished = (l: Layout, where: string) =>
 const orders = new Map<number, string[]>()
 
 for (const w of [1440, 1280, 1100, 1024]) {
-  test(`${w}x900: two rows (identity and filters, then agent counts, panels and tools), height published`, async () => {
+  test(`${w}x900: two rows (identity and filters, then quota, panels and tools), height published`, async () => {
     const page = await open(w)
     try {
       const l = await measure(page)
@@ -113,7 +114,7 @@ for (const w of [1440, 1280, 1100, 1024]) {
       const mid = (b: Box) => b.top + b.height / 2
       assert.ok(Math.abs(mid(identity!) - mid(filters!)) < 12, 'identity and filters share row 1')
       for (const g of [status!, panels!, tools!]) assert.ok(g.top >= identity!.bottom && g.top >= filters!.bottom, 'row 2 is below row 1')
-      assert.ok(Math.abs(mid(status!) - mid(panels!)) < 12 && Math.abs(mid(panels!) - mid(tools!)) < 12, 'agent counts, panels and tools share row 2')
+      assert.ok(Math.abs(mid(status!) - mid(panels!)) < 12 && Math.abs(mid(panels!) - mid(tools!)) < 12, 'status, panels and tools share row 2')
       expectPublished(l, `${w}px`)
       assert.equal(l.panels.length, 7, 'seven panel buttons')
       for (const p of l.panels) {
@@ -139,6 +140,22 @@ test('the Tab order is the same at 1440, 1280, 1100 and 1024 px', () => {
   const first = orders.get(1440)
   assert.ok(first && first.length > 10, 'measured at 1440 px')
   for (const w of [1280, 1100, 1024]) assert.deepEqual(orders.get(w), first, `${w} px`)
+})
+
+test('1440x900: the bar draws no summary text; the agent counts are drawn in the Sessions panel header', async () => {
+  const page = await open(1440)
+  try {
+    const header = page.locator('header')
+    assert.doesNotMatch(await header.innerText(), /agents?:|\blast known\b|\bdone\b|tokens|\$\d/, 'no summary text drawn in the bar')
+    await header.getByRole('button', { name: /^Sessions/ }).click()
+    const counts = page.locator('#sessions-panel').getByTestId('sessions-agent-counts')
+    await counts.waitFor({ state: 'visible' })
+    const drawn = await counts.innerText()
+    console.log(`#523 Sessions panel header counts: "${drawn}"`)
+    assert.match(drawn, /^\d+ agents?: \d+ active( · \d+ (last known|idle|error))* · \d+ done$|^\d+ sessions? · \d+ agents?$/, drawn)
+  } finally {
+    await page.context().close()
+  }
 })
 
 test('1100x900: an icon shows its tooltip on hover and on focus; Escape closes it and the focus stays', async () => {

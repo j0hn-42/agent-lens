@@ -4,7 +4,7 @@ import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, topBarContextText, formatAgentCountsCompact, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  agentActivityCounts, topBarContextText, formatAgentCountsCompact, viewCountsText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -218,4 +218,15 @@ test('agent counts (#497): the full wording for screen readers, the compact one 
   assert.equal(formatAgentCountsCompact(2, 3), '5 agents: 2 active · 3 done')
   assert.equal(formatAgentCountsCompact(1, 1, 0, 1, 1), '4 agents: 1 active · 1 idle · 1 error · 1 done')
   assert.equal(formatAgentCountsCompact(1, 0), '1 agent: 1 active · 0 done')
+})
+
+test('view counts (#523): the text the top bar drew, moved to the Sessions panel header, unchanged', () => {
+  const one = { active: 0, done: 26, stale: 4, idle: 0, error: 0 }
+  assert.deepEqual(viewCountsText(one, null), {
+    drawn: '30 agents: 0 active · 4 last known · 26 done',
+    spoken: '30 agents: 0 active - 4 last known state - 26 done',
+  })
+  // All: sessions and agents, no state split (as the bar drew it)
+  assert.deepEqual(viewCountsText(one, 3), { drawn: '3 sessions · 30 agents', spoken: '3 sessions, 30 agents' })
+  assert.deepEqual(viewCountsText({ active: 1, done: 0, stale: 0, idle: 0, error: 0 }, 1), { drawn: '1 session · 1 agent', spoken: '1 session, 1 agent' })
 })

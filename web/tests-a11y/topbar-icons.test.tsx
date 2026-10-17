@@ -183,7 +183,7 @@ test('in VS Code the Context tooltip says why the panel is unavailable', () => {
 const tabStops = (root: HTMLElement) => Array.from(root.querySelectorAll<HTMLElement>('button, [tabindex="0"], select'))
   .map(el => el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName)
 
-test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2 (agent counts, panels, tools)', () => {
+test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2 (quota and spoken totals, panels, tools)', () => {
   const view = render(<TopBar {...base} />)
   const header = view.container.querySelector('header')!
   const stops = tabStops(header)
@@ -191,13 +191,15 @@ test('one DOM order: row 1 (Sessions, connection, attention, filters) then row 2
   const order = [/^Sessions/, /needs you/, /^Notifications$/, /^Hide inactive agents$/, /^Files$/, /^Conversation/, /^Context/, /^System/, /^\$Cost$/, /^Timeline$/, /^Stats$/, /sound effects/, /full screen/, /^Commands$/, /^Settings$/, /^Keyboard shortcuts$/]
   const idx = order.map(at)
   assert.deepEqual([...idx].sort((a, b) => a - b), idx, `tab order: ${stops.join(' | ')}`)
-  // The groups: identity and filters (row 1), agent counts, panels and tools (row 2)
+  // The groups: identity and filters (row 1), status (quota, spoken totals), panels and tools (row 2)
   const groups = Array.from(header.querySelectorAll('[data-topbar-group]')).map(g => g.getAttribute('data-topbar-group'))
   assert.deepEqual(groups, ['identity', 'filters', 'status', 'panels', 'tools'])
   const row = (n: string) => header.querySelector(`[data-topbar-row="${n}"]`)!
   for (const g of ['identity', 'filters']) assert.ok(row('1').contains(header.querySelector(`[data-topbar-group="${g}"]`)), `${g} in row 1`)
   for (const g of ['status', 'panels', 'tools']) assert.ok(row('2').contains(header.querySelector(`[data-topbar-group="${g}"]`)), `${g} in row 2`)
-  assert.ok(row('2').querySelector('[data-testid="topbar-agent-counts"]'), 'the agent counts open row 2')
+  // #523: no counts drawn any more (they are in the Sessions panel header); row 2 opens with the totals read by screen readers
+  assert.equal(header.querySelector('[data-testid="topbar-agent-counts"]'), null, 'no agent counts drawn in the bar')
+  assert.ok(row('2').querySelector('[data-testid="topbar-spoken-totals"].sr-only'), 'the spoken totals open row 2')
   // No group clips the focus ring
   for (const g of Array.from(header.querySelectorAll<HTMLElement>('[data-topbar-group], [data-topbar-row]'))) assert.doesNotMatch(g.className, /overflow-/)
 })
