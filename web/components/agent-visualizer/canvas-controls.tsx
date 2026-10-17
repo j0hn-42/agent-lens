@@ -129,7 +129,8 @@ export function CanvasControls({
     >
       <GraphLegend teams={teams} present={present} />
       <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
-        <div className="flex items-center gap-2">
+        {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378) */}
+        <div data-canvas-inset="bottom" className="flex items-center gap-2">
           <div role="group" aria-label={t('controls.zoomGroup')} className="flex gap-1">
             <button
               type="button"

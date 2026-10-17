@@ -38,6 +38,8 @@ import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
 import { useReviewControls } from "@/hooks/use-review-controls"
 import { GuidedTourCard } from "./guided-tour-card"
+import { TourOffer } from "./tour-offer"
+import { useTourOffer } from "@/hooks/use-tour-offer"
 import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
@@ -169,9 +171,9 @@ export function AgentVisualizer() {
 
   const agentsRef = useRef(agents)
   agentsRef.current = agents
-  const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention } = useAttentionSummary({
+  const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention, nextAttentionInView } = useAttentionSummary({
     sim: { agents, unattributed, foreignAttention, conversations, droppedMessages, catchUp },
-    agentsRef, bridge, selectAgent: selection.handleAgentClick,
+    agentsRef, bridge, selectAgent: selection.handleAgentClick, selectedAgentId: selection.selectedAgentId,
   })
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
@@ -217,10 +219,6 @@ export function AgentVisualizer() {
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
-  const paletteItems = usePaletteItems({
-    open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
-    actions: { togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings },
-  })
   const scopeProps = useScopeControls(bridge, uiPrefs)
 
   const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
@@ -229,6 +227,22 @@ export function AgentVisualizer() {
   // The quota only comes from the relay stream: no gauge, and no setting that would do nothing, in VS Code, the demo or the tour
   const quotaSourceActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData, tourActive: tour.active })
   const quotaSettingActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData })
+  // Offered once, on the first launch, as soon as the legend can start a tour (#377)
+  const tourOffer = useTourOffer({
+    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
+  })
+
+  const paletteItems = usePaletteItems({
+    open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
+    actions: {
+      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings,
+      togglePresentation: presentation.toggle, clearHistory: handleClearHistory,
+    },
+    exportSession: { can: sessionActions.canExportSession, run: sessionActions.handleExportSession },
+    tour: { start: tourBridge.startTour, label: tourBridge.startTourLabel },
+    attention: { waiting: attention.waiting, errors: attention.errors, jump: jumpToAttention, nextInView: nextAttentionInView },
+    notify: { state: notifyState, toggle: toggleNotify },
+  })
 
   return (
     <PanelRegistryContext.Provider value={registerPanel}>
@@ -267,7 +281,7 @@ export function AgentVisualizer() {
         onToggleStats={() => setShowStats(prev => !prev)}
         onTogglePanel={panel => (panel === 'system' ? setShowSystem(prev => !prev) : toggleExclusivePanel(panel))}
         onToggleTimeline={() => setShowTimeline(prev => !prev)}
-        onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings}
+        onToggleMute={handleToggleMute} onOpenShortcuts={openShortcuts} onOpenSettings={openSettings} onOpenPalette={openPalette}
         attention={attention} onJumpToAttention={jumpToAttention} notifyState={notifyState} onToggleNotify={toggleNotify}
         quota={bridge.quota} selectedRuntime={selectedRuntime} showQuota={showQuota && quotaSourceActive}
       />
@@ -372,6 +386,12 @@ export function AgentVisualizer() {
         onEnterReview={handleEnterReview} onResumeLive={handleResumeLive} droppedEvents={droppedEvents}
       />
       </div>
+
+      {/* Drawn just above the canvas controls: next to them in the Tab order too (#377) */}
+      <TourOffer
+        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
+        onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
+      />
 
       <PanelDock
         panels={panels} sim={{ fileAttention, waste, agents, timelineEntries, currentTime }} bridge={bridge} selection={selection}

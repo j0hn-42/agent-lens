@@ -172,6 +172,24 @@ for (const entry of ENTRIES) {
       assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
     })
 
+    it('answers 403 to a foreign Host or Origin, with no --allow-host given (#474, DNS rebinding)', async () => {
+      const foreignHosts = ['evil.example', `evil.example:${a.port}`, 'localhost.evil.example', '127.0.0.1.nip.io', 'box.tail1234.ts.net']
+      const paths = entry.rootCsp === CSP_STATIC_APP ? ['/events', '/status', '/'] : ['/events', '/status']
+      for (const p of paths) {
+        for (const host of foreignHosts) {
+          const r = await request(a.port, 'GET', p, { Host: host })
+          assert.equal(r.status, 403, `GET ${p} Host: ${host}`)
+          assert.ok(r.headers['content-security-policy'], `GET ${p} Host: ${host}: headers set on the 403`)
+        }
+      }
+      for (const origin of ['https://evil.example', 'null', `http://evil.example:${a.port}`]) {
+        assert.equal((await request(a.port, 'GET', '/events', { Origin: origin })).status, 403, `Origin: ${origin}`)
+      }
+      assert.equal((await request(a.port, 'GET', '/events', { 'Sec-Fetch-Site': 'cross-site' })).status, 403, 'Sec-Fetch-Site: cross-site')
+      // The loopback Host keeps working
+      assert.equal((await request(a.port, 'GET', '/status', { Host: `localhost:${a.port}` })).status, 200)
+    })
+
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')
@@ -272,6 +290,85 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     // A security flag typed without its value must not be ignored
     assert.equal((await runToExit(['--host'])).code, 2)
     assert.equal((await runToExit(['--allow-host'])).code, 2)
+  })
+
+  it('a non-loopback --host without --remote stops the start and names --remote (#474)', async () => {
+    for (const host of ['0.0.0.0', '192.168.1.10']) {
+      const r = await runToExit(['--host', host])
+      assert.equal(r.code, 2, r.out)
+      assert.match(r.out, /--remote/)
+    }
+  })
+
+  it('--remote stops the start: alone (never an implicit 0.0.0.0), and with a --host while token and TLS are missing (#474)', async () => {
+    const alone = await runToExit(['--remote'])
+    assert.equal(alone.code, 2, alone.out)
+    assert.match(alone.out, /--host/)
+    const withHost = await runToExit(['--remote', '--host', '0.0.0.0'])
+    assert.equal(withHost.code, 2, withHost.out)
+    assert.match(withHost.out, /token/i)
+    // '--host --remote': the flag is not swallowed as the address
+    assert.equal((await runToExit(['--host', '--remote'])).code, 2)
+  })
+
+  it('the --flag=value forms and a flag after --import are not ignored (#474)', async () => {
+    for (const args of [['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+    }
+  })
+})
+
+describe('dev relay entry point: remote access flags stop the start (#474)', () => {
+  /** Runs the dev relay until it exits (rejects if it starts listening): a flag must not become the workspace path. */
+  function runDevRelayToExit(args: string[]): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolve, reject) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, AGENT_LENS_PORT: '0' }
+      delete childEnv.FORCE_COLOR
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', VSCODE_ALIAS, 'scripts/dev-relay.ts', ...args], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      children.push(child)
+      let out = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`did not exit:\n${out}`)) }, STARTUP_TIMEOUT_MS)
+      const onData = (c: Buffer) => {
+        out += c.toString()
+        if (ENTRIES[0].listening.test(out)) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error(`started listening:\n${out}`)) }
+      }
+      child.stdout!.on('data', onData)
+      child.stderr!.on('data', onData)
+      child.once('exit', code => { clearTimeout(timer); resolve({ code, out }) })
+    })
+  }
+
+  it('--host, --remote and --allow-host are refused, never read as the workspace', async () => {
+    for (const args of [
+      ['--host', '0.0.0.0'], ['--remote'], ['--allow-host', 'box.tail1234.ts.net'], [workspace, '--remote', '--host', '0.0.0.0'],
+      ['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0'],
+    ]) {
+      const r = await runDevRelayToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /loopback/i, args.join(' '))
+    }
+  })
+
+  it('an unknown option is refused, never read as the workspace', async () => {
+    const r = await runDevRelayToExit(['--hots', '0.0.0.0'])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /--hots/)
+  })
+})
+
+describe('app entry point: no environment variable opens the listener (#474)', () => {
+  it('AGENT_LENS_HOST / AGENT_LENS_REMOTE / HOST are ignored: the server still binds 127.0.0.1 only', async () => {
+    const r = await start(ENTRIES[1], [], { AGENT_LENS_PORT: '0', AGENT_LENS_HOST: '0.0.0.0', AGENT_LENS_REMOTE: '1', HOST: '0.0.0.0' })
+    try {
+      assert.equal(await accepts('127.0.0.1', r.port), true)
+      // Proof that holds without an external interface (unshare -rn): on Linux all of 127/8 reaches a socket bound to
+      // 0.0.0.0, so 127.0.0.2 is refused only when the server is bound to 127.0.0.1 exactly
+      if (process.platform === 'linux') assert.equal(await accepts('127.0.0.2', r.port), false, 'bound to more than 127.0.0.1')
+      const external = externalAddress()
+      if (external) assert.equal(await accepts(external, r.port), false, `reachable on ${external}`)
+      assert.equal((await request(r.port, 'GET', '/status', { Host: 'evil.example' })).status, 403)
+    } finally { r.child.kill('SIGKILL') }
   })
 })
 

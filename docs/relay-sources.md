@@ -104,6 +104,7 @@ Watching agents from a phone or another machine is not available yet. This step 
 
 - `--allow-host <name>` is refused until token authentication ships (step 2 of #241). The event stream carries prompts, tool outputs and file contents: without a token, anyone who reaches the tunnel would read them.
 - `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a named tunnel (Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS. An SSH `-L` tunnel is treated as local, see the end of this section.
+- Another `--host` address needs an explicit `--remote` (#474), and is refused even then until token authentication and TLS ship. `--remote` is a flag only: no environment variable turns it on, and it never implies an address (`--remote` alone, or with a loopback `--host`, also refuses to start; there is never an implicit `0.0.0.0`). The dev relay (`scripts/dev-relay.ts`) refuses `--host`, `--remote` and `--allow-host` outright.
 
 What the guards will enforce once the token exists (tested now through the app's request handler):
 
