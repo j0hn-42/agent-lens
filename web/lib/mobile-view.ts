@@ -5,11 +5,9 @@
  */
 
 /** Below this viewport width the mobile branches apply. */
-export const MOBILE_BREAKPOINT = 768
+const MOBILE_BREAKPOINT = 768
 /** Media query of the mobile view (the .98 keeps 767.5 px, a zoomed width, on the mobile side). */
 export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`
-/** Smallest touch target of the mobile view, in CSS px (WCAG 2.5.5). */
-export const MIN_TOUCH_TARGET = 44
 /**
  * Classes that give a control a 44x44 px box below 768 px only (Tailwind `max-md` is `width < 48rem`, 768 px).
  * A literal string so Tailwind finds it.

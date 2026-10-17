@@ -6,7 +6,7 @@ import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import axe from 'axe-core'
 import { SlidingPanel, CloseButton } from '@/components/agent-visualizer/shared-ui'
-import { MOBILE_QUERY, MOBILE_BREAKPOINT, nextTrapTarget } from '@/lib/mobile-view'
+import { MOBILE_QUERY, nextTrapTarget } from '@/lib/mobile-view'
 import { shouldHandleShortcut } from '@/hooks/use-keyboard-shortcuts'
 import { setMobileView } from './mobile-media'
 
@@ -30,7 +30,6 @@ function Drawer({ visible, onClose = () => {}, label }: { visible: boolean; onCl
 }
 
 test('the breakpoint is 768 px: the query matches 767 px wide and not 768', () => {
-  assert.equal(MOBILE_BREAKPOINT, 768)
   assert.equal(MOBILE_QUERY, '(max-width: 767.98px)')
 })
 
