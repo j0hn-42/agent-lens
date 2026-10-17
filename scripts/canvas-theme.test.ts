@@ -210,13 +210,14 @@ test('carte de découverte : libellé et chemin >= 4,5:1 à l\'opacité 0.9, sur
   const CARD_OPACITY = 0.9 // plafond du fondu (animateDiscoveries)
   for (const id of THEME_IDS) {
     refreshColors(id)
-    for (const bg of [SCENE.cardBg, SCENE.cardBgSelected]) {
-      const card = over(bg, SCENE.void, CARD_OPACITY)
+    const scene = scenePalette(id) // la carte prend les couleurs du thème (#381)
+    for (const bg of [scene.cardBg, scene.cardBgSelected]) {
+      const card = over(bg, scene.void, CARD_OPACITY)
       for (const type of ['file', 'pattern', 'finding', 'code']) {
-        const label = over(getDiscoveryTypeColor(type, SCENE), card, CARD_OPACITY)
+        const label = over(getDiscoveryTypeColor(type, scene), card, CARD_OPACITY)
         assert.ok(ratio(label, card) >= 4.5, `${id}: libellé ${type} sur ${bg} (${ratio(label, card).toFixed(2)}:1)`)
       }
-      const path = over(SCENE.textMuted, card, CARD_OPACITY)
+      const path = over(scene.textMuted, card, CARD_OPACITY)
       assert.ok(ratio(path, card) >= 4.5, `${id}: chemin (textMuted) sur ${bg} (${ratio(path, card).toFixed(2)}:1)`)
     }
   }

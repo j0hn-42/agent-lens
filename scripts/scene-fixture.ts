@@ -97,7 +97,7 @@ function drawCardFamily(ctx: CanvasRenderingContext2D, theme?: ThemeId) {
     id: `d${i}`, agentId: 's1:worker', type, label: `${type} label`, content: 'web/lib/colors.ts\nline two',
     x: 600 + i * 10, y: 500 + i * 80, targetX: 600, targetY: 500, opacity: 0.9, timestamp: 0,
   }))
-  drawDiscoveryConnections(ctx, discoveries, agents)
+  drawDiscoveryConnections(ctx, discoveries, agents, theme)
   drawDiscoveries(ctx, discoveries, agents, 'd1', opts(theme))
 }
 

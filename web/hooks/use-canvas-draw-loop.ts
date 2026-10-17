@@ -401,7 +401,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
 
       // Draw order (bottom to top) matches hit-test priority in reverse:
       // bubbles sit under tool/discovery cards so interactive cards are never covered.
-      drawDiscoveryConnections(ctx, discoveries, agents)
+      drawDiscoveryConnections(ctx, discoveries, agents, theme)
       // Team halos sit under everything; links (communication edges) under the nodes
       opts.reducedMotion = calmOf('links')
       drawWorkspaceZones(ctx, workspaceZones, opts)

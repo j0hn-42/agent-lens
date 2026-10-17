@@ -16,6 +16,17 @@
   ],
   "halos": [
    "stroke #a5adcb77 a=1"
+  ],
+  "cards": [
+   "fillRect #a6da9560 a=0.9",
+   "fillRect #b7bdf860 a=0.9",
+   "fillRect #c6a0f660 a=0.9",
+   "fillRect #eed49f60 a=0.9",
+   "stroke #a6da9530 a=0.9",
+   "stroke #b7bdf880 a=0.9",
+   "stroke #c6a0f630 a=0.27",
+   "stroke #c6a0f630 a=0.9",
+   "stroke #eed49f30 a=0.9"
   ]
  },
  "catppuccin-mocha": {
@@ -35,6 +46,17 @@
   ],
   "halos": [
    "stroke #a6adc877 a=1"
+  ],
+  "cards": [
+   "fillRect #a6e3a160 a=0.9",
+   "fillRect #b4befe60 a=0.9",
+   "fillRect #cba6f760 a=0.9",
+   "fillRect #f9e2af60 a=0.9",
+   "stroke #a6e3a130 a=0.9",
+   "stroke #b4befe80 a=0.9",
+   "stroke #cba6f730 a=0.27",
+   "stroke #cba6f730 a=0.9",
+   "stroke #f9e2af30 a=0.9"
   ]
  },
  "catppuccin-frappe": {
@@ -55,6 +77,17 @@
   ],
   "halos": [
    "stroke #a5adce77 a=1"
+  ],
+  "cards": [
+   "fillRect #a6d18960 a=0.9",
+   "fillRect #babbf160 a=0.9",
+   "fillRect #ca9ee660 a=0.9",
+   "fillRect #e5c89060 a=0.9",
+   "stroke #a6d18930 a=0.9",
+   "stroke #babbf180 a=0.9",
+   "stroke #ca9ee630 a=0.27",
+   "stroke #ca9ee630 a=0.9",
+   "stroke #e5c89030 a=0.9"
   ]
  },
  "midnight": {
@@ -75,6 +108,17 @@
   ],
   "halos": [
    "stroke #a6aedb77 a=1"
+  ],
+  "cards": [
+   "fillRect #6ed79960 a=0.9",
+   "fillRect #9fa8ff60 a=0.9",
+   "fillRect #be96ff60 a=0.9",
+   "fillRect #f4d79760 a=0.9",
+   "stroke #6ed79930 a=0.9",
+   "stroke #9fa8ff30 a=0.27",
+   "stroke #9fa8ff30 a=0.9",
+   "stroke #be96ff80 a=0.9",
+   "stroke #f4d79730 a=0.9"
   ]
  },
  "graphite": {
@@ -94,6 +138,17 @@
   ],
   "halos": [
    "stroke #a3a3a677 a=1"
+  ],
+  "cards": [
+   "fillRect #8fd3a860 a=0.9",
+   "fillRect #b9a9d660 a=0.9",
+   "fillRect #d4d4d660 a=0.9",
+   "fillRect #e0b25c60 a=0.9",
+   "stroke #8fd3a830 a=0.9",
+   "stroke #b9a9d680 a=0.9",
+   "stroke #d4d4d630 a=0.27",
+   "stroke #d4d4d630 a=0.9",
+   "stroke #e0b25c30 a=0.9"
   ]
  },
  "neon": {
@@ -110,6 +165,17 @@
   ],
   "links": [
    "stroke #aaeeff59 a=1"
+  ],
+  "cards": [
+   "fillRect #66ccff60 a=0.9",
+   "fillRect #66ffaa60 a=0.9",
+   "fillRect #cc88ff60 a=0.9",
+   "fillRect #ffbb4460 a=0.9",
+   "stroke #66ccff30 a=0.27",
+   "stroke #66ccff30 a=0.9",
+   "stroke #66ffaa30 a=0.9",
+   "stroke #cc88ff80 a=0.9",
+   "stroke #ffbb4430 a=0.9"
   ]
  },
  "ember": {
@@ -129,6 +195,17 @@
   ],
   "halos": [
    "stroke #bbab9a77 a=1"
+  ],
+  "cards": [
+   "fillRect #a3ca8860 a=0.9",
+   "fillRect #cc9bbe60 a=0.9",
+   "fillRect #e6a95760 a=0.9",
+   "fillRect #f4d48160 a=0.9",
+   "stroke #a3ca8830 a=0.9",
+   "stroke #cc9bbe80 a=0.9",
+   "stroke #e6a95730 a=0.27",
+   "stroke #e6a95730 a=0.9",
+   "stroke #f4d48130 a=0.9"
   ]
  },
  "anthropic": {
@@ -150,6 +227,17 @@
   ],
   "halos": [
    "stroke #b0aea577 a=1"
+  ],
+  "cards": [
+   "fillRect #6a9bcc60 a=0.9",
+   "fillRect #8fa77460 a=0.9",
+   "fillRect #d9775760 a=0.9",
+   "fillRect #e3b34160 a=0.9",
+   "stroke #6a9bcc80 a=0.9",
+   "stroke #8fa77430 a=0.9",
+   "stroke #d9775730 a=0.27",
+   "stroke #d9775730 a=0.9",
+   "stroke #e3b34130 a=0.9"
   ]
  }
 }

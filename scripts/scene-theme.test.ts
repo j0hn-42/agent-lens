@@ -14,7 +14,7 @@ import { SCENE } from '../web/lib/colors'
 import { scenePalette, sceneInk, sceneColor } from '../web/lib/scene-state-colors'
 
 /** Families of the scene that follow the theme so far (#381) */
-const THEMED: Family[] = ['labels',  'links',  'halos']
+const THEMED: Family[] = ['labels',  'links',  'halos',  'cards']
 
 // ─── The scene follows the theme ─────────────────────────────────────────────
 
@@ -61,6 +61,17 @@ test('halos: workspace zones, halo and cluster labels take the theme colours (th
   }
 })
 
+test('cards: discovery cards take the card, text and discovery colours of the theme', () => {
+  for (const id of THEME_IDS) {
+    const p = scenePalette(id)
+    const ops = drawFamily('cards', id)
+    assert.ok(ops.some(o => o.name === 'fill' && o.fillStyle === p.cardBg), `${id}: card`)
+    assert.ok(ops.some(o => o.name === 'fillText' && o.fillStyle === p.textMuted), `${id}: card text`)
+    for (const key of ['discoveryFile', 'discoveryPattern', 'discoveryFinding', 'discoveryCode'] as const) {
+      assert.ok(ops.some(o => o.name === 'fillText' && o.fillStyle === p[key]), `${id}: ${key}`)
+    }
+  }
+})
 
 
 test('the scene palette: Neon is the neon scene, every other theme its token palette on the scene ground', () => {
