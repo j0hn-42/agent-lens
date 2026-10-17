@@ -37,6 +37,8 @@ import { useVisualizerSimulation } from "@/hooks/use-visualizer-simulation"
 import { useTimelineEvents } from "@/hooks/use-timeline-events"
 import { useReviewControls } from "@/hooks/use-review-controls"
 import { GuidedTourCard } from "./guided-tour-card"
+import { TourOffer } from "./tour-offer"
+import { useTourOffer } from "@/hooks/use-tour-offer"
 import { TourHighlight } from "./tour-highlight"
 import { TourBridgeContext } from "./guided-tour-context"
 import { ConversationPanel } from "./conversation-panel"
@@ -217,6 +219,10 @@ export function AgentVisualizer() {
   const { tour, steps: tourSteps, tourBridge, tourStale, getTourAgents, exitTour } = useTourController({
     seek: handleSeek, play, isGuidedDemo, frameRef, setTourShowsInactive,
   })
+  // Offered once, on the first launch, as soon as the legend can start a tour (#377)
+  const tourOffer = useTourOffer({
+    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
+  })
 
   const paletteItems = usePaletteItems({
     open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
@@ -384,6 +390,10 @@ export function AgentVisualizer() {
           <GuidedTourCard steps={tourSteps} index={tour.index} stale={tourStale} onNext={tour.next} onPrev={tour.prev} onGoTo={tour.goTo} onExit={exitTour} />
         </>
       )}
+      <TourOffer
+        open={tourOffer.open} label={tourBridge.startTourLabel ?? 'Guided tour'}
+        onStart={() => tourBridge.startTour?.()} onDismiss={tourOffer.dismiss}
+      />
 
       <ToastRegion
         toasts={toasts}
