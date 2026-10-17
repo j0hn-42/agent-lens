@@ -256,11 +256,6 @@ export const NEON_COLORS = {
   glassBlur: 'blur(20px)',
 
   // Canvas scene colours (added for the canvas zone; neon keeps the literals the canvas always used)
-  perfBg: 'rgba(0, 0, 0, 0.75)',
-  perfText: '#cccccc',
-  fpsGood: '#44ff44',
-  fpsCaution: '#ffaa00',
-  fpsWarning: '#ff4444',
   /** thinking / waiting_permission: distinct from idle and tool_calling (WCAG 1.4.1, the state text says it too). The canvas
    *  draws these two states in them; the `state-thinking` / `state-waiting` tokens carry them for every theme's interface. */
   stateThinking: '#b79cff',
@@ -563,11 +558,6 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     shadowCard,
     glassBlur: 'none',
 
-    perfBg: rgba(surface, 0.9),
-    perfText: ink,
-    fpsGood: ok,
-    fpsCaution: warn,
-    fpsWarning: danger,
     stateThinking: t['state-thinking'],
     stateWaitingPermission: t['state-waiting'],
     staleText: muted,

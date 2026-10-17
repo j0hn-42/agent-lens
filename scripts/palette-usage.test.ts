@@ -42,7 +42,7 @@ const KNOWN_UNREAD: string[] = [
   'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder', 'cardBgError', 'cardBgSelectedHolo',
   'userMsgBg', 'userMsgBorder', 'userText', 'assistantLabel', 'thinkingBgExpanded', 'thinkingBgCollapsed',
   'thinkingBorder', 'thinkingLabel', 'thinkingArrow', 'thinkingPreview', 'thinkingTextExpanded', 'thinkingBorderLeft',
-  'onAccent', 'shadowCard', 'glassBlur', 'perfBg', 'perfText', 'fpsGood', 'depthShadow',
+  'onAccent', 'shadowCard', 'glassBlur', 'depthShadow',
 ]
 
 test('every palette key is read by production code or is a known leftover', () => {
