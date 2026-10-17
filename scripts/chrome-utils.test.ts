@@ -198,3 +198,25 @@ test('top bar: tokens and cost that are not reported each name what is missing (
   assert.equal(topBarContextText(none, ok).tokens, 'tokens not reported')
   assert.match(topBarContextText(ok, ok).cost, /^~\$/)
 })
+
+test('top bar: partial, estimated and value-less available totals are qualified or named missing (#383)', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  const partial = { value: 1200, status: 'partial', estimated: false } as const
+  const estimated = { value: 1200, status: 'available', estimated: true } as const
+  const noValue = { value: null, status: 'available', estimated: false } as const
+  assert.equal(topBarContextText(partial, partial).tokens, 'at least 1.2k tokens in context')
+  assert.match(topBarContextText(partial, partial).cost, /^at least ~\$/)
+  assert.match(topBarContextText(estimated, estimated).cost, /^~\$.* estimated$/)
+  assert.equal(topBarContextText(noValue, noValue).tokens, 'tokens not reported')
+  assert.equal(topBarContextText(noValue, noValue).cost, 'cost not reported')
+  assert.equal(topBarContextText(noValue, noValue).spoken, 'cost not reported')
+})
+
+test('top bar: the spoken cost says the same thing as the visible one (#383)', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  const partial = { value: 2.1, status: 'partial', estimated: true } as const
+  assert.equal(topBarContextText(none, none).spoken, 'cost not reported')
+  const t = topBarContextText(partial, partial)
+  assert.match(t.cost, /at least ~\$2\.1/)
+  assert.match(t.spoken, /^context cost estimate at least \$2\.1/)
+})
