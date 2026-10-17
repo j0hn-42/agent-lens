@@ -464,6 +464,20 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     if (s.sessionDetected) this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: s.label })
   }
 
+  /**
+   * A rollout attached while its first line was still being written has no cwd yet: it is read again on
+   * the next lines until the answer is final (cwdOf caches it then), and announced once with 'updated' (#420).
+   */
+  private lateCwd(session: WatchedCodexSession): void {
+    if (session.cwd !== undefined || this.cwdCache.has(session.filePath)) return
+    const cwd = displayCwd(this.cwdOf(session.filePath))
+    if (!cwd) return
+    session.cwd = cwd
+    if (session.sessionDetected) {
+      this._onSessionLifecycle.fire({ type: 'updated', sessionId: session.sessionId, label: session.label, runtime: 'codex', cwd })
+    }
+  }
+
   private readNewLinesUnguarded(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
@@ -471,6 +485,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const lines = readTrackedLines(session.filePath, session)
     if (!lines) return
     session.lastActivityTime = Date.now()
+    this.lateCwd(session)
 
     for (const line of lines) {
       try { session.parser.processLine(line, session.rolloutState) }
