@@ -189,7 +189,9 @@ test('English: the Sessions panel words are the ones it showed before', () => {
   for (const [members, working, kind] of [[1, 0, 'team'], [3, 2, 'workflow'], [1, 1, undefined], [0, 0, 'workflow']] as const) {
     assert.equal(T.teamSummaryText('en', 'alpha', members, working, kind), formatTeamSummary('alpha', members, working, kind))
   }
-  for (const [w, e] of [[0, 0], [2, 0], [0, 1], [1, 3]]) assert.equal(T.attentionText('en', w, e), formatAttention(w, e))
+  for (const [w, e] of [[0, 0], [2, 0], [0, 1], [1, 3]]) assert.equal(T.sessionAttentionLabel('en', { waiting: w, errors: e }), formatAttention(w, e) || null)
+  assert.equal(T.sessionAttentionLabel('en', undefined), null)
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 0, errors: 0 }), null)
   for (const sec of [0, 4, 5, 59, 60, 3599, 3600, 86_399, 86_400, 400_000]) assert.equal(T.relativeTimeText('en', 0, sec * 1000), formatRelativeTime(0, sec * 1000))
   for (const kind of ['new-activity', 'active', 'completed', 'unobserved', 'indexed', 'imported', 'offline'] as const) assert.equal(T.sessionStatusText('en', kind), SESSION_STATUS_TEXT[kind])
   assert.equal(T.sessionStatusHelp('en', 'unobserved'), SESSION_NOT_OBSERVED_HELP)
@@ -210,7 +212,8 @@ test('English: the Sessions panel words are the ones it showed before', () => {
 test('French: team summary, attention and ages keep their figures', () => {
   assert.equal(T.teamSummaryText('fr', 'alpha', 3, 2, 'team'), 'Équipe alpha : 3 membres, 2 au travail')
   assert.equal(T.teamSummaryText('fr', 'w', 1, 0, 'workflow'), 'Workflow w : 1 agent, 0 au travail')
-  assert.equal(T.attentionText('fr', 2, 1), '2 en attente / 1 erreur')
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 2, errors: 1 }), '2 en attente / 1 erreur')
+  assert.equal(T.sessionAttentionLabel('fr', { waiting: 0, errors: 3 }), '3 erreurs')
   assert.equal(T.relativeTimeText('fr', 0, 90_000), 'il y a 1 min')
   assert.equal(T.relativeTimeText('fr', 0, 2000), 'à l’instant')
 })

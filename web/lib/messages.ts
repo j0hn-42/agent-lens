@@ -448,6 +448,8 @@ const fr = {
   'sessions.announce.renamed': 'Session renommée en {name}',
   'sessions.announce.collapsed': 'Agents de {label} repliés',
   'sessions.announce.expanded': 'Agents de {label} dépliés',
+  'sessions.resize.value': '{px} pixels de large',
+  'sessions.project.none': 'Aucun dépôt',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -889,6 +891,8 @@ const en: Record<MessageKey, string> = {
   'sessions.announce.renamed': 'Session renamed to {name}',
   'sessions.announce.collapsed': 'Agents of {label} collapsed',
   'sessions.announce.expanded': 'Agents of {label} expanded',
+  'sessions.resize.value': '{px} pixels wide',
+  'sessions.project.none': 'No repository',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

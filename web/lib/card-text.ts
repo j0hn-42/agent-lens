@@ -12,12 +12,18 @@ import { formatDuration, formatTokens } from './utils'
 import { GIT_STRIP_MAX_COMMITS, GIT_STRIP_MAX_PRS } from './git-state'
 import { CHRONO_CAP_MS, formatActiveSince, type ActiveTimeFields } from './active-time'
 import type { UsageTotal } from './usage'
+import { getActivityLabel } from './state-labels'
+import { sessionHealthText } from './loop-detection'
+import { SESSION_STATUS_TEXT, formatTeamSummary } from './chrome-utils'
+import { SESSION_NOT_OBSERVED_HELP, SESSION_INDEXED_HELP, SESSION_IMPORTED_HELP, SESSION_OFFLINE_HELP } from './session-model'
+import { tokensText } from './delegation-report'
+import { sessionAttentionText, type SessionAttention } from './attention'
 import type { Freshness, Silence } from '../hooks/simulation/freshness'
 import type { HealthVerdict, LoopFinding } from './loop-detection'
 import type { DelegationDuration, DelegationResult, DelegationRow } from './delegation-report'
 import type { IssueLink } from './issue-links'
 import type { ModelBadgeKind } from './model-provenance'
-import type { GroupKind } from './ui-glossary'
+import { GIT_STRIP_LABELS, type GroupKind } from './ui-glossary'
 
 type Params = Readonly<Record<string, string | number>>
 const tr = (locale: Locale, key: MessageKey, params?: Params) => translate(locale, key, params)
@@ -26,7 +32,7 @@ const tr = (locale: Locale, key: MessageKey, params?: Params) => translate(local
 type CountNoun = 'tool' | 'toolError' | 'toolCall' | 'earlierEvent' | 'file' | 'subAgent' | 'member'
 
 /** "1 tool", "3 tools" (French: 0 and 1 are singular, as the language does). */
-export function countText(locale: Locale, noun: CountNoun, n: number): string {
+function countText(locale: Locale, noun: CountNoun, n: number): string {
   const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
   return tr(locale, `count.${noun}.${rule}` as MessageKey, { n })
 }
@@ -52,10 +58,6 @@ export function usageText(locale: Locale, usage: UsageTotal): string {
   return usage.estimated ? tr(locale, 'usage.estimated', { v }) : v
 }
 
-export function usageUnavailableText(locale: Locale): string {
-  return tr(locale, 'usage.unavailable')
-}
-
 // ---- states
 
 const STATE_KEYS = ['idle', 'thinking', 'tool_calling', 'complete', 'error', 'paused', 'waiting_permission'] as const
@@ -66,6 +68,8 @@ export function stateText(locale: Locale, state: string): string {
 }
 
 export function activityText(locale: Locale, activity: string): string {
+  // English keeps its original helper: nothing about it can drift
+  if (locale === 'en') return getActivityLabel(activity)
   return (ACTIVITY_KEYS as readonly string[]).includes(activity) ? tr(locale, `activity.${activity}` as MessageKey) : activity.replace(/_/g, ' ')
 }
 
@@ -165,6 +169,7 @@ export function findingText(locale: Locale, f: LoopFinding): string {
 }
 
 export function sessionLoopText(locale: Locale, v: HealthVerdict | undefined): string | null {
+  if (locale === 'en') return sessionHealthText(v)
   return v?.status === 'loop' ? tr(locale, 'sessions.health.loop') : null
 }
 
@@ -177,6 +182,8 @@ export function gitLabels(locale: Locale) {
     newTab: tr(locale, 'card.git.newTab'),
     branch: tr(locale, 'card.git.branch'),
     detached: tr(locale, 'card.git.detached'),
+    /** Names of git commands: identifiers, not translated */
+    sources: GIT_STRIP_LABELS.sources,
     seen: (elapsed: string) => tr(locale, 'card.git.seen', { elapsed }),
     commits: (n: number, incomplete: boolean) => pluralKey(locale, incomplete ? 'card.git.commitsIncomplete' : 'card.git.commits', n),
     commitsList: tr(locale, 'card.git.commitsList'),
@@ -209,6 +216,11 @@ export function filesReadText(locale: Locale, row: Pick<DelegationRow, 'filesRea
   return row.readsNotConfirmed > 0
     ? tr(locale, bounded ? 'card.files.notConfirmedAtLeast' : 'card.files.notConfirmed', { read, n: row.readsNotConfirmed })
     : read
+}
+
+/** Tokens of a delegation row, qualified ("at least 1.2k estimated", "not reported"). */
+export function delegationTokensText(locale: Locale, row: Pick<DelegationRow, 'tokens'>): string {
+  return locale === 'en' ? tokensText(row) : usageText(locale, row.tokens)
 }
 
 export function durationText(locale: Locale, d: DelegationDuration, lost = 0): string {
@@ -249,11 +261,19 @@ export function issueLinkText(locale: Locale, link: IssueLink): string {
 // ---- Sessions panel
 
 export function teamSummaryText(locale: Locale, teamName: string, members: number, working: number, kind?: GroupKind): string {
+  if (locale === 'en') return formatTeamSummary(teamName, members, working, kind)
   const noun = kind === 'workflow' ? sharedNounCount(members, 'agent') : countText(locale, 'member', members)
   return tr(locale, 'sessions.team.summary', { heading: groupHeadingText(locale, kind, teamName), members: noun, working })
 }
 
-export function attentionText(locale: Locale, waiting: number, errors: number): string {
+/** The attention count of a session ("2 waiting / 1 error"); null when nothing is waiting and nothing failed. */
+export function sessionAttentionLabel(locale: Locale, a: SessionAttention | undefined): string | null {
+  if (!a) return null
+  if (locale === 'en') return sessionAttentionText(a)
+  return attentionText(locale, a.waiting, a.errors) || null
+}
+
+function attentionText(locale: Locale, waiting: number, errors: number): string {
   const parts: string[] = []
   if (waiting > 0) parts.push(tr(locale, 'sessions.attention.waiting', { n: waiting }))
   if (errors > 0) parts.push(pluralKey(locale, 'sessions.attention.error', errors))
@@ -273,9 +293,21 @@ export function relativeTimeText(locale: Locale, timestamp: number, now: number)
 export type SessionStatusKey = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'
 
 export function sessionStatusText(locale: Locale, kind: SessionStatusKey): string {
+  if (locale === 'en') return SESSION_STATUS_TEXT[kind]
   return tr(locale, `sessions.status.${kind}` as MessageKey)
 }
 
 export function sessionStatusHelp(locale: Locale, kind: 'unobserved' | 'indexed' | 'imported' | 'offline'): string {
+  if (locale === 'en') return { unobserved: SESSION_NOT_OBSERVED_HELP, indexed: SESSION_INDEXED_HELP, imported: SESSION_IMPORTED_HELP, offline: SESSION_OFFLINE_HELP }[kind]
   return tr(locale, `sessions.help.${kind}` as MessageKey)
+}
+
+/** "3 sessions shown": what a search or a filter announces to a screen reader */
+export function sessionsShownText(locale: Locale, n: number): string {
+  return pluralKey(locale, 'sessions.announce.shown', n)
+}
+
+/** "Filter cleared: 3 sessions shown" */
+export function filterClearedText(locale: Locale, n: number): string {
+  return pluralKey(locale, 'sessions.announce.cleared', n)
 }

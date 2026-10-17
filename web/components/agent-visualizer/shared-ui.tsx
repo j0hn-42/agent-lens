@@ -276,6 +276,8 @@ interface DockResizerProps {
   edge?: 'left' | 'right'
   /** Range of the width, when it depends on more than the viewport (free room beside the panel). */
   bounds?: { min: number; max: number }
+  /** Spoken value of the width, in the language of the panel (default: "<n> pixels wide") */
+  valueText?: (px: number) => string
 }
 
 /**
@@ -288,7 +290,7 @@ interface DockResizerProps {
  * - Pointer: the visible handle is aria-hidden and pointer-only (drag left to widen).
  * Renders nothing in sheet mode (narrow viewports have no resizable dock).
  */
-export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds }: DockResizerProps) {
+export function DockResizer({ width, onWidthChange, label = 'Resize panel', controls, edge = 'left', bounds, valueText }: DockResizerProps) {
   const onRight = edge === 'right'
   const side = onRight ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2'
   const { layout, env } = useDockSnapshot()
@@ -314,7 +316,7 @@ export function DockResizer({ width, onWidthChange, label = 'Resize panel', cont
         aria-label={label}
         aria-controls={controls}
         aria-orientation="horizontal"
-        aria-valuetext={`${current} pixels wide`}
+        aria-valuetext={valueText ? valueText(current) : `${current} pixels wide`}
         min={min}
         max={max}
         step={step}

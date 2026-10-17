@@ -12,6 +12,7 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
+import * as C from '@/lib/card-text'
 import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 import { createFreshnessClock } from '@/hooks/use-freshness-clock'
@@ -67,11 +68,11 @@ function foreignWords(locale: Locale, strings: string[]): string[] {
 // Not in the catalog on purpose, the same in both languages: proper names of themes (THEME_LABELS) and symbols.
 const ALLOWLIST = new Set(['Catppuccin Macchiato', 'Catppuccin Mocha', 'Catppuccin Frappe', 'Midnight', 'Graphite', 'Neon', 'Ember', 'Anthropic', '✓', '✕', '▸', '▾',
   // Data and technical identifiers of the card and the Sessions panel fixtures (names, paths, branches, git commands, models): never translated
-  'MCP', 'Claude Code', 'Codex', 'GitHub Copilot', 'Pi', 'Gemini CLI', 'OpenCode', '⟳', '⎇', '/', '!', 'Σ', '·', '(', ')', '└', '✎', '⤓', '◌', '⚙', 'agent:'])
+  'MCP', 'Claude Code', 'Codex', 'GitHub Copilot', 'Pi', 'Gemini CLI', 'OpenCode', '⟳', '⎇', '/', '!', 'Σ', '·', '(', ')', '└', '✎', '⤓', '◌', '⚙', 'agent:', '.', ','])
 /** Exact data values of the fixtures below (names, paths, branches, models, an excerpt); filled by them */
 const FIXTURE_DATA = new Set<string>()
 /** Data the fixtures carry (an agent name, a path, a model, an excerpt): shown as it came, in no language of ours. */
-const DATA = [/^Workflow \S+$/, /^[\d.]+[kM]?$/, /^\((≥ )?\d+%\)$/, /^(Opus|Sonnet|Haiku) [\d.]+$/, /^git (checkout \/ switch|status|commit|branch --show-current)$/, /^PR #\d+ \([\w./-]+\)$/, /^[a-f0-9]{7}$/, /^\+?\d+(:\d\d)+$/]
+const DATA = [/^\d+ (sessions?|agents?)$/, /^Phase \S+$/, /^\(\d+\)$/, /^Workflow \S+$/, /^[\d.]+[kM]?$/, /^\((≥ )?\d+%\)$/, /^(Opus|Sonnet|Haiku) [\d.]+$/, /^git (checkout \/ switch|status|commit|branch --show-current)$/, /^PR #\d+ \([\w./-]+\)$/, /^[a-f0-9]{7}$/, /^\+?\d+(:\d\d)+$/]
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -308,25 +309,34 @@ for (const locale of LOCALES) {
 
 // ---- The Sessions panel (#502) ----
 
-for (const d of ['fix login', 'refactor api', 'docs', 'alpha', 'beta', 'main', 'feat/x', 'Reviewer', 'My own name', 'tempo-team']) FIXTURE_DATA.add(d)
+for (const d of ['fix login', 'refactor api', 'docs', 'alpha', 'beta', 'main', 'feat/x', 'Reviewer', 'My own name', 'tempo-team', 'scratch', 'build']) FIXTURE_DATA.add(d)
 
 const panelSessions: SessionInfo[] = [
   { id: 'a', label: 'fix login', status: 'active', startTime: 0, lastActivityTime: 30, runtime: 'claude', projectId: 'pa', projectName: 'alpha', branch: 'main' },
   { id: 'b', label: 'refactor api', status: 'completed', startTime: 0, lastActivityTime: 20, runtime: 'codex', projectId: 'pb', projectName: 'beta', branch: 'feat/x', originalLabel: 'My own name' },
   { id: 'c', label: 'docs', status: 'active', startTime: 0, lastActivityTime: 10, runtime: 'claude', projectId: 'pb', projectName: 'beta' },
   { id: 'd', label: 'docs', status: 'active', startTime: 0, lastActivityTime: 10, runtime: 'claude', teamName: 'tempo-team', memberName: 'Reviewer' },
+  { id: 'e', label: 'scratch', status: 'active', startTime: 0, lastActivityTime: 0, lastActivityUnknown: true, runtime: 'codex', imported: true },
+  { id: 'f', label: 'scratch', status: 'active', startTime: 0, lastActivityTime: 1, indexedOnly: true },
 ]
+const panelTeams = new Map([['tempo-team', { name: 'tempo-team', leadSessionId: 'a', kind: 'team' as const, members: [{ name: 'Reviewer' }, { name: 'Writer' }] }]])
 const panelAgent = (id: string, sessionId: string, state: string, name = id): SessionListAgent =>
   ({ id, sessionId, parentKey: null, name, state, tokensUsed: 1, spawnTime: 1, lastEventAt: Date.now() }) as SessionListAgent
 
 function sessionsPanel(extra: Partial<React.ComponentProps<typeof SessionListPanel>> = {}) {
-  const agents = [panelAgent('a:m', 'a', 'waiting_permission', 'Reviewer'), panelAgent('a:s', 'a', 'error', 'Reviewer')]
+  const agents = [
+    panelAgent('a:m', 'a', 'waiting_permission', 'Reviewer'), panelAgent('a:s', 'a', 'error', 'Reviewer'),
+    { ...panelAgent('c:w', 'c', 'thinking', 'Writer'), teamKind: 'workflow', phase: 'build' } as SessionListAgent,
+    { ...panelAgent('c:x', 'c', 'thinking', 'Writer'), teamKind: 'workflow' } as SessionListAgent,
+  ]
   return (
     <SessionListPanel
       visible onClose={noop} sessions={panelSessions} selectedSessionId="__all__" sessionsWithActivity={new Set()}
       onSelectSession={noop} onCloseSession={noop} onRenameSession={noop} onExportSession={noop} canExportSession={() => true}
       agents={new Map(agents.map(a => [a.id, a]))} selectedAgentId={null} onSelectAgent={noop} now={5000}
-      observedSessionIds={new Set(['a', 'b'])} freshnessClock={clock} {...extra}
+      observedSessionIds={new Set(['a', 'b'])} freshnessClock={clock}
+      teams={panelTeams} teamMemberCounts={new Map([['tempo-team', 2]])} teamWorking={new Map([['tempo-team', 1]])}
+      health={new Map([['a', { status: 'loop', calls: 9, comparable: 9, dropped: 0, lostEvents: 0, findings: [] }]])} {...extra}
     />
   )
 }
@@ -336,7 +346,7 @@ for (const locale of LOCALES) {
     setLocaleChoice(locale)
     const strings: string[] = []
     const view = render(sessionsPanel())
-    const dialog = view.getByRole('dialog')
+    const dialog = view.container.querySelector('#sessions-panel') as HTMLElement
     assert.equal(langOf(dialog), locale, `the panel declares lang=${locale}`)
     const scan = () => strings.push(...surfaceStrings(dialog))
     const announced = () => strings.push(document.querySelector('[data-panel-announcer]')?.textContent ?? '')
@@ -360,7 +370,7 @@ for (const locale of LOCALES) {
     fireEvent.click(view.getAllByRole('button', { name: named('sessions.rename') })[0])
     scan()
     fireEvent.keyDown(view.getByRole('textbox'), { key: 'Escape' })
-    fireEvent.click(view.getAllByRole('button', { name: named('sessions.collapse') })[0])
+    fireEvent.click(view.getAllByRole('button', { name: named('sessions.collapse') }).find(b => !(b as HTMLButtonElement).disabled)!)
     announced()
     scan()
     // Offline relay and the unobserved states
@@ -373,6 +383,12 @@ for (const locale of LOCALES) {
     fireEvent.click(view.getByRole('button', { name: MESSAGES[locale]['sessions.activeOnly'] }))
     scan()
 
+    // The words the panel owns were all rendered (not a vacuous pass)
+    for (const key of ['sessions.title', 'sessions.allSessions', 'sessions.project.none', 'sessions.team.wholeView', 'sessions.phase.none', 'sessions.health.loop', 'sessions.activityUnknown', 'sessions.empty.none', 'sessions.empty.active', 'sessions.empty.match', 'sessions.search.hint', 'sessions.status.imported', 'sessions.status.indexed', 'sessions.status.offline', 'sessions.status.completed', 'sessions.announce.collapsed', 'sessions.rename.help'] as MessageKey[]) {
+      const shape = new RegExp(`${MESSAGES[locale][key].split(/\{\w+\}/).map(escapeRe).join('.+')}$`)
+      assert.ok(strings.some(x => shape.test(x)), `${key} was rendered`)
+    }
+    assert.ok(strings.some(x => x === C.sessionAttentionLabel(locale, { waiting: 1, errors: 1 })), 'the attention count was rendered')
     // What stays English must say so with its own lang
     for (const e of Array.from(dialog.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
     assert.ok(strings.length > 80, 'the panel was rendered in every state')
