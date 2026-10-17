@@ -47,7 +47,7 @@ interface Rig {
   lastMenu(): { tooltip: string; items: Array<{ id: string; label: string; enabled: boolean }> } | undefined
 }
 
-function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, string> = {}, over: Partial<DriverOptions> = {}): Rig {
+function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, string> = {}, over: Partial<DriverOptions> = {}, stopChannel?: 'ipc'): Rig {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tray-driver-'))
   dirs.push(dir)
   const log = path.join(dir, 'tray.log')
@@ -56,7 +56,7 @@ function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, stri
   const opened: Array<[string, number]> = []
   const copied: Array<[string, number]> = []
   const handle = startDriver({
-    relay: { spawn: { file: process.execPath, args: [FAKE_RELAY], env: { ...process.env, FAKE_RELAY_MARK: mark, ...relayEnv } } },
+    relay: { spawn: { file: process.execPath, args: stopChannel === 'ipc' ? [FAKE_RELAY, '--ipc-stop'] : [FAKE_RELAY], env: { ...process.env, FAKE_RELAY_MARK: mark, ...relayEnv }, ...(stopChannel ? { stopChannel } : {}) } },
     tray: { file: process.execPath, args: [FAKE_TRAY], env: { ...process.env, FAKE_TRAY_LOG: log, ...trayEnv } },
     locale: 'fr',
     pollIntervalMs: 40,
@@ -368,5 +368,37 @@ describe('startDriver attached to a relay it did not start', () => {
   it('refuses an invalid port', async () => {
     const r = rig({}, {}, { relay: { attach: 70000 } })
     assert.equal(await r.handle.done, 1)
+  })
+})
+
+describe('startDriver: stop over the IPC channel instead of SIGTERM (#513)', () => {
+  it('quit sends the stop message, not SIGTERM, and the relay runs its clean-up', async () => {
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) }, {}, 'ipc')
+    assert.equal(await r.handle.done, 0)
+    assert.equal(fs.readFileSync(r.mark, 'utf8'), 'IPC')
+  })
+
+  it('stop() and a closed icon follow the same path', async () => {
+    const a = rig({}, {}, {}, 'ipc')
+    await until(() => state(a))
+    a.handle.stop()
+    assert.equal(await a.handle.done, 0)
+    assert.equal(fs.readFileSync(a.mark, 'utf8'), 'IPC')
+    const b = rig({}, { FAKE_TRAY_SEND: JSON.stringify(['{"v":1,"type":"closed"}']) }, {}, 'ipc')
+    assert.equal(await b.handle.done, 0)
+    assert.equal(fs.readFileSync(b.mark, 'utf8'), 'IPC')
+  })
+
+  it('a relay that ignores the stop message is never signalled: the driver says so and exits 1', async () => {
+    const r = rig({ FAKE_RELAY_MODE: 'ignore-ipc' }, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) }, { stopTimeoutMs: 300 }, 'ipc')
+    assert.equal(await r.handle.done, 1)
+    assert.ok(r.logs.some(l => l.includes('did not stop after the stop message')), r.logs.join(' | '))
+    assert.equal(fs.existsSync(r.mark), false, 'no SIGTERM was sent')
+  })
+
+  it('without stopChannel, the relay gets no IPC channel and is still stopped with SIGTERM', async () => {
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) })
+    assert.equal(await r.handle.done, 0)
+    assert.equal(fs.readFileSync(r.mark, 'utf8'), 'SIGTERM')
   })
 })
