@@ -16,6 +16,8 @@ import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
+import { useLocale } from "@/lib/locale"
+import { translate, type MessageKey } from "@/lib/messages"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
@@ -86,7 +88,7 @@ export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls, lang }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -111,6 +113,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   /** aria-expanded of a disclosure button, with the id of what it shows */
   expanded?: boolean
   controls?: string
+  /** Language of this button's text when it is a translated control (#373); the others follow the page */
+  lang?: string
 }) {
   return (
     <button
@@ -126,6 +130,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       aria-keyshortcuts={shortcut}
       aria-haspopup={hasDialog ? 'dialog' : undefined}
       title={title}
+      lang={lang}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
       // Underline + bold is the non-colour cue for the active state
       className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
@@ -286,6 +291,8 @@ export const TopBar = memo(function TopBar({
   onTogglePanel, onToggleTimeline, onToggleStats, onToggleMute, onOpenShortcuts, onOpenSettings, onToggleFullscreen,
   attention, onJumpToAttention, onOpenPalette, notifyState = 'unsupported', onToggleNotify, scope,
 }: TopBarProps) {
+  const { locale } = useLocale()
+  const t = (key: MessageKey) => translate(locale, key)
   useThemeVersion() // the bar is memoized: repaint its COLORS-based styles on a theme switch
   const attentionText = attention ? formatAttention(attention.waiting, attention.errors) : ''
   // With two or more, each click goes to the next one (#377); with one, there is no "next" to promise
@@ -441,11 +448,10 @@ export const TopBar = memo(function TopBar({
             active={notifyState === 'on'}
             pressed={notifyState === 'on'}
             onClick={onToggleNotify}
-            title={notifyState === 'denied'
-              ? 'Notifications are blocked in the browser settings'
-              : 'Notify for the triggers chosen in Settings (permission, error, finished session, cost threshold)'}
+            lang={locale}
+            title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
           >
-            {notifyState === 'denied' ? 'Notifications blocked' : 'Notifications'}
+            {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
           </ToggleButton>
         )}
         {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
@@ -463,9 +469,10 @@ export const TopBar = memo(function TopBar({
             active={hideInactive}
             pressed={hideInactive}
             onClick={() => onToggleHideInactive(!hideInactive)}
-            title="Hide agents that are idle or done"
+            lang={locale}
+            title={t('topbar.hideInactive.title')}
           >
-            Hide inactive agents
+            {t('topbar.hideInactive')}
           </ToggleButton>
         )}
         <div className={folded ? 'sr-only' : 'contents'}>
@@ -531,8 +538,9 @@ export const TopBar = memo(function TopBar({
           <ToggleButton
             active={!isMuted}
             onClick={onToggleMute}
-            ariaLabel={isMuted ? 'Unmute sound effects' : 'Mute sound effects'}
-            title={isMuted ? 'Unmute (M)' : 'Mute (M)'}
+            ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
+            title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}
+            lang={locale}
             shortcut="m"
           >
             {isMuted ? <MutedIcon /> : <UnmutedIcon />}
@@ -542,8 +550,9 @@ export const TopBar = memo(function TopBar({
               id={FULLSCREEN_BUTTON_ID}
               active={false}
               onClick={onToggleFullscreen}
-              ariaLabel="Enter full screen"
-              title="Full screen (Z)"
+              ariaLabel={t('topbar.fullscreen')}
+              title={t('topbar.fullscreen.title')}
+              lang={locale}
               shortcut="z"
             >
               <FullscreenIcon />
@@ -555,8 +564,9 @@ export const TopBar = memo(function TopBar({
               buttonRef={paletteRef}
               active={false}
               onClick={onOpenPalette}
-              ariaLabel="Commands"
-              title="Command palette: actions, panels, sessions, agents and themes (Ctrl+K / Cmd+K)"
+              ariaLabel={t('topbar.commands')}
+              title={t('topbar.commands.title')}
+              lang={locale}
               shortcut="Control+K Meta+K"
               hasDialog
             >
@@ -564,15 +574,16 @@ export const TopBar = memo(function TopBar({
                 <circle cx="7" cy="7" r="5" />
                 <path d="M11 11l4 4" />
               </svg>
-              <span aria-hidden="true" className="ml-1 hidden sm:inline">Commands</span>
+              <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.commands')}</span>
             </ToggleButton>
           )}
           {onOpenSettings && (
             <ToggleButton
               active={false}
               onClick={onOpenSettings}
-              ariaLabel="Settings"
-              title="Settings (,)"
+              ariaLabel={t('settings.title')}
+              title={t('topbar.settings.title')}
+              lang={locale}
               shortcut=","
               hasDialog
             >
@@ -582,13 +593,14 @@ export const TopBar = memo(function TopBar({
           <ToggleButton
             active={false}
             onClick={onOpenShortcuts}
-            ariaLabel="Keyboard shortcuts"
-            title="Keyboard shortcuts (?)"
+            ariaLabel={t('topbar.shortcuts')}
+            title={t('topbar.shortcuts.title')}
+            lang={locale}
             shortcut="?"
             hasDialog
           >
             <span aria-hidden="true">?</span>
-            <span aria-hidden="true" className="ml-1 hidden sm:inline">Shortcuts</span>
+            <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.shortcuts.short')}</span>
           </ToggleButton>
         </div>
         )}

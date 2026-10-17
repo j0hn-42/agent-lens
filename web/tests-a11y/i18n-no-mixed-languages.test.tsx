@@ -3,7 +3,8 @@
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
 // lang, for instance the legend, still English) is left out. Surfaces not yet translated (top bar, panels, palette,
-// legend) are out of this test on purpose: see docs/reading-the-ui.md.
+// legend) are out of this test on purpose: see docs/reading-the-ui.md. The top bar controls translated in #373 have
+// their own test (topbar-i18n.test.tsx) until the whole bar can join this one.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
