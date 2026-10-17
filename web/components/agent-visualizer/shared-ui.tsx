@@ -161,7 +161,8 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   const placed = placePopup(position, { w: width, h: estimatedHeight }, env)
 
   useClickOutside(ref, onClose)
-  useDialogBehavior(ref, onClose)
+  // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do.
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
 
   return (
     // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less

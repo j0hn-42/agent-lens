@@ -119,8 +119,8 @@ export function AgentDetailCard({
   // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
   const dock = useDockPanel('detail', true)
   const { rect } = dock
-  // Hidden behind a sheet (narrow viewport): moving focus elsewhere must not clear the selection
-  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, closeOnFocusOutside: !dock.hidden })
+  // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
+  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
