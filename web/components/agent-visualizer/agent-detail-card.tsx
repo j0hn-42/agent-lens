@@ -8,7 +8,7 @@ import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
-import { PanelHeader, ProgressBar, INSPECTOR_IGNORE_SELECTOR, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
+import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
 import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
@@ -120,7 +120,7 @@ export function AgentDetailCard({
   const dock = useDockPanel('detail', true)
   const { rect } = dock
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
-  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, closeOnFocusOutside: false })
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
@@ -545,7 +545,7 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
   // Opened by a data event, not a gesture: never pull focus from a companion panel or a text field (WCAG 3.2.2).
   // The role="status" text still announces it.
   const [focusOnOpen] = useState(() => !focusIsBusy(typeof document === 'undefined' ? null : document.activeElement))
-  useDialogBehavior(ref, onClose, { ignoreSelector: INSPECTOR_IGNORE_SELECTOR, focusOnOpen })
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false, focusOnOpen })
   // Escape closes exactly this layer. A native listener keeps the dialog element free of JSX key handlers
   // (jsx-a11y/no-noninteractive-element-interactions), as the link panel does.
   const closeEscape = onEscape ?? onClose
