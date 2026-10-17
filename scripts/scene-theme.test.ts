@@ -13,15 +13,12 @@ import { paletteFor } from '../web/lib/theme-palette'
 import { SCENE } from '../web/lib/colors'
 import { scenePalette, sceneInk, sceneColor } from '../web/lib/scene-state-colors'
 
-/** Families of the scene that follow the theme so far (#381) */
-const THEMED: Family[] = ['labels',  'links',  'halos',  'cards']
-
 // ─── The scene follows the theme ─────────────────────────────────────────────
 
 /** Colours a family paints (fills, strokes, texts), alpha included */
 const colours = (family: Family, theme?: ThemeId) => new Set(paintOf(family, theme).map(l => l.split(' ').slice(1).join(' ')))
 
-for (const family of THEMED) {
+for (const family of FAMILIES) {
   test(`${family}: in every theme but Neon, the scene paints with the colours of the theme, not the frozen neon palette`, () => {
     const neon = colours(family, 'neon')
     for (const id of THEME_IDS.filter(t => t !== 'neon')) {
@@ -73,6 +70,15 @@ test('cards: discovery cards take the card, text and discovery colours of the th
   }
 })
 
+test('grid: the hex grid and the depth particles take the theme colours; the ground stays the scene ground', () => {
+  for (const id of THEME_IDS) {
+    const p = scenePalette(id)
+    const ops = drawFamily('grid', id)
+    assert.equal(ops.find(o => o.name === 'fillRect')?.fillStyle, SCENE.void, `${id}: ground`)
+    assert.ok(ops.some(o => o.name === 'stroke' && o.strokeStyle === p.hexGrid), `${id}: grid`)
+    assert.ok(ops.some(o => o.name === 'fill' && o.fillStyle.startsWith(p.holoBase)), `${id}: particles`)
+  }
+})
 
 test('the scene palette: Neon is the neon scene, every other theme its token palette on the scene ground', () => {
   assert.deepEqual({ ...scenePalette('neon') }, { ...SCENE })
@@ -105,7 +111,7 @@ test('sceneInk: no floor leaves a colour as given; High contrast raises the alph
 
 // ─── Contrast of what is painted ─────────────────────────────────────────────
 
-for (const family of MEASURED.filter(f => THEMED.includes(f))) {
+for (const family of MEASURED) {
   test(`High contrast: every text of the ${family} reaches 7:1 and every non-text mark 3:1 on the canvas ground`, () => {
     const failures = paints(family, 'contrast')
       .filter(x => contrastOf(x) < (x.kind === 'text' ? 7 : 3))
@@ -120,14 +126,14 @@ for (const family of MEASURED.filter(f => THEMED.includes(f))) {
 const KNOWN: Record<string, Partial<Record<Family, string[]>>> = JSON.parse(readFileSync(join(__dirname, 'fixtures/scene-contrast-known.json'), 'utf8'))
 for (const id of THEME_IDS) {
   test(`${id}: every text of the scene (labels, links, halos, cards) reaches 4.5:1 on the canvas ground`, () => {
-    const failures = MEASURED.filter(f => THEMED.includes(f)).flatMap(f => paints(f, id)).filter(x => x.kind === 'text' && contrastOf(x) < 4.5)
+    const failures = MEASURED.flatMap(f => paints(f, id)).filter(x => x.kind === 'text' && contrastOf(x) < 4.5)
       .map(x => `${x.family} ${x.what}: ${contrastOf(x).toFixed(2)}:1`)
     assert.deepEqual([...new Set(failures)], [])
   })
 
   test(`${id}: non-text marks of the scene under 3:1 on the canvas ground are the known ones only`, () => {
     assert.equal(KNOWN.contrast, undefined, 'High contrast has no known exception')
-    for (const f of MEASURED.filter(f => THEMED.includes(f))) {
+    for (const f of MEASURED) {
       const under = [...new Set(paints(f, id).filter(x => x.kind === 'mark' && contrastOf(x) < 3).map(x => x.what))].sort()
       const known = KNOWN[id]?.[f] ?? []
       assert.deepEqual(under.filter(w => !known.includes(w)), [], `${id} ${f}: new marks under 3:1`)

@@ -102,7 +102,7 @@ function drawCardFamily(ctx: CanvasRenderingContext2D, theme?: ThemeId) {
 }
 
 function drawGridFamily(ctx: CanvasRenderingContext2D, theme?: ThemeId) {
-  drawBackground(ctx, 800, 600, [{ x: 10, y: 10, size: 1, brightness: 0.2, speed: 0, depth: 0.5 }], { x: 0, y: 0, scale: 1 }, true, 0, undefined, false)
+  drawBackground(ctx, 800, 600, [{ x: 10, y: 10, size: 1, brightness: 0.2, speed: 0, depth: 0.5 }], { x: 0, y: 0, scale: 1 }, true, 0, undefined, false, theme)
 }
 
 const DRAW: Record<Family, (ctx: CanvasRenderingContext2D, theme?: ThemeId) => void> = {

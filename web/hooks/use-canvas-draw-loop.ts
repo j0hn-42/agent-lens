@@ -275,7 +275,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       const opts = drawOptsRef.current
-      // Agent state colours follow the theme (#381); the rest of the scene reads SCENE
+      // The scene follows the theme (#381): agent states, labels, links, halos, cards and grid
       const theme = sceneTheme()
       opts.theme = theme
       opts.reducedMotion = reducedMotion
@@ -380,7 +380,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         }
       }
 
-      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, calmOf('background'))
+      drawBackground(ctx, w, h, depthParticlesRef.current, transform, showHexGrid, timeRef.current, activeAgentPos, calmOf('background'), theme)
 
       ctx.save()
       ctx.translate(transform.x, transform.y)
