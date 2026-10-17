@@ -7,7 +7,7 @@ import { formatTokens, formatCost, pluralize } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, formatAllSummary, spokenAllSummary, topBarContextText, topBarContextCompact, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, formatAllSummary, spokenAllSummary, topBarContextText, topBarContextCompact, topBarUnattributedCompact, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -359,13 +359,20 @@ export const TopBar = memo(function TopBar({
     tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
   )
+  // The long text names the unattributed part outside All: so does the short one, qualified like the cost (#497 review)
+  const compactUnattributed = isAllMode
+    ? null
+    : topBarUnattributedCompact(costUsage ?? { value: totalCost, status: 'available', estimated: false }, unattributedCost)
   const compactSummary = [
     isAllMode
       ? `${pluralize(allSessionCount ?? sessions.length, 'session')} \u00b7 ${pluralize(allAgentCount, 'agent')}`
       : formatAgentCountsCompact(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount),
     compactContext.tokens,
     compactContext.cost,
-  ].join(' \u00b7 ')
+    compactUnattributed,
+  ].filter((part): part is string => part !== null).join(' \u00b7 ')
+  // While the summary popover is open the bar rises above the docked panels, which it is drawn over (#497 review)
+  const [summaryOpen, setSummaryOpen] = useState(false)
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   const activeFilters = [
     hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
@@ -392,7 +399,7 @@ export const TopBar = memo(function TopBar({
     <header
       ref={rootRef}
       className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px] max-md:max-h-[calc(100dvh-24px)] max-md:overflow-y-auto"
-      style={{ zIndex: Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
+      style={{ zIndex: summaryOpen ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
     >
       {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
       <ToggleButton
@@ -496,7 +503,7 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
         )}
         <div className={folded ? 'sr-only' : 'contents'}>
-        <TopBarSummary compact={compactSummary} focusable={!folded}>
+        <TopBarSummary compact={compactSummary} focusable={!folded} onOpenChange={setSummaryOpen}>
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
           <span data-testid="topbar-all-summary">

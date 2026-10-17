@@ -25,7 +25,13 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { token
 }
 
 /** Key of the symbols of the compact summary (#497), shown in its popover and described in reading-the-ui.md. */
-export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx = the context size, in tokens'
+export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx = the context size, in tokens · unattr. = the part of the cost tied to no single agent'
+
+/**
+ * Inks of the summary popover (#497), measured in every theme by scripts/theme-contrast.test.ts: `ground` is a palette
+ * key or a theme variable, `text` the palette key of its text, `keyOpacity` the opacity of the key of the symbols.
+ */
+export const SUMMARY_POPOVER = { ground: 'panelBg', text: 'textMuted', keyOpacity: 1 } as const
 
 /** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
 function compactMark(u: UsageTotal): string {
@@ -45,6 +51,24 @@ export function topBarContextCompact(tokens: UsageTotal, cost: UsageTotal): { to
       ? `cost ${USAGE_LABELS.unavailable}`
       : `${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(cost.value as number)}${cost.estimated ? ' est.' : ''}`,
   }
+}
+
+/**
+ * Compact marker of the part of the cost tied to no single agent (#497 review): the long text says "(incl. ~$0.03
+ * unattributed)". It is a part of the cost, so it carries the same qualifiers ("≥" partial, "est." estimated tokens).
+ * Null when nothing is unattributed or no cost is reported.
+ */
+export function topBarUnattributedCompact(cost: UsageTotal, unattributed: number): string | null {
+  if (!(unattributed > 0) || cost.status === 'unavailable' || cost.value === null) return null
+  return `incl. ${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(unattributed)}${cost.estimated ? ' est.' : ''} unattr.`
+}
+
+/**
+ * The compact summary in words, the accessible name of its group: it keeps every word drawn, in the same order
+ * (WCAG 2.5.3), with "≥" and "~" said as "at least" and "estimated" and the separators as commas.
+ */
+export function spokenCompactSummary(compact: string): string {
+  return compact.replace(/ · /g, ', ').replace(/≥/g, 'at least ').replace(/~/g, 'estimated ')
 }
 
 // ─── Session tabs ────────────────────────────────────────────────────────────

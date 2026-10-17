@@ -8,7 +8,10 @@ import axe from 'axe-core'
 
 import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
-import { SUMMARY_KEY } from '@/lib/chrome-utils'
+import { SUMMARY_KEY, SUMMARY_POPOVER, spokenCompactSummary } from '@/lib/chrome-utils'
+import { SUMMARY_CLOSE_DELAY_MS } from '@/components/agent-visualizer/topbar-summary'
+import { COST_LABELS } from '@/lib/ui-glossary'
+import { COLORS } from '@/lib/colors'
 import { setMobileView } from './mobile-media'
 
 afterEach(() => {
@@ -73,11 +76,71 @@ test('the summary is a focusable named group; the popover opens on hover and on 
   assert.equal(group.getAttribute('data-open'), 'true', 'a new focus opens it again')
 })
 
-test('the open popover stays open while the pointer is over it (hoverable, 1.4.13)', () => {
+test('the pointer can cross to the popover: leaving the summary closes it only after a short delay (hoverable, 1.4.13)', async () => {
   const v = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} />)
   fireEvent.mouseEnter(summary(v))
-  fireEvent.mouseEnter(full(v))
-  assert.equal(summary(v).getAttribute('data-open'), 'true')
+  fireEvent.mouseLeave(summary(v))
+  assert.equal(summary(v).getAttribute('data-open'), 'true', 'still open right after the pointer leaves')
+  // the pointer reaches the popover (inside the group) before the delay ends
+  fireEvent.mouseEnter(summary(v))
+  await new Promise(r => setTimeout(r, SUMMARY_CLOSE_DELAY_MS + 50))
+  assert.equal(summary(v).getAttribute('data-open'), 'true', 'back over the summary or its popover: it stays')
+  fireEvent.mouseLeave(summary(v))
+  await new Promise(r => setTimeout(r, SUMMARY_CLOSE_DELAY_MS + 50))
+  assert.equal(summary(v).getAttribute('data-open'), 'false', 'the pointer went elsewhere: it closes')
+})
+
+test('Escape closes a popover opened by hover while the focus is elsewhere (1.4.13), and only then stops Escape', () => {
+  const v = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} />)
+  const seen: string[] = []
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') seen.push('escape') }
+  document.addEventListener('keydown', onKey)
+  try {
+    const timeline = v.getByRole('button', { name: 'Timeline' })
+    timeline.focus()
+    fireEvent.mouseEnter(summary(v))
+    assert.equal(summary(v).getAttribute('data-open'), 'true')
+    fireEvent.keyDown(timeline, { key: 'Escape' })
+    assert.equal(summary(v).getAttribute('data-open'), 'false', 'Escape pressed with the focus on another control closes it')
+    assert.deepEqual(seen, [], 'that Escape only closed the popover (the global Escape did not also run)')
+    assert.equal(document.activeElement, timeline, 'the focus did not move')
+    fireEvent.keyDown(timeline, { key: 'Escape' })
+    assert.deepEqual(seen, ['escape'], 'closed, the popover lets Escape through')
+  } finally {
+    document.removeEventListener('keydown', onKey)
+  }
+})
+
+test('the unattributed part of the cost has its compact marker, qualified like the cost', () => {
+  const v = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} unattributedCost={0.03} />)
+  assert.equal(compact(v).textContent, '30 agents: 0 active · 4 last known · 26 done · ≥~5.3M ctx tokens · ≥~$40.49 est. · incl. ≥~$0.030 est. unattr.')
+  const plain = render(<TopBar {...base} unattributedCost={0.03} />)
+  assert.match(plain.getAllByTestId('topbar-summary-compact')[1].textContent ?? '', /· incl\. ~\$0\.030 unattr\.$/)
+})
+
+test('the group is named by the compact text in words (2.5.3); the key and the method are drawn, not read twice', () => {
+  const v = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} />)
+  assert.equal(summary(v).getAttribute('aria-label'), spokenCompactSummary(compact(v).textContent ?? ''))
+  const key = v.getByTestId('topbar-summary-key')
+  assert.equal(key.getAttribute('aria-hidden'), 'true', 'screen readers do not hear a key of symbols they never see')
+  assert.equal(key.textContent, SUMMARY_KEY)
+  fireEvent.focus(summary(v))
+  const method = v.getByTestId('topbar-summary-method')
+  assert.equal(method.textContent, COST_LABELS.method, 'the cost method is in the popover')
+  assert.equal(method.getAttribute('aria-hidden'), 'true', 'the spoken cost already says "context cost estimate"')
+})
+
+test('the popover paints the inks measured in every theme (theme-contrast.test.ts), the key with no opacity of its own', () => {
+  const v = render(<TopBar {...base} tokenUsage={partialTokens} costUsage={partialCost} />)
+  fireEvent.focus(summary(v))
+  const pop = full(v)
+  const probe = document.createElement('span')
+  probe.style.background = COLORS[SUMMARY_POPOVER.ground]
+  probe.style.color = COLORS[SUMMARY_POPOVER.text]
+  assert.equal(pop.style.background, probe.style.background)
+  assert.equal(pop.style.color, probe.style.color)
+  assert.equal(SUMMARY_POPOVER.keyOpacity, 1)
+  assert.doesNotMatch(v.getByTestId('topbar-summary-key').className, /opacity/)
 })
 
 test('All mode: sessions, agents, tokens and cost stay compact and qualified', () => {
