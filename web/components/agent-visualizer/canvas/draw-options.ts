@@ -43,11 +43,11 @@ export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, show
 export interface LevelOfDetail {
   /** Agent names + state labels */
   labels: boolean
-  /** Secondary text: stats, token labels, discovery text, cost pills */
+  /** Secondary overlays held at LOD.minTextPx: token labels, link bubbles, and the stats box and cost pill the user turned on (#378) */
   details: boolean
   /** Tool-card and message-bubble text; false = card icon and bubble count chip (#378) */
   cardText: boolean
-  /** Secondary text that follows the zoom: stats box, cost pill, context %, discovery text, particle labels, phase and halo labels (#378) */
+  /** Secondary text that follows the zoom: context %, discovery text, particle labels, phase and halo labels (#378) */
   detailText: boolean
 }
 

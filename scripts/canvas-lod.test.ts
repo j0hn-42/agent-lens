@@ -10,6 +10,7 @@ import { recordingContext, stubDocument } from './canvas-recorder'
 import { LOD, AGENT_DRAW, STATS_OVERLAY, COST_DRAW } from '../web/lib/canvas-constants'
 import { lodForZoom, discoveryCardScale, type LevelOfDetail } from '../web/components/agent-visualizer/canvas/draw-options'
 import { hitTestAt, focusShapeFor } from '../web/components/agent-visualizer/canvas/hit-detection'
+import { agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawToolCalls } from '../web/components/agent-visualizer/canvas/draw-tool-calls'
 import { drawMessageBubblesWorld } from '../web/components/agent-visualizer/canvas/draw-bubbles'
@@ -294,10 +295,11 @@ test('a11y model: names, states and tool calls hidden by the LOD stay in the out
 })
 
 // ─── Secondary text: hidden under the floor, held at it where it is shown ───
-// Stats box, cost pill, context percentage, discovery text, particle labels, model caption, phase and
-// team halo labels are drawn in world space: they follow the zoom. Below the zoom where their size reaches
-// LOD.minTextPx on screen they are hidden (the panels and the outline keep the numbers); where they are
-// shown, hysteresis band included, they are never drawn under LOD.minTextPx.
+// Context percentage, discovery text, particle labels, model caption, phase and team halo labels are drawn
+// in world space: they follow the zoom. Below the zoom where their size reaches LOD.minTextPx on screen they
+// are hidden (the panels and the outline keep the numbers); where they are shown, hysteresis band included,
+// they are never drawn under LOD.minTextPx. The stats box and the cost pill (turned on by the user) are held
+// at LOD.minTextPx from LOD.detailMinZoom.
 
 /** Zooms from the fit of a team (0.4) to 150 %, each also with a previous frame that showed everything (hysteresis band) */
 const SECONDARY_ZOOMS = [0.4, 0.55, 0.6, 0.7, 0.8, 0.9, 0.93, 0.96, 1, 1.2, 1.5]
@@ -352,9 +354,9 @@ test('drawAgents: the model caption is drawn only where it reaches the minimum s
 test('planOverlays: the stats box and cost pill are reserved only where drawn, at the size they are drawn (#378)', () => {
   const a = mainAgent()
   const keys = [planKey.stats(a.id), planKey.cost(a.id)]
-  // Under the text floor: nothing is drawn, so nothing is reserved that would push other texts away
-  const low = planOverlays(planInput(map(a), 0.8, { showStats: true, showCost: true })).plan
-  for (const k of keys) assert.ok(!low.get(k) || low.get(k)!.hidden, `${k} reserved at 80 %`)
+  // Under the detail zoom: nothing is drawn, so nothing is reserved that would push other texts away
+  const low = planOverlays(planInput(map(a), 0.5, { showStats: true, showCost: true })).plan
+  for (const k of keys) assert.ok(!low.get(k) || low.get(k)!.hidden, `${k} reserved at 50 %`)
   // In the hysteresis band the text is held at the floor: the reserved rect is as high as the drawn one
   const zoom = 0.95
   const band = planOverlays(planInput(map(a), zoom, { showStats: true, showCost: true, lod: fromAbove(zoom) })).plan
@@ -364,6 +366,45 @@ test('planOverlays: the stats box and cost pill are reserved only where drawn, a
   const cost = band.get(planKey.cost(a.id))!
   assert.ok(cost && cost.rect, 'cost pill reserved in the band')
   assert.ok(cost.rect!.h >= COST_DRAW.pillHeight * (MIN_PX / 11) - 1e-9, `cost pill ${cost.rect!.h.toFixed(2)} px high on screen`)
+})
+
+// A Stats or Cost button that is on must show something where the auto-fit lands (often between 60 and
+// 100 % at 768 and 1024 px): from LOD.detailMinZoom the box and the pill are drawn, held at LOD.minTextPx.
+test('Stats and Cost on: from the detail zoom the stats box and the cost pill are drawn, at 11 px on screen (#378)', () => {
+  const a = mainAgent()
+  const tools = map(tool({ agentId: 's1:main', state: 'complete', tokenCost: 1200 }))
+  for (const zoom of [LOD.detailMinZoom, 0.7, 0.8, 0.9]) {
+    const lod = lodForZoom(zoom)
+    const rec = recordingContext(zoom)
+    drawAgents(rec.ctx, map(a), null, null, true, 0, opts(zoom, { lod, showStats: true, showCost: true }))
+    const stats = rec.texts.filter(t => t.text.includes('tools'))
+    assert.equal(stats.length, 1, `zoom ${zoom}: stats box drawn`)
+    assert.ok(stats[0].screenPx >= MIN_PX - 1e-9, `zoom ${zoom}: stats at ${stats[0].screenPx.toFixed(1)} px`)
+    const cost = recordingContext(zoom)
+    drawCostLabels(cost.ctx, map(a), tools, opts(zoom, { lod, showCost: true, showStats: true }))
+    const pill = cost.texts.filter(t => t.text.includes('$'))
+    assert.equal(pill.length, 1, `zoom ${zoom}: cost pill drawn`)
+    assert.ok(pill[0].screenPx >= MIN_PX - 1e-9, `zoom ${zoom}: cost pill at ${pill[0].screenPx.toFixed(1)} px`)
+  }
+})
+
+test('planOverlays: the stats box and the cost pill, held at 11 px, are reserved without overlapping each other (#378)', () => {
+  const a = mainAgent()
+  for (const zoom of [LOD.detailMinZoom, 0.7, 0.8, 0.9, 0.95, 1, 1.5]) {
+    for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
+      const { plan } = planOverlays(planInput(map(a), zoom, { showStats: true, showCost: true, lod }))
+      const stats = plan.get(planKey.stats(a.id))
+      const cost = plan.get(planKey.cost(a.id))
+      assert.ok(stats?.rect && !stats.hidden, `zoom ${zoom}: stats box reserved`)
+      assert.ok(cost?.rect && !cost.hidden, `zoom ${zoom}: cost pill reserved`)
+      assert.ok(stats.rect.h >= STATS_OVERLAY.boxHeight * (MIN_PX / STATS_OVERLAY.fontSize) - 1e-9, `zoom ${zoom}: stats box ${stats.rect.h.toFixed(2)} px high`)
+      assert.ok(cost.rect.h >= COST_DRAW.pillHeight * (MIN_PX / 11) - 1e-9, `zoom ${zoom}: cost pill ${cost.rect.h.toFixed(2)} px high`)
+      assert.equal(rectsOverlap(stats.rect, cost.rect), false, `zoom ${zoom}: stats ${JSON.stringify(stats.rect)} under cost ${JSON.stringify(cost.rect)}`)
+      // Both stay above the node
+      const nodeTop = (a.y - agentDrawRadius(a)) * zoom
+      assert.ok(stats.rect.y + stats.rect.h <= nodeTop + 1e-6, `zoom ${zoom}: stats box above the node`)
+    }
+  }
 })
 
 test('drawCostLabels: the cost pill is never drawn under the minimum on-screen size (#378)', () => {

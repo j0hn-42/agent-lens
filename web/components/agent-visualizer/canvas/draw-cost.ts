@@ -46,8 +46,8 @@ export function drawCostLabels(
   toolCalls: Map<string, ToolCallNode>,
   opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
-  // Cost pills are secondary text: hidden where 11 px would fall under LOD.minTextPx, held at it in the hysteresis band (#378)
-  if (!lodOf(opts).detailText) return
+  // Cost pills are secondary text: hidden under the detail zoom, held at LOD.minTextPx on screen where drawn (#378)
+  if (!lodOf(opts).details) return
   const textScale = textHoldScale(11, opts.zoom)
   const toolsByAgent = groupToolsByAgent(toolCalls)
 
@@ -78,11 +78,11 @@ export function drawCostLabels(
 
     ctx.save()
     ctx.translate(place.dx, place.dy)
-    // Enlarged around the bottom centre of the pill, as the overlay plan reserves it
+    // Enlarged with the stats box around the top of the node (the stack keeps its order), as the overlay plan reserves it
     if (textScale !== 1) {
-      ctx.translate(agent.x, pillY + pillH)
+      ctx.translate(agent.x, agent.y - r)
       ctx.scale(textScale, textScale)
-      ctx.translate(-agent.x, -(pillY + pillH))
+      ctx.translate(-agent.x, -(agent.y - r))
     }
     ctx.globalAlpha = agentDrawOpacity(agent) * 0.9
 
