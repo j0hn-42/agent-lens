@@ -5,7 +5,7 @@ import type { CSSProperties } from 'react'
  * colour, or on the pulse (gone under prefers-reduced-motion), to tell two states apart (WCAG 1.4.1). The row also says
  * the state in words. Waiting for permission is a dashed ring, as on the canvas (docs/reading-the-ui.md).
  */
-export const STATE_MARKER_SHAPE = {
+const STATE_MARKER_SHAPE = {
   idle: 'ring',
   thinking: 'disc',
   tool_calling: 'square',
@@ -15,7 +15,7 @@ export const STATE_MARKER_SHAPE = {
   error: 'cross',
 } as const satisfies Readonly<Record<string, string>>
 
-export type StateMarkerShape = (typeof STATE_MARKER_SHAPE)[keyof typeof STATE_MARKER_SHAPE]
+type StateMarkerShape = (typeof STATE_MARKER_SHAPE)[keyof typeof STATE_MARKER_SHAPE]
 
 export function stateMarkerShape(state: string): StateMarkerShape {
   return STATE_MARKER_SHAPE[state as keyof typeof STATE_MARKER_SHAPE] ?? STATE_MARKER_SHAPE.idle
