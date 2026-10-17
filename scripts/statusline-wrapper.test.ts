@@ -159,7 +159,7 @@ describe('statusline-wrapper : transmission de la commande d\'origine', () => {
       assert.equal(r.stdout, '')
       assert.equal(r.code, 0)
       assert.equal(r.stderr.trim().split('\n').length, 1)
-      assert.match(r.stderr, /Agent Lens: statusLine d'origine illisible, lancez `node scripts\/setup\.js --restore-statusline`/)
+      assert.match(r.stderr, /Agent Lens: the original statusLine could not be read; edit the "statusLine" entry of your Claude settings\.json by hand/)
       assert.equal(fs.existsSync(marker), false)
     })
   }
@@ -186,6 +186,26 @@ describe('statusline-wrapper : transmission de la commande d\'origine', () => {
     const r = await runWrapper(STDIN, { SHELL: bash })
     assert.equal(r.stdout, 'bash-ok')
     assert.equal(r.code, 0)
+  })
+
+  // Un `fish -c` casse des commandes valides ($(cat), ${var}, [[ ]]) : seuls bash et zsh sont suivis, le reste repasse par bash puis sh
+  for (const name of ['fish', 'tcsh', 'nu']) {
+    it(`$SHELL=${name} existant : ignoré, repli sur bash (ou sh) ; la construction bash s'exécute`, { skip: !bash || process.platform === 'win32' ? 'bash absent ou Windows' : false }, async () => {
+      const fake = path.join(fs.mkdtempSync(path.join(root, 'shell-')), name)
+      fs.writeFileSync(fake, '#!/bin/sh\nprintf "%s" "$name-utilise"; exit 99\n', { mode: 0o755 })
+      setOriginal('v=ok; if [[ "abc" == a* ]]; then printf "${v}-bash"; fi')
+      const r = await runWrapper(STDIN, { SHELL: fake })
+      assert.equal(r.stdout, 'ok-bash')
+      assert.equal(r.code, 0)
+    })
+  }
+
+  it('$SHELL=zsh existant : conservé', { skip: process.platform === 'win32' ? 'Windows' : false }, async () => {
+    const fake = path.join(fs.mkdtempSync(path.join(root, 'shell-')), 'zsh')
+    fs.writeFileSync(fake, '#!/bin/sh\nprintf zsh-utilise\n', { mode: 0o755 })
+    setOriginal('true')
+    const r = await runWrapper(STDIN, { SHELL: fake })
+    assert.equal(r.stdout, 'zsh-utilise')
   })
 
   it('$SHELL absent ou invalide : repli sur /bin/sh', { skip: process.platform === 'win32' ? 'Windows' : false }, async () => {

@@ -132,7 +132,7 @@ function originalCommand() {
 }
 
 // Same shell as Claude Code: Git Bash when installed, else PowerShell on Windows (documented); on Unix the
-// docs only say "a shell", so the user's $SHELL, falling back to /bin/sh.
+// docs only say "a shell", so the user's $SHELL when it is bash or zsh, else bash, else /bin/sh.
 function shellInvocation(command) {
   if (IS_WIN) {
     const bases = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')];
@@ -143,9 +143,13 @@ function shellInvocation(command) {
     }
     return { file: 'powershell', args: ['-NoProfile', '-Command', command] };
   }
+  // Only bash and zsh are followed: other shells (fish, tcsh, nu) break valid POSIX commands under -c.
+  const candidates = [];
   const sh = process.env.SHELL;
-  if (sh && path.isAbsolute(sh)) {
-    try { fs.accessSync(sh, fs.constants.X_OK); return { file: sh, args: ['-c', command] }; } catch {}
+  if (sh && path.isAbsolute(sh) && /^(bash|zsh)$/.test(path.basename(sh))) candidates.push(sh);
+  candidates.push('/bin/bash', '/usr/bin/bash', '/usr/local/bin/bash');
+  for (const file of candidates) {
+    try { fs.accessSync(file, fs.constants.X_OK); return { file, args: ['-c', command] }; } catch {}
   }
   return { file: '/bin/sh', args: ['-c', command] };
 }
@@ -179,7 +183,7 @@ function run() {
   } else sendDone = true;
 
   const original = originalCommand();
-  if (original.bad) warn('statusLine d\\'origine illisible, lancez \x60node scripts/setup.js --restore-statusline\x60');
+  if (original.bad) warn('the original statusLine could not be read; edit the "statusLine" entry of your Claude settings.json by hand');
   const command = original.command;
   if (!command) { childDone = true; return maybeExit(); }
   let child;
