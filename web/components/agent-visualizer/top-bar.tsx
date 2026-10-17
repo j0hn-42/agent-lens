@@ -3,11 +3,11 @@
 import { memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
-import { formatTokens, formatCost } from "@/lib/utils"
+import { formatTokens, formatCost, pluralize } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, spokenAllSummary, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, formatAllSummary, spokenAllSummary, topBarContextText, topBarContextCompact, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -17,6 +17,7 @@ import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
 import { formatAttention } from "@/lib/attention"
 import type { NotifyState } from "@/hooks/use-attention-alerts"
+import { TopBarSummary } from "./topbar-summary"
 import { ScopeSelector, type ScopeSelectorProps } from "./scope-selector"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
 import { isMobileView as isNarrow, subscribeMobileView as subscribeNarrow } from "@/hooks/use-mobile-view"
@@ -339,6 +340,19 @@ export const TopBar = memo(function TopBar({
     tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
   )
+  // The line that is drawn (#497): the full wording is the popover and the text for screen readers
+  const allAgentCount = activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount
+  const compactContext = topBarContextCompact(
+    tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
+    costUsage ?? { value: totalCost, status: 'available', estimated: false },
+  )
+  const compactSummary = [
+    isAllMode
+      ? `${pluralize(allSessionCount ?? sessions.length, 'session')} \u00b7 ${pluralize(allAgentCount, 'agent')}`
+      : formatAgentCountsCompact(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount),
+    compactContext.tokens,
+    compactContext.cost,
+  ].join(' \u00b7 ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   const activeFilters = [
     hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
@@ -469,22 +483,25 @@ export const TopBar = memo(function TopBar({
           </ToggleButton>
         )}
         <div className={folded ? 'sr-only' : 'contents'}>
+        <TopBarSummary compact={compactSummary} focusable={!folded}>
         {isAllMode ? (
           // Union of every session: sessions - agents - cost (each agent priced with its own model)
           <span data-testid="topbar-all-summary">
             {/* "~$1.23" on screen; screen readers skip "~" and "-", so they get the estimate in words (#364) */}
-            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
-            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount, costUsage ?? totalCost)}</span>
+            <span aria-hidden="true">{formatAllSummary(allSessionCount ?? sessions.length, allAgentCount, costUsage ?? totalCost)}</span>
+            <span className="sr-only">{spokenAllSummary(allSessionCount ?? sessions.length, allAgentCount, costUsage ?? totalCost)}</span>
           </span>
         ) : (
           <span>{formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)}</span>
         )}
+        <span aria-hidden="true">{' \u00b7 '}</span>
+        <span className="sr-only">, </span>
         <span>
           {/* A sum of what each context holds now, not of what was consumed (#364) */}
           {contextText.tokens}
           {!isAllMode && (
-            <span data-testid="topbar-cost" title={COST_LABELS.method} style={{ color: COLORS.complete, marginLeft: 4 }}>
-              <span aria-hidden="true">{'\u00b7 '}</span>
+            <span data-testid="topbar-cost" title={COST_LABELS.method} style={{ color: COLORS.complete }}>
+              {' '}<span aria-hidden="true">{'\u00b7 '}</span>
               {/* "~$2.10" on screen, "context cost estimate $2.10" for assistive technology (#364) */}
               <span aria-hidden="true">{contextText.cost}</span>
               <span className="sr-only">, {contextText.spoken}</span>
@@ -496,6 +513,7 @@ export const TopBar = memo(function TopBar({
             </span>
           )}
         </span>
+        </TopBarSummary>
         </div>
 
         {!folded && (
