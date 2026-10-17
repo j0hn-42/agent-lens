@@ -458,3 +458,19 @@ test('sessionListActiveOnly: on by default, booleans only, persisted in the blob
   assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().sessionListActiveOnly, false)
   assert.equal(parsePrefs(env({ sessionListActiveOnly: false })).sessionListActiveOnly, false)
 })
+
+// --- Quota gauges of the top bar (#467): one more boolean of the blob, on by default ----------
+
+test('showQuota: on by default, booleans only, persisted in the blob', () => {
+  assert.equal(DEFAULT_UI_PREFS.showQuota, true)
+  for (const bad of ['false', 0, null, {}]) assert.equal(sanitizePref('showQuota', bad), true)
+  assert.equal(sanitizePref('showQuota', false), false)
+  const m = memStorage()
+  const s = manualSchedule()
+  const store = createPrefsStore({ storage: m.storage, schedule: s.schedule })
+  store.set('showQuota', false); s.tick()
+  assert.deepEqual([...m.data.keys()], [UI_PREFS_STORAGE_KEY], 'stored in the preference blob, under no separate key')
+  assert.equal(createPrefsStore({ storage: m.storage, schedule: manualSchedule().schedule }).getSnapshot().showQuota, false)
+  assert.equal(parsePrefs(env({ showQuota: false })).showQuota, false)
+  assert.equal(parsePrefs(env({ showQuota: 'no' })).showQuota, true, 'a non-boolean in storage is ignored')
+})

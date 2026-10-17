@@ -68,7 +68,7 @@ const TEXT_TOKENS = [
   'filePathActive', 'filePathInactive',
   'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText',
-  'costText', 'costTextDim', 'systemWarm', 'systemCritical',
+  'costText', 'costTextDim', 'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical',
   'roleAssistantText', 'roleThinkingText', 'roleUserText', 'roleCompactionText',
   'tool', 'holoBright',
 ] as const
@@ -78,6 +78,7 @@ const NON_TEXT_TOKENS = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder',
   'playBtnBorder', 'reviewBtnBorder', 'liveResumeBorder',
   'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing', 'systemWarm', 'systemCritical',
+  'quotaOk', 'quotaLow', 'quotaCritical',
 ] as const
 
 for (const [bgName, bg] of Object.entries(BACKGROUNDS)) {

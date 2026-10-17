@@ -50,6 +50,11 @@ export const NEON_COLORS = {
   systemWarm: '#ff9944',
   systemCritical: '#ff6666',
 
+  // Quota gauges (top bar): ok / low / critical, always paired with words
+  quotaOk: '#66ffaa',
+  quotaLow: '#ff9944',
+  quotaCritical: '#ff6666',
+
   // UI Chrome
   nodeInterior: 'rgba(10, 15, 40, 0.5)',
   textPrimary: '#aaeeff',
@@ -405,6 +410,9 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     contextSystem: t['context-system'],
     systemWarm: t['system-warm'],
     systemCritical: t['system-critical'],
+    quotaOk: t['quota-ok'],
+    quotaLow: t['quota-low'],
+    quotaCritical: t['quota-critical'],
 
     contextUser: accent,
     contextToolResults: warn,

@@ -43,13 +43,13 @@ const TEXT_KEYS: ColorKey[] = [
   'textFaint', 'filePathActive', 'filePathInactive', 'todoCompleted', 'todoCompletedText', 'todoPending', 'contentDim',
   'panelLabel', 'panelLabelDim', 'scrollBtnText', 'costText', 'costTextDim', 'roleAssistantText', 'roleThinkingText',
   'roleUserText', 'roleCompactionText', 'liveText', 'toolIndicatorText', 'diffAdded', 'diffRemoved',
-  'systemWarm', 'systemCritical', 'tool', 'holoBright',
+  'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical', 'tool', 'holoBright',
 ]
 
 const NON_TEXT_KEYS: ColorKey[] = [
   'toggleBorder', 'toggleBorderActive', 'tabSelectedBorder', 'tabInactiveBorder', 'playBtnBorder', 'reviewBtnBorder',
   'liveResumeBorder', 'controlBorder', 'controlTrack', 'scrollbarThumb', 'contextSystem', 'statusDotRing',
-  'systemWarm', 'systemCritical', 'searchIcon',
+  'systemWarm', 'systemCritical', 'quotaOk', 'quotaLow', 'quotaCritical', 'searchIcon',
 ]
 
 const TINTED: Array<[string, ColorKey, ColorKey[]]> = [
@@ -181,7 +181,7 @@ test('palettes of every theme define the same keys', () => {
 
 // ─── Roles on every ground, for every theme (the table the design system promises) ─────────────
 
-const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info', 'system-warm', 'system-critical'] as const
+const TEXT_ROLES = ['ink', 'ink-muted', 'accent', 'ok', 'warn', 'danger', 'delegate', 'info', 'system-warm', 'system-critical', 'quota-ok', 'quota-low', 'quota-critical'] as const
 const COMPONENT_ROLES = ['control-border', 'focus', 'context-system'] as const
 
 for (const id of THEME_IDS) {

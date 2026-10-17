@@ -312,6 +312,51 @@
         "usage": "System panel: bar and status text of a critical metric (red). Always paired with a word and an icon. At least 1.2:1 in luminance from `system-warm`."
       },
       {
+        "name": "quota-ok",
+        "value": {
+          "catppuccin-macchiato": "#a6da95",
+          "catppuccin-mocha": "#a6e3a1",
+          "catppuccin-frappe": "#a6d189",
+          "midnight": "#6ed799",
+          "graphite": "#8fd3a8",
+          "neon": "#66ffaa",
+          "ember": "#a3ca88",
+          "anthropic": "#8fa774",
+          "contrast": "#86ffb7"
+        },
+        "usage": "Quota gauges (top bar): bar and text of a window with plenty left (25 % or more). Always paired with the percentage in words. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+      },
+      {
+        "name": "quota-low",
+        "value": {
+          "catppuccin-macchiato": "#f5a97f",
+          "catppuccin-mocha": "#fab387",
+          "catppuccin-frappe": "#ef9f76",
+          "midnight": "#f0a070",
+          "graphite": "#e8995a",
+          "neon": "#ff9944",
+          "ember": "#f09858",
+          "anthropic": "#e8935a",
+          "contrast": "#ffb070"
+        },
+        "usage": "Quota gauges (top bar): bar and text of a window running low (under 25 % left). Always paired with the word \"low\" and an icon. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+      },
+      {
+        "name": "quota-critical",
+        "value": {
+          "catppuccin-macchiato": "#ed8796",
+          "catppuccin-mocha": "#f38ba8",
+          "catppuccin-frappe": "#e78284",
+          "midnight": "#f26683",
+          "graphite": "#e86a6a",
+          "neon": "#ff6666",
+          "ember": "#e17260",
+          "anthropic": "#e5707a",
+          "contrast": "#ff8686"
+        },
+        "usage": "Quota gauges (top bar): bar and text of a nearly exhausted window (under 10 % left). Always paired with the word \"critical\" and an icon. Text 4.5:1 or more, bar 3:1 or more on `surface` and on the track."
+      },
+      {
         "name": "state-thinking",
         "value": {
           "catppuccin-macchiato": "#7dc4e4",
