@@ -3,16 +3,16 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
-const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640], [320, 568], [640, 360]]
+const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640], [320, 568], [640, 360], [640, 300]]
 const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
 const TOPBAR_H = 68
 const BAR_H = 56
-/** Floor of a popup's height (POPUP_MIN_H in panel-layout.ts, not exported). */
-const POPUP_MIN_H = 160
+/** Height the cards' title and intro take, as measureDockEnv reads it (#536) */
+const HEAD_H = 62
 
 /** Every subset of the docked panels (including the empty one). */
 function subsets<T>(items: T[]): T[][] {
@@ -225,7 +225,7 @@ test('popups never cover the permission cards under the top bar (#410)', () => {
     const permissionsW = Math.min(448, w - 24)
     const permissionsX = w - 12 - permissionsW
     for (const permissionsH of [0, 120, 260]) {
-      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH, permissionsX, permissionsW }
+      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH, permissionsHeadH: permissionsH > 0 ? Math.min(HEAD_H, permissionsH) : 0, permissionsX, permissionsW }
       const slot = TOPBAR_H + (permissionsH > 0 ? permissionsH + 4 : 0)
       const barTop = h - 16 - BAR_H - 8
       for (const anchor of [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w / 2, y: h / 2 }]) {
@@ -233,21 +233,36 @@ test('popups never cover the permission cards under the top bar (#410)', () => {
         const label = `${w}x${h} perm=${permissionsH} @${anchor.x},${anchor.y}`
         const overCards = p.left < permissionsX + permissionsW && p.left + p.width > permissionsX
         assert.ok(p.maxHeight > 0, `${label}: the popup keeps a usable height (${p.maxHeight})`)
-        assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, barTop - TOPBAR_H), `${label}: at least the readable floor (${p.maxHeight})`)
+        // The cards' title and intro win over the floor (#536)
+        const headEnd = permissionsH > 0 && overCards ? env.permissionsHeadH + 4 : 0
+        assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, barTop - TOPBAR_H - headEnd), `${label}: at least the readable floor (${p.maxHeight})`)
         assert.ok(p.top + Math.min(200, p.maxHeight) <= Math.max(barTop, p.top), `${label}: above the control bar`)
         if (overCards && barTop - slot >= POPUP_MIN_H) assert.ok(p.top >= Math.min(slot, h), `${label}: under the cards (top ${p.top} < ${slot})`)
-        if (overCards && barTop - slot < POPUP_MIN_H) assert.ok(p.top >= TOPBAR_H && p.maxHeight >= POPUP_MIN_H, `${label}: floor kept when the cards leave no room`)
+        if (overCards && barTop - slot < POPUP_MIN_H) assert.ok(p.top >= TOPBAR_H && p.maxHeight >= Math.min(POPUP_MIN_H, barTop - TOPBAR_H - headEnd), `${label}: floor kept when the cards leave no room`)
+        if (overCards && permissionsH > 0 && barTop > TOPBAR_H + env.permissionsHeadH) assert.ok(p.top >= TOPBAR_H + env.permissionsHeadH, `${label}: title and intro of the cards stay clear (top ${p.top})`)
       }
     }
   }
 })
 
+test('640x300 (200 % zoom of 1280x600): the popup starts under the cards title, which wins over the floor (#536)', () => {
+  const [w, h] = [640, 300]
+  const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: 180, permissionsHeadH: HEAD_H, permissionsX: 12, permissionsW: w - 24 }
+  const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
+  assert.ok(p.top >= TOPBAR_H + HEAD_H, `top ${p.top} is over the title (cards start at ${TOPBAR_H}, head ${HEAD_H})`)
+  assert.ok(p.maxHeight > 0, `maxHeight ${p.maxHeight}`)
+  assert.equal(p.coversCards, true, 'the popup covers the lower part of the cards')
+  const clear = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, { ...env, permissionsX: undefined, permissionsW: undefined, permissionsH: 0, permissionsHeadH: 0 })
+  assert.equal(clear.coversCards, false)
+})
+
 test('popups keep a readable height when the cards take the whole column (#410, reflow)', () => {
   // 320x568 and 640x360 (200 % zoom): cards at their 60vh cap
   for (const [w, h] of [[320, 568], [640, 360]] as const) {
-    const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: Math.round(h * 0.6), permissionsX: 12, permissionsW: w - 24 }
+    const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: Math.round(h * 0.6), permissionsHeadH: HEAD_H, permissionsX: 12, permissionsW: w - 24 }
     const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
-    assert.ok(p.maxHeight >= POPUP_MIN_H, `${w}x${h}: maxHeight ${p.maxHeight}`)
+    // Floor, less what the cards' title and intro keep (they win, #536)
+    assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, h - 16 - BAR_H - 8 - TOPBAR_H - HEAD_H - 4), `${w}x${h}: maxHeight ${p.maxHeight}`)
     assert.ok(p.top + p.maxHeight <= h - 16 - BAR_H - 8, `${w}x${h}: ends above the control bar`)
   }
 })
