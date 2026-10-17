@@ -1,7 +1,8 @@
 /**
  * Color palette and role color definitions.
  *
- * Two palettes, one rule: the theme (any of the dark themes of theme-tokens.ts) applies to the INTERFACE ONLY.
+ * Two palettes, one rule: the theme (any of the dark themes of theme-tokens.ts) applies to the interface, and on the canvas
+ * to the agent state colours only (lib/scene-state-colors.ts).
  *
  * - COLORS is the interface palette (toolbar, menus, dialogs, side panels, legend, inspector, UI cards). It
  *   follows the active theme. Callers read `COLORS.<key>` at render time. The values are concrete colour
@@ -10,7 +11,8 @@
  *   a value at module load: it would go stale on a theme switch.
  * - SCENE is the scene palette: the page background and everything drawn on the canvas (nodes, links, halos,
  *   phase zones, particles, bloom, bubbles and tool cards, canvas labels, grid). It is the neon palette,
- *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme.
+ *   frozen: the scene looks the same whatever theme is chosen. Never make SCENE depend on the theme. The one exception
+ *   is not in SCENE: the agent state colours of the canvas follow the theme, through lib/scene-state-colors.ts (#381).
  *
  * Extracted from agent-types.ts to keep that file focused on type definitions.
  * All colors are re-exported from agent-types.ts for backward compatibility.

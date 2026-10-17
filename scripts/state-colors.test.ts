@@ -1,13 +1,17 @@
 // #381: every theme gives each agent state its own colour. Thinking is not idle, waiting for permission is not a tool call,
-// in the panels (COLORS) as on the canvas (SCENE + its state colours), and each state colour stays readable as text.
+// in the panels (COLORS) as on the canvas (the same state colours, passed the theme), and each state colour stays readable as text.
+import './canvas-recorder'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { paletteFor, NEON_COLORS } from '../web/lib/theme-palette'
-import { THEME_IDS, TOKENS } from '../web/lib/theme-tokens'
+import { THEME_IDS, TOKENS, DEFAULT_THEME } from '../web/lib/theme-tokens'
 import { COLORS, SCENE, refreshColors, getStateColor, uiColor } from '../web/lib/colors'
 import { stateColor } from '../web/components/agent-visualizer/canvas/draw-misc'
+import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
+import { STATE_LABEL_SHORT } from '../web/lib/canvas-constants'
+import { recordingContext, stubDocument } from './canvas-recorder'
 
 type Rgb = [number, number, number]
 const rgb = (hex: string): Rgb => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)) as Rgb
@@ -83,21 +87,78 @@ test('High contrast: the new state colours reach 7:1 on its black grounds, like 
 
 test('neon interface paints thinking and waiting with the canvas colours (one state, one colour on both surfaces)', () => {
   const p = paletteFor('neon')
-  assert.equal(p.thinking, stateColor('thinking'))
-  assert.equal(p.waiting_permission, stateColor('waiting_permission'))
+  assert.equal(p.thinking, stateColor('thinking', 'neon'))
+  assert.equal(p.waiting_permission, stateColor('waiting_permission', 'neon'))
 })
 
-test('the canvas keeps its neon state colours, now read from the scene palette instead of literals', () => {
+test('the canvas paints each agent state with the theme colour of that state, the one the panels use (#381)', () => {
   for (const id of THEME_IDS) {
-    refreshColors(id)
-    assert.equal(stateColor('thinking'), '#b79cff', id)
-    assert.equal(stateColor('waiting_permission'), '#ff7ad9', id)
-    assert.equal(stateColor('idle'), SCENE.idle, id)
-    assert.equal(stateColor('tool_calling'), SCENE.tool_calling, id)
+    const p = paletteFor(id)
+    for (const s of STATES) {
+      assert.equal(stateColor(s, id), p[s], `${id} ${s}`)
+      assert.match(stateColor(s, id), /^#[0-9a-f]{6}$/i, `${id} ${s}: #rrggbb (the canvas appends an alpha to it)`)
+    }
   }
-  refreshColors('neon')
+  assert.equal(stateColor('thinking', 'neon'), '#b79cff', 'Neon keeps its violet')
+  assert.equal(stateColor('waiting_permission', 'neon'), '#ff7ad9', 'Neon keeps its pink')
+  assert.equal(stateColor('idle', 'neon'), SCENE.idle)
   const src = readFileSync(join(__dirname, '../web/lib/canvas-constants.ts'), 'utf8')
   assert.doesNotMatch(src, /#b79cff|#ff7ad9/i, 'no second copy of the canvas state colours')
+})
+
+test('every canvas state colour is readable on the scene background: >= 4.5:1 in every theme, >= 7:1 in High contrast', () => {
+  for (const id of THEME_IDS) {
+    const min = id === 'contrast' ? 7 : 4.5
+    for (const s of STATES) {
+      const r = ratio(stateColor(s, id), SCENE.void)
+      assert.ok(r >= min, `${id} ${s} ${stateColor(s, id)} on ${SCENE.void}: ${r.toFixed(2)}:1 < ${min}:1`)
+    }
+  }
+})
+
+stubDocument()
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function drawnColours(state: string, theme?: string): Set<string> {
+  const rec = recordingContext(1)
+  const seen = new Set<string>()
+  const ctx = new Proxy(rec.ctx as any, {
+    set(t, prop, value) { if (prop === 'strokeStyle' || prop === 'fillStyle' || prop === 'shadowColor') seen.add(String(value)); t[prop] = value; return true },
+  })
+  const agent: any = {
+    id: 's1:worker', agentKey: 's1:worker', sessionId: 's1', localId: 's1:worker', displayName: 'worker', name: 'worker',
+    state, parentId: 's1:main', parentKey: 's1:main', tokensUsed: 0, tokensMax: 200_000,
+    contextBreakdown: { systemPrompt: 0, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
+    toolCalls: 0, timeAlive: 0, x: 300, y: 300, vx: 0, vy: 0, pinned: false, isMain: false,
+    spawnTime: 0, opacity: 1, scale: 1, messageBubbles: [], lastEventAt: Date.now(),
+  }
+  drawAgents(ctx, new Map([[agent.id, agent]]), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false, ...(theme ? { theme } : {}) } as any)
+  return seen
+}
+
+test('drawAgents strokes the state ring with the colour of the theme it is given', () => {
+  for (const id of THEME_IDS) {
+    for (const s of ['thinking', 'waiting_permission', 'idle', 'error'] as const) {
+      const seen = drawnColours(s, id)
+      assert.ok(seen.has(paletteFor(id)[s]), `${id} ${s}: ${paletteFor(id)[s]} drawn`)
+    }
+  }
+  // No theme given (a test, an old caller): the default theme, the one COLORS starts on
+  assert.ok(drawnColours('thinking').has(paletteFor(DEFAULT_THEME).thinking))
+})
+
+test('a colour never carries a canvas state alone: each state has a word drawn under the agent name', () => {
+  for (const s of STATES) assert.ok(STATE_LABEL_SHORT[s], s)
+  const draw = readFileSync(join(__dirname, '../web/components/agent-visualizer/canvas/draw-agents.ts'), 'utf8')
+  assert.match(draw, /agent\.state === 'complete' \|\| agent\.archived\) \{\s*ctx\.setLineDash/, 'complete: dashed outline')
+  assert.match(draw, /\} else if \(isWaiting\) \{\s*ctx\.setLineDash/, 'waiting: dashed ring')
+})
+
+test('the graph legend draws the canvas state colours of the active theme (same swatch as the node)', () => {
+  const src = readFileSync(join(__dirname, '../web/components/agent-visualizer/graph-legend.tsx'), 'utf8')
+  assert.match(src, /const \[theme\] = useTheme\(\)/, 'the legend re-renders on a theme switch')
+  assert.match(src, /<Swatch color=\{stateColor\(state, theme\)\} \/>/)
+  assert.match(src, /stroke=\{stateColor\('complete', theme\)\}/, 'the dashed outline of a finished agent')
+  assert.doesNotMatch(src, /stateColor\(\w+\)/, 'no state colour without its theme')
 })
 
 test('timeline blocks stored with a scene colour paint the theme colour of their state (thinking is not idle)', () => {
@@ -123,26 +184,31 @@ test('session list: a paused agent is not drawn with the idle colour (paused is 
   assert.match(marker, /state === 'paused' \? COLORS\.paused/, 'StateMarker paints paused with COLORS.paused')
 })
 
-// The graph legend draws the canvas colours (stateColor), the session list and the timeline legend draw the theme ones
-// (COLORS). A panel state colour must therefore not look like another state on the canvas. In every theme listed here
-// the panel thinking (blue) is close to the canvas idle (cyan), and in some the panel idle is close to the canvas
-// thinking (Catppuccin, Midnight), the panel waiting to the canvas thinking (Graphite, Anthropic) or the panel idle to
-// the canvas tool call (Ember). Documented in docs/reading-the-ui.md; todo until the canvas reads the state-* roles.
-const CROSS_SURFACE_KNOWN = new Set<string>([
-  'catppuccin-macchiato', 'catppuccin-mocha', 'catppuccin-frappe', 'midnight', 'graphite', 'ember', 'anthropic',
+// The canvas, the graph legend, the session list and the timeline legend draw the same state colours (#381): a panel state
+// colour must not look like another state on the canvas, in any theme. Catppuccin Frappe is the one exception, kept as a
+// todo: its official green (done) and yellow (tool call) are 0.089 apart, just under the threshold, on every surface (the
+// panels share it); the role values are the official ones, unmodified (docs/reading-the-ui.md), and the word tells them apart.
+// stateColor(y, id) is paletteFor(id)[y] by construction: this checks pairwise separation within the palette; the equality
+// tests guarantee the cross-surface identity.
+type State = (typeof STATES)[number]
+const CROSS_SURFACE_KNOWN: ReadonlyMap<string, ReadonlyArray<readonly [State, State]>> = new Map<string, ReadonlyArray<readonly [State, State]>>([
+  ['catppuccin-frappe', [['complete', 'tool_calling'], ['tool_calling', 'complete']]],
 ])
 for (const id of THEME_IDS) {
-  const name = `${id}: no panel state colour looks like another state on the canvas (deltaE >= ${MIN_DELTA_E})`
-  if (CROSS_SURFACE_KNOWN.has(id)) { test.todo(name); continue }
-  test(name, () => {
+  const known = CROSS_SURFACE_KNOWN.get(id) ?? []
+  const isKnown = (x: string, y: string) => known.some(([a, b]) => a === x && b === y)
+  const name = `${id}: agent states are pairwise distinct (deltaE >= ${MIN_DELTA_E}), the same colours on the canvas and in the panels`
+  if (known.length) test.todo(`${name}: ${known.map(([a, b]) => `${a}/${b}`).join(', ')} below the threshold`)
+  test(known.length ? `${name}, except the known pairs` : name, () => {
     const p = paletteFor(id)
     for (const x of STATES) {
       for (const y of STATES) {
-        if (x === y) continue
-        const d = deltaE(p[x], stateColor(y))
-        assert.ok(d >= MIN_DELTA_E, `panel ${x} ${p[x]} vs canvas ${y} ${stateColor(y)}: deltaE ${d.toFixed(3)} < ${MIN_DELTA_E}`)
+        if (x === y || isKnown(x, y)) continue
+        const d = deltaE(p[x], stateColor(y, id))
+        assert.ok(d >= MIN_DELTA_E, `panel ${x} ${p[x]} vs canvas ${y} ${stateColor(y, id)}: deltaE ${d.toFixed(3)} < ${MIN_DELTA_E}`)
       }
     }
+    for (const [x, y] of known) assert.ok(deltaE(p[x], stateColor(y, id)) >= 0.085, `${id} ${x}/${y}: known pair, must not get closer`)
   })
 }
 
