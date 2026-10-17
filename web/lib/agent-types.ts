@@ -335,6 +335,17 @@ export interface TeamSummary {
   members: Array<{ name: string; agentType?: string; color?: string; backendType?: string; sessionId?: string; phase?: string }>
 }
 
+/** The files a Glob's structured result proves it listed (#451), carried by `tool_call_end` in `listing`; mirror of extension/src/protocol.ts */
+export interface SearchListingPayload {
+  files: string[]
+  count: number
+}
+
+/** The optional `listing` field of a `tool_call_end` payload (absent unless a successful Glob proved its list) */
+export interface ToolCallEndListing {
+  listing?: SearchListingPayload
+}
+
 export interface SimulationEvent {
   time: number
   type:
