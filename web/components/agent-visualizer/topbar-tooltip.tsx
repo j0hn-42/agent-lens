@@ -13,7 +13,8 @@ const MARGIN = 8
  * role="tooltip" linked by aria-describedby, so the text is in the page for assistive technology at every width. It is
  * drawn below the button on hover and on keyboard focus, stays open while the pointer is over the button or the tooltip
  * (the pointer has TOOLTIP_CLOSE_DELAY_MS to cross the gap), and Escape closes it wherever the focus is, without moving
- * the focus (WCAG 1.4.13); opened by hover, that Escape does nothing else. The native title is not used (it shows neither on
+ * the focus (WCAG 1.4.13); opened by hover, that Escape does nothing else. A click on the button hides it until the next
+ * hover, so it never covers the panel the button opens nor takes the Escape that closes that panel. The native title is not used (it shows neither on
  * focus nor with Escape). `children` receives the id to put in the button's aria-describedby. `onOpen` is called with
  * +1 when it opens and -1 when it closes, so the bar can rise above the docked panels the tooltip is drawn over.
  */
@@ -36,23 +37,31 @@ export function TopBarTooltip({ text, lang, onOpen, children }: {
     const el = boxRef.current
     if (!el) return
     let leaveTimer: ReturnType<typeof setTimeout> | undefined
-    const enter = () => { clearTimeout(leaveTimer); hoveredRef.current = true; setHovered(true) }
+    // A new hover (not the pointer coming back within the close delay) shows it again after a click or Escape hid it
+    const enter = () => { clearTimeout(leaveTimer); if (!hoveredRef.current) setDismissed(false); hoveredRef.current = true; setHovered(true) }
     const leave = () => {
       clearTimeout(leaveTimer)
       leaveTimer = setTimeout(() => { hoveredRef.current = false; setHovered(false); setDismissed(false) }, TOOLTIP_CLOSE_DELAY_MS)
     }
     const focusIn = () => { setFocused(true); if (!hoveredRef.current) setDismissed(false) }
     const focusOut = () => { setFocused(false); if (!hoveredRef.current) setDismissed(false) }
+    // A click (pointer or keyboard) hides it until the pointer leaves: the panel the button opens appears below, and the
+    // tooltip would cover it and take the first Escape meant for that panel (#545 review)
+    const press = () => setDismissed(true)
     el.addEventListener('mouseenter', enter)
     el.addEventListener('mouseleave', leave)
     el.addEventListener('focusin', focusIn)
     el.addEventListener('focusout', focusOut)
+    el.addEventListener('pointerdown', press)
+    el.addEventListener('click', press)
     return () => {
       clearTimeout(leaveTimer)
       el.removeEventListener('mouseenter', enter)
       el.removeEventListener('mouseleave', leave)
       el.removeEventListener('focusin', focusIn)
       el.removeEventListener('focusout', focusOut)
+      el.removeEventListener('pointerdown', press)
+      el.removeEventListener('click', press)
     }
   }, [])
 
