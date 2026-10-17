@@ -49,21 +49,23 @@ const contains = (outer: Rect, inner: Rect) =>
   outer.x + outer.w >= inner.x + inner.w - 1e-6 && outer.y + outer.h >= inner.y + inner.h - 1e-6
 
 /** Opaque plates (scene background, full alpha) painted between `from` and `to`, as rectangles */
-function platesBetween(ops: DrawnOp[], from: number, to: number): Rect[] {
-  const plates: Rect[] = []
-  let pending: Rect | null = null
+type Plate = Rect & { rounded: boolean }
+function platesBetween(ops: DrawnOp[], from: number, to: number): Plate[] {
+  const plates: Plate[] = []
+  // A plate can be one path made of several rectangles, one per line: keep them all
+  let pending: Plate[] = []
   for (let i = from; i < to; i++) {
     const o = ops[i]
-    if (o.name === 'beginPath') pending = null
+    if (o.name === 'beginPath') pending = []
     if (o.name === 'roundRect' || o.name === 'rect') {
-      const [x, y, w, h] = o.args.map(Number)
-      pending = { x, y, w, h }
+      const [x, y, w, h, radius] = o.args.map(Number)
+      pending.push({ x, y, w, h, rounded: o.name === 'roundRect' && radius > 0 })
     }
     const opaque = o.fillStyle.toLowerCase() === SCENE.void.toLowerCase() && o.globalAlpha === 1
-    if (o.name === 'fill' && pending && opaque) plates.push(pending)
+    if (o.name === 'fill' && opaque) plates.push(...pending)
     if (o.name === 'fillRect' && opaque) {
       const [x, y, w, h] = o.args.map(Number)
-      plates.push({ x, y, w, h })
+      plates.push({ x, y, w, h, rounded: false })
     }
   }
   return plates
@@ -86,6 +88,7 @@ function drawWithEdgeAcross(a: any) {
 
 function assertEveryLabelTextOnPlate(a: any, expected: string[]) {
   const { rec, edgeEnd, edge } = drawWithEdgeAcross(a)
+  const textBoxes: Rect[] = []
   for (const text of expected) {
     const i = rec.ops.findIndex((o, k) => k >= edgeEnd && o.name === 'fillText' && o.args[0] === text)
     assert.ok(i >= 0, `precondition: "${text}" is drawn`)
@@ -94,7 +97,9 @@ function assertEveryLabelTextOnPlate(a: any, expected: string[]) {
     const plates = platesBetween(rec.ops, edgeEnd, i)
     assert.ok(plates.some(p => contains(p, box)),
       `"${text}" ${JSON.stringify(box)} has no opaque plate in SCENE.void between the edge and the text (plates: ${JSON.stringify(plates)})`)
+    textBoxes.push(box)
   }
+  return { rec, edgeEnd, textBoxes, plates: platesBetween(rec.ops, edgeEnd, rec.ops.length) }
 }
 
 test('drawAgents: an edge crossing "MAIN payments-api" passes under an opaque plate, never through the letters (#378)', () => {
@@ -112,4 +117,49 @@ test('drawAgents: a subagent label crossed by an edge keeps its name and status 
   const r = agentDrawRadius(a)
   const layout = layoutAgentLabel(a, r, t => mono(t, AGENT_DRAW.labelFontSize), false, orchestratorInfo(a))
   assertEveryLabelTextOnPlate(a, [...layout.nameLines, layout.statusLine])
+})
+
+// Review of #504: the plate was one hard-edged rectangle as wide as the widest line, starting 5 px under the
+// rim, painted at the agent's fading alpha. It cut a dark band through the node's glow and ripples, hid a
+// downward edge from the rim on, and let edges show through the letters while the agent faded in or out.
+
+const subagent = (over: Record<string, unknown> = {}) =>
+  agent({ id: 's1:sub', localId: 'sub', name: 'code-reviewer', displayName: 'code-reviewer', isMain: false, parentId: 's1:main', state: 'thinking', ...over })
+const linesOf = (a: any) => {
+  const layout = layoutAgentLabel(a, agentDrawRadius(a), t => mono(t, AGENT_DRAW.labelFontSize), false, orchestratorInfo(a))
+  return { layout, texts: [...layout.nameLines, layout.statusLine] }
+}
+
+test('drawAgents: each label plate is rounded and fitted to its own line, not a block as wide as the widest line (#378)', () => {
+  const a = agent({ sessionLabel: 'payments-api' })
+  const { layout } = drawWithEdgeAcross(a)
+  const rest = layout.groupLine!.slice(layout.badgeText!.length).trim()
+  const { textBoxes, plates } = assertEveryLabelTextOnPlate(a, [...layout.nameLines, layout.statusLine, rest])
+  for (const p of plates) assert.ok(p.rounded, `plate ${JSON.stringify(p)} has hard corners`)
+  // The status line ("idle") is much narrower than "payments-api": its plate hugs it
+  const status = textBoxes[layout.nameLines.length]
+  const pad = AGENT_DRAW.labelHaloWidth
+  for (const p of plates.filter(q => contains(q, status))) {
+    assert.ok(p.w <= status.w + 2 * pad + 1e-6, `the plate under "${layout.statusLine}" is ${p.w} px wide for a ${status.w} px text`)
+  }
+})
+
+test('drawAgents: no plate covers the gap between the node rim and the first label line, so a downward edge visibly leaves the node (#378)', () => {
+  const a = subagent()
+  const r = agentDrawRadius(a)
+  const { textBoxes, plates } = assertEveryLabelTextOnPlate(a, linesOf(a).texts)
+  const firstTop = Math.min(...textBoxes.map(b => b.y))
+  assert.ok(firstTop - (a.y + r) >= AGENT_DRAW.labelYOffset - 1e-6, 'precondition: the label starts under the rim')
+  for (const p of plates) {
+    assert.ok(p.y >= firstTop - 1 - 1e-6,
+      `plate ${JSON.stringify(p)} starts ${firstTop - p.y} px above the text: it hides the edge between the rim (${a.y + r}) and the label (${firstTop})`)
+  }
+})
+
+test('drawAgents: while an agent fades in or out, its label plate stays opaque under the faded text (#378)', () => {
+  const a = subagent({ opacity: 0.4 })
+  const { texts } = linesOf(a)
+  const { rec } = assertEveryLabelTextOnPlate(a, texts)
+  const name = rec.ops.find(o => o.name === 'fillText' && o.args[0] === texts[0])!
+  assert.ok(Math.abs(name.globalAlpha - 0.4) < 1e-6, `precondition: the text fades with the agent (alpha ${name.globalAlpha})`)
 })
