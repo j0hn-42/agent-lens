@@ -105,6 +105,21 @@ describe('real app: stop over the IPC channel of the parent (#513)', () => {
     assert.ok(!app.out().includes('x'.repeat(64)), 'the content of a hostile message is never printed')
   })
 
+  it('with --ipc-stop: a stop sent before the server listens is kept and runs the clean-up once it listens', async () => {
+    // The message is written right after the spawn: the relay needs far longer (tsx, telemetry, relay) to listen
+    const child = spawn(process.execPath, appArgs(['--ipc-stop']), { cwd: workspace, env: env(), stdio: ['ignore', 'pipe', 'pipe', 'ipc'] })
+    running.push(child)
+    let out = ''
+    child.stdout!.on('data', (c: Buffer) => { out += c.toString() })
+    child.stderr!.on('data', (c: Buffer) => { out += c.toString() })
+    const pid = child.pid!
+    child.send({ v: 1, type: 'stop' })
+    assert.ok(!READY.test(out), 'the stop was sent before the server listened')
+    assert.deepEqual(await exitOf(child, 30_000), { code: 0, signal: null }, out)
+    assert.match(out, READY, 'the stop ran after the server listened, not instead of the start')
+    assert.equal(fs.existsSync(discoveryFileOf(pid)), false, 'the clean-up removed the discovery file')
+  })
+
   it('with --ipc-stop: a parent killed with SIGKILL leaves no orphan relay, and the clean-up runs', async () => {
     // An intermediate parent opens the IPC channel, then dies without a word. The relay output goes to a file,
     // not a pipe, so the relay cannot die from a broken pipe instead of the channel.
