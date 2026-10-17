@@ -9,7 +9,8 @@
  *   `__Host-...; HttpOnly; Secure; SameSite=Strict; Path=/`. The cookie never carries the token; the relay keeps only
  *   the SHA-256 of each id, with an expiry, at most REMOTE_PAIR_MAX_SESSIONS of them.
  * - Every failure (wrong / missing token, malformed body, wrong Content-Type, oversized body) is the same 401
- *   'Unauthorized'. POST /pair has its own rate limiter, keyed on the tunnel name (its peer is always 127.0.0.1).
+ *   'Unauthorized'. POST /pair has its own rate limiter, keyed on the tunnel name (its peer is always 127.0.0.1), debited
+ *   by failures only, after the token was compared: past the budget a failure gets 429, the right token still pairs.
  *
  * Loopback is untouched: a loopback Host never needs nor gets a pairing.
  */
@@ -174,16 +175,20 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
       return plain(res, 403, 'Forbidden')
     }
     if (req.method !== 'POST') return plain(res, 405, 'Method not allowed', { Allow: 'POST' })
-    if (!limiter.allow(remoteRateKey(host), now())) return plain(res, 429, 'Too many requests', { 'Retry-After': '10' })
-    const unauthorized = (extra: http.OutgoingHttpHeaders = {}) => plain(res, 401, 'Unauthorized', extra)
-    if (!isJsonContentType(req.headers['content-type'])) return unauthorized({ Connection: 'close' })
+    // Only failures use the bucket, and only once the token was compared: a client who keeps the bucket empty with
+    // wrong attempts cannot lock the owner out (the right token always passes). 256 bits make the brute force moot;
+    // the bucket bounds the cost of wrong attempts. Its key is the tunnel name (X-Forwarded-For is never read).
+    const fail = (extra: http.OutgoingHttpHeaders = {}) => limiter.allow(remoteRateKey(host), now())
+      ? plain(res, 401, 'Unauthorized', extra)
+      : plain(res, 429, 'Too many requests', { 'Retry-After': '10', ...extra })
+    if (!isJsonContentType(req.headers['content-type'])) return fail({ Connection: 'close' })
     const body = await readLimitedBody(req, REMOTE_PAIR_BODY_MAX_BYTES, REMOTE_PAIR_BODY_TIMEOUT_MS)
     if (res.destroyed) return
-    if (!body.ok) return unauthorized({ Connection: 'close' })
+    if (!body.ok) return fail({ Connection: 'close' })
     const candidate = parsePairBody(body.text)
     // Always one comparison, whatever the body was: a malformed body costs the same as a wrong token
     const match = tokensEqual(candidate ?? '', token)
-    if (candidate === null || !match) return unauthorized()
+    if (candidate === null || !match) return fail()
     prune()
     if (sessions.size >= maxSessions) return plain(res, 503, 'Too many clients', { 'Retry-After': '60' })
     const id = newPairingToken()
