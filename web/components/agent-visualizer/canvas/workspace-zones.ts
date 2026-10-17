@@ -6,7 +6,6 @@
  */
 import { WORKSPACE_ZONE } from '../../../lib/canvas-constants'
 import type { Cluster } from './cluster-model'
-import { estimateTextWidth } from './edge-bubbles'
 
 export interface WorkspaceZone {
   projectId: string
@@ -46,6 +45,16 @@ export function computeWorkspaceZones(clusters: ReadonlyArray<Cluster>): Workspa
   return zones.sort((a, b) => (a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0))
 }
 
+/** Full-width glyphs (CJK, Hangul, full-width forms) are drawn about 1 em wide in a monospace fallback. */
+const WIDE_GLYPH = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/
+
+/** Width estimate of the header text without a canvas: 0.6 em per glyph, 1 em for a full-width one. */
+function headerTextWidth(text: string, fontPx: number): number {
+  let em = 0
+  for (const ch of text) em += WIDE_GLYPH.test(ch) ? 1 : 0.6
+  return em * fontPx
+}
+
 export interface WorkspaceHeaderBox {
   /** Header text, cut with an ellipsis to the zone width */
   text: string
@@ -63,7 +72,7 @@ export interface WorkspaceHeaderBox {
 
 /**
  * Chip of the zone header at `zoom`, shared by the draw code and the overlay plan (a halo title must not
- * cover it, #378). Both size it with the same estimate (estimateTextWidth, no canvas in the plan), so the
+ * cover it, #378). Both size it with the same estimate (headerTextWidth: 0.6 em, 1 em for full-width glyphs; no canvas in the plan), so the
  * drawn chip is the reserved one; the draw code bounds the text to the chip's inner width (fillText maxWidth).
  * A masked name keeps its length (maskText), so it gives the same chip.
  */
@@ -71,7 +80,7 @@ export function workspaceHeaderRect(
   z: Pick<WorkspaceZone, 'x' | 'y' | 'w' | 'name' | 'sessionCount' | 'teamCount'>, zoom: number,
   text: string = zoneHeaderText(z),
 ): WorkspaceHeaderBox {
-  const measure = estimateTextWidth
+  const measure = headerTextWidth
   const k = Math.max(1, 1 / Math.max(zoom || 1, 1e-3))
   const fontPx = WORKSPACE_ZONE.headerFontSize * k
   const pad = 8 * k
