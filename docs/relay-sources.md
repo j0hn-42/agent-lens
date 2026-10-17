@@ -98,31 +98,33 @@ streaming from a remote agent and provider connectors are tracks 2 and 3 of #294
   client joins the broadcast, so the client receives the session once (session list + replay).
 - The earlier limits (SSE client cap, replay caps, `/status` rate limit) are unchanged.
 
-## Remote access: guards only (#241, step 1)
+## Remote access: guards and pairing (#241)
 
-Watching agents from a phone or another machine is not available yet. This step only puts the guards in place; the standalone app **refuses to start** with the new options (exit code 2, the reason on stderr):
+Watching agents from a phone or another machine goes through a named tunnel (Tailscale serve) that forwards to `127.0.0.1`; the user guide is [Remote access](remote-access.md). The standalone app takes the tunnel's name with `--allow-host <name>`, which needs `--token-file <path>` (#517): the pairing token of this start is written there, and the start prints the pairing URLs (the token only in the `#pair=` fragment, and only on a terminal). The start refuses (exit code 2, the reason on stderr):
 
-- `--allow-host <name>` is refused until token authentication ships (step 2 of #241). The event stream carries prompts, tool outputs and file contents: without a token, anyone who reaches the tunnel would read them.
-- `--host <address>` is refused for anything but `127.0.0.1` / `localhost`. Agent Lens never listens outside loopback: the planned v1 is a named tunnel (Tailscale serve) that forwards to `127.0.0.1`, with no built-in TLS. An SSH `-L` tunnel is treated as local, see the end of this section.
-- Another `--host` address needs an explicit `--remote` (#474), and is refused even then until token authentication and TLS ship. `--remote` is a flag only: no environment variable turns it on, and it never implies an address (`--remote` alone, or with a loopback `--host`, also refuses to start; there is never an implicit `0.0.0.0`). The dev relay (`scripts/dev-relay.ts`) refuses `--host`, `--remote` and `--allow-host` outright.
+- `--allow-host` without `--token-file`, `--token-file` without `--allow-host` or without a path, and a token file that cannot be written.
+- `--host <address>` for anything but `127.0.0.1` / `localhost`, `::1` included (the server binds IPv4 loopback only). Agent Lens never listens outside loopback, with no built-in TLS.
+- Another `--host` address needs an explicit `--remote` (#474), and is refused even then until TLS ships. `--remote` is a flag only: no environment variable turns it on, and it never implies an address (`--remote` alone, or with a loopback `--host`, also refuses to start; there is never an implicit `0.0.0.0`). The dev relay (`scripts/dev-relay.ts`) refuses `--host`, `--remote` and `--allow-host` outright.
 
-What the guards will enforce once the token exists (tested now through the app's request handler):
+What the guards enforce (tested through the app's request handler and the real command):
 
 | Request | Answer |
 | --- | --- |
-| `Host` loopback (`127.0.0.1`, `localhost`, `[::1]`, any port) | unchanged |
+| no `--allow-host`: `Host` loopback (`127.0.0.1`, `localhost`, `[::1]`, any port) | unchanged, no token |
 | `Host` exactly a `--allow-host` name (case-insensitive; with the port only if one was given) | read-only surface: `GET`/`HEAD` on `/events`, `/status` and the static app |
 | same, on `/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope` or any other method | `403` |
 | same, with an `Origin` other than `https://<name>` (the dev origins included) or a `Sec-Fetch-Site` other than `same-origin` / `none` | `403` |
-| `Host` allowed, `/events` or `/status` without a live pairing cookie (#475, `scripts/remote-access.ts:197`) | `401`; the static app is served without it |
-| `Host` allowed, `POST /pair` with the token (`createRemotePairing` in `scripts/remote-pairing.ts`) | `204` and the `__Host-` cookie; a wrong token `401`, then `429` when the bucket is empty. No command can create a pairing yet (#517): reachable in tests only |
+| `Host` allowed, `/events` or `/status` without a live pairing cookie (#475) | `401`; the static app is served without it |
+| `Host` allowed, `POST /pair` with the token (`createRemotePairing` in `scripts/remote-pairing.ts`) | `204` and the `__Host-` cookie; a wrong token `401`, then `429` when the bucket is empty |
+| `--allow-host` on, `Host` loopback, any route but the static app and `POST /pair`, without a live pairing cookie (#517) | `401`; with the cookie, the whole loopback surface |
+| `--allow-host` on, `Host` loopback, `POST /pair` from `http://<that Host>` (or no `Origin`) | as above; any other `Origin` `403` |
 | two `Host` headers | `403` |
 | any other `Host` (suffix or prefix look-alikes, trailing dot, other port), static files included | `403` (DNS rebinding) |
 | more than 4 SSE streams through allowed names (`RELAY_MAX_REMOTE_SSE_CLIENTS`) | `503` + `Retry-After`; local tabs are not counted against it |
 
 `--allow-host` takes host names only: no wildcard, IP address, loopback name, trailing dot, URL, credentials or default port (`:80`, `:443`, which browsers leave out of `Host`); at most 4 names. The peer must still be loopback: a tunnel's is. So every client of a tunnel shares one rate-limit bucket per name (its `User-Agent` is ignored). The total SSE cap, the rate limits and the strict headers are unchanged.
 
-`--allow-host` only covers named tunnels (Tailscale serve, a reverse proxy with its own name), which must forward the `Host` header unchanged. An SSH `-L` tunnel is not one of them: the remote browser opens `http://localhost:<port>`, so it sends `Host: localhost:<port>`, which is a loopback `Host`. It gets the full loopback surface (`/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope`), and the `Origin` check of a tunnel does not apply. The same holds for a tunnel that rewrites `Host` to `127.0.0.1`. Step 2 (token) has to close this before `--allow-host` is enabled: the token must be required even on a loopback `Host` when the access is remote.
+`--allow-host` only covers named tunnels (Tailscale serve, a reverse proxy with its own name), which must forward the `Host` header unchanged. An SSH `-L` tunnel is not one of them: the remote browser opens `http://localhost:<port>`, so it sends `Host: localhost:<port>`, which is a loopback `Host`. Without `--allow-host`, it gets the full loopback surface (`/context`, `/issue-links`, `/observations`, `/statusline`, `POST /scope`) with no token, and the `Origin` check of a tunnel does not apply. The same holds for a tunnel that rewrites `Host` to `127.0.0.1`. With `--allow-host`, the token is required even on a loopback `Host` (`requiresRemotePairing`, #517): such a tunnel, and a local tab, must pair first.
 
 ## OpenCode (#346)
 
@@ -138,7 +140,7 @@ Claude Code passes `rate_limits` (the 5-hour and weekly quota) to its `statusLin
 
 **What is sent.** Only `five_hour` and `seven_day`, each with `used_percentage` and `resets_at`, as `{"rate_limits":{...}}` to `POST /quota` on the discovery port, which is the hook server's: the relay installs the route there (an instance without it, such as the VS Code extension, answers 404 and nothing is counted). Only a 2xx counts as delivered. Never sent: the session id, the working directory, the model, the cost, the transcript path or anything else from the status line input.
 
-**What the relay does with it.** `POST /quota` takes JSON only, at most 1024 bytes, from a loopback peer; another site, a wrong `Content-Type`, an unknown shape or a value out of range is refused (a window that is present but invalid refuses the whole body). The route is rate-limited per peer (burst of 5, then 1 per second) and the body must arrive within 3 s. Each accepted body replaces the previous quota in memory (nothing is written to disk) and is sent to the browser as the SSE message `quota`, replayed to a client that connects later. It is never sent to a tunnel Host ([Remote access](#remote-access-guards-only-241-step-1)).
+**What the relay does with it.** `POST /quota` takes JSON only, at most 1024 bytes, from a loopback peer; another site, a wrong `Content-Type`, an unknown shape or a value out of range is refused (a window that is present but invalid refuses the whole body). The route is rate-limited per peer (burst of 5, then 1 per second) and the body must arrive within 3 s. Each accepted body replaces the previous quota in memory (nothing is written to disk) and is sent to the browser as the SSE message `quota`, replayed to a client that connects later. It is never sent to a tunnel Host ([Remote access](#remote-access-guards-and-pairing-241)).
 
 **Undo.** `node scripts/setup.js --restore-statusline` puts your original `statusLine` back (or removes the key if there was none); uninstalling the extension does the same before removing the wrapper. Run it before deleting `~/.claude/agent-lens` by hand: without the folder the bar would be left pointing at a missing script, although the restore still works afterwards because it only needs `settings.json`.
 

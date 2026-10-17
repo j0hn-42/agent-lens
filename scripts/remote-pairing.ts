@@ -27,8 +27,9 @@
  *
  * Loopback: without an allow list there is no pairing at all, and loopback is untouched. With one (#517), an SSH -L
  * tunnel or a port forward shows a loopback Host, so a loopback Host pairs too, from its own http origin
- * (http://<Host>), and the gate asks it for the cookie (remote-access.ts, requiresRemotePairing). Browsers keep a
- * Secure cookie from http://localhost and http://127.0.0.1 (both are potentially trustworthy origins).
+ * (http://<Host>), and the gate asks it for the cookie (remote-access.ts, requiresRemotePairing). Chromium keeps this
+ * Secure cookie on http://127.0.0.1 and http://localhost (checked for #517); Firefox and Safari were not checked. A
+ * browser that drops it reads nothing (401): it fails closed.
  */
 import * as crypto from 'crypto'
 import * as fs from 'fs'

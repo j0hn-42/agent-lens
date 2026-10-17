@@ -94,10 +94,11 @@ Options:
                        (env: AGENT_LENS_WEBHOOKS, URLs separated by commas; prefer the
                        variable, a flag is visible in the process list). See docs/headless.md
   --allow-host <name>  Accept requests whose Host is exactly <name> (a named tunnel such
-                       as Tailscale serve; the server stays on 127.0.0.1; an SSH -L
-                       tunnel has a loopback Host and is not covered).
-                       Read-only surface only. Refused at startup until token
-                       authentication ships (#241). See docs/relay-sources.md
+                       as Tailscale serve; the server stays on 127.0.0.1). Read-only
+                       surface only, after pairing with the token printed at startup.
+                       Needs --token-file. While it is on, every page needs the pairing,
+                       on a loopback Host too (an SSH -L tunnel looks local; #517).
+                       See docs/remote-access.md
   --token-file <path>  With --allow-host: the pairing token of this start is written there
                        (owner only on Linux and macOS; on Windows the file inherits its
                        folder's access rights). Replaced at every start. See docs/remote-access.md
@@ -107,9 +108,9 @@ Options:
                        See docs/launch-security.md
   --launch-repo <o/n>  Repository (owner/name) an agent may be launched on. Repeatable. It
                        must also be the workspace's origin remote
-  --host <address>     Only loopback (127.0.0.1) is accepted. Any other address needs
-                       --remote, and is refused even then until token authentication
-                       and TLS ship (#241): use a tunnel and --allow-host
+  --host <address>     Only loopback (127.0.0.1) is accepted (not ::1). Any other address
+                       needs --remote, and is refused even then until TLS ships
+                       (#241): use a tunnel and --allow-host
   --remote             Explicit opt-in for --host outside loopback (no environment
                        variable, no default address: never 0.0.0.0 implicitly).
                        Refused at startup for now (#241)

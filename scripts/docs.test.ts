@@ -5,7 +5,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
-import { remoteStartupError, REMOTE_AUTH_AVAILABLE } from './remote-access'
+import { remoteStartupError } from './remote-access'
+import { REMOTE_PAIR_MAX_SESSIONS, REMOTE_PAIR_SESSION_TTL_MS, PAIR_COOKIE } from './remote-pairing'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
 
 const root = path.resolve(__dirname, '..')
@@ -167,10 +168,10 @@ test('the reading guide explains the capabilities of a session and their proof (
   assert.ok(read('README.md').includes('capabilities'), 'README mentions the capabilities view')
 })
 
-test('the remote access guards are documented as refused at startup, with their read-only surface (#241)', () => {
+test('the remote access guards and the pairing are documented, with their read-only surface (#241, #517)', () => {
   const doc = read('docs/relay-sources.md')
-  assert.match(doc, /## Remote access: guards only \(#241, step 1\)/)
-  for (const term of ['--allow-host', '--host', 'refuses to start', 'token', '/events', '/status', '/context', '/issue-links', '/observations', 'POST /scope', 'DNS rebinding', 'RELAY_MAX_REMOTE_SSE_CLIENTS']) {
+  assert.match(doc, /## Remote access: guards and pairing \(#241\)/)
+  for (const term of ['--allow-host', '--token-file', '--host', 'token', '/events', '/status', '/context', '/issue-links', '/observations', 'POST /scope', 'POST /pair', 'DNS rebinding', 'RELAY_MAX_REMOTE_SSE_CLIENTS']) {
     assert.ok(doc.includes(term), `docs/relay-sources.md should mention "${term}"`)
   }
   assert.ok(doc.includes(`more than ${RELAY_MAX_REMOTE_SSE_CLIENTS} SSE streams`), 'remote SSE cap matches the constant')
@@ -178,10 +179,12 @@ test('the remote access guards are documented as refused at startup, with their 
   // SSH -L browses http://localhost:<port>: its Host is loopback, so --allow-host does not cover it
   assert.match(doc, /SSH `-L` tunnel is not[\s\S]*`Host: localhost[\s\S]*full loopback surface/i, 'SSH -L is documented as a loopback Host with the full surface')
   assert.match(doc, /`--allow-host` only covers named tunnels/)
-  assert.match(doc, /token[^.]*(even|also)[^.]*loopback `Host`/i, 'step 2 must also cover a loopback Host reached remotely')
+  assert.match(doc, /token[^.]*(even|also)[^.]*loopback `Host`/i, 'with --allow-host, the token is required on a loopback Host too')
   for (const f of ['app/src/args.ts', 'scripts/remote-access.ts']) {
     assert.ok(!/SSH -L or Tailscale/.test(read(f)) && !/\(SSH -L, Tailscale serve\)/.test(read(f)), `${f} does not present SSH -L as covered by --allow-host`)
   }
+  // Nothing says the token or --allow-host is still missing
+  assert.doesNotMatch(doc, /until token authentication ships|No command can create a pairing yet|refused until token/i)
 })
 
 test('the launch policy is documented as off by default, with the code constants (#229)', () => {
@@ -364,58 +367,60 @@ test('the reading guide says a Glob has file cards, a flow, and a count from num
   assert.ok(!cards?.includes("the count is the header's."), "the count is not always the header's")
 })
 
-test('the remote access page says what ships, and nothing that does not exist yet (#477)', () => {
+test('the remote access page says what ships, and nothing that does not exist yet (#477, #517)', () => {
   const doc = read('docs/remote-access.md')
   const args = read('app/src/args.ts')
-  const guards = read('scripts/remote-access.ts')
   // Every flag the page names is one the CLI parses (no example that would fail)
-  // --token-file is the one flag the page names as NOT wired yet (#517): the command must not parse it
-  const notYet = new Set(['--token-file'])
-  for (const flag of notYet) assert.ok(!args.includes(`'${flag}'`), `${flag} is parsed: update the page, #517 landed`)
   for (const flag of new Set(doc.match(/--[a-z][a-z-]*/g) ?? [])) {
-    if (notYet.has(flag)) continue
     assert.ok(args.includes(`'${flag}'`), `docs/remote-access.md names ${flag}, which app/src/args.ts does not parse`)
   }
-  // --allow-host is refused at startup while the pairing is not wired in, and the page says so
-  assert.match(guards, /export const REMOTE_AUTH_AVAILABLE = false/)
-  assert.match(doc, /`--allow-host`[^\n]*refused/)
-  assert.match(doc, /not usable today|not available today|not usable yet/i, 'the page says remote access is not usable yet')
+  // Behaviour, not text: --allow-host starts with --token-file (#517), and the page says so; it is refused without it
+  assert.equal(remoteStartupError({ allowHosts: ['tunnel.example.ts.net'], tokenFile: '/home/me/pair-token' }), null)
+  assert.match(remoteStartupError({ allowHosts: ['tunnel.example.ts.net'] }) ?? '', /--token-file/)
+  assert.match(remoteStartupError({ allowHosts: [], tokenFile: '/home/me/pair-token' }) ?? '', /--allow-host/)
+  assert.ok(remoteStartupError({ allowHosts: [], host: '0.0.0.0', remote: true }), '--remote --host 0.0.0.0 is refused')
+  assert.match(remoteStartupError({ allowHosts: [], host: '::1' }) ?? '', /127\.0\.0\.1/)
+  assert.ok(doc.includes('--allow-host box.tail1234.ts.net --token-file'), 'the page gives the command that starts remote access')
+  assert.match(doc, /`--allow-host <name>` without `--token-file` \| refused/)
+  assert.match(doc, /`--host ::1` \| refused/)
+  assert.doesNotMatch(doc, /not usable today|not available today|not usable yet|nothing uses it|no command creates a pairing/i, 'remote access ships: the page must not say otherwise')
+  // The command wires the pairing in: the names the page cites are the real ones
+  assert.match(read('app/src/app.ts'), /tokenFile: args\.tokenFile/)
+  assert.match(read('app/src/server.ts'), /remotePairing: \{ tokenFile/)
+  assert.match(read('web/app-entry.tsx'), /pairFromFragment/)
+  assert.match(read('web/lib/remote-pairing.ts'), /replaceState[\s\S]*fetch\('\/pair'/, 'the page drops the fragment before POST /pair')
+  for (const needle of ['scripts/remote-pairing.ts', 'createRemotePairing', 'POST /pair', 'app/src/pairing-banner.ts', 'web/lib/remote-pairing.ts', 'history.replaceState', 'requiresRemotePairing',
+    'scripts/remote-pairing.test.ts', 'scripts/remote-guards.test.ts', 'scripts/entrypoints-hardening.test.ts', '401', '#pair=', PAIR_COOKIE]) {
+    assert.ok(doc.includes(needle), `the page cites ${needle}`)
+  }
+  // Lifetime figures match the code
+  assert.ok(doc.includes(`at most ${REMOTE_PAIR_MAX_SESSIONS} pairings`), 'the pairing cap matches REMOTE_PAIR_MAX_SESSIONS')
+  assert.ok(doc.includes(`lasts ${REMOTE_PAIR_SESSION_TTL_MS / 3_600_000} hours`), 'the pairing lifetime matches REMOTE_PAIR_SESSION_TTL_MS')
+  // What was checked in a browser, and what was not, is said
+  assert.match(doc, /checked in Chromium/i)
+  assert.match(doc, /Firefox and Safari were not checked/)
   // No environment variable is read for the host or the remote opt-in
   for (const v of ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST']) assert.ok(doc.includes(`\`${v}\``), `the page names \`${v}\` as ignored`)
   for (const f of fs.readdirSync(path.join(root, 'app/src')).filter(n => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
     assert.doesNotMatch(read(`app/src/${f}`), /process\.env\.(AGENT_LENS_HOST|AGENT_LENS_REMOTE|HOST)\b|env\[['"](AGENT_LENS_HOST|AGENT_LENS_REMOTE|HOST)['"]\]/, `app/src/${f} reads a host environment variable`)
   }
-  // Behaviour, not text: a valid --allow-host name is still refused while the pairing is not wired in
-  assert.equal(REMOTE_AUTH_AVAILABLE, false)
-  assert.match(remoteStartupError({ allowHosts: ['tunnel.example.ts.net'] }) ?? '', /--allow-host is refused/)
-  assert.ok(remoteStartupError({ allowHosts: [], host: '0.0.0.0', remote: true }), '--remote --host 0.0.0.0 is refused')
-  // The pairing exists in scripts/ and is tested, but no command creates one: the page says both, and cites the real names
-  const pairing = read('scripts/remote-pairing.ts')
-  assert.match(pairing, /export function createRemotePairing/)
-  assert.match(pairing, /handlePair: \(req/)
-  assert.ok(read('scripts/remote-pairing.test.ts').includes('POST /pair'), 'remote-pairing.test.ts tests POST /pair')
-  assert.ok(read('scripts/remote-guards.test.ts').includes('without the cookie of POST /pair'), 'remote-guards.test.ts tests the 401 without a cookie')
-  assert.doesNotMatch(read('app/src/app.ts') + read('app/src/args.ts'), /remotePairing|createRemotePairing|--token-file/, 'the command does not wire the pairing: #517 still open')
-  for (const needle of ['scripts/remote-pairing.ts', 'createRemotePairing', 'POST /pair', 'scripts/remote-pairing.test.ts', 'scripts/remote-guards.test.ts', '401']) {
-    assert.ok(doc.includes(needle), `the page cites ${needle}`)
-  }
-  assert.doesNotMatch(doc, /not in the code/i, 'the pairing token is in the code: the page must not say otherwise')
-  // The relay is not "closed": a port forward with a loopback Host reaches the loopback surface with no token
+  // Without --allow-host, a port forward with a loopback Host still reaches the loopback surface with no token: said
   assert.match(doc, /port forward/i)
   assert.match(doc, /no token|without (any )?(token|authentication)/i)
-  assert.ok(doc.includes('(relay-sources.md#remote-access-guards-only-241-step-1)'))
   assert.ok(read('docs/relay-sources.md').includes('The same holds for a tunnel that rewrites `Host` to `127.0.0.1`'), 'relay-sources documents the loopback Host case')
+  // The headless commands get 401 while --allow-host is on: both pages say it
+  assert.ok(doc.includes('relay answered HTTP 401') && read('docs/headless.md').includes('relay answered HTTP 401'))
+  assert.ok(read('scripts/headless-cli.ts').includes('relay answered HTTP ${res.statusCode}'))
   // The phone view: issue #476, delivered by PR #481
   assert.ok(doc.includes('#476') && doc.includes('#481'), 'the page cites the phone-view issue and PR')
   // The dev relay refuses the remote flags outright
   assert.ok(read('scripts/dev-relay.ts').includes("'--allow-host'"), 'the dev relay refuses --allow-host')
-  // Not-yet-available items point to the open issues
-  for (const issue of ['#241', '#475', '#517']) assert.ok(doc.includes(issue), `the page points to ${issue}`)
+  for (const issue of ['#241', '#475', '#517', '#335']) assert.ok(doc.includes(issue), `the page points to ${issue}`)
   // Links: the README, the event-source guards and the CLI help agree with the page
   assert.ok(read('README.md').includes('(docs/remote-access.md)'), 'README links docs/remote-access.md')
-  assert.ok(doc.includes('(relay-sources.md#remote-access-guards-only-241-step-1)'), 'the page links the guards section of relay-sources')
-  assert.ok(read('docs/relay-sources.md').includes('until token authentication ships'), 'relay-sources says --allow-host waits for token authentication')
-  assert.ok(args.includes('until token authentication'), 'the CLI help says --allow-host waits for token authentication')
+  assert.ok(doc.includes('(relay-sources.md#remote-access-guards-and-pairing-241)'), 'the page links the guards section of relay-sources')
+  assert.ok(args.includes('Needs --token-file'), 'the CLI help says --allow-host needs --token-file')
+  assert.doesNotMatch(args, /until token authentication/, 'the CLI help no longer says the token is missing')
   // The phone view is the one the reading guide describes: the 768 px breakpoint
   assert.ok(doc.includes('768 px'), 'the page gives the phone-width breakpoint')
   assert.ok(read('docs/reading-the-ui.md').includes('Phone width (below 768 px)'), 'the reading guide has the phone-width section')

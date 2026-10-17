@@ -17,17 +17,14 @@
  * only the static app (the page that pairs) and POST /pair answer without it. Without an allow list, loopback is
  * exactly as before: no pairing, no token.
  *
- * REMOTE_AUTH_AVAILABLE stays false until the commands wire the pairing in (--token-file, pairing URL banner, the web
- * side of /#pair=): the start still refuses --allow-host, and the wiring below is exercised by tests only.
+ * The standalone app wires it in (#517): --allow-host needs --token-file, the start prints the pairing URLs (the
+ * token on a terminal only, in the URL fragment), and the page consumes /#pair= (web/lib/remote-pairing.ts).
  */
 import type * as http from 'http'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 import { isLoopbackAddress, isLoopbackHostHeader } from '../extension/src/hook-guards'
 import { applySecurityHeaders, type ResponseKind } from './server-hardening'
 import { createLogger } from '../extension/src/logger'
-
-/** Flipped once the commands wire the pairing (#241, after #475); until then --allow-host stops the start. */
-export const REMOTE_AUTH_AVAILABLE = false
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
 const MAX_NAME_LENGTH = 253
@@ -246,13 +243,13 @@ function isIpv6Loopback(value: string): boolean {
   return /^(?:0{0,4}:){2,7}0{0,3}1$/.test(v) && v.split('::').length <= 2
 }
 
-const TUNNEL_HINT = 'For remote access, forward a named tunnel (Tailscale serve) to 127.0.0.1 and name it with --allow-host (#241).'
+const TUNNEL_HINT = 'For remote access, forward a named tunnel (Tailscale serve) to 127.0.0.1 and name it with --allow-host and --token-file (#241).'
 
 /**
  * Why the start must stop (exit code 2), or null. Reads its arguments only, never the environment (#474): listening
  * outside loopback takes an explicit --host AND an explicit --remote, and there is no default address (never an
- * implicit 0.0.0.0). v1 is tunnel only, so even both flags are refused until token authentication and TLS ship;
- * --allow-host needs the token too.
+ * implicit 0.0.0.0). v1 is tunnel only, so even both flags are refused until TLS ships; --allow-host needs
+ * --token-file (#517), and --token-file needs --allow-host.
  */
 export function remoteStartupError(opts: { allowHosts: readonly string[]; host?: string; remote?: boolean; tokenFile?: string }): string | null {
   const host = opts.host
@@ -268,13 +265,13 @@ export function remoteStartupError(opts: { allowHosts: readonly string[]; host?:
       return '--remote needs an explicit --host <address>: there is no default address (never 0.0.0.0). ' + TUNNEL_HINT
     }
     if (loopbackHost) return `--remote with --host ${echo(host)} does nothing: loopback is already the default. Leave out --remote.`
-    return `--remote --host ${echo(host)}: listening outside loopback is refused until token authentication and TLS ship `
-      + '(#241): the event stream carries prompts, tool outputs and file contents. ' + TUNNEL_HINT
+    return `--remote --host ${echo(host)}: listening outside loopback is refused until TLS ships (#241): without it the pairing `
+      + 'token and the event stream (prompts, tool outputs, file contents) would travel in clear text. ' + TUNNEL_HINT
   }
   if (host !== undefined && host.trim() === '') return '--host needs an address (only 127.0.0.1 / localhost are accepted).'
   if (host !== undefined && !loopbackHost) {
     return `--host ${echo(host)}: Agent Lens only listens on loopback (127.0.0.1); another address needs an explicit --remote `
-      + '(no environment variable), and is refused even then until token authentication and TLS ship. ' + TUNNEL_HINT
+      + '(no environment variable), and is refused even then until TLS ships. ' + TUNNEL_HINT
   }
   const tokenFile = opts.tokenFile
   // A security flag is never a no-op: --token-file alone would write nothing and pair nothing
@@ -288,9 +285,5 @@ export function remoteStartupError(opts: { allowHosts: readonly string[]; host?:
       + 'and it is printed only on a terminal, never in a log (#517).'
   }
   if (tokenFile.trim() === '') return '--token-file needs a path (a file in a folder only you can read).'
-  if (hosts.length > 0 && !REMOTE_AUTH_AVAILABLE) {
-    return '--allow-host is refused until token pairing is wired into this command (#241): the event stream carries prompts, '
-      + 'tool outputs and file contents, and anyone who reaches the tunnel would read them.'
-  }
   return null
 }

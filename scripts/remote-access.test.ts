@@ -9,7 +9,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import * as http from 'node:http'
 import {
-  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
+  parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey,
   requiresRemotePairing,
   bindRemoteAuth, gateRemoteRequest, type RemoteAuth,
 } from './remote-access'
@@ -210,9 +210,12 @@ describe('remoteStartupError (fail closed at startup)', () => {
     assert.match(remoteStartupError({ allowHosts: ['*.ts.net'], tokenFile: '/tmp/t' }) ?? '', /--allow-host: /)
   })
 
-  it('a valid --allow-host is refused while token authentication is not shipped', () => {
-    assert.equal(REMOTE_AUTH_AVAILABLE, false)
-    assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
+  it('a valid --allow-host with --token-file starts: the pairing is wired into the command (#517)', () => {
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: '/home/me/.agent-lens/pair-token' }), null)
+    assert.equal(remoteStartupError({ allowHosts: ['box.tail1234.ts.net', 'lens.example.com:8443'], tokenFile: 't', host: '127.0.0.1' }), null)
+    // Still refused without the token file, and listening outside loopback is still refused
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }), null)
+    assert.notEqual(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'], tokenFile: 't', host: '0.0.0.0', remote: true }), null)
   })
 })
 
