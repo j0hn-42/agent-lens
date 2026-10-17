@@ -32,6 +32,7 @@ import { PairFilterChip } from './pair-filter-chip'
 import { COMM_STYLE, HighlightText, TranscriptMessage } from './transcript-message'
 import { CloseButton, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
 import { PANEL_BUTTON_IDS } from './top-bar'
+import { truncateName } from '@/lib/truncate-name'
 
 export interface ConversationPanelProps {
   /** Whether the open panel (true) or the collapsed pill (false) is shown */
@@ -282,7 +283,7 @@ export function ConversationPanel({
           {/* Role as text too: colour alone must not carry it (WCAG 1.4.1) */}
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: role.text }}>{role.label}</span>
           <span className="text-[11px] font-mono font-semibold shrink-0" style={{ color: COLORS.textPrimary }}>
-            {agentName.length > COLLAPSED_AGENT_NAME_MAX ? agentName.slice(0, COLLAPSED_AGENT_NAME_MAX) + '..' : agentName}
+            {truncateName(agentName, COLLAPSED_AGENT_NAME_MAX)}
           </span>
           <span className="text-[11px] font-mono truncate" style={{ color: role.text }}>
             {preview}{latestMessage.content.length > PREVIEW_MAX ? '...' : ''}
@@ -526,7 +527,7 @@ export function ConversationPanel({
                     id={tabId(i)}
                     panelId={tabPanelId}
                     buttonRef={(el) => { tabRefs.current[i] = el }}
-                    label={name.length > TAB_AGENT_NAME_MAX ? name.slice(0, TAB_AGENT_NAME_MAX) + '..' : name}
+                    label={truncateName(name, TAB_AGENT_NAME_MAX)}
                     fullName={name}
                     stateText={key === 'all' ? undefined : (done ? 'done' : stateLabel(agent!.state))}
                     done={done}
