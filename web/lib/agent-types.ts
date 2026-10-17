@@ -401,6 +401,8 @@ export const CARD = {
 
 export const Z = {
   info: 10,
+  /** The top bar: above the canvas controls (z-10, later in the page), so an unfolded bar is never covered by the Legend (#497) */
+  topBar: 11,
   sidePanel: 40,
   controlBar: 50,
   chatPanel: 50,

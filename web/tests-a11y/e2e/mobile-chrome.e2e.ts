@@ -220,10 +220,9 @@ for (const [w, h] of [[390, 844], [320, 568]] as Array<[number, number]>) {
   test(`timeline ${w}x${h}: header labels neither touch each other nor leave the canvas`, async () => {
     const page = await open(w, h)
     try {
-      // DOM click: at 320x568 the unfolded bar is shorter since #497 and the Legend button, drawn above the bar (z-index
-      // 50 against 10), then covers the Timeline button, so a pointer click lands on the Legend. That overlap is not what
-      // this test measures (the header labels of the Timeline).
-      await (await topbarButton(page, 'Timeline')).evaluate((el: HTMLElement) => el.click())
+      // A real pointer click (#497 review): the unfolded bar must stay above the canvas controls (Legend), or a touch on
+      // Timeline opens the legend instead
+      await (await topbarButton(page, 'Timeline')).click()
       await page.locator('[data-dock-panel="timeline"]').waitFor()
       await page.waitForTimeout(4000) // several redraws while the demo runs
       const frames = await page.evaluate('window.__timelineFrames') as Frame[]
