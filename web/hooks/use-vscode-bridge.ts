@@ -18,7 +18,7 @@ import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
-import { applyRelayScope, fetchRelayScopeState, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
+import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
@@ -423,6 +423,20 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return () => ctl.abort()
   }, [relayEnabled, source.status, refreshRelayScope])
   useEffect(() => { if (!relayEnabled) { setRelayScopeState(null); syncedScopeRef.current = null } }, [relayEnabled])
+  // A runtime problem read from GET /status may turn false while the page is connected (#420): re-read it on a
+  // bounded schedule for as long as it is shown
+  const runtimeRecheckRef = useRef(0)
+  useEffect(() => {
+    if (!relayEnabled || source.status !== 'connected') return
+    const delay = runtimeProblemRecheckDelay(relayScope, runtimeRecheckRef.current)
+    if (delay === null) { runtimeRecheckRef.current = 0; return }
+    const ctl = new AbortController()
+    const timer = setTimeout(() => {
+      runtimeRecheckRef.current++
+      void refreshRelayScope(ctl.signal)
+    }, delay)
+    return () => { clearTimeout(timer); ctl.abort() }
+  }, [relayEnabled, source.status, relayScope, refreshRelayScope])
 
   // A buffer from a link that is gone would show old figures as current
   useEffect(() => {

@@ -80,6 +80,21 @@ export function parseRelayScopeState(json: unknown): RelayScopeState | null {
   return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s), runtimeProblems: parseRuntimeProblems(s) }
 }
 
+/** Delays between re-reads of GET /status while a runtime problem is shown (#420), then the last one, for as long as it is shown */
+const RUNTIME_PROBLEM_RECHECK_MS = [5_000, 10_000, 20_000, 40_000] as const
+export const RUNTIME_PROBLEM_RECHECK_MAX_MS = 60_000
+
+/**
+ * When to read GET /status again (ms), or null when no runtime problem is shown. A notice read once could stay
+ * after it turned false (the database appears while the page is connected): it is re-read on a growing delay,
+ * capped at a minute, and never dropped from the schedule while it is shown.
+ */
+export function runtimeProblemRecheckDelay(state: RelayScopeState | null, attempt: number): number | null {
+  if (!state?.runtimeProblems?.length) return null
+  const i = Number.isInteger(attempt) && attempt > 0 ? attempt : 0
+  return i < RUNTIME_PROBLEM_RECHECK_MS.length ? RUNTIME_PROBLEM_RECHECK_MS[i] : RUNTIME_PROBLEM_RECHECK_MAX_MS
+}
+
 // ─── Choices ─────────────────────────────────────────────────────────────────
 
 export type ScopeChoice = { kind: 'workspace' } | { kind: 'all' } | { kind: 'project'; projectId: string }
