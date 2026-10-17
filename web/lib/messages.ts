@@ -2,6 +2,8 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
+import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES } from './ui-glossary'
+
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 
@@ -915,11 +917,12 @@ const en: Record<MessageKey, string> = {
   'topbar.panel.conversation.name': 'Conversation (C)',
   'topbar.panel.conversation.tooltip': 'Conversation (C)',
   'topbar.panel.context.name': 'Context (P)',
-  'topbar.panel.context.tooltip': 'Context: project CLAUDE.md, memory, issues (P)',
+  // Built from the glossary, the one source of these English texts (#545 review)
+  'topbar.panel.context.tooltip': `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`,
   'topbar.panel.system.name': 'System (Y)',
   'topbar.panel.system.tooltip': 'System: CPU, memory, disk (Y)',
   'topbar.panel.cost.name': '$Cost',
-  'topbar.panel.cost.tooltip': 'Cost overlay ($). Context cost estimate: the tokens now in the context × a blended rate per model (75% input, 25% output price). Not a bill: it drops after a compaction, ignores cache reads and does not add up earlier calls.',
+  'topbar.panel.cost.tooltip': `Cost overlay ($). ${COST_LABELS.method}`,
   'topbar.panel.timeline.name': 'Timeline',
   'topbar.panel.timeline.tooltip': 'Timeline (T)',
   'topbar.panel.stats.name': 'Stats',
