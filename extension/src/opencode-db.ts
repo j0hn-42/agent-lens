@@ -138,6 +138,11 @@ export const EMPTY_OPENCODE_CURSORS: OpenCodeCursors = {
   part: { time: 0 },
 }
 
+export interface OpenCodeSkipped {
+  sessionId: string | null
+  count: number
+}
+
 export interface OpenCodePoll {
   /** Rows changed since the cursors. Feed them to the parser as sessions, then messages, then parts. */
   sessions: OpenCodeSessionRead[]
@@ -145,6 +150,12 @@ export interface OpenCodePoll {
   parts: OpenCodePartRow[]
   /** Rows ignored because of an unusable id or timestamp, or an oversized `data`. */
   skippedRows: number
+  /**
+   * The skipped rows the returned cursors moved past, grouped by the session id the row names (null when
+   * it names none that is usable). Fed back the cursors, a row is counted here exactly once (#420): rows
+   * still settling or held back behind a truncated table come again and are not counted yet.
+   */
+  skippedPassed: OpenCodeSkipped[]
   /** More settled rows are waiting: poll again right away. */
   truncated: boolean
   /** Rows too recent to be marked as read were delivered (they come again): poll again after a short wait. */
@@ -226,6 +237,8 @@ interface TableRead<T> {
   rows: T[]
   cursor: OpenCodeCursor
   skipped: number
+  /** Session id named by each skipped row that the returned cursor moved past (null: none usable). */
+  passedSkips: (string | null)[]
   truncated: boolean
   settling: boolean
 }
@@ -287,6 +300,11 @@ export class OpenCodeDb {
         messages: session.truncated ? [] : message.rows,
         parts: session.truncated || message.truncated ? [] : part.rows,
         skippedRows: part.skipped + message.skipped + session.skipped,
+        skippedPassed: groupSkipped([
+          ...session.passedSkips,
+          ...(session.truncated ? [] : message.passedSkips),
+          ...(session.truncated || message.truncated ? [] : part.passedSkips),
+        ]),
         truncated: part.truncated || message.truncated || session.truncated,
         settling: part.settling || message.settling || session.settling,
         cursors: {
@@ -297,7 +315,7 @@ export class OpenCodeDb {
       }
     } catch (e) {
       return {
-        sessions: [], messages: [], parts: [], skippedRows: 0, truncated: false, cursors,
+        sessions: [], messages: [], parts: [], skippedRows: 0, skippedPassed: [], truncated: false, cursors,
         error: `OpenCode: the database could not be read (${errorText(e)}).`,
       }
     }
@@ -380,13 +398,13 @@ export class OpenCodeDb {
 
     // A row stays in the sequence even when its content is unusable: the cursor must move past it
     let skipped = 0
-    const fresh: { id: string; time: number; row: T | undefined }[] = []
+    const fresh: { id: string; time: number; row: T | undefined; owner: string | null }[] = []
     for (const r of raw) {
       // The raw id keeps the row in the sequence; the row mappers refuse an id that is not usable
       const id = r && typeof r.id === 'string' ? r.id : undefined
       const time = r ? timeOf(r.time_updated) : undefined
       if (id === undefined || time === undefined) { skipped++; continue }
-      fresh.push({ id, time, row: map(r) })
+      fresh.push({ id, time, row: map(r), owner: sessionIdOf(name === 'session' ? r.id : r.session_id) ?? null })
     }
     const more = raw.length >= sqlLimit || budgetHit
     const taken = fresh.slice(0, limit)
@@ -400,10 +418,19 @@ export class OpenCodeDb {
     // but not marked as read, so the next poll gives it again (the parser handles a row once per state).
     const settled = taken.filter(f => f.time <= now - SETTLE_MS)
     const settling = settled.length < taken.length
-    if (settled.length === 0) return { rows, cursor, skipped, truncated: false, settling }
+    if (settled.length === 0) return { rows, cursor, skipped, passedSkips: [], truncated: false, settling }
     const last = settled[settled.length - 1]
-    return { rows, cursor: { time: last.time, after: last.id }, skipped, truncated: more, settling }
+    const passedSkips = settled.filter(f => !f.row).map(f => f.owner)
+    return { rows, cursor: { time: last.time, after: last.id }, skipped, passedSkips, truncated: more, settling }
   }
+}
+
+/** Skipped rows counted per session id; the unattributed (null) first, then by id. */
+function groupSkipped(owners: (string | null)[]): OpenCodeSkipped[] {
+  const counts = new Map<string | null, number>()
+  for (const o of owners) counts.set(o, (counts.get(o) ?? 0) + 1)
+  return [...counts].map(([sessionId, count]) => ({ sessionId, count }))
+    .sort((a, b) => (a.sessionId === b.sessionId ? 0 : a.sessionId === null ? -1 : b.sessionId === null ? 1 : a.sessionId < b.sessionId ? -1 : 1))
 }
 
 /** A cursor from the caller is data: only a safe integer time and a bounded list of valid ids go into a query. */

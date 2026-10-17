@@ -10,8 +10,26 @@ export function sqliteAvailable(): boolean {
   try { require('node:sqlite'); return true } catch { return false }
 }
 
+const handles: Array<{ close(): void }> = []
+const dirs: string[] = []
+
+/** Closes `h` at the next cleanupFixtures(), even when a test failed before its own close (#420). */
+export function closeLater<T extends { close(): void }>(h: T): T {
+  handles.push(h)
+  return h
+}
+
+/** Closes every handle registered (a handle already closed is fine) and removes the temporary directories. */
+export function cleanupFixtures(): void {
+  for (const h of handles.splice(0)) { try { h.close() } catch { /* already closed */ } }
+  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
+}
+
+/** A new temporary directory, removed by cleanupFixtures(). */
 export function tmpDir(prefix = 'opencode-watch-'): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+  dirs.push(dir)
+  return dir
 }
 
 const q = (s: string): string => `'${s.replace(/'/g, "''")}'`
@@ -20,7 +38,7 @@ export class OpenCodeFixture {
   private readonly db: Db
   constructor(readonly file: string) {
     const Ctor = (require('node:sqlite') as { DatabaseSync: DbCtor }).DatabaseSync
-    this.db = new Ctor(file)
+    this.db = closeLater(new Ctor(file))
     this.db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, directory TEXT, title TEXT, agent TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)')
     this.db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
     this.db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
@@ -34,6 +52,8 @@ export class OpenCodeFixture {
   part(id: string, messageId: string, sessionId: string, created: number, updated: number, data: object): void {
     this.db.exec(`INSERT OR REPLACE INTO part VALUES (${q(id)}, ${q(messageId)}, ${q(sessionId)}, ${created}, ${updated}, ${q(JSON.stringify(data))})`)
   }
+  /** One raw statement, for rows the helpers above cannot write (NULL or oversized data). */
+  raw(sql: string): void { this.db.exec(sql) }
   /** Runs `fn` inside one transaction: thousands of inserts without one fsync each. */
   batch(fn: () => void): void {
     this.db.exec('BEGIN')

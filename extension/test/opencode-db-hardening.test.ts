@@ -2,16 +2,17 @@
  * OpenCode database reader (#346), second review: rows that must not stall or poison the cursor.
  * Real node:sqlite databases; the schema follows OpenCode v1.19.0 (no real database was available).
  */
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
-import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import { openOpenCodeDb, resolveOpenCodeDbPath, EMPTY_OPENCODE_CURSORS, type OpenCodeCursors, type OpenCodeDb } from '../src/opencode-db'
+import { closeLater, cleanupFixtures, tmpDir } from './helpers/opencode-fixture'
 import { nodeSqliteOpener } from '../src/session-index'
 
 const hasSqlite = nodeSqliteOpener() !== null
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-db-hard-'))
+const tmp = tmpDir('opencode-db-hard-')
+// Every handle and the directory go away when the file ends, even after a failed assertion (#420)
+after(cleanupFixtures)
 let n = 0
 
 type Db = { exec(sql: string): void; close(): void }
@@ -20,7 +21,7 @@ function makeDb(): { file: string; db: Db } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const Ctor = (require('node:sqlite') as { DatabaseSync: DbCtor }).DatabaseSync
   const file = path.join(tmp, `h${n++}.db`)
-  const db = new Ctor(file)
+  const db = closeLater(new Ctor(file))
   db.exec('CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)')
   db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
@@ -32,7 +33,7 @@ const open = (file: string, clock?: () => number): OpenCodeDb => {
   const r = openOpenCodeDb(file, undefined, clock)
   assert.equal(r.status, 'ok')
   if (r.status !== 'ok') throw new Error('unreachable')
-  return r.db
+  return closeLater(r.db)
 }
 const part = (id: string, t: number, data = '{}') => `INSERT INTO part VALUES ('${id}', 'm1', 'ses_1', 1, ${t}, '${data}')`
 
@@ -80,7 +81,8 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
     assert.deepEqual(p.parts.map(x => x.id), ['p1'])
     const big = p.sessions.find(s => s.id === 'big')
     assert.equal(big, undefined, 'a session without a usable time_created is skipped')
-    assert.ok(p.skippedRows >= 1)
+    // 'big' is selected but unusable; 'huge' (time_updated above the safe range) is never selected
+    assert.equal(p.skippedRows, 1)
     r.close(); db.close()
   })
 
@@ -91,7 +93,7 @@ describe('opencode-db hardening', { skip: !hasSqlite }, () => {
     const r = open(file)
     const p = r.poll(EMPTY_OPENCODE_CURSORS)
     assert.deepEqual(p.parts.map(x => x.id), ['now'])
-    assert.ok(p.cursors.part.time <= 1000)
+    assert.equal(p.cursors.part.time, 1000, 'the cursor stops at the last row read, never at the future one')
     db.exec(part('after', 2000))
     assert.deepEqual(r.poll(p.cursors).parts.map(x => x.id), ['after'])
     r.close(); db.close()

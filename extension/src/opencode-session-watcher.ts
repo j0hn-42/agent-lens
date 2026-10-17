@@ -41,6 +41,8 @@ const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
 const ROOT_HOPS_MAX = 16
 const CWD_MAX = 4096
+/** Longest reason given for an unreadable database (#420). */
+const STATUS_PROBLEM_MAX = 300
 /** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
 const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
 
@@ -111,6 +113,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** File the open connection reads, and its identity: a deleted or replaced file is not followed by the connection. */
   private dbOpenFile: string | null = null
   private dbIdentity: string | null = null
+  /** Unreadable rows of the open file that no followed session could take in its normalization_stats (#420). */
+  private unattributedSkipped = 0
+  private started = false
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -126,8 +131,25 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
 
   private now(): number { return this.options.now ? this.options.now() : Date.now() }
 
-  /** Human-readable state of the database connection, for the connection status. */
-  status(): string { return this.statusText }
+  /**
+   * Human-readable state of the database connection, for the connection status. While it reads, the
+   * unreadable rows that no followed session took in its normalization_stats are counted here (#420).
+   */
+  status(): string {
+    const n = this.unattributedSkipped
+    if (this.statusText !== this.okText || n === 0) return this.statusText
+    return `${this.statusText}; ${n} unreadable ${n === 1 ? 'row' : 'rows'} ignored outside the followed sessions`
+  }
+
+  /**
+   * Why the database cannot be read right now (not found, no driver, unexpected schema, failed poll), as
+   * last observed; undefined while it reads or before the first look (#420). Never a file path: these
+   * messages name none (the healthy status, which does, is not one of them). Capped like any shown text.
+   */
+  statusProblem(): string | undefined {
+    if (!this.started || this.statusText === this.okText) return undefined
+    return ostr(this.statusText, STATUS_PROBLEM_MAX)
+  }
 
   isActive(): boolean {
     for (const s of this.sessions.values()) if (s.detected) return true
@@ -160,6 +182,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   start(): void {
+    this.started = true
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }
@@ -212,6 +235,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.retired.clear()
     this.known.clear()
     this.verdicts.clear()
+    this.unattributedSkipped = 0
   }
 
   /**
@@ -294,6 +318,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (poll.error) { this.setStatus(poll.error); return false }
     this.cursors = poll.cursors
     this.deliver(poll)
+    this.countSkipped(poll)
     this.setStatus(this.okText)
     if (!poll.truncated) this.lastDataVersion = version
     return poll.truncated
@@ -317,6 +342,20 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (!s) continue
       s.lastActivityTime = this.now()
       try { s.parser.processPart(p, s.state) } catch (err) { log.debug('Parser threw on part:', err) }
+    }
+  }
+
+  /**
+   * Rows the reader could not use are a loss, never silent (#420): each one the cursor passed goes into
+   * the normalization_stats of the followed session it names, else into the count of the status. The
+   * reader reports a passed row once, so nothing is counted twice.
+   */
+  private countSkipped(poll: OpenCodePoll): void {
+    for (const { sessionId, count } of poll.skippedPassed ?? []) {
+      const rootId = sessionId ? this.rootOf(sessionId) : undefined
+      const s = rootId ? this.sessions.get(rootId) : undefined
+      if (s) s.parser.normalizer.noteMalformed(count)
+      else this.unattributedSkipped = Math.min(this.unattributedSkipped + count, Number.MAX_SAFE_INTEGER)
     }
   }
 

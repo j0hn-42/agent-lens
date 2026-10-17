@@ -4,15 +4,15 @@
  * (schema reduced to the columns read); skipped where this Node has no node:sqlite. The schema and
  * the paths follow the source code of OpenCode v1.19.0, not a real database: none was available.
  */
-import { describe, it } from 'node:test'
+import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
-import * as os from 'node:os'
 import * as path from 'node:path'
 import {
-  resolveOpenCodeDbPath, openOpenCodeDb, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX, OPENCODE_POLL_BYTES_MAX,
+  resolveOpenCodeDbPath, openOpenCodeDb as openOpenCodeDbRaw, EMPTY_OPENCODE_CURSORS, OPENCODE_ROW_DATA_MAX, OPENCODE_POLL_BYTES_MAX,
   type OpenCodeCursors,
 } from '../src/opencode-db'
+import { closeLater, cleanupFixtures, tmpDir } from './helpers/opencode-fixture'
 import { nodeSqliteOpener, type IndexConnection, type IndexOpener } from '../src/session-index'
 
 const HOME = '/home/u'
@@ -69,7 +69,15 @@ describe('resolveOpenCodeDbPath', () => {
 })
 
 const hasSqlite = nodeSqliteOpener() !== null
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'opencode-db-'))
+const tmp = tmpDir('opencode-db-')
+// Every handle and the directory go away when the file ends, even after a failed assertion (#420)
+after(cleanupFixtures)
+/** openOpenCodeDb whose connection cleanupFixtures also closes. */
+const openOpenCodeDb: typeof openOpenCodeDbRaw = (...args) => {
+  const r = openOpenCodeDbRaw(...args)
+  if (r.status === 'ok') closeLater(r.db)
+  return r
+}
 let n = 0
 
 type Db = { exec(sql: string): void; close(): void }
@@ -80,7 +88,7 @@ function sqlite(): DbCtor {
 }
 function makeDb(schema: 'full' | 'noPart' | 'noParentId' = 'full'): { file: string; db: Db } {
   const file = path.join(tmp, `o${n++}.db`)
-  const db = new (sqlite())(file)
+  const db = closeLater(new (sqlite())(file))
   db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, ${schema === 'noParentId' ? '' : 'parent_id TEXT,'} directory TEXT, title TEXT, agent TEXT, time_created INTEGER, time_updated INTEGER, time_archived INTEGER)`)
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
   if (schema !== 'noPart') db.exec('CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
@@ -195,7 +203,7 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
 
   it('tolerates the optional columns (agent, time_archived) being absent', () => {
     const file = path.join(tmp, `min${n++}.db`)
-    const db = new (sqlite())(file)
+    const db = closeLater(new (sqlite())(file))
     db.exec('CREATE TABLE session (id TEXT, parent_id TEXT, directory TEXT, title TEXT, time_created INTEGER, time_updated INTEGER)')
     db.exec('CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
     db.exec('CREATE TABLE part (id TEXT, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT)')
@@ -382,6 +390,36 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     assert.deepEqual(p.parts.map(x => x.id), ['ok'])
     assert.equal(p.skippedRows, 1, 'oversized data; rows without a usable id or integer time_updated are never selected')
     r.db.close(); db.close()
+  })
+
+  it('#420: reports each skipped row once, with the session it names, once the cursor moved past it', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110))
+    db.exec(`INSERT INTO part VALUES ('big', 'm1', 'ses_1', 1, 120, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    db.exec(`INSERT INTO part VALUES ('big2', 'm1', 'ses_1', 1, 121, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    db.exec("INSERT INTO message VALUES ('m2', 'not a session id', 1, 130, '{}')")
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+      assert.deepEqual(p.skippedPassed, [{ sessionId: null, count: 1 }, { sessionId: 'ses_1', count: 2 }])
+      const again = r.db.poll(p.cursors)
+      assert.deepEqual(again.skippedPassed, [], 'a row the cursor passed is never counted again')
+    } finally { r.db.close(); db.close() }
+  })
+
+  it('#420: a skipped row still inside the settle window is not reported as passed (it comes again)', () => {
+    const { file, db } = makeDb()
+    const now = 1_000_000
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110))
+    db.exec(`INSERT INTO part VALUES ('big', 'm1', 'ses_1', 1, ${now - 10}, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    const r = openOpenCodeDb(file, undefined, () => now)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+      assert.equal(p.skippedRows, 1)
+      assert.deepEqual(p.skippedPassed, [])
+    } finally { r.db.close(); db.close() }
   })
 
   it('exposes time_archived of a session', () => {

@@ -270,6 +270,16 @@ function tagText(value: string | undefined): string | undefined {
   return clean || undefined
 }
 
+/** Tags of a watcher's lifecycle (runtime, cwd...): untrusted text like the other session fields, bounded the same way (#420). */
+function boundedTags(tags: Partial<SessionInfo>): Partial<SessionInfo> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(tags)) {
+    const text = typeof value === 'string' ? tagText(value) : undefined
+    if (text) out[key] = text
+  }
+  return out as Partial<SessionInfo>
+}
+
 /**
  * Sessions read once from an imported transcript (#294): when they were read and the time range the file
  * records. Never followed live, never 'active', never matched to a local project.
@@ -338,7 +348,7 @@ function broadcastSessionLifecycle(type: 'started' | 'ended' | 'updated', sessio
     // is not activity (#365)
     const base: SessionInfo = live
       ? toSessionInfo(live)
-      : { ...tags, id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
+      : { ...boundedTags(tags), id: sessionId, label, status: 'active', startTime: Date.now(), lastActivityTime: Date.now(), startTimeWatched: true }
     broadcast(JSON.stringify({
       type: 'session-started',
       session: enrichSession({ ...base, label, status: 'active' } as SessionInfo),
@@ -1022,7 +1032,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     codexWatcher = new CodexSessionWatcher(workspace)
     codexWatcher.onEvent((event) => broadcastEvent(event))
     codexWatcher.onSessionLifecycle((lifecycle) => {
-      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
     codexWatcher.start()
   }
@@ -1036,7 +1046,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     copilotWatcher = new CopilotSessionWatcher(workspace)
     copilotWatcher.onEvent((event) => broadcastEvent(event))
     copilotWatcher.onSessionLifecycle((lifecycle) => {
-      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
     copilotWatcher.start()
   }
@@ -1050,7 +1060,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     piWatcher = new PiSessionWatcher(workspace)
     piWatcher.onEvent((event) => broadcastEvent(event))
     piWatcher.onSessionLifecycle((lifecycle) => {
-      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
     piWatcher.start()
   }
@@ -1063,7 +1073,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     geminiWatcher = new GeminiSessionWatcher(workspace)
     geminiWatcher.onEvent((event) => broadcastEvent(event))
     geminiWatcher.onSessionLifecycle((lifecycle) => {
-      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label)
+      broadcastSessionLifecycle(lifecycle.type, lifecycle.sessionId, lifecycle.label, lifecycleTags(lifecycle))
     })
     geminiWatcher.start()
   }
@@ -1204,6 +1214,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       allWorkspaces,
       skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size, fileLimit: skippedSessions.fileLimit.size },
       discovery: { projectDirsCapped, maxProjectDirs: RELAY_MAX_PROJECT_DIRS, maxFilesPerDir: RELAY_MAX_FILES_PER_DIR },
+      // A runtime that cannot read its source says so, as last observed by its watcher (#420)
+      runtimeProblems: [openCodeWatcher?.statusProblem()].flatMap(m => (m ? [{ runtime: 'opencode', message: m }] : [])),
     }),
     readIndex,
     allowedHosts,

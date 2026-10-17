@@ -19,12 +19,21 @@ export interface DiscoveryLimits {
   skipped: { watchLimit: number; sizeLimit: number; fileLimit: number }
 }
 
+/** A watched runtime that the relay reports it cannot read right now (#420), e.g. "OpenCode: database not found." */
+export interface RuntimeProblem {
+  runtime: string
+  /** The relay's own sentence: control characters removed, capped */
+  message: string
+}
+
 export interface RelayScopeState {
   scope: RelayScope
   /** Folder the relay was started in, as the relay reports it */
   workspace: string
   /** null = this relay does not report its ceilings (older relay): nothing is claimed about them */
   discovery: DiscoveryLimits | null
+  /** Watched runtimes the relay reports unusable at the time of the status; empty = none reported (or an older relay) */
+  runtimeProblems?: RuntimeProblem[]
 }
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e9
@@ -43,12 +52,32 @@ function parseDiscovery(status: Record<string, unknown>): DiscoveryLimits | null
   }
 }
 
+const RUNTIME_PROBLEM_MAX = 300
+// eslint-disable-next-line no-control-regex
+const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g
+
+/** Only a runtime the relay says it watches, one entry each, its sentence cleaned and capped. */
+function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[] {
+  const watched = Array.isArray(status.runtimes) ? status.runtimes.filter((r): r is string => typeof r === 'string') : []
+  if (!Array.isArray(status.runtimeProblems)) return []
+  const out: RuntimeProblem[] = []
+  for (const p of status.runtimeProblems.slice(0, watched.length)) {
+    if (typeof p !== 'object' || p === null) continue
+    const { runtime, message } = p as Record<string, unknown>
+    if (typeof runtime !== 'string' || !watched.includes(runtime) || out.some(o => o.runtime === runtime)) continue
+    if (typeof message !== 'string') continue
+    const text = message.replace(UNSAFE_TEXT, '').trim().slice(0, RUNTIME_PROBLEM_MAX)
+    if (text) out.push({ runtime, message: text })
+  }
+  return out
+}
+
 /** Reads GET /status strictly: the scope needs a boolean `allWorkspaces`; anything else is "unknown" (null). */
 export function parseRelayScopeState(json: unknown): RelayScopeState | null {
   if (typeof json !== 'object' || json === null || Array.isArray(json)) return null
   const s = json as Record<string, unknown>
   if (typeof s.allWorkspaces !== 'boolean' || typeof s.workspace !== 'string') return null
-  return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s) }
+  return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s), runtimeProblems: parseRuntimeProblems(s) }
 }
 
 // ─── Choices ─────────────────────────────────────────────────────────────────
@@ -113,11 +142,11 @@ export function scopeEmptyHint(state: RelayScopeState | null): string | null {
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
-/** The discovery ceilings that were hit, as sentences. Empty when none was (or the relay does not say). */
+/** The discovery ceilings that were hit and the runtimes the relay cannot read, as sentences. Empty when none (or the relay does not say). */
 export function scopeNotices(state: RelayScopeState): string[] {
+  const out: string[] = (state.runtimeProblems ?? []).map(p => p.message)
   const d = state.discovery
-  if (!d) return []
-  const out: string[] = []
+  if (!d) return out
   const { fileLimit, sizeLimit, watchLimit } = d.skipped
   if (fileLimit > 0) out.push(`At least ${fileLimit} older ${plural(fileLimit, 'transcript is', 'transcripts are')} not followed: more than ${d.maxFilesPerDir} in one folder.`)
   if (sizeLimit > 0) out.push(`At least ${sizeLimit} ${plural(sizeLimit, 'transcript is', 'transcripts are')} too large to follow.`)

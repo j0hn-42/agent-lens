@@ -186,3 +186,5 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 | `skippedSessions.watchLimit` | 25 watched sessions | sessions left out |
 
 The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi, Gemini CLI and OpenCode sessions are matched to the workspace by their own watchers and ignore the scope.
+
+`runtimeProblems` (#420), present only when there is one, lists the watched runtimes that cannot read their source right now, as `{ runtime, message }`: today the OpenCode database not found, not readable, or of an unexpected schema (`"OpenCode: database not found."`). The message never carries a file path and is capped at 300 characters.

@@ -31,6 +31,7 @@ describe("relay runtime: 'opencode'", { skip: !sqliteAvailable() && 'node:sqlite
       assert.deepEqual(s.runtimes, ['opencode'])
       assert.equal(s.sessionCount, 1)
       assert.equal(JSON.stringify(s).includes('opencode.db'), false, '/status must not expose the database path')
+      assert.equal((s as { runtimeProblems?: unknown }).runtimeProblems, undefined, 'a database that reads is no problem (#420)')
       assert.equal(disposeSpy.mock.callCount(), 0)
     } finally { relay.dispose() }
     assert.equal(disposeSpy.mock.callCount(), 1)
