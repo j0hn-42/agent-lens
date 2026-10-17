@@ -11,6 +11,8 @@ import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 import { launchStartupError, launchTokenNotice } from './routes/launch'
 
+const REMOTE_FLAGS = ['--host', '--remote', '--allow-host']
+
 async function main() {
   // dev-relay [workspace] [--import <path>]... (imported transcripts, #294; env: AGENT_LENS_IMPORT)
   const args = process.argv.slice(2)
@@ -18,11 +20,18 @@ async function main() {
   let allowLaunch = false
   const launchRepos: string[] = []
   let workspaceArg: string | undefined
+  let remoteFlag: string | undefined
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--import') { if (args[i + 1]) imports.push(args[i + 1]); i++ }
     else if (args[i] === '--allow-launch') allowLaunch = true
     else if (args[i] === '--launch-repo') { if (args[i + 1]) launchRepos.push(args[i + 1]); i++ }
+    else if (REMOTE_FLAGS.includes(args[i])) remoteFlag = args[i]
     else if (!workspaceArg) workspaceArg = args[i]
+  }
+  // Remote access (#241, #474): the dev relay has no remote mode. A security flag is refused, never read as the workspace
+  if (remoteFlag) {
+    console.error(`Agent Lens: ${remoteFlag}: the dev relay only listens on loopback (127.0.0.1) and takes no remote access flag.`)
+    process.exit(2)
   }
   // Launching an agent from the UI (#229) is OFF unless asked for, and then needs an explicit repository list (fail closed)
   const launchError = launchStartupError({ allowLaunch, repos: launchRepos })

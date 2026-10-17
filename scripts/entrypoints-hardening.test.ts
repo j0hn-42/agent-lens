@@ -312,6 +312,35 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
   })
 })
 
+describe('dev relay entry point: remote access flags stop the start (#474)', () => {
+  /** Runs the dev relay until it exits (rejects if it starts listening): a flag must not become the workspace path. */
+  function runDevRelayToExit(args: string[]): Promise<{ code: number | null; out: string }> {
+    return new Promise((resolve, reject) => {
+      const childEnv: NodeJS.ProcessEnv = { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, AGENT_LENS_PORT: '0' }
+      delete childEnv.FORCE_COLOR
+      const child = spawn(process.execPath, ['--import', 'tsx', '--import', VSCODE_ALIAS, 'scripts/dev-relay.ts', ...args], { cwd: ROOT, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+      children.push(child)
+      let out = ''
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`did not exit:\n${out}`)) }, STARTUP_TIMEOUT_MS)
+      const onData = (c: Buffer) => {
+        out += c.toString()
+        if (ENTRIES[0].listening.test(out)) { clearTimeout(timer); child.kill('SIGKILL'); reject(new Error(`started listening:\n${out}`)) }
+      }
+      child.stdout!.on('data', onData)
+      child.stderr!.on('data', onData)
+      child.once('exit', code => { clearTimeout(timer); resolve({ code, out }) })
+    })
+  }
+
+  it('--host, --remote and --allow-host are refused, never read as the workspace', async () => {
+    for (const args of [['--host', '0.0.0.0'], ['--remote'], ['--allow-host', 'box.tail1234.ts.net'], [workspace, '--remote', '--host', '0.0.0.0']]) {
+      const r = await runDevRelayToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+      assert.match(r.out, /loopback/i, args.join(' '))
+    }
+  })
+})
+
 describe('app entry point: no environment variable opens the listener (#474)', () => {
   it('AGENT_LENS_HOST / AGENT_LENS_REMOTE / HOST are ignored: the server still binds 127.0.0.1 only', async () => {
     const r = await start(ENTRIES[1], [], { AGENT_LENS_PORT: '0', AGENT_LENS_HOST: '0.0.0.0', AGENT_LENS_REMOTE: '1', HOST: '0.0.0.0' })
