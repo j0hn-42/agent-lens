@@ -8,7 +8,7 @@ import { isGroupActive, type GroupSummary } from './team-info'
 /** A session with an event younger than this counts as active even when its status says completed */
 export const ACTIVE_WINDOW_MS = 10 * 60 * 1000
 
-/** localStorage key of the 'Show finished sessions' preference */
+/** Former localStorage key of 'Show finished sessions': now in the preference blob (#372), read once as a migration */
 export const SHOW_FINISHED_STORAGE_KEY = 'agent-lens:show-finished-sessions'
 
 export interface SessionVisibilityInput {
