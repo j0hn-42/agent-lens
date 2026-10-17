@@ -125,11 +125,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * 'Reset preferences' (#372): two native buttons, nothing is reset before the second one. The help says what is reset and
  * what is kept. Focus moves to the confirmation, and back to the reset button after a cancel or a reset.
  */
-function ResetSection({ onReset }: { onReset: () => void }) {
+function ResetSection({ onReset, signature }: { onReset: () => void; signature: string }) {
   const t = useT()
   const helpId = useId()
+  const askId = useId()
   const [asking, setAsking] = useState(false)
   const [done, setDone] = useState(false)
+  // Signature of the preferences right after the reset; null until the render that follows the click.
+  const baseline = useRef<string | null>(null)
+  useEffect(() => {
+    if (!done) return
+    if (baseline.current === null) baseline.current = signature
+    else if (baseline.current !== signature) setDone(false)
+  }, [done, signature])
   const resetRef = useRef<HTMLButtonElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
   const focusNext = useRef<'confirm' | 'reset' | null>(null)
@@ -144,14 +152,14 @@ function ResetSection({ onReset }: { onReset: () => void }) {
     <Section title={t('settings.section.reset')}>
       <p id={helpId} className="m-0 mb-1 text-[11px] font-mono" style={{ color: COLORS.textMuted }}>{t('settings.reset.help')}</p>
       {asking ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{t('settings.reset.ask')}</span>
+        <div role="group" aria-labelledby={askId} className="flex flex-wrap items-center gap-2">
+          <span id={askId} className="text-[11px] font-mono" style={{ color: COLORS.textPrimary }}>{t('settings.reset.ask')}</span>
           <button
             ref={confirmRef}
             type="button"
             className={buttonClass}
             style={buttonStyle}
-            onClick={() => { onReset(); setDone(true); focusNext.current = 'reset'; setAsking(false) }}
+            onClick={() => { onReset(); baseline.current = null; setDone(true); focusNext.current = 'reset'; setAsking(false) }}
           >
             {t('settings.reset.confirm')}
           </button>
@@ -291,6 +299,11 @@ export function SettingsDialog({
   const themeId = useId()
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+  // Every preference shown here: a change after a reset makes the "reset done" line untrue (#372).
+  const prefsSignature = JSON.stringify([
+    hexGrid, muted, showFinished, hideInactive, singleKeyEnabled, locale, choice,
+    presentation?.active, presentation?.options, announcements?.level, notifications?.state, notifications?.rules,
+  ])
 
   useEffect(() => {
     if (!open) return
@@ -451,7 +464,7 @@ export function SettingsDialog({
             </button>
           </Section>
 
-          {onResetPrefs && <ResetSection onReset={onResetPrefs} />}
+          {onResetPrefs && <ResetSection onReset={onResetPrefs} signature={prefsSignature} />}
         </GlassCard>
       </div>
     </div>

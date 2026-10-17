@@ -156,3 +156,23 @@ test('reset preferences (#372): asks first, says what it resets and keeps, then 
   assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
   assert.equal(document.activeElement, view.getByRole('button', { name: 'Reset preferences' }))
 })
+
+test('reset confirmation (#372): the question names the group of the two buttons', () => {
+  const view = render(<SettingsDialog {...dialogProps({ onResetPrefs: noop })} />)
+  fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
+  const group = view.getByRole('group', { name: 'Restore these preferences to their defaults?' })
+  assert.ok(group.contains(view.getByRole('button', { name: 'Reset now' })))
+  assert.ok(group.contains(view.getByRole('button', { name: 'Cancel' })))
+})
+
+test('reset done line (#372): disappears as soon as a preference changes afterwards, so it never states something false', () => {
+  const props = dialogProps({ onResetPrefs: noop })
+  const view = render(<SettingsDialog {...props} />)
+  fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
+  fireEvent.click(view.getByRole('button', { name: 'Reset now' }))
+  assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
+  view.rerender(<SettingsDialog {...props} />)
+  assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults', 'an unrelated re-render keeps it')
+  view.rerender(<SettingsDialog {...props} hideInactive={!props.hideInactive} />)
+  assert.equal(view.getByRole('status').textContent, '')
+})
