@@ -9,7 +9,8 @@ import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument, type DrawnOp } from './canvas-recorder'
 import { AGENT_DRAW } from '../web/lib/canvas-constants'
 import { SCENE } from '../web/lib/colors'
-import { scenePalette } from '../web/lib/scene-state-colors'
+import { readFileSync } from 'node:fs'
+import { THEME_IDS } from '../web/lib/theme-tokens'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawTaperedBezier } from '../web/components/agent-visualizer/canvas/draw-edges'
 import { rectsOverlap, type Rect } from '../web/components/agent-visualizer/canvas/label-placement'
@@ -165,13 +166,32 @@ test('drawAgents: while an agent fades in or out, its label plate stays opaque u
   assert.ok(Math.abs(name.globalAlpha - 0.4) < 1e-6, `precondition: the text fades with the agent (alpha ${name.globalAlpha})`)
 })
 
-// After #526 the scene follows the active theme. The plate must be painted with the canvas ground of that theme
-// (scenePalette(theme).void, the page background behind the canvas), never a literal.
-test('drawAgents: in High contrast the label plate is still the scene ground of the active theme (#378)', () => {
-  const a = agent({ sessionLabel: 'payments-api' })
+// After #526 the scene follows the active theme, but the ground stays the page background behind the canvas
+// (globals.css --scene-void) in every theme. The expected colour is read from the stylesheet, not from
+// scenePalette, so the test fails if the plate drifts from what the canvas is really painted on.
+test('drawAgents: in every theme the label plate has the real canvas ground, read from globals.css (#378)', () => {
+  const css = readFileSync(new URL('../web/app/globals.css', import.meta.url), 'utf8')
+  const ground = /--scene-void:\s*(#[0-9a-fA-F]{6})/.exec(css)?.[1].toLowerCase()
+  assert.ok(ground, 'precondition: globals.css declares --scene-void')
+  for (const theme of THEME_IDS) {
+    const a = agent({ sessionLabel: 'payments-api' })
+    const rec = recordingContext(1)
+    drawAgents(rec.ctx, new Map([[a.id, a]]), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false, theme } as any)
+    const plates = rec.ops.filter(o => o.name === 'fill' && o.fillStyle.toLowerCase() === ground && o.globalAlpha === 1)
+    assert.ok(plates.length > 0, `no plate painted with the canvas ground ${ground} in theme ${theme}`)
+  }
+})
+
+// Below the point where the text is legible the plate follows the label's opacity: at the very start of an
+// agent's appearance an edge is not cut by an opaque block under a text that is almost invisible.
+test('drawAgents: at the start of an appearance the label plate fades with the label instead of cutting the edge (#378)', () => {
+  const a = subagent({ opacity: 0.05 })
   const rec = recordingContext(1)
-  drawAgents(rec.ctx, new Map([[a.id, a]]), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false, theme: 'contrast' } as any)
-  const ground = scenePalette('contrast').void.toLowerCase()
-  const plates = rec.ops.filter(o => o.name === 'fill' && o.fillStyle.toLowerCase() === ground && o.globalAlpha === 1)
-  assert.ok(plates.length > 0, 'a plate is painted with the ground of the High contrast scene')
+  drawAgents(rec.ctx, new Map([[a.id, a]]), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false } as any)
+  const fills = rec.ops.filter(o => o.name === 'fill' && o.fillStyle.toLowerCase() === SCENE.void.toLowerCase())
+  const name = rec.ops.find(o => o.name === 'fillText' && o.args[0] === linesOf(a).texts[0])!
+  assert.ok(fills.length > 0 && fills.every(f => f.globalAlpha < 1), 'precondition: a plate is painted, and it is not opaque')
+  const expected = Math.min(1, name.globalAlpha / AGENT_DRAW.labelPlateFullAlpha)
+  assert.ok(fills.every(f => Math.abs(f.globalAlpha - expected) < 1e-6),
+    `plate alpha ${fills.map(f => f.globalAlpha)} should be ${expected} for a text at ${name.globalAlpha}`)
 })
