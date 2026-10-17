@@ -105,6 +105,29 @@ test('ceilings that were hit are listed, with their numbers; none hit, nothing i
   assert.ok(notices.some(n => /at least 3/i.test(n) && /limit/i.test(n)))
 })
 
+test('#420: a runtime the relay reports unusable (database not found) is stated, word for word', () => {
+  const s = parseRelayScopeState(status({ runtimes: ['opencode'], runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] }))!
+  assert.deepEqual(s.runtimeProblems, [{ runtime: 'opencode', message: 'OpenCode: database not found.' }])
+  assert.deepEqual(scopeNotices(s), ['OpenCode: database not found.'])
+  // An older relay, or one with nothing to report: nothing is claimed
+  assert.deepEqual(parseRelayScopeState(status())!.runtimeProblems, [])
+})
+
+test('#420: runtime problems are read strictly and bounded', () => {
+  const parse = (runtimeProblems: unknown) => parseRelayScopeState(status({ runtimes: ['opencode'], runtimeProblems }))!.runtimeProblems ?? []
+  // Not a list, or entries of the wrong shape: dropped, never shown
+  assert.deepEqual(parse('OpenCode: down'), [])
+  assert.deepEqual(parse([{ runtime: 'opencode' }, { message: 'x' }, { runtime: 'opencode', message: '' }, null, 3]), [])
+  // A runtime the relay does not watch is not trusted
+  assert.deepEqual(parse([{ runtime: 'codex', message: 'Codex: down' }]), [])
+  // Control characters are removed and the text is capped
+  const [one] = parse([{ runtime: 'opencode', message: `OpenCode: \u001b[2Jbad${'x'.repeat(1000)}` }])
+  assert.equal(/[\u0000-\u001f]/.test(one.message), false)
+  assert.ok(one.message.length <= 300)
+  // At most one entry per watched runtime
+  assert.equal(parse([{ runtime: 'opencode', message: 'a' }, { runtime: 'opencode', message: 'b' }]).length, 1)
+})
+
 test('applyRelayScope POSTs strict JSON and trusts only a coherent answer', async () => {
   const calls: Array<{ url: string; init: RequestInit }> = []
   const ok = (body: unknown, status = 200) => async (url: string, init: RequestInit) => {

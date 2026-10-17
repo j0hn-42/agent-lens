@@ -41,6 +41,8 @@ const SCAN_CHAIN_MAX = 50
 /** Longest parent chain followed to find a root (a longer or cyclic chain has no root). */
 const ROOT_HOPS_MAX = 16
 const CWD_MAX = 4096
+/** Longest reason given for an unreadable database (#420). */
+const STATUS_PROBLEM_MAX = 300
 /** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
 const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
 
@@ -113,6 +115,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private dbIdentity: string | null = null
   /** Unreadable rows of the open file that no followed session could take in its normalization_stats (#420). */
   private unattributedSkipped = 0
+  private started = false
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -136,6 +139,16 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     const n = this.unattributedSkipped
     if (this.statusText !== this.okText || n === 0) return this.statusText
     return `${this.statusText}; ${n} unreadable ${n === 1 ? 'row' : 'rows'} ignored outside the followed sessions`
+  }
+
+  /**
+   * Why the database cannot be read right now (not found, no driver, unexpected schema, failed poll), as
+   * last observed; undefined while it reads or before the first look (#420). Never a file path: these
+   * messages name none (the healthy status, which does, is not one of them). Capped like any shown text.
+   */
+  statusProblem(): string | undefined {
+    if (!this.started || this.statusText === this.okText) return undefined
+    return ostr(this.statusText, STATUS_PROBLEM_MAX)
   }
 
   isActive(): boolean {
@@ -169,6 +182,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   start(): void {
+    this.started = true
     if (this.workspace) {
       try { this.workspacePath = fs.realpathSync(this.workspace) }
       catch { this.workspacePath = this.workspace }

@@ -1163,6 +1163,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       allWorkspaces,
       skippedSessions: { watchLimit: skippedSessions.watchLimit.size, sizeLimit: skippedSessions.sizeLimit.size, fileLimit: skippedSessions.fileLimit.size },
       discovery: { projectDirsCapped, maxProjectDirs: RELAY_MAX_PROJECT_DIRS, maxFilesPerDir: RELAY_MAX_FILES_PER_DIR },
+      // A runtime that cannot read its source says so, as last observed by its watcher (#420)
+      runtimeProblems: [openCodeWatcher?.statusProblem()].flatMap(m => (m ? [{ runtime: 'opencode', message: m }] : [])),
     }),
     readIndex,
     allowedHosts,

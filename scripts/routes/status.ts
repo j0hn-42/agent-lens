@@ -13,7 +13,7 @@ export interface StatusSnapshot {
 }
 
 /** Ce qui change avec la portée (#291) : lu au moment de répondre, jamais figé dans un calcul partagé en vol. */
-export type StatusLive = Pick<RelayStatus, 'allWorkspaces' | 'discovery' | 'skippedSessions'>
+export type StatusLive = Pick<RelayStatus, 'allWorkspaces' | 'discovery' | 'skippedSessions' | 'runtimeProblems'>
 
 export interface StatusRouteDeps {
   limiter: KeyedRateLimiter
@@ -53,6 +53,7 @@ export function createStatusRoute(deps: StatusRouteDeps): RouteHandler {
       skippedSessions: live.skippedSessions,
       allWorkspaces: live.allWorkspaces,
       discovery: live.discovery,
+      ...(live.runtimeProblems && live.runtimeProblems.length > 0 ? { runtimeProblems: live.runtimeProblems } : {}),
     }
     const indexed = deps.readIndex()
     if (indexed) {

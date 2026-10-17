@@ -288,6 +288,8 @@ OpenCode sessions (#346) are read from OpenCode's own SQLite database (`<data>/o
 - **No pending permission.** The database does not record a permission request waiting for an answer, so none is shown.
 - **No end of session.** OpenCode reports no end, and a silence never completes a session: a session released after 10 minutes without rows is never shown as finished. Once released it is no longer updated; it keeps its last known state until new rows reattach it. Only an archived session is reported as ended.
 - **No streaming text.** A reply appears once it is written to the database; the text still being streamed is not visible.
+- **Database not readable.** When the database is not found (or cannot be read), the relay says so on `GET /status` and the sentence ("OpenCode: database not found.") is written next to the session scope selector, as it was when the page connected. An empty session list alone never means that the database is missing.
+- **Unreadable rows.** A row the reader cannot use (an oversized or missing `data`, an unusable session id) is never dropped silently: it is counted as malformed in the truncation notice of the session it belongs to, and a row that names no followed session is counted in the connection status ("N unreadable rows ignored outside the followed sessions").
 - **Platforms.** Linux (macOS not verified). On Windows the location is not resolved yet: set `OPENCODE_DB` to an absolute path.
 
 ## Project folders

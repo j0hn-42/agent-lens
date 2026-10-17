@@ -138,13 +138,17 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     const w = new OpenCodeSessionWatcher('/w', { dbFile: file, now: () => T0 })
     watchers.push(w)
     w.onSessionLifecycle(l => lifecycle.push(l))
+    assert.equal(w.statusProblem(), undefined, 'nothing is claimed before the first look at the file')
     w.start()
     assert.match(w.status(), /not found/)
+    // #420: the relay reports this state on /status, without the path of the file
+    assert.equal(w.statusProblem(), 'OpenCode: database not found.')
     const fx = new OpenCodeFixture(file)
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
     w.scanNow()
     assert.deepEqual(lifecycle.map(l => l.type), ['started'])
     assert.doesNotMatch(w.status(), /not found/)
+    assert.equal(w.statusProblem(), undefined)
   })
 
   it('never exposes a hostile directory as cwd, and does not attach it to a workspace', () => {
@@ -262,6 +266,7 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     fx.raw(`INSERT INTO message VALUES ('msg_y', 'ses_elsewhere', ${T0 - 900}, ${T0 - 900}, NULL)`)
     w.start()
     assert.match(w.status(), /^OpenCode database \(.*\); 2 unreadable rows ignored outside the followed sessions$/)
+    assert.equal(w.statusProblem(), undefined, 'the database reads: the count is not a failure of the runtime')
   })
 
   it('ignores a completed tool part whose message predates the activity window', () => {

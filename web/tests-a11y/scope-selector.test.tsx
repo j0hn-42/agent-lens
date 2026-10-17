@@ -96,6 +96,16 @@ test('the ceilings that were hit are listed in a polite live region; none, no no
   assert.match(region.textContent ?? '', /at least 4/i)
 })
 
+test('#420: a watched runtime the relay cannot read is said in the same live region', () => {
+  const { container } = render(<ScopeSelector {...base} state={state({
+    runtimes: ['claude', 'opencode'],
+    runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }],
+  })} />)
+  const region = container.querySelector('[data-scope-notices]') as HTMLElement
+  assert.equal(region.getAttribute('role'), 'status')
+  assert.equal(region.textContent, 'OpenCode: database not found.')
+})
+
 test('a failed change is said, and the shown scope is still the scanned one', () => {
   const { container, getByRole } = render(<ScopeSelector {...base} state={state()} error="The relay refused the change of scope" />)
   assert.match(container.querySelector('[data-scope-notices]')!.textContent ?? '', /refused the change of scope/)

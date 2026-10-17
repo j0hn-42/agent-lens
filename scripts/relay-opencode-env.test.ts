@@ -1,6 +1,6 @@
 /**
  * Relay + OpenCode runtime (#346): AGENT_LENS_RUNTIME=opencode is honoured when no runtime is given,
- * and a missing database gives a valid /status with no session (no crash).
+ * and a missing database gives a valid /status with no session (no crash) that says the database is not found.
  * Own file: createRelay() runs once per process.
  */
 import { fakeHome, makeWorkspace, statusOf } from './relay-opencode-fixture'
@@ -30,6 +30,8 @@ describe('AGENT_LENS_RUNTIME=opencode', () => {
       assert.deepEqual(s.runtimes, ['opencode'])
       assert.equal(s.sessionCount, 0)
       assert.equal(JSON.stringify(s).includes('absent'), false, '/status must not expose the database path')
+      // #420: the missing database is a proved state, said on /status (never deduced from an empty count)
+      assert.deepEqual((s as { runtimeProblems?: unknown }).runtimeProblems, [{ runtime: 'opencode', message: 'OpenCode: database not found.' }])
     } finally { relay.dispose() }
   })
 })

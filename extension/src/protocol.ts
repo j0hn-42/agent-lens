@@ -283,6 +283,9 @@ export interface RelayStatus {
   allWorkspaces: boolean
   /** Discovery ceilings (#291): `projectDirsCapped` = more project folders exist than maxProjectDirs, the others are not scanned */
   discovery: { projectDirsCapped: boolean; maxProjectDirs: number; maxFilesPerDir: number }
+  /** Watched runtimes that cannot be read right now, with the reason (#420), e.g. the OpenCode database not found.
+   *  Present only when there is one; the message never carries a file path. */
+  runtimeProblems?: Array<{ runtime: string; message: string }>
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
   /** Agent launches (#229): present only when the relay was started with --allow-launch, and never for a tunnel Host */
