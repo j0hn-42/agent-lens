@@ -231,6 +231,11 @@ export const TOP_BAR_LABELS = {
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */
   moreNameWithFilters: (names: readonly string[]) =>
     `More · ${names.length} ${names.length === 1 ? 'filter' : 'filters'} on: panels, totals and filters (${names.join(', ')})`,
+  /** The same name in two parts around the list of filters, so each filter can carry its own language (#373) */
+  moreNameWithFiltersParts: (count: number) => ({
+    before: `More · ${count} ${count === 1 ? 'filter' : 'filters'} on: panels, totals and filters (`,
+    after: ')',
+  }),
   /** Filter names used in those strings */
   filterHideInactive: 'Hide inactive agents',
   filterFinishedHidden: (count: number) => `Finished sessions hidden (${count})`,

@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
+import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
 import { formatTokens, formatCost } from "@/lib/utils"
@@ -88,7 +88,7 @@ export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, hasDialog, keepsInspector, describedBy, expanded, controls, lang }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -104,6 +104,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   /** aria-keyshortcuts value */
   shortcut?: string
   ariaLabel?: string
+  /** id of the element that names the button (aria-labelledby) */
+  labelledBy?: string
   /** True when the button opens a modal dialog */
   hasDialog?: boolean
   /** Moving focus here keeps the agent inspector open (see INSPECTOR_KEEP_ATTR) */
@@ -124,6 +126,7 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       onClick={onClick}
       aria-pressed={pressed}
       aria-label={ariaLabel}
+      aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       aria-expanded={expanded}
       aria-controls={controls}
@@ -308,6 +311,7 @@ export const TopBar = memo(function TopBar({
   // assistive technology (sr-only).
   const [moreOpen, setMoreOpen] = useState(false)
   const moreId = useId()
+  const moreNameId = useId()
   // Crossing 768 px (resize, browser zoom) unmounts More or the folded controls: keep the focus out of <body> (2.4.3).
   // The focus is read in the media query handler, before React renders the new width.
   const regionRef = useRef<HTMLDivElement>(null)
@@ -347,10 +351,11 @@ export const TopBar = memo(function TopBar({
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
   )
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
-  const activeFilters = [
-    hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
-    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount) : null,
-  ].filter((f): f is string => f !== null)
+  // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
+  const activeFilters: { text: string; lang: string }[] = [
+    hideInactive && onToggleHideInactive ? { text: t('topbar.hideInactive'), lang: locale } : null,
+    isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? { text: TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount), lang: 'en' } : null,
+  ].filter((f): f is { text: string; lang: string } => f !== null)
   const showFilterCount = folded && activeFilters.length > 0
   // Under 768 px a panel button folds More again: the panel opens as a drawer below a short bar, and the focus waits on
   // More (the button is gone) until the drawer takes it; More is also where it comes back when the drawer closes
@@ -433,13 +438,27 @@ export const TopBar = memo(function TopBar({
             buttonRef={moreRef}
             active={moreOpen}
             onClick={() => setMoreOpen(v => !v)}
-            ariaLabel={showFilterCount ? TOP_BAR_LABELS.moreNameWithFilters(activeFilters) : TOP_BAR_LABELS.moreName}
+            ariaLabel={showFilterCount ? undefined : TOP_BAR_LABELS.moreName}
+            labelledBy={showFilterCount ? moreNameId : undefined}
             title={TOP_BAR_LABELS.moreHelp}
             expanded={moreOpen}
             controls={moreId}
           >
             {showFilterCount ? TOP_BAR_LABELS.moreWithFilters(activeFilters.length) : TOP_BAR_LABELS.more}
           </ToggleButton>
+        )}
+        {narrow && showFilterCount && (
+          // The accessible name of More, in parts: each filter keeps the language of its button (read through aria-labelledby)
+          <span id={moreNameId} hidden lang="en">
+            {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).before}
+            {activeFilters.map((f, i) => (
+              <Fragment key={f.text}>
+                {i > 0 && ', '}
+                <span lang={f.lang}>{f.text}</span>
+              </Fragment>
+            ))}
+            {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).after}
+          </span>
         )}
         {/* What More shows; a plain box (display: contents) */}
         <div id={moreId} ref={regionRef} className="contents">
