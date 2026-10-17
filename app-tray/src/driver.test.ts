@@ -246,6 +246,24 @@ describe('startDriver with a fake relay and a fake binary', () => {
     assert.ok(n >= 2)
   })
 
+  it('keeps its output bounded when the binary floods "ready" and never reads', async () => {
+    const r = rig({}, { FAKE_TRAY_FLOOD_READY: '3000', FAKE_TRAY_NO_READ: '1' })
+    let max = 0
+    const end = Date.now() + 1500
+    while (Date.now() < end) { max = Math.max(max, r.handle.pendingWriteBytes()); await sleep(5) }
+    assert.ok(max <= 64 * 1024, `at most 64 KiB waiting for the binary, saw ${max} bytes`)
+    assert.equal(r.logs.some(l => l.includes('does not read')), false, 'refreshes are merged, the cap is not reached')
+    r.handle.stop()
+    assert.equal(await r.handle.done, 0)
+  })
+
+  it('stops the binary with an error, never growing silently, past the output cap', async () => {
+    const r = rig({}, { FAKE_TRAY_FLOOD_READY: '3000', FAKE_TRAY_NO_READ: '1' }, { maxPendingWriteBytes: 100 })
+    assert.equal(await Promise.race([r.handle.done, sleep(8000).then(() => 'still running')]), 1)
+    assert.equal(r.logs.filter(l => l.includes('does not read')).length, 1)
+    assert.equal(fs.readFileSync(r.mark, 'utf8'), 'SIGTERM')
+  })
+
   it('ends with an error when the relay prints no URL', async () => {
     const r = rig({ FAKE_RELAY_MODE: 'no-url' }, {}, { startupTimeoutMs: 300 })
     assert.equal(await r.handle.done, 1)

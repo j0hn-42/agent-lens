@@ -31,6 +31,8 @@ export interface DriverOptions {
   probeTimeoutMs?: number
   startupTimeoutMs?: number
   stopTimeoutMs?: number
+  /** Bytes written to the binary and not yet read by it, beyond which the binary is stopped (default 64 KiB) */
+  maxPendingWriteBytes?: number
   now?: () => number
   fetch?: typeof fetch
   open?: (url: string, port: number) => Promise<boolean>
@@ -44,6 +46,8 @@ export interface DriverHandle {
   done: Promise<number>
   /** Same path as the quit item and SIGTERM */
   stop(): void
+  /** Bytes written to the binary and not yet taken by it (diagnostics and tests) */
+  pendingWriteBytes(): number
 }
 
 export const DEFAULT_POLL_INTERVAL_MS = 5000
@@ -54,6 +58,12 @@ const DEFAULT_STOP_TIMEOUT_MS = 5000
 const MAX_STATUS_BYTES = 64 * 1024
 const MAX_RELAY_LINE_BYTES = 4096
 const MAX_PROTOCOL_VIOLATIONS = 20
+/**
+ * Output waiting for the binary. A menu is written only once the previous write reached the pipe,
+ * refreshes asked in between are merged into one, so at most one menu (and the quit message) wait;
+ * reaching this cap means the binary does not read and is stopped, never a silent growth.
+ */
+const MAX_PENDING_WRITE_BYTES = 64 * 1024
 /** The only line of the relay stdout the driver trusts: an exact loopback URL with a port */
 const RELAY_URL_LINE = /^Server running at http:\/\/127\.0\.0\.1:([1-9]\d{0,4})$/
 
@@ -140,16 +150,33 @@ export function startDriver(opts: DriverOptions): DriverHandle {
   let resolveDone!: (code: number) => void
   const done = new Promise<number>(r => { resolveDone = r })
 
+  const maxPending = opts.maxPendingWriteBytes ?? MAX_PENDING_WRITE_BYTES
+  // Back-pressure: while a write has not reached the pipe, menus are not written but merged into one,
+  // sent with the latest state once the write is done (the high-water mark of the stream, 64 KiB on
+  // recent Node, would let about 160 menus pile up before write() says false)
+  let writesInFlight = 0
+  let menuPending = false
+
   const send = (message: DriverMessage) => {
-    if (!tray?.stdin || tray.stdin.destroyed || !tray.stdin.writable) return
-    tray.stdin.write(encodeMessage(message))
+    const stdin = tray?.stdin
+    if (!stdin || stdin.destroyed || !stdin.writable) return
+    writesInFlight++
+    stdin.write(encodeMessage(message), () => {
+      writesInFlight--
+      if (writesInFlight === 0 && menuPending) { menuPending = false; refreshMenu(true) }
+    })
+    if (!stopping && stdin.writableLength > maxPending) {
+      fail(`the tray binary does not read its input (more than ${maxPending} bytes waiting); stopping`)
+    }
   }
 
-  const refreshMenu = (force = false) => {
+  function refreshMenu(force = false) {
     if (stopping) return
     lastMenu = deriveMenu({ probe, now: now(), port, ownsRelay, t })
     const encoded = encodeMessage({ type: 'menu', tooltip: lastMenu.tooltip, items: lastMenu.items })
     if (!force && encoded === lastSent) return
+    // Previous write not done: remember that a menu is due; the latest state is sent when it is
+    if (writesInFlight > 0) { menuPending = true; return }
     lastSent = encoded
     send({ type: 'menu', tooltip: lastMenu.tooltip, items: lastMenu.items })
   }
@@ -268,5 +295,5 @@ export function startDriver(opts: DriverOptions): DriverHandle {
     void poll()
   })()
 
-  return { done, stop: () => { void shutdown(0) } }
+  return { done, stop: () => { void shutdown(0) }, pendingWriteBytes: () => tray?.stdin?.writableLength ?? 0 }
 }
