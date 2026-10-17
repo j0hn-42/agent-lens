@@ -166,7 +166,7 @@ export function AgentVisualizer() {
   agentsRef.current = agents
   const { usage, attention, notifyRules, setNotifyRules, notifyState, toggleNotify, health, jumpToAttention } = useAttentionSummary({
     sim: { agents, unattributed, foreignAttention, conversations, droppedMessages, catchUp },
-    agentsRef, bridge, selectAgent: selection.handleAgentClick,
+    agentsRef, bridge, selectAgent: selection.handleAgentClick, selectedAgentId: selection.selectedAgentId,
   })
 
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
