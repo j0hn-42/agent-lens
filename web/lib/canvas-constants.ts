@@ -718,6 +718,20 @@ export const CLUSTER_DRAW = {
   padding: 56,
 } as const
 
+/**
+ * Workspace zone: the rounded rectangle drawn around all the clusters of one project when several projects
+ * are on screen. The layout reserves the same padding, so two zones never touch.
+ */
+export const WORKSPACE_ZONE = {
+  /** Space between the outermost halo and the left, right and bottom edge (world px) */
+  padSide: 60,
+  /** Space above the highest halo: room for the header and for the cluster label chips */
+  padTop: 100,
+  cornerRadius: 28,
+  /** Header font size on screen (px); the world size grows below zoom 1 so it stays readable */
+  headerFontSize: 13,
+} as const
+
 export const PLACEMENT = {
   /** Gap kept between two placed labels (screen px) */
   gap: 3,
