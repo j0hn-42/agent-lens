@@ -153,8 +153,11 @@ describe('startDriver with a fake relay and a fake binary', () => {
     let calls = 0
     const flaky = ((u: string, init: RequestInit) => (++calls <= 2 ? fetch(u, init) : Promise.reject(new TypeError('down')))) as unknown as typeof fetch
     const r = rig({}, {}, { fetch: flaky })
-    await until(() => state(r) === tr('tray.sessions.many', { n: 2 }))
-    await until(() => state(r) === tr('tray.sessions.unknown'))
+    // Read the history of menus, not the current one: the count only lasts two polls (80 ms), and a loaded machine
+    // can sample the current menu too late to ever see it.
+    const states = () => r.menus().map(m => m.items.find(i => i.id === 'state')?.label)
+    await until(() => states().includes(tr('tray.sessions.many', { n: 2 })))
+    await until(() => states().slice(states().indexOf(tr('tray.sessions.many', { n: 2 }))).includes(tr('tray.sessions.unknown')))
   })
 
   it('opens and copies the URL built from the relay port, nothing else', async () => {
