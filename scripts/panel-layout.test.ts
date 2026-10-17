@@ -3,11 +3,11 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, permissionsBand, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, POPUP_MIN_H, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
-const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640]]
+const VIEWPORTS: Array<[number, number]> = [[1600, 900], [1280, 720], [1024, 640], [390, 844], [899, 700], [900, 640], [320, 568], [640, 360]]
 const PANELS: PanelId[] = ['detail', 'system', 'link', 'files', 'conversation', 'timeline']
 const TOPBAR_H = 68
 const BAR_H = 56
@@ -219,17 +219,45 @@ test('popups stay inside the viewport and between the bars', () => {
 
 test('popups never cover the permission cards under the top bar (#410)', () => {
   for (const [w, h] of VIEWPORTS) {
+    // Cards as drawn by CSS: right-3, width min(28rem, 100% - 1.5rem), so they span the right part of the canvas
+    const permissionsW = Math.min(448, w - 24)
+    const permissionsX = w - 12 - permissionsW
     for (const permissionsH of [0, 120, 260]) {
-      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH }
+      const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH, permissionsX, permissionsW }
       const slot = TOPBAR_H + (permissionsH > 0 ? permissionsH + 4 : 0)
+      const barTop = h - 16 - BAR_H - 8
       for (const anchor of [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w / 2, y: h / 2 }]) {
         const p = placePopup(anchor, { w: 320, h: 200 }, env)
         const label = `${w}x${h} perm=${permissionsH} @${anchor.x},${anchor.y}`
-        assert.ok(p.top >= Math.min(slot, h), `${label}: under the cards (top ${p.top} < ${slot})`)
-        assert.ok(p.top + Math.min(200, p.maxHeight) <= Math.max(h - 16 - BAR_H - 8, p.top), `${label}: above the control bar`)
+        const overCards = p.left < permissionsX + permissionsW && p.left + p.width > permissionsX
+        assert.ok(p.maxHeight > 0, `${label}: the popup keeps a usable height (${p.maxHeight})`)
+        assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, barTop - TOPBAR_H), `${label}: at least the readable floor (${p.maxHeight})`)
+        assert.ok(p.top + Math.min(200, p.maxHeight) <= Math.max(barTop, p.top), `${label}: above the control bar`)
+        if (overCards && barTop - slot >= POPUP_MIN_H) assert.ok(p.top >= Math.min(slot, h), `${label}: under the cards (top ${p.top} < ${slot})`)
+        if (overCards && barTop - slot < POPUP_MIN_H) assert.ok(p.top >= TOPBAR_H && p.maxHeight >= POPUP_MIN_H, `${label}: floor kept when the cards leave no room`)
       }
     }
   }
+})
+
+test('popups keep a readable height when the cards take the whole column (#410, reflow)', () => {
+  // 320x568 and 640x360 (200 % zoom): cards at their 60vh cap
+  for (const [w, h] of [[320, 568], [640, 360]] as const) {
+    const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: Math.round(h * 0.6), permissionsX: 12, permissionsW: w - 24 }
+    const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
+    assert.ok(p.maxHeight >= POPUP_MIN_H, `${w}x${h}: maxHeight ${p.maxHeight}`)
+    assert.ok(p.top + p.maxHeight <= h - 16 - BAR_H - 8, `${w}x${h}: ends above the control bar`)
+  }
+})
+
+test('popups ignore the card slot where the cards are not (#410, horizontal overlap)', () => {
+  const env = { viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: 400, permissionsX: 1600 - 12 - 448, permissionsW: 448 }
+  const left = placePopup({ x: 300, y: 0 }, { w: 320, h: 200 }, env)
+  assert.equal(left.top, TOPBAR_H, 'left half: not pushed under cards that are on the right')
+  const right = placePopup({ x: 1500, y: 0 }, { w: 320, h: 200 }, env)
+  assert.ok(right.top >= TOPBAR_H + 400 + 4, 'right: under the cards')
+  const unknown = placePopup({ x: 300, y: 0 }, { w: 320, h: 200 }, { ...env, permissionsX: undefined, permissionsW: undefined })
+  assert.ok(unknown.top >= TOPBAR_H + 400 + 4, 'unknown extent: the whole width is kept (safe reading)')
 })
 
 test('freeIntervals / findFreeSpot', () => {
