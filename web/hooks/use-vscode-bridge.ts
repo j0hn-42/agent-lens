@@ -25,7 +25,7 @@ import {
 import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
-import { parseQuotaMessage } from '@/lib/quota'
+import { parseQuotaMessage, acceptQuota } from '@/lib/quota'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
 
 export interface UseVSCodeBridgeOptions {
@@ -353,7 +353,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       }
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'quota') {
         const next = parseQuotaMessage((data as { quota?: unknown }).quota)
-        if (next) setQuota(prev => (prev && prev.receivedAt > next.receivedAt ? prev : next))
+        setQuota(prev => acceptQuota(prev, next))
         return
       }
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'event-loss') {

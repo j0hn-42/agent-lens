@@ -31,6 +31,12 @@ export function parseQuotaMessage(data: unknown): QuotaSnapshotView | null {
   return { fiveHour: gauge(data.fiveHour), sevenDay: gauge(data.sevenDay), receivedAt }
 }
 
+/** A valid message always replaces the current snapshot (the stream of one connection is ordered and the relay is the only
+ *  source: comparing receivedAt would freeze the gauge if the relay host's clock stepped back); an invalid one keeps it. */
+export function acceptQuota(prev: QuotaSnapshotView | null, next: QuotaSnapshotView | null): QuotaSnapshotView | null {
+  return next ?? prev
+}
+
 export type QuotaGaugeState =
   | { kind: 'claude'; fiveHour: GaugeView | null; sevenDay: GaugeView | null; ageMinutes: number | null }
   | { kind: 'unknown' }

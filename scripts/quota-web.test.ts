@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseQuotaMessage, quotaGaugeState, type QuotaSnapshotView } from '../web/lib/quota'
+import { parseQuotaMessage, quotaGaugeState, acceptQuota, type QuotaSnapshotView } from '../web/lib/quota'
 
 const NOW = 1_790_000_000_000
 const MIN = 60_000
@@ -73,7 +73,29 @@ test('quotaGaugeState : plus de 30 min sans mise à jour = unknown', () => {
 
 test('quotaGaugeState : horloge en retard sur receivedAt = âge null, pas négatif', () => {
   const s = quotaGaugeState('claude', snap(), NOW - 10 * MIN) as { kind: 'claude'; ageMinutes: number | null }
+  assert.equal(s.kind, 'claude')
   assert.equal(s.ageMinutes, null)
+})
+
+test('acceptQuota : un snapshot valide remplace le courant', () => {
+  const a = snap(), b = snap({ receivedAt: NOW + 1 })
+  assert.equal(acceptQuota(a, b), b)
+  assert.equal(acceptQuota(null, b), b)
+})
+
+test('acceptQuota : un message invalide (null) garde le courant', () => {
+  const a = snap()
+  assert.equal(acceptQuota(a, null), a)
+  assert.equal(acceptQuota(null, null), null)
+})
+
+test('acceptQuota : un receivedAt plus petit remplace quand même (horloge du relais reculée)', () => {
+  const older = snap({ receivedAt: NOW - 3_600_000 })
+  assert.equal(acceptQuota(snap(), older), older)
+})
+
+test('parseQuotaMessage : receivedAt 0 accepté', () => {
+  assert.equal(parseQuotaMessage(raw({ receivedAt: 0 }))?.receivedAt, 0)
 })
 
 test('quotaGaugeState : fenêtre dont resetsAt est passé ou égal à maintenant = null', () => {
