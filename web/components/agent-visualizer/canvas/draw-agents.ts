@@ -489,13 +489,13 @@ function drawAgentLabel(
   orch: OrchestratorInfo | null, place: ResolvedPlacement, staleText?: string,
   /** Size factor that holds the text at LOD.minTextPx on screen (labelScaleForZoom) */
   scale = 1,
-): { extraLines: number; dx: number; dy: number; scale: number } {
+): { extraLines: number; dx: number; dy: number; scale: number; visible: boolean } {
   ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
   const measure = (t: string) => measureTextCached(ctx, t)
   const layout = layoutAgentLabel(agent, r, measure, showSession, orch)
   // A stale node says so in words ("last known state: Working"): the state is no longer proven
   if (staleText) layout.statusLine = ellipsize(staleText, FRESHNESS_DRAW.labelMaxWidth, measure)
-  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1 }
+  if (!place.visible) return { extraLines: layout.extraLines, dx: 0, dy: 0, scale: 1, visible: false }
 
   ctx.save()
   ctx.translate(place.dx, place.dy)
@@ -510,7 +510,7 @@ function drawAgentLabel(
     ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
     fillLabelText(ctx, ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
     ctx.restore()
-    return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale }
+    return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale, visible: true }
   }
 
   ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
@@ -559,7 +559,7 @@ function drawAgentLabel(
     fillLabelText(ctx, layout.sessionLine, agent.x, y)
   }
   ctx.restore()
-  return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale }
+  return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale, visible: true }
 }
 
 /** Scale the drawing by `k` around (x, y): the label block grows from its top centre, under the node. */
@@ -726,7 +726,7 @@ export function drawAgents(
         maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
         stale ? lastKnownStateText(agent.state) : undefined, labelScale,
       )
-      : { extraLines: 0, dx: 0, dy: 0, scale: 1 }
+      : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
     ctx.globalAlpha = nodeAlpha
     const extraLines = labelDrawn.extraLines
 
@@ -739,7 +739,8 @@ export function drawAgents(
       ctx.save()
       ctx.translate(labelDrawn.dx, labelDrawn.dy)
       scaleAbout(ctx, agent.x, agent.y + r + AGENT_DRAW.labelYOffset, labelDrawn.scale)
-      drawContextComposition(ctx, agent, r, lod.details, extraLines * AGENT_DRAW.stateLabelGap)
+      // A label hidden by the plan (a tool card covers it, #378) takes its token line with it
+      drawContextComposition(ctx, agent, r, lod.details && labelDrawn.visible, extraLines * AGENT_DRAW.stateLabelGap)
       ctx.restore()
     }
 

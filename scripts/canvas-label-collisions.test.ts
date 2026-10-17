@@ -65,9 +65,9 @@ test('planOverlays: a tool card over the token line under the context bar moves,
   const free = planOverlays(input(agents)).plan.get(planKey.label(a.id))!
   assert.ok(free.rect && !free.hidden, 'precondition: the label is placed')
   const line = tokenLineRect(a, 0, 0)
-  assert.ok(line.x + line.w > free.rect.x + free.rect.w, 'precondition: the token line is wider than the name / status lines')
-  // A card that covers the right end of the token line, clear of the name, status and MAIN lines
-  const card: Rect = { x: free.rect.x + free.rect.w + 2, y: line.y - 4, w: 120, h: 28 }
+  // A card that covers the right end of the token line, well right of the short name / status / MAIN lines
+  const card: Rect = { x: line.x + line.w - 20, y: line.y - 4, w: 120, h: 28 }
+  assert.ok(card.x > a.x + 60, 'precondition: the card is clear of the name, status and MAIN lines')
   const p = planOverlays(input(agents, { toolCards: [card] })).plan.get(planKey.label(a.id))!
   if (p.hidden) return
   const moved = tokenLineRect(a, p.dx, p.dy)
@@ -87,8 +87,8 @@ test('planOverlays: the LEAD / MAIN pill line is reserved at its drawn width (#3
   const drawnW = mono(layout.badgeText!, ORCHESTRATOR_DRAW.badgeFontSize) + 10 + mono(rest) + 6
   const lineY = a.y + r + AGENT_DRAW.labelYOffset + 2 * AGENT_DRAW.stateLabelGap
   const pill: Rect = { x: a.x - drawnW / 2, y: lineY - 1, w: drawnW, h: AGENT_DRAW.stateLabelGap + 1 }
-  assert.ok(pill.x + pill.w > free.rect.x + free.rect.w, 'precondition: the pill line is drawn wider than the text measure')
-  const card: Rect = { x: free.rect.x + free.rect.w + 0.5, y: lineY - 4, w: 120, h: 28 }
+  // Covers only the last 2 px of the pill line, which the text measure alone leaves out
+  const card: Rect = { x: pill.x + pill.w - 2, y: lineY - 4, w: 120, h: 28 }
   assert.ok(rectsOverlap(pill, card), 'precondition: the card covers the end of the pill line')
   const p = planOverlays(input(agents, { toolCards: [card] })).plan.get(planKey.label(a.id))!
   if (p.hidden) return

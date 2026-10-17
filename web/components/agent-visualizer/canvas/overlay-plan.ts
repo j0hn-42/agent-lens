@@ -8,10 +8,11 @@
 import type { Agent, TeamSummary, ToolCallNode } from '../../../lib/agent-types'
 import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
-  MIN_VISIBLE_OPACITY,
+  MIN_VISIBLE_OPACITY, ORCHESTRATOR_DRAW,
 } from '../../../lib/canvas-constants'
 import { agentCostUsage } from '../../../lib/cost'
-import { formatCostUsage } from '../../../lib/usage'
+import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { formatTokensOfWindow } from '../../../lib/context-window'
 import { bubbleAlpha } from './bubble-utils'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
@@ -37,6 +38,57 @@ export function contextBarShown(a: Pick<Agent, 'tokensUsed' | 'state' | 'opacity
 export function contextBlockHeight(radius: number, extraLines: number): number {
   const barBottom = radius + CONTEXT_BAR.yOffset + extraLines * AGENT_DRAW.stateLabelGap + CONTEXT_BAR.barHeight + CONTEXT_BAR.labelBoxExtra
   return barBottom - (radius + AGENT_DRAW.labelYOffset)
+}
+
+/** World size, at 100 %, of the label block drawn under an agent (its top is a.y + r + AGENT_DRAW.labelYOffset). */
+interface AgentLabelBlock {
+  w: number
+  h: number
+  /** One-line form "name · status", with the context bar still hanging under it */
+  compactW: number
+  compactH: number
+}
+
+/**
+ * Label block of an agent as drawn (#378): name lines, status, the LEAD / MAIN pill line at its drawn width
+ * (pill padding included), the session line, and the context bar with its token line, which is often the
+ * widest line ("4.3k estimated / 1M tokens, window assumed"). The token line is drawn with the details
+ * level only. Below 100 % the block is drawn enlarged by labelScaleForZoom around its top centre.
+ */
+function agentLabelBlock(
+  a: Agent, r: number, measure: (text: string) => number,
+  options: { showSession: boolean; orchestrator: ReturnType<typeof orchestratorInfo>; details: boolean },
+): AgentLabelBlock {
+  const layout = layoutAgentLabel(a, r, measure, options.showSession, options.orchestrator)
+  let groupW = 0
+  if (layout.groupLine) {
+    if (layout.badgeText) {
+      const rest = layout.groupLine.slice(layout.badgeText.length).trim()
+      groupW = estimateTextWidth(layout.badgeText, ORCHESTRATOR_DRAW.badgeFontSize) + 10 + (rest ? measure(rest) + 6 : 0)
+    } else groupW = measure(layout.groupLine)
+  }
+  const lines = layout.nameLines.length + 1 + (layout.sessionLine ? 1 : 0) + (layout.groupLine ? 1 : 0)
+  const widest = Math.max(
+    ...layout.nameLines.map(measure), measure(layout.statusLine),
+    layout.sessionLine ? measure(layout.sessionLine) : 0, groupW,
+  )
+  // The context bar hangs under the label block and moves with it: reserve its height, its background
+  // and its token line so a shifted label never lands on the bar and a card never covers its text
+  const barShown = contextBarShown(a)
+  const barW = barShown ? Math.max(CONTEXT_BAR.minWidth, r * CONTEXT_BAR.widthMultiplier) + 4 : 0
+  const tokenW = barShown && options.details
+    ? estimateTextWidth(formatTokensOfWindow(formatTokenUsage(usageFromAgent(a)), a), CONTEXT_BAR.fontSize)
+    : 0
+  const labelH = lines * AGENT_DRAW.stateLabelGap
+  const h = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
+  const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
+  const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
+  return {
+    w: Math.max(36, widest, barW, tokenW) + LABEL_PAD * 2,
+    h,
+    compactW: Math.max(measure(compactText), barW, tokenW) + LABEL_PAD * 2,
+    compactH: barShown ? h : AGENT_DRAW.stateLabelGap,
+  }
 }
 
 function insetRect(r: FitRect, by: number): FitRect {
@@ -242,26 +294,14 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     // Agent label: full block, or one line "name · status" when the room is short
     if (input.lod.labels) {
       const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
-      const layout = layoutAgentLabel(a, r, measure, input.showSessionLabels && secondaryAllowed, orchestratorInfo(a, input.teams))
-      const lines = layout.nameLines.length + 1 + (layout.sessionLine ? 1 : 0) + (layout.groupLine ? 1 : 0)
-      const widest = Math.max(
-        ...layout.nameLines.map(measure), measure(layout.statusLine),
-        layout.sessionLine ? measure(layout.sessionLine) : 0, layout.groupLine ? measure(layout.groupLine) : 0,
-      )
-      const wW = Math.max(36, widest) + LABEL_PAD * 2
+      const block = agentLabelBlock(a, r, measure, {
+        showSession: input.showSessionLabels && secondaryAllowed, orchestrator: orchestratorInfo(a, input.teams), details: input.lod.details,
+      })
       const top = a.y + r + AGENT_DRAW.labelYOffset
-      // The context bar hangs under the label block and moves with it: reserve its height so a shifted
-      // label never lands on the bar (or its token text)
-      const barShown = contextBarShown(a)
-      const labelH = lines * AGENT_DRAW.stateLabelGap
-      const blockH = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
       // Drawn enlarged by labelScale around its top centre below 100% (held at LOD.minTextPx on screen, #378)
       const k = labelScale
-      const full = toScreen(t, a.x - (wW * k) / 2, top, wW * k, blockH * k)
-      const maxCompactW = r * AGENT_DRAW.labelWidthMultiplier * 1.5
-      const compactText = ellipsize(`${a.name} · ${layout.statusLine}`, maxCompactW, measure)
-      const cW = measure(compactText) + LABEL_PAD * 2
-      const compact = toScreen(t, a.x - (cW * k) / 2, top, cW * k, (barShown ? blockH : AGENT_DRAW.stateLabelGap) * k)
+      const full = toScreen(t, a.x - (block.w * k) / 2, top, block.w * k, block.h * k)
+      const compact = toScreen(t, a.x - (block.compactW * k) / 2, top, block.compactW * k, block.compactH * k)
       labelRight = full.x + full.w
       requests.push({
         id: planKey.label(id),
