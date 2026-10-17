@@ -309,11 +309,14 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
       }
     })
 
-    it('the cookie opens /events and /status only: the sensitive routes stay 403', async () => {
+    it('the cookie opens /events and /status only: the sensitive routes and /launch stay 403', async () => {
       for (const p of ['/context?session=77777777-7777-4777-8777-777777777777', '/issue-links?role=qa-engineer', '/observations', '/statusline']) {
         assert.equal((await request('GET', p, { Host: TUNNEL, Cookie: cookie })).status, 403, p)
       }
       assert.equal((await request('POST', '/scope', { Host: TUNNEL, Cookie: cookie, 'Content-Type': 'application/json' }, '{"scope":"all"}')).status, 403)
+      // Launching an agent (#229) is never opened by a pairing either
+      assert.equal((await request('GET', '/launch', { Host: TUNNEL, Cookie: cookie })).status, 403, 'GET /launch')
+      assert.equal((await request('POST', '/launch', { Host: TUNNEL, Cookie: cookie, 'Content-Type': 'application/json' }, '{"repo":"o/n","issue":1,"role":"qa-engineer"}')).status, 403, 'POST /launch')
     })
 
     it('loopback is unchanged: no cookie asked, and /pair is not a loopback route', async () => {
