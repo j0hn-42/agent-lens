@@ -384,6 +384,36 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     r.db.close(); db.close()
   })
 
+  it('#420: reports each skipped row once, with the session it names, once the cursor moved past it', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110))
+    db.exec(`INSERT INTO part VALUES ('big', 'm1', 'ses_1', 1, 120, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    db.exec(`INSERT INTO part VALUES ('big2', 'm1', 'ses_1', 1, 121, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    db.exec("INSERT INTO message VALUES ('m2', 'not a session id', 1, 130, '{}')")
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+      assert.deepEqual(p.skippedPassed, [{ sessionId: null, count: 1 }, { sessionId: 'ses_1', count: 2 }])
+      const again = r.db.poll(p.cursors)
+      assert.deepEqual(again.skippedPassed, [], 'a row the cursor passed is never counted again')
+    } finally { r.db.close(); db.close() }
+  })
+
+  it('#420: a skipped row still inside the settle window is not reported as passed (it comes again)', () => {
+    const { file, db } = makeDb()
+    const now = 1_000_000
+    db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110))
+    db.exec(`INSERT INTO part VALUES ('big', 'm1', 'ses_1', 1, ${now - 10}, '${'x'.repeat(OPENCODE_ROW_DATA_MAX + 1)}')`)
+    const r = openOpenCodeDb(file, undefined, () => now)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      const p = r.db.poll(EMPTY_OPENCODE_CURSORS)
+      assert.equal(p.skippedRows, 1)
+      assert.deepEqual(p.skippedPassed, [])
+    } finally { r.db.close(); db.close() }
+  })
+
   it('exposes time_archived of a session', () => {
     const { file, db } = makeDb()
     db.exec(sess('ses_1', 100, 99))

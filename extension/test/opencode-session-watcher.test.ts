@@ -236,6 +236,34 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(lifecycle.length, 1)
   })
 
+  it('#420: an unreadable row of a followed session is counted in its normalization_stats, never silently dropped', async () => {
+    const { fx, w, events } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.message('msg_1', 'ses_a', T0 - 900, userMsg)
+    fx.raw(`INSERT INTO part VALUES ('prt_null', 'msg_1', 'ses_a', ${T0 - 900}, ${T0 - 900}, NULL)`)
+    w.start()
+    await new Promise(r => setTimeout(r, 20)) // the stats event of a lone malformed input is published by a timer
+    const stats = events.filter(e => e.type === 'normalization_stats')
+    assert.equal(stats.length, 1)
+    assert.equal(stats[0].sessionId, 'ses_a')
+    assert.equal((stats[0].payload as { malformed: number }).malformed, 1)
+    assert.doesNotMatch(w.status(), /unreadable/, 'a loss that reached its session is not reported a second time')
+    // Fed back the cursors, the same row is not counted again
+    fx.message('msg_2', 'ses_a', T0 - 800, userMsg)
+    w.scanNow()
+    await new Promise(r => setTimeout(r, 20))
+    assert.equal(events.filter(e => e.type === 'normalization_stats').length, 1)
+  })
+
+  it('#420: an unreadable row that names no followed session is reported in the status', () => {
+    const { fx, w } = setup()
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    fx.raw(`INSERT INTO message VALUES ('msg_x', 'not a session', ${T0 - 900}, ${T0 - 900}, NULL)`)
+    fx.raw(`INSERT INTO message VALUES ('msg_y', 'ses_elsewhere', ${T0 - 900}, ${T0 - 900}, NULL)`)
+    w.start()
+    assert.match(w.status(), /^OpenCode database \(.*\); 2 unreadable rows ignored outside the followed sessions$/)
+  })
+
   it('ignores a completed tool part whose message predates the activity window', () => {
     const { fx, w, events } = setup()
     const old = T0 - (ACTIVE_SESSION_AGE_S + 60) * 1000
