@@ -1,6 +1,8 @@
 /**
  * Quota d'abonnement dans le relais (#467) : POST /quota -> message SSE `quota` chez les clients locaux, rejeu
  * du dernier état à la connexion (avant le rejeu d'événements), et jamais vers un hôte de tunnel.
+ * La route est montée ici sur un serveur de test pour isoler la diffusion ; en production elle est servie par le
+ * HookServer (extension/test/hook-server-quota.test.ts, scripts/statusline-e2e.test.ts).
  * Le relais est un singleton par processus : fichier de test dédié.
  */
 import '../extension/test/helpers/alias-vscode'

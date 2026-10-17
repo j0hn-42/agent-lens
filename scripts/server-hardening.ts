@@ -3,7 +3,7 @@
  * (app/src/server.ts) and the relay itself (scripts/relay.ts). Issue #68.
  *
  *  - loopback-only listening with an optional EPHEMERAL port (port 0 -> the OS picks, the chosen port is returned)
- *  - GET / HEAD / OPTIONS only (405 + Allow otherwise), plus POST on SERVER_POST_PATHS (/scope #291, /quota #467) and on /launch routes (#229, answered 404 unless enabled)
+ *  - GET / HEAD / OPTIONS only (405 + Allow otherwise), plus POST on SERVER_POST_PATHS (/scope #291) and on /launch routes (#229, answered 404 unless enabled)
  *  - strict headers on every response (CSP, no-store, nosniff, no-referrer)
  *  - session id query parameter validation (400)
  *  - KeyedCoalescer: ONE in-flight refresh per key (concurrent callers share it)

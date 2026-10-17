@@ -672,7 +672,8 @@ export interface Relay {
   handleIssueLinks: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /scope: change the discovery scope at run time, behind the same guards as the other routes (#291) */
   handleScope: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
-  /** Handle POST /quota: the subscription quota posted by the status line script (#467), same guards as /scope */
+  /** POST /quota: the subscription quota posted by the status line script (#467), same guards as /scope. Served by the
+   *  HookServer on the discovery port (the relay installs it there); not mounted on the public HTTP server. */
   handleQuota: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
   /** Handle POST /launch and /launch/<id>/stop (#229): 404 unless the relay was started with --allow-launch */
   handleLaunch: (req: http.IncomingMessage, res: http.ServerResponse) => void | Promise<void>
@@ -1215,6 +1216,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
     },
   })
 
+  // The status line script only knows the discovery port, which is the HookServer's: it serves POST /quota
+  // through this route, with the route's own guards (#467). Removed again when the relay is disposed.
+  hookServer?.setQuotaHandler(handleQuota)
+
   return {
     handleScope,
     handleQuota,
@@ -1420,6 +1425,7 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       })
       if (wantClaude) {
         removeDiscoveryFile()
+        hookServer?.setQuotaHandler(null)
         hookServer?.dispose()
         scanTicker?.stop()
         teamWatcher?.dispose()

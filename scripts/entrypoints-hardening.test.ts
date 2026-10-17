@@ -172,31 +172,6 @@ for (const entry of ENTRIES) {
       assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
     })
 
-    it('POST /quota is wired behind the guards in the real server (#467): JSON only, same site only, strict body', async () => {
-      const post = (headers: http.OutgoingHttpHeaders, body: string) => new Promise<Reply>((resolve, reject) => {
-        const req = http.request({ host: '127.0.0.1', port: a.port, method: 'POST', path: '/quota', agent: false, headers: { 'User-Agent': `quota-${Math.random()}`, ...headers } }, res => {
-          let out = ''
-          res.setEncoding('utf8')
-          res.on('data', c => { out += c })
-          res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: out }))
-        })
-        req.on('error', reject)
-        req.end(body)
-      })
-      const json = { 'Content-Type': 'application/json' }
-      const valid = '{"rate_limits":{"five_hour":{"used_percentage":12,"resets_at":1800000000}}}'
-      const ok = await post(json, valid)
-      assert.equal(ok.status, 200, ok.body)
-      assertStrictHeaders(ok.headers, CSP_API, 'POST /quota')
-      assert.deepEqual(JSON.parse(ok.body), {})
-      assert.equal((await post(json, '{"rate_limits":{"five_hour":{"used_percentage":500,"resets_at":1}}}')).status, 400)
-      assert.equal((await post({}, valid)).status, 415)
-      assert.equal((await post({ ...json, Origin: 'https://evil.example' }, valid)).status, 403)
-      assert.equal((await post({ ...json, 'Sec-Fetch-Site': 'cross-site' }, valid)).status, 403)
-      assert.equal((await post({ ...json, Host: 'evil.example' }, valid)).status, 403)
-      assert.equal((await request(a.port, 'GET', '/quota')).status, 405)
-    })
-
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')

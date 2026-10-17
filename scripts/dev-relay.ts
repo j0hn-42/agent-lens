@@ -6,7 +6,7 @@
 import * as http from 'http'
 import { createRelay } from './relay'
 import { DEFAULT_RELAY_PORT, HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../extension/src/constants'
-import { isDevWebOrigin, parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isQuotaPath, isLaunchPath, observationsRoute } from '../extension/src/relay-guards'
+import { isDevWebOrigin, parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isLaunchPath, observationsRoute } from '../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../extension/src/hook-guards'
 import { guardRequest, listenLoopback, resolveListenPort } from './server-hardening'
 import { launchStartupError, launchTokenNotice } from './routes/launch'
@@ -71,11 +71,6 @@ async function main() {
     // Run-time scope (#291): the only POST; JSON body, same-site only, rate-limited
     if (isScopePath(req.url)) {
       return relay.handleScope(req, res)
-    }
-
-    // Subscription quota posted by the status line script (#467): same guards as /scope
-    if (isQuotaPath(req.url)) {
-      return relay.handleQuota(req, res)
     }
 
     // Launch / stop an agent (#229): 404 unless --allow-launch; loopback, token, caps

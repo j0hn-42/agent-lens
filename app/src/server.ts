@@ -11,7 +11,7 @@ import { createRelay, type Relay } from '../../scripts/relay'
 import { launchTokenNotice } from '../../scripts/routes/launch'
 import { gateRemoteRequest } from '../../scripts/remote-access'
 import { createTelemetryClient } from '../../scripts/telemetry'
-import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isQuotaPath, isLaunchPath, observationsRoute } from '../../extension/src/relay-guards'
+import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIssueLinksPath, isScopePath, isLaunchPath, observationsRoute } from '../../extension/src/relay-guards'
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
 import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
@@ -32,7 +32,7 @@ interface ServerOptions {
   launchRepos?: string[]
 }
 
-type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleQuota' | 'handleLaunch' | 'handleObservations' | 'handleIssueLinks'>
+type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleLaunch' | 'handleObservations' | 'handleIssueLinks'>
 
 /**
  * Request handler of the standalone app. The tunnel Host names accepted besides loopback (#241) are read from the
@@ -43,7 +43,7 @@ type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'han
 export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
   const allowedHosts = relay.allowedHosts
   return (req, res) => {
-    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || isQuotaPath(req.url) || isLaunchPath(req.url) || observationsRoute(req.url) !== null
+    const isApi = parseSessionParam(req.url).isEvents || isStatusPath(req.url) || isStatusLinePath(req.url) || isContextPath(req.url) || isIssueLinksPath(req.url) || isScopePath(req.url) || isLaunchPath(req.url) || observationsRoute(req.url) !== null
     // Loopback peer, Host loopback or allowed (static files included: DNS rebinding), read-only surface for a tunnel
     if (gateRemoteRequest(req, res, allowedHosts, isApi ? 'api' : 'static')) return
     // Strict headers (API: CSP default-src 'none'; static app: strict same-origin CSP),
@@ -74,11 +74,6 @@ export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
     // Run-time scope of the discovery (#291): the only POST route, guarded and strictly validated
     if (isScopePath(req.url)) {
       return relay.handleScope(req, res)
-    }
-
-    // Subscription quota posted by the status line script (#467): guarded like /scope
-    if (isQuotaPath(req.url)) {
-      return relay.handleQuota(req, res)
     }
 
     // Launch / stop an agent (#229): 404 unless --allow-launch; loopback, token, caps (never reached through a tunnel Host)

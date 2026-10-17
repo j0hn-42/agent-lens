@@ -24,41 +24,38 @@ const { spawn } = require('child_process');
 const DIR = path.join(os.homedir(), '.claude', 'agent-lens');
 const IS_WIN = process.platform === 'win32';
 const SEND_TIMEOUT_MS = ${STATUSLINE_SEND_TIMEOUT_MS};
+const SIGNAL_GRACE_MS = 500;
 const WINDOWS = ['five_hour', 'seven_day'];
-
-function normPath(p) {
-  let r = path.resolve(p);
-  try { r = fs.realpathSync(r); } catch {}
-  return r;
-}
 
 function isAlive(pid) {
   if (IS_WIN) return true;
   try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
-// Only the two windows and their two numeric fields leave this machine's loopback: never session_id, cwd, model.
+// Same bounds as the relay (which stays strict): a window that does not fit is left out, the other still goes.
+function validWindow(w) {
+  return !!w && typeof w === 'object'
+    && typeof w.used_percentage === 'number' && Number.isFinite(w.used_percentage) && w.used_percentage >= 0 && w.used_percentage <= 100
+    && Number.isInteger(w.resets_at) && w.resets_at >= 0 && w.resets_at <= 8.64e12;
+}
+
+// Only the two windows and their two numeric fields leave this process: never session_id, cwd, model.
 function quotaBody(data) {
   const rl = data && data.rate_limits;
   if (!rl || typeof rl !== 'object') return null;
   const out = {};
   for (const name of WINDOWS) {
-    const w = rl[name];
-    if (!w || typeof w !== 'object') continue;
-    const entry = {};
-    if (typeof w.used_percentage === 'number') entry.used_percentage = w.used_percentage;
-    if (typeof w.resets_at === 'number') entry.resets_at = w.resets_at;
-    if (Object.keys(entry).length) out[name] = entry;
+    if (validWindow(rl[name])) out[name] = { used_percentage: rl[name].used_percentage, resets_at: rl[name].resets_at };
   }
   return Object.keys(out).length ? JSON.stringify({ rate_limits: out }) : null;
 }
 
-// Same instance files, PID checks and workspace tiers as hook.js. The quota belongs to the account, not to a
-// workspace: when no workspace matches the cwd, every live instance is one tier.
-function targetTiers(cwd) {
+// Every live instance, found like hook.js does (discovery files, PID checks, dead ones removed). The quota belongs
+// to the account, not to a workspace, so there is no workspace matching.
+function liveInstances() {
   let files;
   try {
-    files = fs.readdirSync(DIR).filter(f => f.endsWith('.json') && f !== 'workspaces.json' && f !== 'statusline-original.json');
+    files = fs.readdirSync(DIR).filter(f => f.endsWith('.json') && f !== 'workspaces.json');
   } catch { return []; }
   const live = [];
   for (const file of files) {
@@ -69,53 +66,39 @@ function targetTiers(cwd) {
       try { fs.unlinkSync(path.join(DIR, file)); } catch {}
       continue;
     }
-    live.push({ d, file, ws: normPath(d.workspace) });
+    live.push({ d, file });
   }
-  if (!live.length) return [];
-  const resolvedCwd = typeof cwd === 'string' && cwd ? normPath(cwd) : null;
-  const matches = resolvedCwd ? live.filter(m => resolvedCwd === m.ws || resolvedCwd.startsWith(m.ws + path.sep)) : [];
-  if (!matches.length) return [live];
-  matches.sort((a, b) => b.ws.length - a.ws.length);
-  const tiers = [];
-  for (const m of matches) {
-    const last = tiers[tiers.length - 1];
-    if (last && last[0].ws.length === m.ws.length) last.push(m); else tiers.push([m]);
-  }
-  return tiers;
+  return live;
 }
 
-// Hard deadline for the whole forward: whatever happens, done() is called within SEND_TIMEOUT_MS.
-function sendQuota(body, cwd, done) {
+// Parallel POST /quota to every live instance under one hard deadline: done() is called within SEND_TIMEOUT_MS
+// whatever happens. Only a 2xx counts as delivered (an instance without the route answers 404).
+function sendQuota(body, done) {
   let over = false;
   const finish = () => { if (!over) { over = true; done(); } };
   setTimeout(finish, SEND_TIMEOUT_MS);
-  const tiers = targetTiers(cwd);
-  function sendTier(i) {
-    if (over) return;
-    if (i >= tiers.length) return finish();
-    let pending = tiers[i].length;
-    let reached = false;
-    for (const { d, file } of tiers[i]) {
-      let settled = false;
-      const end = (ok, refused) => {
-        if (settled) return; settled = true;
-        if (ok) reached = true;
-        if (refused) { try { fs.unlinkSync(path.join(DIR, file)); } catch {} }
-        if (--pending <= 0) { if (reached) finish(); else sendTier(i + 1); }
-      };
-      try {
-        const req = http.request({
-          hostname: '127.0.0.1', port: d.port, path: '/quota', method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
-          timeout: SEND_TIMEOUT_MS,
-        }, res => { res.resume(); res.on('end', () => end(true, false)); res.on('error', () => end(true, false)); });
-        req.on('error', e => end(!(e && e.code === 'ECONNREFUSED'), !!(e && e.code === 'ECONNREFUSED')));
-        req.on('timeout', () => req.destroy());
-        req.end(body);
-      } catch { end(false, false); }
-    }
+  const targets = liveInstances();
+  let pending = targets.length;
+  if (!pending) return finish();
+  for (const { d, file } of targets) {
+    let settled = false;
+    const end = refused => {
+      if (settled) return; settled = true;
+      if (refused) { try { fs.unlinkSync(path.join(DIR, file)); } catch {} }
+      if (--pending <= 0) finish();
+    };
+    try {
+      const req = http.request({
+        hostname: '127.0.0.1', port: d.port, path: '/quota', method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        timeout: SEND_TIMEOUT_MS,
+      }, res => { res.resume(); res.on('end', () => end(false)); res.on('error', () => end(false)); });
+      // Only a refused connection proves the instance is gone
+      req.on('error', e => end(!!(e && e.code === 'ECONNREFUSED')));
+      req.on('timeout', () => req.destroy());
+      req.end(body);
+    } catch { end(false); }
   }
-  sendTier(0);
 }
 
 // The original statusLine travels in the command itself: the one argument is base64url JSON of the whole object
@@ -131,10 +114,13 @@ function originalCommand() {
   } catch { return { bad: true }; }
 }
 
-// Same shell as Claude Code: Git Bash when installed, else PowerShell on Windows (documented); on Unix the
+// Same shell as Claude Code: Git Bash (CLAUDE_CODE_GIT_BASH_PATH, then the standard install paths), else PowerShell on Windows (documented); on Unix the
 // docs only say "a shell", so the user's $SHELL when it is bash or zsh, else bash, else /bin/sh.
 function shellInvocation(command) {
   if (IS_WIN) {
+    // CLAUDE_CODE_GIT_BASH_PATH is how Claude Code itself is told where Git Bash is
+    const configured = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+    if (configured && fs.existsSync(configured)) return { file: configured, args: ['-c', command] };
     const bases = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')];
     for (const base of bases) {
       if (!base) continue;
@@ -178,8 +164,7 @@ function run() {
   try { data = JSON.parse(input.toString('utf8')); } catch {}
   const body = quotaBody(data);
   if (body) {
-    const cwd = data.cwd || (data.workspace && data.workspace.current_dir);
-    try { sendQuota(body, cwd, () => { sendDone = true; maybeExit(); }); } catch { sendDone = true; }
+    try { sendQuota(body, () => { sendDone = true; maybeExit(); }); } catch { sendDone = true; }
   } else sendDone = true;
 
   const original = originalCommand();
@@ -193,7 +178,13 @@ function run() {
   } catch { childDone = true; exitCode = 127; return maybeExit(); }
   child.stdin.on('error', () => {});
   child.stdin.end(input);
-  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => { try { child.kill(sig); } catch {} });
+  // Claude Code cancels a status line that is still running: pass the signal on, and leave anyway if the child ignores it
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+    process.on(sig, () => {
+      try { child.kill(sig); } catch {}
+      setTimeout(() => process.exit(128 + (os.constants.signals[sig] || 0)), SIGNAL_GRACE_MS);
+    });
+  }
   child.on('error', () => { childDone = true; exitCode = 127; maybeExit(); });
   child.on('close', (code, signal) => {
     exitCode = signal ? 128 + (os.constants.signals[signal] || 0) : (code == null ? 0 : code);

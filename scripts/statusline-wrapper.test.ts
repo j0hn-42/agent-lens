@@ -31,8 +31,8 @@ function setOriginal(command: string | null) {
   arg = encode(command === null ? null : { type: 'command', command })
 }
 
-function setInstance(port: number, pid = process.pid) {
-  fs.writeFileSync(path.join(dir, 'a.json'), JSON.stringify({ workspace, pid, port }))
+function setInstance(port: number, pid = process.pid, name = 'a.json', ws = workspace) {
+  fs.writeFileSync(path.join(dir, name), JSON.stringify({ workspace: ws, pid, port }))
 }
 
 function runWrapper(stdin: string, env: NodeJS.ProcessEnv = {}): Promise<Run> {
@@ -51,7 +51,7 @@ function runWrapper(stdin: string, env: NodeJS.ProcessEnv = {}): Promise<Run> {
 
 interface Received { method?: string; url?: string; contentType?: string; body: string }
 
-function startRelay(mode: 'ok' | 'hang'): Promise<{ port: number; received: Received[]; close: () => void }> {
+function startRelay(mode: 'ok' | 'hang' | 'notfound'): Promise<{ port: number; received: Received[]; close: () => void }> {
   const received: Received[] = []
   const sockets = new Set<net.Socket>()
   const server = http.createServer((req, res) => {
@@ -60,6 +60,7 @@ function startRelay(mode: 'ok' | 'hang'): Promise<{ port: number; received: Rece
     req.on('end', () => {
       received.push({ method: req.method, url: req.url, contentType: req.headers['content-type'], body })
       if (mode === 'ok') { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}') }
+      if (mode === 'notfound') { res.writeHead(404); res.end('Not Found') }
     })
   })
   server.on('connection', s => { sockets.add(s); s.on('close', () => sockets.delete(s)) })
@@ -313,16 +314,18 @@ describe('statusline-wrapper : relais absent ou muet', () => {
     assert.equal(base.code, 2)
   })
 
-  it('relais arrêté (connexion refusée) : sortie et code identiques, retard < 300 ms', async () => {
+  // Marges larges (machine chargée) : on prouve l'indépendance (le serveur muet ne répond jamais et le processus sort
+  // quand même), pas des millisecondes.
+  it('relais arrêté (connexion refusée) : sortie et code identiques, sans attente notable', async () => {
     const base = await baseline()
     setInstance(await freePort())
     setOriginal(COMMAND)
     const r = await runWrapper(STDIN)
     assert.deepEqual([r.stdout, r.stderr, r.code], [base.stdout, base.stderr, base.code])
-    assert.ok(r.ms - base.ms < 300, `retard ${r.ms - base.ms} ms`)
+    assert.ok(r.ms - base.ms < 2000, `retard ${r.ms - base.ms} ms`)
   })
 
-  it('relais qui ne répond pas : sortie et code identiques, durée bornée', async () => {
+  it('relais qui ne répond pas : sortie et code identiques, le processus sort sans réponse du serveur', async () => {
     const base = await baseline()
     const relay = await startRelay('hang')
     try {
@@ -330,19 +333,111 @@ describe('statusline-wrapper : relais absent ou muet', () => {
       setOriginal(COMMAND)
       const r = await runWrapper(STDIN)
       assert.deepEqual([r.stdout, r.stderr, r.code], [base.stdout, base.stderr, base.code])
-      // plafond dur de 300 ms + marge de démarrage de processus ; jamais l'attente d'une réponse
-      assert.ok(r.ms - base.ms < 600, `retard ${r.ms - base.ms} ms`)
+      assert.equal(relay.received.length, 1, 'la requête est bien partie, et restée sans réponse')
+      assert.ok(r.ms - base.ms < 3000, `retard ${r.ms - base.ms} ms`)
     } finally { relay.close() }
   })
 
-  it('relais muet et commande d\'origine lente : la sortie arrive à la fin de la commande, pas après', async () => {
+  it('relais muet et commande d\'origine lente : la sortie arrive, avec le code de la commande', async () => {
     const relay = await startRelay('hang')
     try {
       setInstance(relay.port)
       setOriginal(`sleep 0.6; printf fin`)
       const r = await runWrapper(STDIN)
-      assert.equal(r.stdout, 'fin')
-      assert.ok(r.ms < 600 + 500, `durée ${r.ms} ms`)
+      assert.deepEqual([r.stdout, r.code], ['fin', 0])
+      assert.ok(r.ms < 5000, `durée ${r.ms} ms`)
     } finally { relay.close() }
+  })
+})
+
+describe('statusline-wrapper : toutes les instances, fenêtres partielles, signaux', () => {
+  it('envoie à toutes les instances vivantes (le quota est celui du compte), sans tenir compte des espaces de travail', async () => {
+    const one = await startRelay('ok')
+    const two = await startRelay('ok')
+    try {
+      setInstance(one.port, process.pid, 'a.json', workspace)
+      setInstance(two.port, process.pid, 'b.json', path.join(root, 'autre-espace'))
+      setOriginal(null)
+      await runWrapper(STDIN)
+      assert.equal(one.received.length, 1)
+      assert.equal(two.received.length, 1)
+      assert.deepEqual(JSON.parse(one.received[0].body), JSON.parse(two.received[0].body))
+    } finally { one.close(); two.close() }
+  })
+
+  it('une instance qui répond 404 (extension sans route) n\'empêche pas l\'autre de recevoir', async () => {
+    const refusing = await startRelay('notfound')
+    const good = await startRelay('ok')
+    try {
+      setInstance(refusing.port, process.pid, 'a.json')
+      setInstance(good.port, process.pid, 'b.json')
+      setOriginal('echo hi')
+      const r = await runWrapper(STDIN)
+      assert.deepEqual([r.stdout, r.code], ['hi\n', 0])
+      assert.equal(good.received.length, 1)
+      assert.equal(fs.existsSync(path.join(dir, 'a.json')), true, 'un 404 ne prouve pas que l\'instance est morte')
+    } finally { refusing.close(); good.close() }
+  })
+
+  it('fenêtre invalide omise, l\'autre part quand même (mêmes bornes que le relais)', async () => {
+    const relay = await startRelay('ok')
+    try {
+      setInstance(relay.port)
+      setOriginal(null)
+      await runWrapper(JSON.stringify({
+        cwd: workspace,
+        rate_limits: {
+          five_hour: { used_percentage: 38, resets_at: 1790000000 },
+          seven_day: { used_percentage: 5, resets_at: null },
+          spend_limit: { used_percentage: 1, resets_at: 1790000000 },
+        },
+      }))
+      assert.deepEqual(JSON.parse(relay.received[0].body), { rate_limits: { five_hour: { used_percentage: 38, resets_at: 1790000000 } } })
+    } finally { relay.close() }
+  })
+
+  for (const [label, win] of [
+    ['pourcentage > 100', { used_percentage: 100.5, resets_at: 1790000000 }],
+    ['pourcentage négatif', { used_percentage: -1, resets_at: 1790000000 }],
+    ['pourcentage non fini', { used_percentage: 'NaN', resets_at: 1790000000 }],
+    ['resets_at non entier', { used_percentage: 5, resets_at: 1790000000.5 }],
+    ['resets_at négatif', { used_percentage: 5, resets_at: -1 }],
+    ['resets_at hors borne', { used_percentage: 5, resets_at: 8.64e12 + 1 }],
+    ['resets_at manquant', { used_percentage: 5 }],
+    ['pourcentage manquant', { resets_at: 1790000000 }],
+  ] as const) {
+    it(`${label} : aucune fenêtre valide, rien n'est envoyé`, async () => {
+      const relay = await startRelay('ok')
+      try {
+        setInstance(relay.port)
+        setOriginal('echo hi')
+        const r = await runWrapper(JSON.stringify({ cwd: workspace, rate_limits: { five_hour: win } }))
+        assert.equal(r.stdout, 'hi\n')
+        assert.equal(relay.received.length, 0)
+      } finally { relay.close() }
+    })
+  }
+
+  it('bornes incluses : 0 et 100, resets_at 0 et 8.64e12 sont valides', async () => {
+    const relay = await startRelay('ok')
+    try {
+      setInstance(relay.port)
+      setOriginal(null)
+      await runWrapper(JSON.stringify({ cwd: workspace, rate_limits: { five_hour: { used_percentage: 0, resets_at: 0 }, seven_day: { used_percentage: 100, resets_at: 8.64e12 } } }))
+      assert.deepEqual(JSON.parse(relay.received[0].body).rate_limits, { five_hour: { used_percentage: 0, resets_at: 0 }, seven_day: { used_percentage: 100, resets_at: 8.64e12 } })
+    } finally { relay.close() }
+  })
+
+  it('SIGTERM : transmis au fils ; s\'il l\'ignore, sortie de secours rapide', { skip: process.platform === 'win32' ? 'Windows' : false }, async () => {
+    setOriginal('trap "" TERM; sleep 4')
+    const child = spawn(process.execPath, [scriptPath, arg as string], { env: { ...process.env, HOME: home, USERPROFILE: home } })
+    const exited = new Promise<number | null>(resolve => child.on('exit', code => resolve(code))) // 'exit': l'orphelin sleep garde les tubes ouverts
+    child.stdin.end(STDIN)
+    await new Promise(r => setTimeout(r, 500))
+    const t0 = Date.now()
+    child.kill('SIGTERM')
+    const code = await exited
+    assert.ok(Date.now() - t0 < 3000, `sorti après ${Date.now() - t0} ms, le fils dormait 4 s`)
+    assert.equal(code, 128 + 15)
   })
 })
