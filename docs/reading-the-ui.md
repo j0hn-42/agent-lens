@@ -52,6 +52,7 @@ The legend does not list symbols the canvas does not draw (#244). A row appears 
 - a tool card line, a discovery card by type, a context part (non-zero for a drawn agent): the card or the part exists;
 - a parent line: solid when the events confirm the link, dashed when they do not; a dispatch or return dot, a file conflict line, a "+N" or green badge on a folded branch, a session halo: drawn right now;
 - a message link style: a link with at least one message in that state (in flight, recent, error, quiet); a bubble: a message bubble exists.
+- a loop or repeat badge (*Loops and repeats*, #377): the badge is drawn on at least one agent of the scene.
 
 The sentence under the title says how many symbols are listed ("N symbols on screen") or that nothing is on screen yet. **Show all symbols** (a toggle button, Tab then Enter or Space) lists the complete reference, on screen or not; the choice is not saved. A row whose symbol just left the scene (a message in flight, a particle, a tool card) stays listed for 10 seconds so the list does not jump under you. The guided demo keeps the complete legend, because its steps describe symbols the demo never draws.
 
@@ -78,6 +79,7 @@ The guided demo tour (`pnpm run dev:demo:guided` or `?scenario=guided`, see [dem
 - **Context window**: step *Context window*.
 - **Discoveries**: none of these entries is shown in the demo; they are all described only (*Seen only in a real session*).
 - **Runtime**: steps *Meet your agent* (Claude) and *Two runtimes* (Codex).
+- **Loops and repeats**: both badges are described only (*Seen only in a real session*): the demo has no loop and no repeated call.
 
 ## Why this tool? and the causal chain of a failure
 
@@ -196,6 +198,8 @@ The **Files** panel opens with a "Repeated reads and calls" section, computed fr
 | **N more not shown** | Only the 20 costliest rows are drawn. |
 
 Only Read, Glob and Bash/`exec_command` are compared, because their input summary keeps every argument. Grep and the other tools are never compared: their summary drops options, so two equal summaries would not prove two equal calls. Edits made through Bash (for example `sed -i`) or outside the agent are not seen, so a re-read after one can be listed. Each row is a button that opens the file only when the path is absolute and the host can open files (VS Code); otherwise it is plain text.
+
+- **Badge on the canvas** (#377): an agent with at least one row here (one repeat is enough, the rule above; no threshold is added) carries a double chevron (») on a dark disc on the upper-left rim of its node, with the legend row *Double chevron on a node: repeated reads or calls observed*. A loop badge takes its place when the same agent also has a loop: one badge per node. The outline adds ", repeated calls observed" to the agent button and a line naming the costliest row ("Repeated calls observed: read again 2 times, no edit seen in between"), without the path. A badge is proven; its absence proves nothing (tracking limit, calls not compared, events not replayed).
 
 ## Delegation report
 
@@ -400,6 +404,8 @@ The **Health** section of the inspector gives the verdict of the selected agent,
 | **Not enough activity to judge** | No comparable tool call was received. |
 
 Limits, on purpose: only what the events prove is counted, so a loop can be missed (calls without input data, another tool between two identical calls, an edit followed by a read of another file) but is not invented. A tool that polls on purpose (the same `Bash` status command three times) is reported as a repeat: read the evidence before acting. Only sessions whose events are in the current view have a verdict.
+
+- **Badge on the canvas** (#377): a node whose verdict is **Loop observed** carries a circular arrow (⟳) on a dark disc on the upper-left rim of the hexagon (the crown holds the upper-right one), with the legend row *Circular arrow on a node: loop observed* under **Loops and repeats**. No badge is drawn for the other verdicts: there is no "healthy" mark. The screen-reader outline adds ", loop observed" to the agent button and a line with the evidence (at most two findings, the others counted, "at least" kept). The badge is static (it never spins: the loop may be over), drawn at every zoom, faded with a stale or archived node, and not announced live. It is not clickable: select the node for the **Health** section.
 
 ## Canvas controls (bottom right)
 
