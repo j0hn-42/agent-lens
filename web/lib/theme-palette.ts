@@ -11,7 +11,7 @@
 
 import { TOKENS, SHADOW_CARD, type ThemeId, type ThemeTokens } from './theme-tokens'
 
-// Neon palette (current look). The role-named keys at the end (surface ... info) are the neon design tokens.
+// Neon palette (current look). The role-named keys at the end (surface ... warn) are the neon design tokens.
 export const NEON_COLORS = {
   // Background
   void: '#050510',
@@ -238,20 +238,14 @@ export const NEON_COLORS = {
   scrollBtnText: '#66ccff',
   scrollbarThumb: 'rgba(102,204,255,0.5)', // >= 3:1 non-text — scrollbar thumb (mirrors globals.css)
 
-  // Status dot rings (non-color-only state cue)
-
   // Design tokens by role (neon values of the design system; new keys, nothing above depends on them)
   surface: '#0a0f1e',
-  edge: '#1c3750',
   ink: '#aaeeff',
   accent: '#66ccff',
   onAccent: '#050510',
   focus: '#99e0ff',
   ok: '#66ffaa',
   warn: '#ffbb44',
-  danger: '#ff6666',
-  delegate: '#cc88ff',
-  info: '#22d3ee',
   shadowCard: '0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08)',
   glassBlur: 'blur(20px)',
 
@@ -260,15 +254,10 @@ export const NEON_COLORS = {
    *  draws these two states in them; the `state-thinking` / `state-waiting` tokens carry them for every theme's interface. */
   stateThinking: '#b79cff',
   stateWaitingPermission: '#ff7ad9',
-  /** Crown badge (LEAD / MAIN): fill and text on it */
-  /** Stale node and its "last known state" label */
-  staleText: '#c5ced8',
   /** Halo of a teammate whose team colour is missing */
   teamDefault: '#b794f6',
   /** Shadow under an agent node */
   depthShadow: 'rgba(0, 0, 0, 0.5)',
-  /** Halo colours of sessions */
-
   commDispatchBg: 'rgba(80,140,255,0.14)',
   commDispatchBgSelected: 'rgba(80,140,255,0.26)',
   commDispatchText: '#9cc4ff',
@@ -543,24 +532,18 @@ export function derivePalette(t: Readonly<ThemeTokens>, shadowCard: string): Pal
     scrollBtnText: accent,
     scrollbarThumb: ctl,
 
-
     surface,
-    edge,
     ink,
     accent,
     onAccent: t['on-accent'],
     focus: t.focus,
     ok,
     warn,
-    danger,
-    delegate,
-    info,
     shadowCard,
     glassBlur: 'none',
 
     stateThinking: t['state-thinking'],
     stateWaitingPermission: t['state-waiting'],
-    staleText: muted,
     teamDefault: delegate,
     depthShadow: 'rgba(0, 0, 0, 0)',
 
