@@ -146,13 +146,15 @@ test('1440x900: the bar draws no summary text; the agent counts are drawn in the
   const page = await open(1440)
   try {
     const header = page.locator('header')
-    assert.doesNotMatch(await header.innerText(), /agents?:|\blast known\b|\bdone\b|tokens|\$\d/, 'no summary text drawn in the bar')
+    // What is drawn: the text without the visually hidden parts (the totals stay for screen readers, sr-only)
+    const drawn = await header.evaluate((el: Element) => { const c = el.cloneNode(true) as Element; for (const n of Array.from(c.querySelectorAll('.sr-only, [hidden], [role="tooltip"]'))) n.remove(); return c.textContent ?? '' })
+    assert.doesNotMatch(drawn, /agents?:|\blast known\b|\bdone\b|tokens|\$\d/, `no summary text drawn in the bar: "${drawn}"`)
     await header.getByRole('button', { name: /^Sessions/ }).click()
     const counts = page.locator('#sessions-panel').getByTestId('sessions-agent-counts')
     await counts.waitFor({ state: 'visible' })
-    const drawn = await counts.innerText()
-    console.log(`#523 Sessions panel header counts: "${drawn}"`)
-    assert.match(drawn, /^\d+ agents?: \d+ active( · \d+ (last known|idle|error))* · \d+ done$|^\d+ sessions? · \d+ agents?$/, drawn)
+    const shown = await counts.evaluate((el: Element) => { const c = el.cloneNode(true) as Element; for (const n of Array.from(c.querySelectorAll('.sr-only, [hidden], [role="tooltip"]'))) n.remove(); return c.textContent ?? '' })
+    console.log(`#523 Sessions panel header counts: "${shown}"`)
+    assert.match(shown, /^\d+ agents?: \d+ active( · \d+ (last known|idle|error))* · \d+ done$|^\d+ sessions? · \d+ agents?$/, shown)
   } finally {
     await page.context().close()
   }

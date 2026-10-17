@@ -157,7 +157,8 @@ for (const [w, h] of [[1024, 900], [1280, 800]] as Array<[number, number]>) {
       assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
       // #523: the bar draws no summary text; the agent counts are drawn in the Sessions panel header
       assert.equal(await page.locator('header').getByTestId('topbar-agent-counts').count(), 0, 'no agent counts in the bar')
-      assert.doesNotMatch(await page.locator('header').innerText(), /agents?:|\blast known\b|\bdone\b/, 'no counts drawn in the bar')
+      const drawn = await page.locator('header').evaluate((el: Element) => { const c = el.cloneNode(true) as Element; for (const n of Array.from(c.querySelectorAll('.sr-only, [hidden], [role="tooltip"]'))) n.remove(); return c.textContent ?? '' })
+      assert.doesNotMatch(drawn, /agents?:|\blast known\b|\bdone\b/, `no counts drawn in the bar: "${drawn}"`)
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
     } finally {
       await page.context().close()
