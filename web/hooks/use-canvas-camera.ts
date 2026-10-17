@@ -138,16 +138,18 @@ export function useCanvasCamera({
     if (target) targetTransformRef.current = target
   }, [computeFitTransform])
 
-  useEffect(() => {
-    if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
-  }, [zoomToFitTrigger, doZoomToFit])
-
   // Selection changes cancel any in-flight camera lerp, but never re-enable auto-fit:
   // once the user panned/zoomed manually the camera stays where they put it
   // (an explicit "Fit to view" or the fit trigger re-enables it).
+  // Declared before the fit trigger: effects run in order, so a fit requested in the same render as a new
+  // selection (the agent menu's "Zoom to fit", #377) is not cancelled, and frames that new selection.
   useEffect(() => {
     targetTransformRef.current = null
   }, [selectedAgentId])
+
+  useEffect(() => {
+    if (zoomToFitTrigger && zoomToFitTrigger > 0) doZoomToFit()
+  }, [zoomToFitTrigger, doZoomToFit])
 
   const screenToCanvas = useCallback((screenX: number, screenY: number) => {
     const canvas = mainCanvasRef.current

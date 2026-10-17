@@ -161,6 +161,15 @@ export interface SystemSample {
   platformNote: string | null
 }
 
+/** View of the relay's SSE `quota` message (#467): `remainingPercent` is 100 - used, `resetsAt` in epoch seconds,
+ *  `receivedAt` in epoch milliseconds. A window the relay could not prove is null. */
+export interface GaugeView { remainingPercent: number; resetsAt: number }
+export interface QuotaSnapshotView {
+  fiveHour: GaugeView | null
+  sevenDay: GaugeView | null
+  receivedAt: number
+}
+
 // ─── Runtime validation (messages are untrusted: relay, hooks and window.postMessage) ───
 
 const CONNECTION_STATUSES: readonly string[] = ['connected', 'disconnected', 'watching', 'connecting']

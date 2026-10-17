@@ -296,6 +296,56 @@ function recordSettingsPath(discoveryDir, settingsPath) {
   writeFileAtomic(path.join(discoveryDir, SETTINGS_PATHS_FILE), [...known, resolved].join('\n') + '\n')
 }
 
+// ─── Status line wrapper (#467) ─────────────────────────────────────────────
+// The wrapper command carries the user's original statusLine as its last argument (base64url JSON, or null):
+// no state outside settings.json, so each account restores itself and nothing depends on ~/.claude/agent-lens.
+
+/** A statusLine command that runs the wrapper, whatever the install path or quoting. */
+const STATUSLINE_COMMAND_MARKER = /agent-lens[\\/]statusline\.js/
+const STATUSLINE_ARG_PATTERN = /agent-lens[\\/]statusline\.js"?\s+([A-Za-z0-9_-]+)\s*$/
+
+class StatusLineOriginalError extends Error {
+  constructor(reason) {
+    super(`The original statusLine saved by Agent Lens is unreadable (${reason}). settings.json was left untouched: restore the "statusLine" entry by hand.`)
+    this.name = 'StatusLineOriginalError'
+  }
+}
+
+function isStatusLineWrapper(statusLine) {
+  return !!statusLine && typeof statusLine === 'object' && typeof statusLine.command === 'string' && STATUSLINE_COMMAND_MARKER.test(statusLine.command)
+}
+
+/** `<baseCommand> <base64url of JSON(original)>`; `original` is the whole statusLine object, or null if there was none. */
+function encodeStatusLineCommand(baseCommand, original) {
+  return `${baseCommand} ${Buffer.from(JSON.stringify(original === undefined ? null : original), 'utf8').toString('base64url')}`
+}
+
+/** The original statusLine (object or null) carried by a wrapper statusLine. Throws StatusLineOriginalError. */
+function decodeStatusLineOriginal(statusLine) {
+  const match = isStatusLineWrapper(statusLine) && STATUSLINE_ARG_PATTERN.exec(statusLine.command)
+  if (!match) throw new StatusLineOriginalError('argument missing')
+  let original
+  try { original = JSON.parse(Buffer.from(match[1], 'base64url').toString('utf8')) } catch { throw new StatusLineOriginalError('corrupted argument') }
+  if (original !== null && (typeof original !== 'object' || Array.isArray(original))) throw new StatusLineOriginalError('unexpected shape')
+  return original
+}
+
+/**
+ * Put back the original statusLine in one settings file, only if it still points at our wrapper (a statusLine the
+ * user changed since is theirs). Returns the restored value (an object, or null when the key was removed), or
+ * undefined when there was nothing to do. Throws SettingsUnreadableError / StatusLineOriginalError, file untouched.
+ */
+function restoreStatusLineInFile(filePath) {
+  const settings = readSettingsStrict(filePath)
+  if (!settings || !isStatusLineWrapper(settings.statusLine)) return undefined
+  const original = decodeStatusLineOriginal(settings.statusLine)
+  updateSettings(filePath, s => {
+    if (original) s.statusLine = original
+    else delete s.statusLine
+  })
+  return original
+}
+
 module.exports = {
   HOOK_COMMAND_MARKER,
   LEGACY_HOOK_COMMAND_MARKER,
@@ -320,4 +370,10 @@ module.exports = {
   updateSettings,
   readSettingsPaths,
   recordSettingsPath,
+  STATUSLINE_COMMAND_MARKER,
+  StatusLineOriginalError,
+  isStatusLineWrapper,
+  encodeStatusLineCommand,
+  decodeStatusLineOriginal,
+  restoreStatusLineInFile,
 }

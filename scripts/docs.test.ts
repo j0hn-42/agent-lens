@@ -350,3 +350,12 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
   assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
   assert.ok(fs.existsSync(path.join(root, 'app-tray/src/driver.ts')))
 })
+
+test('the reading guide says a Glob has file cards, a flow, and a count from numFiles (#451)', () => {
+  const lines = read('docs/reading-the-ui.md').split('\n')
+  const flow = lines.find(l => l.startsWith('- **Flow to the file cards**'))
+  assert.ok(flow?.includes('from a Grep or Glob tool card'), 'the flow starts from a Grep or Glob card')
+  const cards = lines.find(l => l.startsWith('- **File cards from a search**'))
+  assert.ok(cards?.includes('`numFiles` for a Glob'), 'the Glob count is numFiles')
+  assert.ok(!cards?.includes("the count is the header's."), "the count is not always the header's")
+})

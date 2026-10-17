@@ -68,7 +68,7 @@ function dock(replayLost: number) {
       sessions: [], selectedSessionId: 'team:x', sessionsWithActivity: new Set(), sessionModels: new Map(),
       selectSession: noop, renameSession: noop, useMockData: true, isVSCode: false, connectionStatus: 'connected',
       teams: new Map(), teamWorking: new Map(), teamSummaries: new Map(), teamMemberCounts: new Map(), relayScope: null,
-      systemStats: [], eventLoss: LOSS, replayLost,
+      systemStats: [], quota: null, eventLoss: LOSS, replayLost,
     },
     selection: { selectedAgentId: null, handleAgentClick: noop },
     attention: undefined, health: { bySession: undefined },

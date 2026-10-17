@@ -42,7 +42,8 @@ test('neon design tokens are the documented values', () => {
     void: '#050510', surface: '#0a0f1e', 'surface-raised': '#121a30', edge: '#1c3750', 'control-border': '#386e8e',
     ink: '#aaeeff', 'ink-muted': '#7fc3e0', accent: '#66ccff', 'on-accent': '#050510', focus: '#99e0ff',
     ok: '#66ffaa', warn: '#ffbb44', danger: '#ff6666', delegate: '#cc88ff', info: '#22d3ee', 'context-system': '#7777a0',
-    'system-warm': '#ff9944', 'system-critical': '#ff6666', 'state-thinking': '#b79cff', 'state-waiting': '#ff7ad9',
+    'system-warm': '#ff9944', 'system-critical': '#ff6666',
+    'quota-ok': '#66ffaa', 'quota-low': '#ff9944', 'quota-critical': '#ff6666', 'state-thinking': '#b79cff', 'state-waiting': '#ff7ad9',
   })
 })
 
@@ -141,6 +142,7 @@ test('Catppuccin themes use the official palette (palette.json 1.8.0) on the rol
       void: c.crust, surface: c.mantle, 'surface-raised': c.base, edge: c.surface1, 'control-border': c.overlay1,
       ink: c.text, 'ink-muted': c.subtext0, accent: c.mauve, 'on-accent': c.crust, focus: c.blue,
       ok: c.green, warn: c.yellow, danger: c.red, delegate: c.lavender, info: c.teal, 'context-system': c.overlay1, 'system-warm': c.peach, 'system-critical': c.red,
+      'quota-ok': c.green, 'quota-low': c.peach, 'quota-critical': c.red,
       'state-thinking': c.sapphire, 'state-waiting': c.pink,
     }, id)
   }

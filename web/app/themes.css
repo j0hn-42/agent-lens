@@ -21,6 +21,9 @@
   --lens-context-system: #8087a2;
   --lens-system-warm: #f5a97f;
   --lens-system-critical: #ed8796;
+  --lens-quota-ok: #a6da95;
+  --lens-quota-low: #f5a97f;
+  --lens-quota-critical: #ed8796;
   --lens-state-thinking: #7dc4e4;
   --lens-state-waiting: #f5bde6;
   --lens-bar-bg: #1e2030;
@@ -121,6 +124,9 @@
   --lens-context-system: #7f849c;
   --lens-system-warm: #fab387;
   --lens-system-critical: #f38ba8;
+  --lens-quota-ok: #a6e3a1;
+  --lens-quota-low: #fab387;
+  --lens-quota-critical: #f38ba8;
   --lens-state-thinking: #74c7ec;
   --lens-state-waiting: #f5c2e7;
   --lens-bar-bg: #181825;
@@ -221,6 +227,9 @@
   --lens-context-system: #838ba7;
   --lens-system-warm: #ef9f76;
   --lens-system-critical: #e78284;
+  --lens-quota-ok: #a6d189;
+  --lens-quota-low: #ef9f76;
+  --lens-quota-critical: #e78284;
   --lens-state-thinking: #85c1dc;
   --lens-state-waiting: #f4b8e4;
   --lens-bar-bg: #292c3c;
@@ -321,6 +330,9 @@
   --lens-context-system: #7d86bd;
   --lens-system-warm: #f0a070;
   --lens-system-critical: #f26683;
+  --lens-quota-ok: #6ed799;
+  --lens-quota-low: #f0a070;
+  --lens-quota-critical: #f26683;
   --lens-state-thinking: #5fd4e6;
   --lens-state-waiting: #ff8fd8;
   --lens-bar-bg: #121730;
@@ -421,6 +433,9 @@
   --lens-context-system: #8c8c90;
   --lens-system-warm: #e8995a;
   --lens-system-critical: #e86a6a;
+  --lens-quota-ok: #8fd3a8;
+  --lens-quota-low: #e8995a;
+  --lens-quota-critical: #e86a6a;
   --lens-state-thinking: #8fb8ff;
   --lens-state-waiting: #e88ae8;
   --lens-bar-bg: #1b1b1c;
@@ -521,6 +536,9 @@
   --lens-context-system: #7777a0;
   --lens-system-warm: #ff9944;
   --lens-system-critical: #ff6666;
+  --lens-quota-ok: #66ffaa;
+  --lens-quota-low: #ff9944;
+  --lens-quota-critical: #ff6666;
   --lens-state-thinking: #b79cff;
   --lens-state-waiting: #ff7ad9;
   --lens-shadow-card: 0 0 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(100, 200, 255, 0.08);
@@ -621,6 +639,9 @@
   --lens-context-system: #968573;
   --lens-system-warm: #f09858;
   --lens-system-critical: #e17260;
+  --lens-quota-ok: #a3ca88;
+  --lens-quota-low: #f09858;
+  --lens-quota-critical: #e17260;
   --lens-state-thinking: #9fb4e8;
   --lens-state-waiting: #f09ac8;
   --lens-bar-bg: #1e1814;
@@ -721,6 +742,9 @@
   --lens-context-system: #7c7970;
   --lens-system-warm: #e8935a;
   --lens-system-critical: #e5707a;
+  --lens-quota-ok: #8fa774;
+  --lens-quota-low: #e8935a;
+  --lens-quota-critical: #e5707a;
   --lens-state-thinking: #a8b4f0;
   --lens-state-waiting: #e08ce0;
   --lens-bar-bg: #141413;
@@ -821,6 +845,9 @@
   --lens-context-system: #a8a8a8;
   --lens-system-warm: #ffb070;
   --lens-system-critical: #ff8686;
+  --lens-quota-ok: #86ffb7;
+  --lens-quota-low: #ffb070;
+  --lens-quota-critical: #ff8686;
   --lens-state-thinking: #b8a6ff;
   --lens-state-waiting: #ff8ae6;
   --lens-bar-bg: #0a0a0a;
