@@ -56,6 +56,18 @@ export function openCodeDbLocation(): OpenCodeDbPath {
   return resolveOpenCodeDbPath({ env: process.env, homedir: os.homedir(), platform: process.platform })
 }
 
+/**
+ * `file` with the home directory shown as `~`, only when it is a whole leading part of the path. An
+ * empty or relative home (os.homedir() may be either) leaves the path as is (#420).
+ */
+export function homeRelative(file: string, home: string): string {
+  if (!home || !path.isAbsolute(home)) return file
+  const h = home.replace(/[\\/]+$/, '')
+  if (!h) return file
+  if (file === h) return '~'
+  return file.startsWith(h) && (file[h.length] === '/' || file[h.length] === path.sep) ? `~${file.slice(h.length)}` : file
+}
+
 interface WatchedOpenCodeSession {
   sessionId: string
   cwd?: string
@@ -77,6 +89,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private sessions = new Map<string, WatchedOpenCodeSession>()
   private retired = new Map<string, RetiredOpenCodeSession>()
   private known = new Map<string, OpenCodeSessionRead>()
+  /** Ids looked up in the database and not found during the current poll. */
+  private missed = new Set<string>()
   private workspacePath: string | null = null
   private scanInterval: NodeJS.Timeout | null = null
   private statusText = 'OpenCode: not started'
@@ -194,6 +208,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
     }
     this.sessions.clear()
+    this.capWarned = false
     this.retired.clear()
     this.known.clear()
     this.verdicts.clear()
@@ -258,7 +273,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.db = opened.db
     this.dbOpenFile = file
     this.dbIdentity = identity
-    this.okText = `OpenCode database (${file.replace(os.homedir(), '~')})`
+    this.okText = `OpenCode database (${homeRelative(file, os.homedir())})`
     this.setStatus(this.okText)
     return true
   }
@@ -285,6 +300,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   private deliver(poll: OpenCodePoll): void {
+    this.missed.clear()
     const rows = [...poll.sessions].sort((a, b) => a.time_created - b.time_created)
     for (const row of rows) this.remember(row)
     // Most recently updated first: when more roots compete than the cap allows, the newest win.
@@ -313,10 +329,24 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
   }
 
+  /**
+   * A session row: remembered, else read by id from the database (KNOWN_MAX evicts the oldest rows, and
+   * activity on an old session does not always bring its row back, #420). A miss is not asked again
+   * within the same poll.
+   */
+  private lookup(id: string): OpenCodeSessionRead | undefined {
+    const row = this.known.get(id)
+    if (row || !this.db || this.missed.has(id)) return row
+    const read = this.db.sessionById(id)
+    if (!read) { this.missed.add(id); return undefined }
+    this.remember(read)
+    return read
+  }
+
   private rootOf(id: string): string | undefined {
     let cur = id
     for (let i = 0; i < ROOT_HOPS_MAX; i++) {
-      const row = this.known.get(cur)
+      const row = this.lookup(cur)
       if (!row) return undefined
       if (!row.parent_id) return cur
       cur = row.parent_id
@@ -358,7 +388,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (!rootId) return undefined
     const attached = this.sessions.get(rootId)
     if (attached) return attached
-    const row = this.known.get(rootId)
+    const row = this.lookup(rootId)
     if (!row || isArchived(row)) return undefined
     return this.attach(row)
   }
@@ -459,6 +489,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    *  (proved by the database) fires `ended`: an idle release is a silence, never an end. */
   private release(id: string, s: WatchedOpenCodeSession, reason: 'idle' | 'archived'): void {
     this.sessions.delete(id)
+    // Below the cap again: the next time it is reached is reported again (#420)
+    if (this.sessions.size < OPENCODE_MAX_WATCHED_SESSIONS) this.capWarned = false
     this.retired.delete(id)
     this.retired.set(id, { state: s.state, parser: s.parser, sessionStartTime: s.sessionStartTime, label: s.label })
     if (this.retired.size > OPENCODE_MAX_WATCHED_SESSIONS * 4) {

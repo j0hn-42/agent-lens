@@ -16,7 +16,7 @@ import {
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
   drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
-  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
+  drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
 } from '@/components/agent-visualizer/canvas/index'
@@ -387,6 +387,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       drawDiscoveryConnections(ctx, discoveries, agents)
       // Team halos sit under everything; links (communication edges) under the nodes
       opts.reducedMotion = calmOf('links')
+      drawWorkspaceZones(ctx, computeWorkspaceZones(clusters), opts)
       drawClusterHalos(ctx, clusters, activeClusterKey, opts)
       drawSessionLinks(ctx, sessionLinkSegments(clusters, deps.sessionLinksRef.current ?? []), opts)
       drawPhaseLabels(ctx, phaseLabels(agents.values()), opts)

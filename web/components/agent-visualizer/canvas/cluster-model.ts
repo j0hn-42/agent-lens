@@ -55,6 +55,8 @@ export interface Cluster {
   workspace?: string
   /** Repository every session of the cluster provably belongs to; absent otherwise (never guessed) */
   projectName?: string
+  /** Id of that repository (set together with projectName); groups clusters into workspace zones */
+  projectId?: string
   status: ClusterStatus
   statusText: string
   /** Known cost, a lower bound when `costText` says so; null when nothing is known (never 0) */
@@ -193,8 +195,8 @@ function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: S
   return label || cleanText(sessionId, 24) || 'session'
 }
 
-/** Name of the repository all the sessions belong to; undefined as soon as one of them has none or another one. */
-function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): string | undefined {
+/** Repository all the sessions belong to; undefined as soon as one of them has none or another one. */
+function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, SessionMeta>): { id: string; name: string } | undefined {
   let id: string | undefined
   let name: string | undefined
   for (const s of sessionIds) {
@@ -204,7 +206,7 @@ function clusterProject(sessionIds: string[], sessions?: ReadonlyMap<string, Ses
     id = m.projectId
     name = cleanText(m.projectName, 40) || undefined
   }
-  return name
+  return id && name ? { id, name } : undefined
 }
 
 /**
@@ -287,7 +289,7 @@ export function computeClusters(
       teamKind,
       runtime: runtimeRaw === 'codex' ? 'Codex' : runtimeRaw === 'copilot' ? 'Copilot' : runtimeRaw === 'pi' ? 'Pi' : runtimeRaw === 'gemini' ? 'Gemini CLI' : runtimeRaw === 'opencode' ? 'OpenCode' : 'Claude',
       workspace: cleanText(meta?.workspace, 40) || undefined,
-      ...(project ? { projectName: project } : {}),
+      ...(project ? { projectId: project.id, projectName: project.name } : {}),
       status,
       statusText,
       cost: costUsage.value,

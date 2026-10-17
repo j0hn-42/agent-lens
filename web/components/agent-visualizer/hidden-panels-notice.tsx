@@ -46,7 +46,7 @@ export function UnderTopbarStack({ contextOpen = false, banner }: { contextOpen?
   const { layout, env } = useDockSnapshot()
   const noticeShown = hiddenPanelsText(layout.hidden, { context: contextOpen }) !== ''
   return (
-    <div data-topbar-stack="" className="absolute left-2 right-2 pointer-events-none" style={{ top: env.topbarH + TOPBAR_STACK_TOP }}>
+    <div data-topbar-stack="" className="absolute left-2 right-2 pointer-events-none" style={{ top: env.topbarH + layout.permissionsBand + TOPBAR_STACK_TOP }}>
       <HiddenPanelsNotice contextOpen={contextOpen} />
       {banner && (
         <div

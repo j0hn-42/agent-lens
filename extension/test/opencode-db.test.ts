@@ -31,6 +31,15 @@ describe('resolveOpenCodeDbPath', () => {
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: '' })), '/home/u/.local/share/opencode/opencode.db')
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: 'rel' })), '/home/u/.local/share/opencode/opencode.db')
   })
+  it('#420: an empty or relative home directory gives no default path (never relative to the working directory)', () => {
+    for (const homedir of ['', 'rel/home']) {
+      const r = resolveOpenCodeDbPath({ env: {}, homedir, platform: 'linux' })
+      assert.equal(r.kind, 'unavailable', `homedir ${JSON.stringify(homedir)}`)
+    }
+    // XDG_DATA_HOME or an absolute OPENCODE_DB still work without a home directory
+    assert.equal(pathOf(resolveOpenCodeDbPath({ env: { XDG_DATA_HOME: '/data' }, homedir: '', platform: 'linux' })), '/data/opencode/opencode.db')
+    assert.equal(pathOf(resolveOpenCodeDbPath({ env: { OPENCODE_DB: '/abs.db' }, homedir: '', platform: 'linux' })), '/abs.db')
+  })
   it('never guesses a channel file: opencode.db unless a path is given', () => {
     assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' })), '/home/u/.local/share/opencode/opencode.db')
   })
@@ -152,6 +161,20 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     const raw = real(file, { readOnly: true, timeoutMs: 100 })
     assert.throws(() => raw.all("INSERT INTO session (id, time_created, time_updated) VALUES ('x', 1, 1)"), /readonly|read-only/i)
     raw.close()
+  })
+
+  it('#420: sessionById reads one session row by primary key, and refuses an id that is not a session id', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('ses_1', 100)); db.exec(sess('ses_2', 200))
+    db.close()
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      assert.deepEqual([r.db.sessionById('ses_2')?.id, r.db.sessionById('ses_2')?.time_updated], ['ses_2', 200])
+      assert.equal(r.db.sessionById('ses_absent'), undefined)
+      assert.equal(r.db.sessionById("ses_1' OR '1'='1"), undefined)
+      assert.equal(r.db.sessionById(''), undefined)
+    } finally { r.db.close() }
   })
 
   it('reads rows of the three tables and normalises the fields', () => {

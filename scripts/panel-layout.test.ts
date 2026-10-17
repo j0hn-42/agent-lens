@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   computeDockLayout, clampDockWidth, leftPanelWidthBounds, clampLeftPanelWidth, dockWidthForKey, dockWidthForDrag, dockWidthBounds, placePopup,
   intersects, bottom, right, createDockStore, OBSTACLE_SELECTORS, SHEET_BREAKPOINT, SHEET_NOTICE_H, MIN_MAIN_H, RIGHT_DOCK, freeIntervals, findFreeSpot,
-  topbarStack, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
+  topbarStack, permissionsBand, TOPBAR_STACK_TOP, TOPBAR_STACK_GAP, BANNER_MIN_TOP,
   type PanelId, type Rect, type DockEnv, type DockLayout,
 } from '../web/lib/panel-layout'
 
@@ -381,4 +381,45 @@ test('store: a measured banner re-flows the sheet (#453)', () => {
   env = fakeEnv({ viewport: { w: 390, h: 844 }, bannerH: 46 })
   store.measure()
   assert.ok(store.getSnapshot().layout.rects.detail!.y >= TOPBAR_H + BANNER_MIN_TOP + 46)
+})
+
+// #410: the permission cards get their own slot at the top of the column under the top bar in a sheet: the notice and
+// the banner go under it, the sheet under all of them (the cards used to cover the notice and the top of the sheet).
+test('topbarStack: the permission slot comes first, the notice and the banner are pushed under it (#410)', () => {
+  assert.deepEqual(topbarStack(0, 0, 0, 0), { bannerTop: null, band: 0 })
+  assert.equal(topbarStack(0, 0, 0, 120).band, 120 + TOPBAR_STACK_GAP + 2, 'the slot alone')
+  assert.equal(topbarStack(2, 55, 0, 120).band, 120 + TOPBAR_STACK_GAP + TOPBAR_STACK_TOP + 55 + 2, 'notice under the slot')
+  const both = topbarStack(2, 55, 78, 120)
+  assert.equal(both.bannerTop, 120 + TOPBAR_STACK_GAP + TOPBAR_STACK_TOP + 55 + TOPBAR_STACK_GAP)
+  assert.equal(permissionsBand(NaN), 0)
+  assert.equal(permissionsBand(-5), 0)
+  assert.equal(permissionsBand(120.2), 121 + TOPBAR_STACK_GAP)
+  assert.deepEqual(topbarStack(2, 55, 78, 0), topbarStack(2, 55, 78), 'no cards: unchanged')
+})
+
+test('sheet + permission cards: the sheet starts under the cards, the notice under the cards, at 320, 390 and 899 px (#410)', () => {
+  for (const w of [320, 390, 899]) {
+    const l = computeDockLayout({ viewport: { w, h: 844 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['detail', 'files'], noticeH: 40, permissionsH: 150 })
+    assert.equal(l.mode, 'sheet')
+    assert.equal(l.permissionsBand, permissionsBand(150))
+    assert.ok(l.rects.files!.y >= TOPBAR_H + permissionsBand(150) + TOPBAR_STACK_TOP + 40, `${w}px: the sheet starts under cards and notice`)
+    assert.ok(bottom(l.rects.files!) <= 844 - 16 - BAR_H - 8 + 0.5)
+  }
+})
+
+test('sheet + permission cards too tall: the slot is dropped, the sheet keeps its minimum height (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 390, h: 600 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['files'], permissionsH: 400 })
+  assert.equal(l.permissionsBand, 0)
+  assert.ok(l.rects.files!.h >= MIN_MAIN_H)
+})
+
+test('dock mode: no permission slot, the cards stay an obstacle (#410)', () => {
+  const l = computeDockLayout({ viewport: { w: 1600, h: 900 }, topbarH: TOPBAR_H, controlBarH: BAR_H, open: ['files'], permissionsH: 150 })
+  assert.equal(l.mode, 'dock')
+  assert.equal(l.permissionsBand, 0)
+})
+
+test('store: a measured permissions height is accepted and does not change a closed layout (#410)', () => {
+  const env = createDockStore(() => ({ viewport: { w: 390, h: 800 }, topbarH: TOPBAR_H, controlBarH: BAR_H, obstacles: [], permissionsH: 90 })).getSnapshot()
+  assert.equal(env.layout.permissionsBand, 0, 'nothing open: no band')
 })

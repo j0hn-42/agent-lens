@@ -4,12 +4,10 @@
  * reader) lives here. Import it BEFORE ./relay: it fixes HOME and GEMINI_CLI_HOME.
  */
 import '../extension/test/helpers/alias-vscode'
-import * as http from 'node:http'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { geminiProjectHash } from '../extension/src/gemini-event-parser'
-import { isStatusPath } from '../extension/src/relay-guards'
 
 export const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'af-relay-gemini-'))
 process.env.HOME = fakeHome
@@ -32,24 +30,4 @@ export function makeWorkspaceWithGeminiSession(): string {
   return workspace
 }
 
-type Relay = Awaited<ReturnType<typeof import('./relay').createRelay>>
-
-/** GET /status of a relay, served on a loopback port for the call. */
-export async function statusOf(relay: Relay): Promise<{ runtimes: string[]; sessionCount: number }> {
-  const server = http.createServer((req, res) => {
-    if (isStatusPath(req.url)) return relay.handleStatus(req, res)
-    res.writeHead(404); res.end()
-  })
-  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
-  const port = (server.address() as { port: number }).port
-  try {
-    const body = await new Promise<string>((resolve, reject) => {
-      http.get({ host: '127.0.0.1', port, path: '/status', agent: false }, res => {
-        let b = ''
-        res.on('data', c => { b += c })
-        res.on('end', () => resolve(b))
-      }).on('error', reject)
-    })
-    return JSON.parse(body)
-  } finally { server.close() }
-}
+export { statusOf } from './relay-status-of'
