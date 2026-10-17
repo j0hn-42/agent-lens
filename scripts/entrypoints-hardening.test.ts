@@ -310,6 +310,13 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     // '--host --remote': the flag is not swallowed as the address
     assert.equal((await runToExit(['--host', '--remote'])).code, 2)
   })
+
+  it('the --flag=value forms and a flag after --import are not ignored (#474)', async () => {
+    for (const args of [['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0']]) {
+      const r = await runToExit(args)
+      assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
+    }
+  })
 })
 
 describe('dev relay entry point: remote access flags stop the start (#474)', () => {
@@ -333,11 +340,20 @@ describe('dev relay entry point: remote access flags stop the start (#474)', () 
   }
 
   it('--host, --remote and --allow-host are refused, never read as the workspace', async () => {
-    for (const args of [['--host', '0.0.0.0'], ['--remote'], ['--allow-host', 'box.tail1234.ts.net'], [workspace, '--remote', '--host', '0.0.0.0']]) {
+    for (const args of [
+      ['--host', '0.0.0.0'], ['--remote'], ['--allow-host', 'box.tail1234.ts.net'], [workspace, '--remote', '--host', '0.0.0.0'],
+      ['--host=0.0.0.0'], ['--remote=1'], ['--allow-host=box.tail1234.ts.net'], ['--import', '--host', '0.0.0.0'],
+    ]) {
       const r = await runDevRelayToExit(args)
       assert.equal(r.code, 2, `${args.join(' ')}:\n${r.out}`)
       assert.match(r.out, /loopback/i, args.join(' '))
     }
+  })
+
+  it('an unknown option is refused, never read as the workspace', async () => {
+    const r = await runDevRelayToExit(['--hots', '0.0.0.0'])
+    assert.equal(r.code, 2, r.out)
+    assert.match(r.out, /--hots/)
   })
 })
 
@@ -346,6 +362,9 @@ describe('app entry point: no environment variable opens the listener (#474)', (
     const r = await start(ENTRIES[1], [], { AGENT_LENS_PORT: '0', AGENT_LENS_HOST: '0.0.0.0', AGENT_LENS_REMOTE: '1', HOST: '0.0.0.0' })
     try {
       assert.equal(await accepts('127.0.0.1', r.port), true)
+      // Proof that holds without an external interface (unshare -rn): on Linux all of 127/8 reaches a socket bound to
+      // 0.0.0.0, so 127.0.0.2 is refused only when the server is bound to 127.0.0.1 exactly
+      if (process.platform === 'linux') assert.equal(await accepts('127.0.0.2', r.port), false, 'bound to more than 127.0.0.1')
       const external = externalAddress()
       if (external) assert.equal(await accepts(external, r.port), false, `reachable on ${external}`)
       assert.equal((await request(r.port, 'GET', '/status', { Host: 'evil.example' })).status, 403)

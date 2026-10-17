@@ -156,6 +156,12 @@ describe('remoteStartupError (fail closed at startup)', () => {
     assert.notEqual(remoteStartupError({ allowHosts: [], host: '' }), null)
   })
 
+  it('an empty --host asks for an address, not for --remote (#474)', () => {
+    const err = remoteStartupError({ allowHosts: [], host: '' }) ?? ''
+    assert.match(err, /--host needs an address/)
+    assert.doesNotMatch(err, /--remote/)
+  })
+
   it('reads no environment variable, only the flags it is given (#474)', () => {
     const keys = ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST'] as const
     const saved = keys.map(k => process.env[k])
