@@ -34,6 +34,12 @@ interface SelectionOverlaysProps {
   menuActions: ContextMenuActions
 }
 
+/** The agent menu's "Show details": selects the right-clicked agent, which opens its detail card */
+function agentDetailsAction(selection: Selection): (() => void) | null {
+  const agentId = selection.contextMenu?.agentId
+  return agentId ? () => selection.handleAgentClick(agentId) : null
+}
+
 /** What opens over the canvas after a click: the agent card, the tool and discovery popups, the link panel, the context menu */
 export function SelectionOverlays({
   selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
@@ -108,7 +114,7 @@ export function SelectionOverlays({
       {selection.contextMenu && (
         <GlassContextMenu
           position={selection.contextMenu}
-          items={contextMenuItems(Boolean(selection.contextMenu.agentId), menuActions)}
+          items={contextMenuItems(Boolean(selection.contextMenu.agentId), { ...menuActions, showAgentDetails: agentDetailsAction(selection) })}
           onClose={() => selection.setContextMenu(null)}
         />
       )}
