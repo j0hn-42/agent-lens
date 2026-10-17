@@ -94,6 +94,10 @@ export function resolveOpenCodeDbPath(opts: OpenCodeDbPathOptions): OpenCodeDbPa
     return unavailablePath('the default database location is only resolved on Linux; set the database path setting or OPENCODE_DB to an absolute path.')
   }
   const xdg = env.XDG_DATA_HOME
+  // An empty or relative home would resolve against the working directory (#420)
+  if (!(xdg && path.posix.isAbsolute(xdg)) && !path.posix.isAbsolute(homedir)) {
+    return unavailablePath('no home directory is known; set XDG_DATA_HOME, the database path setting or OPENCODE_DB to an absolute path.')
+  }
   const base = xdg && path.posix.isAbsolute(xdg) ? xdg : path.posix.join(homedir, '.local', 'share')
   const data = path.posix.join(base, 'opencode')
   if (!override) return { kind: 'file', path: path.posix.join(data, 'opencode.db') }

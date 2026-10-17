@@ -31,6 +31,15 @@ describe('resolveOpenCodeDbPath', () => {
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: '' })), '/home/u/.local/share/opencode/opencode.db')
     assert.equal(pathOf(resolve({ XDG_DATA_HOME: 'rel' })), '/home/u/.local/share/opencode/opencode.db')
   })
+  it('#420: an empty or relative home directory gives no default path (never relative to the working directory)', () => {
+    for (const homedir of ['', 'rel/home']) {
+      const r = resolveOpenCodeDbPath({ env: {}, homedir, platform: 'linux' })
+      assert.equal(r.kind, 'unavailable', `homedir ${JSON.stringify(homedir)}`)
+    }
+    // XDG_DATA_HOME or an absolute OPENCODE_DB still work without a home directory
+    assert.equal(pathOf(resolveOpenCodeDbPath({ env: { XDG_DATA_HOME: '/data' }, homedir: '', platform: 'linux' })), '/data/opencode/opencode.db')
+    assert.equal(pathOf(resolveOpenCodeDbPath({ env: { OPENCODE_DB: '/abs.db' }, homedir: '', platform: 'linux' })), '/abs.db')
+  })
   it('never guesses a channel file: opencode.db unless a path is given', () => {
     assert.equal(pathOf(resolve({ OPENCODE_DISABLE_CHANNEL_DB: '0' })), '/home/u/.local/share/opencode/opencode.db')
   })

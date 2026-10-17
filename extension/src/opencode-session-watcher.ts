@@ -56,6 +56,18 @@ export function openCodeDbLocation(): OpenCodeDbPath {
   return resolveOpenCodeDbPath({ env: process.env, homedir: os.homedir(), platform: process.platform })
 }
 
+/**
+ * `file` with the home directory shown as `~`, only when it is a whole leading part of the path. An
+ * empty or relative home (os.homedir() may be either) leaves the path as is (#420).
+ */
+export function homeRelative(file: string, home: string): string {
+  if (!home || !path.isAbsolute(home)) return file
+  const h = home.replace(/[\\/]+$/, '')
+  if (!h) return file
+  if (file === h) return '~'
+  return file.startsWith(h) && (file[h.length] === '/' || file[h.length] === path.sep) ? `~${file.slice(h.length)}` : file
+}
+
 interface WatchedOpenCodeSession {
   sessionId: string
   cwd?: string
@@ -259,7 +271,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.db = opened.db
     this.dbOpenFile = file
     this.dbIdentity = identity
-    this.okText = `OpenCode database (${file.replace(os.homedir(), '~')})`
+    this.okText = `OpenCode database (${homeRelative(file, os.homedir())})`
     this.setStatus(this.okText)
     return true
   }

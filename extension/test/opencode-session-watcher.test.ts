@@ -7,7 +7,7 @@ import { describe, it, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import * as path from 'node:path'
 import fs from 'node:fs'
-import { OpenCodeSessionWatcher } from '../src/opencode-session-watcher'
+import { OpenCodeSessionWatcher, homeRelative } from '../src/opencode-session-watcher'
 import { ACTIVE_SESSION_AGE_S, OPENCODE_MAX_WATCHED_SESSIONS } from '../src/constants'
 import type { AgentEvent } from '../src/protocol'
 import type { SessionLifecycleEvent } from '../src/session-runtime'
@@ -511,5 +511,17 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(w.isSessionActive('ses_c'), true, 'the new database is read')
     assert.equal(w.isSessionActive('ses_a'), false, 'the replaced database is no longer served')
     fx.close()
+  })
+})
+
+describe('homeRelative (#420)', () => {
+  it('shortens a path under the home directory to ~', () => {
+    assert.equal(homeRelative('/home/u/.local/share/opencode/opencode.db', '/home/u'), '~/.local/share/opencode/opencode.db')
+  })
+  it('leaves the path as is when the home directory is empty, relative, or only a prefix of a name', () => {
+    assert.equal(homeRelative('/data/opencode.db', ''), '/data/opencode.db')
+    assert.equal(homeRelative('/data/opencode.db', 'data'), '/data/opencode.db')
+    assert.equal(homeRelative('/home/user2/opencode.db', '/home/u'), '/home/user2/opencode.db')
+    assert.equal(homeRelative('/x/home/u/opencode.db', '/home/u'), '/x/home/u/opencode.db')
   })
 })
