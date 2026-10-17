@@ -28,9 +28,9 @@ test('an item with a checked state is a menuitemcheckbox carrying aria-checked',
 
 test('the icon is decorative: aria-hidden, not part of the accessible name', () => {
   const v = render(
-    <GlassContextMenu position={{ x: 10, y: 10 }} onClose={() => {}} items={[{ icon: '📊', label: 'Toggle Stats', onClick: () => {} }]} />,
+    <GlassContextMenu position={{ x: 10, y: 10 }} onClose={() => {}} items={[{ icon: '📊', label: 'Toggle stats', onClick: () => {} }]} />,
   )
-  const item = v.getByRole('menuitem', { name: 'Toggle Stats' })
+  const item = v.getByRole('menuitem', { name: 'Toggle stats' })
   assert.equal(item.querySelector('[aria-hidden="true"]')?.textContent, '📊')
 })
 

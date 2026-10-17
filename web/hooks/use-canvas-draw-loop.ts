@@ -37,6 +37,7 @@ import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
 import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas/scene-stamp'
 import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
 import { MOTION_LAYERS, layerIsCalm, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
+import { sceneTheme } from '@/lib/scene-state-colors'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
 import { deriveFileConflicts, type FileConflict } from '@/lib/file-conflicts'
 import type { FileAttention } from '@/lib/agent-types'
@@ -202,6 +203,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       transform: deps.transformRef.current, width: p.dimensions.width, height: p.dimensions.height, dpr: deps.dprRef.current,
       epoch: tracker.epoch,
       keys: [
+        sceneTheme(), // a theme switch recolours the agent states: redraw a still scene
         p.selectedAgentId, p.hoveredAgentId, p.selectedToolCallId, p.selectedDiscoveryId, p.selectedLinkId,
         p.showStats, p.showHexGrid, !!p.showCostOverlay, !!p.isDragging, !!p.pauseAutoFit,
         hover?.type, hover?.id, focused?.type, focused?.id, deps.selectedClusterKeyRef.current,
@@ -269,6 +271,9 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       const opts = drawOptsRef.current
+      // Agent state colours follow the theme (#381); the rest of the scene reads SCENE
+      const theme = sceneTheme()
+      opts.theme = theme
       opts.reducedMotion = reducedMotion
       opts.zoom = transform.scale
       const lod = lodForZoom(transform.scale, lodRef.current)
@@ -353,7 +358,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       let activeAgentPos: { x: number; y: number; color: string } | undefined
       for (const [, agent] of agents) {
         if (agent.state === 'thinking' || agent.state === 'tool_calling' || agent.state === 'waiting_permission') {
-          activeAgentPos = { x: agent.x, y: agent.y, color: stateColor(agent.state) }
+          activeAgentPos = { x: agent.x, y: agent.y, color: stateColor(agent.state, theme) }
           break
         }
       }

@@ -505,7 +505,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
   })
 
   // #380: aria-checked follows the real overlay state (index.tsx wiring), not only the pure item builder
-  test('context menu: Toggle Grid and Toggle Stats report the state they switch', async () => {
+  test('context menu: Toggle grid and Toggle stats report the state they switch', async () => {
     const { page, close } = await open()
     try {
       const menu = page.getByRole('menu', { name: 'Context menu' })
@@ -517,18 +517,18 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
       const waitChecked = (name: string, value: 'true' | 'false') =>
         menu.locator(`[role="menuitemcheckbox"][aria-checked="${value}"]`, { hasText: name }).waitFor({ timeout: 5000 })
       await openMenu()
-      assert.equal(await checked('Toggle Grid').getAttribute('aria-checked'), 'true', 'the hex grid is on by default')
-      assert.equal(await checked('Toggle Stats').getAttribute('aria-checked'), 'false', 'stats are off by default')
-      await checked('Toggle Grid').click()
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'true', 'the hex grid is on by default')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'false', 'stats are off by default')
+      await checked('Toggle grid').click()
       await menu.waitFor({ state: 'detached' })
       await openMenu()
-      await waitChecked('Toggle Grid', 'false')
-      assert.equal(await checked('Toggle Grid').getAttribute('aria-checked'), 'false', 'Toggle Grid turned the grid off')
-      await checked('Toggle Stats').click()
+      await waitChecked('Toggle grid', 'false')
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'false', 'Toggle grid turned the grid off')
+      await checked('Toggle stats').click()
       await menu.waitFor({ state: 'detached' })
       await openMenu()
-      await waitChecked('Toggle Stats', 'true')
-      assert.equal(await checked('Toggle Stats').getAttribute('aria-checked'), 'true', 'Toggle Stats turned the stats on')
+      await waitChecked('Toggle stats', 'true')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'true', 'Toggle stats turned the stats on')
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
     } finally { await close() }

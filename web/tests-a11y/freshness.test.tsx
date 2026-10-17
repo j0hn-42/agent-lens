@@ -259,7 +259,9 @@ function drawOne(over: Record<string, unknown>, now: number): Call[] {
   const ctx = recordingContext(calls)
   ;(globalThis as any).Path2D = class {}
   ;(globalThis as any).document = { createElement: () => ({ getContext: () => ctx, width: 0, height: 0 }) }
-  drawAgents(ctx, new Map([['s1:a', canvasAgent('s1:a', over)]]), null, null, false, 0, undefined, now)
+  // Drawn in Neon: the state colours of the canvas follow the theme (#381), the stale grey does not
+  const opts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false, theme: 'neon' as const }
+  drawAgents(ctx, new Map([['s1:a', canvasAgent('s1:a', over)]]), null, null, false, 0, opts, now)
   return calls
 }
 
@@ -284,7 +286,7 @@ test('canvas: a fresh node (and a never-observed one) is neither dimmed nor labe
 })
 
 // Concrete drawn values (no comparison against the constants under test)
-const THINKING_COLOR = '#b79cff'
+const THINKING_COLOR = '#b79cff' // Neon's thinking (drawOne draws in Neon)
 const STALE_GREY = '#8a94a0'
 const STALE_TEXT = '#c5ced8' // neutral light grey, opaque: legible over the dark violet halo of a session (#145)
 

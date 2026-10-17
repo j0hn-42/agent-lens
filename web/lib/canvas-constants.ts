@@ -1,5 +1,3 @@
-import { NEON_COLORS } from './theme-palette'
-
 // ─── Model families ──────────────────────────────────────────────────────────
 
 /** Single source of truth for Claude model families. Display names
@@ -597,14 +595,6 @@ export const LOD = {
 } as const
 
 // ─── State presentation (colour + text, so state never relies on colour alone) ──
-
-/** Canvas state colours that differ from the legacy SCENE state keys so that every state is
- *  visually distinct (WCAG 1.4.1): thinking vs idle, waiting_permission vs tool_calling. They are the
- *  scene's `stateThinking` / `stateWaitingPermission` (neon values of the `state-*` tokens, #381). */
-export const STATE_COLOR_OVERRIDES: Readonly<Record<string, string>> = {
-  thinking: NEON_COLORS.stateThinking,
-  waiting_permission: NEON_COLORS.stateWaitingPermission,
-}
 
 /** Short state label drawn under every agent name */
 export const STATE_LABEL_SHORT: Readonly<Record<string, string>> = {

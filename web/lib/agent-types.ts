@@ -6,6 +6,7 @@ import type { ModelSource } from './model-provenance'
 import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 import type { FileTimeline } from './file-timeline'
+import type { GitState } from './git-state'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -115,6 +116,8 @@ export interface Agent {
   completeTime?: number
   /** What the sub-agent returned to its parent (subagent_return, #233); absent = no return observed */
   delegationReturn?: DelegationReturn
+  /** Branch, commits and PR states read from this agent's own observed shell outputs (#386); absent = none observed */
+  git?: GitState
   /** Wall-clock ms (Date.now) of the last live event that touched this agent; absent = never observed live */
   lastEventAt?: number
   /** Where the last known status comes from: 'live' (default when lastEventAt is set), replayed 'history', or an

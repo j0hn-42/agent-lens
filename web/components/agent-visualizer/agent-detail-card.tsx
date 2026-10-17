@@ -16,7 +16,8 @@ import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type 
 import { LaunchDialog } from './launch-dialog'
 import { useLocale, useT } from '@/lib/locale'
 import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
-import { CONTEXT_WINDOW_NAME, groupHeading } from '@/lib/ui-glossary'
+import { CONTEXT_WINDOW_NAME, GIT_STRIP_LABELS, groupHeading } from '@/lib/ui-glossary'
+import { gitCommitTotal, type GitState } from '@/lib/git-state'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
 import { goneText } from '@/lib/inspector-model'
@@ -57,6 +58,9 @@ interface AgentDetailCardProps {
     activeSince?: number
     subagentType?: string
     agentType?: string
+    spawnTime?: number
+    /** Branch, commits, PR states read from this agent's own observed outputs (#386); absent = no strip */
+    git?: GitState
   }
   /** Tool errors of this node only (cumulative, Agent.toolErrors); absent = not counted, nothing shown */
   toolErrors?: number
@@ -247,6 +251,9 @@ export function AgentDetailCard({
         {/* Loop verdict (#230): words and evidence, never a bare "healthy" */}
         {health && <HealthSection health={health} sessionHealth={sessionHealth} />}
 
+        {/* Git strip (#386): only what this agent's own git / gh outputs proved; nothing observed, nothing shown */}
+        {agent.git && <GitStrip git={agent.git} spawnTime={agent.spawnTime} lost={replayLost} />}
+
         {/* Delegation report (#233): per sub-agent, each value proven or said unknown */}
         {delegation && delegation.length > 0 && <DelegationSection rows={delegation} onSelectAgent={onSelectAgent} lost={replayLost} />}
 
@@ -402,6 +409,66 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
         </p>
       )}
     </div>
+  )
+}
+
+function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number; lost: number }) {
+  const headingId = useId()
+  const L = GIT_STRIP_LABELS
+  // Time since the agent appeared, the only clock the call times share; nothing when the start is unknown
+  const seen = (time: number) => typeof spawnTime === 'number' && Number.isFinite(spawnTime) ? ` · ${L.seen(formatDuration(time - spawnTime))}` : ''
+  const total = gitCommitTotal(git)
+  return (
+    <section className="mb-3 min-w-0 text-[11px] font-mono" aria-labelledby={headingId} data-testid="git-strip">
+      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>{L.title}</h3>
+      {lost > 0 && <p className="m-0" data-testid="git-lost" style={{ color: COLORS.textDim }}>{L.lost}</p>}
+      {git.head && (
+        <p className="m-0 break-all" data-testid="git-branch" style={{ color: COLORS.textDim }}>
+          <span aria-hidden="true">⎇ </span>
+          <span style={{ color: COLORS.textMuted }}>{L.branch} </span>
+          <span data-sensitive="" style={{ color: COLORS.textPrimary }}>{git.head.ref.kind === 'branch' ? git.head.ref.name : L.detached}</span>
+          <span> · {L.sources[git.head.source]}{seen(git.head.time)}</span>
+        </p>
+      )}
+      {total > 0 && (
+        <div className="mt-0.5" data-testid="git-commits" style={{ color: COLORS.textDim }}>
+          <details>
+            <summary className={`cursor-pointer ${FOCUS_RING}`}>{L.commits(total, lost > 0)}</summary>
+            <ul className="flex flex-col" aria-label={L.commitsList}>
+              {git.commits.map(c => (
+                <li key={c.sha} className="min-w-0 break-words">
+                  <span style={{ color: COLORS.textPrimary }}>{c.sha}</span>{' '}
+                  <span data-sensitive="">{c.message}</span>
+                  {c.amend && <span> ({L.amended})</span>}
+                  <span>{seen(c.time)}</span>
+                </li>
+              ))}
+            </ul>
+            {git.omittedCommits > 0 && <div>{L.omittedCommits(git.omittedCommits)}</div>}
+          </details>
+        </div>
+      )}
+      {git.prs.length > 0 && (
+        <>
+          <ul className="mt-0.5 flex flex-col" aria-label={L.prsList} style={{ color: COLORS.textDim }}>
+            {git.prs.map(p => {
+              const name = `${L.pr(p.number, p.repo)} ${L.prStates[p.state]}`
+              return (
+                <li key={`${p.repo ?? ''}#${p.number}`} className="min-w-0 break-words">
+                  {p.url ? (
+                    <a href={p.url} target="_blank" rel="noopener noreferrer" className={`underline ${FOCUS_RING_STRONG}`} style={{ color: COLORS.textPrimary }}>{name}<span className="sr-only">{L.newTab}</span></a>
+                  ) : (
+                    <span style={{ color: COLORS.textPrimary }}>{name}</span>
+                  )}
+                  <span>{seen(p.time)}</span>
+                </li>
+              )
+            })}
+          </ul>
+          {git.omittedPrs > 0 && <div style={{ color: COLORS.textDim }}>{L.omittedPrs(git.omittedPrs)}</div>}
+        </>
+      )}
+    </section>
   )
 }
 

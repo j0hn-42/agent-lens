@@ -231,7 +231,7 @@
           "graphite": "#ee8a8a",
           "neon": "#ff6666",
           "ember": "#e17260",
-          "anthropic": "#e5707a",
+          "anthropic": "#ec698f",
           "contrast": "#ff8686"
         },
         "usage": "Errors, removed lines, unread dot. Always paired with a word or icon."

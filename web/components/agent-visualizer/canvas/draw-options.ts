@@ -2,6 +2,7 @@ import { LOD, AGENT_DRAW } from '../../../lib/canvas-constants'
 import type { TeamSummary } from '../../../lib/agent-types'
 import type { OverlayPlan } from './label-placement'
 import type { ViewRect } from './view-cull'
+import type { ThemeId } from '../../../lib/theme-tokens'
 
 /** Options shared by the draw functions. Every field has a safe default. */
 export interface DrawOpts {
@@ -31,6 +32,8 @@ export interface DrawOpts {
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
   /** Presentation mode (#245): free text (names, arguments, results, messages) is drawn as bullets; numbers, states and tool names are kept */
   maskText?: boolean
+  /** Theme of the agent state colours (#381): the only themed part of the scene. Absent = the default theme */
+  theme?: ThemeId
 }
 
 export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }

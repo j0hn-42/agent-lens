@@ -11,6 +11,7 @@ import { LearnMoreLink } from './learn-more-link'
 import { LEGEND_ENTRIES, LEGEND_ENTRY_IDS, type LegendEntryId, type LegendSectionId } from '@/lib/legend-entries'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
+import { useTheme } from '@/lib/theme'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -74,6 +75,8 @@ function Swatch({ color, round }: { color: string; round?: boolean }) {
  */
 export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; present?: readonly LegendEntryId[] }) {
   const [open, setOpen] = useState(false)
+  // State swatches show the canvas colours, which follow the theme (#381): re-render on a theme switch
+  const [theme] = useTheme()
   // Complete reference on demand (not saved): the list otherwise holds the symbols that are on screen
   const [showAll, setShowAll] = useState(false)
   // The guided tour can show the legend without touching the saved preference (only toggle writes it)
@@ -139,7 +142,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
           <ShownContext.Provider value={listed}>
           <Section section="states" title="States">
             {STATES.map(state => (
-              <Row key={state} id={`state-${state}` as LegendEntryId} icon={<Swatch color={stateColor(state)} />}>
+              <Row key={state} id={`state-${state}` as LegendEntryId} icon={<Swatch color={stateColor(state, theme)} />}>
                 <span className="font-semibold">{STATE_LABEL_SHORT[state]}</span>
                 {STATE_LABEL_LONG[state] !== STATE_LABEL_SHORT[state] && <span style={{ color: COLORS.textMuted }}> ({STATE_LABEL_LONG[state]})</span>}
               </Row>
@@ -151,7 +154,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
             <Row id="shape-sub" icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(7, 12, 12)} fill="none" stroke={SCENE.holoBase} strokeWidth="1.5" /></svg>}>Small hexagon: sub-agent</Row>
             <Row id="shape-tool" icon={<svg width="24" height="14" viewBox="0 0 24 14"><rect x="1" y="2" width="22" height="10" rx="2" fill="none" stroke={SCENE.tool} strokeWidth="1.5" /></svg>}>Rounded card: tool call</Row>
             <Row id="shape-discovery" icon={<svg width="24" height="14" viewBox="0 0 24 14"><rect x="1" y="2" width="22" height="10" rx="1" fill="none" stroke={SCENE.discoveryFile} strokeWidth="1" /><rect x="1" y="2" width="3" height="10" fill={SCENE.discoveryFile} /></svg>}>Card with colour bar: discovery</Row>
-            <Row id="shape-complete" icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={SCENE.complete} strokeWidth="1.5" strokeDasharray="3 3" /></svg>}>Dashed outline: complete</Row>
+            <Row id="shape-complete" icon={<svg width="24" height="24" viewBox="0 0 24 24"><polygon points={hexPoints(10, 12, 12)} fill="none" stroke={stateColor('complete', theme)} strokeWidth="1.5" strokeDasharray="3 3" /></svg>}>Dashed outline: complete</Row>
           </Section>
 
           <Section section="edges" title="Edges and particles">

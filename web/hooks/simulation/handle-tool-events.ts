@@ -14,6 +14,7 @@ import { reviveFinished } from './revive-agent'
 import { ghResultLink, isShellTool, searchResultCount, type ResultPill } from '../../lib/action-summary'
 import { searchDiscoveries } from '../../lib/search-discoveries'
 import { fileStepKind, recordFileStep } from '../../lib/file-timeline'
+import { recordGitCall } from '../../lib/git-state'
 
 /** Extract file path from tool input data or fall back to first token of args */
 function extractFilePath(inputData?: Record<string, unknown>, args?: string): string {
@@ -242,8 +243,13 @@ export function handleToolCallEnd(
     const nextState = stillRunning ? 'tool_calling' : 'idle'
     // A late result for a finished agent proves no work: it stays finished (#433)
     const finished = agent.state === 'complete'
+    // Branch, commits and PR states this agent's own shell output proves (#386); a failed or unmatched call proves none
+    const git = matchedId && matchedCall && isShellTool(matchedCall.toolName)
+      ? recordGitCall(agent.git, { command: asString(matchedCall.inputData?.command), result, callId: matchedId, toolUseId: matchedCall.toolUseId ?? toolUseId, time: currentTime }, outcome)
+      : agent.git
     state.agents.set(agentName, {
       ...agent,
+      ...(git !== agent.git ? { git } : {}),
       // A failed or cancelled tool call is not an agent failure: the agent handles it and goes on (#363). The failure is counted in toolErrors; 'error' stays for the agent or the runtime.
       // What the agent does next is unknown until its next event: neutral, never a 'thinking' nobody observed (#362).
       // Its turn is not over though: idle between two steps, not at rest.
