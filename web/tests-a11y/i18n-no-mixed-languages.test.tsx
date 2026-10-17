@@ -60,18 +60,18 @@ function surfaceStrings(root: Node): string[] {
 function foreignWords(locale: Locale, strings: string[]): string[] {
   const foreign = locale === 'fr' ? ENGLISH : FRENCH
   const hits: string[] = []
-  for (const s of strings) for (const w of wordsOf(s)) if (foreign.has(w)) hits.push(`${w} in "${s}"`)
+  for (const s of strings) if (!FIXTURE_DATA.has(s)) for (const w of wordsOf(s)) if (foreign.has(w)) hits.push(`${w} in "${s}"`)
   return hits
 }
 
 // Not in the catalog on purpose, the same in both languages: proper names of themes (THEME_LABELS) and symbols.
 const ALLOWLIST = new Set(['Catppuccin Macchiato', 'Catppuccin Mocha', 'Catppuccin Frappe', 'Midnight', 'Graphite', 'Neon', 'Ember', 'Anthropic', '✓', '✕', '▸', '▾',
   // Data and technical identifiers of the card and the Sessions panel fixtures (names, paths, branches, git commands, models): never translated
-  'MCP', 'Claude Code', 'Codex', 'GitHub Copilot', 'Pi', 'Gemini CLI', 'OpenCode', '⟳', '⎇', '/', '!', 'Σ', '·', '(', ')', '└', '✎', '⤓'])
+  'MCP', 'Claude Code', 'Codex', 'GitHub Copilot', 'Pi', 'Gemini CLI', 'OpenCode', '⟳', '⎇', '/', '!', 'Σ', '·', '(', ')', '└', '✎', '⤓', '◌', '⚙', 'agent:'])
 /** Exact data values of the fixtures below (names, paths, branches, models, an excerpt); filled by them */
 const FIXTURE_DATA = new Set<string>()
 /** Data the fixtures carry (an agent name, a path, a model, an excerpt): shown as it came, in no language of ours. */
-const DATA = [/^[\d.]+[kM]?$/, /^\((≥ )?\d+%\)$/, /^(Opus|Sonnet|Haiku) [\d.]+$/, /^git (checkout \/ switch|status|commit|branch --show-current)$/, /^PR #\d+ \([\w./-]+\)$/, /^[a-f0-9]{7}$/, /^\+?\d+(:\d\d)+$/]
+const DATA = [/^Workflow \S+$/, /^[\d.]+[kM]?$/, /^\((≥ )?\d+%\)$/, /^(Opus|Sonnet|Haiku) [\d.]+$/, /^git (checkout \/ switch|status|commit|branch --show-current)$/, /^PR #\d+ \([\w./-]+\)$/, /^[a-f0-9]{7}$/, /^\+?\d+(:\d\d)+$/]
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -79,7 +79,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 function catalogPatterns(locale: Locale): RegExp[] {
   return (Object.values(MESSAGES[locale]) as string[]).map(v => {
     // A placeholder stands for data or a figure: a word, a number, a time ("1:02"), a phrase built from other catalog values
-    const body = v.split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:#/+≥×·()\'’ -]+')
+    const body = v.split(/\{\w+\}/).map(escapeRe).join('[\\p{L}\\p{N}.,:;#/+≥×%·()\'’ -]+')
     return new RegExp(`^${body}(?: \\([+\\-0]\\))?$`, 'u')
   })
 }
@@ -87,7 +87,9 @@ function catalogPatterns(locale: Locale): RegExp[] {
 /** The rendered strings that are neither a value of the locale's catalog nor an allowlisted name. */
 function strangers(locale: Locale, strings: string[]): string[] {
   const patterns = catalogPatterns(locale)
-  const known = (s: string) => ALLOWLIST.has(s) || FIXTURE_DATA.has(s) || DATA.some(d => d.test(s)) || patterns.some(p => p.test(s))
+  // An issue or a PR of the links list: its number and its title are data, only "draft" is a word
+  const issueLink = new RegExp(`^(PR|Issue) #\\d+(?: \\(${locale === 'fr' ? 'brouillon' : 'draft'}\\))?(?: Title \\d+)?$`)
+  const known = (s: string) => ALLOWLIST.has(s) || FIXTURE_DATA.has(s) || DATA.some(d => d.test(s)) || issueLink.test(s) || patterns.some(p => p.test(s))
   // A line built from several parts ("branch · git commit · seen +1:02") is fine when every part is
   const parts = (s: string) => s.replace(/^· /, '').split(' · ')
   return strings.filter(s => !known(s) && !((s.startsWith('· ') || s.includes(' · ')) && parts(s).every(known)))
@@ -192,7 +194,7 @@ const flush = () => act(async () => { await new Promise(r => setTimeout(r, 0)) }
 const g = globalThis as unknown as Record<string, unknown>
 const realFetch = g.fetch
 
-for (const d of ['Orchestrator', 'tempo', 'repo-a', 'github › list', 'xhigh', 'scout', 'fixer', 'Explore', '/repo/src/a.ts', '/repo/src/b.ts', 'Found the payment module', 'Found the payment module…', 'boom', 'feat/386-git-strip', 'abc1234', 'def5678', 'test: git strip (#386)', 'feat: git strip (#386)', 'o/r', 'Title 7', 'ui-designer', 'edit.ts', 'Read', 'a.ts']) FIXTURE_DATA.add(d)
+for (const d of ['Orchestrator', 'tempo', 'repo-a', 'github › list', 'xhigh', 'scout', 'fixer', 'Explore', '/repo/src/a.ts', '/repo/src/b.ts', 'Found the payment module', 'Found the payment module…', 'boom', 'feat/386-git-strip', 'abc1234', 'def5678', 'test: git strip (#386)', 'feat: git strip (#386)', 'o/r', 'Title 7', 'ui-designer', 'ui-designer-1', 'ui-designer-2', '/repo/src/edit.ts', 'edit.ts', 'Read', 'a.ts']) FIXTURE_DATA.add(d)
 
 const cardBase = { id: 's1:main', name: 'Orchestrator', state: 'thinking' as const, tokensUsed: 5000, tokensMax: 10000, toolCalls: 4, timeAlive: 125, lastEventAt: NOW, freshnessSource: 'live' as const, spawnTime: 10 }
 
@@ -295,6 +297,9 @@ for (const locale of LOCALES) {
       cleanup()
     }
 
+    for (const key of ['card.delegation.title', 'card.git.title', 'card.contextWindow', 'card.freshness.stale', 'card.health.loop', 'card.issueLinks.unavailable', 'card.workflowAgent', 'card.gone.unnamed'] as MessageKey[]) {
+      assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
+    }
     assert.ok(strings.length > 150, 'the card was rendered in every state')
     assert.deepEqual(foreignWords(locale, strings), [])
     assert.deepEqual([...new Set(strangers(locale, strings))], [])

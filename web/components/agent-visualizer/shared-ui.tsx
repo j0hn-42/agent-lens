@@ -53,9 +53,11 @@ interface PanelHeaderProps {
   actions?: ReactNode
   /** id for the heading so the surrounding dialog/region can reference it via aria-labelledby */
   titleId?: string
+  /** Accessible name of the close button, in the language of the panel (default: Close) */
+  closeLabel?: string
 }
 
-export function PanelHeader({ children, onClose, className = 'mb-2', actions, titleId }: PanelHeaderProps) {
+export function PanelHeader({ children, onClose, className = 'mb-2', actions, titleId, closeLabel }: PanelHeaderProps) {
   return (
     <div className={`flex items-center justify-between ${className}`}>
       <h2 id={titleId} className="m-0 flex min-w-0 items-center gap-2 text-inherit font-normal">
@@ -63,7 +65,7 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
       </h2>
       <div className="flex items-center gap-1">
         {actions}
-        <CloseButton onClick={onClose} />
+        <CloseButton onClick={onClose} label={closeLabel} />
       </div>
     </div>
   )

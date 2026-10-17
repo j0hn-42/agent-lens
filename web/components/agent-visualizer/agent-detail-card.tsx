@@ -3,28 +3,27 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Z, type AgentState } from '@/lib/agent-types'
 import { COLORS, getStateColor } from '@/lib/colors'
-import { formatTokens, formatModelName, formatDuration, pluralize } from '@/lib/utils'
+import { formatTokens, formatModelName, formatDuration } from '@/lib/utils'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
-import { formatTokenUsage, usageFromAgent, type UsageStatus } from '@/lib/usage'
+import { usageFromAgent, type UsageStatus } from '@/lib/usage'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
 import { modelBadge, type ModelSource } from '@/lib/model-provenance'
 import { useIssueLinks } from '@/hooks/use-issue-links'
-import { agentRoleOf, issueLinkLabel, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
+import { agentRoleOf, ISSUE_LINKS_SHOWN, type IssueLink } from '@/lib/issue-links'
 import { isLaunchEnded, latestLaunchFor, launchStateLabel, repoOfIssueUrl, type LaunchView } from '@/lib/launch-client'
 import { LaunchDialog } from './launch-dialog'
 import { useLocale, useT } from '@/lib/locale'
-import { getStateLabel, getActivityLabel, safeLabel, safeTeamColor } from '@/lib/state-labels'
-import { CONTEXT_WINDOW_NAME, GIT_STRIP_LABELS, groupHeading } from '@/lib/ui-glossary'
+import { translate, type Locale } from '@/lib/messages'
+import { safeLabel, safeTeamColor } from '@/lib/state-labels'
 import { gitCommitTotal, type GitState } from '@/lib/git-state'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
-import { deriveFreshness, deriveSilence, silenceText, lastKnownStateText, type Freshness } from '@/hooks/simulation/freshness'
-import { goneText } from '@/lib/inspector-model'
-import { healthText, findingText, type HealthVerdict } from '@/lib/loop-detection'
+import { deriveFreshness, deriveSilence } from '@/hooks/simulation/freshness'
+import type { HealthVerdict } from '@/lib/loop-detection'
 import { FOCUS_RING, FOCUS_RING_STRONG } from '@/lib/focus-ring'
-import { tokensText, filesReadText, durationText, resultText, delegationCountText, type DelegationRow } from '@/lib/delegation-report'
-import { boundedCount, replayLostSentence } from '@/lib/event-loss'
+import type { DelegationRow } from '@/lib/delegation-report'
+import * as C from '@/lib/card-text'
 
 interface AgentDetailCardProps {
   agent: {
@@ -85,19 +84,17 @@ interface AgentDetailCardProps {
   replayLost?: number
 }
 
-const FRESHNESS_TEXT: Record<Freshness, string> = {
-  fresh: 'Live',
-  stale: 'No longer reporting',
-  interrupted: 'Interrupted',
-  error: 'Failed',
-  closed: 'Closed',
-  'never-observed': 'Not observed yet',
-}
-
 function formatClockTime(ms: number): string {
   const d = new Date(ms)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+/** What follows "5k / 10k": the percentage of the window, or that the window is an assumption. Figures and qualifiers do not depend on the language. */
+function contextSuffix(locale: Locale, agent: { tokenStatus?: UsageStatus; tokensMaxAssumed?: boolean }, percent: number): string {
+  if (agent.tokenStatus === 'unavailable') return agent.tokensMaxAssumed ? ` ${translate(locale, 'card.ctx.assumedWindow')}` : ''
+  const pct = `${agent.tokenStatus === 'partial' ? '≥ ' : ''}${percent}%`
+  return ` ${agent.tokensMaxAssumed ? translate(locale, 'card.ctx.pctOfAssumed', { pct }) : `(${pct})`}`
 }
 
 export function AgentDetailCard({
@@ -116,6 +113,8 @@ export function AgentDetailCard({
 }: AgentDetailCardProps) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
+  const { locale } = useLocale()
+  const t = useT()
   // Left dock: placed by the shared layout (below the message feed, above the control bar, never over a panel)
   const dock = useDockPanel('detail', true)
   const { rect } = dock
@@ -128,9 +127,9 @@ export function AgentDetailCard({
   // A string that changes once a minute while the agent stays silent (never on a plain tick)
   const silenceLine = useFreshnessValue(t => {
     const s = deriveSilence(agent, t)
-    return s ? silenceText(s, agent.state) : ''
+    return s ? C.silenceText(locale, s, agent.state) : ''
   }, freshnessClock)
-  const stateText = freshness === 'stale' ? lastKnownStateText(agent.state) : getStateLabel(agent.state)
+  const stateText = freshness === 'stale' ? C.lastKnownStateText(locale, agent.state) : C.stateText(locale, agent.state)
   const sessionLabel = safeLabel(agent.sessionLabel)
   const badge = modelBadge(agent)
   const role = agentRoleOf(agent)
@@ -150,6 +149,7 @@ export function AgentDetailCard({
     <div
       ref={ref}
       role="dialog"
+      lang={locale}
       aria-labelledby={titleId}
       tabIndex={-1}
       {...dockAttrs('detail', 'left', dock)}
@@ -164,7 +164,7 @@ export function AgentDetailCard({
       }}
     >
       <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
-        <PanelHeader onClose={onClose} className="mb-3" titleId={titleId}>
+        <PanelHeader onClose={onClose} className="mb-3" titleId={titleId} closeLabel={t('common.close')}>
           <span
             aria-hidden="true"
             className="w-2 h-2 rounded-full"
@@ -184,10 +184,10 @@ export function AgentDetailCard({
                     className="rounded px-1 text-[10px]"
                     style={{ border: `1px solid ${COLORS.glassBorder}`, color: badge.kind === 'mismatch' ? COLORS.toolIndicatorText : COLORS.textMuted }}
                   >
-                    {badge.label}
+                    {C.modelBadgeText(locale, badge.kind)}
                   </span>
                 )}
-                {agent.effort && <span data-testid="model-effort">effort {agent.effort}</span>}
+                {agent.effort && <span data-testid="model-effort">{t('card.effort', { value: agent.effort })}</span>}
               </span>
             )}
           </span>
@@ -197,10 +197,10 @@ export function AgentDetailCard({
         {(agent.modelsUsed?.length || (badge?.kind === 'mismatch' && agent.requestedModel)) && (
           <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-testid="models-used">
             {badge?.kind === 'mismatch' && agent.requestedModel && (
-              <div>Requested: {formatModelName(agent.requestedModel)}</div>
+              <div>{t('card.requested', { model: formatModelName(agent.requestedModel) })}</div>
             )}
             {agent.modelsUsed && agent.modelsUsed.length > 0 && (
-              <div>Used: {agent.modelsUsed.map(formatModelName).join(', ')}</div>
+              <div>{t('card.used', { models: agent.modelsUsed.map(formatModelName).join(', ') })}</div>
             )}
           </div>
         )}
@@ -208,9 +208,9 @@ export function AgentDetailCard({
         {/* Context bar */}
         <div className="mb-3">
           <div className="flex justify-between mb-1">
-            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{CONTEXT_WINDOW_NAME}</span>
+            <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{t('card.contextWindow')}</span>
             <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-              {formatTokenUsage(usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{agent.tokenStatus === 'unavailable' ? (agent.tokensMaxAssumed ? ' (assumed window)' : '') : ` (${agent.tokenStatus === 'partial' ? '≥ ' : ''}${contextPercent}%${agent.tokensMaxAssumed ? ' of an assumed window' : ''})`}
+              {C.usageText(locale, usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent)}
             </span>
           </div>
           {/* Textual value is adjacent, so the bar itself is decorative */}
@@ -219,33 +219,29 @@ export function AgentDetailCard({
 
         {/* Stats row */}
         <div className="flex gap-3 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-          <span>{boundedCount(agent.toolCalls, replayLost, 'tool')}</span>
-          <span>{formatDuration(agent.timeAlive)} alive</span>
+          <span>{C.boundedCountText(locale, agent.toolCalls, replayLost, 'tool')}</span>
+          <span>{t('card.alive', { duration: formatDuration(agent.timeAlive) })}</span>
           <span style={{ color: freshness === 'stale' ? COLORS.textMuted : stateColor }}>{stateText}</span>
         </div>
 
         {/* Own freshness, clock and errors (never borrowed from the anchor session) */}
         <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }} data-inspector-own>
           {/* A history status is never live (#361): it was received, not seen happening, and never "no longer reporting" */}
-          <span data-testid="inspector-freshness">{freshness === 'stale' && agent.freshnessSource === 'history' ? 'From history' : FRESHNESS_TEXT[freshness]}</span>
+          <span data-testid="inspector-freshness">{C.freshnessText(locale, freshness, agent.freshnessSource === 'history')}</span>
           {silenceLine && <span data-testid="inspector-silence">{silenceLine}</span>}
           <span data-testid="inspector-last-event">
-            {typeof agent.lastEventAt === 'number' && Number.isFinite(agent.lastEventAt)
-              ? agent.freshnessSource === 'history'
-                ? `history received ${formatClockTime(agent.lastEventAt)}`
-                : `last event ${formatClockTime(agent.lastEventAt)}${agent.freshnessSource === 'imported' ? ' (imported transcript)' : ''}`
-              : 'no event observed'}
+            {C.lastEventText(locale, agent.lastEventAt, agent.freshnessSource, formatClockTime)}
           </span>
           {typeof toolErrors === 'number' && (
             <span data-testid="inspector-errors" style={{ color: toolErrors > 0 ? COLORS.error : undefined }}>
-              {boundedCount(toolErrors, replayLost, 'tool error')}
+              {C.boundedCountText(locale, toolErrors, replayLost, 'toolError')}
             </span>
           )}
-          {replayLost > 0 && <span data-testid="inspector-replay-lost">{replayLostSentence(replayLost)}</span>}
+          {replayLost > 0 && <span data-testid="inspector-replay-lost">{C.replayLostText(locale, replayLost)}</span>}
           {sessionLabel && <span className="truncate">{sessionLabel}</span>}
         </div>
         <div className="mb-3 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-          <ActiveTimeStat agent={agent} />
+          <ActiveTimeStat agent={agent} locale={locale} />
         </div>
 
         {/* Loop verdict (#230): words and evidence, never a bare "healthy" */}
@@ -260,16 +256,16 @@ export function AgentDetailCard({
         {/* Teammate info */}
         {agent.kind === 'teammate' && (
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-            <span>{agent.teamKind === 'workflow' ? 'Workflow agent' : 'Teammate'}</span>
+            <span>{t(agent.teamKind === 'workflow' ? 'card.workflowAgent' : 'card.teammate')}</span>
             {teamName && (
               <span className="flex min-w-0 items-center gap-1">
                 {teamColor && (
                   <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: teamColor }} />
                 )}
-                <span className="truncate">{groupHeading(agent.teamKind, teamName)}</span>
+                <span className="truncate">{C.groupHeadingText(locale, agent.teamKind, teamName)}</span>
               </span>
             )}
-            {agent.activity && <span>{getActivityLabel(agent.activity)}</span>}
+            {agent.activity && <span>{C.activityText(locale, agent.activity)}</span>}
           </div>
         )}
 
@@ -300,13 +296,13 @@ export function AgentDetailCard({
         {role && issueLinksStatus === 'unavailable' && (
           <div className="mt-3 text-[11px] font-mono" data-testid="issue-links-unavailable">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
-            <p role="status" className="m-0" style={{ color: COLORS.textDim }}>Issue and PR links unavailable for now.</p>
+            <p role="status" className="m-0" style={{ color: COLORS.textDim }}>{t('card.issueLinks.unavailable')}</p>
           </div>
         )}
         {role && issueLinks.length > 0 && (
           <div className="mt-3 text-[11px] font-mono" data-testid="issue-links">
             <div className="mb-1" style={{ color: COLORS.textMuted }}>agent:{role}</div>
-            <ul className="flex flex-col gap-0.5" aria-label={`Issues and pull requests labelled agent:${role}`}>
+            <ul className="flex flex-col gap-0.5" aria-label={t('card.issueLinks.list', { role })}>
               {issueLinks.slice(0, ISSUE_LINKS_SHOWN).map(link => (
                 <li key={link.url} className="min-w-0">
                   <a
@@ -315,9 +311,9 @@ export function AgentDetailCard({
                     rel="noopener noreferrer"
                     className={`block truncate underline ${FOCUS_RING_STRONG}`}
                     style={{ color: COLORS.textPrimary }}
-                    title={issueLinkLabel(link)}
+                    title={C.issueLinkText(locale, link)}
                   >
-                    {issueLinkLabel(link)}
+                    {C.issueLinkText(locale, link)}
                   </a>
                   {launch && relayOrigin !== null && link.kind === 'issue' && link.state === 'open' && repoOfIssueUrl(link.url) && (
                     <LaunchRow
@@ -331,7 +327,7 @@ export function AgentDetailCard({
               ))}
             </ul>
             {issueLinks.length > ISSUE_LINKS_SHOWN && (
-              <div style={{ color: COLORS.textDim }}>+{issueLinks.length - ISSUE_LINKS_SHOWN} more</div>
+              <div style={{ color: COLORS.textDim }}>{t('card.more', { n: issueLinks.length - ISSUE_LINKS_SHOWN })}</div>
             )}
           </div>
         )}
@@ -386,26 +382,28 @@ function LaunchRow({ link, repo, launches, onOpen }: {
 const FINDINGS_SHOWN = 5
 
 function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessionHealth?: HealthVerdict }) {
+  const { locale } = useLocale()
+  const t = useT()
   const loop = health.status === 'loop'
   return (
     <div className="mb-3 text-[11px] font-mono" data-testid="inspector-health">
-      <div className="mb-1" style={{ color: COLORS.textMuted }}>Health</div>
+      <div className="mb-1" style={{ color: COLORS.textMuted }}>{t('card.health')}</div>
       <p className="m-0" data-testid="inspector-health-verdict" style={{ color: loop ? COLORS.warn : COLORS.textDim }}>
-        {loop && <span aria-hidden="true">⟳ </span>}{healthText(health)}
+        {loop && <span aria-hidden="true">⟳ </span>}{C.healthText(locale, health)}
       </p>
       {health.findings.length > 0 && (
-        <ul className="flex flex-col gap-0.5 mt-0.5" aria-label="Loop evidence" style={{ color: COLORS.textDim }}>
+        <ul className="flex flex-col gap-0.5 mt-0.5" aria-label={t('card.health.evidence')} style={{ color: COLORS.textDim }}>
           {health.findings.slice(0, FINDINGS_SHOWN).map((f, i) => (
-            <li key={i} className="truncate" title={f.kind === 'edit-cycle' ? f.path : undefined}>{findingText(f)}</li>
+            <li key={i} className="truncate" title={f.kind === 'edit-cycle' ? f.path : undefined}>{C.findingText(locale, f)}</li>
           ))}
         </ul>
       )}
       {health.findings.length > FINDINGS_SHOWN && (
-        <div style={{ color: COLORS.textDim }}>+{health.findings.length - FINDINGS_SHOWN} more</div>
+        <div style={{ color: COLORS.textDim }}>{t('card.more', { n: health.findings.length - FINDINGS_SHOWN })}</div>
       )}
       {sessionHealth && (
         <p className="m-0 mt-0.5" data-testid="inspector-session-health" style={{ color: COLORS.textDim }}>
-          Session: {healthText(sessionHealth)}
+          {t('card.health.session', { text: C.healthText(locale, sessionHealth) })}
         </p>
       )}
     </div>
@@ -414,7 +412,8 @@ function HealthSection({ health, sessionHealth }: { health: HealthVerdict; sessi
 
 function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number; lost: number }) {
   const headingId = useId()
-  const L = GIT_STRIP_LABELS
+  const { locale } = useLocale()
+  const L = C.gitLabels(locale)
   // Time since the agent appeared, the only clock the call times share; nothing when the start is unknown
   const seen = (time: number) => typeof spawnTime === 'number' && Number.isFinite(spawnTime) ? ` · ${L.seen(formatDuration(time - spawnTime))}` : ''
   const total = gitCommitTotal(git)
@@ -439,7 +438,7 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
                 <li key={c.sha} className="min-w-0 break-words">
                   <span style={{ color: COLORS.textPrimary }}>{c.sha}</span>{' '}
                   <span data-sensitive="">{c.message}</span>
-                  {c.amend && <span> ({L.amended})</span>}
+                  {c.amend && <span> {L.amended}</span>}
                   <span>{seen(c.time)}</span>
                 </li>
               ))}
@@ -452,11 +451,11 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
         <>
           <ul className="mt-0.5 flex flex-col" aria-label={L.prsList} style={{ color: COLORS.textDim }}>
             {git.prs.map(p => {
-              const name = `${L.pr(p.number, p.repo)} ${L.prStates[p.state]}`
+              const name = <><span>{L.pr(p.number, p.repo)}</span> <span>{L.prStates[p.state]}</span></>
               return (
                 <li key={`${p.repo ?? ''}#${p.number}`} className="min-w-0 break-words">
                   {p.url ? (
-                    <a href={p.url} target="_blank" rel="noopener noreferrer" className={`underline ${FOCUS_RING_STRONG}`} style={{ color: COLORS.textPrimary }}>{name}<span className="sr-only">{L.newTab}</span></a>
+                    <a href={p.url} target="_blank" rel="noopener noreferrer" className={`underline ${FOCUS_RING_STRONG}`} style={{ color: COLORS.textPrimary }}>{name}<span className="sr-only"> {L.newTab}</span></a>
                   ) : (
                     <span style={{ color: COLORS.textPrimary }}>{name}</span>
                   )}
@@ -474,17 +473,19 @@ function GitStrip({ git, spawnTime, lost }: { git: GitState; spawnTime?: number;
 
 function DelegationSection({ rows, onSelectAgent, lost = 0 }: { rows: DelegationRow[]; onSelectAgent?: (agentId: string) => void; lost?: number }) {
   const headingId = useId()
+  const { locale } = useLocale()
+  const t = useT()
   return (
     <section className="mb-3 text-[11px] font-mono" aria-labelledby={headingId} data-testid="delegation-report">
-      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>Delegation report</h3>
-      <ul className="flex flex-col gap-2" aria-label={`Delegation report: ${delegationCountText(rows.length, lost)}`}>
+      <h3 id={headingId} className="m-0 mb-1 text-[11px] font-normal" style={{ color: COLORS.textMuted }}>{t('card.delegation.title')}</h3>
+      <ul className="flex flex-col gap-2" aria-label={t('card.delegation.list', { count: C.delegationCountText(locale, rows.length, lost) })}>
         {rows.map(row => (
           <li key={row.agentId} className="min-w-0" data-testid="delegation-row">
             <div className="flex min-w-0 items-center gap-x-2">
               {onSelectAgent ? (
                 <button
                   type="button"
-                  aria-label={`Inspect sub-agent ${row.name}`}
+                  aria-label={t('card.delegation.inspect', { name: row.name })}
                   onClick={() => onSelectAgent(row.agentId)}
                   className={`truncate underline ${FOCUS_RING}`}
                   style={{ color: COLORS.textPrimary }}
@@ -496,29 +497,29 @@ function DelegationSection({ rows, onSelectAgent, lost = 0 }: { rows: Delegation
               )}
               {row.subagentType && <span className="truncate" style={{ color: COLORS.textDim }}>{row.subagentType}</span>}
             </div>
-            {!row.linkVerified && <div style={{ color: COLORS.textDim }}>parent link not verified</div>}
+            {!row.linkVerified && <div style={{ color: COLORS.textDim }}>{t('card.delegation.unverified')}</div>}
             <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2" style={{ color: COLORS.textDim }}>
-              <dt style={{ color: COLORS.textMuted }}>Tokens</dt>
-              <dd className="m-0">{tokensText(row)}</dd>
-              <dt style={{ color: COLORS.textMuted }}>Files read</dt>
+              <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.tokens')}</dt>
+              <dd className="m-0">{C.usageText(locale, row.tokens)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.files')}</dt>
               <dd className="m-0 min-w-0">
                 {row.filesReadCount > 0 ? (
                   <details>
-                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{filesReadText(row, lost)}</summary>
+                    <summary className={`cursor-pointer ${FOCUS_RING}`}>{C.filesReadText(locale, row, lost)}</summary>
                     <ul className="flex flex-col">
                       {row.filesRead.map(f => <li key={f} className="truncate" title={f}>{f}</li>)}
                     </ul>
-                    {row.filesReadCount > row.filesRead.length && <div>+{row.filesReadCount - row.filesRead.length} more</div>}
+                    {row.filesReadCount > row.filesRead.length && <div>{t('card.more', { n: row.filesReadCount - row.filesRead.length })}</div>}
                   </details>
-                ) : filesReadText(row, lost)}
+                ) : C.filesReadText(locale, row, lost)}
               </dd>
-              <dt style={{ color: COLORS.textMuted }}>Duration</dt>
-              <dd className="m-0">{durationText(row.duration, lost)}</dd>
-              <dt style={{ color: COLORS.textMuted }}>Result</dt>
+              <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.duration')}</dt>
+              <dd className="m-0">{C.durationText(locale, row.duration, lost)}</dd>
+              <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.result')}</dt>
               <dd className="m-0 min-w-0 break-words" style={row.result.kind === 'error' ? { color: COLORS.error } : undefined}>
-                {resultText(row.result, lost)}
+                {C.resultText(locale, row.result, lost)}
                 {row.result.kind !== 'not-returned' && row.result.truncated && (
-                  <span style={{ color: COLORS.textDim }}> (full report in Conversation)</span>
+                  <span style={{ color: COLORS.textDim }}> {t('card.result.truncated')}</span>
                 )}
               </dd>
             </dl>
@@ -541,6 +542,8 @@ function focusIsBusy(el: Element | null): boolean {
  */
 export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null; onClose: () => void; onEscape?: () => void }) {
   const titleId = useId()
+  const { locale } = useLocale()
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   // Opened by a data event, not a gesture: never pull focus from a companion panel or a text field (WCAG 3.2.2).
   // The role="status" text still announces it.
@@ -570,6 +573,7 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
     <div
       ref={ref}
       role="dialog"
+      lang={locale}
       aria-labelledby={titleId}
       tabIndex={-1}
       {...dockAttrs('detail', 'left', dock)}
@@ -584,9 +588,9 @@ export function AgentGoneCard({ name, onClose, onEscape }: { name: string | null
       }}
     >
       <GlassCard visible={true} style={rect ? { maxHeight: rect.h, overflowY: 'auto' } : undefined}>
-        <PanelHeader onClose={onClose} className="mb-1" titleId={titleId}>
+        <PanelHeader onClose={onClose} className="mb-1" titleId={titleId} closeLabel={t('common.close')}>
           <span role="status" className="text-xs font-mono" style={{ color: COLORS.textMuted }} data-testid="inspector-gone">
-            {goneText(name)}
+            {C.goneText(locale, name)}
           </span>
         </PanelHeader>
       </GlassCard>
