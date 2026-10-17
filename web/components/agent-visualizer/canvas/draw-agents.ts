@@ -511,15 +511,16 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
  * - It starts 1 px above the first line, never higher: an edge leaving the node downward stays visible from
  *   the rim to the text. The lines touch, so the edge is not shown between them as a dashed stroke (dashes
  *   mean "not proven" on a link).
- * - Opaque whenever the label is drawn, even while the agent fades in or out: the text fades, the edges
- *   still do not show through its letters. Nothing is painted when the label is fully transparent.
+ * - Opaque once the label reaches AGENT_DRAW.labelPlateFullAlpha, even while the agent fades in or out: the text
+ *   fades, the edges still do not show through its letters. Below that the plate fades with the label (the text
+ *   is not legible yet, an edge is not cut by an opaque block). Nothing is painted when fully transparent.
  */
 function fillLabelPlate(ctx: CanvasRenderingContext2D, x: number, top: number, widths: number[], scene: ScenePalette) {
   if (ctx.globalAlpha <= 0 || widths.length === 0) return
   const pad = AGENT_DRAW.labelHaloWidth
   const gap = AGENT_DRAW.stateLabelGap
   ctx.save()
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = Math.min(1, ctx.globalAlpha / AGENT_DRAW.labelPlateFullAlpha)
   ctx.fillStyle = scene.void
   ctx.beginPath()
   widths.forEach((w, i) => {

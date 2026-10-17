@@ -298,6 +298,9 @@ export const AGENT_DRAW = {
   stateLabelGap: 13,
   /** Width of the dark outline drawn behind label text */
   labelHaloWidth: 3,
+  /** Label opacity from which its plate is fully opaque; below it the plate fades with the label (under 25 % the
+   *  text is not legible on the scene ground, an opaque plate would cut an edge for nothing) */
+  labelPlateFullAlpha: 0.25,
   /** Agent name label width multiplier of radius */
   labelWidthMultiplier: 4.5,
   /** Scanline gradient half-height */
