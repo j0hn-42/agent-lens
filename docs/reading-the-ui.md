@@ -244,6 +244,18 @@ Every cost in Agent Lens is a **context cost estimate**, never a bill: the token
 
 The token total next to it, **N tokens in context**, adds up what each agent's context holds now. It is not a consumption either, and it drops after a compaction too.
 
+**The summary of the top bar is one short line** ([#497](https://github.com/j0hn-42/agent-lens/issues/497)): `30 agents: 0 active · 4 last known · 26 done · ≥~5.3M ctx tokens · ≥~$40.49 est.`. The qualifiers are kept as symbols, never dropped, and a figure never appears without its own:
+
+| Symbol | Meaning |
+|---|---|
+| **≥** | **at least**: the total is partial, the real value is that or more. |
+| **~** | **estimated**: on tokens, they were computed locally; on a cost, it is always the context priced at a blended rate (see above). |
+| **est.** (after a cost) | the cost is priced from **estimated** tokens, as "estimated" says in the long text. |
+| **ctx tokens** | **tokens in context**. |
+| **last known** | **last known state**: agents whose status is no longer proven. |
+
+The long wording ("30 agents: 0 active - 4 last known state - 26 done", "at least 5.3M estimated tokens in context · at least ~$40.49 estimated") is the full text of the same block: it is drawn as a popover under the bar when the pointer is over the summary or the keyboard focus is on it (Tab; Escape closes it without moving the focus, and it stays open while the pointer is over it), with the key of the symbols, and it is what screen readers read. Nothing is rounded or recomputed for the short form. A figure the runtime does not report reads `tokens not reported` / `cost not reported` in both forms. Folded under 768 px the block stays behind More, as before. The other controls of the bar (panel buttons, filters, scope) still wrap onto their own rows when the window is too narrow for all of them: the short summary frees room, it does not remove that wrapping.
+
 ## Context compactions
 
 When the runtime compacts an agent's context (it replaces the conversation with a summary), the Conversation panel shows a **COMPACTED** row at that moment, in the agent's tab and in *All*. It is listed even when *Tool calls* is off, the search finds it, and it is a button like the other rows (Tab to it, Enter selects the agent).
