@@ -4,7 +4,19 @@
  */
 import { formatDuration, formatCost, pluralize } from './utils'
 import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
-import { formatCostUsage, spokenCostUsage, type UsageTotal } from './usage'
+import { formatCostUsage, formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
+
+/**
+ * Top bar texts of the context size and of its cost. When the runtime reports nothing, each one names what is
+ * missing ("tokens not reported", "cost not reported") instead of two bare "not reported" in a row (#383).
+ */
+export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { tokens: string; cost: string } {
+  const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
+  return {
+    tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${formatTokenUsage(tokens)} tokens in context`,
+    cost: missing(cost) ? `cost ${USAGE_LABELS.unavailable}` : formatCostUsage(cost),
+  }
+}
 import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'

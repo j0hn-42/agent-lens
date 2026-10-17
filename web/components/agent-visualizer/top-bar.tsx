@@ -7,7 +7,7 @@ import { formatTokens, formatCost } from "@/lib/utils"
 import { formatTokenUsage, formatCostUsage, spokenCostUsage, type UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, spokenAllSummary, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAllSummary, spokenAllSummary, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -339,6 +339,10 @@ export const TopBar = memo(function TopBar({
     target?.focus({ preventScroll: true })
   }, [narrow])
   const folded = narrow && !moreOpen
+  const contextText = topBarContextText(
+    tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
+    costUsage ?? { value: totalCost, status: 'available', estimated: false },
+  )
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   const activeFilters = [
     hideInactive && onToggleHideInactive ? TOP_BAR_LABELS.filterHideInactive : null,
@@ -472,12 +476,12 @@ export const TopBar = memo(function TopBar({
         )}
         <span>
           {/* A sum of what each context holds now, not of what was consumed (#364) */}
-          {tokenUsage ? formatTokenUsage(tokenUsage) : formatTokens(totalTokens)}{tokenUsage?.status === 'unavailable' ? '' : ' tokens in context'}
+          {contextText.tokens}
           {!isAllMode && (
             <span data-testid="topbar-cost" title={COST_LABELS.method} style={{ color: COLORS.complete, marginLeft: 4 }}>
               <span aria-hidden="true">{'\u00b7 '}</span>
               {/* "~$2.10" on screen, "context cost estimate $2.10" for assistive technology (#364) */}
-              <span aria-hidden="true">{costUsage ? formatCostUsage(costUsage) : `${COST_LABELS.mark}${formatCost(totalCost)}`}</span>
+              <span aria-hidden="true">{contextText.cost}</span>
               <span className="sr-only">, {costUsage ? spokenCostUsage(costUsage) : `${COST_LABELS.name} ${formatCost(totalCost)}`}</span>
               {unattributedCost > 0 && (
                 <span data-testid="unattributed-cost" title="Usage that cannot be tied to a single agent (orphan or ambiguous), priced at the default rate">

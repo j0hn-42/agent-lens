@@ -4,7 +4,7 @@ import { STALE_AFTER_MS } from '../web/lib/canvas-constants'
 import {
   sessionStatusKind, scrubberKeyTarget, scrubberTimeFromX, scrubberValueText,
   formatAgentCounts, connectionDisplay, liveBadge, buildAnnouncement, formatMissedEvents,
-  agentActivityCounts, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
+  agentActivityCounts, topBarContextText, emptyStateChecklist, shouldRestoreFocus, toastRemaining, contextMenuPosition, runEscapeHandlers,
 } from '../web/lib/chrome-utils'
 
 test('session status: unseen activity beats active, selected tab never shows new activity', () => {
@@ -188,4 +188,13 @@ test('empty-state checklist (#371): workspace and session are unknown, not faile
   const up = emptyStateChecklist({ status: 'connected', sessionCount: 0 })
   assert.equal(up[2].unknown, undefined, 'the relay answers: no session is a fact')
   assert.equal(up[2].ok, false)
+})
+
+test('top bar: tokens and cost that are not reported each name what is missing (#383)', () => {
+  const none = { value: null, status: 'unavailable', estimated: false } as const
+  const ok = { value: 1200, status: 'available', estimated: false } as const
+  assert.deepEqual(topBarContextText(none, none), { tokens: 'tokens not reported', cost: 'cost not reported' })
+  assert.deepEqual(topBarContextText(ok, none), { tokens: '1.2k tokens in context', cost: 'cost not reported' })
+  assert.equal(topBarContextText(none, ok).tokens, 'tokens not reported')
+  assert.match(topBarContextText(ok, ok).cost, /^~\$/)
 })
