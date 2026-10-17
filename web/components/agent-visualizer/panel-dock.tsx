@@ -9,6 +9,7 @@ import type { useSessionActions } from "@/hooks/use-session-actions"
 import type { UseUiPreferences } from "@/hooks/use-ui-preferences"
 import { isUnionSelection } from "@/lib/bridge-types"
 import { scopeEmptyHint } from "@/lib/relay-scope"
+import type { AgentStateCounts } from "@/lib/chrome-utils"
 import { FileAttentionPanel } from "./file-attention-panel"
 import { TimelinePanel } from "./timeline-panel"
 import { SessionListPanel } from "./session-list-panel"
@@ -30,6 +31,8 @@ interface PanelDockProps {
   sessionActions: SessionActions
   uiPrefs: Pick<UseUiPreferences, 'prefs' | 'setPref'>
   allSessionCount: number
+  /** Agents of the view by state, drawn in the Sessions panel header (#523, moved from the top bar) */
+  agentCounts: AgentStateCounts
   /** The agents the sessions list shows (finished ones hidden like on the canvas) */
   listAgents: Simulation['agents']
   agentLabel: (key: string) => string
@@ -42,7 +45,7 @@ type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
 export function PanelDock({
-  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
+  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
 }: PanelDockProps) {
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
@@ -72,6 +75,7 @@ export function PanelDock({
           sessions={bridge.sessions}
           relayOffline={!bridge.useMockData && bridge.connectionStatus === 'disconnected'}
           allSessionCount={allSessionCount}
+          agentCounts={agentCounts}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}
           sessionModels={bridge.sessionModels}

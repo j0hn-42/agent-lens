@@ -182,10 +182,30 @@ export function formatAgentCounts(active: number, done: number, stale = 0, idle 
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
 }
 
-/** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the top bar; the full wording (`formatAgentCounts`) is read by screen readers. */
+/** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the Sessions panel header (#523); the full wording (`formatAgentCounts`) is read by screen readers. */
 export function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
+}
+
+/** Agents of the view by state, as `agentActivityCounts` splits them. */
+export interface AgentStateCounts { active: number; done: number; stale: number; idle: number; error: number }
+
+/**
+ * Agent counts of the view (#523, moved from the top bar to the Sessions panel header, same text): `drawn` is the
+ * compact text ("30 agents: 0 active · 4 last known · 26 done"), `spoken` the full wording read by screen readers.
+ * In All (`allSessionCount` not null) it is the sessions and agents ("3 sessions · 30 agents"), without the states.
+ */
+export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null): { drawn: string; spoken: string } {
+  if (allSessionCount !== null) {
+    const sessions = pluralize(allSessionCount, 'session')
+    const agents = pluralize(c.active + c.done + c.stale + c.idle + c.error, 'agent')
+    return { drawn: `${sessions} · ${agents}`, spoken: `${sessions}, ${agents}` }
+  }
+  return {
+    drawn: formatAgentCountsCompact(c.active, c.done, c.stale, c.idle, c.error),
+    spoken: formatAgentCounts(c.active, c.done, c.stale, c.idle, c.error),
+  }
 }
 
 /** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */

@@ -3,11 +3,11 @@
 import { Fragment, memo, useCallback, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Z, type TeamSummary } from "@/lib/agent-types"
 import { COLORS, themed } from "@/lib/colors"
-import { formatCost, pluralize } from "@/lib/utils"
+import { formatCost } from "@/lib/utils"
 import type { UsageTotal } from "@/lib/usage"
 import { INSPECTOR_KEEP_ATTR } from "./shared-ui"
 import { useThemeVersion } from "@/lib/theme"
-import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentCountsCompact, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
+import { observeTopbarHeight, connectionDisplay, viewCountsText, topBarContextText, type ConnectionTone } from "@/lib/chrome-utils"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
@@ -320,9 +320,9 @@ export const TopBar = memo(function TopBar({
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  // Under 1024 px (#523; 768 px in #476, 600 px in #378) the filters, the agent counts, the panel buttons and the tools
+  // Under 1024 px (#523; 768 px in #476, 600 px in #378) the filters, the quota gauges, the panel buttons and the tools
   // fold behind a disclosure button; the drawers and the 44 px targets stay under 768 px (mobile view). Folded, the
-  // buttons are not rendered (no hidden Tab stop) and the counts stay for assistive technology (sr-only). Commands stays
+  // buttons are not rendered (no hidden Tab stop). Commands stays
   // in the folded bar from 768 px, where there is room for it.
   const [moreOpen, setMoreOpen] = useState(false)
   const filtersId = useId()
@@ -375,14 +375,14 @@ export const TopBar = memo(function TopBar({
   // The age and the expiry of the quota move with the clock; it ticks once a minute, only while there is a snapshot to age
   const quotaNow = useMinuteClock(showQuota && quota !== null)
   const quotaState = quotaGaugeState(selectedRuntime, quota, quotaNow)
-  // #523 (user request): the bar draws no token total and no cost any more (the Cost panel draws the view's, the
-  // Sessions panel each session's, the inspector each agent's). The agent counts by state are totalled nowhere else, so
-  // they stay drawn. The Cost panel is a canvas that screen readers do not read: they keep the totals here, after the counts.
-  const allAgentCount = activeAgentCount + staleAgentCount + idleAgentCount + errorAgentCount + doneAgentCount
-  const sessionCountText = pluralize(allSessionCount ?? sessions.length, 'session')
-  const drawnCounts = isAllMode
-    ? `${sessionCountText} \u00b7 ${pluralize(allAgentCount, 'agent')}`
-    : formatAgentCountsCompact(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount)
+  // #523 (user request): the bar draws no summary text any more: no token total, no cost (the Cost panel draws the
+  // view's, the Sessions panel each session's, the inspector each agent's) and no agent counts by state (the Sessions
+  // panel header draws them, same text). The Cost panel is a canvas that screen readers do not read: they keep the
+  // counts and the totals here, visually hidden.
+  const counts = viewCountsText(
+    { active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount },
+    isAllMode ? (allSessionCount ?? sessions.length) : null,
+  )
   const contextText = topBarContextText(
     tokenUsage ?? { value: totalTokens, status: 'available', estimated: false },
     costUsage ?? { value: totalCost, status: 'available', estimated: false },
@@ -390,7 +390,7 @@ export const TopBar = memo(function TopBar({
   const costReported = (costUsage?.value ?? totalCost) !== null && costUsage?.status !== 'unavailable'
   const spokenTotals = [
     // Full wording ("last known state"); screen readers skip the "-" (#364)
-    isAllMode ? `${sessionCountText}, ${pluralize(allAgentCount, 'agent')}` : formatAgentCounts(activeAgentCount, doneAgentCount, staleAgentCount, idleAgentCount, errorAgentCount),
+    counts.spoken,
     contextText.spoken,
     !isAllMode && unattributedCost > 0 && costReported ? `including ${formatCost(unattributedCost)} unattributed` : null,
     contextText.tokens,
@@ -450,7 +450,7 @@ export const TopBar = memo(function TopBar({
   }
 
   // One DOM order at every width (#523). From 1024 px the bar is two rows with a fixed content: row 1 = Sessions, scope,
-  // connection state, attention, then the filters; row 2 = the agent counts (and quota gauges), then the panel buttons
+  // connection state, attention, then the filters; row 2 = the quota gauges, then the panel buttons
   // and the tools. Under 1024 px the rows and groups are plain boxes (display: contents): the bar is one folded row,
   // More expands it, and an expanded bar taller than the window scrolls under 768 px (#476).
   const ROW = 'max-lg:contents lg:flex lg:w-full lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1.5'
@@ -582,12 +582,9 @@ export const TopBar = memo(function TopBar({
       </div>
 
       <div id={row2Id} ref={row2Ref} data-topbar-row="2" className={ROW}>
-        {/* Agent counts and quota gauges; folded, still read by screen readers */}
+        {/* Quota gauges, and the totals read by screen readers only (#523: no summary text drawn) */}
         <div data-topbar-group="status" className={folded ? 'sr-only' : `${GROUP} gap-x-4 gap-y-1.5 min-w-0`}>
-          <span data-testid="topbar-agent-counts" className="md:whitespace-nowrap">
-            <span aria-hidden="true">{drawnCounts}</span>
-            <span className="sr-only">{spokenTotals}</span>
-          </span>
+          <span data-testid="topbar-spoken-totals" className="sr-only">{spokenTotals}</span>
           {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
         </div>
 
