@@ -29,7 +29,11 @@ before(() => {
 after(() => { if (outDir) rmSync(outDir, { recursive: true, force: true }) })
 
 test('the standalone bundle loads in a browser without error and consumes the #pair= fragment (#517)', async () => {
-  const { JSDOM, VirtualConsole } = requireWeb('jsdom') as typeof import('jsdom')
+  // jsdom lives in web/ only: loaded from there, typed by what this test uses.
+  const { JSDOM, VirtualConsole } = requireWeb('jsdom') as {
+    JSDOM: new (html: string, options: object) => { window: { close: () => void } }
+    VirtualConsole: new () => { on: (event: string, listener: (e: Error) => void) => void }
+  }
   const errors: string[] = []
   const virtualConsole = new VirtualConsole()
   virtualConsole.on('jsdomError', (e: Error) => errors.push(String(e.message)))
