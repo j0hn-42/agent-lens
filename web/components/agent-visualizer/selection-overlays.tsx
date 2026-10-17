@@ -34,6 +34,25 @@ interface SelectionOverlaysProps {
   menuActions: ContextMenuActions
 }
 
+/**
+ * The agent menu acts on the right-clicked agent, which a right click does not select:
+ * - "Show details" selects it, which opens its detail card;
+ * - "Zoom to fit" selects it first, since the fit frames the selected agent and its sub-agents (computeFitTransform).
+ *   Both state updates land in the same render, and the camera runs its fit after the selection change (#377).
+ */
+function agentMenuActions(selection: Selection, actions: ContextMenuActions): ContextMenuActions {
+  const agentId = selection.contextMenu?.agentId
+  if (!agentId) return actions
+  return {
+    ...actions,
+    showAgentDetails: () => selection.handleAgentClick(agentId),
+    zoomToFit: () => {
+      selection.handleAgentClick(agentId)
+      actions.zoomToFit()
+    },
+  }
+}
+
 /** What opens over the canvas after a click: the agent card, the tool and discovery popups, the link panel, the context menu */
 export function SelectionOverlays({
   selection, inspector, agents, links, droppedMessages, health, bridge, selectedLinkId, onCloseLink, onEscapeFromCard, menuActions,
@@ -108,7 +127,7 @@ export function SelectionOverlays({
       {selection.contextMenu && (
         <GlassContextMenu
           position={selection.contextMenu}
-          items={contextMenuItems(Boolean(selection.contextMenu.agentId), menuActions)}
+          items={contextMenuItems(Boolean(selection.contextMenu.agentId), agentMenuActions(selection, menuActions))}
           onClose={() => selection.setContextMenu(null)}
         />
       )}
