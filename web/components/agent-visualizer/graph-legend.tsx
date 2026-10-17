@@ -13,6 +13,7 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 import { useTheme } from '@/lib/theme'
+import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 
 const STATES: AgentState[] = ['idle', 'thinking', 'tool_calling', 'waiting_permission', 'error', 'paused', 'complete']
 
@@ -62,6 +63,23 @@ function Section({ section, title, children }: { section: LegendSectionId; title
       <h3 data-tour-target={`legend-${section}`} className="mt-2 mb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: COLORS.textMuted }}>{title}</h3>
       <ul>{children}</ul>
     </>
+  )
+}
+
+/** The loop / repeat badge of the canvas (draw-agents.ts, drawRepeatBadge): same disc, same glyphs (#377) */
+function RepeatBadgeIcon({ kind }: { kind: 'loop' | 'repeated' }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" fill={SCENE.cardBgDark} stroke={SCENE.warn} strokeWidth="1.5" />
+      {kind === 'loop' ? (
+        <>
+          <path d="M14.5 7.67 A5 5 0 1 1 9.5 7.67" fill="none" stroke={SCENE.warn} strokeWidth="1.6" strokeLinecap="round" />
+          <polygon points="12.1,6.2 10.1,9.7 8.1,6.2" fill={SCENE.warn} />
+        </>
+      ) : (
+        <path d="M8 8.5 L11 12 L8 15.5 M13 8.5 L16 12 L13 15.5" fill="none" stroke={SCENE.warn} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      )}
+    </svg>
   )
 }
 
@@ -184,6 +202,11 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
                 <span style={{ color: COLORS.textMuted }}> ({team.teamKind === 'workflow' ? 'workflow, ' : ''}{team.memberNames.length} {memberNoun(team.teamKind, team.memberNames.length)})</span>
               </Row>
             ))}
+          </Section>
+
+          <Section section="repeats" title="Loops and repeats">
+            <Row id="mark-loop" icon={<RepeatBadgeIcon kind="loop" />}>Circular arrow on a node: loop observed (the same call {REPEAT_THRESHOLD} times in a row with the same input, or {CYCLE_THRESHOLD} read → edit → failure cycles on one file). It may be over; open the agent for the evidence</Row>
+            <Row id="mark-repeated" icon={<RepeatBadgeIcon kind="repeated" />}>Double chevron on a node: repeated reads or calls observed (same input, nothing seen in between that would change the answer). A repeat may be intended; the Files panel lists them</Row>
           </Section>
 
           <Section section="links" title="Message links">

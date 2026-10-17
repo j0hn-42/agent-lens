@@ -2,6 +2,7 @@ import type { TeamSummary } from '@/lib/agent-types'
 import type { SessionLink } from '@/lib/session-links'
 import type { SimulationState, AgentLink } from '@/hooks/simulation/types'
 import type { AnnounceLevel } from '@/lib/ui-preferences'
+import type { HealthVerdict } from '@/lib/loop-detection'
 import type { SessionMeta } from './index'
 
 export interface CanvasProps {
@@ -46,5 +47,7 @@ export interface CanvasProps {
   presentation?: { follow: boolean; mask: boolean }
   /** Verbosity of the live announcements (#379); absent = every change. Urgent states are announced at every level */
   announceLevel?: AnnounceLevel
+  /** Loop verdict per agent id (lib/loop-detection, `health.byAgent`): a proven loop badges its node (#377). Absent = no loop badge */
+  health?: ReadonlyMap<string, HealthVerdict>
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

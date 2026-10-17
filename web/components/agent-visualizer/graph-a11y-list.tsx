@@ -113,6 +113,7 @@ export function GraphA11yList({
         {agent.name}, {agent.orchestrator ? 'orchestrator, ' : ''}{agent.stateText}
         {agent.activityText ? `, ${agent.activityText}` : ''}
         {agent.archived ? ', archived' : ''}
+        {agent.repeats ? `, ${agent.repeats.short}` : ''}
       </button>
       <p>
         {agent.orchestrator === 'lead' ? 'Orchestrator, lead of the team. ' : agent.orchestrator === 'main' ? 'Orchestrator, main agent of the session. ' : ''}
@@ -124,6 +125,7 @@ export function GraphA11yList({
       {agent.childNames.length > 0 && (
         <p>Parent of {agent.childNames.join(', ')}.</p>
       )}
+      {agent.repeats && <p>{agent.repeats.detail}</p>}
       {agent.branch && (
         <p>
           {agent.branch.text}.{' '}

@@ -28,6 +28,7 @@ import { isUnverifiedEdge, unverifiedReasonText } from './edge-style'
 import { branchBadge, type BranchInfo, type CollapseView } from './branch-collapse'
 import type { FileAttention } from '../../../lib/agent-types'
 import { deriveFileConflicts, describeConflictEditors } from '../../../lib/file-conflicts'
+import { repeatMarkText, type RepeatMark, type RepeatMarkKind } from '../../../lib/repeat-marks'
 
 /** Max characters of tool arguments / error text kept in the DOM mirror */
 const MAX_TEXT = 240
@@ -181,6 +182,13 @@ export interface A11yAgentItem {
   clusterKey?: string
   /** Collapsible branch state (agents with sub-agents that are not the root of a tree) */
   branch?: { collapsed: boolean; pinned: boolean; text: string }
+  /** Loop / repeat badge of the node (#377): `short` follows the state, `detail` gives the evidence. Absent = no badge */
+  repeats?: { kind: RepeatMarkKind; short: string; detail: string }
+}
+
+/** Mirror wording of a loop / repeat badge; nothing at all when the node has none (never a "no loop") */
+function repeatsItem(mark: RepeatMark | undefined): Pick<A11yAgentItem, 'repeats'> {
+  return mark ? { repeats: { kind: mark.kind, ...repeatMarkText(mark) } } : {}
 }
 
 /** Mirror wording of a branch: the same facts as its canvas badge. */
@@ -283,6 +291,8 @@ export interface A11yExtras {
   costAgents?: Iterable<Agent>
   /** Files touched by the agents: the source of the file conflicts */
   fileAttention?: ReadonlyMap<string, FileAttention>
+  /** Loop / repeat marks of the drawn agents (lib/repeat-marks), the same map the canvas draws */
+  repeatMarks?: ReadonlyMap<string, RepeatMark>
 }
 
 /**
@@ -380,6 +390,7 @@ export function buildA11yModel(
       orchestrator: orchestratorRole(a, extras.teams) ?? undefined,
       clusterKey: clusterOf.get(a.id),
       branch: branchItem(extras.collapse?.branches.get(a.id)),
+      ...repeatsItem(extras.repeatMarks?.get(a.id)),
     })
   }
 

@@ -1,7 +1,7 @@
 import { Agent, NODE, ANIM } from '../../../lib/agent-types'
 import { SCENE, contextSegments } from '../../../lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW, REPEAT_BADGE_DRAW,
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
@@ -599,6 +599,57 @@ export function drawCrownBadge(ctx: CanvasRenderingContext2D, x: number, y: numb
 }
 
 /**
+ * Loop / repeat badge on the upper-left rim of a node (#377), the mirror of the crown. The meaning is in the
+ * SHAPE, not the colour: a circular arrow for a proven loop, a double chevron for repeated reads or calls.
+ * Static: it never spins or pulses (a spinning arrow would read as "running", while a loop may be over).
+ */
+function drawRepeatBadge(ctx: CanvasRenderingContext2D, x: number, y: number, kind: 'loop' | 'repeated') {
+  const size = REPEAT_BADGE_DRAW.size
+  const k = size * 0.5
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(x, y, size + 2, 0, Math.PI * 2)
+  ctx.fillStyle = SCENE.cardBgDark
+  ctx.fill()
+  ctx.lineWidth = REPEAT_BADGE_DRAW.ringWidth
+  ctx.strokeStyle = SCENE.warn
+  ctx.stroke()
+  ctx.strokeStyle = SCENE.warn
+  ctx.fillStyle = SCENE.warn
+  ctx.lineWidth = REPEAT_BADGE_DRAW.glyphWidth
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  if (kind === 'loop') {
+    // An open arc of 300° ending in an arrow head (⟳)
+    const start = -Math.PI / 2 + Math.PI / 6
+    const end = start + (Math.PI * 5) / 3
+    ctx.beginPath()
+    ctx.arc(x, y, k, start, end)
+    ctx.stroke()
+    const hx = x + k * Math.cos(end)
+    const hy = y + k * Math.sin(end)
+    const t = end + Math.PI / 2 // tangent of the arc at its end
+    const h = k * 0.7
+    ctx.beginPath()
+    ctx.moveTo(hx + h * Math.cos(t), hy + h * Math.sin(t))
+    ctx.lineTo(hx + h * 0.6 * Math.cos(t - Math.PI * 0.6), hy + h * 0.6 * Math.sin(t - Math.PI * 0.6))
+    ctx.lineTo(hx + h * 0.6 * Math.cos(t + Math.PI * 0.6), hy + h * 0.6 * Math.sin(t + Math.PI * 0.6))
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    // Two stacked chevrons (»): no arc, so it never reads as the loop arrow
+    for (const dx of [-k * 0.45, k * 0.45]) {
+      ctx.beginPath()
+      ctx.moveTo(x + dx - k * 0.35, y - k * 0.6)
+      ctx.lineTo(x + dx + k * 0.35, y)
+      ctx.lineTo(x + dx - k * 0.35, y + k * 0.6)
+      ctx.stroke()
+    }
+  }
+  ctx.restore()
+}
+
+/**
  * Teammate decoration: an accent ring in the (validated) team colour plus an activity badge whose
  * SHAPE carries the activity: hollow ring = idle, arc (spinning when motion is allowed) = working,
  * filled dot = done.
@@ -743,6 +794,10 @@ export function drawAgents(
       drawContextComposition(ctx, agent, r, lod.details && labelDrawn.visible, extraLines * AGENT_DRAW.stateLabelGap)
       ctx.restore()
     }
+
+    // Loop / repeat badge (#377): after the context ring so the ring never covers it; a shape, drawn at every zoom
+    const repeatMark = opts.repeatMarks?.get(id)
+    if (repeatMark) drawRepeatBadge(ctx, agent.x - r * REPEAT_BADGE_DRAW.offset, agent.y - r * REPEAT_BADGE_DRAW.offset, repeatMark.kind)
 
     if (lod.details && showStats && agent.state !== 'complete') {
       // Stacked layout shared with the cost pill: stats, cost and the % label never overlap

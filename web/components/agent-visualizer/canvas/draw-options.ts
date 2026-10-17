@@ -34,6 +34,8 @@ export interface DrawOpts {
   maskText?: boolean
   /** Theme of the agent state colours (#381): the only themed part of the scene. Absent = the default theme */
   theme?: ThemeId
+  /** Loop / repeat mark per agent id (#377, lib/repeat-marks): a badge on the node. Absent = no badge */
+  repeatMarks?: ReadonlyMap<string, { kind: 'loop' | 'repeated' }>
 }
 
 export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, showCost: false, showStats: false, showSessionLabels: false }

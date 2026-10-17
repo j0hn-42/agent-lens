@@ -9,6 +9,7 @@ import { LEGEND_ENTRIES, type LegendEntryId, type LegendSectionId } from './lege
 import type { LegendPresence } from './legend-presence'
 import { CONTEXT_WINDOW_NAME } from './ui-glossary'
 import { cleanText } from '../components/agent-visualizer/canvas/team-style'
+import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from './loop-detection'
 
 /** One sentence per legend entry. It describes the symbol, never the session: the facts come from the presence. */
 export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
@@ -41,6 +42,8 @@ export const LIVE_ENTRY_TEXT: Readonly<Record<LegendEntryId, string>> = {
   'session-halo': 'A dotted halo groups the agents of one session. Its label gives runtime, workspace, status and cost; click it to zoom to the cluster.',
   orchestrator: 'A crown with a LEAD (team) or MAIN (session) badge marks the orchestrator.',
   'team-row': 'The legend lists each team with its member count.',
+  'mark-loop': `A circular arrow on a node: a loop was observed (the same call ${REPEAT_THRESHOLD} times in a row with the same input, or ${CYCLE_THRESHOLD} read, edit, failure cycles on one file). It may be over. Open the agent for the evidence.`,
+  'mark-repeated': 'A double chevron on a node: repeated reads or calls were observed (same input, nothing seen in between that would change the answer). A repeat may be intended. The Files panel lists them.',
   'link-flight': 'Long purple dashes: a message is in flight.',
   'link-recent': 'A solid green line: a message arrived recently.',
   'link-error': 'A dotted red line: the message link reported an error.',
@@ -82,6 +85,7 @@ const GROUPS: readonly Group[] = [
   { id: 'conflicts', title: 'File conflicts', entries: ['edge-file-conflict'] },
   { id: 'teams', title: 'Agent teams', entries: ['team-ring', 'team-working', 'team-idle', 'team-done', 'team-halo', 'team-row'] },
   { id: 'sessions', title: 'Sessions', entries: ['session-halo'] },
+  { id: 'repeats', title: 'Loops and repeats', entries: ['mark-loop', 'mark-repeated'] },
   { id: 'links', title: 'Links between agents', entries: ['link-flight', 'link-recent', 'link-error', 'link-quiet', 'link-bubble'] },
   { id: 'context', title: CONTEXT_WINDOW_NAME, entries: ['ctx-system', 'ctx-user', 'ctx-tool-results', 'ctx-reasoning', 'ctx-subagent'] },
   { id: 'discoveries', title: 'Discoveries', entries: ['shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code'] },

@@ -31,6 +31,7 @@ export const DESCRIBED_ONLY: readonly LegendEntryId[] = [
   'state-paused', 'state-error', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo',
   'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code',
   'rt-copilot', 'rt-pi', 'rt-gemini', 'rt-opencode',
+  'mark-loop', 'mark-repeated',
 ]
 
 // A main agent is labelled by its first prompt (cut to 40 characters), not by the name in the events.
@@ -75,6 +76,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     body: 'When no new message has gone through for a while, the link fades to a thin quiet line with a message-count badge. Click it to read the messages.',
     covers: ['link-quiet'] },
   { id: 'not-in-demo', time: 44.5, target: { kind: 'dom', id: 'legend-edges' }, opensLegend: true, title: 'Seen only in a real session',
-    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a file conflict (a red dash-dot line with a diamond between two agents that edited the same file), a "+N" badge on a folded branch, a red error message link, the dotted session halo, the discovery cards (file, pattern, finding, code) the visor logo of a GitHub Copilot agent the pi letter of a Pi agent and the four-point star of a Gemini CLI agent and the square brackets of an OpenCode agent. Keep the legend open to recognise them later.',
-    covers: ['state-paused', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code', 'rt-copilot', 'rt-pi', 'rt-gemini', 'rt-opencode'] },
+    body: 'Some legend entries are not shown in this demo because they depend on live conditions or on your clicks: a paused agent, an unverified parent link (dashed), a file conflict (a red dash-dot line with a diamond between two agents that edited the same file), a "+N" badge on a folded branch, a red error message link, the dotted session halo, the discovery cards (file, pattern, finding, code) the visor logo of a GitHub Copilot agent the pi letter of a Pi agent and the four-point star of a Gemini CLI agent and the square brackets of an OpenCode agent, and the loop and repeat badges on the upper-left rim of a node (a circular arrow when a loop was observed, a double chevron when reads or calls were repeated). Keep the legend open to recognise them later.',
+    covers: ['state-paused', 'edge-unverified', 'edge-file-conflict', 'edge-badge-hidden', 'edge-badge-active', 'link-error', 'session-halo', 'shape-discovery', 'disc-file', 'disc-pattern', 'disc-finding', 'disc-code', 'rt-copilot', 'rt-pi', 'rt-gemini', 'rt-opencode', 'mark-loop', 'mark-repeated'] },
 ] as const
