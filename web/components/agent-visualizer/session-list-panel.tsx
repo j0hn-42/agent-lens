@@ -11,6 +11,7 @@ import { usageFromAgent } from '@/lib/usage'
 import { deriveFreshness } from '@/hooks/simulation/freshness'
 import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { getStateLabel } from '@/lib/state-labels'
+import { STATE_MARKER_SHAPE, type StateMarkerShape } from '@/lib/canvas-constants'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
 import { SESSION_STATUS_TEXT, formatTeamSummary, runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
@@ -110,17 +111,25 @@ const STATE_COLOR: Record<string, string> = themed(() => ({
   complete: COLORS.complete,
 }))
 
-/** Marker whose shape (disc / ring / check / cross) differs per status, so colour is never the only cue. */
+/** Marker with one shape per state (STATE_MARKER_SHAPE, #381), so neither colour nor the pulse is ever the only cue. */
 function StateMarker({ state }: { state: string }) {
   const color = STATE_COLOR[state] ?? (state === 'paused' ? COLORS.paused : COLORS.idle)
-  if (state === 'complete') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✓</span>
-  if (state === 'error') return <span aria-hidden="true" className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>✕</span>
-  const hollow = state === 'idle' || state === 'paused'
+  const shape: StateMarkerShape = STATE_MARKER_SHAPE[state as keyof typeof STATE_MARKER_SHAPE] ?? STATE_MARKER_SHAPE.idle
+  if (shape === 'check' || shape === 'cross') {
+    return <span aria-hidden="true" data-state-marker={shape} className="w-3 shrink-0 text-[11px] leading-none" style={{ color }}>{shape === 'check' ? '✓' : '✕'}</span>
+  }
+  // 8 px boxes: ring and disc are round, the square has sharp corners, the diamond is that square turned 45 degrees,
+  // the pause bars are its left and right edges
+  const form = shape === 'ring' || shape === 'disc' ? 'rounded-full' : shape === 'diamond' ? 'rotate-45' : ''
+  const style = shape === 'bars'
+    ? { borderLeft: `3px solid ${color}`, borderRight: `3px solid ${color}` }
+    : { background: shape === 'ring' ? 'transparent' : color, border: `2px solid ${color}` }
   return (
     <span
       aria-hidden="true"
-      className={`inline-block w-2 h-2 mx-0.5 rounded-full shrink-0 ${state === 'waiting_permission' ? 'motion-safe:animate-pulse' : ''}`}
-      style={{ background: hollow ? 'transparent' : color, border: `2px solid ${color}` }}
+      data-state-marker={shape}
+      className={`inline-block w-2 h-2 mx-0.5 shrink-0 ${form} ${state === 'waiting_permission' ? 'motion-safe:animate-pulse' : ''}`}
+      style={style}
     />
   )
 }
