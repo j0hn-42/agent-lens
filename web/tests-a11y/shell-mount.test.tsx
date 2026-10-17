@@ -69,7 +69,8 @@ async function mountTwoSessions() {
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /Hide inactive agents/ })) })
   const agentItems = () => Array.from(r.container.querySelectorAll('li')).map(li => li.textContent ?? '')
   await waitUntil(() => ['main-a', 'worker-a', 'main-b'].every(n => agentItems().some(t => t.startsWith(n))), 'the three agents are drawn')
-  await wait(300)
+  // the halos carry the session meta once the layout has grouped the agents: wait for that, not for a fixed time (#440)
+  await waitUntil(() => (r.container.textContent ?? '').includes('Session payments-api, 2 agents') && (r.container.textContent ?? '').includes('Session web-app, 1 agent'), 'both session halos are drawn')
   return r
 }
 
@@ -132,7 +133,6 @@ test('onClusterSelect reaches the canvas: a halo click selects its session tab w
   })
   await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Hide inactive agents' })) })
   await waitUntil(() => r.container.textContent?.includes('Session payments-api, 2 agents') ?? false, 'the payments-api halo is drawn')
-  await wait(300)
   await openSessions(r)
   const tab = () => sessionRow(r, /payments-api/)
   assert.equal(sessionRows(r)[0].getAttribute('aria-current'), 'true', 'All is selected before the click')
