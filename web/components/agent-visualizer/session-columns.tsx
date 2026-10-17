@@ -32,6 +32,12 @@ const WHEN_BRANCH = 'hidden @min-[640px]:block'
 const NAME_CELL = '@max-[440px]:basis-full'
 const SECOND_LINE = 'col-span-full flex flex-wrap items-center gap-x-2 text-[11px]'
 
+/**
+ * The columns are not translated yet (#502 leaves them): their text says so, with its own language, so a French panel
+ * never claims it in French (WCAG 3.1.2) and the no-mixed-languages test leaves them out.
+ */
+const STILL_ENGLISH = { lang: 'en', 'data-i18n-exempt': '' } as const
+
 type ColumnKey = Exclude<keyof typeof COLUMN_LABELS, 'name'>
 
 const CELL_CLASS: Record<ColumnKey, string> = {
@@ -59,7 +65,7 @@ interface ColumnValueProps {
 /** A static cell. Known value: "<column>, <wording>" for assistive tech, the compact text for the eye. */
 export function ColumnValue({ column, cell, title }: ColumnValueProps) {
   return (
-    <span className={CELL_CLASS[column]} style={{ color: COLORS.textMuted }} title={title ?? cell.label} data-column={column}>
+    <span className={CELL_CLASS[column]} style={{ color: COLORS.textMuted }} title={title ?? cell.label} data-column={column} {...STILL_ENGLISH}>
       {cell.empty
         ? <><StackedLabel column={column} /><span aria-hidden="true">{cell.text}</span><span className="sr-only">{cell.label}</span></>
         : <><StackedLabel column={column} /><span aria-hidden="true">{cell.text}</span><span className="sr-only">{COLUMN_LABELS[column]}, {cell.label}</span></>}
@@ -124,7 +130,7 @@ export function LiveTimeValue({ agent, freshness, now = Date.now, monotonic = ()
 
   if (cell.empty) return <ColumnValue column="time" cell={cell} />
   return (
-    <span className={CELL_CLASS.time} style={{ color: COLORS.textMuted }} data-column="time" title="Active time">
+    <span className={CELL_CLASS.time} style={{ color: COLORS.textMuted }} data-column="time" title="Active time" {...STILL_ENGLISH}>
       <StackedLabel column="time" />
       <span className="sr-only">{COLUMN_LABELS.time}, active, </span>
       <span ref={ref} data-testid="row-active-time">{cell.text}</span>
@@ -138,6 +144,7 @@ export function ColumnHeader() {
     <div
       aria-hidden="true"
       data-testid="session-columns-header"
+      {...STILL_ENGLISH}
       className={`sticky top-0 z-10 pl-11 pr-8 pb-0.5 text-[11px] tracking-wider uppercase @max-[440px]:hidden ${ROW_GRID}`}
       style={{ background: COLORS.void, color: COLORS.textMuted, borderBottom: `1px solid ${COLORS.controlBorder}` }}
     >

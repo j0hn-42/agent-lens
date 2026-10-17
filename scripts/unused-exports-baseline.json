@@ -130,7 +130,6 @@
   "web/hooks/use-ui-preferences.ts:resetDefaultUiPreferencesStore",
   "web/hooks/use-vscode-bridge.ts:PARSE_NOTICE_INTERVAL_MS",
   "web/lib/active-time.ts:ActiveTimeTracker",
-  "web/lib/active-time.ts:formatActiveSince",
   "web/lib/active-time.ts:SAMPLE_GAP_MAX_MS",
   "web/lib/ansi.ts:ansi256",
   "web/lib/ansi.ts:stripAnsi",

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef } from 'react'
 import type { Agent } from '@/lib/agent-types'
-import { createChrono, activeSummaryText } from '@/lib/active-time'
+import { createChrono } from '@/lib/active-time'
+import { activeSummaryText } from '@/lib/card-text'
+import { DEFAULT_LOCALE, type Locale } from '@/lib/messages'
 import { useFreshnessValue, getFreshnessClock, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { deriveFreshness } from '@/hooks/simulation/freshness'
 
@@ -16,6 +18,8 @@ interface ActiveTimeStatProps {
   now?: () => number
   monotonic?: () => number
   freshnessClock?: FreshnessClock
+  /** Language of the text (default English) */
+  locale?: Locale
 }
 
 /**
@@ -24,7 +28,7 @@ interface ActiveTimeStatProps {
  * jump cannot move it. The component only re-renders when the freshness of the agent changes, and an
  * agent that is not fresh reads "active time unknown" instead of a counter that keeps running.
  */
-export function ActiveTimeStat({ agent, tickMs = 1000, now = Date.now, monotonic = () => performance.now(), freshnessClock }: ActiveTimeStatProps) {
+export function ActiveTimeStat({ agent, tickMs = 1000, now = Date.now, monotonic = () => performance.now(), freshnessClock, locale = DEFAULT_LOCALE }: ActiveTimeStatProps) {
   const ref = useRef<HTMLSpanElement>(null)
   const agentRef = useRef(agent)
   agentRef.current = agent
@@ -35,21 +39,21 @@ export function ActiveTimeStat({ agent, tickMs = 1000, now = Date.now, monotonic
 
   // The chrono restarts only when the span (or its validity) changes, never on a plain tick
   const chrono = createChrono({ startedAt: since ?? 0, wallNow: now(), monotonic })
-  const text = activeSummaryText(agent, freshness, running ? chrono.elapsedMs() : 0)
+  const text = activeSummaryText(locale, agent, freshness, running ? chrono.elapsedMs() : 0)
 
   useEffect(() => {
     if (!running || freshness !== 'fresh' || since === undefined) return
     const c = createChrono({ startedAt: since, wallNow: now(), monotonic })
     const tick = () => {
       if (ref.current && !(typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
-        ref.current.textContent = activeSummaryText(agentRef.current, 'fresh', c.elapsedMs())
+        ref.current.textContent = activeSummaryText(locale, agentRef.current, 'fresh', c.elapsedMs())
       }
     }
     tick()
     const handle = setInterval(tick, tickMs)
     return () => clearInterval(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- now/monotonic are stable clock sources
-  }, [running, freshness, since, tickMs])
+  }, [running, freshness, since, tickMs, locale])
 
   return <span ref={ref} data-testid="active-time">{text}</span>
 }
