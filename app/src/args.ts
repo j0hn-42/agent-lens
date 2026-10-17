@@ -1,4 +1,5 @@
 import { DEFAULT_RELAY_PORT } from '../../extension/src/constants'
+import { IPC_STOP_FLAG } from './parent-stop'
 
 /** Value of an option, or undefined when it is missing or is the next flag: a flag is never swallowed (#474). */
 function optionValue(next: string | undefined): string | undefined {
@@ -22,6 +23,7 @@ export function parseArgs(argv: string[]) {
   let host: string | undefined
   let remote = false
   let tokenFile: string | undefined
+  let ipcStop = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -69,6 +71,10 @@ export function parseArgs(argv: string[]) {
       const value = optionValue(argv[i + 1])
       host = value ?? ''
       if (value !== undefined) i++
+    } else if (arg === IPC_STOP_FLAG) {
+      // Internal to the tray driver (#513): stop over the IPC channel of the parent. Not in --help on purpose;
+      // refused at startup when there is no such channel (watchParentStop)
+      ipcStop = true
     } else if (arg === '--all-workspaces') {
       allWorkspaces = true
     } else if (arg === '--verbose' || arg === '-v') {
@@ -121,5 +127,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, tokenFile, host, remote, allowLaunch, launchRepos }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, tokenFile, host, remote, allowLaunch, launchRepos, ipcStop }
 }
