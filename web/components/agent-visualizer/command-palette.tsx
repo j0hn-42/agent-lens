@@ -155,7 +155,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                       }}
                     >
                       <span className="min-w-0 truncate" data-sensitive={item.sensitive ? '' : undefined}>
-                        {item.lang ? <span lang={item.lang}>{item.label}</span> : item.label}
+                        {item.lang ? <span lang={item.lang} data-i18n-exempt>{item.label}</span> : item.label}
                         {item.detail && <span style={{ color: COLORS.textMuted }}> ({item.detail})</span>}
                       </span>
                       {item.shortcut && (
@@ -164,7 +164,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                           className="shrink-0 min-w-6 rounded px-1.5 py-0.5 text-center text-[11px]"
                           style={{ background: COLORS.holoBg10, border: `1px solid ${COLORS.glassBorder}`, color: COLORS.textPrimary }}
                         >
-                          {item.shortcut === 'Space' ? t('palette.key.space') : item.shortcut}
+                          {item.shortcut === 'Space' ? t('palette.key.space') : item.shortcut === 'Shift+F' ? t('palette.key.shiftF') : item.shortcut}
                         </kbd>
                       )}
                     </div>

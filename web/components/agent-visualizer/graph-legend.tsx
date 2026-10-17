@@ -2,11 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { COLORS, SCENE, getDiscoveryTypeColor } from '@/lib/colors'
-import { LEGEND_OPEN_KEY } from '@/lib/canvas-constants'
+import { LEGEND_OPEN_KEY, STATE_LABEL_SHORT } from '@/lib/canvas-constants'
 import type { AgentState } from '@/lib/agent-types'
 import { stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './canvas/draw-misc'
 import type { A11yTeamItem } from './canvas/a11y-model'
-import { sharedNounCount } from '@/lib/card-text'
 import { LearnMoreLink } from './learn-more-link'
 import { LEGEND_ENTRIES, LEGEND_ENTRY_IDS, type LegendEntryId, type LegendSectionId } from '@/lib/legend-entries'
 import { FOCUS_RING } from '@/lib/focus-ring'
@@ -92,10 +91,10 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
   const t = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
   const stateShort = (state: AgentState) => t(`legend.state.${state}.short` as MessageKey)
   const stateLong = (state: AgentState) => t(`legend.state.${state}.long` as MessageKey)
-  // "(workflow, 3 agents)" / "(2 members)": the figure is the team's own, "agent" and "workflow" are the same word in French
+  // "(workflow, 3 agents)" / "(2 members)": the figure is the team's own, "workflow" is the same word in French, and both nouns follow the plural rule of the language
   const teamCount = (team: A11yTeamItem) => {
     const n = team.memberNames.length
-    if (team.teamKind === 'workflow') return `workflow, ${sharedNounCount(n, 'agent')}`
+    if (team.teamKind === 'workflow') return `workflow, ${t(new Intl.PluralRules(locale).select(n) === 'one' ? 'count.agent.one' : 'count.agent.other', { n })}`
     return t(new Intl.PluralRules(locale).select(n) === 'one' ? 'count.member.one' : 'count.member.other', { n })
   }
   const [open, setOpen] = useState(false)
@@ -166,8 +165,19 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
           <Section section="states" title={t('legend.section.states')}>
             {STATES.map(state => (
               <Row key={state} id={`state-${state}` as LegendEntryId} icon={<Swatch color={stateColor(state, theme)} />}>
-                <span className="font-semibold">{stateShort(state)}</span>
-                {stateLong(state) !== stateShort(state) && <span style={{ color: COLORS.textMuted }}> ({stateLong(state)})</span>}
+                {locale === 'en' ? (
+                  <>
+                    <span className="font-semibold">{stateShort(state)}</span>
+                    {stateLong(state) !== stateShort(state) && <span style={{ color: COLORS.textMuted }}> ({stateLong(state)})</span>}
+                  </>
+                ) : (
+                  // The canvas draws the English word under each agent and its accessibility tree announces it in English:
+                  // the legend, the text equivalent of the colour, quotes the word as drawn, then glosses it (WCAG 1.4.1, 1.3.3)
+                  <>
+                    <span lang="en" data-i18n-exempt className="font-semibold">{STATE_LABEL_SHORT[state]}</span>
+                    <span style={{ color: COLORS.textMuted }}> : {stateLong(state)}</span>
+                  </>
+                )}
               </Row>
             ))}
           </Section>
@@ -267,6 +277,7 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
             id={GUIDED_TOUR_BUTTON_ID}
             // The tour and its label are not translated yet: the button declares its own language
             lang="en"
+            data-i18n-exempt
             type="button"
             onClick={startTour}
             className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
