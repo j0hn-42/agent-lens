@@ -11,6 +11,8 @@ import {
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { DRAWER_COMPANIONS, DRAWER_FOCUSABLE, TOUCH_TARGET, nextTrapTarget } from '@/lib/mobile-view'
+import { useMobileView } from '@/hooks/use-mobile-view'
 import { GlassCard } from './glass-card'
 
 // ─── Stop Propagation Handlers ──────────────────────────────────────────────
@@ -34,7 +36,7 @@ export function CloseButton({ onClick, className = '', label = 'Close' }: CloseB
       onClick={onClick}
       aria-label={label}
       data-panel-close
-      className={`inline-flex min-h-6 min-w-6 items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
+      className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center justify-center rounded text-xs transition-colors hover:bg-[color:var(--lens-hover)] ${FOCUS_RING} ${className}`}
       style={{ color: COLORS.scrollBtnText }}
     >
       <span aria-hidden="true">✕</span>
@@ -369,17 +371,68 @@ interface SlidingPanelProps {
   autoFocus?: boolean
   /** Extra attributes on the root, e.g. dockAttrs(...) */
   attrs?: Record<string, string>
+  /** Accessible name of the mobile drawer when no heading id is given (`labelledBy` wins) */
+  label?: string
   children: ReactNode
+}
+
+/**
+ * Below 768 px (#476) an open SlidingPanel is a drawer: a dialog the full width of the viewport that keeps Tab inside
+ * it (and the permission cards and truncation notice drawn above it, so it is not aria-modal) and closes on Escape
+ * through its own Close button. Opening and closing move the focus as
+ * on desktop (createPanelFocusController). Native listeners: no JSX handler on a static element.
+ */
+function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
+  useEffect(() => {
+    const el = ref.current
+    if (!active || !el) return
+    // Only what Tab can reach: a roving-tabindex row (tabindex -1) or a control that is not drawn (display: none,
+    // visibility: hidden) is skipped by the browser, so it must not count as the first or last one
+    // (checkVisibility is missing in jsdom: kept there)
+    const tabbable = (root: Element) => Array.from(root.querySelectorAll<HTMLElement>(DRAWER_FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[inert]') && !n.closest('[hidden]')
+      && (typeof n.checkVisibility !== 'function' || n.checkVisibility({ visibilityProperty: true })))
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return
+      // The permission cards and the truncation notice stay drawn above the drawer (#410, #453): they share its Tab
+      // cycle, first (they sit above it). Focus elsewhere (a tap on the top bar) is left alone: a soft trap.
+      const companions = Array.from(document.querySelectorAll(DRAWER_COMPANIONS)).filter(c => !c.closest('[aria-hidden="true"]') && !c.closest('[inert]'))
+      const inCycle = (n: Node | null) => !!n && (el.contains(n) || companions.some(c => c.contains(n)))
+      if (!inCycle(e.target as Node | null)) return
+      const segments = [...companions.map(tabbable), tabbable(el)]
+      const active = document.activeElement instanceof HTMLElement && inCycle(document.activeElement) ? document.activeElement : null
+      const target = nextTrapTarget(segments, active, e.shiftKey)
+      if (!target) return
+      e.preventDefault()
+      target.focus({ preventScroll: true })
+    }
+    // On window, after React's handlers: an Escape a control inside already took (stopPropagation) never gets here
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || !(e.target instanceof Element) || !el.contains(e.target)) return
+      if (e.target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return
+      const close = el.querySelector<HTMLElement>('[data-panel-close]')
+      if (!close) return
+      e.preventDefault()
+      close.click()
+    }
+    window.addEventListener('keydown', onTab, true)
+    window.addEventListener('keydown', onEscape)
+    return () => {
+      window.removeEventListener('keydown', onTab, true)
+      window.removeEventListener('keydown', onEscape)
+    }
+  }, [ref, active])
 }
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
-  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, children,
+  zIndex, width, className = '', style, labelledBy, autoFocus = true, attrs, label, children,
 }: SlidingPanelProps) {
   const ref = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<PanelFocusController | null>(null)
   const autoFocusRef = useRef(autoFocus)
   autoFocusRef.current = autoFocus
+  const drawer = useMobileView() && visible
+  useDrawerKeys(ref, drawer)
 
   // Focus management lives here (not in the parent) so it works for every panel and does
   // not depend on wrapper elements such as display:contents divs. The decision logic is the
@@ -414,11 +467,18 @@ export function SlidingPanel({
     controllerRef.current?.setVisible(visible)
   }, [visible])
 
+  // Mobile drawer: a named dialog spanning the viewport width (8 px gutters, like a sheet of the dock layout)
+  const drawerProps = drawer
+    ? { role: 'dialog', 'aria-labelledby': labelledBy, 'aria-label': labelledBy ? undefined : label, 'data-mobile-drawer': '' }
+    : { role: labelledBy ? 'region' : undefined, 'aria-labelledby': labelledBy }
+  const drawerStyle: React.CSSProperties | undefined = drawer
+    ? { left: 8, right: 'auto', width: 'calc(100vw - 16px)', maxWidth: 'calc(100vw - 16px)' }
+    : undefined
+
   return (
     <div
       ref={ref}
-      role={labelledBy ? 'region' : undefined}
-      aria-labelledby={labelledBy}
+      {...drawerProps}
       aria-hidden={!visible}
       inert={!visible}
       tabIndex={-1}
@@ -433,6 +493,7 @@ export function SlidingPanel({
         zIndex,
         width,
         ...style,
+        ...drawerStyle,
       }}
     >
       {children}

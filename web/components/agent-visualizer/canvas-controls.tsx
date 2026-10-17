@@ -7,13 +7,14 @@ import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
 import type { CalmLayers, MotionLayer } from '@/lib/motion-layers'
 import { translate, type Locale, type MessageKey } from '@/lib/messages'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { GraphLegend } from './graph-legend'
 import { MotionLayerControls } from './motion-layer-controls'
 import { useDockSnapshot } from './shared-ui'
 
 const CONTROL_BUTTON_CLASS =
   'inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-2 py-1 text-[11px] font-mono '
-  + `${FOCUS_RING} disabled:opacity-60`
+  + `${TOUCH_TARGET} ${FOCUS_RING} disabled:opacity-60`
 
 interface CanvasControlsProps {
   /** Teams of the accessible model (legend) */

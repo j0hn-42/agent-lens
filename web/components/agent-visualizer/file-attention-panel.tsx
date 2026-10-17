@@ -4,7 +4,7 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState, FILE_TIMELINE_LABELS } from '@/lib/ui-glossary'
+import { emptyState, FILE_TIMELINE_LABELS, PANEL_NAMES } from '@/lib/ui-glossary'
 import { fileStepTotal, type FileTimeline } from '@/lib/file-timeline'
 import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
@@ -100,6 +100,7 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       zIndex={Z.sidePanel}
       width={rect?.w ?? 380}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
+      label={PANEL_NAMES.files}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
