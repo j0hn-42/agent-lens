@@ -128,6 +128,11 @@ export interface OverlayPlanInput {
   hoveredLinkId?: string | null
   /** Keys of the edge bubbles that are hovered / focused: planned just below the selected agent's labels (see HELD_BUBBLE_BOOST) */
   heldBubbleKeys?: ReadonlySet<string>
+  /**
+   * Minimum side (screen px) of the zone of an edge bubble or its count chip (44 below 768 px, #514). The zone is what
+   * the planner keeps free of other texts, so the zones of two bubbles never overlap; the drawing stays centred in it.
+   */
+  touchTargetPx?: number
   simTime: number
   /** Teams, to tell a team lead from a session's main agent in the label layout */
   teams?: ReadonlyMap<string, Pick<TeamSummary, 'leadSessionId' | 'name'>>
@@ -414,11 +419,13 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const id = edgeBubblePlanId(b)
     const emphasised = b.linkId === input.selectedLinkId || b.linkId === input.hoveredLinkId
     const boost = input.heldBubbleKeys?.has(id) ? HELD_BUBBLE_BOOST : emphasised ? EMPHASISED_BUBBLE_BOOST : 0
-    const preferred = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
-    if (!onScreen(preferred, vp, 0)) continue
+    const drawn = toScreen(t, b.anchor.x - b.w / 2, b.anchor.y - b.h - 10, b.w, b.h)
+    if (!onScreen(drawn, vp, 0)) continue
+    const zoneMin = input.touchTargetPx ?? 0
+    const preferred = growTo(drawn, zoneMin)
     bubbleLinkOf.set(planKey.edgeBubble(id), b.linkId)
     const chip = (b.primary ?? true)
-      ? { x: preferred.x, y: preferred.y + preferred.h - PLACEMENT.chipH, w: PLACEMENT.chipW, h: PLACEMENT.chipH }
+      ? growTo({ x: drawn.x, y: drawn.y + drawn.h - PLACEMENT.chipH, w: PLACEMENT.chipW, h: PLACEMENT.chipH }, zoneMin)
       : undefined
     requests.push({
       id: planKey.edgeBubble(id),
@@ -448,6 +455,13 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     else if (p.id.startsWith('bubbles:') && p.collapsed) hits.collapsedBubbles.set(p.id.slice('bubbles:'.length), toWorld(t, p.rect))
   }
   return { plan, hits, crowded }
+}
+
+/** The rect grown symmetrically to at least `min` px on each axis. */
+function growTo(r: Rect, min: number): Rect {
+  const dx = Math.max(0, (min - r.w) / 2)
+  const dy = Math.max(0, (min - r.h) / 2)
+  return dx === 0 && dy === 0 ? r : { x: r.x - dx, y: r.y - dy, w: r.w + dx * 2, h: r.h + dy * 2 }
 }
 
 /** World offset of a placement (screen px divided by the zoom). */

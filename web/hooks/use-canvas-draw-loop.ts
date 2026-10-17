@@ -29,6 +29,7 @@ import { drawBranchBadges } from '@/components/agent-visualizer/canvas/draw-bran
 import type { NavNode } from '@/components/agent-visualizer/canvas/keyboard-nav'
 import { selectEdgeBubbles, capEdgeBubbles, type KeyedEdgeBubble } from '@/components/agent-visualizer/canvas/edge-bubble-set'
 import { syncBubbleButtons, type BubbleButtonSpec } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
+import { MOBILE_QUERY, TOUCH_TARGET_PX } from '@/lib/mobile-view'
 import { createHaloEaser } from '@/components/agent-visualizer/canvas/halo-geometry'
 import { planKey, toolCardRects } from '@/components/agent-visualizer/canvas/overlay-plan'
 import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
@@ -333,7 +334,10 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       for (const b of cappedEdgeBubbles) if (deps.heldBubbleKeysRef.current.has(b.key)) heldBubbleKeys.add(b.key)
       const overlay: OverlayPlanResult = (w > 0 && h > 0)
         ? planOverlays({
-          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys, transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod,
+          agents, clusters, edgeBubbles: cappedEdgeBubbles, heldBubbleKeys,
+          // Below 768 px the bubble zones are touch targets of 44 px (#514)
+          touchTargetPx: typeof window !== 'undefined' && window.matchMedia?.(MOBILE_QUERY).matches ? TOUCH_TARGET_PX : 0,
+          transform, viewport: { w, h }, safeArea: deps.getSafeArea(w, h), lod,
           showStats, showCost: !!showCostOverlay, showSessionLabels: !!opts.showSessionLabels,
           selectedAgentId, hoveredAgentId, focusedAgentId: opts.focusedAgentId ?? null,
           selectedLinkId, hoveredLinkId, simTime: deps.simTimeRef.current, teams: deps.teamsRef.current,

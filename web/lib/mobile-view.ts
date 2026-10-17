@@ -8,6 +8,8 @@
 const MOBILE_BREAKPOINT = 768
 /** Media query of the mobile view (the .98 keeps 767.5 px, a zoomed width, on the mobile side). */
 export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`
+/** Side (px) of the touch target below 768 px; what TOUCH_TARGET gives the DOM controls, for the canvas zones. */
+export const TOUCH_TARGET_PX = 44
 /**
  * Classes that give a control a 44x44 px box below 768 px only (Tailwind `max-md` is `width < 48rem`, 768 px).
  * A literal string so Tailwind finds it.
