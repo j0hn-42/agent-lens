@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { RELAY_LAUNCH_BODY_MAX_BYTES, RELAY_LAUNCH_RATE_BURST, RELAY_MAX_ALLOWED_HOSTS, RELAY_MAX_REMOTE_SSE_CLIENTS } from '../extension/src/constants'
+import { remoteStartupError, REMOTE_AUTH_AVAILABLE } from './remote-access'
 import { LAUNCH_ALLOWED_TOOLS, LAUNCH_CAPS, LAUNCH_DISALLOWED_TOOLS, LAUNCH_PERMISSION_MODE } from '../extension/src/launch-policy'
 
 const root = path.resolve(__dirname, '..')
@@ -364,8 +365,32 @@ test('the remote access page says what ships, and nothing that does not exist ye
   assert.match(doc, /`--allow-host`[^\n]*refused/)
   assert.match(doc, /not usable today|not available today|not usable yet/i, 'the page says remote access is not usable yet')
   // No environment variable is read for the host or the remote opt-in
-  for (const v of ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST']) assert.ok(doc.includes(v), `the page names ${v} as ignored`)
-  assert.doesNotMatch(args, /AGENT_LENS_HOST|AGENT_LENS_REMOTE/)
+  for (const v of ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST']) assert.ok(doc.includes(`\`${v}\``), `the page names \`${v}\` as ignored`)
+  for (const f of fs.readdirSync(path.join(root, 'app/src')).filter(n => n.endsWith('.ts') && !n.endsWith('.test.ts'))) {
+    assert.doesNotMatch(read(`app/src/${f}`), /process\.env\.(AGENT_LENS_HOST|AGENT_LENS_REMOTE|HOST)\b|env\[['"](AGENT_LENS_HOST|AGENT_LENS_REMOTE|HOST)['"]\]/, `app/src/${f} reads a host environment variable`)
+  }
+  // Behaviour, not text: a valid --allow-host name is still refused while the pairing is not wired in
+  assert.equal(REMOTE_AUTH_AVAILABLE, false)
+  assert.match(remoteStartupError({ allowHosts: ['tunnel.example.ts.net'] }) ?? '', /--allow-host is refused/)
+  assert.ok(remoteStartupError({ allowHosts: [], host: '0.0.0.0', remote: true }), '--remote --host 0.0.0.0 is refused')
+  // The pairing exists in scripts/ and is tested, but no command creates one: the page says both, and cites the real names
+  const pairing = read('scripts/remote-pairing.ts')
+  assert.match(pairing, /export function createRemotePairing/)
+  assert.match(pairing, /handlePair: \(req/)
+  assert.ok(read('scripts/remote-pairing.test.ts').includes('POST /pair'), 'remote-pairing.test.ts tests POST /pair')
+  assert.ok(read('scripts/remote-guards.test.ts').includes('without the cookie of POST /pair'), 'remote-guards.test.ts tests the 401 without a cookie')
+  assert.doesNotMatch(read('app/src/app.ts') + read('app/src/args.ts'), /remotePairing|createRemotePairing|--token-file/, 'the command does not wire the pairing: #517 still open')
+  for (const needle of ['scripts/remote-pairing.ts', 'createRemotePairing', 'POST /pair', 'scripts/remote-pairing.test.ts', 'scripts/remote-guards.test.ts', '401']) {
+    assert.ok(doc.includes(needle), `the page cites ${needle}`)
+  }
+  assert.doesNotMatch(doc, /not in the code/i, 'the pairing token is in the code: the page must not say otherwise')
+  // The relay is not "closed": a port forward with a loopback Host reaches the loopback surface with no token
+  assert.match(doc, /port forward/i)
+  assert.match(doc, /no token|without (any )?(token|authentication)/i)
+  assert.ok(doc.includes('(relay-sources.md#remote-access-guards-only-241-step-1)'))
+  assert.ok(read('docs/relay-sources.md').includes('The same holds for a tunnel that rewrites `Host` to `127.0.0.1`'), 'relay-sources documents the loopback Host case')
+  // The phone view: issue #476, delivered by PR #481
+  assert.ok(doc.includes('#476') && doc.includes('#481'), 'the page cites the phone-view issue and PR')
   // The dev relay refuses the remote flags outright
   assert.ok(read('scripts/dev-relay.ts').includes("'--allow-host'"), 'the dev relay refuses --allow-host')
   // Not-yet-available items point to the open issues
