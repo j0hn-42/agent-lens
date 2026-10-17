@@ -500,7 +500,7 @@ function DelegationSection({ rows, onSelectAgent, lost = 0 }: { rows: Delegation
             {!row.linkVerified && <div style={{ color: COLORS.textDim }}>{t('card.delegation.unverified')}</div>}
             <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2" style={{ color: COLORS.textDim }}>
               <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.tokens')}</dt>
-              <dd className="m-0">{C.usageText(locale, row.tokens)}</dd>
+              <dd className="m-0">{C.delegationTokensText(locale, row)}</dd>
               <dt style={{ color: COLORS.textMuted }}>{t('card.delegation.files')}</dt>
               <dd className="m-0 min-w-0">
                 {row.filesReadCount > 0 ? (
