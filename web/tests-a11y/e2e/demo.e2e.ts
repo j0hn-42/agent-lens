@@ -483,19 +483,52 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
       await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
       const menu = page.getByRole('menu', { name: 'Context menu' })
       await menu.waitFor()
-      const items = menu.getByRole('menuitem')
+      const items = menu.locator('[role="menuitem"], [role="menuitemcheckbox"]')
       const count = await items.count()
       assert.ok(count >= 2, `expected at least two menu items, got ${count}`)
       const labels = (await items.allTextContents()).map(s => s.trim())
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'first item is focused on open')
+      // the expected role is read from each item, so an action turned menuitemcheckbox by mistake still shows
+      const roles = await items.evaluateAll(els => els.map(e => e.getAttribute('role')))
+      const expected = (i: number) => `${roles[i]}:${labels[i]}`
+      assert.equal(await activeLabel(page), expected(0), 'first item is focused on open')
       await page.keyboard.press('ArrowDown')
-      assert.equal(await activeLabel(page), `menuitem:${labels[1]}`, 'ArrowDown moves to the next item')
+      assert.equal(await activeLabel(page), expected(1), 'ArrowDown moves to the next item')
       await page.keyboard.press('ArrowUp')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'ArrowUp moves back')
+      assert.equal(await activeLabel(page), expected(0), 'ArrowUp moves back')
       await page.keyboard.press('End')
-      assert.equal(await activeLabel(page), `menuitem:${labels[count - 1]}`, 'End focuses the last item')
+      assert.equal(await activeLabel(page), expected(count - 1), 'End focuses the last item')
       await page.keyboard.press('Home')
-      assert.equal(await activeLabel(page), `menuitem:${labels[0]}`, 'Home focuses the first item')
+      assert.equal(await activeLabel(page), expected(0), 'Home focuses the first item')
+      await page.keyboard.press('Escape')
+      await menu.waitFor({ state: 'detached' })
+    } finally { await close() }
+  })
+
+  // #380: aria-checked follows the real overlay state (index.tsx wiring), not only the pure item builder
+  test('context menu: Toggle grid and Toggle stats report the state they switch', async () => {
+    const { page, close } = await open()
+    try {
+      const menu = page.getByRole('menu', { name: 'Context menu' })
+      const openMenu = async () => {
+        await page.locator('canvas').first().click({ button: 'right', position: { x: 40, y: 200 } })
+        await menu.waitFor()
+      }
+      const checked = (name: string) => menu.getByRole('menuitemcheckbox', { name, exact: true })
+      const waitChecked = (name: string, value: 'true' | 'false') =>
+        menu.locator(`[role="menuitemcheckbox"][aria-checked="${value}"]`, { hasText: name }).waitFor({ timeout: 5000 })
+      await openMenu()
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'true', 'the hex grid is on by default')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'false', 'stats are off by default')
+      await checked('Toggle grid').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle grid', 'false')
+      assert.equal(await checked('Toggle grid').getAttribute('aria-checked'), 'false', 'Toggle grid turned the grid off')
+      await checked('Toggle stats').click()
+      await menu.waitFor({ state: 'detached' })
+      await openMenu()
+      await waitChecked('Toggle stats', 'true')
+      assert.equal(await checked('Toggle stats').getAttribute('aria-checked'), 'true', 'Toggle stats turned the stats on')
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
     } finally { await close() }
@@ -505,7 +538,7 @@ describe('demo mode: context menu and tool popup (issue #43)', () => {
     const { page, close } = await open()
     try {
       const menu = await openMenuByKeyboard(page)
-      assert.ok(await menu.getByRole('menuitem').count() >= 1)
+      assert.ok(await menu.locator('[role="menuitem"], [role="menuitemcheckbox"]').count() >= 1)
       await page.keyboard.press('Escape')
       await menu.waitFor({ state: 'detached' })
       assert.equal(await graphHasFocus(page), true, 'focus returns to the graph surface that opened the menu')

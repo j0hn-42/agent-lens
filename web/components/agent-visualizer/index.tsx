@@ -172,6 +172,7 @@ export function AgentVisualizer() {
   const inspector = useInspector(selection, { agents, conversations, droppedMessages, edges, fileAttention })
 
   const menuActions = {
+    showStats, showGrid: showHexGrid,
     toggleStats: () => setShowStats(prev => !prev),
     zoomToFit,
     toggleGrid: () => setShowHexGrid(prev => !prev),
