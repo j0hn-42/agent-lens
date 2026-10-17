@@ -70,23 +70,23 @@ export function PanelHeader({ children, onClose, className = 'mb-2', actions, ti
 }
 
 // ─── Dialog behaviour ───────────────────────────────────────────────────────
-// Focus the container on open, restore focus on close, close on Escape and when
-// focus moves outside (non-modal popups).
+// Focus the container on open, restore focus on close, close on Escape (non-modal
+// popups). Moving focus outside closes only when a caller opts in (closeOnFocusOutside);
+// every current dialog opts out, since focus moving is not a request to close (WCAG 3.2.2 / 2.4.3).
 
 /**
- * Controls the inspector card must survive focus moving to: the Sessions button and panel (#115). Choosing
- * another session there is how an agent leaves the view; closing the card first would clear the selection and
- * the "no longer listed" card could never appear.
+ * Marks the controls tied to the inspector (Sessions button and panel, #115). Since #380 nothing closes the
+ * inspector on focus-out, so no code reads this attribute any more; it is kept as an inert marker and can be
+ * removed with its call sites.
  */
 export const INSPECTOR_KEEP_ATTR = 'data-keeps-inspector'
-export const INSPECTOR_IGNORE_SELECTOR = `[data-companion-panel], [${INSPECTOR_KEEP_ATTR}]`
 
 export function useDialogBehavior(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
-  options: { closeOnFocusOutside?: boolean; ignoreSelector?: string; focusOnOpen?: boolean } = {},
+  options: { closeOnFocusOutside?: boolean; focusOnOpen?: boolean } = {},
 ): void {
-  const { closeOnFocusOutside = true, ignoreSelector, focusOnOpen = true } = options
+  const { closeOnFocusOutside = true, focusOnOpen = true } = options
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
@@ -109,12 +109,11 @@ export function useDialogBehavior(
     const onFocusIn = (e: FocusEvent) => {
       const el = ref.current
       if (!el || !(e.target instanceof Element) || el.contains(e.target)) return
-      if (ignoreSelector && e.target.closest(ignoreSelector)) return
       onCloseRef.current()
     }
     document.addEventListener('focusin', onFocusIn)
     return () => document.removeEventListener('focusin', onFocusIn)
-  }, [ref, closeOnFocusOutside, ignoreSelector])
+  }, [ref, closeOnFocusOutside])
 }
 
 /**
@@ -163,7 +162,8 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   const placed = placePopup(position, { w: width, h: estimatedHeight }, env)
 
   useClickOutside(ref, onClose)
-  useDialogBehavior(ref, onClose)
+  // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do.
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
 
   return (
     // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less

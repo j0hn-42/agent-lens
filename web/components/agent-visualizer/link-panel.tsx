@@ -30,15 +30,15 @@ const TYPE_COLOR: Record<LinkPanelEntry['type'], string> = themed(() => ({
  * receiver, direction, time and the full content (long messages collapse; "Show all" expands them).
  *
  * Semantics: a non-modal `role="dialog"`, like the other detail cards of the visualizer. It opens with
- * focus on the dialog, closes with Escape or the close button (and when focus leaves it), and gives
- * focus back to what opened it (useDialogBehavior). It does not trap focus or block the canvas: the
+ * focus on the dialog, closes with Escape or the close button (moving focus elsewhere does not close it:
+ * WCAG 3.2.2 / 2.4.3), and gives focus back to what opened it (useDialogBehavior). It does not trap focus or block the canvas: the
  * graph stays usable behind it, which is why it is not `aria-modal`.
  */
 export function LinkPanel({ link, agents, onClose }: LinkPanelProps) {
   const titleId = useId()
   const descId = useId()
   const ref = useRef<HTMLDivElement>(null)
-  useDialogBehavior(ref, onClose)
+  useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   // Right dock, stacked above Files / Conversation (shared layout: never over another panel)
   const dock = useDockPanel('link', true)
   const { rect } = dock
