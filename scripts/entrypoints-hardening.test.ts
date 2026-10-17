@@ -172,6 +172,24 @@ for (const entry of ENTRIES) {
       assert.equal((await request(a.port, 'GET', '/scope')).status, 405)
     })
 
+    it('answers 403 to a foreign Host or Origin, with no --allow-host given (#474, DNS rebinding)', async () => {
+      const foreignHosts = ['evil.example', `evil.example:${a.port}`, 'localhost.evil.example', '127.0.0.1.nip.io', 'box.tail1234.ts.net']
+      const paths = entry.rootCsp === CSP_STATIC_APP ? ['/events', '/status', '/'] : ['/events', '/status']
+      for (const p of paths) {
+        for (const host of foreignHosts) {
+          const r = await request(a.port, 'GET', p, { Host: host })
+          assert.equal(r.status, 403, `GET ${p} Host: ${host}`)
+          assert.ok(r.headers['content-security-policy'], `GET ${p} Host: ${host}: headers set on the 403`)
+        }
+      }
+      for (const origin of ['https://evil.example', 'null', `http://evil.example:${a.port}`]) {
+        assert.equal((await request(a.port, 'GET', '/events', { Origin: origin })).status, 403, `Origin: ${origin}`)
+      }
+      assert.equal((await request(a.port, 'GET', '/events', { 'Sec-Fetch-Site': 'cross-site' })).status, 403, 'Sec-Fetch-Site: cross-site')
+      // The loopback Host keeps working
+      assert.equal((await request(a.port, 'GET', '/status', { Host: `localhost:${a.port}` })).status, 200)
+    })
+
     it('serves the security headers on /status, on errors and on the root', async () => {
       assertStrictHeaders((await request(a.port, 'GET', '/status')).headers, CSP_API, 'GET /status')
       assertStrictHeaders((await request(a.port, 'GET', '/events?session=../x')).headers, CSP_API, '400 on /events')
@@ -272,6 +290,37 @@ describe('app entry point: remote access is refused at startup (#241)', () => {
     // A security flag typed without its value must not be ignored
     assert.equal((await runToExit(['--host'])).code, 2)
     assert.equal((await runToExit(['--allow-host'])).code, 2)
+  })
+
+  it('a non-loopback --host without --remote stops the start and names --remote (#474)', async () => {
+    for (const host of ['0.0.0.0', '192.168.1.10']) {
+      const r = await runToExit(['--host', host])
+      assert.equal(r.code, 2, r.out)
+      assert.match(r.out, /--remote/)
+    }
+  })
+
+  it('--remote stops the start: alone (never an implicit 0.0.0.0), and with a --host while token and TLS are missing (#474)', async () => {
+    const alone = await runToExit(['--remote'])
+    assert.equal(alone.code, 2, alone.out)
+    assert.match(alone.out, /--host/)
+    const withHost = await runToExit(['--remote', '--host', '0.0.0.0'])
+    assert.equal(withHost.code, 2, withHost.out)
+    assert.match(withHost.out, /token/i)
+    // '--host --remote': the flag is not swallowed as the address
+    assert.equal((await runToExit(['--host', '--remote'])).code, 2)
+  })
+})
+
+describe('app entry point: no environment variable opens the listener (#474)', () => {
+  it('AGENT_LENS_HOST / AGENT_LENS_REMOTE / HOST are ignored: the server still binds 127.0.0.1 only', async () => {
+    const r = await start(ENTRIES[1], [], { AGENT_LENS_PORT: '0', AGENT_LENS_HOST: '0.0.0.0', AGENT_LENS_REMOTE: '1', HOST: '0.0.0.0' })
+    try {
+      assert.equal(await accepts('127.0.0.1', r.port), true)
+      const external = externalAddress()
+      if (external) assert.equal(await accepts(external, r.port), false, `reachable on ${external}`)
+      assert.equal((await request(r.port, 'GET', '/status', { Host: 'evil.example' })).status, 403)
+    } finally { r.child.kill('SIGKILL') }
   })
 })
 

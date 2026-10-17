@@ -135,6 +135,39 @@ describe('remoteStartupError (fail closed at startup)', () => {
     }
   })
 
+  it('--host outside loopback without --remote names the missing --remote (#474)', () => {
+    for (const host of ['0.0.0.0', '192.168.1.10', '::', 'box.ts.net']) {
+      assert.match(remoteStartupError({ allowHosts: [], host }) ?? '', /--remote/, host)
+    }
+  })
+
+  it('--host outside loopback WITH --remote is still refused: no token, no TLS yet (#474)', () => {
+    for (const host of ['0.0.0.0', '192.168.1.10', '::']) {
+      const err = remoteStartupError({ allowHosts: [], host, remote: true }) ?? ''
+      assert.match(err, /token/i, host)
+      assert.match(err, /TLS/, host)
+    }
+  })
+
+  it('--remote never implies an address: alone, with an empty or a loopback --host, it stops the start (#474)', () => {
+    assert.match(remoteStartupError({ allowHosts: [], remote: true }) ?? '', /--host/)
+    assert.match(remoteStartupError({ allowHosts: [], host: '', remote: true }) ?? '', /--host/)
+    assert.notEqual(remoteStartupError({ allowHosts: [], host: '127.0.0.1', remote: true }), null)
+    assert.notEqual(remoteStartupError({ allowHosts: [], host: '' }), null)
+  })
+
+  it('reads no environment variable, only the flags it is given (#474)', () => {
+    const keys = ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST'] as const
+    const saved = keys.map(k => process.env[k])
+    try {
+      for (const k of keys) process.env[k] = k === 'AGENT_LENS_REMOTE' ? '1' : '0.0.0.0'
+      assert.equal(remoteStartupError({ allowHosts: [] }), null)
+      assert.equal(remoteStartupError({ allowHosts: [], host: '127.0.0.1' }), null)
+    } finally {
+      keys.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i] })
+    }
+  })
+
   it('an invalid --allow-host stops the start', () => {
     assert.match(remoteStartupError({ allowHosts: ['*.ts.net'] }) ?? '', /--allow-host/)
   })
