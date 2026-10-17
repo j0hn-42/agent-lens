@@ -40,6 +40,36 @@ describe('parseArgs', () => {
     assert.equal(parseArgs([]).host, undefined)
     assert.equal(parseArgs(['--host', '0.0.0.0']).host, '0.0.0.0')
   })
+  it('--remote is off by default and only set by the flag itself (#474)', () => {
+    assert.equal(parseArgs([]).remote, false)
+    assert.equal(parseArgs(['--host', '192.168.1.10']).remote, false)
+    const a = parseArgs(['--remote', '--host', '192.168.1.10'])
+    assert.equal(a.remote, true)
+    assert.equal(a.host, '192.168.1.10')
+  })
+  it('a --host / --allow-host without value does not swallow the next flag (#474)', () => {
+    const a = parseArgs(['--host', '--remote'])
+    assert.equal(a.host, '')
+    assert.equal(a.remote, true)
+    const b = parseArgs(['--allow-host', '--no-open'])
+    assert.deepEqual(b.allowHosts, [''])
+    assert.equal(b.open, false)
+  })
+  it('reads the --flag=value form of --host / --allow-host / --remote instead of ignoring it (#474)', () => {
+    assert.equal(parseArgs(['--host=0.0.0.0']).host, '0.0.0.0')
+    assert.equal(parseArgs(['--host=']).host, '')
+    assert.deepEqual(parseArgs(['--allow-host=box.ts.net']).allowHosts, ['box.ts.net'])
+    // Any value given to --remote is still an explicit request: fail closed, the start refuses it
+    assert.equal(parseArgs(['--remote=0']).remote, true)
+  })
+  it('an option that takes a value does not swallow a following flag (#474)', () => {
+    for (const opt of ['--import', '--webhook', '--launch-repo']) {
+      const a = parseArgs([opt, '--host', '0.0.0.0'])
+      assert.equal(a.host, '0.0.0.0', opt)
+    }
+    assert.deepEqual(parseArgs(['--import', '--remote']).imports, [])
+    assert.equal(parseArgs(['--import', '--remote']).remote, true)
+  })
   it('--allow-launch is off by default; --launch-repo collects owner/name in order (#229)', () => {
     assert.equal(parseArgs([]).allowLaunch, false)
     assert.deepEqual(parseArgs([]).launchRepos, [])

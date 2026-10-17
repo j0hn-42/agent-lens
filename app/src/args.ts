@@ -1,5 +1,13 @@
 import { DEFAULT_RELAY_PORT } from '../../extension/src/constants'
 
+/** Value of an option, or undefined when it is missing or is the next flag: a flag is never swallowed (#474). */
+function optionValue(next: string | undefined): string | undefined {
+  return next === undefined || next.startsWith('-') ? undefined : next
+}
+
+/** --host=<v>, --allow-host=<v>, --remote=<v>: read, never ignored as an unknown argument (#474). */
+const SECURITY_FLAG_WITH_EQUALS = /^(--host|--allow-host|--remote)=(.*)$/s
+
 /** Parse CLI arguments. Keeps it simple — no dependencies. */
 export function parseArgs(argv: string[]) {
   let port = DEFAULT_RELAY_PORT
@@ -12,35 +20,48 @@ export function parseArgs(argv: string[]) {
   let allowLaunch = false
   const launchRepos: string[] = []
   let host: string | undefined
+  let remote = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
+    const withEquals = SECURITY_FLAG_WITH_EQUALS.exec(arg)
+    if (withEquals) {
+      const [, flag, value] = withEquals
+      if (flag === '--host') host = value
+      else if (flag === '--allow-host') allowHosts.push(value)
+      // Whatever its value, --remote=<v> is an explicit request: fail closed, the start decides
+      else remote = true
+    } else if ((arg === '--port' || arg === '-p') && argv[i + 1]) {
       const n = parseInt(argv[i + 1], 10)
       // 0 = ephemeral port chosen by the OS (printed at startup)
       if (!isNaN(n) && n >= 0 && n < 65536) port = n
       i++
     } else if (arg === '--no-open') {
       open = false
-    } else if (arg === '--import' && argv[i + 1]) {
-      imports.push(argv[i + 1])
-      i++
-    } else if (arg === '--webhook' && argv[i + 1]) {
-      webhooks.push(argv[i + 1])
-      i++
+    } else if (arg === '--import') {
+      const value = optionValue(argv[i + 1])
+      if (value !== undefined) { imports.push(value); i++ }
+    } else if (arg === '--webhook') {
+      const value = optionValue(argv[i + 1])
+      if (value !== undefined) { webhooks.push(value); i++ }
     } else if (arg === '--allow-host') {
       // Without value, '' is kept so that the start refuses it (#241): a security flag is never ignored
-      allowHosts.push(argv[i + 1] ?? '')
-      i++
+      const value = optionValue(argv[i + 1])
+      allowHosts.push(value ?? '')
+      if (value !== undefined) i++
+    } else if (arg === '--remote') {
+      // The only way to ask for listening outside loopback (#474): never an environment variable
+      remote = true
     } else if (arg === '--allow-launch') {
       allowLaunch = true
-    } else if (arg === '--launch-repo' && argv[i + 1]) {
-      launchRepos.push(argv[i + 1])
-      i++
+    } else if (arg === '--launch-repo') {
+      const value = optionValue(argv[i + 1])
+      if (value !== undefined) { launchRepos.push(value); i++ }
     } else if (arg === '--host') {
       // Kept so that the start refuses it (#241): an unknown flag would be silently ignored
-      host = argv[i + 1] ?? ''
-      i++
+      const value = optionValue(argv[i + 1])
+      host = value ?? ''
+      if (value !== undefined) i++
     } else if (arg === '--all-workspaces') {
       allWorkspaces = true
     } else if (arg === '--verbose' || arg === '-v') {
@@ -76,8 +97,12 @@ Options:
                        See docs/launch-security.md
   --launch-repo <o/n>  Repository (owner/name) an agent may be launched on. Repeatable. It
                        must also be the workspace's origin remote
-  --host <address>     Only loopback (127.0.0.1) is accepted: there is no listening
-                       outside loopback, use a tunnel and --allow-host
+  --host <address>     Only loopback (127.0.0.1) is accepted. Any other address needs
+                       --remote, and is refused even then until token authentication
+                       and TLS ship (#241): use a tunnel and --allow-host
+  --remote             Explicit opt-in for --host outside loopback (no environment
+                       variable, no default address: never 0.0.0.0 implicitly).
+                       Refused at startup for now (#241)
   -v, --verbose        Show detailed event logs
   -h, --help           Show this help message
 `)
@@ -85,5 +110,5 @@ Options:
     }
   }
 
-  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, allowLaunch, launchRepos }
+  return { port, open, verbose, allWorkspaces, imports, webhooks, allowHosts, host, remote, allowLaunch, launchRepos }
 }
