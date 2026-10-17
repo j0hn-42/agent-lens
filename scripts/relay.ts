@@ -69,7 +69,7 @@ import { createQuotaStore } from './quota'
 import { createLaunchRoute, createLaunchDisabledRoute, newLaunchToken } from './routes/launch'
 import { createLaunchSupervisor, type Journal, type KillGroupFn, type SpawnFn, type LaunchSupervisor } from './launch-supervisor'
 import { createFileJournal } from './launch-journal'
-import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey, bindRemoteAuth, isRemotePaired } from './remote-access'
+import { requestHostClass, isRemoteCrossOrigin, parseAllowedHosts, remoteRateKey, bindRemoteAuth, isRemotePaired, requiresRemotePairing } from './remote-access'
 import { createRemotePairing, writeTokenFile, type RemotePairing } from './remote-pairing'
 
 /** Period of the machine health sample (#357) */
@@ -1303,8 +1303,9 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Forbidden')
         return
       }
-      // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work
-      if (hostClass === 'allowed' && !isRemotePaired(req, allowedHosts)) {
+      // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work. With an
+      // allow list, a loopback Host too (SSH -L, port forward, #517); without one, loopback is unchanged
+      if (requiresRemotePairing(hostClass, allowedHosts) && !isRemotePaired(req, allowedHosts)) {
         res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
         res.end('Unauthorized')
         return
