@@ -57,7 +57,8 @@ export function guardedRoute(options: GuardOptions, handler: RouteHandler): Rout
     if (hostClass === 'allowed' && isRemoteCrossOrigin(req.headers, req.headers.host ?? '')) {
       return sendPlain(res, 403, 'Forbidden')
     }
-    // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason
+    // Through a tunnel, nothing is read without a live pairing cookie (#475); same 401 for every reason. The pairing of
+    // a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest)
     if (hostClass === 'allowed' && !isRemotePaired(req, options.allowedHosts ?? [])) {
       return sendPlain(res, 401, 'Unauthorized', { 'Cache-Control': 'no-store' })
     }

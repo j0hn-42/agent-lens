@@ -25,7 +25,11 @@
  * - The web side must drop the fragment with history.replaceState BEFORE it posts the token, so the token does not
  *   stay in the address bar, the history or a bookmark.
  *
- * Loopback is untouched: a loopback Host never needs nor gets a pairing.
+ * Loopback: without an allow list there is no pairing at all, and loopback is untouched. With one (#517), an SSH -L
+ * tunnel or a port forward shows a loopback Host, so a loopback Host pairs too, from its own http origin
+ * (http://<Host>), and the gate asks it for the cookie (remote-access.ts, requiresRemotePairing). Chromium keeps this
+ * Secure cookie on http://127.0.0.1 and http://localhost (checked for #517); Firefox and Safari were not checked. A
+ * browser that drops it reads nothing (401): it fails closed.
  */
 import * as crypto from 'crypto'
 import * as fs from 'fs'
@@ -33,7 +37,7 @@ import * as path from 'path'
 import type * as http from 'http'
 import { isLoopbackAddress, KeyedRateLimiter } from '../extension/src/hook-guards'
 import { applySecurityHeaders } from './server-hardening'
-import { requestHostClass, isRemoteCrossOrigin, remoteRateKey } from './remote-access'
+import { requestHostClass, isRemoteCrossOrigin, isLoopbackPairCrossOrigin, remoteRateKey } from './remote-access'
 import { isJsonContentType, readLimitedBody } from './routes/scope'
 
 /** Name of the pairing cookie. `__Host-`: the browser only keeps it with Secure, Path=/ and no Domain. */
@@ -186,7 +190,10 @@ export function createRemotePairing(options: RemotePairingOptions): RemotePairin
   const handlePair = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
     applySecurityHeaders(res, 'api')
     const host = req.headers.host ?? ''
-    if (!isLoopbackAddress(req.socket.remoteAddress) || requestHostClass(req, options.allowedHosts) !== 'allowed' || isRemoteCrossOrigin(req.headers, host)) {
+    // A tunnel Host from its https origin; a loopback Host (SSH -L, port forward, #517) from its own http origin
+    const cls = requestHostClass(req, options.allowedHosts)
+    const crossOrigin = cls === 'allowed' ? isRemoteCrossOrigin(req.headers, host) : cls === 'loopback' ? isLoopbackPairCrossOrigin(req.headers, host) : true
+    if (!isLoopbackAddress(req.socket.remoteAddress) || crossOrigin) {
       return plain(res, 403, 'Forbidden')
     }
     if (req.method !== 'POST') return plain(res, 405, 'Method not allowed', { Allow: 'POST' })

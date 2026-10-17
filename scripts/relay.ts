@@ -1304,7 +1304,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         res.end('Forbidden')
         return
       }
-      // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work
+      // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work.
+      // The pairing of a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest)
       if (hostClass === 'allowed' && !isRemotePaired(req, allowedHosts)) {
         res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
         res.end('Unauthorized')

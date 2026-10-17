@@ -15,6 +15,7 @@ import { parseSessionParam, isStatusPath, isStatusLinePath, isContextPath, isIss
 import { setConnectionsCheckingInterval } from '../../extension/src/hook-guards'
 import { HTTP_CONNECTIONS_CHECK_INTERVAL_MS } from '../../extension/src/constants'
 import { serveStatic } from './static'
+import { pairingBanner } from './pairing-banner'
 import { guardRequest, listenLoopback, resolveListenPort } from '../../scripts/server-hardening'
 
 interface ServerOptions {
@@ -30,6 +31,8 @@ interface ServerOptions {
   webhooks?: string[]
   /** --launch-repo (#229); present only with --allow-launch */
   launchRepos?: string[]
+  /** --allow-host and --token-file (#241, #517); present only together (remoteStartupError) */
+  remote?: { allowedHosts: string[]; tokenFile: string }
 }
 
 type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'handleStatusLine' | 'handleContext' | 'handleScope' | 'handleLaunch' | 'handleObservations' | 'handleIssueLinks'>
@@ -37,8 +40,8 @@ type AppRelay = Pick<Relay, 'allowedHosts' | 'handleSSE' | 'handleStatus' | 'han
 /**
  * Request handler of the standalone app. The tunnel Host names accepted besides loopback (#241) are read from the
  * relay (`relay.allowedHosts`, validated by createRelay): the gate and the relay's own guards share one list and
- * cannot disagree. They reach only the read-only surface (gateRemoteRequest). startServer creates the relay
- * without any until token authentication ships: --allow-host is refused at startup (remoteStartupError).
+ * cannot disagree. They reach only the read-only surface (gateRemoteRequest). startServer passes them, with the
+ * --token-file of the pairing (#517), only when the start allowed them (remoteStartupError).
  */
 export function createAppRequestHandler(relay: AppRelay): http.RequestListener {
   const allowedHosts = relay.allowedHosts
@@ -106,8 +109,12 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
   })
   await telemetry.init()
 
+  // Pairing token of this start (#475, #517): kept here only for the banner, which prints it on a terminal only
+  let pairingToken: string | undefined
   const relay = await createRelay({ workspace, verbose: options.verbose, telemetry, allWorkspaces: options.allWorkspaces, ...(options.imports?.length ? { imports: options.imports } : {}), ...(options.webhooks?.length ? { webhooks: { destinations: options.webhooks } } : {}),
     ...(options.launchRepos ? { launch: { repos: options.launchRepos, onToken: token => console.log(`${launchTokenNotice(token, options.launchRepos ?? [])}\n`) } } : {}),
+    // createRelay validates the names again and writes the token file; any failure rejects here, before listening
+    ...(options.remote ? { allowedHosts: options.remote.allowedHosts, remotePairing: { tokenFile: options.remote.tokenFile, onToken: token => { pairingToken = token } } } : {}),
   })
 
   const server = http.createServer({ maxHeaderSize: 16 * 1024 }, createAppRequestHandler(relay))
@@ -119,8 +126,13 @@ export async function startServer(options: ServerOptions): Promise<{ port: numbe
   const boundPort = await listenLoopback(server, resolveListenPort(port))
   const url = `http://127.0.0.1:${boundPort}`
   console.log(`Server running at ${url}`)
+  if (options.remote && pairingToken !== undefined) {
+    console.log(`${pairingBanner({ allowedHosts: relay.allowedHosts, port: boundPort, token: pairingToken, tokenFile: options.remote.tokenFile, isTTY: process.stdout.isTTY === true })}\n`)
+  }
   console.log('Waiting for agent events...\n')
-  if (openBrowser) {
+  // With remote access on, every page needs the pairing (#517): opening the bare URL would show nothing, and opening the
+  // pairing URL would put the token on a command line (visible in the process list). The banner says what to open.
+  if (openBrowser && !options.remote) {
     openURL(url)
   }
 
