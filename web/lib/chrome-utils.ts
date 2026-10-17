@@ -33,6 +33,9 @@ export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from
  */
 export const SUMMARY_POPOVER = { ground: 'panelBg', text: 'textMuted', keyOpacity: 1 } as const
 
+/** Time the pointer has to go from the summary to its popover across the rows of the bar between them (WCAG 1.4.13). */
+export const SUMMARY_CLOSE_DELAY_MS = 300
+
 /** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
 function compactMark(u: UsageTotal): string {
   return `${u.status === 'partial' ? '≥' : ''}${u.estimated ? '~' : ''}`

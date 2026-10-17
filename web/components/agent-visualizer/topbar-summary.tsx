@@ -3,11 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { COLORS } from '@/lib/colors'
 import { FOCUS_RING } from '@/lib/focus-ring'
-import { SUMMARY_KEY, SUMMARY_POPOVER, spokenCompactSummary } from '@/lib/chrome-utils'
+import { SUMMARY_CLOSE_DELAY_MS, SUMMARY_KEY, SUMMARY_POPOVER, spokenCompactSummary } from '@/lib/chrome-utils'
 import { COST_LABELS } from '@/lib/ui-glossary'
-
-/** Time the pointer has to go from the summary to its popover across the rows of the bar between them (WCAG 1.4.13). */
-export const SUMMARY_CLOSE_DELAY_MS = 300
 
 /** Gap between the bottom of the bar and the popover, and the margin it keeps from the window edges (px). */
 const POPOVER_GAP = 4
