@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import type { SessionInfo } from '../web/lib/bridge-types'
 import {
   parseRelayScopeState, scopeValue, parseScopeValue, scopeOptions, planScopeChoice, scopeSummary, scopeNotices,
-  scopeEmptyHint, applyRelayScope, runtimeProblemRecheckDelay, RUNTIME_PROBLEM_RECHECK_MAX_MS, type RelayScopeState,
+  scopeEmptyHint, applyRelayScope, runtimeProblemRecheckDelay, type RelayScopeState,
 } from '../web/lib/relay-scope'
 import { restrictToProject } from '../web/hooks/simulation/session-visibility'
 import { sanitizePref, sanitizePrefs, DEFAULT_UI_PREFS } from '../web/lib/ui-preferences'
@@ -137,8 +137,7 @@ test('#420: GET /status is read again while a runtime problem is shown, never mo
   assert.equal(delays[0], 5_000, 'a notice that turned false is lifted within seconds')
   for (let i = 1; i < delays.length; i++) assert.ok(delays[i]! >= delays[i - 1]!, 'the delay never shrinks')
   // The re-read never stops while the notice is shown: a stale notice would claim a state that is no longer true
-  assert.equal(delays[delays.length - 1], RUNTIME_PROBLEM_RECHECK_MAX_MS)
-  assert.equal(RUNTIME_PROBLEM_RECHECK_MAX_MS, 60_000)
+  assert.equal(delays[delays.length - 1], 60_000)
   // Nothing shown: nothing to re-read
   assert.equal(runtimeProblemRecheckDelay(parseRelayScopeState(status())!, 0), null)
   assert.equal(runtimeProblemRecheckDelay(null, 0), null)
