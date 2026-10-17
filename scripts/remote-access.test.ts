@@ -1,5 +1,5 @@
 /**
- * Remote access guards, step 1 of #241 (pure functions, no server).
+ * Remote access guards, step 1 of #241 (pure functions; one loopback server for the POST /pair gate of #475).
  *
  * v1 is "tunnel only": the relay keeps listening on 127.0.0.1 and an SSH / Tailscale tunnel forwards to it.
  * The tunnel's peer is loopback, so the only new thing a request can carry is a Host header naming the
@@ -7,9 +7,12 @@
  */
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import * as http from 'node:http'
 import {
   parseAllowedHosts, classifyHost, isRemoteReadOnlyRoute, isRemoteCrossOrigin, remoteStartupError, remoteRateKey, REMOTE_AUTH_AVAILABLE,
+  bindRemoteAuth, gateRemoteRequest, type RemoteAuth,
 } from './remote-access'
+import { listenLoopback } from './server-hardening'
 import { RELAY_MAX_ALLOWED_HOSTS } from '../extension/src/constants'
 
 describe('parseAllowedHosts', () => {
@@ -181,5 +184,53 @@ describe('remoteStartupError (fail closed at startup)', () => {
   it('a valid --allow-host is refused while token authentication is not shipped', () => {
     assert.equal(REMOTE_AUTH_AVAILABLE, false)
     assert.match(remoteStartupError({ allowHosts: ['box.tail1234.ts.net'] }) ?? '', /token/i)
+  })
+})
+
+describe('gateRemoteRequest: POST /pair never kills the relay (#475)', () => {
+  const TUNNEL = 'box.tail1234.ts.net'
+
+  /** Anyone who reaches the tunnel can send POST /pair: a rejection of handlePair must never become an unhandled one. */
+  async function pairWith(handlePair: RemoteAuth['handlePair']): Promise<{ status: number; body: string; unhandled: unknown[] }> {
+    const allowed = [TUNNEL]
+    bindRemoteAuth(allowed, { handlePair, isPaired: () => false })
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    const server = http.createServer((req, res) => { if (!gateRemoteRequest(req, res, allowed, 'api')) res.writeHead(404).end() })
+    const port = await listenLoopback(server, 0)
+    try {
+      const reply = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/pair', agent: false,
+          headers: { Host: TUNNEL, Origin: `https://${TUNNEL}`, 'Content-Type': 'application/json' } }, res => {
+          let body = ''
+          res.setEncoding('utf8')
+          res.on('data', c => { body += c })
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }))
+        })
+        req.setTimeout(2000, () => req.destroy(new Error('no answer: the response was left open')))
+        req.on('error', reject)
+        req.end('{}')
+      })
+      // Let a dropped rejection surface before the listener goes away
+      await new Promise(r => setTimeout(r, 50))
+      return { ...reply, unhandled }
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      server.close()
+    }
+  }
+
+  it('a handlePair that rejects before answering: the same 401 without detail, no unhandled rejection', async () => {
+    const r = await pairWith(async () => { throw new Error('secret detail') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 401)
+    assert.equal(r.body, 'Unauthorized')
+  })
+
+  it('a handlePair that rejects after its headers: the response is ended, no unhandled rejection', async () => {
+    const r = await pairWith(async (_req, res) => { res.writeHead(204); throw new Error('late') })
+    assert.deepEqual(r.unhandled, [], 'the rejection must be caught')
+    assert.equal(r.status, 204)
   })
 })
