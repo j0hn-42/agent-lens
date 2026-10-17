@@ -5,12 +5,13 @@ import './canvas-recorder'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
-import { repeatMarks, repeatMarkText, type RepeatMark } from '../web/lib/repeat-marks'
+import { repeatMarks, repeatMarkText, REPEAT_RULE_TEXT, type RepeatMark } from '../web/lib/repeat-marks'
 import type { HealthVerdict, LoopFinding } from '../web/lib/loop-detection'
 import { emptyWasteLedger, recordToolStart, type WasteLedger } from '../web/lib/waste'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { REPEAT_BADGE_DRAW, ORCHESTRATOR_DRAW, AGENT_DRAW } from '../web/lib/canvas-constants'
 import { NODE } from '../web/lib/agent-types'
+import { LIVE_ENTRY_TEXT } from '../web/lib/live-tour'
 import { buildA11yModel } from '../web/components/agent-visualizer/canvas/a11y-model'
 
 stubDocument()
@@ -85,10 +86,33 @@ test('text of a repeat mark: a fact, never "wasted", and no file path (presentat
   l = readTwice(l, 's1:a', '/secret/path/b.ts', 2)
   const mark = repeatMarks(new Map(), l, ['s1:a']).get('s1:a')!
   const t = repeatMarkText(mark)
-  assert.equal(t.short, 'repeated calls observed')
-  assert.equal(t.detail, 'Repeated calls observed: read again 2 times, no edit seen in between; and 1 more in the Files panel.')
+  assert.equal(t.short, 'repeated reads observed')
+  assert.equal(t.detail, 'Repeated reads observed: read again 2 times, no edit seen in between; and 1 more in the Files panel.')
   assert.ok(!/waste/i.test(t.detail + t.short))
   assert.ok(!t.detail.includes('/secret'))
+})
+
+test('the words of a repeat mark follow the evidence: reads, calls, or both', () => {
+  const run = (l: WasteLedger, id: string, i: number) =>
+    recordToolStart(l, { sessionId: 's1', agentId: id, toolName: 'Bash', inputData: { command: 'ls' }, toolUseId: `b${i}`, toolCallId: `tb${i}`, time: i })
+  let calls = emptyWasteLedger()
+  calls = run(run(calls, 's1:a', 0), 's1:a', 1)
+  const callMark = repeatMarks(new Map(), calls, ['s1:a']).get('s1:a')!
+  const c = repeatMarkText(callMark)
+  assert.equal(c.short, 'repeated calls observed')
+  assert.equal(c.detail, 'Repeated calls observed: same Bash command run again 1 time, right after itself.')
+  const both = readTwice(calls, 's1:a', '/repo/z.ts', 2)
+  const b = repeatMarkText(repeatMarks(new Map(), both, ['s1:a']).get('s1:a')!)
+  assert.equal(b.short, 'repeated reads and calls observed')
+})
+
+test('the legend and the tour state the ledger rules, not a wider claim', () => {
+  assert.equal(
+    REPEAT_RULE_TEXT,
+    'a file read again with no edit seen in between, the same Glob run again with no write seen in between, or the same Bash command run again right after itself',
+  )
+  assert.ok(LIVE_ENTRY_TEXT['mark-repeated'].includes(REPEAT_RULE_TEXT))
+  assert.ok(!LIVE_ENTRY_TEXT['mark-repeated'].includes('would change the answer'))
 })
 
 // ─── The badge drawn on the node ───────────────────────────────────────────

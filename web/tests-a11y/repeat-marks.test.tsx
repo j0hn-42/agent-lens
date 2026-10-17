@@ -8,7 +8,7 @@ import axe from 'axe-core'
 import { GraphA11yList } from '@/components/agent-visualizer/graph-a11y-list'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { buildA11yModel } from '@/components/agent-visualizer/canvas/a11y-model'
-import { repeatMarks } from '@/lib/repeat-marks'
+import { repeatMarks, REPEAT_RULE_TEXT } from '@/lib/repeat-marks'
 import { emptyWasteLedger, recordToolStart } from '@/lib/waste'
 import type { HealthVerdict } from '@/lib/loop-detection'
 import type { Agent } from '@/lib/agent-types'
@@ -52,6 +52,8 @@ test('the legend lists the badges only when one is drawn, under "Loops and repea
   const repeatRow = document.querySelector('[data-legend-entry="mark-repeated"]')!
   assert.match(loopRow.textContent ?? '', /Circular arrow on a node: loop observed \(the same call 3 times in a row/)
   assert.match(repeatRow.textContent ?? '', /Double chevron on a node: repeated reads or calls observed/)
+  assert.ok((repeatRow.textContent ?? '').includes(REPEAT_RULE_TEXT))
+  assert.ok(!(repeatRow.textContent ?? '').includes('would change the answer'))
   assert.ok(!/waste/i.test(`${loopRow.textContent}${repeatRow.textContent}`))
   const results = await axe.run(shown.container)
   assert.deepEqual(results.violations.map(v => v.id), [])
