@@ -350,3 +350,32 @@ test('the reading guide says a Glob has file cards, a flow, and a count from num
   assert.ok(cards?.includes('`numFiles` for a Glob'), 'the Glob count is numFiles')
   assert.ok(!cards?.includes("the count is the header's."), "the count is not always the header's")
 })
+
+test('the remote access page says what ships, and nothing that does not exist yet (#477)', () => {
+  const doc = read('docs/remote-access.md')
+  const args = read('app/src/args.ts')
+  const guards = read('scripts/remote-access.ts')
+  // Every flag the page names is one the CLI parses (no example that would fail)
+  for (const flag of new Set(doc.match(/--[a-z][a-z-]*/g) ?? [])) {
+    assert.ok(args.includes(`'${flag}'`), `docs/remote-access.md names ${flag}, which app/src/args.ts does not parse`)
+  }
+  // --allow-host is refused at startup while the pairing is not wired in, and the page says so
+  assert.match(guards, /export const REMOTE_AUTH_AVAILABLE = false/)
+  assert.match(doc, /`--allow-host`[^\n]*refused/)
+  assert.match(doc, /not usable today|not available today|not usable yet/i, 'the page says remote access is not usable yet')
+  // No environment variable is read for the host or the remote opt-in
+  for (const v of ['AGENT_LENS_HOST', 'AGENT_LENS_REMOTE', 'HOST']) assert.ok(doc.includes(v), `the page names ${v} as ignored`)
+  assert.doesNotMatch(args, /AGENT_LENS_HOST|AGENT_LENS_REMOTE/)
+  // The dev relay refuses the remote flags outright
+  assert.ok(read('scripts/dev-relay.ts').includes("'--allow-host'"), 'the dev relay refuses --allow-host')
+  // Not-yet-available items point to the open issues
+  for (const issue of ['#241', '#475', '#517']) assert.ok(doc.includes(issue), `the page points to ${issue}`)
+  // Links: the README, the event-source guards and the CLI help agree with the page
+  assert.ok(read('README.md').includes('(docs/remote-access.md)'), 'README links docs/remote-access.md')
+  assert.ok(doc.includes('(relay-sources.md#remote-access-guards-only-241-step-1)'), 'the page links the guards section of relay-sources')
+  assert.ok(read('docs/relay-sources.md').includes('until token authentication ships'), 'relay-sources says --allow-host waits for token authentication')
+  assert.ok(args.includes('until token authentication'), 'the CLI help says --allow-host waits for token authentication')
+  // The phone view is the one the reading guide describes: the 768 px breakpoint
+  assert.ok(doc.includes('768 px'), 'the page gives the phone-width breakpoint')
+  assert.ok(read('docs/reading-the-ui.md').includes('Phone width (below 768 px)'), 'the reading guide has the phone-width section')
+})
