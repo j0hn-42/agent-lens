@@ -14,6 +14,6 @@
     "baseUrl": ".",
     "paths": { "@/*": ["../web/*"] }
   },
-  "include": ["./**/*.ts"],
+  "include": ["./**/*.ts", "../app-tray/src/**/*.ts"],
   "exclude": ["node_modules"]
 }

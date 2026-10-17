@@ -194,6 +194,15 @@ const fr = {
   'launch.preview.budget': '<plafond du relais>',
   'launch.preview.tools': '<liste fixe>',
   'launch.preview.prompt': '<consigne fixe>',
+  'tray.open': 'Ouvrir l’interface',
+  'tray.copyUrl': 'Copier l’URL locale',
+  'tray.sessions.unknown': 'Sessions suivies : inconnu',
+  'tray.sessions.one': '{n} session suivie',
+  'tray.sessions.many': '{n} sessions suivies',
+  'tray.skipped': 'Sessions non suivies : au moins {k}',
+  'tray.quit.stopRelay': 'Quitter et arrêter le relais',
+  'tray.quit.closeIcon': 'Fermer l’icône, le relais continue',
+  'tray.tooltip': 'Agent Lens : {state}',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -382,6 +391,15 @@ const en: Record<MessageKey, string> = {
   'launch.preview.budget': '<relay cap>',
   'launch.preview.tools': '<fixed list>',
   'launch.preview.prompt': '<fixed prompt>',
+  'tray.open': 'Open the interface',
+  'tray.copyUrl': 'Copy local URL',
+  'tray.sessions.unknown': 'Tracked sessions: unknown',
+  'tray.sessions.one': '{n} session tracked',
+  'tray.sessions.many': '{n} sessions tracked',
+  'tray.skipped': 'Untracked sessions: at least {k}',
+  'tray.quit.stopRelay': 'Quit and stop the relay',
+  'tray.quit.closeIcon': 'Close the icon, the relay keeps running',
+  'tray.tooltip': 'Agent Lens: {state}',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })
