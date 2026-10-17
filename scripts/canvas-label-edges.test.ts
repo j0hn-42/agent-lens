@@ -9,6 +9,7 @@ import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument, type DrawnOp } from './canvas-recorder'
 import { AGENT_DRAW } from '../web/lib/canvas-constants'
 import { SCENE } from '../web/lib/colors'
+import { scenePalette } from '../web/lib/scene-state-colors'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawTaperedBezier } from '../web/components/agent-visualizer/canvas/draw-edges'
 import { rectsOverlap, type Rect } from '../web/components/agent-visualizer/canvas/label-placement'
@@ -162,4 +163,15 @@ test('drawAgents: while an agent fades in or out, its label plate stays opaque u
   const { rec } = assertEveryLabelTextOnPlate(a, texts)
   const name = rec.ops.find(o => o.name === 'fillText' && o.args[0] === texts[0])!
   assert.ok(Math.abs(name.globalAlpha - 0.4) < 1e-6, `precondition: the text fades with the agent (alpha ${name.globalAlpha})`)
+})
+
+// After #526 the scene follows the active theme. The plate must be painted with the canvas ground of that theme
+// (scenePalette(theme).void, the page background behind the canvas), never a literal.
+test('drawAgents: in High contrast the label plate is still the scene ground of the active theme (#378)', () => {
+  const a = agent({ sessionLabel: 'payments-api' })
+  const rec = recordingContext(1)
+  drawAgents(rec.ctx, new Map([[a.id, a]]), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false, theme: 'contrast' } as any)
+  const ground = scenePalette('contrast').void.toLowerCase()
+  const plates = rec.ops.filter(o => o.name === 'fill' && o.fillStyle.toLowerCase() === ground && o.globalAlpha === 1)
+  assert.ok(plates.length > 0, 'a plate is painted with the ground of the High contrast scene')
 })
