@@ -16,6 +16,7 @@ import { setLocaleChoice } from '@/lib/locale'
 import { MESSAGES, translate, type MessageKey } from '@/lib/messages'
 import { TOOLTIP_CLOSE_DELAY_MS } from '@/lib/chrome-utils'
 import { TOUCH_TARGET } from '@/lib/mobile-view'
+import { COST_LABELS } from '@/lib/ui-glossary'
 import { setMobileView, setViewportWidth } from './mobile-media'
 
 afterEach(() => {
@@ -62,6 +63,9 @@ test('messages: the names and tooltips of the seven panels exist in English and 
     assert.ok(MESSAGES.en[tipKey(p)], `${p} en tooltip`)
     assert.ok(MESSAGES.fr[tipKey(p)], `${p} fr tooltip`)
   }
+  // The cost method was the tooltip of the top bar cost, gone with it (#523): the Cost button's tooltip gives it now
+  assert.ok(MESSAGES.en[tipKey('cost')].endsWith(COST_LABELS.method), MESSAGES.en[tipKey('cost')])
+  assert.match(MESSAGES.fr[tipKey('cost')], /pas une facture/)
 })
 
 for (const locale of ['en', 'fr'] as const) {
@@ -138,6 +142,25 @@ test('Escape closes a tooltip opened by hover while the focus is elsewhere, and 
   assert.equal(document.activeElement, stats, 'the focus did not move')
   // Closed, Escape is left to the page
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+})
+
+test('opened by the keyboard focus alone, Escape hides the tooltip and still reaches the page (closing panels one by one)', () => {
+  const view = render(<TopBar {...base} />)
+  const files = view.getByRole('button', { name: 'Files' })
+  const tip = tooltipOf(files)!
+  act(() => files.focus())
+  assert.ok(shown(tip))
+  let reached = false
+  const late = () => { reached = true }
+  document.addEventListener('keydown', late)
+  try {
+    fireEvent.keyDown(files, { key: 'Escape' })
+  } finally {
+    document.removeEventListener('keydown', late)
+  }
+  assert.ok(!shown(tip), 'hidden')
+  assert.equal(reached, true, 'the page Escape ran too')
+  assert.equal(document.activeElement, files, 'the focus did not move')
 })
 
 test('an active panel button has a non-colour cue that works on an icon: a bottom bar', () => {

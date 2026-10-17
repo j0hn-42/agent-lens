@@ -403,7 +403,7 @@ export const Z = {
   info: 10,
   /** The top bar: above the canvas controls (z-10, later in the page), so an unfolded bar is never covered by the Legend (#497) */
   topBar: 11,
-  /** The top bar while its summary popover is open: the popover is drawn below the bar, over the docked panels (#497) */
+  /** The top bar while one of its tooltips is open: the tooltip is drawn below the bar, over the docked panels (#497, #523) */
   topBarRaised: 60,
   sidePanel: 40,
   controlBar: 50,

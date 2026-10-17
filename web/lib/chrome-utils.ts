@@ -24,6 +24,15 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { token
   }
 }
 
+/** Time the pointer has to go from a top bar button to its tooltip, below it (WCAG 1.4.13, #523). */
+export const TOOLTIP_CLOSE_DELAY_MS = 300
+
+/**
+ * Inks of the tooltips of the top bar panel buttons (#523), measured in every theme by scripts/theme-contrast.test.ts:
+ * `ground` is a palette key or a theme variable, `text` the palette key of its text.
+ */
+export const TOPBAR_TOOLTIP = { ground: 'panelBg', text: 'textPrimary' } as const
+
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
 export type SessionStatusKind = 'new-activity' | 'active' | 'completed' | 'unobserved' | 'indexed' | 'imported' | 'offline'

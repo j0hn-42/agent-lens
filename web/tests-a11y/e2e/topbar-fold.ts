@@ -1,7 +1,7 @@
 import type { Frame, Locator, Page } from 'playwright'
 
 /**
- * A top bar button, unfolding More first when the bar is folded (under 768 px, #476): the panel buttons are then
+ * A top bar button, unfolding More first when the bar is folded (under 1024 px, #523; 768 px in #476): the panel buttons are then
  * rendered only while More is expanded. Wider, the button is returned as is.
  */
 export async function topbarButton(page: Page | Frame, name: string | RegExp): Promise<Locator> {

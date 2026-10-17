@@ -38,10 +38,6 @@ export function emptyMatch(things: string): string {
   return `No matching ${things}`
 }
 
-/** Accessible name of the control that opens a panel, with its shortcut. */
-export function openPanelLabel(panel: PanelKey, shortcut?: string): string {
-  return shortcut ? `${PANEL_NAMES[panel]} (${shortcut})` : PANEL_NAMES[panel]
-}
 
 /** Labels of the Conversation panel (title, pill, controls). */
 export const CONVERSATION_LABELS = {
@@ -49,9 +45,6 @@ export const CONVERSATION_LABELS = {
   /** Collapsed pill: opens the panel */
   open: `Open ${PANEL_NAMES.conversation}`,
   close: `Close ${PANEL_NAMES.conversation}`,
-  /** Top bar button: visible text, aria-label and tooltip */
-  buttonText: PANEL_NAMES.conversation,
-  buttonLabel: openPanelLabel('conversation', 'C'),
   tablist: 'Filter messages by agent',
   search: 'Search messages',
   empty: emptyState('messages'),
@@ -225,7 +218,7 @@ export const SESSION_LIST_LABELS = {
 export const TOP_BAR_LABELS = {
   more: 'More',
   moreName: 'More: panels, totals and filters',
-  moreHelp: 'Panel buttons, agent counts and the view filters (folded under 768 px wide)',
+  moreHelp: 'Panel buttons, agent counts and the view filters (folded under 1024 px wide)',
   /** Folded with filters on: the visible text says the canvas is filtered (short: it shares a row at 320 px) */
   moreWithFilters: (count: number) => `More · ${count} ${count === 1 ? 'filter' : 'filters'}`,
   /** Its accessible name starts with that visible text (2.5.3), then names the filters */

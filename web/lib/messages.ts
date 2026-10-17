@@ -226,7 +226,7 @@ const fr = {
   'tray.quit.stopRelay': 'Quitter et arrêter le relais',
   'tray.quit.closeIcon': 'Fermer l’icône, le relais continue',
   'tray.tooltip': 'Agent Lens : {state}',
-  // Top bar (#373): the controls it owns. Panel names, counts and connection state come from the glossary and stay English for now.
+  // Top bar (#373): the controls it owns. The panel button names are further down (#523); counts and connection state come from the glossary and stay English for now.
   'topbar.hideInactive': 'Masquer les agents inactifs',
   'topbar.hideInactive.title': 'Masquer les agents inactifs ou terminés',
   'topbar.notify': 'Notifications',
@@ -450,6 +450,22 @@ const fr = {
   'sessions.announce.expanded': 'Agents de {label} dépliés',
   'sessions.resize.value': '{px} pixels de large',
   'sessions.project.none': 'Aucun dépôt',
+  // Top bar panel buttons (#523): an icon under 1280 px wide, so the name and the tooltip are translated here.
+  // The visible label is the name without its shortcut ("Contexte (P)" shows "Contexte").
+  'topbar.panel.files.name': 'Fichiers',
+  'topbar.panel.files.tooltip': 'Fichiers (F)',
+  'topbar.panel.conversation.name': 'Conversation (C)',
+  'topbar.panel.conversation.tooltip': 'Conversation (C)',
+  'topbar.panel.context.name': 'Contexte (P)',
+  'topbar.panel.context.tooltip': 'Contexte : CLAUDE.md du projet, mémoire, issues (P)',
+  'topbar.panel.system.name': 'Système (Y)',
+  'topbar.panel.system.tooltip': 'Système : processeur, mémoire, disque (Y)',
+  'topbar.panel.cost.name': 'Coût',
+  'topbar.panel.cost.tooltip': 'Coûts affichés sur le canevas ($). Estimation du coût du contexte : les jetons présents dans le contexte × un tarif mixte par modèle (75 % du prix d’entrée, 25 % du prix de sortie). Ce n’est pas une facture : elle baisse après une compaction, ignore les lectures de cache et n’additionne pas les appels précédents.',
+  'topbar.panel.timeline.name': 'Chronologie',
+  'topbar.panel.timeline.tooltip': 'Chronologie (T)',
+  'topbar.panel.stats.name': 'Statistiques',
+  'topbar.panel.stats.tooltip': 'Statistiques (S)',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -893,6 +909,21 @@ const en: Record<MessageKey, string> = {
   'sessions.announce.expanded': 'Agents of {label} expanded',
   'sessions.resize.value': '{px} pixels wide',
   'sessions.project.none': 'No repository',
+  // Top bar panel buttons (#523): the names they had before the icons, unchanged
+  'topbar.panel.files.name': 'Files',
+  'topbar.panel.files.tooltip': 'Files (F)',
+  'topbar.panel.conversation.name': 'Conversation (C)',
+  'topbar.panel.conversation.tooltip': 'Conversation (C)',
+  'topbar.panel.context.name': 'Context (P)',
+  'topbar.panel.context.tooltip': 'Context: project CLAUDE.md, memory, issues (P)',
+  'topbar.panel.system.name': 'System (Y)',
+  'topbar.panel.system.tooltip': 'System: CPU, memory, disk (Y)',
+  'topbar.panel.cost.name': '$Cost',
+  'topbar.panel.cost.tooltip': 'Cost overlay ($). Context cost estimate: the tokens now in the context × a blended rate per model (75% input, 25% output price). Not a bill: it drops after a compaction, ignores cache reads and does not add up earlier calls.',
+  'topbar.panel.timeline.name': 'Timeline',
+  'topbar.panel.timeline.tooltip': 'Timeline (T)',
+  'topbar.panel.stats.name': 'Stats',
+  'topbar.panel.stats.tooltip': 'Stats (S)',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

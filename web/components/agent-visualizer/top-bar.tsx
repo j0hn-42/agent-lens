@@ -11,7 +11,7 @@ import { observeTopbarHeight, connectionDisplay, formatAgentCounts, formatAgentC
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { finishedToggleLabel } from "@/hooks/simulation/session-visibility"
 import { selectionLabel } from "@/lib/session-tree"
-import { CONVERSATION_LABELS, PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, TOP_BAR_LABELS, openPanelLabel } from "@/lib/ui-glossary"
+import { PANEL_NAMES, PANEL_SUMMARIES, SESSIONS_LIST_NAME, TOP_BAR_LABELS } from "@/lib/ui-glossary"
 import { SESSION_NOT_OBSERVED_HELP } from "@/lib/session-model"
 import { useUnobservedSessionCount } from "@/hooks/use-unobserved-sessions"
 import { ALL_SESSIONS_ID, type SessionInfo, type ConnectionStatus } from "@/lib/bridge-types"
@@ -24,7 +24,9 @@ import { QuotaGauges } from "./quota-gauges"
 import { quotaGaugeState, type QuotaSnapshotView } from "@/lib/quota"
 import { useMinuteClock } from "@/hooks/use-minute-clock"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
-import { isMobileView as isNarrow, subscribeMobileView as subscribeNarrow } from "@/hooks/use-mobile-view"
+import { isMobileView as isNarrow, subscribeMobileView as subscribeNarrow, isTopbarFolded, subscribeTopbarFold } from "@/hooks/use-mobile-view"
+import { TopBarTooltip } from "./topbar-tooltip"
+import { PanelIcon, type TopBarPanelId } from "./panel-icons"
 
 /** DOM id of the Enter full screen button: focus returns here on exit (#196) */
 export const FULLSCREEN_BUTTON_ID = 'topbar-enter-fullscreen'
@@ -84,14 +86,13 @@ function GearIcon() {
 
 /** #180: project context is read through the standalone relay, which the VS Code extension does not run. */
 const CONTEXT_UNAVAILABLE_IN_VSCODE = `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} come from the standalone relay, not available in VS Code`
-const CONTEXT_UNAVAILABLE_ID = 'topbar-context-unavailable'
 
-/** DOM id of More (under 768 px): the focus fallback of the panels whose button it folds (#476). */
+/** DOM id of More (under 1024 px, #523): the focus fallback of the panels whose button it folds (#476). */
 export const TOPBAR_MORE_ID = 'topbar-more'
 
 // ─── Toggle Button ──────────────────────────────────────────────────────────
 
-function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang }: {
+function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style, activeColor, title, shortcut, ariaLabel, labelledBy, hasDialog, keepsInspector, describedBy, expanded, controls, lang, barCue }: {
   /** DOM id, used as the focus fallback of the panel this button toggles */
   id?: string
   buttonRef?: React.Ref<HTMLButtonElement>
@@ -120,6 +121,8 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
   controls?: string
   /** Language of this button's text when it is a translated control (#373); the others follow the page */
   lang?: string
+  /** Active, a 2 px bar under the button: the non-colour cue that still works on an icon (#523, WCAG 1.4.1) */
+  barCue?: boolean
 }) {
   return (
     <button
@@ -138,12 +141,13 @@ function ToggleButton({ id, buttonRef, active, pressed, onClick, children, style
       title={title}
       lang={lang}
       {...(keepsInspector ? { [INSPECTOR_KEEP_ATTR]: '' } : {})}
-      // Underline + bold is the non-colour cue for the active state
+      // Underline + bold is the non-colour cue for the active state (with the bar under a panel button)
       className={`min-h-6 min-w-6 ${TOUCH_TARGET} px-2 py-1 rounded transition-all inline-flex items-center justify-center text-[11px] ${active ? 'font-bold underline underline-offset-4 decoration-2' : ''} ${FOCUS_RING}`}
       style={{
         background: active ? (activeColor?.bg ?? COLORS.toggleActive) : COLORS.toggleInactive,
         border: `1px solid ${COLORS.controlBorder}`,
         color: active ? (activeColor?.text ?? COLORS.holoBright) : COLORS.textMuted,
+        boxShadow: active && barCue ? `inset 0 -2px 0 ${activeColor?.text ?? COLORS.holoBright}` : undefined,
         ...style,
       }}
     >
@@ -316,46 +320,58 @@ export const TopBar = memo(function TopBar({
   const isAllMode = selectedSessionId === ALL_SESSIONS_ID
   // Listed sessions nobody has heard from: their status is unknown, never "idle" or "working" (issue #52)
   const unobservedCount = useUnobservedSessionCount(sessions, sessionsWithActivity)
-  // Under 768 px (#476; 600 px in #378) the panel buttons, the totals and the filters fold behind a disclosure button;
-  // 768 px and wider nothing changes. Folded, the buttons are not rendered (no hidden Tab stop) and the totals stay for
-  // assistive technology (sr-only).
+  // Under 1024 px (#523; 768 px in #476, 600 px in #378) the filters, the agent counts, the panel buttons and the tools
+  // fold behind a disclosure button; the drawers and the 44 px targets stay under 768 px (mobile view). Folded, the
+  // buttons are not rendered (no hidden Tab stop) and the counts stay for assistive technology (sr-only). Commands stays
+  // in the folded bar from 768 px, where there is room for it.
   const [moreOpen, setMoreOpen] = useState(false)
-  const moreId = useId()
+  const filtersId = useId()
+  const row2Id = useId()
   const moreNameId = useId()
-  // Crossing 768 px (resize, browser zoom) unmounts More or the folded controls: keep the focus out of <body> (2.4.3).
-  // The focus is read in the media query handler, before React renders the new width.
-  const regionRef = useRef<HTMLDivElement>(null)
+  // Crossing 1024 or 768 px (resize, browser zoom) unmounts More or a folded control: keep the focus out of <body>
+  // (2.4.3). The focus is read in the media query handlers, before React renders the new width.
+  const filtersRef = useRef<HTMLDivElement>(null)
+  const row2Ref = useRef<HTMLDivElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
   const refocusAfterWiden = useRef(false)
   const paletteRef = useRef<HTMLButtonElement>(null)
   const refocusAfterNarrow = useRef(false)
-  const subscribe = useCallback((onChange: () => void) => subscribeNarrow(() => {
+  const subscribeFold = useCallback((onChange: () => void) => subscribeTopbarFold(() => {
     const active = typeof document === 'undefined' ? null : document.activeElement
-    if (isNarrow()) {
-      // A control that folds has the focus: open More in the same render, so it stays mounted
-      if (active && regionRef.current?.contains(active)) setMoreOpen(true)
-      // Commands is not drawn under 768 px: its focus goes to More
-      else if (active && active === paletteRef.current) refocusAfterNarrow.current = true
+    if (isTopbarFolded()) {
+      // A control that folds has the focus: open More in the same render, so it stays mounted (Commands does not fold)
+      const folds = !!active && active !== paletteRef.current && (!!filtersRef.current?.contains(active) || !!row2Ref.current?.contains(active))
+      if (folds) setMoreOpen(true)
     } else if (active && active === moreRef.current) {
       refocusAfterWiden.current = true
     }
     onChange()
   }), [])
-  const narrow = useSyncExternalStore(subscribe, isNarrow, () => false)
+  const foldNarrow = useSyncExternalStore(subscribeFold, isTopbarFolded, () => false)
+  const subscribeMobile = useCallback((onChange: () => void) => subscribeNarrow(() => {
+    const active = typeof document === 'undefined' ? null : document.activeElement
+    // Commands is not drawn under 768 px: its focus goes to More
+    if (isNarrow() && active && active === paletteRef.current) refocusAfterNarrow.current = true
+    onChange()
+  }), [])
+  const narrow = useSyncExternalStore(subscribeMobile, isNarrow, () => false)
   useLayoutEffect(() => {
-    if (narrow && refocusAfterNarrow.current) {
-      refocusAfterNarrow.current = false
-      moreRef.current?.focus({ preventScroll: true })
-      return
-    }
-    if (narrow || !refocusAfterWiden.current) return
+    if (!narrow || !refocusAfterNarrow.current) return
+    refocusAfterNarrow.current = false
+    moreRef.current?.focus({ preventScroll: true })
+  }, [narrow])
+  useLayoutEffect(() => {
+    if (foldNarrow || !refocusAfterWiden.current) return
     refocusAfterWiden.current = false
-    // More is gone: its first control (a filter) takes the focus, else the first view control
-    const target = regionRef.current?.querySelector<HTMLElement>('button')
+    // More is gone: the first filter takes the focus, else the first view control
+    const target = filtersRef.current?.querySelector<HTMLElement>('button')
       ?? rootRef.current?.querySelector<HTMLElement>('[role="toolbar"] button')
     target?.focus({ preventScroll: true })
-  }, [narrow])
-  const folded = narrow && !moreOpen
+  }, [foldNarrow])
+  const folded = foldNarrow && !moreOpen
+  // While a tooltip of the bar is open the bar rises above the docked panels, which the tooltip is drawn over (#497 review)
+  const [openTooltips, setOpenTooltips] = useState(0)
+  const onTooltip = useCallback((delta: 1 | -1) => setOpenTooltips(n => Math.max(0, n + delta)), [])
   // The age and the expiry of the quota move with the clock; it ticks once a minute, only while there is a snapshot to age
   const quotaNow = useMinuteClock(showQuota && quota !== null)
   const quotaState = quotaGaugeState(selectedRuntime, quota, quotaNow)
@@ -386,11 +402,11 @@ export const TopBar = memo(function TopBar({
     isAllMode && onToggleShowFinished && !showFinished && finishedSessionCount > 0 ? { text: TOP_BAR_LABELS.filterFinishedHidden(finishedSessionCount), lang: 'en' } : null,
   ].filter((f): f is { text: string; lang: string } => f !== null)
   const showFilterCount = folded && activeFilters.length > 0
-  // Under 768 px a panel button folds More again: the panel opens as a drawer below a short bar, and the focus waits on
-  // More (the button is gone) until the drawer takes it; More is also where it comes back when the drawer closes
+  // Folded (under 1024 px) a panel button folds More again and the focus waits on More (the button is gone). Under 768 px
+  // the panel opens as a drawer below the short bar, which takes the focus; More is where it comes back when it closes
   const thenFold = (fn: () => void) => () => {
     fn()
-    if (!narrow) return
+    if (!foldNarrow) return
     setMoreOpen(false)
     moreRef.current?.focus({ preventScroll: true })
   }
@@ -402,66 +418,105 @@ export const TopBar = memo(function TopBar({
     return observeTopbarHeight(el, document.documentElement, typeof ResizeObserver === 'undefined' ? undefined : ResizeObserver)
   }, [])
 
+  // A panel button: an icon under 1280 px, its name from 1280 px (CSS only, so the DOM and the Tab order never change).
+  // The accessible name is the same at every width (2.5.3, 4.1.2) and starts with the visible label; the tooltip names it.
+  const panelButton = (panel: TopBarPanelId, { active, onClick, shortcut, inGroup, activeColor, tooltip, tooltipLang }: {
+    active: boolean; onClick: () => void; shortcut: string; inGroup: boolean
+    activeColor?: { bg: string; text: string }; tooltip?: string; tooltipLang?: string
+  }) => {
+    const name = t(`topbar.panel.${panel}.name`)
+    return (
+      <TopBarTooltip text={tooltip ?? t(`topbar.panel.${panel}.tooltip`)} lang={tooltipLang ?? locale} onOpen={onTooltip}>
+        {tipId => (
+          <ToggleButton
+            id={PANEL_BUTTON_IDS[panel]}
+            active={active}
+            pressed={active}
+            onClick={onClick}
+            ariaLabel={name}
+            describedBy={tipId}
+            shortcut={shortcut}
+            lang={locale}
+            activeColor={activeColor}
+            barCue
+            style={inGroup ? { background: active ? undefined : 'transparent', border: 'none' } : undefined}
+          >
+            <PanelIcon panel={panel} />
+            <span data-panel-label="" className="max-xl:sr-only">{name.replace(/ \([A-Z]\)$/, '')}</span>
+          </ToggleButton>
+        )}
+      </TopBarTooltip>
+    )
+  }
+
+  // One DOM order at every width (#523). From 1024 px the bar is two rows with a fixed content: row 1 = Sessions, scope,
+  // connection state, attention, then the filters; row 2 = the agent counts (and quota gauges), then the panel buttons
+  // and the tools. Under 1024 px the rows and groups are plain boxes (display: contents): the bar is one folded row,
+  // More expands it, and an expanded bar taller than the window scrolls under 768 px (#476).
+  const ROW = 'max-lg:contents lg:flex lg:w-full lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1.5'
+  const GROUP = 'max-lg:contents lg:flex lg:flex-wrap lg:items-center'
   return (
     <header
       ref={rootRef}
       className="absolute top-3 left-3 right-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-md font-mono text-[11px] max-md:max-h-[calc(100dvh-24px)] max-md:overflow-y-auto"
-      style={{ zIndex: Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)' }}
+      style={{ zIndex: openTooltips > 0 ? Z.topBarRaised : Z.topBar, background: 'var(--lens-bar-bg)', boxShadow: 'var(--lens-bar-shadow)', padding: 'var(--lens-bar-pad)', color: COLORS.textMuted }}
     >
-      {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
-      <ToggleButton
-        id={PANEL_BUTTON_IDS.sessions}
-        active={showSessions}
-        pressed={showSessions}
-        onClick={onToggleSessions}
-        title={`${SESSIONS_LIST_NAME} (L)`}
-        shortcut="l"
-        keepsInspector
-        style={{ maxWidth: 'min(320px, 100%)' }}
-      >
-        <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
-        <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
-        {unobservedCount > 0 && (
-          <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
-            {unobservedCount} {unobservedCount === 1 ? 'session' : 'sessions'} not observed
-          </span>
-        )}
-        {sessionsWithActivity.size > 0 && (
-          <>
-            <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse" style={{ border: `2px solid ${COLORS.complete}` }} />
-            <span className="sr-only">, new activity in another session</span>
-          </>
-        )}
-      </ToggleButton>
-
-      {scope && <ScopeSelector {...scope} />}
-
-      {/* Spacer pushes info to the right */}
-      <div className="flex-1" />
-
-      {/* Right-side info/controls. Under 768 px its items join the rows of the bar itself (display: contents), and an expanded bar taller than the window scrolls (#476) */}
-      <div className={narrow ? 'contents' : 'flex flex-wrap items-center justify-end gap-x-4 gap-y-1.5 min-w-0 max-w-full'} style={{ color: COLORS.textMuted }}>
-        <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
-        {attentionText && onJumpToAttention && (
-          <button
-            type="button"
-            data-testid="attention-counter"
-            onClick={onJumpToAttention}
-            aria-label={`${attentionText}. ${attentionMany ? 'Go to the next agent that needs you' : 'Go to the agent that needs you'}`}
-            title={(attentionMany
-              ? 'Agents that wait for a permission or failed. Each click selects the next one, waiting agents first.'
-              : 'The agent that waits for a permission or failed. Click to select it.') + answerWhere}
-            className={`min-h-6 ${TOUCH_TARGET} px-2 rounded font-bold ${FOCUS_RING}`}
-            style={{
-              background: COLORS.toggleInactive,
-              border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
-              color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
-            }}
+      <div data-topbar-row="1" className={ROW}>
+        <div data-topbar-group="identity" className={`${GROUP} gap-x-4 gap-y-1.5 min-w-0`}>
+          {/* Sessions button: opens the list of sessions and agents (always shown, even with one session) */}
+          <ToggleButton
+            id={PANEL_BUTTON_IDS.sessions}
+            active={showSessions}
+            pressed={showSessions}
+            onClick={onToggleSessions}
+            title={`${SESSIONS_LIST_NAME} (L)`}
+            shortcut="l"
+            keepsInspector
+            style={{ maxWidth: 'min(320px, 100%)' }}
           >
-            <span aria-hidden="true">! </span>{attentionText}
-          </button>
-        )}
-        {narrow && (
+            <span className="truncate" data-sensitive="">Sessions: {selectionLabel(selectedSessionId, sessions, teams)}</span>
+            <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+            {unobservedCount > 0 && (
+              <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={SESSION_NOT_OBSERVED_HELP}>
+                {unobservedCount} {unobservedCount === 1 ? 'session' : 'sessions'} not observed
+              </span>
+            )}
+            {sessionsWithActivity.size > 0 && (
+              <>
+                <span aria-hidden="true" className="ml-1.5 inline-block w-2 h-2 shrink-0 rounded-full motion-safe:animate-pulse" style={{ border: `2px solid ${COLORS.complete}` }} />
+                <span className="sr-only">, new activity in another session</span>
+              </>
+            )}
+          </ToggleButton>
+
+          {scope && <ScopeSelector {...scope} />}
+
+          <ConnectionIndicator status={connectionStatus} isDemo={isDemo} detail={connectionDetail} onRetry={onRetryConnection} onExitDemo={onExitDemo} />
+          {attentionText && onJumpToAttention && (
+            <button
+              type="button"
+              data-testid="attention-counter"
+              onClick={onJumpToAttention}
+              aria-label={`${attentionText}. ${attentionMany ? 'Go to the next agent that needs you' : 'Go to the agent that needs you'}`}
+              title={(attentionMany
+                ? 'Agents that wait for a permission or failed. Each click selects the next one, waiting agents first.'
+                : 'The agent that waits for a permission or failed. Click to select it.') + answerWhere}
+              className={`min-h-6 ${TOUCH_TARGET} px-2 rounded font-bold ${FOCUS_RING}`}
+              style={{
+                background: COLORS.toggleInactive,
+                border: `1px solid ${attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error}`,
+                color: attention!.waiting > 0 ? COLORS.waiting_permission : COLORS.error,
+              }}
+            >
+              <span aria-hidden="true">! </span>{attentionText}
+            </button>
+          )}
+        </div>
+
+        {/* Spacer: the filters (or More) go to the right */}
+        <div data-topbar-spacer="" className="flex-1" />
+
+        {foldNarrow && (
           <ToggleButton
             id={TOPBAR_MORE_ID}
             buttonRef={moreRef}
@@ -471,12 +526,12 @@ export const TopBar = memo(function TopBar({
             labelledBy={showFilterCount ? moreNameId : undefined}
             title={TOP_BAR_LABELS.moreHelp}
             expanded={moreOpen}
-            controls={moreId}
+            controls={`${filtersId} ${row2Id}`}
           >
             {showFilterCount ? TOP_BAR_LABELS.moreWithFilters(activeFilters.length) : TOP_BAR_LABELS.more}
           </ToggleButton>
         )}
-        {narrow && showFilterCount && (
+        {foldNarrow && showFilterCount && (
           // The accessible name of More, in parts: each filter keeps the language of its button (read through aria-labelledby)
           <span id={moreNameId} hidden lang="en">
             {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).before}
@@ -489,148 +544,159 @@ export const TopBar = memo(function TopBar({
             {TOP_BAR_LABELS.moreNameWithFiltersParts(activeFilters.length).after}
           </span>
         )}
-        {/* What More shows; a plain box (display: contents) */}
-        <div id={moreId} ref={regionRef} className="contents">
-        {!folded && notifyState !== 'unsupported' && onToggleNotify && (
-          <ToggleButton
-            active={notifyState === 'on'}
-            pressed={notifyState === 'on'}
-            onClick={onToggleNotify}
-            lang={locale}
-            title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
-          >
-            {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
-          </ToggleButton>
-        )}
-        {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
-          <ToggleButton
-            active={showFinished}
-            pressed={showFinished}
-            onClick={() => onToggleShowFinished(!showFinished)}
-            title="Also show sessions that finished more than 10 minutes ago"
-          >
-            {finishedToggleLabel(finishedSessionCount)}
-          </ToggleButton>
-        )}
-        {!folded && onToggleHideInactive && (
-          <ToggleButton
-            active={hideInactive}
-            pressed={hideInactive}
-            onClick={() => onToggleHideInactive(!hideInactive)}
-            lang={locale}
-            title={t('topbar.hideInactive.title')}
-          >
-            {t('topbar.hideInactive')}
-          </ToggleButton>
-        )}
-        <div className={folded ? 'sr-only' : 'contents'}>
-        <span data-testid="topbar-agent-counts" className="md:whitespace-nowrap">
-          <span aria-hidden="true">{drawnCounts}</span>
-          <span className="sr-only">{spokenTotals}</span>
-        </span>
-        {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
+
+        <div id={filtersId} ref={filtersRef} data-topbar-group="filters" className={`${GROUP} justify-end gap-x-4 gap-y-1.5`}>
+          {!folded && notifyState !== 'unsupported' && onToggleNotify && (
+            <ToggleButton
+              active={notifyState === 'on'}
+              pressed={notifyState === 'on'}
+              onClick={onToggleNotify}
+              lang={locale}
+              title={notifyState === 'denied' ? t('topbar.notify.blocked.title') : t('topbar.notify.title')}
+            >
+              {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
+            </ToggleButton>
+          )}
+          {!folded && isAllMode && onToggleShowFinished && (finishedSessionCount > 0 || showFinished) && (
+            <ToggleButton
+              active={showFinished}
+              pressed={showFinished}
+              onClick={() => onToggleShowFinished(!showFinished)}
+              title="Also show sessions that finished more than 10 minutes ago"
+            >
+              {finishedToggleLabel(finishedSessionCount)}
+            </ToggleButton>
+          )}
+          {!folded && onToggleHideInactive && (
+            <ToggleButton
+              active={hideInactive}
+              pressed={hideInactive}
+              onClick={() => onToggleHideInactive(!hideInactive)}
+              lang={locale}
+              title={t('topbar.hideInactive.title')}
+            >
+              {t('topbar.hideInactive')}
+            </ToggleButton>
+          )}
+        </div>
+      </div>
+
+      <div id={row2Id} ref={row2Ref} data-topbar-row="2" className={ROW}>
+        {/* Agent counts and quota gauges; folded, still read by screen readers */}
+        <div data-topbar-group="status" className={folded ? 'sr-only' : `${GROUP} gap-x-4 gap-y-1.5 min-w-0`}>
+          <span data-testid="topbar-agent-counts" className="md:whitespace-nowrap">
+            <span aria-hidden="true">{drawnCounts}</span>
+            <span className="sr-only">{spokenTotals}</span>
+          </span>
+          {showQuota && <QuotaGauges state={quotaState} interactive={!folded} />}
         </div>
 
-        {!folded && (
-        <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1">
-          {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
-          {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
-          <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
-            background: COLORS.holoBg03,
-            border: `1px solid ${COLORS.holoBorder06}`,
-          }}>
-            <ToggleButton id={PANEL_BUTTON_IDS.files} active={showFileAttention} pressed={showFileAttention} onClick={thenFold(() => onTogglePanel('files'))} title={openPanelLabel('files', 'F')} shortcut="f" style={{ background: showFileAttention ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.files}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.conversation} active={showConversation} pressed={showConversation} onClick={thenFold(() => onTogglePanel('conversation'))} ariaLabel={CONVERSATION_LABELS.buttonLabel} title={CONVERSATION_LABELS.buttonLabel} shortcut="c" style={{ background: showConversation ? undefined : 'transparent', border: 'none' }}>{CONVERSATION_LABELS.buttonText}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.context} active={showContext} pressed={showContext} onClick={thenFold(() => onTogglePanel('context'))} ariaLabel={openPanelLabel('context', 'P')} title={isVSCode ? CONTEXT_UNAVAILABLE_IN_VSCODE : `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`} describedBy={isVSCode ? CONTEXT_UNAVAILABLE_ID : undefined} shortcut="p" style={{ background: showContext ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.context}</ToggleButton>
-            <ToggleButton id={PANEL_BUTTON_IDS.system} active={showSystem} pressed={showSystem} onClick={thenFold(() => onTogglePanel('system'))} ariaLabel={openPanelLabel('system', 'Y')} title={`${PANEL_NAMES.system}: CPU, memory, disk (Y)`} shortcut="y" style={{ background: showSystem ? undefined : 'transparent', border: 'none' }}>{PANEL_NAMES.system}</ToggleButton>
-            {isVSCode && <span id={CONTEXT_UNAVAILABLE_ID} className="sr-only">{CONTEXT_UNAVAILABLE_IN_VSCODE}</span>}
-            <ToggleButton
-              id={PANEL_BUTTON_IDS.cost}
-              active={showCostOverlay}
-              pressed={showCostOverlay}
-              onClick={() => onTogglePanel('cost')}
-              title={`${PANEL_NAMES.cost} overlay ($)`}
-              shortcut="$"
-              activeColor={{ bg: COLORS.costActiveBg, text: COLORS.complete }}
-              style={{ background: showCostOverlay ? undefined : 'transparent', border: 'none' }}
-            >
-              ${PANEL_NAMES.cost}
-            </ToggleButton>
+        <div data-topbar-spacer="" className="flex-1" />
+
+        {/* Under 768 px with More folded nothing of it is drawn (Commands is not drawn there) */}
+        {!(folded && narrow) && (
+        <div role="toolbar" aria-label="View controls" className="flex flex-wrap items-center gap-1 lg:justify-end">
+          {!folded && (
+          <div data-topbar-group="panels" className={`${GROUP} gap-1`}>
+            {/* Side panels: Files, Conversation and Context are mutually exclusive; System and Cost open beside them */}
+            {/* Wraps like the toolbar: at 320 px the five toggles do not fit on one line (WCAG 1.4.10) */}
+            <div role="group" aria-label="Side panels" className="flex flex-wrap items-center gap-1 px-1 py-0.5 rounded" style={{
+              background: COLORS.holoBg03,
+              border: `1px solid ${COLORS.holoBorder06}`,
+            }}>
+              {panelButton('files', { active: showFileAttention, onClick: thenFold(() => onTogglePanel('files')), shortcut: 'f', inGroup: true })}
+              {panelButton('conversation', { active: showConversation, onClick: thenFold(() => onTogglePanel('conversation')), shortcut: 'c', inGroup: true })}
+              {panelButton('context', {
+                active: showContext, onClick: thenFold(() => onTogglePanel('context')), shortcut: 'p', inGroup: true,
+                ...(isVSCode ? { tooltip: CONTEXT_UNAVAILABLE_IN_VSCODE, tooltipLang: 'en' } : {}),
+              })}
+              {panelButton('system', { active: showSystem, onClick: thenFold(() => onTogglePanel('system')), shortcut: 'y', inGroup: true })}
+              {panelButton('cost', {
+                active: showCostOverlay, onClick: () => onTogglePanel('cost'), shortcut: '$', inGroup: true,
+                activeColor: { bg: COLORS.costActiveBg, text: COLORS.complete },
+              })}
+            </div>
+
+            {/* Independent toggles */}
+            {panelButton('timeline', { active: showTimeline, onClick: thenFold(onToggleTimeline), shortcut: 't', inGroup: false })}
+            {panelButton('stats', { active: showStats, onClick: onToggleStats, shortcut: 's', inGroup: false })}
           </div>
-
-          {/* Independent toggles */}
-          <ToggleButton id={PANEL_BUTTON_IDS.timeline} active={showTimeline} pressed={showTimeline} onClick={thenFold(onToggleTimeline)} title={openPanelLabel('timeline', 'T')} shortcut="t">{PANEL_NAMES.timeline}</ToggleButton>
-          <ToggleButton id={PANEL_BUTTON_IDS.stats} active={showStats} pressed={showStats} onClick={onToggleStats} title={openPanelLabel('stats', 'S')} shortcut="s">{PANEL_NAMES.stats}</ToggleButton>
-          <ToggleButton
-            active={!isMuted}
-            onClick={onToggleMute}
-            ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
-            title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}
-            lang={locale}
-            shortcut="m"
-          >
-            {isMuted ? <MutedIcon /> : <UnmutedIcon />}
-          </ToggleButton>
-          {onToggleFullscreen && (
-            <ToggleButton
-              id={FULLSCREEN_BUTTON_ID}
-              active={false}
-              onClick={onToggleFullscreen}
-              ariaLabel={t('topbar.fullscreen')}
-              title={t('topbar.fullscreen.title')}
-              lang={locale}
-              shortcut="z"
-            >
-              <FullscreenIcon />
-            </ToggleButton>
           )}
-          {/* Not under 768 px: one more button wraps the folded bar onto another row (#378 height budget) */}
-          {onOpenPalette && !narrow && (
-            <ToggleButton
-              buttonRef={paletteRef}
-              active={false}
-              onClick={onOpenPalette}
-              ariaLabel={t('topbar.commands')}
-              title={t('topbar.commands.title')}
-              lang={locale}
-              shortcut="Control+K Meta+K"
-              hasDialog
-            >
-              <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <circle cx="7" cy="7" r="5" />
-                <path d="M11 11l4 4" />
-              </svg>
-              <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.commands')}</span>
-            </ToggleButton>
-          )}
-          {onOpenSettings && (
-            <ToggleButton
-              active={false}
-              onClick={onOpenSettings}
-              ariaLabel={t('settings.title')}
-              title={t('topbar.settings.title')}
-              lang={locale}
-              shortcut=","
-              hasDialog
-            >
-              <GearIcon />
-            </ToggleButton>
-          )}
-          <ToggleButton
-            active={false}
-            onClick={onOpenShortcuts}
-            ariaLabel={t('topbar.shortcuts')}
-            title={t('topbar.shortcuts.title')}
-            lang={locale}
-            shortcut="?"
-            hasDialog
-          >
-            <span aria-hidden="true">?</span>
-            <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.shortcuts.short')}</span>
-          </ToggleButton>
+          <div data-topbar-group="tools" className={`${GROUP} gap-1`}>
+            {!folded && (
+              <ToggleButton
+                active={!isMuted}
+                onClick={onToggleMute}
+                ariaLabel={isMuted ? t('topbar.unmute') : t('topbar.mute')}
+                title={isMuted ? t('topbar.unmute.title') : t('topbar.mute.title')}
+                lang={locale}
+                shortcut="m"
+              >
+                {isMuted ? <MutedIcon /> : <UnmutedIcon />}
+              </ToggleButton>
+            )}
+            {!folded && onToggleFullscreen && (
+              <ToggleButton
+                id={FULLSCREEN_BUTTON_ID}
+                active={false}
+                onClick={onToggleFullscreen}
+                ariaLabel={t('topbar.fullscreen')}
+                title={t('topbar.fullscreen.title')}
+                lang={locale}
+                shortcut="z"
+              >
+                <FullscreenIcon />
+              </ToggleButton>
+            )}
+            {/* Kept in the folded bar from 768 px; not under 768 px: one more button wraps the folded bar onto another row (#378 height budget) */}
+            {onOpenPalette && !narrow && (
+              <ToggleButton
+                buttonRef={paletteRef}
+                active={false}
+                onClick={onOpenPalette}
+                ariaLabel={t('topbar.commands')}
+                title={t('topbar.commands.title')}
+                lang={locale}
+                shortcut="Control+K Meta+K"
+                hasDialog
+              >
+                <svg aria-hidden="true" focusable="false" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="7" cy="7" r="5" />
+                  <path d="M11 11l4 4" />
+                </svg>
+                <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.commands')}</span>
+              </ToggleButton>
+            )}
+            {!folded && onOpenSettings && (
+              <ToggleButton
+                active={false}
+                onClick={onOpenSettings}
+                ariaLabel={t('settings.title')}
+                title={t('topbar.settings.title')}
+                lang={locale}
+                shortcut=","
+                hasDialog
+              >
+                <GearIcon />
+              </ToggleButton>
+            )}
+            {!folded && (
+              <ToggleButton
+                active={false}
+                onClick={onOpenShortcuts}
+                ariaLabel={t('topbar.shortcuts')}
+                title={t('topbar.shortcuts.title')}
+                lang={locale}
+                shortcut="?"
+                hasDialog
+              >
+                <span aria-hidden="true">?</span>
+                <span aria-hidden="true" className="ml-1 hidden sm:inline">{t('topbar.shortcuts.short')}</span>
+              </ToggleButton>
+            )}
+          </div>
         </div>
         )}
-        </div>
       </div>
     </header>
   )

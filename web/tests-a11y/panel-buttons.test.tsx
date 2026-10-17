@@ -1,4 +1,5 @@
-// #124: every panel of PANEL_BUTTON_IDS has a top bar button (aria-pressed, title, shortcut) and an entry in the help dialog.
+// #124: every panel of PANEL_BUTTON_IDS has a top bar button (aria-pressed, a tooltip or title, shortcut) and an entry in the help
+// dialog. #523: the seven panel buttons (icons under 1280 px) have a role=tooltip linked by aria-describedby instead of a title.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -24,14 +25,20 @@ const props: TopBarProps = {
   onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
 }
 
-test('every panel button has aria-pressed, a title and a keyboard shortcut listed in the help dialog table', () => {
+/** The tooltip text of a button: its role=tooltip (aria-describedby, #523) or its native title (Sessions). */
+const tipText = (btn: HTMLElement) => {
+  const tip = (btn.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)).find(el => el?.getAttribute('role') === 'tooltip')
+  return tip?.textContent ?? btn.getAttribute('title') ?? ''
+}
+
+test('every panel button has aria-pressed, a tooltip and a keyboard shortcut listed in the help dialog table', () => {
   render(<TopBar {...props} />)
   const byKey = new Map(SHORTCUTS.map(s => [s.key, s]))
   for (const [panel, id] of Object.entries(PANEL_BUTTON_IDS)) {
     const btn = document.getElementById(id)
     assert.ok(btn, `${panel}: no top bar button #${id}`)
     assert.ok(btn.hasAttribute('aria-pressed'), `${panel}: aria-pressed`)
-    assert.ok(btn.getAttribute('title'), `${panel}: title`)
+    assert.ok(tipText(btn), `${panel}: tooltip`)
     const key = btn.getAttribute('aria-keyshortcuts')
     assert.ok(key, `${panel}: aria-keyshortcuts`)
     assert.ok(byKey.has(key), `${panel}: shortcut "${key}" missing from SHORTCUTS`)
@@ -55,10 +62,8 @@ test('in VS Code the Context button exposes why the panel is unavailable', () =>
   render(<TopBar {...props} isVSCode />)
   const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
   assert.ok(btn, 'the Context button stays visible')
-  assert.match(btn.getAttribute('title') ?? '', /standalone relay.*not available in VS Code/i)
-  const described = btn.getAttribute('aria-describedby')
-  assert.ok(described, 'aria-describedby')
-  assert.match(document.getElementById(described)!.textContent ?? '', /standalone relay.*not available in VS Code/i)
+  // Its tooltip, linked by aria-describedby, so screen readers read it after the name (#523)
+  assert.match(tipText(btn), /standalone relay.*not available in VS Code/i)
 })
 
 // #357, WCAG 1.4.10: with the System toggle the side panel group is wider than a 320 px viewport; it wraps like the
@@ -75,6 +80,6 @@ test('the side panel group wraps on a narrow viewport and keeps every toggle in 
 test('outside VS Code the Context button has no unavailability note', () => {
   render(<TopBar {...props} />)
   const btn = document.getElementById(PANEL_BUTTON_IDS.context)!
-  assert.doesNotMatch(btn.getAttribute('title') ?? '', /not available/i)
-  assert.equal(btn.getAttribute('aria-describedby'), null)
+  assert.doesNotMatch(tipText(btn), /not available/i)
+  assert.match(tipText(btn), /CLAUDE\.md/)
 })

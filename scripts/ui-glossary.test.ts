@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel, hiddenPanelsText,
+  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
+import { MESSAGES } from '../web/lib/messages'
 import {
   EMPTY_MESSAGES, EMPTY_SEARCH, COLLAPSED_TEXT_MAX, TOOL_MESSAGE_TYPES, buildFeedMessages, latestFeedMessage,
   filterBySearch, tabForSelection,
@@ -30,9 +31,12 @@ test('one empty-state wording: "No <things> yet", shared by the glossary and the
 })
 
 test('the Conversation button is named with its shortcut and the pill/close controls use the same name', () => {
-  assert.equal(openPanelLabel('conversation', 'C'), 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonLabel, 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonText, 'Conversation')
+  // The top bar names come from messages.ts since #523 (an icon under 1280 px); in English they are the glossary names
+  assert.equal(MESSAGES.en['topbar.panel.conversation.name'], `${PANEL_NAMES.conversation} (C)`)
+  for (const p of ['files', 'timeline', 'stats'] as const) assert.equal(MESSAGES.en[`topbar.panel.${p}.name`], PANEL_NAMES[p])
+  assert.equal(MESSAGES.en['topbar.panel.context.name'], `${PANEL_NAMES.context} (P)`)
+  assert.equal(MESSAGES.en['topbar.panel.system.name'], `${PANEL_NAMES.system} (Y)`)
+  assert.equal(MESSAGES.en['topbar.panel.cost.name'], `$${PANEL_NAMES.cost}`)
   assert.equal(CONVERSATION_LABELS.open, 'Open Conversation')
   assert.equal(CONVERSATION_LABELS.close, 'Close Conversation')
 })
