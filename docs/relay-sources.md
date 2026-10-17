@@ -125,6 +125,20 @@ What the guards will enforce once the token exists (tested now through the app's
 
 OpenCode has no hook and no transcript file: it keeps every session in one SQLite database (`<data>/opencode.db` for the latest, beta and prod channels (`opencode-<channel>.db` for any other channel), `<data>` being `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`; `OPENCODE_DB` overrides it: an absolute path is used as is, a relative one is resolved under `<data>`). The relay opens it read-only, polls it, and turns new rows into events; it never writes to it. Only sessions with rows in the last 10 minutes are followed (25 root sessions at most); a session silent for 10 minutes is released without any `session-ended` (a silence is not an end) and followed again if new rows arrive, while an archived one is announced as ended. Select it alone with `AGENT_LENS_RUNTIME=opencode`; by default it is watched with the other runtimes. As with Pi and Gemini CLI there is no hook to reconcile: the database is the only source. Windows is not supported yet (set `OPENCODE_DB` to an absolute path). What the UI shows is in [Reading the UI](reading-the-ui.md#opencode-sessions).
 
+## Claude Code status line: subscription quota (#467)
+
+Claude Code passes `rate_limits` (the 5-hour and weekly quota) to its `statusLine` command on stdin. Agent Lens reads it from there, so the quota gauges ([Reading the UI](reading-the-ui.md#subscription-quota-gauges)) show what Claude Code reports and nothing computed. This is not the `statusline` command or `GET /statusline` of [Headless use](headless.md), which print a one-line summary of Agent Lens.
+
+**Opt-in.** Nothing changes until you run `node scripts/setup.js --statusline`. It prints the current and the new `statusLine`, asks `Apply? [y/N]` (`--yes` skips the question; with no terminal and no `--yes` it changes nothing), installs the wrapper at `~/.claude/agent-lens/statusline.js` and points `statusLine` at it. A `statusLine` that is not a command is left unchanged.
+
+**What the wrapper does.** It runs your own status line with the same stdin and passes its stdout, stderr and exit code through, so Claude Code displays exactly what it displayed before. Your original `statusLine` is kept whole, encoded (base64) in the wrapper command inside `settings.json`; there is no other state file. In parallel it posts to the local relay, with a hard limit of 300 ms for the whole send, and any error is swallowed: your status line always wins. It finds the relay like the hook does (the instance of the workspace of the session when there is one, else any live instance).
+
+**What is sent.** Only `five_hour` and `seven_day`, each with `used_percentage` and `resets_at`, as `{"rate_limits":{...}}` to `POST /quota`. Never sent: the session id, the working directory, the model, the cost, the transcript path or anything else from the status line input.
+
+**What the relay does with it.** `POST /quota` takes JSON only, at most 1024 bytes, from a loopback peer; another site, a wrong `Content-Type`, an unknown shape or a value out of range is refused (a window that is present but invalid refuses the whole body). Each accepted body replaces the previous quota in memory (nothing is written to disk) and is sent to the browser as the SSE message `quota`, replayed to a client that connects later. It is never sent to a tunnel Host ([Remote access](#remote-access-guards-only-241-step-1)).
+
+**Undo.** `node scripts/setup.js --restore-statusline` puts your original `statusLine` back (or removes the key if there was none); uninstalling the extension does the same before removing the wrapper.
+
 ## Scope of the discovery (#291)
 
 The relay discovers Claude Code sessions in one of two scopes:
