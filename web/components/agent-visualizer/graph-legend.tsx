@@ -10,6 +10,7 @@ import { CONTEXT_WINDOW_NAME, memberNoun } from '@/lib/ui-glossary'
 import { LearnMoreLink } from './learn-more-link'
 import { LEGEND_ENTRIES, LEGEND_ENTRY_IDS, type LegendEntryId, type LegendSectionId } from '@/lib/legend-entries'
 import { FOCUS_RING } from '@/lib/focus-ring'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { useTourBridge, GUIDED_TOUR_BUTTON_ID } from './guided-tour-context'
 import { useTheme } from '@/lib/theme'
 
@@ -132,7 +133,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
                 type="button"
                 aria-pressed={showAll}
                 onClick={() => setShowAll(v => !v)}
-                className={`inline-flex min-h-6 min-w-6 items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
+                className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
                 style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
               >
                 Show all symbols
@@ -228,7 +229,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
           onClick={toggle}
           aria-expanded={shown}
           aria-controls={shown ? "graph-legend-panel" : undefined}
-          className={`inline-flex min-h-6 min-w-6 items-center gap-1 rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
+          className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center gap-1 rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
           style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
         >
           <span aria-hidden="true">{shown ? '▾' : '▸'}</span>
@@ -239,7 +240,7 @@ export function GraphLegend({ teams = [], present }: { teams?: A11yTeamItem[]; p
             id={GUIDED_TOUR_BUTTON_ID}
             type="button"
             onClick={startTour}
-            className={`inline-flex min-h-6 min-w-6 items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
+            className={`inline-flex min-h-6 min-w-6 ${TOUCH_TARGET} items-center rounded-md px-2 py-1 text-[11px] ${FOCUS_RING}`}
             style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
           >
             {startTourLabel ?? 'Guided tour'}

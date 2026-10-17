@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { UseUiPreferences } from '@/hooks/use-ui-preferences'
 import { createPanelRegistry } from '@/hooks/use-panel-registry'
 import { useFocusReturn } from '@/hooks/use-focus-return'
-import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
+import { PANEL_BUTTON_IDS, TOPBAR_MORE_ID } from '@/components/agent-visualizer/top-bar'
 import { subscribeDockUserResize } from '@/components/agent-visualizer/shared-ui'
 import { dockStore, SHEET_BREAKPOINT } from '@/lib/panel-layout'
 import { shouldAutoOpenConversation } from '@/lib/exclusive-panels'
@@ -83,12 +83,12 @@ export function usePanelsState(uiPrefs: UseUiPreferences, selectedAgentId: strin
   const sessionsPanelRef = useRef<HTMLDivElement>(null)
   const contextPanelRef = useRef<HTMLDivElement>(null)
   const systemPanelRef = useRef<HTMLDivElement>(null)
-  useFocusReturn(showFileAttention, filesPanelRef, PANEL_BUTTON_IDS.files)
+  useFocusReturn(showFileAttention, filesPanelRef, [PANEL_BUTTON_IDS.files, TOPBAR_MORE_ID])
   // The Conversation panel restores focus itself (to its pill or its top bar button)
-  useFocusReturn(showTimeline, timelinePanelRef, PANEL_BUTTON_IDS.timeline)
-  useFocusReturn(showSessions, sessionsPanelRef, PANEL_BUTTON_IDS.sessions)
-  useFocusReturn(showContext, contextPanelRef, PANEL_BUTTON_IDS.context)
-  useFocusReturn(showSystem, systemPanelRef, PANEL_BUTTON_IDS.system)
+  useFocusReturn(showTimeline, timelinePanelRef, [PANEL_BUTTON_IDS.timeline, TOPBAR_MORE_ID])
+  useFocusReturn(showSessions, sessionsPanelRef, [PANEL_BUTTON_IDS.sessions, TOPBAR_MORE_ID])
+  useFocusReturn(showContext, contextPanelRef, [PANEL_BUTTON_IDS.context, TOPBAR_MORE_ID])
+  useFocusReturn(showSystem, systemPanelRef, [PANEL_BUTTON_IDS.system, TOPBAR_MORE_ID])
 
   // Panel open-order stack (LIFO) so Escape closes the most recently opened panel first
   const panelStackRef = useRef<PanelId[]>([])
