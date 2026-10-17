@@ -37,9 +37,22 @@ const SCAN_DAYS = 3
  *  Filenames look like: rollout-2026-04-22T09-15-00-{uuid}.jsonl */
 const SESSION_ID_FROM_FILENAME = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{36})\.jsonl$/
 
+/** A cwd longer than this is not a path this adapter shows. */
+const CWD_MAX = 4096
+/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
+const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
+
+/** session_meta.cwd as shown to the user: only an absolute, clean, bounded path (#420); anything else is left out. */
+function displayCwd(cwd: string | null): string | undefined {
+  if (!cwd || cwd.length > CWD_MAX || UNSAFE_PATH_CHARS.test(cwd)) return undefined
+  return path.isAbsolute(cwd) ? cwd : undefined
+}
+
 interface WatchedCodexSession {
   sessionId: string
   filePath: string
+  /** Working directory recorded by session_meta, when usable (#420) */
+  cwd?: string
   fileWatcher: fs.FSWatcher | null
   pollTimer: NodeJS.Timeout | null
   fileSize: number
@@ -186,6 +199,8 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       status: 'active',
       startTime: s.sessionStartTime,
       lastActivityTime: s.lastActivityTime,
+      runtime: 'codex',
+      ...(s.cwd ? { cwd: s.cwd } : {}),
     }))
   }
 
@@ -193,8 +208,14 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     for (const [id, session] of this.sessions) {
       if (!session.sessionDetected) continue
       if (sessionIds && !sessionIds.includes(id)) continue
-      this._onSessionLifecycle.fire({ type: 'started', sessionId: id, label: session.label })
+      this._onSessionLifecycle.fire(this.started(session))
     }
+  }
+
+  /** The 'started' lifecycle, with the runtime and the recorded cwd (#420): a session started while a page
+   *  is open gets its badge without waiting for the list. */
+  private started(s: WatchedCodexSession): SessionLifecycleEvent {
+    return { type: 'started', sessionId: s.sessionId, label: s.label, runtime: 'codex', ...(s.cwd ? { cwd: s.cwd } : {}) }
   }
 
   start(): void {
@@ -388,9 +409,12 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
       },
     })
 
+    // The first line of a rollout does not change: read once per file (cached), also without a workspace filter
+    const cwd = displayCwd(this.cwdOf(filePath))
     const session: WatchedCodexSession = {
       sessionId,
       filePath,
+      ...(cwd ? { cwd } : {}),
       fileWatcher: null,
       pollTimer: null,
       fileSize: 0,
@@ -417,7 +441,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
 
     session.sessionDetected = true
     this._onSessionDetected.fire(sessionId)
-    this._onSessionLifecycle.fire({ type: 'started', sessionId, label })
+    this._onSessionLifecycle.fire(this.started(session))
 
     try {
       session.fileWatcher = safeWatch(filePath, () => this.readNewLines(sessionId))
