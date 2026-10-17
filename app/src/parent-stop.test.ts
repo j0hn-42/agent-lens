@@ -102,6 +102,37 @@ describe('watchParentStop', () => {
   })
 })
 
+describe('a clean-up that throws is caught (#513)', () => {
+  it('a stop that came before onStop: the error goes to onError, never out of onStop', () => {
+    const proc = fakeProcess()
+    const r = watchParentStop(proc)
+    assert.ok(r.ok)
+    proc.emit('message', { v: 1, type: 'stop' })
+    let errors = 0
+    assert.doesNotThrow(() => r.onStop(() => { throw new Error('secret-detail') }, () => { errors++ }))
+    assert.equal(errors, 1)
+  })
+  it('a stop that comes after onStop: the error goes to onError, never out of the event handler', () => {
+    const proc = fakeProcess()
+    const r = watchParentStop(proc)
+    assert.ok(r.ok)
+    let errors = 0
+    r.onStop(() => { throw new Error('secret-detail') }, () => { errors++ })
+    assert.doesNotThrow(() => proc.emit('disconnect'))
+    assert.equal(errors, 1)
+  })
+  it('the clean-up runs once even when it threw', () => {
+    const proc = fakeProcess()
+    const r = watchParentStop(proc)
+    assert.ok(r.ok)
+    let runs = 0
+    r.onStop(() => { runs++; throw new Error('x') }, () => {})
+    proc.emit('disconnect')
+    proc.emit('message', { v: 1, type: 'stop' })
+    assert.equal(runs, 1)
+  })
+})
+
 describe('--ipc-stop: an explicit internal flag, off by default', () => {
   it('is off without the flag', () => {
     assert.equal(parseArgs([]).ipcStop, false)

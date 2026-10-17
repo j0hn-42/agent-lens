@@ -7,7 +7,10 @@
  * `'ipc'` stdio slot of child_process.spawn/fork), the relay runs the same clean-up as SIGTERM when:
  *   - the parent sends exactly `{ v: 1, type: 'stop' }` over that channel, or
  *   - the channel closes (the parent exited or was killed): the relay does not outlive the driver that owns it.
- * Anything else on the channel is ignored. Nothing here listens on a port or reads stdin: only the process that
+ * Anything else on the channel is ignored. Node offers no size limit for a message of an IPC channel (the JSON is
+ * parsed by Node before this code sees it), so none is enforced here: the safeguard is that only the process that
+ * created the channel can write on it, and a message that is not exactly the stop message is dropped without being
+ * read or printed. Nothing here listens on a port or reads stdin: only the process that
  * created the channel can write on it. Without the flag nothing is installed and SIGINT/SIGTERM/SIGHUP behave
  * as before.
  */
@@ -40,7 +43,15 @@ export interface ParentChannelProcess {
 }
 
 export type ParentStop =
-  | { ok: true; /** The clean-up to run once; run at once if a stop already came */ onStop(cleanup: () => void): void }
+  | {
+      ok: true
+      /**
+       * The clean-up to run once; run at once if a stop already came. If it throws, the error is not rethrown (it
+       * would be an unhandled rejection or exception): `onError` is called instead, without the error, so no detail
+       * of it can reach a log by accident.
+       */
+      onStop(cleanup: () => void, onError?: () => void): void
+    }
   | { ok: false; error: string }
 
 function closeHandle(handle: unknown) {
@@ -61,11 +72,15 @@ export function watchParentStop(proc: ParentChannelProcess, log: (message: strin
   }
   let requested = false
   let cleanup: (() => void) | null = null
+  let onError: () => void = () => {}
   let ignored = 0
+  const run = (fn: () => void) => {
+    try { fn() } catch { try { onError() } catch { /* nothing more to do */ } }
+  }
   const request = () => {
     if (requested) return
     requested = true
-    cleanup?.()
+    if (cleanup) run(cleanup)
   }
   proc.on('message', (message, handle) => {
     // A handle (socket, server) is never part of the stop message: close it so it does not stay open here
@@ -81,9 +96,10 @@ export function watchParentStop(proc: ParentChannelProcess, log: (message: strin
   }
   return {
     ok: true,
-    onStop(fn) {
+    onStop(fn, onErr) {
       cleanup = fn
-      if (requested) fn()
+      if (onErr) onError = onErr
+      if (requested) run(fn)
     },
   }
 }

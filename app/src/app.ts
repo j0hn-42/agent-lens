@@ -66,7 +66,13 @@ if (isCliCommand(command)) {
     ...(args.allowHosts.length > 0 && args.tokenFile ? { remote: { allowedHosts: args.allowHosts, tokenFile: args.tokenFile } } : {}),
   }).then(server => {
     // The same clean-up as SIGINT/SIGTERM/SIGHUP (idempotent): close, relay.dispose(), telemetry, exit 0
-    if (parentStop?.ok) parentStop.onStop(server.close)
+    // A clean-up that throws must not become an unhandled rejection: fixed message (no detail), non-zero exit code
+    if (parentStop?.ok) {
+      parentStop.onStop(server.close, () => {
+        console.error('Agent Lens: the clean-up after the stop request failed')
+        process.exit(1)
+      })
+    }
   }, (err: unknown) => {
     console.error(`Agent Lens: ${err instanceof Error ? err.message : 'the server could not start'}`)
     process.exit(2)
