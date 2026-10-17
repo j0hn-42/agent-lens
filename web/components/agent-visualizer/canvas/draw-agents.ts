@@ -475,6 +475,17 @@ function fillLabelText(ctx: CanvasRenderingContext2D, text: string, x: number, y
 }
 
 /**
+ * Opaque plate in the scene background under a label block of `lines` lines, `width` wide, centred on `x`
+ * from `top` (#378). Edges and links are drawn before the nodes: one passing under the label stops at the
+ * plate instead of cutting the letters. It covers no data: only what is drawn under the label.
+ */
+function fillLabelPlate(ctx: CanvasRenderingContext2D, x: number, top: number, width: number, lines: number) {
+  const pad = AGENT_DRAW.labelHaloWidth
+  ctx.fillStyle = SCENE.void
+  ctx.fillRect(x - width / 2 - pad, top - pad, width + pad * 2, lines * AGENT_DRAW.stateLabelGap + pad * 2)
+}
+
+/**
  * Name, status text, the orchestrator badge ('LEAD' / 'MAIN' + team or session name) and (with several
  * sessions on screen) the session label under the node. Teammates get up to two name lines; the hover
  * tooltip carries the full name. `place` comes from the overlay plan: hidden, shifted to a free spot,
@@ -507,10 +518,28 @@ function drawAgentLabel(
 
   if (place.collapsed) {
     // Crowded: one line "name · status" (the full label is in the tooltip and the outline)
+    const line = ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure)
+    fillLabelPlate(ctx, agent.x, y, measure(line), 1)
     ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
-    fillLabelText(ctx, ellipsize(`${agent.name} \u00B7 ${layout.statusLine}`, r * AGENT_DRAW.labelWidthMultiplier * 1.5, measure), agent.x, y)
+    fillLabelText(ctx, line, agent.x, y)
     ctx.restore()
     return { extraLines: layout.extraLines, dx: place.dx, dy: place.dy, scale, visible: true }
+  }
+
+  // Width of the LEAD / MAIN pill line, measured before the plate that has to cover it
+  let pill: { bw: number; rw: number; rest: string } | null = null
+  if (layout.badgeText && layout.groupLine) {
+    const rest = layout.groupLine.slice(layout.badgeText.length).trim()
+    ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
+    const bw = ctx.measureText(layout.badgeText).width + 10
+    ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
+    pill = { bw, rw: rest ? measure(rest) + 6 : 0, rest }
+  }
+  {
+    const widths = [...layout.nameLines.map(measure), measure(layout.statusLine)]
+    if (pill) widths.push(pill.bw + pill.rw)
+    if (layout.sessionLine) widths.push(measure(layout.sessionLine))
+    fillLabelPlate(ctx, agent.x, y, Math.max(...widths), widths.length)
   }
 
   ctx.fillStyle = isHovered ? SCENE.textPrimary : SCENE.textDim
@@ -524,13 +553,9 @@ function drawAgentLabel(
   fillLabelText(ctx, layout.statusLine, agent.x, y)
   y += gap
 
-  if (layout.badgeText && layout.groupLine) {
+  if (layout.badgeText && pill) {
     // Orchestrator: a filled 'LEAD' / 'MAIN' pill followed by its team or session name
-    const rest = layout.groupLine.slice(layout.badgeText.length).trim()
-    ctx.font = `bold ${ORCHESTRATOR_DRAW.badgeFontSize}px monospace`
-    const bw = ctx.measureText(layout.badgeText).width + 10
-    ctx.font = `${AGENT_DRAW.labelFontSize}px monospace`
-    const rw = rest ? measure(rest) + 6 : 0
+    const { bw, rw, rest } = pill
     const x0 = agent.x - (bw + rw) / 2
     ctx.beginPath()
     ctx.roundRect(x0, y - 1, bw, gap + 1, 4)
