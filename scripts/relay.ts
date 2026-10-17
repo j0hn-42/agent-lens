@@ -1082,7 +1082,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // Watch OpenCode sessions (SQLite database, read-only, #346), matched to the workspace directory.
   let openCodeWatcher: OpenCodeSessionWatcher | null = null
   if (wantOpenCode) {
-    openCodeWatcher = new OpenCodeSessionWatcher(workspace)
+    // In auto mode OpenCode was not asked for: its missing database is reported only on proof of use (#420)
+    openCodeWatcher = new OpenCodeSessionWatcher(workspace, { optional: mode === 'auto' })
     openCodeWatcher.onEvent((event) => broadcastEvent(event))
     openCodeWatcher.onSessionLifecycle((lifecycle) => {
       // Runtime and cwd ride on session-started: a session started while the page is open gets its badge (#420)

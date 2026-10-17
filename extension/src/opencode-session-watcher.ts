@@ -51,6 +51,11 @@ export interface OpenCodeWatcherOptions {
   dbFile?: string
   /** Clock, for tests. */
   now?: () => number
+  /**
+   * Watched without being asked for (the relay's auto mode, #420): a database that cannot be read is
+   * reported by statusProblem() only once OpenCode is proved in use on this machine (see inUse).
+   */
+  optional?: boolean
 }
 
 /** Where the database is expected on this machine. */
@@ -116,6 +121,12 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   /** Unreadable rows of the open file that no followed session could take in its normalization_stats (#420). */
   private unattributedSkipped = 0
   private started = false
+  /**
+   * OpenCode is proved in use (#420): its database was opened in this run, OPENCODE_DB is set, or the
+   * directory that should hold the database exists. Without it, in optional mode, a missing database is
+   * the normal state of a machine without OpenCode, not a problem.
+   */
+  private inUse = false
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -148,6 +159,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    */
   statusProblem(): string | undefined {
     if (!this.started || this.statusText === this.okText) return undefined
+    if (this.options.optional && !this.inUse) return undefined
     return ostr(this.statusText, STATUS_PROBLEM_MAX)
   }
 
@@ -273,15 +285,24 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     else log.warn(text)
   }
 
+  /** Records a proof that OpenCode is used here (one stat while none is known, #420). */
+  private noteUse(file: string | null): void {
+    if (this.inUse) return
+    if (!this.options.dbFile && process.env.OPENCODE_DB) { this.inUse = true; return }
+    if (!file) return
+    try { this.inUse = fs.statSync(path.dirname(file)).isDirectory() } catch { /* no data directory: no proof */ }
+  }
+
   private ensureDb(): boolean {
     if (this.db) return true
     let file: string
     if (this.options.dbFile) file = this.options.dbFile
     else {
       const location = openCodeDbLocation()
-      if (location.kind === 'unavailable') { this.setStatus(location.message); return false }
+      if (location.kind === 'unavailable') { this.noteUse(null); this.setStatus(location.message); return false }
       file = location.path
     }
+    this.noteUse(file)
     let identity = OpenCodeSessionWatcher.identityOf(file)
     let opened = openOpenCodeDb(file)
     if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
@@ -295,6 +316,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
     }
     this.db = opened.db
+    this.inUse = true
     this.dbOpenFile = file
     this.dbIdentity = identity
     this.okText = `OpenCode database (${homeRelative(file, os.homedir())})`
