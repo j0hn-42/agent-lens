@@ -32,6 +32,8 @@ async function waitFor(cond: () => boolean, ms = 5000): Promise<boolean> {
 let relay: Awaited<ReturnType<typeof import('./relay').createRelay>>
 let server: http.Server
 let port = 0
+/** Pairing cookie of the tunnel client (#475): a tunnel Host reads nothing without it */
+let cookie = ''
 
 interface Sse { messages: any[]; close: () => void; waitFor: (pred: (m: any) => boolean, ms?: number) => Promise<any> }
 function openSse(headers: http.OutgoingHttpHeaders = {}): Promise<Sse> {
@@ -75,13 +77,24 @@ describe('relay system-stats (#357)', () => {
     fs.mkdirSync(dir, { recursive: true })
     const ws = fs.realpathSync(dir)
     const { createRelay } = await import('./relay')
-    relay = await createRelay({ workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], systemIntervalMs: 20 })
+    let token = ''
+    relay = await createRelay({ workspace: ws, runtime: 'claude', allowedHosts: [TUNNEL], systemIntervalMs: 20, remotePairing: { onToken: t => { token = t } } })
     server = http.createServer((req, res) => {
       if (req.url?.startsWith('/events')) return relay.handleSSE(req, res)
+      if (req.url === '/pair' && relay.remotePairing) return void relay.remotePairing.handlePair(req, res)
       res.writeHead(404); res.end()
     })
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
     port = (server.address() as { port: number }).port
+    cookie = await new Promise<string>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/pair', agent: false, headers: { Host: TUNNEL, 'Content-Type': 'application/json' } }, res => {
+        res.resume()
+        resolve(String(res.headers['set-cookie']?.[0] ?? '').split(';')[0])
+      })
+      req.on('error', reject)
+      req.end(JSON.stringify({ token }))
+    })
+    assert.ok(cookie, 'pairing failed')
   })
 
   after(() => { relay.dispose(); server.close(); fs.rmSync(fakeHome, { recursive: true, force: true }) })
@@ -110,7 +123,7 @@ describe('relay system-stats (#357)', () => {
 
   it('a tunnel Host never receives system-stats, even while a local client does, and never holds the timer', async () => {
     const local = await openSse()
-    const remote = await openSse({ Host: TUNNEL })
+    const remote = await openSse({ Host: TUNNEL, Cookie: cookie })
     assert.equal(await waitFor(() => relay.debugState().remoteSseClients === 1), true, 'the tunnel client is really connected')
     assert.equal(await waitFor(() => local.messages.filter(m => m.type === 'system-stats').length >= 2), true, 'the local client is being fed')
     assert.equal(remote.messages.some(m => m.type === 'system-stats'), false)
@@ -122,7 +135,7 @@ describe('relay system-stats (#357)', () => {
   })
 
   it('a tunnel Host alone does not start the timer', async () => {
-    const remote = await openSse({ Host: TUNNEL })
+    const remote = await openSse({ Host: TUNNEL, Cookie: cookie })
     assert.equal(await waitFor(() => relay.debugState().remoteSseClients === 1), true)
     await sleep(100)
     assert.equal(relay.debugState().systemTimerActive, false)
