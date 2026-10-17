@@ -180,6 +180,28 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.deepEqual(w.getActiveSessions().map(s => s.id).sort(), expected)
   })
 
+  it('#420: the cap warning shows again once the followed sessions dropped below the cap', () => {
+    const { fx, w, clock } = setup()
+    const n = OPENCODE_MAX_WATCHED_SESSIONS + 3
+    for (let i = 0; i < n; i++) fx.session(`ses_${i}`, { created: T0 - 5000, updated: T0 - 1000 - i })
+    const warn = mock.method(console, 'warn', () => undefined)
+    const capWarnings = () => warn.mock.calls.filter(c => /Plafond/.test(c.arguments.join(' '))).length
+    try {
+      w.start()
+      assert.equal(capWarnings(), 1)
+      // Every session goes idle and is released: the cap is no longer reached
+      clock.t = T0 + (ACTIVE_SESSION_AGE_S + 5) * 1000
+      w.scanNow()
+      assert.equal(w.isActive(), false)
+      // A new burst of activity reaches the cap again: it is reported again
+      clock.t += 1000
+      for (let i = 0; i < n; i++) fx.message(`msg_${i}`, `ses_${i}`, clock.t, { ...userMsg, time: { created: clock.t } })
+      w.scanNow()
+      assert.equal(w.getActiveSessions().length, OPENCODE_MAX_WATCHED_SESSIONS)
+      assert.equal(capWarnings(), 2)
+    } finally { warn.mock.restore() }
+  })
+
   it('survives a failing poll and recovers on the next one', () => {
     const { fx, w, lifecycle } = setup()
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })

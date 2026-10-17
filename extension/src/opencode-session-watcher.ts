@@ -194,6 +194,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       if (s.detected) this._onSessionLifecycle.fire({ type: 'ended', sessionId: id, label: s.label })
     }
     this.sessions.clear()
+    this.capWarned = false
     this.retired.clear()
     this.known.clear()
     this.verdicts.clear()
@@ -459,6 +460,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    *  (proved by the database) fires `ended`: an idle release is a silence, never an end. */
   private release(id: string, s: WatchedOpenCodeSession, reason: 'idle' | 'archived'): void {
     this.sessions.delete(id)
+    // Below the cap again: the next time it is reached is reported again (#420)
+    if (this.sessions.size < OPENCODE_MAX_WATCHED_SESSIONS) this.capWarned = false
     this.retired.delete(id)
     this.retired.set(id, { state: s.state, parser: s.parser, sessionStartTime: s.sessionStartTime, label: s.label })
     if (this.retired.size > OPENCODE_MAX_WATCHED_SESSIONS * 4) {
