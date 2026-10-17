@@ -25,7 +25,7 @@ export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { token
 }
 
 /** Key of the symbols of the compact summary (#497), shown in its popover and described in reading-the-ui.md. */
-export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx tokens in context'
+export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx = the context size, in tokens'
 
 /** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
 function compactMark(u: UsageTotal): string {

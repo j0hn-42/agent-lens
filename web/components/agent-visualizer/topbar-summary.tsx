@@ -51,7 +51,7 @@ export function TopBarSummary({ compact, focusable, children }: { compact: strin
       role="group"
       aria-label="Agents, tokens in context and cost"
       tabIndex={focusable ? 0 : undefined}
-      className={`relative min-w-0 whitespace-nowrap rounded ${focusable ? FOCUS_RING : ''}`}
+      className={`relative min-w-0 md:whitespace-nowrap rounded ${focusable ? FOCUS_RING : ''}`}
     >
       <span data-testid="topbar-summary-compact" aria-hidden="true">{compact}</span>
       <span
