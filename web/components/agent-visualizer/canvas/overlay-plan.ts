@@ -21,9 +21,10 @@ import {
   orchestratorInfo,
 } from './team-style'
 import { estimateTextWidth, type EdgeBubble } from './edge-bubbles'
-import { labelScaleForZoom } from './draw-options'
+import { labelScaleForZoom, textHoldScale } from './draw-options'
 import { clampRectToSafe, type Rect as FitRect } from './camera-fit'
 import { clusterLabelLines, clusterLabelAnchor, type Cluster } from './cluster-model'
+import { workspaceHeaderRect, type WorkspaceZone } from './workspace-zones'
 import {
   placeRects, overlayPriority, PRIORITY, type PlacementRequest, type Placement, type Rect, type Obstacle, type OverlayPlan,
 } from './label-placement'
@@ -116,7 +117,7 @@ export interface OverlayPlanInput {
   /** Screen area free of overlaid UI (top bar, control bar, panels): cluster labels are clamped inside it */
   safeArea?: Rect
   /** cardText false (or absent = true): agent bubbles are planned as their count chip only (#378) */
-  lod: { labels: boolean; details: boolean; cardText?: boolean }
+  lod: { labels: boolean; details: boolean; cardText?: boolean; detailText?: boolean }
   showStats: boolean
   showCost: boolean
   showSessionLabels: boolean
@@ -137,6 +138,10 @@ export interface OverlayPlanInput {
    * bubbles, so these texts are moved off them, collapsed or hidden rather than left underneath (#378).
    */
   toolCards?: Iterable<Rect>
+  /** Workspace zones drawn this frame: no overlay covers their header chip (a halo title moves off it, #378) */
+  workspaceZones?: ReadonlyArray<WorkspaceZone>
+  /** Screen rectangles of UI laid over the canvas without reserving an edge (the collapsed Conversation pill): no overlay goes under them (#378) */
+  covers?: Iterable<Rect>
 }
 
 /**
@@ -245,6 +250,14 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     const rect = toScreen(t, card.x, card.y, card.w, card.h)
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
   }
+  for (const z of input.workspaceZones ?? []) {
+    const h = workspaceHeaderRect(z, s, estimateTextWidth)
+    const rect = toScreen(t, h.x, h.y, h.w, h.h)
+    if (onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
+  for (const rect of input.covers ?? []) {
+    if (rect.w > 0 && rect.h > 0 && onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
+  }
 
   // ─── Cluster labels (essential: never hidden, kept at the least-overlapping spot) ───
   const clusterRects = new Map<string, Rect>()
@@ -271,6 +284,8 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       essential: true,
       // Drawn in screen space after the tool cards: a card under it never covers it, so it does not move it (#378)
       aboveHard: true,
+      // Moved off a workspace header or a pill, it stays clear of the top bar and the control bar
+      shiftBounds: labelArea,
     })
   }
 
@@ -317,26 +332,34 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
     // Stats box and cost pill, stacked above the node (same layout as the draw code)
     const costUsage = agentCostUsage(a)
-    const showStatsBox = input.lod.details && input.showStats && a.state !== 'complete'
-    const showCostPill = input.lod.details && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
+    // Drawn only where their text reaches LOD.minTextPx (detailText; absent = details), held at it in the hysteresis band (#378)
+    const detailText = input.lod.detailText ?? input.lod.details
+    const showStatsBox = detailText && input.showStats && a.state !== 'complete'
+    const showCostPill = detailText && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
     if ((showStatsBox || showCostPill) && secondaryAllowed) {
       const layout = computeOverlayLayout({
         hasPercent: hasContextPercentFor(a), showStats: showStatsBox, showCost: showCostPill,
       })
+      // Both are enlarged around their bottom centre by the draw code in the hysteresis band
       if (showStatsBox && layout.statsTop != null) {
+        const k = textHoldScale(STATS_OVERLAY.fontSize, s)
+        const w = STATS_OVERLAY.boxWidth * k
+        const h = STATS_OVERLAY.boxHeight * k
         requests.push({
           id: planKey.stats(id),
           priority: overlayPriority(PRIORITY.stats, flags),
-          rect: toScreen(t, a.x - STATS_OVERLAY.boxWidth / 2, a.y - r - layout.statsTop, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight),
+          rect: toScreen(t, a.x - w / 2, a.y - r - layout.statsTop + STATS_OVERLAY.boxHeight - h, w, h),
           owner: id,
         })
       }
       if (showCostPill && layout.costTop != null) {
-        const pillW = estimateTextWidth(formatCostUsage(costUsage), 11) * 1.1 + COST_DRAW.pillPadding
+        const k = textHoldScale(11, s)
+        const pillW = (estimateTextWidth(formatCostUsage(costUsage), 11) * 1.1 + COST_DRAW.pillPadding) * k
+        const pillH = COST_DRAW.pillHeight * k
         requests.push({
           id: planKey.cost(id),
           priority: overlayPriority(PRIORITY.cost, flags),
-          rect: toScreen(t, a.x - pillW / 2, a.y - r - layout.costTop, pillW, COST_DRAW.pillHeight),
+          rect: toScreen(t, a.x - pillW / 2, a.y - r - layout.costTop + COST_DRAW.pillHeight - pillH, pillW, pillH),
           owner: id,
         })
       }

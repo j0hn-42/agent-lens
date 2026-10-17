@@ -579,8 +579,14 @@ export const LOD = {
    * tool-card and bubble text, drawn at 11 world px, is replaced by the card icon or the bubble count chip.
    */
   minTextPx: 11,
-  /** Below this zoom, hide secondary text: stats, token labels, discovery text, cost pills */
+  /** Below this zoom, hide secondary overlays: token labels held at minTextPx under the agent label, link bubbles */
   detailMinZoom: 0.6,
+  /**
+   * Below this zoom, hide the secondary text drawn at 11 world px or more and not held at minTextPx: stats box,
+   * cost pill, context percentage, discovery text, particle labels, phase and team halo labels (11 / 11).
+   * In the hysteresis band under it, that text is enlarged to stay at minTextPx (textHoldScale).
+   */
+  detailTextMinZoom: 1,
   /** Below this zoom, a tool card is drawn as its icon and a bubble stack as its count chip: their 11 px text would fall under minTextPx (11 / 11) */
   cardTextMinZoom: 1,
   /** Below this zoom, hide agent names and state labels too (only shapes remain): the nodes are too small to carry a label held at minTextPx */

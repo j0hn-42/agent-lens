@@ -21,7 +21,8 @@ after(async () => {
 })
 
 // Records, per frame of the graph canvas, the screen box of every text and rounded rectangle drawn under the
-// camera transform (world space). Screen-space layers (background, halo titles, cost summary) are left out.
+// camera transform (world space), and of every text drawn in screen space (halo titles, cost summary) as
+// 'screen-text'. The framing check below only looks at the world-space items.
 // A string so the TS transpiler injects no helper into the page.
 const RECORDER = `(() => {
   window.__fitFrames = []
@@ -42,12 +43,12 @@ const RECORDER = `(() => {
   }
   const fill = CanvasRenderingContext2D.prototype.fillText
   CanvasRenderingContext2D.prototype.fillText = function (text, x, y, max) {
-    if (graph(this) && world(this)) {
+    if (graph(this)) {
       const w = this.measureText(String(text)).width
       const fm = /([\\d.]+)px/.exec(this.font); const fs = fm ? parseFloat(fm[1]) : 10
       const al = this.textAlign; const x0 = al === 'center' ? x - w / 2 : (al === 'right' || al === 'end') ? x - w : x
       const bl = this.textBaseline; const y0 = bl === 'top' ? y : bl === 'middle' ? y - fs / 2 : bl === 'bottom' ? y - fs : y - fs * 0.8
-      push(this, 'text', String(text), x0, y0, x0 + w, y0 + fs)
+      push(this, world(this) ? 'text' : 'screen-text', String(text), x0, y0, x0 + w, y0 + fs)
     }
     return fill.call(this, text, x, y, max)
   }
@@ -83,7 +84,7 @@ async function bars(page: Page): Promise<{ top: number; bottom: number }> {
 async function expectInsideBars(page: Page, scenario: string) {
   await page.waitForTimeout(1500)
   const { top, bottom } = await bars(page)
-  const frame = await lastFrame(page)
+  const frame = (await lastFrame(page)).filter(o => o.kind !== 'screen-text')
   assert.ok(frame.length > 10, `[${scenario}] the graph drew its content (${frame.length} items)`)
   const width = page.viewportSize()!.width
   const out = frame.filter(o => o.t < top - 1 || o.b > bottom + 1 || o.l < -1 || o.r > width + 1)
@@ -91,6 +92,30 @@ async function expectInsideBars(page: Page, scenario: string) {
     out.map(o => `${o.kind} "${o.label.slice(0, 30)}" ${Math.round(o.l)},${Math.round(o.t)}-${Math.round(o.r)},${Math.round(o.b)}`), [],
     `[${scenario}] drawn under a bar (top bar ends at ${Math.round(top)}, controls start at ${Math.round(bottom)})`,
   )
+}
+
+const overlaps = (a: { l: number; t: number; r: number; b: number }, b: { l: number; t: number; r: number; b: number }) =>
+  a.l < b.r - 1 && b.l < a.r - 1 && a.t < b.b - 1 && b.t < a.b - 1
+const show = (o: Box) => `"${o.label.slice(0, 30)}" ${Math.round(o.l)},${Math.round(o.t)}-${Math.round(o.r)},${Math.round(o.b)}`
+
+// On develop @ f2cfe19 at 768 x 1024 the "Session payments-api" title (screen space) sat on the "Workspace
+// payments-api" header drawn just under it, and a title clamped under the top bar could land under the
+// collapsed Conversation pill (DOM over the canvas).
+async function expectTitlesClear(page: Page, scenario: string) {
+  const frame = await lastFrame(page)
+  const titles = frame.filter(o => o.kind === 'screen-text' && o.label.trim().length > 0)
+  assert.ok(titles.length > 0, `[${scenario}] the halo titles are drawn`)
+  const headers = frame.filter(o => o.kind === 'text' && o.label.startsWith('Workspace'))
+  const pill = await page.evaluate(`(() => {
+    const el = document.querySelector('[data-canvas-cover]'); if (!el) return null
+    const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }
+  })()`) as Box | null
+  const bad: string[] = []
+  for (const t of titles) {
+    for (const h of headers) if (overlaps(t, h)) bad.push(`title ${show(t)} on header ${show(h)}`)
+    if (pill && overlaps(t, pill)) bad.push(`title ${show(t)} under the Conversation pill ${Math.round(pill.l)},${Math.round(pill.t)}-${Math.round(pill.r)},${Math.round(pill.b)}`)
+  }
+  assert.deepEqual(bad, [], `[${scenario}] halo titles covered`)
 }
 
 test('the framing keeps cards, frames and labels between the top bar and the controls row, at 1024 and 768 px (#378)', { timeout: 180_000 }, async () => {
@@ -107,6 +132,7 @@ test('the framing keeps cards, frames and labels between the top bar and the con
     await expectInsideBars(page, 'auto 1024x768')
     await page.setViewportSize({ width: 768, height: 1024 })
     await expectInsideBars(page, 'auto 768x1024')
+    await expectTitlesClear(page, 'auto 768x1024')
 
     // Cost overlay, then "Fit to view"
     await page.keyboard.press('$')
@@ -114,6 +140,7 @@ test('the framing keeps cards, frames and labels between the top bar and the con
       await page.setViewportSize({ width: w, height: h })
       await page.getByRole('button', { name: 'Fit to view' }).click()
       await expectInsideBars(page, `Cost + Fit to view ${w}x${h}`)
+      if (w === 768) await expectTitlesClear(page, `Cost + Fit to view ${w}x${h}`)
     }
   } finally {
     await context.close()

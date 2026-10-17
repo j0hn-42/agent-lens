@@ -460,6 +460,11 @@ export const RELAY_SCOPE_RATE_BURST = 5
 export const RELAY_SCOPE_RATE_PER_S = 0.5
 export const RELAY_SCOPE_BODY_MAX_BYTES = 256
 export const RELAY_SCOPE_BODY_TIMEOUT_MS = 3000
+// POST /quota (#467): le script de barre d'état poste à chaque rafraîchissement ; corps minuscule, rafale courte
+export const RELAY_QUOTA_RATE_BURST = 5
+export const RELAY_QUOTA_RATE_PER_S = 1
+export const RELAY_QUOTA_BODY_MAX_BYTES = 1024
+export const RELAY_QUOTA_BODY_TIMEOUT_MS = 3000
 /** POST /launch (#229) starts a process: its own limiter (3 requests, then one every 10 s) and a tiny body ({repo, issue, role}) */
 export const RELAY_LAUNCH_RATE_BURST = 3
 export const RELAY_LAUNCH_RATE_PER_S = 0.1
@@ -501,7 +506,7 @@ export const EPHEMERAL_PORT = 0
 export const LOOPBACK_HOST = '127.0.0.1'
 /** HTTP methods the local servers accept (anything else gets 405) */
 export const SERVER_ALLOWED_METHODS = ['GET', 'HEAD', 'OPTIONS'] as const
-/** The only path that also accepts POST (#291): the route behind it applies its own guards and strict body check */
+/** The paths that also accept POST (#291): the route behind each applies its own guards and strict body check */
 export const SERVER_POST_PATHS = ['/scope'] as const
 /** Content-Security-Policy of API / SSE / error responses: nothing may load or run */
 export const CSP_API = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"

@@ -66,6 +66,23 @@ test('toggling a switch reports the new value; sound is shown inverted from mute
   assert.deepEqual(changes, ['mute', 'hex:false', 'hide:false'])
 })
 
+test('the quota gauges switch reflects the preference and reports the new value (#467)', () => {
+  const changes: boolean[] = []
+  const view = render(<SettingsDialog {...dialogProps({ quota: { show: true, onShowChange: v => changes.push(v) } })} />)
+  const quota = view.getByRole('switch', { name: /Quota gauges/ }) as HTMLInputElement
+  assert.equal(quota.checked, true)
+  assert.ok(view.getByText(/subscription quota/), 'a help sentence explains it')
+  fireEvent.click(quota)
+  assert.deepEqual(changes, [false])
+  view.rerender(<SettingsDialog {...dialogProps({ quota: { show: false, onShowChange: v => changes.push(v) } })} />)
+  assert.equal((view.getByRole('switch', { name: /Quota gauges/ }) as HTMLInputElement).checked, false)
+})
+
+test('without the quota prop the dialog has no quota switch', () => {
+  const view = render(<SettingsDialog {...dialogProps()} />)
+  assert.equal(view.queryByRole('switch', { name: /Quota/ }), null)
+})
+
 test('Escape closes and focus returns to the trigger', () => {
   const trigger = document.createElement('button')
   document.body.appendChild(trigger)
@@ -138,4 +155,24 @@ test('reset preferences (#372): asks first, says what it resets and keeps, then 
   assert.equal(resets, 1)
   assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
   assert.equal(document.activeElement, view.getByRole('button', { name: 'Reset preferences' }))
+})
+
+test('reset confirmation (#372): the question names the group of the two buttons', () => {
+  const view = render(<SettingsDialog {...dialogProps({ onResetPrefs: noop })} />)
+  fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
+  const group = view.getByRole('group', { name: 'Restore these preferences to their defaults?' })
+  assert.ok(group.contains(view.getByRole('button', { name: 'Reset now' })))
+  assert.ok(group.contains(view.getByRole('button', { name: 'Cancel' })))
+})
+
+test('reset done line (#372): disappears as soon as a preference changes afterwards, so it never states something false', () => {
+  const props = dialogProps({ onResetPrefs: noop })
+  const view = render(<SettingsDialog {...props} />)
+  fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
+  fireEvent.click(view.getByRole('button', { name: 'Reset now' }))
+  assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')
+  view.rerender(<SettingsDialog {...props} />)
+  assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults', 'an unrelated re-render keeps it')
+  view.rerender(<SettingsDialog {...props} hideInactive={!props.hideInactive} />)
+  assert.equal(view.getByRole('status').textContent, '')
 })

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample } from '@/lib/bridge-types'
+import { ALL_SESSIONS_ID, parseTeamSelection, pickAutoSelectSession, toSimulationEvent, type SystemSample, type QuotaSnapshotView } from '@/lib/bridge-types'
 import { SESSION_ALIASES_STORAGE_KEY, applyAliases, parseAliases, serializeAliases, setAlias } from '@/lib/session-aliases'
 import { SessionModelTracker } from '@/lib/session-model'
 import { createTeamTracker, teamSessionIds, eventMatchesSelection, type GroupSummary } from '@/hooks/simulation/team-info'
@@ -26,6 +26,7 @@ import {
 import { parseEventLoss, acceptEventLoss, replayLostFor, type EventLoss } from '@/lib/event-loss'
 import { isLaunchMessage, parseLaunchStatus, reduceLaunches, type LaunchView } from '@/lib/launch-client'
 import { parseSystemSample, pushSample } from '@/lib/system-stats'
+import { parseQuotaMessage, acceptQuota } from '@/lib/quota'
 import { SESSION_HANDLERS, type SessionHandlerCtx } from '@/lib/bridge-session-handlers'
 
 export interface UseVSCodeBridgeOptions {
@@ -130,6 +131,9 @@ interface BridgeHookResult {
   /** Machine health (#357): the relay's `system-stats` samples, oldest first, bounded. Empty until the relay sends one,
    *  while the link is down, and always in VS Code and demo mode (the relay stream is not used there). */
   systemStats: readonly SystemSample[]
+  /** Subscription quota (#467): the relay's latest `quota` snapshot of the account, null until it sends one. Kept when the link
+   *  drops (its age tells how stale it is, see quotaGaugeState). Relay stream only: always null in VS Code and demo mode. */
+  quota: QuotaSnapshotView | null
   /** What the relay could not replay when this page connected (#366): null when it reported nothing. Relay stream only. */
   eventLoss: EventLoss | null
   /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
@@ -320,6 +324,8 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   const [launchMax, setLaunchMax] = useState<number | null>(null)
   // Machine health (#357): from the relay stream only, like the launches
   const [systemStats, setSystemStats] = useState<readonly SystemSample[]>([])
+  // Subscription quota (#467): from the relay stream only. An invalid message keeps the previous snapshot
+  const [quota, setQuota] = useState<QuotaSnapshotView | null>(null)
   // Events the relay could not replay (#366). Its figure is a total since the relay started: only the first
   // connection of a graph is a lower bound of what the graph lacks, a reconnection that keeps the graph is
   // not. The figure lives as long as the graph (until a scope change reloads it), not as long as the link.
@@ -340,6 +346,11 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'system-stats') {
         const next = parseSystemSample((data as { sample?: unknown }).sample)
         if (next) setSystemStats(prev => pushSample(prev, next))
+        return
+      }
+      if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'quota') {
+        const next = parseQuotaMessage((data as { quota?: unknown }).quota)
+        setQuota(prev => acceptQuota(prev, next))
         return
       }
       if (typeof data === 'object' && data !== null && (data as { type?: unknown }).type === 'event-loss') {
@@ -793,6 +804,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     notice,
     launch,
     systemStats,
+    quota,
     eventLoss,
     replayLost,
   }

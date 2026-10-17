@@ -27,6 +27,24 @@ export type AgentEventType =
   | 'normalization_stats'
   | 'context_compacted'
 
+/** The files a Glob's structured result proves it listed (#451), as `tool_call_end` carries them in `listing` */
+export interface SearchListingPayload {
+  /** The first files of the list, in the tool's order (at most SEARCH_LISTING_MAX_FILES) */
+  files: string[]
+  /** The number of files the tool returned, equal to the length of the list it returned */
+  count: number
+}
+
+/** Payload of `tool_call_end`: the fields below are optional and added only when proven (the rest is untyped) */
+export interface ToolCallEndPayload {
+  agent: string
+  tool: string
+  result: string
+  toolUseId?: string
+  /** Present only on a successful Glob whose structured result is whole and consistent (#451) */
+  listing?: SearchListingPayload
+}
+
 /** Payload of `context_compacted` (#232): only what the transcript proves; an unproven field is absent. */
 export interface ContextCompactedPayload {
   agent: string

@@ -244,6 +244,12 @@ export function isScopePath(url: string | undefined): boolean {
   try { return new URL(url, 'http://localhost').pathname === '/scope' } catch { return false }
 }
 
+/** True when the request path (query ignored) is exactly /quota: the subscription quota posted by the status line (#467). */
+export function isQuotaPath(url: string | undefined): boolean {
+  if (!url) { return false }
+  try { return new URL(url, 'http://localhost').pathname === '/quota' } catch { return false }
+}
+
 /** True for `/launch` and `/launch/<id>/stop` (#229): the routes that start and stop an agent process. <id> is 16 lower-case hex digits. */
 export function isLaunchPath(url: string | undefined): boolean {
   if (!url) { return false }
