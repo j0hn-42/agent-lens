@@ -26,7 +26,9 @@ test('the offer is a named region with the tour button and Not now, and does not
   const r = mount(true)
   const region = r.getByRole('region', { name: 'New to Agent Lens?' })
   assert.ok(region)
-  r.getAllByRole('button', { name: 'Tour this session' })
+  // Its own name: the tour button of the legend keeps "Tour this session" to itself
+  r.getByRole('button', { name: 'Start the tour' })
+  r.getByRole('button', { name: 'Tour this session' })
   r.getByRole('button', { name: 'Not now' })
   assert.equal(document.activeElement, document.body)
 })
@@ -46,8 +48,7 @@ test('the offer text is announced politely, from a live region present before it
 test('the buttons start the tour or dismiss the offer', () => {
   const calls: string[] = []
   const r = mount(true, calls)
-  const region = r.getByRole('region', { name: 'New to Agent Lens?' })
-  fireEvent.click(region.querySelector('button[data-tour-offer="start"]')!)
+  fireEvent.click(r.getByRole('button', { name: 'Start the tour' }))
   fireEvent.click(r.getByRole('button', { name: 'Not now' }))
   assert.deepEqual(calls, ['start', 'dismiss'])
 })

@@ -12,7 +12,7 @@ const BUTTON_CLASS = `inline-flex min-h-6 min-w-6 items-center justify-center ro
 
 interface TourOfferProps {
   open: boolean
-  /** Name of the tour button of the legend ("Tour this session"), used for the same action here */
+  /** Name of the tour button of the legend ("Tour this session"): the offer says where the tour stays available */
   label: string
   onStart: () => void
   onDismiss: () => void
@@ -75,12 +75,11 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              data-tour-offer="start"
               onClick={onStart}
               className={BUTTON_CLASS}
               style={{ background: COLORS.toggleActive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              {label}
+              Start the tour
             </button>
             <button
               type="button"
