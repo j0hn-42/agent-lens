@@ -351,6 +351,7 @@ export function AgentVisualizer() {
         showCostOverlay={showCostOverlay}
         hideInactive={hideInactiveShown}
         announceLevel={prefs.announceLevel}
+        health={health.byAgent}
         presentation={{ follow: presentationOn && presentation.options.follow, mask: presentationMasked }}
       />
 

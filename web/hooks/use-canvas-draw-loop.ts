@@ -35,6 +35,7 @@ import { positionTooltip } from '@/components/agent-visualizer/canvas/tooltip'
 import { createPerfStats, drawPerfOverlay, countPaintCalls } from '@/components/agent-visualizer/canvas/perf-overlay'
 import { createDrawGate } from '@/components/agent-visualizer/canvas/draw-gate'
 import { sceneStamp, sceneAnimating } from '@/components/agent-visualizer/canvas/scene-stamp'
+import { repeatMarks, type RepeatMark } from '@/lib/repeat-marks'
 import { viewRectFor } from '@/components/agent-visualizer/canvas/view-cull'
 import { MOTION_LAYERS, layerIsCalm, type CalmLayers, type MotionLayer } from '@/lib/motion-layers'
 import { sceneTheme } from '@/lib/scene-state-colors'
@@ -161,6 +162,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
   // Delegation path (#56): restarts whenever the selected node changes
   const pathAnimRef = useRef(createPathAnimation())
   const drawOptsRef = useRef<DrawOpts>({ reducedMotion: false, zoom: 1, showCost: false, showStats: false })
+  const repeatCacheRef = useRef<{ health?: unknown; waste?: unknown; agents?: unknown; marks: ReadonlyMap<string, RepeatMark> }>({ marks: new Map() })
   // Level of detail of the previous frame: the thresholds keep a hysteresis band so text does not blink (#378)
   const lodRef = useRef<DrawOpts['lod']>(undefined)
   // Stable ref so the rAF loop always calls the latest draw without re-subscribing
@@ -288,6 +290,16 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       opts.focusedAgentId = deps.hasFocusRef.current && deps.focusedNodeRef.current?.type === 'agent' ? deps.focusedNodeRef.current.id : null
       opts.edgeBubbles = true
       opts.maskText = deps.presentationRef.current.mask
+      // Loop / repeat badges (#377): re-derived only when the verdicts, the ledger or the drawn agents change
+      {
+        const health = deps.drawPropsRef.current.health
+        const waste = deps.simulationRef.current?.waste
+        const cache = repeatCacheRef.current
+        if (cache.health !== health || cache.waste !== waste || cache.agents !== agents) {
+          repeatCacheRef.current = { health, waste, agents, marks: repeatMarks(health, waste, agents.keys()) }
+        }
+        opts.repeatMarks = repeatCacheRef.current.marks
+      }
       // Elements outside the viewport (with a margin) are not drawn; ?perf=full turns this off for baseline measurements
       opts.view = PERF_BASELINE ? undefined : viewRectFor(transform, w, h)
 

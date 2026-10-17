@@ -15,6 +15,7 @@ import { buildLinkMessageItems, type LinkMessageItem } from '@/components/agent-
 import { resolveLinks } from '@/components/agent-visualizer/canvas/link-geometry'
 import { attachBubbleLayer } from '@/components/agent-visualizer/canvas/edge-bubble-dom'
 import type { CanvasDrawProps } from './use-canvas-draw-props'
+import { repeatMarks } from '@/lib/repeat-marks'
 
 const EMPTY_MODEL: A11yModel = { summary: 'Agent graph: no agents yet', agents: [], discoveries: [], teams: [], links: [], clusters: [], fileConflicts: [] }
 
@@ -83,10 +84,12 @@ export function useCanvasA11yMirror({
         { agentId: dp.selectedAgentId, toolCallId: dp.selectedToolCallId ?? null, discoveryId: dp.selectedDiscoveryId ?? null },
         hasFocusRef.current ? focusedNodeRef.current : null, collapseMemoryRef.current, s)
       collapseViewRef.current = scene.collapse
+      // Same pure derivation as the canvas badges (#377): the outline and the legend never disagree with the drawing
+      const marks = repeatMarks(dp.health, s.waste, scene.agents.keys())
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime, now: Date.now(),
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
-        fileAttention: s.fileAttention,
+        fileAttention: s.fileAttention, repeatMarks: marks,
       })
       // Legend: derived on every tick, even when the outline did not change (a held row expires with time)
       const links = linksPropRef.current ?? s.links
@@ -104,6 +107,7 @@ export function useCanvasA11yMirror({
         branches: scene.collapse.branches.values(),
         teamCount: model.teams.length,
         sessionHaloCount: model.clusters.filter(c => c.kind === 'session').length,
+        repeatMarks: marks,
       })
       const presenceSig = JSON.stringify(presence)
       if (presenceSig !== legendPresenceSigRef.current) { legendPresenceSigRef.current = presenceSig; setLegendPresence(presence) }

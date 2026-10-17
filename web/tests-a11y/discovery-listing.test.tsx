@@ -74,7 +74,8 @@ test('the legend describes file cards as listed paths, not pinned files', () => 
   assert.match(LIVE_ENTRY_TEXT['disc-file'], /Glob/)
   const { container, getByRole } = render(createElement(GraphLegend, {}))
   fireEvent.click(getByRole('button', { name: /Legend/ }))
-  const text = container.textContent ?? ''
+  // The row of the file card only: the repeat badge row (#377) names the Glob rule of the waste ledger
+  const text = container.querySelector('[data-legend-entry="disc-file"]')?.textContent ?? ''
   assert.ok(text.includes('File: a path a Grep or Glob call listed'), 'the legend row')
 })
 

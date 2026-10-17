@@ -688,6 +688,21 @@ export const ORCHESTRATOR_DRAW = {
   accent: '#ffd166',
 } as const
 
+/**
+ * Loop / repeat badge on the upper-left rim of an agent node (#377): the mirror of the crown, which holds the
+ * upper-right rim. A SHAPE on a dark disc (circular arrow = loop, double chevron = repeated), static, no text.
+ * Layout only: what earns a badge is decided by lib/repeat-marks, with no threshold of its own.
+ */
+export const REPEAT_BADGE_DRAW = {
+  /** Centre at (x - offset * r, y - offset * r) */
+  offset: 0.8,
+  /** Glyph size; the disc radius is size + 2, like the crown */
+  size: ORCHESTRATOR_DRAW.badgeFontSize - 1,
+  /** Outline of the disc */
+  ringWidth: 1.5,
+  glyphWidth: 1.6,
+} as const
+
 export const EDGE_BUBBLE = {
   /** Lines of text shown in an edge bubble */
   maxLines: 3,
