@@ -1,4 +1,4 @@
-import type { Discovery, ToolCallNode } from './agent-types'
+import type { Discovery, SearchListingPayload, ToolCallNode } from './agent-types'
 import { canonicalTool, searchResultCount, RESULT_CAPTURE_LIMIT } from './action-summary'
 import { SEARCH_DISCOVERY } from './canvas-constants'
 
@@ -47,18 +47,15 @@ function provenListedPaths(toolName: string, inputData: Record<string, unknown> 
   return { paths, reported }
 }
 
-/** A Glob's structured listing as the extension forwards it (#451): the first files and the tool's own total */
-interface SearchListingPayload {
-  files: string[]
-  count: number
-}
 const LISTING_MAX_FILES = 20
 const LISTING_PATH_MAX = 300
 const LISTING_COUNT_MAX = 1_000_000_000
 
 /**
  * The listing of a `tool_call_end` payload, or null. Re-validated here whatever the source (the relay forwards
- * payloads untouched): 1 to 20 distinct single-line names within 300 characters, and an integer total at least
+ * payloads untouched): 1 to 20 distinct single-line names (the extension sends at most 5, what is drawn; the bound
+ * stays looser so an older sender is not discarded, and only SEARCH_DISCOVERY.maxPerCall are drawn). A leading or
+ * trailing space is accepted, unlike isPathLine: this name is the tool's own exact string, not a parsed text line within 300 characters, and an integer total at least
  * as large as the list, within a sane bound. It does not prove completeness: the extension forwards only an
  * untruncated list.
  */

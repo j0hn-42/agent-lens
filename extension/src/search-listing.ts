@@ -1,3 +1,5 @@
+import type { SearchListingPayload } from './protocol'
+
 /**
  * The files a Glob proved it listed (#451). A real Claude Code transcript entry carries, next to the text result,
  * a structured `toolUseResult`: `{ filenames: string[], numFiles, truncated, durationMs, ... }`. The text has no
@@ -5,24 +7,23 @@
  * untrusted: the listing is forwarded only when it is whole and consistent, and bounded.
  */
 
-/** Files forwarded per call: the web draws fewer (SEARCH_DISCOVERY.maxPerCall); the total travels as `count` */
-export const SEARCH_LISTING_MAX_FILES = 20
+/**
+ * Files forwarded per call: exactly what the web draws (SEARCH_DISCOVERY.maxPerCall in web/lib/canvas-constants.ts,
+ * pinned equal by scripts/glob-listing-discoveries.test.ts). The web needs no margin: the total travels as `count`.
+ */
+export const SEARCH_LISTING_MAX_FILES = 5
 /** A longer path makes the whole listing invalid (it would have to be cut: not what the tool listed) */
 export const SEARCH_LISTING_PATH_MAX = 300
 
-export interface SearchListing {
-  /** The first files of the list, in the tool's order (at most SEARCH_LISTING_MAX_FILES) */
-  files: string[]
-  /** The number of files the tool returned, equal to the length of the list it returned */
-  count: number
-}
 
 /**
  * The listing a successful Glob's structured result proves, or null. Null unless `truncated` is the boolean
  * false (a truncated list has an unknown total), every name is a distinct non-empty single-line string within
- * SEARCH_LISTING_PATH_MAX, and `numFiles` is an integer equal to the list length. The caller checks the call succeeded.
+ * SEARCH_LISTING_PATH_MAX, and `numFiles` is an integer equal to the list length. A name with a leading or trailing
+ * space is kept: unlike a text line of a Grep output, a structured name is the tool's own exact string, so a padded
+ * one is a real (if odd) file name, not a parsing artefact. The caller checks the call succeeded.
  */
-export function globListingOf(toolName: string, toolUseResult: unknown): SearchListing | null {
+export function globListingOf(toolName: string, toolUseResult: unknown): SearchListingPayload | null {
   if (toolName !== 'Glob') return null
   if (typeof toolUseResult !== 'object' || toolUseResult === null || Array.isArray(toolUseResult)) return null
   const r = toolUseResult as Record<string, unknown>

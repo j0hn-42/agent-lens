@@ -4,6 +4,7 @@ import './canvas-recorder'
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { searchDiscoveries } from '../web/lib/search-discoveries'
+import { SEARCH_LISTING_MAX_FILES, globListingOf } from '../extension/src/search-listing'
 import { SEARCH_DISCOVERY } from '../web/lib/canvas-constants'
 import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
@@ -21,6 +22,17 @@ const readSearchListing = (v: unknown) => {
   const ds = searchDiscoveries(call, 'src/a.ts', 3, v)
   return ds.length === 0 ? null : ds.map(d => d.content)
 }
+
+test('the extension forwards no more names than the web draws (#451)', () => {
+  assert.equal(SEARCH_LISTING_MAX_FILES, SEARCH_DISCOVERY.maxPerCall)
+})
+
+test('a name with a leading or trailing space is a real file name: both sides keep it (#451)', () => {
+  // Unlike a text line of a Grep output (isPathLine), a structured name is the tool's own exact string
+  const files = [' lead.ts', 'trail.ts ']
+  assert.deepEqual(globListingOf('Glob', { filenames: files, numFiles: 2, truncated: false }), { files, count: 2 })
+  assert.deepEqual(readSearchListing({ files, count: 2 }), files)
+})
 
 test('a valid listing is read, anything else gives no card', () => {
   assert.deepEqual(readSearchListing(LISTING), LISTING.files)
