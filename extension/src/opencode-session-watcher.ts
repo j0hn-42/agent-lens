@@ -25,6 +25,7 @@ import {
   openOpenCodeDb, resolveOpenCodeDbPath,
   type OpenCodeCursors, type OpenCodeDb, type OpenCodeDbPath, type OpenCodePoll, type OpenCodeSessionRead,
 } from './opencode-db'
+import type { IndexOpener } from './session-index'
 import { OpenCodeEventParser, createOpenCodeEventState, type OpenCodeEventState } from './opencode-event-parser'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
 import { TypedEventEmitter } from './typed-event-emitter'
@@ -56,6 +57,8 @@ export interface OpenCodeWatcherOptions {
    * reported by statusProblem() only once OpenCode is proved in use on this machine (see inUse).
    */
   optional?: boolean
+  /** SQLite opener, for tests (default node:sqlite; null: no driver). */
+  opener?: IndexOpener | null
 }
 
 /** Where the database is expected on this machine. */
@@ -73,6 +76,21 @@ export function homeRelative(file: string, home: string): string {
   if (!h) return file
   if (file === h) return '~'
   return file.startsWith(h) && (file[h.length] === '/' || file[h.length] === path.sep) ? `~${file.slice(h.length)}` : file
+}
+
+/**
+ * `text` without the database file, its directory and the home directory: the messages built here name
+ * none, but one that embeds a driver error may (#420). Longest first, so a path is never half replaced.
+ */
+export function withoutPaths(text: string, file: string | null, home: string): string {
+  const parts: Array<[string, string]> = []
+  if (file) parts.push([file, '<database file>'], [path.dirname(file), '<database directory>'])
+  if (home && path.isAbsolute(home) && home.replace(/[\\/]+$/, '').length > 1) parts.push([home.replace(/[\\/]+$/, ''), '~'])
+  let out = text
+  for (const [p, label] of parts.sort((a, b) => b[0].length - a[0].length)) {
+    if (p.length > 1) out = out.split(p).join(label)
+  }
+  return out
 }
 
 interface WatchedOpenCodeSession {
@@ -127,6 +145,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    * the normal state of a machine without OpenCode, not a problem.
    */
   private inUse = false
+  /** Last database file looked at: removed from statusProblem() (a driver error may name it, #420). */
+  private triedFile: string | null = null
 
   private readonly _onEvent = new TypedEventEmitter<AgentEvent>()
   private readonly _onSessionDetected = new TypedEventEmitter<string>()
@@ -160,7 +180,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   statusProblem(): string | undefined {
     if (!this.started || this.statusText === this.okText) return undefined
     if (this.options.optional && !this.inUse) return undefined
-    return ostr(this.statusText, STATUS_PROBLEM_MAX)
+    return ostr(withoutPaths(this.statusText, this.triedFile, os.homedir()), STATUS_PROBLEM_MAX)
   }
 
   isActive(): boolean {
@@ -303,8 +323,9 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
       file = location.path
     }
     this.noteUse(file)
+    this.triedFile = file
     let identity = OpenCodeSessionWatcher.identityOf(file)
-    let opened = openOpenCodeDb(file)
+    let opened = openOpenCodeDb(file, this.options.opener)
     if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
     // The path may have been swapped between the stat and the open: if the identity moved, the
     // connection may be on the other file, so open once more.
@@ -312,7 +333,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (after !== identity) {
       opened.db.close()
       identity = after
-      opened = openOpenCodeDb(file)
+      opened = openOpenCodeDb(file, this.options.opener)
       if (opened.status === 'unavailable') { this.setStatus(opened.message); return false }
     }
     this.db = opened.db

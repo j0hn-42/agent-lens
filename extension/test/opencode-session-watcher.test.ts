@@ -188,6 +188,20 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(w.statusProblem(), 'OpenCode: database not found.', 'it was read in this run: its loss is a fact')
   })
 
+  it('never puts the database path in statusProblem, even inside a driver error (#420)', () => {
+    const dir = tmpDir()
+    const file = path.join(dir, 'opencode.db')
+    fs.writeFileSync(file, '')
+    const opener = (p: string) => { throw new Error(`unable to open database file: ${p}`) }
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: file, now: () => T0, opener })
+    watchers.push(w)
+    w.start()
+    const problem = w.statusProblem() ?? ''
+    assert.match(problem, /could not be opened/)
+    assert.equal(problem.includes(file), false, problem)
+    assert.equal(problem.includes(dir), false, problem)
+  })
+
   it('never exposes a hostile directory as cwd, and does not attach it to a workspace', () => {
     const { fx, w } = setup(null)
     fx.session('ses_ctl', { dir: '/w/\u001b[2Jx', created: T0 - 5000, updated: T0 - 1000 })
