@@ -1,7 +1,7 @@
 import { Agent, NODE, ANIM } from '../../../lib/agent-types'
 import { SCENE, contextSegments } from '../../../lib/colors'
 import {
-  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW,
+  AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW, LOD,
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
@@ -10,7 +10,7 @@ import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom, textHoldScale } from './draw-options'
 import { DEFAULT_THEME } from '../../../lib/theme-tokens'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
@@ -223,6 +223,8 @@ export function drawContextRing(
   time: number,
   reducedMotion = false,
   showPercent = true,
+  /** Factor that holds the percentage at LOD.minTextPx on screen (textHoldScale) */
+  textScale = 1,
 ) {
   const bd = agent.contextBreakdown
   const total = agent.tokensUsed
@@ -280,7 +282,7 @@ export function drawContextRing(
 
   // Percentage label when usage is high
   if (showPercent && usage > CONTEXT_RING.percentLabelThreshold) {
-    ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
+    ctx.font = `${CONTEXT_BAR.fontSize * textScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
     ctx.fillStyle = contextPercentColor(usage, agent.tokensMaxAssumed === true)
@@ -364,25 +366,38 @@ function drawStateRing(ctx: CanvasRenderingContext2D, agent: Agent, r: number, c
   }
 }
 
-/** With a known model the centre icon moves up a little to leave room for the model name underneath. */
-function modelLogoDy(agent: Agent, r: number): number {
-  return agent.model && formatModelName(agent.model) ? -r * 0.14 : 0
+/** Model caption font size, as a fraction of the node radius */
+const MODEL_CAPTION_SCALE = 0.22
+
+/**
+ * Zoom at which the model caption is drawn, or null when it is not: it follows the node radius, so it is
+ * shown only from the zoom where it reaches LOD.minTextPx on screen (from the node's resting radius, so the
+ * breathing never makes it blink). The model stays in the agent card and the outline (#378).
+ */
+function modelCaptionZoom(agent: Agent, restRadius: number, zoom: number, detailText: boolean): number | null {
+  if (!detailText || !agent.model || !formatModelName(agent.model)) return null
+  return restRadius * MODEL_CAPTION_SCALE * zoom >= LOD.minTextPx ? zoom : null
 }
 
-/** Model name (tier-coloured) under the centre icon of main agents, subagents and teammates. */
-function drawModelCaption(ctx: CanvasRenderingContext2D, agent: Agent, r: number) {
+/** With a model caption drawn, the centre icon moves up a little to leave room for it underneath. */
+function modelLogoDy(r: number, captionZoom: number | null): number {
+  return captionZoom !== null ? -r * 0.14 : 0
+}
+
+/** Model name (tier-coloured) under the centre icon of main agents, subagents and teammates, never under LOD.minTextPx on screen. */
+function drawModelCaption(ctx: CanvasRenderingContext2D, agent: Agent, r: number, captionZoom: number | null) {
   const modelName = agent.model ? formatModelName(agent.model) : ''
-  if (!modelName) return
+  if (!modelName || captionZoom === null) return
   ctx.save()
   ctx.fillStyle = modelTierColor(agent.model)
-  ctx.font = `bold ${Math.max(6, r * 0.22)}px monospace`
+  ctx.font = `bold ${Math.max(r * MODEL_CAPTION_SCALE, LOD.minTextPx / captionZoom)}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(modelName, agent.x, agent.y + r * 0.4, r * 1.3)
   ctx.restore()
 }
 
-function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isWaiting: boolean) {
+function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, color: string, isWaiting: boolean, captionZoom: number | null) {
   if (isWaiting) {
     // Geometric lock icon — fits the holographic style
     const s = r * 0.3
@@ -404,19 +419,19 @@ function drawCenterIcon(ctx: CanvasRenderingContext2D, agent: Agent, r: number, 
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('\u25C6', agent.x, agent.y + modelLogoDy(agent, r))
-    drawModelCaption(ctx, agent, r)
+    ctx.fillText('\u25C6', agent.x, agent.y + modelLogoDy(r, captionZoom))
+    drawModelCaption(ctx, agent, r, captionZoom)
   } else if (agent.isMain) {
-    const dy = modelLogoDy(agent, r)
+    const dy = modelLogoDy(r, captionZoom)
     drawAgentBrand(ctx, agent.x, agent.y + dy, r, color + '90', agent.runtime)
-    drawModelCaption(ctx, agent, r)
+    drawModelCaption(ctx, agent, r, captionZoom)
   } else {
     ctx.fillStyle = color + '90'
     ctx.font = `${r * AGENT_DRAW.subIconScale}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y + modelLogoDy(agent, r))
-    drawModelCaption(ctx, agent, r)
+    ctx.fillText(agent.state === 'tool_calling' ? '\u2699' : '\u25C7', agent.x, agent.y + modelLogoDy(r, captionZoom))
+    drawModelCaption(ctx, agent, r, captionZoom)
   }
 }
 
@@ -644,8 +659,10 @@ export function hasContextPercent(agent: Agent): boolean {
   return hasContextPercentFor(agent)
 }
 
-function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number) {
+function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number) {
   const sy = agent.y - r - statsTop
+  // Held at LOD.minTextPx on screen: enlarged around its bottom centre, as the overlay plan reserves it
+  scaleAbout(ctx, agent.x, sy + STATS_OVERLAY.boxHeight, textScale)
   ctx.fillStyle = SCENE.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - STATS_OVERLAY.boxWidth / 2, sy, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
@@ -705,7 +722,7 @@ export function drawAgents(
     drawAgentGlow(ctx, agent, r, color, isHovered, isSelected, isWaiting)
     if (!reducedMotion && live) drawScanline(ctx, agent, r, color, isHovered, isWaiting, time)
     drawStateRing(ctx, agent, r, color, isHovered, isSelected, isWaiting, time, reducedMotion)
-    drawCenterIcon(ctx, agent, r, color, isWaiting)
+    drawCenterIcon(ctx, agent, r, color, isWaiting, modelCaptionZoom(agent, radius * agentDrawScale(agent), opts.zoom, lod.detailText))
     if (isTeammate(agent)) drawTeammateDecor(ctx, agent, r, time, reducedMotion)
     if (isOrchestrator(agent)) drawCrownBadge(ctx, agent.x + r * 0.8, agent.y - r * 0.8, ORCHESTRATOR_DRAW.badgeFontSize - 1)
 
@@ -733,7 +750,7 @@ export function drawAgents(
     // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)
     if (live && (agent.state !== 'complete' || agent.opacity > 0.5)) {
       if (agent.isMain) {
-        drawContextRing(ctx, agent, r, time, reducedMotion, lod.details)
+        drawContextRing(ctx, agent, r, time, reducedMotion, lod.detailText, textHoldScale(CONTEXT_BAR.fontSize, opts.zoom))
       }
       // The bar hangs under the label: it follows the label when the placement shifted or enlarged it
       ctx.save()
@@ -744,14 +761,14 @@ export function drawAgents(
       ctx.restore()
     }
 
-    if (lod.details && showStats && agent.state !== 'complete') {
+    if (lod.detailText && showStats && agent.state !== 'complete') {
       // Stacked layout shared with the cost pill: stats, cost and the % label never overlap
       const layout = computeOverlayLayout({ hasPercent: hasContextPercent(agent), showStats: true, showCost: opts.showCost })
       const place = resolvePlacement(opts.plan, planKey.stats(id), opts.zoom)
       if (layout.statsTop != null && place.visible) {
         ctx.save()
         ctx.translate(place.dx, place.dy)
-        drawStatsOverlay(ctx, agent, r, layout.statsTop)
+        drawStatsOverlay(ctx, agent, r, layout.statsTop, textHoldScale(STATS_OVERLAY.fontSize, opts.zoom))
         ctx.restore()
       }
     }

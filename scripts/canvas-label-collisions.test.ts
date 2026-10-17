@@ -15,6 +15,8 @@ import { rectsOverlap, type Rect } from '../web/components/agent-visualizer/canv
 import { formatTokensOfWindow } from '../web/lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../web/lib/usage'
 import { layoutAgentLabel, orchestratorInfo, agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
+import { computeWorkspaceZones, workspaceHeaderRect } from '../web/components/agent-visualizer/canvas/workspace-zones'
+import { drawWorkspaceZones } from '../web/components/agent-visualizer/canvas/draw-teams'
 
 stubDocument()
 // The main agent's hexagon is cached as a Path2D; node has none
@@ -107,4 +109,71 @@ test('drawAgents: when the plan hides a label, its token line is not drawn alone
   const free = recordingContext(1)
   drawAgents(free.ctx, map(a), null, null, false, 0, { reducedMotion: true, zoom: 1, showCost: false, showStats: false } as any)
   assert.ok(free.texts.some(t => t.text === token), 'precondition: the token line is drawn with its label')
+})
+
+// ─── Halo titles against the workspace headers and the collapsed Conversation pill (#378, 768 px) ───
+// On develop @ f2cfe19 at 768 x 1024 the title of the payments-api session (screen space) sat on the
+// "Workspace payments-api" header drawn in world space just under it, and the plan did not know about the
+// collapsed Conversation pill (DOM over the canvas, under the top bar): a title could land under it.
+
+/** Two sessions of two projects, one cluster each, with the header of each workspace zone above them */
+function twoProjects(): { clusters: any[]; zones: ReturnType<typeof computeWorkspaceZones> } {
+  const base = computeClusters(map(agent({ id: 's1:main' })).values())[0]
+  const clusters = [
+    { ...base, key: 'session:s1', title: 'payments-api · refactor', cx: 400, cy: 400, r: 110, projectId: 'p1', projectName: 'payments-api', memberIds: ['s1:main'] },
+    { ...base, key: 'session:s2', title: 'docs-site · Codex', cx: 400, cy: 900, r: 110, projectId: 'p2', projectName: 'docs-site', memberIds: ['s2:main'] },
+  ]
+  return { clusters, zones: computeWorkspaceZones(clusters) }
+}
+const VIEW_768 = { w: 768, h: 1024 }
+const SAFE_768: Rect = { x: 0, y: 181, w: 768, h: 1024 - 181 - 110 }
+/** Camera that centres the world point (400, 600) at `scale`, as a fit would */
+const centred = (scale: number) => ({ x: 384 - 400 * scale, y: 560 - 600 * scale, scale })
+const screenOf = (t: { x: number; y: number; scale: number }, r: Rect): Rect => ({ x: r.x * t.scale + t.x, y: r.y * t.scale + t.y, w: r.w * t.scale, h: r.h * t.scale })
+
+test('workspaceHeaderRect: the header chip is drawn where the overlay plan reserves it (#378)', () => {
+  const { zones } = twoProjects()
+  for (const zoom of [0.4, 1, 1.5]) {
+    const rec = recordingContext(zoom)
+    drawWorkspaceZones(rec.ctx, zones.slice(0, 1), { reducedMotion: true, zoom, showCost: false, showStats: false })
+    const header = workspaceHeaderRect(zones[0], zoom, (text, px) => text.length * px * 0.6)
+    const chip = rec.rects.find(r => Math.abs(r.y - header.y) < 1e-6 && Math.abs(r.x - header.x) < 1e-6)
+    assert.ok(chip, `zoom ${zoom}: a chip at the reserved spot ${JSON.stringify(header)} (drawn: ${JSON.stringify(rec.rects)})`)
+    assert.ok(Math.abs(chip!.w - header.w) < 1e-6 && Math.abs(chip!.h - header.h) < 1e-6, `zoom ${zoom}: same size`)
+  }
+})
+
+test('planOverlays: a halo title never covers the header of a workspace zone (#378)', () => {
+  const { clusters, zones } = twoProjects()
+  for (const scale of [0.3, 0.4, 0.5, 0.6, 0.7]) {
+    const transform = centred(scale)
+    const plain = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale) })).plan
+    const headers = zones.map(z => screenOf(transform, workspaceHeaderRect(z, scale, (text, px) => text.length * px * 0.6)))
+    const before = clusters.some(c => { const p = plain.get(planKey.cluster(c.key)); return p?.rect && headers.some(h => rectsOverlap(p.rect!, h)) })
+    if (scale <= 0.5) assert.ok(before, `precondition at ${scale}: without the headers a title lands on one`)
+    const { plan } = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale), workspaceZones: zones }))
+    for (const c of clusters) {
+      const p = plan.get(planKey.cluster(c.key))
+      if (!p?.rect) continue
+      for (const h of headers) assert.equal(rectsOverlap(p.rect, h), false, `zoom ${scale}: ${c.key} title ${JSON.stringify(p.rect)} on header ${JSON.stringify(h)}`)
+      assert.ok(p.rect.y >= SAFE_768.y - 1e-6, `zoom ${scale}: ${c.key} title moved under the top bar (${p.rect.y})`)
+    }
+  }
+})
+
+test('planOverlays: a halo title never lands under the collapsed Conversation pill (#378)', () => {
+  const { clusters } = twoProjects()
+  // The pill as measured at 768 x 1024: left 12, top 189, 320 x 50 (canvas coordinates)
+  const pill: Rect = { x: 12, y: 189, w: 320, h: 50 }
+  for (const scale of [0.3, 0.4, 0.5, 0.6, 0.7]) {
+    // Panned so the first title is clamped to the top of the safe area, under the pill
+    const transform = { x: 300 - 400 * scale, y: 181 - 290 * scale, scale }
+    const plain = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale) })).plan.get(planKey.cluster('session:s1'))
+    assert.ok(plain?.rect && rectsOverlap(plain.rect, pill), `precondition at ${scale}: without the pill the title is under it`)
+    const { plan } = planOverlays(input(new Map(), { clusters, transform, viewport: VIEW_768, safeArea: SAFE_768, lod: lodForZoom(scale), covers: [pill] }))
+    const p = plan.get(planKey.cluster('session:s1'))!
+    assert.ok(p.rect, 'the title is still drawn (essential)')
+    assert.equal(rectsOverlap(p.rect!, pill), false, `zoom ${scale}: title ${JSON.stringify(p.rect)} under the pill`)
+    assert.ok(p.rect!.y >= SAFE_768.y - 1e-6, `zoom ${scale}: title moved under the top bar`)
+  }
 })

@@ -51,6 +51,8 @@ export interface Obstacle {
   owner?: string
   /** Drawn above the texts (a tool card): blocks every request drawn under it, `ignoreObstacles` ones included (#378) */
   hard?: boolean
+  /** A text or a piece of UI no overlay may cover (a workspace header, a panel over the canvas): blocks every request, `aboveHard` ones included (#378) */
+  cover?: boolean
 }
 
 export interface Placement {
@@ -103,7 +105,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
 
   const collides = (rect: Rect, owner: string | undefined, ignoreObstacles = false, aboveHard = false): boolean => {
     for (const o of obstacles) {
-      if (o.hard ? aboveHard : ignoreObstacles) continue
+      if (!o.cover && (o.hard ? aboveHard : ignoreObstacles)) continue
       if (owner !== undefined && o.owner === owner) continue
       if (rectsOverlap(rect, o.rect, 0)) return true
     }
@@ -113,7 +115,7 @@ export function placeRects(requests: PlacementRequest[], options: PlaceOptions =
   const overlapScore = (rect: Rect, owner: string | undefined, ignoreObstacles = false, aboveHard = false): number => {
     let score = 0
     for (const o of obstacles) {
-      if (o.hard ? aboveHard : ignoreObstacles) continue
+      if (!o.cover && (o.hard ? aboveHard : ignoreObstacles)) continue
       if (owner !== undefined && o.owner === owner) continue
       score += overlapArea(rect, o.rect)
     }

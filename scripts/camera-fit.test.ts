@@ -367,6 +367,18 @@ test('measureOverlayInsets reads roles and data-canvas-inset from a synthetic DO
   assert.deepEqual(overlayRoleOf(fakeEl({ 'data-canvas-inset': 'bogus' }, true, { x: 0, y: 0, w: 1, h: 1 })), { bar: true })
 })
 
+test('measureCanvasCovers: UI tagged data-canvas-cover, in canvas coordinates, empty boxes left out (#378)', async () => {
+  const { measureCanvasCovers } = await import('../web/components/agent-visualizer/canvas/overlay-insets')
+  const canvas: any = { getBoundingClientRect: () => ({ left: 10, top: 40, width: 768, height: 900 }), closest: () => null }
+  const pill = fakeEl({ 'data-canvas-cover': '' }, false, { x: 12, y: 189, w: 320, h: 50 })
+  const hidden = fakeEl({ 'data-canvas-cover': '' }, false, { x: 0, y: 0, w: 0, h: 0 })
+  let selector = ''
+  const doc: any = { querySelectorAll: (s: string) => { selector = s; return [pill, hidden] } }
+  assert.deepEqual(measureCanvasCovers(canvas, doc), [{ x: 2, y: 149, w: 320, h: 50 }])
+  assert.equal(selector, '[data-canvas-cover]')
+  assert.deepEqual(measureCanvasCovers(null, doc), [])
+})
+
 test('classifyContentChange: manual pan survives live growth and resize; tab change and first content resume', () => {
   const st = (sessions: string[], keys = sessions.map(s => `session:${s}`)) => ({
     signature: clusterSetSignature(keys, sessions), sessions: Array.from(new Set(sessions)).sort(), width: 800, height: 600,

@@ -28,6 +28,22 @@ const OVERLAY_SELECTOR = [
   '[aria-label="Session transcript"]', '[aria-label="Files accessed by agents"]', '[aria-label="Execution timeline"]',
 ].join(',')
 
+/**
+ * UI laid over the canvas that reserves no edge (the collapsed Conversation pill): tagged data-canvas-cover.
+ * Returned in canvas coordinates for the overlay plan, which keeps every canvas text off it (#378).
+ */
+export function measureCanvasCovers(canvas: HTMLElement | null, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): Rect[] {
+  if (!canvas || !doc) return []
+  const c = canvas.getBoundingClientRect()
+  const out: Rect[] = []
+  for (const el of Array.from(doc.querySelectorAll<HTMLElement>('[data-canvas-cover]'))) {
+    const r = el.getBoundingClientRect()
+    if (r.width <= 0 || r.height <= 0) continue
+    out.push({ x: r.left - c.left, y: r.top - c.top, w: r.width, h: r.height })
+  }
+  return out
+}
+
 export function measureOverlayInsets(canvas: HTMLElement | null, doc: Document | undefined = typeof document === 'undefined' ? undefined : document): Insets {
   if (!canvas || !doc) return { ...NO_INSETS }
   const c = canvas.getBoundingClientRect()
