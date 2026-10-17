@@ -163,6 +163,20 @@ describe('openOpenCodeDb', { skip: !hasSqlite }, () => {
     raw.close()
   })
 
+  it('#420: sessionById reads one session row by primary key, and refuses an id that is not a session id', () => {
+    const { file, db } = makeDb()
+    db.exec(sess('ses_1', 100)); db.exec(sess('ses_2', 200))
+    db.close()
+    const r = openOpenCodeDb(file)
+    assert.equal(r.status, 'ok'); if (r.status !== 'ok') return
+    try {
+      assert.deepEqual([r.db.sessionById('ses_2')?.id, r.db.sessionById('ses_2')?.time_updated], ['ses_2', 200])
+      assert.equal(r.db.sessionById('ses_absent'), undefined)
+      assert.equal(r.db.sessionById("ses_1' OR '1'='1"), undefined)
+      assert.equal(r.db.sessionById(''), undefined)
+    } finally { r.db.close() }
+  })
+
   it('reads rows of the three tables and normalises the fields', () => {
     const { file, db } = makeDb()
     db.exec(sess('ses_1', 100)); db.exec(msg('m1', 110)); db.exec(part('p1', 120))

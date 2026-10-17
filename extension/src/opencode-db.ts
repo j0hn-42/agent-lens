@@ -303,18 +303,28 @@ export class OpenCodeDb {
     }
   }
 
-  private readTable<T extends { id: string; time_updated: number }>(
-    name: TableSpec['table'],
-    cursor: OpenCodeCursor,
-    limit: number,
-    map: (r: Record<string, unknown>) => T | undefined,
-  ): TableRead<T> {
-    // Every selected value is bounded in SQL, because node:sqlite throws on an integer above 2^53
-    // (one such row would fail the poll forever). A number outside the safe range, a REAL or a
-    // non-text id reads as absent and the row is skipped; text above its bound is not loaded: data
-    // and free text read as absent, an id-like column as '' (a row with a broken parent_id is
-    // skipped, not taken for a root).
-    const cols = this.columns[name].map(c => {
+  /**
+   * One session row by id, or undefined (absent, unusable, or the read failed). An indexed lookup by
+   * the primary key, for a root or parent that is no longer among the remembered rows (#420).
+   */
+  sessionById(id: string): OpenCodeSessionRead | undefined {
+    if (sessionIdOf(id) === undefined) return undefined
+    try {
+      // The id is sent as hexadecimal UTF-8, like the cursor key
+      const raw = this.conn.all(`SELECT ${this.selectColumns('session').join(', ')} FROM session `
+        + `WHERE id = CAST(X'${Buffer.from(id, 'utf8').toString('hex')}' AS TEXT) LIMIT 1`)
+      const row = raw[0] ? rowToSession(raw[0]) : undefined
+      return row && row.id === id ? row : undefined
+    } catch { return undefined }
+  }
+
+  // Every selected value is bounded in SQL, because node:sqlite throws on an integer above 2^53
+  // (one such row would fail the poll forever). A number outside the safe range, a REAL or a
+  // non-text id reads as absent and the row is skipped; text above its bound is not loaded: data
+  // and free text read as absent, an id-like column as '' (a row with a broken parent_id is
+  // skipped, not taken for a root).
+  private selectColumns(name: TableSpec['table']): string[] {
+    return this.columns[name].map(c => {
       if (c === 'data') return `CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN data END AS data`
       if (c === 'time_created' || c === 'time_archived') {
         return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 1 AND ${MAX_SAFE} THEN ${c} END AS ${c}`
@@ -327,6 +337,15 @@ export class OpenCodeDb {
       }
       return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 0 AND ${MAX_SAFE} THEN ${c} END AS ${c}`
     })
+  }
+
+  private readTable<T extends { id: string; time_updated: number }>(
+    name: TableSpec['table'],
+    cursor: OpenCodeCursor,
+    limit: number,
+    map: (r: Record<string, unknown>) => T | undefined,
+  ): TableRead<T> {
+    const cols = this.selectColumns(name)
     const t = cursor.time
     const now = this.now()
     // A row dated in the future is not read: it would carry the cursor out of reach of real writes

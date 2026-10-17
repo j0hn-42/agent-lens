@@ -202,6 +202,23 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     } finally { warn.mock.restore() }
   })
 
+  it('#420: activity of an old session pushed out of the remembered rows still attaches it (lookup by id)', () => {
+    const { fx, w, lifecycle, clock } = setup()
+    const old = T0 - (ACTIVE_SESSION_AGE_S + 3600) * 1000
+    fx.batch(() => {
+      fx.session('ses_old', { created: old - 10, updated: old - 10 })
+      // More session rows than the watcher remembers, all read after ses_old
+      for (let i = 0; i < 5100; i++) fx.session(`ses_n${i}`, { created: old + i, updated: old + i })
+    })
+    w.start()
+    for (let i = 0; i < 30; i++) w.scanNow()
+    assert.equal(lifecycle.length, 0, 'no old session is attached without activity')
+    clock.t = T0 + 1000
+    fx.message('msg_old', 'ses_old', clock.t, { ...userMsg, time: { created: clock.t } })
+    w.scanNow()
+    assert.deepEqual(lifecycle.map(l => [l.type, l.sessionId]), [['started', 'ses_old']])
+  })
+
   it('survives a failing poll and recovers on the next one', () => {
     const { fx, w, lifecycle } = setup()
     fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })

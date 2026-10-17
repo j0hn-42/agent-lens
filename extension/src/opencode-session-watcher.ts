@@ -89,6 +89,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private sessions = new Map<string, WatchedOpenCodeSession>()
   private retired = new Map<string, RetiredOpenCodeSession>()
   private known = new Map<string, OpenCodeSessionRead>()
+  /** Ids looked up in the database and not found during the current poll. */
+  private missed = new Set<string>()
   private workspacePath: string | null = null
   private scanInterval: NodeJS.Timeout | null = null
   private statusText = 'OpenCode: not started'
@@ -298,6 +300,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   private deliver(poll: OpenCodePoll): void {
+    this.missed.clear()
     const rows = [...poll.sessions].sort((a, b) => a.time_created - b.time_created)
     for (const row of rows) this.remember(row)
     // Most recently updated first: when more roots compete than the cap allows, the newest win.
@@ -326,10 +329,24 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     }
   }
 
+  /**
+   * A session row: remembered, else read by id from the database (KNOWN_MAX evicts the oldest rows, and
+   * activity on an old session does not always bring its row back, #420). A miss is not asked again
+   * within the same poll.
+   */
+  private lookup(id: string): OpenCodeSessionRead | undefined {
+    const row = this.known.get(id)
+    if (row || !this.db || this.missed.has(id)) return row
+    const read = this.db.sessionById(id)
+    if (!read) { this.missed.add(id); return undefined }
+    this.remember(read)
+    return read
+  }
+
   private rootOf(id: string): string | undefined {
     let cur = id
     for (let i = 0; i < ROOT_HOPS_MAX; i++) {
-      const row = this.known.get(cur)
+      const row = this.lookup(cur)
       if (!row) return undefined
       if (!row.parent_id) return cur
       cur = row.parent_id
@@ -371,7 +388,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     if (!rootId) return undefined
     const attached = this.sessions.get(rootId)
     if (attached) return attached
-    const row = this.known.get(rootId)
+    const row = this.lookup(rootId)
     if (!row || isArchived(row)) return undefined
     return this.attach(row)
   }
