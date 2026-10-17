@@ -1,4 +1,3 @@
-import { SCENE } from '../../../lib/colors'
 import { scenePalette, sceneColor } from '../../../lib/scene-state-colors'
 import { maskText, maskedClusterLabelSource } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
@@ -37,6 +36,7 @@ function scaleAround(ctx: CanvasRenderingContext2D, x: number, y: number, k: num
 export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   if (halos.length === 0) return
   const labelScale = haloLabelScale(opts)
+  const scene = scenePalette(opts.theme)
   for (const h of halos) {
     ctx.save()
     ctx.beginPath()
@@ -45,7 +45,7 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
     ctx.fill()
     // Dashed outline: the halo is also recognisable without its colour
     ctx.setLineDash([10, 6])
-    ctx.strokeStyle = h.color + '99'
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', h.color, '99')
     ctx.lineWidth = 1.5
     ctx.stroke()
     ctx.setLineDash([])
@@ -59,12 +59,12 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
       const hgt = 20
       ctx.beginPath()
       ctx.roundRect(anchor.x - w / 2, anchor.y - hgt, w, hgt, 6)
-      ctx.fillStyle = SCENE.cardBgDark
+      ctx.fillStyle = scene.cardBgDark
       ctx.fill()
-      ctx.strokeStyle = h.color + 'cc'
+      ctx.strokeStyle = sceneColor(opts.theme, 'mark', h.color, 'cc')
       ctx.lineWidth = 1
       ctx.stroke()
-      ctx.fillStyle = SCENE.textPrimary
+      ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(text, anchor.x, anchor.y - hgt / 2 + 1)
@@ -82,14 +82,15 @@ export function drawTeamHalos(ctx: CanvasRenderingContext2D, halos: TeamHalo[], 
 export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: ReadonlyArray<WorkspaceZone>, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   if (zones.length === 0) return
   const k = Math.max(1, 1 / Math.max(opts.zoom || 1, 1e-3))
-  const tone = SCENE.textMutedOpaque
+  const scene = scenePalette(opts.theme)
+  const tone = scene.textMutedOpaque
   for (const z of zones) {
     ctx.save()
     ctx.beginPath()
     ctx.roundRect(z.x, z.y, z.w, z.h, WORKSPACE_ZONE.cornerRadius)
     ctx.fillStyle = tone + '0a'
     ctx.fill()
-    ctx.strokeStyle = tone + '77'
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', tone, '77')
     ctx.lineWidth = 2 * k
     ctx.stroke()
 
@@ -98,12 +99,12 @@ export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: Readonl
     const { text: shown, x, y, w, h, pad } = workspaceHeaderRect(z, opts.zoom, s => ctx.measureText(s).width, text)
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, 6 * k)
-    ctx.fillStyle = SCENE.cardBgDark
+    ctx.fillStyle = scene.cardBgDark
     ctx.fill()
-    ctx.strokeStyle = tone + 'cc'
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', tone, 'cc')
     ctx.lineWidth = 1.25 * k
     ctx.stroke()
-    ctx.fillStyle = SCENE.textPrimary
+    ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
     ctx.fillText(shown, x + pad, y + h / 2 + k)
@@ -131,7 +132,8 @@ export function drawClusterHalos(
     ctx.fillStyle = c.color + alpha.fill
     ctx.fill()
     ctx.setLineDash(c.kind === 'team' ? [10 * k, 6 * k] : [2 * k, 5 * k])
-    ctx.strokeStyle = c.color + alpha.stroke
+    // The session / team hue is an identity colour; in High contrast its outline reaches 3:1 (#381)
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', c.color, alpha.stroke)
     ctx.lineWidth = (selected ? 2.5 : 1.5) * k
     ctx.stroke()
     ctx.restore()
@@ -146,6 +148,7 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
   const labelScale = haloLabelScale(opts)
   if (labels.length === 0 || labelScale === null) return
   const hgt = 20
+  const scene = scenePalette(opts.theme)
   for (const l of labels) {
     ctx.save()
     scaleAround(ctx, l.x, l.y, labelScale)
@@ -155,14 +158,14 @@ export function drawPhaseLabels(ctx: CanvasRenderingContext2D, labels: ReadonlyA
     const w = ctx.measureText(l.text).width + 14
     ctx.beginPath()
     ctx.roundRect(l.x - w / 2, l.y - hgt, w, hgt, 6)
-    ctx.fillStyle = SCENE.cardBgDark
+    ctx.fillStyle = scene.cardBgDark
     ctx.fill()
     ctx.setLineDash([3, 3])
-    ctx.strokeStyle = SCENE.textMuted
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', scene.textMuted)
     ctx.lineWidth = 1
     ctx.stroke()
     ctx.setLineDash([])
-    ctx.fillStyle = SCENE.textPrimary
+    ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
     ctx.fillText(opts.maskText ? maskText(l.text) : l.text, l.x, l.y - hgt / 2 + 1)
     ctx.restore()
   }
@@ -178,6 +181,7 @@ export function drawClusterLabels(
   hoveredKey?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS,
 ) {
   if (!plan) return
+  const scene = scenePalette(opts.theme)
   for (const c of clusters) {
     const place = plan.get(planKey.cluster(c.key))
     if (!place || !place.rect || place.hidden) continue
@@ -187,16 +191,16 @@ export function drawClusterLabels(
     ctx.save()
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, 6)
-    ctx.fillStyle = SCENE.cardBgDark
+    ctx.fillStyle = scene.cardBgDark
     ctx.fill()
-    ctx.strokeStyle = c.color + 'dd'
+    ctx.strokeStyle = sceneColor(opts.theme, 'mark', c.color, 'dd')
     ctx.lineWidth = emphasised ? 2.5 : 1.25
     ctx.setLineDash(c.kind === 'team' ? [5, 3] : [])
     ctx.stroke()
     ctx.setLineDash([])
     ctx.beginPath()
     ctx.arc(x + 9, y + 11, 4, 0, Math.PI * 2)
-    ctx.fillStyle = c.color
+    ctx.fillStyle = sceneColor(opts.theme, 'mark', c.color)
     ctx.fill()
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
@@ -210,14 +214,14 @@ export function drawClusterLabels(
     ctx.font = detailFont
     const { detail } = fitClusterLabelLines({ title: '', detail: lines.detail }, w - 22, w - 12, measure)
     ctx.font = titleFont
-    ctx.fillStyle = SCENE.textPrimary
+    ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
     ctx.save()
     ctx.beginPath()
     ctx.rect(x + 4, y, w - 8, h)
     ctx.clip()
     ctx.fillText(title, x + 18, y + 4)
     ctx.font = detailFont
-    ctx.fillStyle = SCENE.textMuted
+    ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textMuted)
     ctx.fillText(detail, x + 8, y + 4 + CLUSTER_DRAW.labelFontSize + 4)
     ctx.restore()
     ctx.restore()

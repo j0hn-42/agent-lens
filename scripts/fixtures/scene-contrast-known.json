@@ -13,6 +13,9 @@
   ],
   "links": [
    "stroke #cad3f559 a=1"
+  ],
+  "halos": [
+   "stroke #a5adcb77 a=1"
   ]
  },
  "catppuccin-mocha": {
@@ -29,6 +32,9 @@
   ],
   "links": [
    "stroke #cdd6f459 a=1"
+  ],
+  "halos": [
+   "stroke #a6adc877 a=1"
   ]
  },
  "catppuccin-frappe": {
@@ -46,6 +52,9 @@
   "links": [
    "stroke #c6d0f559 a=1",
    "stroke #ca9ee6 a=0.5"
+  ],
+  "halos": [
+   "stroke #a5adce77 a=1"
   ]
  },
  "midnight": {
@@ -63,6 +72,9 @@
   "links": [
    "stroke #9fa8ff a=0.5",
    "stroke #e3e7ff59 a=1"
+  ],
+  "halos": [
+   "stroke #a6aedb77 a=1"
   ]
  },
  "graphite": {
@@ -79,6 +91,9 @@
   ],
   "links": [
    "stroke #ececec59 a=1"
+  ],
+  "halos": [
+   "stroke #a3a3a677 a=1"
   ]
  },
  "neon": {
@@ -111,6 +126,9 @@
   ],
   "links": [
    "stroke #f1e7db59 a=1"
+  ],
+  "halos": [
+   "stroke #bbab9a77 a=1"
   ]
  },
  "anthropic": {
@@ -129,6 +147,9 @@
   "links": [
    "stroke #d97757 a=0.5",
    "stroke #faf9f559 a=1"
+  ],
+  "halos": [
+   "stroke #b0aea577 a=1"
   ]
  }
 }

@@ -14,7 +14,7 @@ import { SCENE } from '../web/lib/colors'
 import { scenePalette, sceneInk, sceneColor } from '../web/lib/scene-state-colors'
 
 /** Families of the scene that follow the theme so far (#381) */
-const THEMED: Family[] = ['labels',  'links']
+const THEMED: Family[] = ['labels',  'links',  'halos']
 
 // ─── The scene follows the theme ─────────────────────────────────────────────
 
@@ -51,6 +51,15 @@ test('links: each link state is stroked in the role colour of the theme', () => 
   }
 })
 
+test('halos: workspace zones, halo and cluster labels take the theme colours (the session and team hues are identity colours)', () => {
+  for (const id of THEME_IDS) {
+    const p = scenePalette(id)
+    const ops = drawFamily('halos', id)
+    assert.ok(ops.some(o => o.name === 'fillText' && o.fillStyle === p.textPrimary), `${id}: label text`)
+    assert.ok(ops.some(o => o.name === 'fill' && o.fillStyle === p.cardBgDark), `${id}: label plate`)
+    assert.ok(ops.some(o => o.name === 'stroke' && o.strokeStyle.startsWith(p.textMutedOpaque)), `${id}: workspace outline`)
+  }
+})
 
 
 
