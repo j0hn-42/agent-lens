@@ -128,8 +128,12 @@ test('quotaGaugeState : une seule fenêtre connue reste claude', () => {
   assert.equal(out.sevenDay, null)
 })
 
-test('quotaGaugeState : claude sans snapshot = unknown', () => {
-  assert.deepEqual(quotaGaugeState('claude', null, NOW), { kind: 'unknown' })
+test('quotaGaugeState : claude sans aucun snapshot reçu = hidden (rien à dire, #467)', () => {
+  assert.deepEqual(quotaGaugeState('claude', null, NOW), { kind: 'hidden' })
+})
+
+test('quotaGaugeState : un snapshot qui a existé puis périmé reste unknown (donnée connue devenue non fiable)', () => {
+  assert.deepEqual(quotaGaugeState('claude', snap(), NOW + 30 * MIN + 1), { kind: 'unknown' })
 })
 
 test('quotaGaugeState : copilot et opencode n utilisent jamais le snapshot', () => {
