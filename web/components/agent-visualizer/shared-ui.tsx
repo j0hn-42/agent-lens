@@ -6,7 +6,7 @@ import { Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { useClickOutside } from '@/hooks/use-click-outside'
 import {
-  dockStore, dockServerSnapshot, placePopup, dockWidthBounds, dockWidthForDrag, clampDockWidth,
+  dockStore, dockServerSnapshot, placePopup, POPUP_MIN_H, dockWidthBounds, dockWidthForDrag, clampDockWidth,
   SHEET_BREAKPOINT, bottom as rectBottom, type PanelId, type Rect, type DockSnapshot,
 } from '@/lib/panel-layout'
 import { isFocusInOtherDialog, stopPropagationHandlers, panelStopPropagationHandlers, createPanelFocusController, type PanelFocusController } from '@/lib/menu-utils'
@@ -148,7 +148,8 @@ export function dialogEscapeHandler(onClose: () => void) {
 interface DetailPopupProps {
   position: { x: number; y: number }
   width: number
-  estimatedHeight: number
+  /** Height the content is expected to take; defaults to the smallest height a popup keeps (POPUP_MIN_H) */
+  estimatedHeight?: number
   onClose: () => void
   /** id of the heading element (PanelHeader titleId) labelling the dialog */
   titleId: string
@@ -157,7 +158,7 @@ interface DetailPopupProps {
   children: ReactNode
 }
 
-export function DetailPopup({ position, width, estimatedHeight, onClose, titleId, children, sensitive }: DetailPopupProps) {
+export function DetailPopup({ position, width, estimatedHeight = POPUP_MIN_H, onClose, titleId, children, sensitive }: DetailPopupProps) {
   const ref = useRef<HTMLDivElement>(null)
   const { env } = useDockSnapshot()
   // Between the top bar and the control bar, inside the viewport (never over either bar)
@@ -166,6 +167,19 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   useClickOutside(ref, onClose)
   // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do.
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
+  // Over the lower part of the permission cards (height floor), the popup would hide a button that takes focus: it
+  // closes when focus enters a card (WCAG 2.4.7, #536). Elsewhere, tabbing away stays harmless.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const covers = placed.coversCards
+  useEffect(() => {
+    if (!covers) return
+    const onFocusIn = (e: FocusEvent) => {
+      if (e.target instanceof Element && e.target.closest('[data-permission-requests]')) onCloseRef.current()
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [covers])
 
   return (
     // Event boundary of the popup (Escape, and pointer events kept from the scene): a box-less

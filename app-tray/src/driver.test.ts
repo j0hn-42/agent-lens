@@ -1,11 +1,12 @@
 // #335, increment 2: the driver, tested with a fake relay and a fake native binary (no real binary, no GUI).
-import { afterEach, describe, it } from 'node:test'
+import { afterEach, describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import childProcess from 'node:child_process'
 import { translate } from '../../web/lib/messages'
 import { parseRelayUrlLine, probeStatus, startDriver, type DriverHandle, type DriverOptions } from './driver'
 
@@ -47,7 +48,7 @@ interface Rig {
   lastMenu(): { tooltip: string; items: Array<{ id: string; label: string; enabled: boolean }> } | undefined
 }
 
-function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, string> = {}, over: Partial<DriverOptions> = {}): Rig {
+function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, string> = {}, over: Partial<DriverOptions> = {}, stopChannel?: 'ipc'): Rig {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tray-driver-'))
   dirs.push(dir)
   const log = path.join(dir, 'tray.log')
@@ -56,7 +57,7 @@ function rig(relayEnv: Record<string, string> = {}, trayEnv: Record<string, stri
   const opened: Array<[string, number]> = []
   const copied: Array<[string, number]> = []
   const handle = startDriver({
-    relay: { spawn: { file: process.execPath, args: [FAKE_RELAY], env: { ...process.env, FAKE_RELAY_MARK: mark, ...relayEnv } } },
+    relay: { spawn: { file: process.execPath, args: stopChannel === 'ipc' ? [FAKE_RELAY, '--ipc-stop'] : [FAKE_RELAY], env: { ...process.env, FAKE_RELAY_MARK: mark, ...relayEnv }, ...(stopChannel ? { stopChannel } : {}) } },
     tray: { file: process.execPath, args: [FAKE_TRAY], env: { ...process.env, FAKE_TRAY_LOG: log, ...trayEnv } },
     locale: 'fr',
     pollIntervalMs: 40,
@@ -368,5 +369,75 @@ describe('startDriver attached to a relay it did not start', () => {
   it('refuses an invalid port', async () => {
     const r = rig({}, {}, { relay: { attach: 70000 } })
     assert.equal(await r.handle.done, 1)
+  })
+})
+
+describe('startDriver: stop over the IPC channel instead of SIGTERM (#513)', () => {
+  it('quit sends the stop message, not SIGTERM, and the relay runs its clean-up', async () => {
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) }, {}, 'ipc')
+    assert.equal(await r.handle.done, 0)
+    assert.equal(fs.readFileSync(r.mark, 'utf8'), 'IPC')
+  })
+
+  it('stop() and a closed icon follow the same path', async () => {
+    const a = rig({}, {}, {}, 'ipc')
+    await until(() => state(a))
+    a.handle.stop()
+    assert.equal(await a.handle.done, 0)
+    assert.equal(fs.readFileSync(a.mark, 'utf8'), 'IPC')
+    const b = rig({}, { FAKE_TRAY_SEND: JSON.stringify(['{"v":1,"type":"closed"}']) }, {}, 'ipc')
+    assert.equal(await b.handle.done, 0)
+    assert.equal(fs.readFileSync(b.mark, 'utf8'), 'IPC')
+  })
+
+  it('a relay that ignores the stop message is never signalled: the driver says so and exits 1', async () => {
+    const r = rig({ FAKE_RELAY_MODE: 'ignore-ipc' }, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) }, { stopTimeoutMs: 300 }, 'ipc')
+    assert.equal(await r.handle.done, 1)
+    assert.ok(r.logs.some(l => l.includes('did not stop after the stop message')), r.logs.join(' | '))
+    assert.equal(fs.existsSync(r.mark), false, 'no SIGTERM was sent')
+  })
+
+  it('a channel already closed: nothing is sent, the driver waits, then says the relay did not stop (never SIGTERM)', async () => {
+    const r = rig({ FAKE_RELAY_MODE: 'disconnect-ipc' }, {}, { stopTimeoutMs: 300 }, 'ipc')
+    await until(() => state(r))
+    await sleep(300)
+    r.handle.stop()
+    assert.equal(await r.handle.done, 1)
+    assert.ok(r.logs.some(l => l.includes('did not stop after the stop message')), r.logs.join(' | '))
+    assert.equal(fs.existsSync(r.mark), false, 'no SIGTERM was sent')
+  })
+
+  for (const how of ['callback', 'throw'] as const) {
+    it(`a send that fails (${how}) is logged without detail, and the driver still ends`, async () => {
+      const realSpawn = childProcess.spawn
+      const spawnMock = mock.method(childProcess, 'spawn', ((...args: Parameters<typeof realSpawn>) => {
+        const child = realSpawn(...args)
+        if (child.channel) {
+          child.send = ((_m: unknown, cb?: (e: Error | null) => void) => {
+            if (how === 'throw') throw new Error('secret-detail')
+            cb?.(new Error('secret-detail'))
+            return false
+          }) as typeof child.send
+        }
+        return child
+      }) as typeof realSpawn)
+      try {
+        const r = rig({}, {}, { stopTimeoutMs: 300 }, 'ipc')
+        await until(() => state(r))
+        r.handle.stop()
+        assert.equal(await r.handle.done, 1)
+        assert.ok(r.logs.some(l => l.includes('could not send the stop message to the relay')), r.logs.join(' | '))
+        assert.ok(r.logs.every(l => !l.includes('secret-detail')))
+        assert.equal(fs.existsSync(r.mark), false, 'no SIGTERM was sent')
+      } finally {
+        spawnMock.mock.restore()
+      }
+    })
+  }
+
+  it('without stopChannel, the relay gets no IPC channel and is still stopped with SIGTERM', async () => {
+    const r = rig({}, { FAKE_TRAY_SEND: JSON.stringify([click('quit')]) })
+    assert.equal(await r.handle.done, 0)
+    assert.equal(fs.readFileSync(r.mark, 'utf8'), 'SIGTERM')
   })
 })

@@ -271,7 +271,7 @@ function tagText(value: string | undefined): string | undefined {
 }
 
 /** Tags of a watcher's lifecycle (runtime, cwd...): untrusted text like the other session fields, bounded the same way (#420). */
-function boundedTags(tags: Partial<SessionInfo>): Partial<SessionInfo> {
+export function boundedTags(tags: Partial<SessionInfo>): Partial<SessionInfo> {
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(tags)) {
     const text = typeof value === 'string' ? tagText(value) : undefined
@@ -1082,7 +1082,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
   // Watch OpenCode sessions (SQLite database, read-only, #346), matched to the workspace directory.
   let openCodeWatcher: OpenCodeSessionWatcher | null = null
   if (wantOpenCode) {
-    openCodeWatcher = new OpenCodeSessionWatcher(workspace)
+    // In auto mode OpenCode was not asked for: its missing database is reported only on proof of use (#420)
+    openCodeWatcher = new OpenCodeSessionWatcher(workspace, { optional: mode === 'auto' })
     openCodeWatcher.onEvent((event) => broadcastEvent(event))
     openCodeWatcher.onSessionLifecycle((lifecycle) => {
       // Runtime and cwd ride on session-started: a session started while the page is open gets its badge (#420)
@@ -1304,7 +1305,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         return
       }
       // Through a tunnel, no stream without a live pairing cookie (#475): 401 without detail, before any work.
-      // The pairing of a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest)
+      // The pairing of a loopback Host while remote access is on (#517) is enforced by the app gate (gateRemoteRequest), the
+      // first step of every createRelay caller that passes allowedHosts (remote-gate-wiring.test.ts, #535)
       if (hostClass === 'allowed' && !isRemotePaired(req, allowedHosts)) {
         res.writeHead(401, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' })
         res.end('Unauthorized')

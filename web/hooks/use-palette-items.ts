@@ -6,18 +6,22 @@ import type { useVSCodeBridge } from '@/hooks/use-vscode-bridge'
 import type { usePanelsState } from '@/hooks/use-panels-state'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 import { buildPaletteItems } from '@/lib/command-palette'
-import { formatAttention } from '@/lib/attention'
+import { sessionAttentionLabel } from '@/lib/card-text'
+import { useLocale } from '@/lib/locale'
+import { translate, type Locale } from '@/lib/messages'
 import { agentRoleOf } from '@/lib/issue-links'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { useTheme } from '@/lib/theme'
 import { THEME_IDS, THEME_LABELS, isThemeId } from '@/lib/theme-tokens'
-import { useLocale } from '@/lib/locale'
 import { SETTINGS_TABS, type SettingsTab } from '@/lib/settings-tabs'
 
 type Bridge = ReturnType<typeof useVSCodeBridge>
 type Panels = ReturnType<typeof usePanelsState>
 
-const THEME_OPTIONS = THEME_IDS.map(id => ({ id, label: THEME_LABELS[id] }))
+/** The names the theme select gives (Settings > Appearance): proper names stay, High contrast is translated; the English name stays searchable */
+const themeOptions = (locale: Locale) => THEME_IDS.map(id => id === 'contrast'
+  ? { id, label: translate(locale, 'theme.contrast'), alias: THEME_LABELS[id] }
+  : { id, label: THEME_LABELS[id] })
 
 interface PaletteInput {
   open: boolean
@@ -46,8 +50,8 @@ interface PaletteInput {
 export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, panels, selectAgent, actions, exportSession, tour, attention, notify }: PaletteInput) {
   const { setShowSessions, setShowTimeline, setShowStats, setShowSystem, setShowHexGrid, toggleExclusivePanel } = panels
   const { togglePlayPause, zoomToFit, toggleFullscreen, toggleMute, openShortcuts, openSettings, openSettingsTab, togglePresentation, clearHistory } = actions
-  const { locale } = useLocale()
   const [theme, setTheme] = useTheme()
+  const { locale } = useLocale()
   const { waiting, errors, jump, nextInView } = attention
   const { start: startTour, label: tourLabel } = tour
   const { can: canExport, run: runExport } = exportSession
@@ -57,10 +61,12 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
     const sessionId = bridge.selectedSessionId
     // One real session whose events are in memory: never the demo, a union view or an empty session
     const exportable = !bridge.useMockData && sessionId && !isUnionSelection(sessionId) && canExport(sessionId) ? sessionId : null
-    const attentionText = formatAttention(waiting, errors)
+    // The counter text of the top bar, in the language of the palette (same numbers, same conditions)
+    const attentionText = sessionAttentionLabel(locale, { waiting, errors })
     // The agent card offers its Launch buttons under the same two conditions (selection-overlays, agent-detail-card)
     const launchAvailable = bridge.launch !== null && bridge.relayOrigin !== null
     return buildPaletteItems({
+      locale,
       singleKeyEnabled,
       selectedSessionId: sessionId,
       sessions: bridge.sessions,
@@ -79,10 +85,10 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
         exportSession: exportable ? () => runExport(exportable) : undefined,
       },
       attention: attentionText ? { detail: attentionText, movesFocus: nextInView(), run: jump } : undefined,
-      settingsTabs: { locale, tabs: SETTINGS_TABS, open: openSettingsTab },
+      settingsTabs: { tabs: SETTINGS_TABS, open: openSettingsTab },
       tour: startTour ? { label: tourLabel ?? 'Guided tour', run: startTour } : undefined,
       notifications: notifyState === 'on' || notifyState === 'off' ? { on: notifyState === 'on', run: toggleNotify } : undefined,
-      themes: { current: theme, options: THEME_OPTIONS, set: id => { if (isThemeId(id)) setTheme(id) } },
+      themes: { current: theme, options: themeOptions(locale), set: id => { if (isThemeId(id)) setTheme(id) } },
       togglePanel: panel => {
         if (panel === 'sessions') setShowSessions(prev => !prev)
         else if (panel === 'timeline') setShowTimeline(prev => !prev)
@@ -94,6 +100,6 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
       selectAgent,
     })
   }, [open, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, bridge.launch, bridge.relayOrigin, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
-    setShowHexGrid, toggleMute, openShortcuts, openSettings, openSettingsTab, locale, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
-    startTour, tourLabel, notifyState, toggleNotify, theme, setTheme, setShowSessions, setShowTimeline, setShowStats, setShowSystem, toggleExclusivePanel, selectAgent])
+    setShowHexGrid, toggleMute, openShortcuts, openSettings, openSettingsTab, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
+    startTour, tourLabel, locale, notifyState, toggleNotify, theme, setTheme, setShowSessions, setShowTimeline, setShowStats, setShowSystem, toggleExclusivePanel, selectAgent])
 }

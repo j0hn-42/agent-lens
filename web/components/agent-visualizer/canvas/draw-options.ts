@@ -43,11 +43,11 @@ export const DEFAULT_DRAW_OPTS: DrawOpts = { reducedMotion: false, zoom: 1, show
 export interface LevelOfDetail {
   /** Agent names + state labels */
   labels: boolean
-  /** Secondary text: stats, token labels, discovery text, cost pills */
+  /** Secondary overlays held at LOD.minTextPx: token labels, link bubbles, and the stats box and cost pill the user turned on (#378) */
   details: boolean
   /** Tool-card and message-bubble text; false = card icon and bubble count chip (#378) */
   cardText: boolean
-  /** Secondary text that follows the zoom: stats box, cost pill, context %, discovery text, particle labels, phase and halo labels (#378) */
+  /** Secondary text that follows the zoom: context %, discovery text, particle labels, phase and halo labels (#378) */
   detailText: boolean
 }
 
@@ -72,6 +72,14 @@ export function lodForZoom(zoom: number, previous?: LevelOfDetail): LevelOfDetai
 export function textHoldScale(worldPx: number, zoom: number): number {
   if (!(zoom > 0) || !(worldPx > 0)) return 1
   return Math.max(1, LOD.minTextPx / (worldPx * zoom))
+}
+
+/**
+ * Factor a discovery card is drawn at: enlarged to hold its 11 px text at LOD.minTextPx in the hysteresis
+ * band of detailText, 1 elsewhere. Shared by the draw code, the hit test and the focus ring (#378).
+ */
+export function discoveryCardScale(opts: Pick<DrawOpts, 'zoom' | 'lod'>): number {
+  return lodOf(opts).detailText ? textHoldScale(11, opts.zoom) : 1
 }
 
 /** Level of detail of a frame: the one the draw loop computed (with hysteresis), else the plain rule. */

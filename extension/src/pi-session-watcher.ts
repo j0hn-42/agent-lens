@@ -27,6 +27,7 @@ import {
 } from './constants'
 import { safeWatch, readTrackedLines, readLinesChunked, foldPathCase, isPathInside, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import { ostr } from './event-normalize'
 import { PiEventParser, PiEventState, createPiEventState, isSupportedPiVersion } from './pi-event-parser'
 import type { AgentSessionWatcher, SessionLifecycleEvent } from './session-runtime'
@@ -38,8 +39,6 @@ const PI_LABEL_PREFIX = 'Pi '
 /** The session header is a handful of fields; a first line larger than this is not one. */
 const HEADER_MAX_BYTES = 64 * 1024
 const HEADER_CHUNK_BYTES = 8 * 1024
-/** A cwd longer than this is not a path this adapter shows. */
-const CWD_MAX = 4096
 /** Pi's own id rule (session-manager.ts assertValidSessionId) without the dot, which the observations
  *  and MCP id pattern refuse, plus a length cap. A session whose id has a dot is not shown. */
 const SESSION_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$/
@@ -49,8 +48,6 @@ const SESSION_ID_MAX = 128
  *  resumed old session is still found. */
 const QUICK_SCAN_FILES_PER_DIR = 20
 const FULL_SCAN_EVERY = 30
-/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/
 
 interface WatchedPiSession {
   sessionId: string
@@ -107,7 +104,7 @@ export function piSessionIdFromFile(name: string): string | null {
 }
 
 /** The session header (first line), read in bounded chunks. The cwd is kept only when it is an
- *  absolute path of at most CWD_MAX characters with no control or bidi character. */
+ *  path accepted by displayCwd (display-cwd.ts). */
 export function readPiSessionHeader(filePath: string): PiSessionHeader {
   try {
     const fd = fs.openSync(filePath, 'r')
@@ -135,7 +132,7 @@ export function readPiSessionHeader(filePath: string): PiSessionHeader {
       // A format this adapter was not checked against is not read at all: no session, no event
       if (!isSupportedPiVersion(header.version)) return { cwd: null, final: true, unsupported: true }
       const cwd = header.cwd
-      if (typeof cwd !== 'string' || !cwd || cwd.length > CWD_MAX || UNSAFE_PATH_CHARS.test(cwd) || !path.isAbsolute(cwd)) {
+      if (typeof cwd !== 'string' || !displayCwd(cwd)) {
         return { cwd: null, final: true }
       }
       const startMs = typeof header.timestamp === 'string' ? Date.parse(header.timestamp) : NaN

@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { localeFromEnv, parseCliArgs } from './cli'
+import { localeFromEnv, parseCliArgs, relaySpawnSpec } from './cli'
 
 const CLI = path.resolve(__dirname, 'cli.ts')
 const FAKE_RELAY = path.resolve(__dirname, '../test/fake-relay.mjs')
@@ -38,11 +38,20 @@ describe('localeFromEnv', () => {
   })
 })
 
+describe('relaySpawnSpec (#513)', () => {
+  it('starts the relay with the internal --ipc-stop flag and stops it over the IPC channel, on every platform', () => {
+    const spec = relaySpawnSpec('/x/app.js')
+    assert.deepEqual(spec.args, ['/x/app.js', '--port', '0', '--no-open', '--ipc-stop'])
+    assert.equal(spec.file, process.execPath)
+    assert.equal(spec.stopChannel, 'ipc')
+  })
+})
+
 describe('the driver process', () => {
   const dirs: string[] = []
   afterEach(() => { for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true }) })
 
-  it('stops the relay it started and exits 0 on SIGTERM', async () => {
+  it('stops the relay it started, over the IPC channel (#513), and exits 0 on SIGTERM', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tray-cli-'))
     dirs.push(dir)
     const mark = path.join(dir, 'relay.mark')
@@ -59,7 +68,7 @@ describe('the driver process', () => {
     }
     child.kill('SIGTERM')
     assert.equal(await exited, 0)
-    assert.equal(fs.readFileSync(mark, 'utf8'), 'SIGTERM')
+    assert.equal(fs.readFileSync(mark, 'utf8'), 'IPC')
   })
 
   it('exits 2 with a usage message, without starting anything, on a bad command line', async () => {

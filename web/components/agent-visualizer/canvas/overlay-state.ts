@@ -4,6 +4,7 @@
  * A mutable module singleton (like `expiryHold`) written once per frame by the canvas.
  */
 import type { Rect } from './label-placement'
+import type { LevelOfDetail } from './draw-options'
 
 export interface OverlayHitState {
   clusterLabels: Map<string, Rect>
@@ -22,6 +23,12 @@ export function setOverlayHits(next: OverlayHitState): void {
   overlayHits.edgeBubbles = next.edgeBubbles
   overlayHits.collapsedBubbles = next.collapsedBubbles
 }
+
+/**
+ * Level of detail of the last drawn frame, hysteresis included: hit-testing sizes what the frame enlarged
+ * (discovery cards held at LOD.minTextPx, #378) as it was drawn. Written once per frame by the canvas.
+ */
+export const frameLevel: { lod: LevelOfDetail | undefined } = { lod: undefined }
 
 export function clearOverlayHits(): void {
   overlayHits.clusterLabels = new Map()

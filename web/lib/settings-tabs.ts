@@ -25,14 +25,9 @@ const SETTINGS_TAB_SECTIONS: Readonly<Record<SettingsTab, readonly MessageKey[]>
   keyboard: ['settings.section.keyboard', 'settings.section.reset'],
 }
 
-/** Lower case without diacritics, so "preferences" finds "préférences" */
-function foldAccents(text: string): string {
-  return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-}
-
 /**
  * The palette command of a tab: named in the language of the interface, as the dialog is ("Settings: General",
- * "Réglages : Général"), and found by its name and the titles of its sections in every locale, accents optional.
+ * "Réglages : Général"), and found by its name and the titles of its sections in every locale (the palette search ignores accents).
  */
 export function settingsTabCommand(locale: Locale, tab: SettingsTab): { label: string; keywords: string[] } {
   const label = translate(locale, 'settings.tab.command', { tab: translate(locale, SETTINGS_TAB_LABEL[tab]) })
@@ -40,6 +35,5 @@ export function settingsTabCommand(locale: Locale, tab: SettingsTab): { label: s
   for (const l of LOCALES) {
     for (const key of ['settings.title', 'settings.tab.alias', SETTINGS_TAB_LABEL[tab], ...SETTINGS_TAB_SECTIONS[tab]] as const) words.add(MESSAGES[l][key].toLowerCase())
   }
-  for (const w of Array.from(words)) words.add(foldAccents(w))
   return { label, keywords: Array.from(words) }
 }

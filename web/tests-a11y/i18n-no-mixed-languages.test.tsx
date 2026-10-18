@@ -1,9 +1,10 @@
 // #373: a surface covered by the message catalog never mixes the two languages. For each locale, the surfaces
-// already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel) are rendered and every visible
+// already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel, the
+// command palette, the legend) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
-// lang, for instance the legend, still English) is left out. Surfaces not yet translated (top bar, panels, palette,
-// legend) are out of this test on purpose: see docs/reading-the-ui.md. The top bar controls translated in #373 have
+// lang) is left out. Surfaces not yet translated (top bar, panels)
+// are out of this test on purpose: see docs/reading-the-ui.md. The top bar controls translated in #373 have
 // their own test (topbar-i18n.test.tsx) until the whole bar can join this one.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -12,6 +13,14 @@ import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
 import { SETTINGS_TABS, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
+import { CommandPalette } from '@/components/agent-visualizer/command-palette'
+import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
+import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-context'
+import { buildPaletteItems, type PaletteSource } from '@/lib/command-palette'
+import { sessionAttentionLabel } from '@/lib/card-text'
+import { STATE_LABEL_SHORT } from '@/lib/canvas-constants'
+import { LEGEND_ENTRY_IDS } from '@/lib/legend-entries'
+import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
 import * as C from '@/lib/card-text'
 import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/agent-detail-card'
@@ -22,7 +31,7 @@ import type { DelegationRow } from '@/lib/delegation-report'
 import type { GitState } from '@/lib/git-state'
 import { setLocaleChoice } from '@/lib/locale'
 import { DEFAULT_RULES } from '@/lib/notification-rules'
-import { LOCALES, MESSAGES, type Locale, type MessageKey } from '@/lib/messages'
+import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
 
 afterEach(() => {
@@ -59,10 +68,10 @@ function surfaceStrings(root: Node): string[] {
   return out
 }
 
-function foreignWords(locale: Locale, strings: string[]): string[] {
+function foreignWords(locale: Locale, strings: string[], extra: ReadonlySet<string> = new Set()): string[] {
   const foreign = locale === 'fr' ? ENGLISH : FRENCH
   const hits: string[] = []
-  for (const s of strings) if (!FIXTURE_DATA.has(s)) for (const w of wordsOf(s)) if (foreign.has(w)) hits.push(`${w} in "${s}"`)
+  for (const s of strings) if (!FIXTURE_DATA.has(s) && !extra.has(s)) for (const w of wordsOf(s)) if (foreign.has(w)) hits.push(`${w} in "${s}"`)
   return hits
 }
 
@@ -87,11 +96,11 @@ function catalogPatterns(locale: Locale): RegExp[] {
 }
 
 /** The rendered strings that are neither a value of the locale's catalog nor an allowlisted name. */
-function strangers(locale: Locale, strings: string[]): string[] {
+function strangers(locale: Locale, strings: string[], extra: { allow?: ReadonlySet<string>; data?: readonly RegExp[] } = {}): string[] {
   const patterns = catalogPatterns(locale)
   // An issue or a PR of the links list: its number and its title are data, only "draft" is a word
   const issueLink = new RegExp(`^(PR|Issue) #\\d+(?: \\(${locale === 'fr' ? 'brouillon' : 'draft'}\\))?(?: Title \\d+)?$`)
-  const known = (s: string) => ALLOWLIST.has(s) || FIXTURE_DATA.has(s) || DATA.some(d => d.test(s)) || issueLink.test(s) || patterns.some(p => p.test(s))
+  const known = (s: string) => ALLOWLIST.has(s) || FIXTURE_DATA.has(s) || extra.allow?.has(s) || DATA.some(d => d.test(s)) || extra.data?.some(d => d.test(s)) || issueLink.test(s) || patterns.some(p => p.test(s))
   // A line built from several parts ("branch · git commit · seen +1:02") is fine when every part is
   const parts = (s: string) => s.replace(/^· /, '').split(' · ')
   return strings.filter(s => !known(s) && !((s.startsWith('· ') || s.includes(' · ')) && parts(s).every(known)))
@@ -414,5 +423,152 @@ for (const locale of LOCALES) {
     assert.ok(strings.length > 80, 'the panel was rendered in every state')
     assert.deepEqual(foreignWords(locale, strings), [])
     assert.deepEqual([...new Set(strangers(locale, strings))], [])
+  })
+}
+
+// ---- The command palette and the legend (#503) ----
+
+// What only the two palette and legend tests allow (a module-level addition would widen the net of the tests above):
+// key caps are symbols, "+3" is the figure of the legend's folded-branch badge icon, "Actions", "Sessions" and "Agents" are the
+// same word in both languages (they stay in code), and the rest is data of the fixtures below (names, branches).
+const LOCAL_ALLOW: ReadonlySet<string> = new Set(['F', 'Z', 'G', 'M', 'V', '?', 'L', 'C', 'T', 'P', 'Y', 'S', '$', '+3', 'Actions', 'Sessions', 'Agents',
+  'payments-api', 'web-app', 'imported-run', 'indexed-run', 'main-agent', 'reviewer', 'helper', 'alpha', 'feat/refund', 'session payments-api', 'squad', 'crew', 'workflow-run', 'idle-flow', 'solo-flow',
+  // The tour label comes from the tour: in French it sits in an exempt lang=en span, in English it is simply the page's language
+  'Tour this session',
+  ':'])
+// A detail is a list of facts ("Claude Code, alpha, vue actuelle", "1 en attente / 2 erreurs"): each fact is checked
+const LOCAL_DATA: readonly RegExp[] = [/^workflow, \d+ agents?$/]
+const listed = (locale: Locale, strings: string[]) => strangers(locale, strings, { allow: LOCAL_ALLOW, data: LOCAL_DATA })
+  .filter(s => !((s.includes(', ') || s.includes(' / ')) && strangers(locale, s.split(/, | \/ /), { allow: LOCAL_ALLOW, data: LOCAL_DATA }).length === 0))
+
+const paletteSessions: SessionInfo[] = [
+  { id: 's1', label: 'payments-api', status: 'active', startTime: 0, lastActivityTime: 1, runtime: 'claude', projectName: 'alpha', branch: 'feat/refund' },
+  { id: 's2', label: 'web-app', status: 'completed', startTime: 0, lastActivityTime: 1 },
+  { id: 's3', label: 'imported-run', status: 'active', startTime: 0, lastActivityTime: 1, imported: true },
+  { id: 's4', label: 'indexed-run', status: 'active', startTime: 0, lastActivityTime: 1, indexedOnly: true },
+]
+
+function paletteItemsFor(locale: Locale) {
+  const src: PaletteSource = {
+    locale, singleKeyEnabled: true, selectedSessionId: 's1', sessions: paletteSessions, launchAvailable: true,
+    agents: [
+      { id: 's1:main', name: 'main-agent', sessionId: 's1', sessionLabel: 'payments-api', isMain: true, role: 'ui-designer' },
+      { id: 's1:r', name: 'reviewer', sessionId: 's1', sessionLabel: 'payments-api', kind: 'teammate' },
+      { id: 's1:h', name: 'helper', sessionId: 's1', sessionLabel: 'payments-api', kind: 'subagent' },
+    ],
+    actions: {
+      togglePlayPause: noop, zoomToFit: noop, toggleFullscreen: noop, toggleHexGrid: noop, toggleMute: noop, openShortcuts: noop, openSettings: noop,
+      togglePresentation: noop, clearHistory: noop, exportSession: noop,
+    },
+    attention: { detail: sessionAttentionLabel(locale, { waiting: 1, errors: 2 }) ?? '', movesFocus: false, run: noop },
+    notifications: { on: true, run: noop },
+    tour: { label: 'Tour this session', run: noop },
+    themes: { current: 'neon', options: [{ id: 'neon', label: 'Neon' }, { id: 'contrast', label: MESSAGES[locale]['theme.contrast'], alias: 'High contrast' }], set: noop },
+    togglePanel: noop, selectSession: noop, selectAgent: noop,
+  }
+  return buildPaletteItems(src)
+}
+
+for (const locale of LOCALES) {
+  test(`the command palette (every group, detail, status line and search) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const strings: string[] = []
+    const view = render(<CommandPalette open onClose={noop} items={paletteItemsFor(locale)} />)
+    const dialog = view.getByRole('dialog', { name: MESSAGES[locale]['palette.title'] })
+    assert.equal(langOf(dialog), locale, `the palette declares lang=${locale}`)
+    const scan = () => strings.push(...surfaceStrings(view.container))
+    const input = view.getByRole('combobox', { name: MESSAGES[locale]['palette.search'] })
+    scan()
+    // Nothing found, one result, and a search by the other language's name
+    for (const q of ['zzzz', 'neon']) { fireEvent.change(input, { target: { value: q } }); scan() }
+    if (locale === 'fr') {
+      fireEvent.change(input, { target: { value: 'full screen' } })
+      assert.ok(view.getByRole('option', { name: /plein écran/ }), 'the English name finds the command in French')
+    }
+    // The tour label comes from the tour (English): it declares its own language
+    fireEvent.change(input, { target: { value: 'Tour this' } })
+    const tour =view.getAllByRole('option').find(o => (o.textContent ?? '').includes('Tour this session'))!
+    assert.equal(langOf(tour.querySelector('span[lang]') ?? tour), 'en')
+    if (locale === 'fr') assert.ok(tour.querySelector('span[lang][data-i18n-exempt]'), 'the tour label is left out of the check by data-i18n-exempt')
+    if (locale === 'fr') assert.equal(tour.querySelector('[lang]')?.getAttribute('lang'), 'en')
+
+    for (const key of ['palette.title', 'palette.hint', 'palette.group.panels', 'palette.group.themes', 'palette.none', 'palette.count.one', 'palette.currentView', 'palette.theme.current'] as MessageKey[]) {
+      // A detail sits inside a list of facts ("alpha, vue actuelle"): the words only have to be there
+      const shape = new RegExp(MESSAGES[locale][key].split(/\{\w+\}/).map(escapeRe).join('.+'))
+      assert.ok(strings.some(x => shape.test(x)), `${key} was rendered`)
+    }
+    assert.ok(strings.includes(MESSAGES[locale]['palette.key.shiftF']), 'the Shift+F key cap is in the language')
+    assert.ok(strings.some(x => x === MESSAGES[locale]['palette.panel.toggle'].replace('{name}', locale === 'fr' ? 'Fichiers' : 'Files')), 'the Files panel is named in the language')
+    assert.ok(strings.length > 60, 'the palette was rendered')
+    assert.deepEqual(foreignWords(locale, strings, LOCAL_ALLOW), [])
+    assert.deepEqual([...new Set(listed(locale, strings))], [])
+  })
+
+  test(`the legend (every entry, the on-screen count, the complete reference) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const legendTeams = [
+      { key: 'a', name: 'squad', color: '#ffffff', teamKind: 'team', memberNames: ['x'] },
+      { key: 'b', name: 'crew', color: '#eeeeee', teamKind: 'team', memberNames: ['x', 'y'] },
+      { key: 'c', name: 'workflow-run', color: '#dddddd', teamKind: 'workflow', memberNames: ['x', 'y', 'z'] },
+      { key: 'd', name: 'idle-flow', color: '#cccccc', teamKind: 'workflow', memberNames: [] },
+      { key: 'e', name: 'solo-flow', color: '#bbbbbb', teamKind: 'workflow', memberNames: ['x'] },
+    ] as never
+    const bridge = { legendOpen: false, canvasToScreenRef: { current: null }, startTour: noop, startTourLabel: 'Guided tour' }
+    const strings: string[] = []
+    const show = (present?: readonly (typeof LEGEND_ENTRY_IDS)[number][]) => {
+      const view = render(<TourBridgeContext.Provider value={bridge}><GraphLegend teams={legendTeams} present={present} locale={locale} /></TourBridgeContext.Provider>)
+      const toggle = view.getByRole('button', { name: new RegExp(MESSAGES[locale]['legend.name']) })
+      // The open state is saved between renders: click only when it is closed
+      if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle)
+      const region = view.getByRole('region', { name: MESSAGES[locale]['legend.region'] })
+      assert.equal(langOf(region), locale, `the legend declares lang=${locale}`)
+      assert.equal(region.closest('[data-i18n-exempt]'), null, 'the legend is no longer exempt')
+      strings.push(...surfaceStrings(view.container))
+      // The guided tour is not translated: its button says so
+      const tourButton = view.getByRole('button', { name: 'Guided tour' })
+      assert.equal(langOf(tourButton), 'en')
+      assert.ok(tourButton.hasAttribute('data-i18n-exempt'), 'the tour button is left out of the check by data-i18n-exempt')
+      return { view, region }
+    }
+    // Every entry
+    const all = show()
+    assert.equal(new Set([...all.region.querySelectorAll('[data-legend-entry]')].map(e => e.getAttribute('data-legend-entry'))).size, LEGEND_ENTRY_IDS.length, 'every entry is listed')
+    cleanup()
+    // Entries on screen: the count, then the complete reference, one symbol, none
+    const some = show(['state-idle', 'shape-main'])
+    fireEvent.click(some.view.getByRole('button', { name: MESSAGES[locale]['legend.showAll'] }))
+    strings.push(...surfaceStrings(some.view.container))
+    cleanup()
+    show(['state-idle'])
+    cleanup()
+    show([])
+    cleanup()
+
+    const T = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
+    for (const x of [
+      T('legend.onScreen.other', { n: 2 }), T('legend.complete', { n: LEGEND_ENTRY_IDS.length }), T('legend.none'), T('legend.footer'), T('legend.section.states'),
+      T('legend.mark-loop', { repeat: REPEAT_THRESHOLD, cycle: CYCLE_THRESHOLD }), T('legend.mark-repeated', { rule: T('legend.repeatRule') }),
+      T('legend.state.waiting_permission.long'), T('card.contextWindow'), T('learnMore.text'), T('legend.name'),
+    ]) assert.ok(strings.includes(x), `"${x}" was rendered`)
+    assert.ok(strings.includes(T('legend.onScreen.one', { n: 1 })), 'one symbol: singular')
+    assert.ok(strings.includes(T('count.member.one', { n: 1 })), 'a one-member team')
+    assert.ok(strings.includes('workflow, 3 agents'), 'a workflow counts its agents')
+    // A workflow counts its agents with the rule of the language: French counts 0 and 1 as singular
+    assert.ok(strings.includes(`workflow, ${T('count.agent.one', { n: 1 })}`), 'one agent: singular')
+    assert.ok(strings.includes(`workflow, ${T(locale === 'fr' ? 'count.agent.one' : 'count.agent.other', { n: 0 })}`), 'no agent: the rule of the language')
+    // WCAG 1.4.1 / 1.3.3: the canvas draws the English state word under each agent. The legend, the text equivalent of the colour,
+    // quotes that word as drawn (lang=en) and glosses it in the language of the page
+    for (const [id, state] of [['state-complete', 'complete'], ['state-waiting_permission', 'waiting_permission'], ['state-tool_calling', 'tool_calling']] as const) {
+      const row = all.region.querySelector(`[data-legend-entry="${id}"]`)!
+      const drawn = [...row.querySelectorAll('[lang="en"]')].map(e => e.textContent)
+      if (locale === 'fr') {
+        assert.deepEqual(drawn, [STATE_LABEL_SHORT[state]], `${id}: the drawn word is quoted in an element lang=en`)
+        assert.ok((row.textContent ?? '').includes(T(`legend.state.${state}.long` as MessageKey)), `${id}: and glossed in French`)
+      }
+    }
+    if (locale === 'fr') assert.ok([...all.region.querySelector('[data-legend-entry="state-complete"]')!.querySelectorAll('[lang="en"]')].some(e => e.textContent === 'done'), 'state-complete contains "done" in a lang=en element')
+    assert.ok(strings.length > 150, 'the legend was rendered')
+    assert.deepEqual(foreignWords(locale, strings, LOCAL_ALLOW), [])
+    assert.deepEqual([...new Set(listed(locale, strings))], [])
   })
 }

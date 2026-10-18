@@ -15,7 +15,7 @@ import {
   drawParticles, buildEdgeMap, drawToolCalls,
   drawDiscoveries, drawDiscoveryConnections,
   drawCostLabels, drawCostSummaryPanel,
-  drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom,
+  drawFocusRing, focusShapeFor, toolCardSize, stateColor, lodForZoom, discoveryCardScale, frameLevel,
   drawLinks, drawEdgeBubbles, drawFileConflicts, fileConflictSegments, drawWorkspaceZones, computeWorkspaceZones, drawClusterHalos, drawClusterLabels, drawSessionLinks, drawPhaseLabels, phaseLabels, sessionLinkSegments, resolveLinks, hasSeveralSessions,
   computeClusters, planOverlays, setOverlayHits, clearOverlayHits, EMPTY_PLAN,
   type Cluster, type SessionMeta, type OverlayPlanResult, type DrawOpts, type HitTarget,
@@ -284,6 +284,8 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       const lod = lodForZoom(transform.scale, lodRef.current)
       lodRef.current = lod
       opts.lod = lod
+      // Hit-testing sizes the discovery cards as this frame draws them (#378)
+      frameLevel.lod = lod
       opts.showCost = !!showCostOverlay
       opts.showStats = showStats
       opts.showSessionLabels = hasSeveralSessions(agents.values())
@@ -453,13 +455,13 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         if (tool) drawTetherLine(ctx, tool, transform, h, toolCardSize(tool).w / 2)
       } else if (selectedDiscoveryId) {
         const disc = discoveries.find(d => d.id === selectedDiscoveryId)
-        if (disc) drawTetherLine(ctx, disc, transform, h, getDiscoveryCardDimensions(disc.label, disc.content.split('\n')).cardW / 2)
+        if (disc) drawTetherLine(ctx, disc, transform, h, getDiscoveryCardDimensions(disc.label, disc.content.split('\n')).cardW / 2 * discoveryCardScale(opts))
       }
 
       // Keyboard focus ring (distinct from hover/selection glow)
       const focusedNow = deps.hasFocusRef.current ? deps.focusedNodeRef.current : null
       if (focusedNow) {
-        const shape = focusShapeFor(focusedNow, deps.drawPropsRef.current)
+        const shape = focusShapeFor(focusedNow, deps.drawPropsRef.current, discoveryCardScale(opts))
         if (shape) drawFocusRing(ctx, shape, transform.scale)
       }
 

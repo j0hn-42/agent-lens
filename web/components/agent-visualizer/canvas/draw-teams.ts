@@ -96,7 +96,8 @@ export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: Readonl
 
     ctx.font = `600 ${WORKSPACE_ZONE.headerFontSize * k}px monospace`
     const text = zoneHeaderText(opts.maskText ? { ...z, name: maskText(z.name) } : z)
-    const { text: shown, x, y, w, h, pad } = workspaceHeaderRect(z, opts.zoom, s => ctx.measureText(s).width, text)
+    // Same chip as the overlay plan reserves; the text is bounded to its inner width whatever the font measures
+    const { text: shown, x, y, w, h, pad } = workspaceHeaderRect(z, opts.zoom, text)
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, 6 * k)
     ctx.fillStyle = scene.cardBgDark
@@ -107,7 +108,7 @@ export function drawWorkspaceZones(ctx: CanvasRenderingContext2D, zones: Readonl
     ctx.fillStyle = sceneColor(opts.theme, 'text', scene.textPrimary)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'middle'
-    ctx.fillText(shown, x + pad, y + h / 2 + k)
+    ctx.fillText(shown, x + pad, y + h / 2 + k, Math.max(0, w - 2 * pad))
     ctx.restore()
   }
 }
