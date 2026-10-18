@@ -189,7 +189,8 @@ const CONTEXT_NEUTRAL_TYPES = new Set(['tool_call_start', 'tool_call_end', 'mess
 const CONTEXT_SCAN_LIMIT = 64
 /** Agents with a candidate reading, per buffer; past this, the candidates are forgotten (readings are then kept). */
 const CONTEXT_MAX_CANDIDATES = 256
-/** The latest reading of each agent that a later one may still replace, per session buffer. */
+/** The latest reading of each agent that a later one may still replace, per session buffer. A candidate may already have
+ *  left its buffer (trim): it is not pruned, the map is bounded (256 per buffer). */
 const contextCandidates = new WeakMap<AgentEvent[], Map<string, AgentEvent>>()
 
 const isReading = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
