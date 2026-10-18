@@ -5,8 +5,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { activityCell, agentTimeCell, branchCell, columnLabel, costCell, modelCell, rollupTokensCell, runtimeCell, sessionTimeCell, tokensCell } from '../web/lib/session-columns'
 import { agentRowView } from '../web/lib/row-sync'
-import { buildFreshnessAnnouncement, lastKnownStateText, type Freshness } from '../web/hooks/simulation/freshness'
-import { agentStatusText } from '../web/components/agent-visualizer/canvas/team-style'
+import { buildFreshnessAnnouncement, type Freshness } from '../web/hooks/simulation/freshness'
+import { drawnStatusText } from '../web/components/agent-visualizer/canvas/team-style'
 import type { RollupTotal } from '../web/lib/cost-rollup'
 
 const total = (over: Partial<RollupTotal> = {}): RollupTotal => ({ tokens: 12_400, cost: 0.5, known: 2, unknown: 0, estimated: false, complete: true, ...over }) as RollupTotal
@@ -62,8 +62,8 @@ test('an agent row in French quotes the word the canvas draws, then glosses it',
 test('the quoted word is exactly the one the canvas draws under the node, for every kind of agent (#502)', () => {
   const NOW = 1_000_000
   const base = { id: 'a', sessionId: 's', parentKey: null, name: 'x', tokensUsed: 0, spawnTime: 0, lastEventAt: NOW }
-  // [case, agent, now, word drawn under the node by the canvas]. The canvas draws agentStatusText, or lastKnownStateText
-  // in its place when the agent is stale (draw-agents.ts): the expectations come from those two functions
+  // [case, agent, now, word drawn under the node by the canvas]. The canvas draws drawnStatusText under the node
+  // (draw-agents.ts, checked by web/tests-a11y/freshness.test.tsx): the precondition reads it from there
   const cases: Array<[string, Parameters<typeof agentRowView>[0], number, string]> = [
     ['fresh agent', { ...base, state: 'thinking', kind: 'main' }, NOW + 500, 'thinking'],
     ['fresh teammate', { ...base, state: 'thinking', kind: 'teammate' }, NOW + 500, 'working'],
@@ -79,10 +79,30 @@ test('the quoted word is exactly the one the canvas draws under the node, for ev
   ]
   for (const [name, agent, now, word] of cases) {
     const view = agentRowView(agent, now, 'fr')
-    const canvas = view.stale ? lastKnownStateText(agent.state) : agentStatusText({ kind: agent.kind, state: agent.state })
-    assert.equal(canvas, word, `${name}: precondition, the canvas draws "${word}"`)
+    assert.equal(drawnStatusText(agent, now), word, `${name}: precondition, the canvas draws "${word}"`)
     assert.equal(view.drawn, word, `${name}: the row quotes the word drawn under the node`)
   }
+})
+
+test('a teammate whose quote is its activity is glossed with that activity, never with a contradicting state (#502)', () => {
+  const NOW = 1_000_000
+  const mate = { id: 'a', sessionId: 's', parentKey: null, name: 'x', tokensUsed: 0, spawnTime: 0, lastEventAt: NOW, kind: 'teammate' as const }
+  // [agent, quote, gloss]: an agent_activity event can arrive before the state follows (activity idle, state thinking)
+  const cases: Array<[Parameters<typeof agentRowView>[0], string, string]> = [
+    [{ ...mate, state: 'thinking', activity: 'idle' }, 'idle', 'Inactif'],
+    [{ ...mate, state: 'idle', activity: 'working' }, 'working', 'Au travail'],
+    [{ ...mate, state: 'thinking' }, 'working', 'Au travail'],
+    [{ ...mate, state: 'thinking', activity: 'done' }, 'done', 'Fait'],
+    // a more urgent state is drawn instead of the activity: then the state is glossed
+    [{ ...mate, state: 'waiting_permission', activity: 'working' }, 'waiting', 'En attente d’autorisation'],
+    [{ ...mate, state: 'error', activity: 'idle' }, 'error', 'Erreur'],
+  ]
+  for (const [agent, quote, gloss] of cases) {
+    const view = agentRowView(agent, NOW + 500, 'fr')
+    assert.deepEqual([view.drawn, view.detail], [quote, gloss], `${agent.state}/${agent.activity ?? '-'}`)
+  }
+  // English is untouched: the row says the state in its own words
+  assert.equal(agentRowView({ ...mate, state: 'thinking', activity: 'idle' }, NOW + 500).detail, 'Thinking')
 })
 
 test('the stop-reporting announcement in French keeps its groups, order and conditions', () => {
