@@ -7,6 +7,8 @@ import { agentCostUsage } from '../../../lib/cost'
 import { boundedCount, replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
 import { formatTokenUsage, usageFromAgent, type UsageTotal } from '../../../lib/usage'
 import { formatTokensOfWindow } from '../../../lib/context-window'
+import { ROLLUP_INCOMPLETE_TEXT } from '../../../lib/cost-rollup'
+import { contextPercentLabel } from './overlay-metrics'
 import { formatDuration } from '../../../lib/utils'
 import { estimateTextWidth } from './edge-bubbles'
 
@@ -23,20 +25,37 @@ export function agentCostUsageUnderLoss(agent: Lossy & Parameters<typeof agentCo
 }
 
 /**
- * Tokens of an agent as the context bar, the ring percentage, the outline and the agent card read them: a lower bound
- * ("at least") when its session lost events. A figure that is "not reported" stays so.
+ * Whether the context figure of an agent (the token line under its bar, the ring percentage, the outline, the agent card)
+ * is incomplete because its session lost events (#366). A context reading is ABSOLUTE: a lost one (a compaction that
+ * shrank the context, for instance) could have lowered it as well as raised it, so it is never a lower bound ("at least");
+ * it is the last reading received, marked "(incomplete)". A figure that is "not reported" stays so.
  */
-export function agentTokenUsageUnderLoss(
+export function agentContextIncomplete(
   agent: Lossy & Parameters<typeof usageFromAgent>[0], lost: ReadonlyMap<string, number> | undefined,
-): UsageTotal {
-  return usageUnderLoss(usageFromAgent(agent), agentReplayLost(lost, agent))
+): boolean {
+  return agentReplayLost(lost, agent) > 0 && usageFromAgent(agent).status !== 'unavailable'
 }
 
-/** The token line under the context bar ("at least 190k / 200k tokens"), shared by the drawing and the label block. */
+/** The word after a context figure its session's loss leaves incomplete (canvas: short, the box is narrow) */
+export const CONTEXT_INCOMPLETE_MARK = ROLLUP_INCOMPLETE_TEXT
+
+/** The same, in words, where there is room (the graph outline) */
+export const CONTEXT_LAST_READING_INCOMPLETE = `(last reading, ${ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')})`
+
+const markIf = (text: string, incomplete: boolean) => (incomplete ? `${text} ${CONTEXT_INCOMPLETE_MARK}` : text)
+
+/** The token line under the context bar ("190k / 200k tokens (incomplete)"), shared by the drawing and the label block. */
 export function contextBarText(
   agent: Lossy & Parameters<typeof usageFromAgent>[0] & Parameters<typeof formatTokensOfWindow>[1], lost: ReadonlyMap<string, number> | undefined,
 ): string {
-  return formatTokensOfWindow(formatTokenUsage(agentTokenUsageUnderLoss(agent, lost)), agent)
+  return markIf(formatTokensOfWindow(formatTokenUsage(usageFromAgent(agent)), agent), agentContextIncomplete(agent, lost))
+}
+
+/** The percentage above the context ring ("95% (incomplete)"), from the same reading as the token line. */
+export function contextRingText(
+  agent: Lossy & Parameters<typeof contextPercentLabel>[0], usage: number, lost: ReadonlyMap<string, number> | undefined,
+): string {
+  return markIf(contextPercentLabel(agent, usage), agentContextIncomplete(agent, lost))
 }
 
 /** Side padding of the stats text inside its box */

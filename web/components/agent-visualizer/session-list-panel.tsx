@@ -18,7 +18,7 @@ import {
   type AgentLike, type AgentNode,
 } from '@/lib/session-tree'
 import { rollupBranch, rollupRows, rollupUnderLoss, branchReplayLost, formatRollup, ROLLUP_INCOMPLETE_HELP, type RollupTotal } from '@/lib/cost-rollup'
-import { replayLostForAgents, usageUnderLoss } from '@/lib/event-loss'
+import { replayLostForAgents } from '@/lib/event-loss'
 import { observedSessions, isSessionObserved } from '@/lib/session-model'
 import { useLocale, useT } from '@/lib/locale'
 import * as C from '@/lib/card-text'
@@ -234,7 +234,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         <ColumnValue column="model" cell={modelCell(a.model, locale)} title={a.model} />
         <BlankCell column="runtime" />
         <BlankCell column="branch" />
-        <ColumnValue column="tokens" cell={tokensCell(usageUnderLoss(usageFromAgent(a), ownLost), locale)} />
+        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a), locale, ownLost > 0)} />
         <ColumnValue column="cost" cell={costCell(own, locale)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
         <BlankCell column="activity" />

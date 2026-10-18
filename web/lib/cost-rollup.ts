@@ -21,7 +21,7 @@ export const ROLLUP_UNKNOWN_TEXT = 'unknown'
 export const ROLLUP_INCOMPLETE_TEXT = '(incomplete)'
 /** Accessible explanation of the incomplete badge. */
 export const ROLLUP_INCOMPLETE_HELP =
-  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay could not replay events of a session it counts, so the real figure is higher.'
+  'Incomplete total: some agents have an unknown token count, a missing parent, a session of the family has no data, branches are nested too deeply, or the relay could not replay events of a session it counts, so the real figure may differ.'
 
 export interface RollupTotal {
   tokens: number
@@ -36,6 +36,11 @@ export interface RollupTotal {
   complete: boolean
   /** True when a counted figure is an estimate, not an announced count */
   estimated: boolean
+  /**
+   * True when the relay could not replay events of a session the total counts (#366). The token sum adds context
+   * readings, which are absolute (a lost compaction can lower one): it is then incomplete but no lower bound.
+   */
+  replayLoss?: boolean
 }
 
 type CostAgent = AgentLike & { model?: string }
@@ -115,11 +120,11 @@ export function rollupFamily(roots: ReadonlyArray<AgentNode<CostAgent>>): Rollup
 }
 
 /**
- * A total over a graph that may be incomplete (#366): with events the relay could not replay (`lost` > 0) the sums are
- * lower bounds, so the total is flagged incomplete ("≥", "(incomplete)"). The sums themselves are unchanged.
+ * A total over a graph that may be incomplete (#366): with events the relay could not replay (`lost` > 0) the total is
+ * flagged incomplete ("(incomplete)") and `replayLoss` (the token cell then claims no direction). The sums are unchanged.
  */
 export function rollupUnderLoss(total: RollupTotal, lost: number): RollupTotal {
-  return lost > 0 && total.complete ? { ...total, complete: false } : total
+  return lost > 0 ? { ...total, complete: false, replayLoss: true } : total
 }
 
 /** Agents of these branches, walked iteratively within the same budget as a total (each agent once). */

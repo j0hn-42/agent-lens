@@ -103,14 +103,17 @@ test('the cost pill of an agent is a lower bound when its session lost events', 
   assert.ok(plain.some(t => /^~\$/.test(t)), JSON.stringify(plain))
 })
 
-test('the token line under the context bar and the ring percentage are lower bounds when the agent\'s session lost events', () => {
+// A context reading is absolute (a lost compaction can lower it): under a loss it is the last one received, marked
+// "(incomplete)", never a lower bound ("at least") it cannot prove
+test('the token line under the context bar and the ring percentage read "(incomplete)", not "at least", when the agent\'s session lost events', () => {
   const opts: DrawOpts = { reducedMotion: true, zoom: 1, showCost: false, showStats: false, replayLost: lossOf(4) }
   // 190k of 200k: the ring draws its percentage too
   const a = agent({ tokensUsed: 190_000 })
   const lossy: string[] = []
   drawAgents(recordingCtx(lossy), new Map([['s1:main', a]]), null, null, true, 0, opts)
-  assert.ok(lossy.includes('at least 190k / 200k tokens'), JSON.stringify(lossy))
-  assert.ok(lossy.includes('at least 95%'), JSON.stringify(lossy))
+  assert.ok(lossy.includes('190k / 200k tokens (incomplete)'), JSON.stringify(lossy))
+  assert.ok(lossy.includes('95% (incomplete)'), JSON.stringify(lossy))
+  assert.equal(lossy.some(t => /at least (190k|95%)/.test(t)), false, JSON.stringify(lossy))
   const plain: string[] = []
   drawAgents(recordingCtx(plain), new Map([['s1:main', a]]), null, null, true, 0, { ...opts, replayLost: undefined })
   assert.ok(plain.includes('190k / 200k tokens'), JSON.stringify(plain))

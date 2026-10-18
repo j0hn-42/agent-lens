@@ -9,9 +9,9 @@ import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { boundedCount } from '../../../lib/event-loss'
-import { agentReplayLost, agentCostUsageUnderLoss, agentTokenUsageUnderLoss } from './loss-labels'
+import { agentReplayLost, agentCostUsageUnderLoss, agentContextIncomplete, CONTEXT_LAST_READING_INCOMPLETE } from './loss-labels'
 import { listedFileText } from '../../../lib/ui-glossary'
-import { spokenCostUsage, formatTokenUsage } from '../../../lib/usage'
+import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
 import { describeModel } from '../../../lib/model-provenance'
@@ -45,14 +45,14 @@ export function stateText(state: string): string {
 }
 
 /**
- * "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". A lower bound when the agent's
- * session lost events (#366), the words of the token line under its context bar.
+ * "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". When the agent's session lost
+ * events (#366): "… (last reading, incomplete)", the reading being absolute (see agentContextIncomplete).
  */
 function tokenSummary(a: Agent, replayLost?: ReadonlyMap<string, number>): string {
-  const usage = agentTokenUsageUnderLoss(a, replayLost)
-  return usage.status === 'unavailable'
-    ? `tokens ${formatTokenUsage(usage)}`
-    : formatTokensOfWindow(formatTokenUsage(usage), a)
+  const usage = usageFromAgent(a)
+  if (usage.status === 'unavailable') return `tokens ${formatTokenUsage(usage)}`
+  const text = formatTokensOfWindow(formatTokenUsage(usage), a)
+  return agentContextIncomplete(a, replayLost) ? `${text} ${CONTEXT_LAST_READING_INCOMPLETE}` : text
 }
 
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────

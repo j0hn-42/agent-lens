@@ -28,6 +28,20 @@ test('French cells keep the figures and the qualifiers of the English ones', () 
   assert.equal(columnLabel('time'), 'Time')
 })
 
+test('#366: tokens under a replay loss are the last reading, incomplete: marked "?", never "≥" (a context reading is absolute)', () => {
+  const reading = { value: 9_000, status: 'available' as const, estimated: false }
+  assert.equal(tokensCell(reading, 'en', true).text, '9k?')
+  assert.equal(tokensCell(reading, 'en', true).label, '9k tokens, last reading (incomplete)')
+  assert.equal(tokensCell(reading, 'fr', true).label, '9k jetons, dernière lecture (incomplète)')
+  assert.equal(tokensCell(reading).text, '9k', 'no loss: unchanged')
+  assert.equal(tokensCell({ value: null, status: 'unavailable', estimated: false }, 'en', true).label, 'tokens not reported', 'not reported stays so')
+  const lossy = total({ complete: false, replayLoss: true })
+  assert.equal(rollupTokensCell(lossy).text, '12k?')
+  assert.equal(rollupTokensCell(lossy).label, '12k tokens incomplete')
+  assert.equal(rollupTokensCell(total({ complete: false })).text, '≥12k', 'other causes keep the lower bound')
+  assert.equal(costCell(lossy).text, '≥~$0.500', 'the cost keeps the mark of every other cost surface')
+})
+
 test('French durations say lower bound and unknown end as the English ones do', () => {
   const T0 = 1_000_000
   const watched = { startTime: T0, startTimeWatched: true, lastActivityTime: T0 + 192_000, status: 'completed' as const }

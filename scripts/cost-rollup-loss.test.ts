@@ -17,6 +17,8 @@ test('rollupUnderLoss: nothing lost keeps the total as it is, a loss flags it in
   assert.equal(rollupUnderLoss(t, 0), t)
   const lossy = rollupUnderLoss(t, 3)
   assert.equal(lossy.complete, false)
+  assert.equal(lossy.replayLoss, true, 'the cause is kept: the token sum is then no lower bound')
+  assert.equal(t.replayLoss, undefined)
   assert.equal(lossy.tokens, t.tokens)
   assert.equal(lossy.cost, t.cost)
   assert.equal(t.complete, true, 'the input is not mutated')
@@ -49,6 +51,8 @@ test('rollupRows: a session row and the family of its team are incomplete when t
   assert.equal(lossy.get('team:T')!.cost, plain.get('team:T')!.cost)
 })
 
-test('the incomplete explanation names the replay loss among its causes', () => {
+test('the incomplete explanation names the replay loss among its causes, and claims no direction', () => {
   assert.match(ROLLUP_INCOMPLETE_HELP, /could not replay/)
+  assert.match(ROLLUP_INCOMPLETE_HELP, /may differ/)
+  assert.doesNotMatch(ROLLUP_INCOMPLETE_HELP, /is higher/)
 })

@@ -12,8 +12,8 @@ import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom, textHoldScale } from './draw-options'
 import { DEFAULT_THEME, type ThemeId } from '../../../lib/theme-tokens'
 import { computeOverlayLayout } from './overlay-layout'
-import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
-import { statsLabel, contextBarText, agentTokenUsageUnderLoss } from './loss-labels'
+import { hasContextPercentFor, contextPercentColor, contextAlertLevel } from './overlay-metrics'
+import { statsLabel, contextBarText, contextRingText } from './loss-labels'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
@@ -168,7 +168,7 @@ export function drawContextComposition(
   yShift = 0,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
-  /** Events the relay could not replay, per session id (#366): the token line is then a lower bound */
+  /** Events the relay could not replay, per session id (#366): the token line is then marked incomplete */
   replayLost?: ReadonlyMap<string, number>,
 ) {
   const scene = scenePalette(theme)
@@ -232,7 +232,7 @@ export function drawContextRing(
   textScale = 1,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
-  /** Events the relay could not replay, per session id (#366): the percentage is then a lower bound */
+  /** Events the relay could not replay, per session id (#366): the percentage is then marked incomplete */
   replayLost?: ReadonlyMap<string, number>,
 ) {
   const scene = scenePalette(theme)
@@ -297,7 +297,7 @@ export function drawContextRing(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
     ctx.fillStyle = sceneColor(theme, 'text', contextPercentColor(usage, agent.tokensMaxAssumed === true, scene))
-    ctx.fillText(contextPercentLabel(agent, usage, agentTokenUsageUnderLoss(agent, replayLost)), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
+    ctx.fillText(contextRingText(agent, usage, replayLost), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
   }
 }
 
