@@ -149,7 +149,7 @@ export function CommandPalette({ open, onClose, items }: CommandPaletteProps) {
                         border: selected ? '1px solid var(--lens-focus)' : '1px solid transparent',
                       }}
                     >
-                      <span className="min-w-0 truncate" data-sensitive={item.sensitive ? '' : undefined}>
+                      <span className="min-w-0 truncate" lang={item.lang} data-sensitive={item.sensitive ? '' : undefined}>
                         {item.label}
                         {item.detail && <span style={{ color: COLORS.textMuted }}> ({item.detail})</span>}
                       </span>

@@ -9,6 +9,8 @@ import { runtimeBadge } from './chrome-utils'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT } from './session-model'
 import { SHORTCUTS } from './shortcuts'
 import { HIERARCHY_TERMS, PANEL_NAMES, SESSIONS_LIST_NAME } from './ui-glossary'
+import type { Locale } from './messages'
+import { settingsTabCommand, type SettingsTab } from './settings-tabs'
 
 export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents', 'Themes'] as const
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number]
@@ -34,6 +36,8 @@ export interface PaletteItem {
   sensitive: boolean
   /** True when running the item moves focus by itself (a panel opening, an agent card): the palette then leaves focus alone */
   movesFocus: boolean
+  /** Language of the label when it is not the palette's own (the Settings tab commands, #533) */
+  lang?: Locale
   run: () => void
 }
 
@@ -80,6 +84,8 @@ export interface PaletteSource {
   notifications?: { on: boolean; run: () => void }
   /** The themes of Settings > Appearance, under the names the theme select gives them */
   themes?: { current: string; options: ReadonlyArray<{ id: string; label: string }>; set: (id: string) => void }
+  /** Tabs of the Settings dialog (#533): one command per tab the dialog shows, named in the interface language */
+  settingsTabs?: { locale: Locale; tabs: readonly SettingsTab[]; open: (tab: SettingsTab) => void }
   /** The relay serving this page accepts launches (#229): each role of the view gets a launch entry (#377) */
   launchAvailable?: boolean
   togglePanel: (panel: PalettePanel) => void
@@ -150,6 +156,13 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   if (src.tour) action('tour', src.tour.label, src.tour.run, undefined, ['tour', 'onboarding', 'help', 'learn', 'legend', 'guide'], true)
   action('shortcuts', 'Show keyboard shortcuts', act.openShortcuts, '?', ['help', 'keys'])
   action('settings', 'Open settings', act.openSettings, ',', ['preferences', 'theme', 'notifications'])
+  if (src.settingsTabs) {
+    const { locale, open } = src.settingsTabs
+    for (const tab of src.settingsTabs.tabs) {
+      const { label, keywords } = settingsTabCommand(locale, tab)
+      items.push({ id: `action:settings-tab:${tab}`, group: 'Actions', label, keywords, movesFocus: false, sensitive: false, lang: locale, run: () => open(tab) })
+    }
+  }
 
   // Launching stays in the agent card (its issues labelled agent:<role>, each with its Launch button and confirmation):
   // these entries open the card of the first agent of each role and session. Nothing says an issue is open (#377)
