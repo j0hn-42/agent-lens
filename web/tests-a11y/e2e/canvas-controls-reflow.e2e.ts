@@ -234,4 +234,33 @@ for (const [w, h] of [[320, 256], [256, 320]] as Array<[number, number]>) {
       await page.context().close()
     }
   })
+
+  test(`canvas controls ${w}x${h}, folded: Escape closes the block the guided tour opened to show the legend (#515)`, { timeout: 120_000 }, async () => {
+    // The guided demo starts its tour by itself; its step 5 (context window) shows the legend
+    const page = await open(w, h, '/?scenario=guided')
+    try {
+      const toggle = page.getByRole('button', { name: MENU, exact: true })
+      const card = page.getByRole('dialog').filter({ has: page.getByRole('button', { name: 'Exit tour' }) })
+      await card.waitFor()
+      await page.waitForFunction(`!!document.activeElement?.closest('[role="dialog"]')`)
+      // A step that points at a legend section shows the legend: the folded block opens with it
+      const expanded = async () => await toggle.getAttribute('aria-expanded') === 'true'
+      for (let i = 0; i < 20 && !await expanded(); i++) {
+        await page.keyboard.press('ArrowRight')
+        await page.waitForTimeout(100)
+      }
+      assert.ok(await expanded(), `[${w}x${h}] a step of the tour shows the legend and opens the block`)
+      await page.getByRole('button', { name: 'Zoom in', exact: true }).focus()
+      await page.keyboard.press('Escape')
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'false', `[${w}x${h}] Escape closes the block`)
+      assert.equal(await page.getByRole('button', { name: 'Zoom in', exact: true }).count(), 0, `[${w}x${h}] the block is gone`)
+      assert.equal((await page.evaluate(FOCUSED) as Focused | null)?.name, MENU, `[${w}x${h}] the focus goes back to "${MENU}"`)
+      assert.ok(await card.isVisible(), `[${w}x${h}] the tour goes on`)
+      // Opened again by hand during the same step, it opens
+      await toggle.click()
+      assert.equal(await toggle.getAttribute('aria-expanded'), 'true', `[${w}x${h}] it opens again`)
+    } finally {
+      await page.context().close()
+    }
+  })
 }
