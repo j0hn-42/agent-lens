@@ -13,7 +13,7 @@ import { agentRoleOf } from '@/lib/issue-links'
 import { isUnionSelection } from '@/lib/bridge-types'
 import { useTheme } from '@/lib/theme'
 import { THEME_IDS, THEME_LABELS, isThemeId } from '@/lib/theme-tokens'
-import { SETTINGS_TABS, type SettingsTab } from '@/lib/settings-tabs'
+import { type SettingsTab } from '@/lib/settings-tabs'
 
 type Bridge = ReturnType<typeof useVSCodeBridge>
 type Panels = ReturnType<typeof usePanelsState>
@@ -35,6 +35,8 @@ interface PaletteInput {
     togglePlayPause: () => void; zoomToFit: () => void; toggleFullscreen: () => void; toggleMute: () => void; openShortcuts: () => void; openSettings: () => void
     /** Opens Settings on one of its tabs (#533) */
     openSettingsTab: (tab: SettingsTab) => void
+    /** The tabs the dialog shows (visibleSettingsTabs), so no command opens a tab that is absent */
+    settingsTabs: readonly SettingsTab[]
     togglePresentation: () => void; clearHistory: () => void
   }
   /** Session export (#237): the same checks as the Sessions panel button */
@@ -49,7 +51,7 @@ interface PaletteInput {
 /** Command palette (#243): built only while it is open, from the lists the panels already show */
 export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, panels, selectAgent, actions, exportSession, tour, attention, notify }: PaletteInput) {
   const { setShowSessions, setShowTimeline, setShowStats, setShowSystem, setShowHexGrid, toggleExclusivePanel } = panels
-  const { togglePlayPause, zoomToFit, toggleFullscreen, toggleMute, openShortcuts, openSettings, openSettingsTab, togglePresentation, clearHistory } = actions
+  const { togglePlayPause, zoomToFit, toggleFullscreen, toggleMute, openShortcuts, openSettings, openSettingsTab, settingsTabs, togglePresentation, clearHistory } = actions
   const [theme, setTheme] = useTheme()
   const { locale } = useLocale()
   const { waiting, errors, jump, nextInView } = attention
@@ -85,7 +87,7 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
         exportSession: exportable ? () => runExport(exportable) : undefined,
       },
       attention: attentionText ? { detail: attentionText, movesFocus: nextInView(), run: jump } : undefined,
-      settingsTabs: { tabs: SETTINGS_TABS, open: openSettingsTab },
+      settingsTabs: { tabs: settingsTabs, open: openSettingsTab },
       tour: startTour ? { label: tourLabel ?? 'Guided tour', run: startTour } : undefined,
       notifications: notifyState === 'on' || notifyState === 'off' ? { on: notifyState === 'on', run: toggleNotify } : undefined,
       themes: { current: theme, options: themeOptions(locale), set: id => { if (isThemeId(id)) setTheme(id) } },
@@ -100,6 +102,6 @@ export function usePaletteItems({ open, singleKeyEnabled, bridge, listAgents, pa
       selectAgent,
     })
   }, [open, singleKeyEnabled, bridge.selectedSessionId, bridge.sessions, bridge.selectSession, bridge.useMockData, bridge.launch, bridge.relayOrigin, listAgents, togglePlayPause, zoomToFit, toggleFullscreen,
-    setShowHexGrid, toggleMute, openShortcuts, openSettings, openSettingsTab, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
+    setShowHexGrid, toggleMute, openShortcuts, openSettings, openSettingsTab, settingsTabs, togglePresentation, clearHistory, canExport, runExport, waiting, errors, jump, nextInView,
     startTour, tourLabel, locale, notifyState, toggleNotify, theme, setTheme, setShowSessions, setShowTimeline, setShowStats, setShowSystem, toggleExclusivePanel, selectAgent])
 }

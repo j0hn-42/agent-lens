@@ -12,7 +12,7 @@ import type { NotifyState } from '@/hooks/use-attention-alerts'
 import type { PresentationOptions } from '@/lib/presentation'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { ANNOUNCE_LEVELS, type AnnounceLevel } from '@/lib/ui-preferences'
-import { DEFAULT_SETTINGS_TAB, SETTINGS_TABS, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
+import { DEFAULT_SETTINGS_TAB, SETTINGS_TAB_LABEL, visibleSettingsTabs, type SettingsTab } from '@/lib/settings-tabs'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
@@ -325,7 +325,7 @@ export function SettingsDialog({
   const tabsId = useId()
   const [ownTab, setOwnTab] = useState<SettingsTab>(tab ?? DEFAULT_SETTINGS_TAB)
   // A tab with nothing to show is left out (no notification channel and no announcement setting given)
-  const tabs = SETTINGS_TABS.filter(id => id !== 'notifications' || notifications || announcements)
+  const tabs = visibleSettingsTabs({ notifications: Boolean(notifications), announcements: Boolean(announcements) })
   const wanted = tab ?? ownTab
   const current: SettingsTab = tabs.includes(wanted) ? wanted : DEFAULT_SETTINGS_TAB
   const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({})
@@ -335,6 +335,8 @@ export function SettingsDialog({
     if (focus) tabRefs.current[next]?.focus()
   }
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    // Alt+Arrow (browser back / forward), Ctrl or Meta + Home / End belong to the browser
+    if (e.altKey || e.ctrlKey || e.metaKey) return
     const at = tabs.indexOf(current)
     const next = e.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length]
       : e.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length]
