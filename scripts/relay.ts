@@ -1429,6 +1429,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // A client back from a cut link (#366): what it last received from THIS relay process, else nothing is counted
       const since = parseSinceParam(req.url)
       const sinceSeq = since && since.instance === relayInstance && since.seq <= eventSeq ? since.seq : null
+      // Served all the same; a client that keeps sending an unusable cursor shows up in the log (never its value)
+      if (sinceSeq === null && /[?&]since=/.test(req.url ?? '')) log('[sse] since ignored: malformed, repeated, ahead or from another relay instance')
       const gap: Record<string, number> = {}
       const addGap = (sid: string, n: number) => { if (n > 0) gap[sid] = Math.min((gap[sid] ?? 0) + n, Number.MAX_SAFE_INTEGER) }
       const replay = capReplayBatches(
@@ -1451,8 +1453,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         sendSSE(res, { type: 'event-loss', evicted: loss, ...(otherEvents > 0 ? { otherEvents } : {}), ...(hasGap ? { gap } : {}) })
       }
       // Every buffered event numbered up to here is in the replay below or counted above (a first connection: evicted;
-      // a reconnection: gap). Events of no session are never buffered nor counted. The client resumes from this number
-      sendSSE(res, { type: 'relay-cursor', instance: relayInstance, seq: eventSeq })
+      // a reconnection: gap). Events of no session are never buffered nor counted. Sent once the replay is written
+      // (below): a client cut during its replay gets no cursor and comes back with its previous one, so the events it
+      // missed are still numbered after its `since`.
+      const cursor = { type: 'relay-cursor', instance: relayInstance, seq: eventSeq }
       // The replay can exceed the slow-client backlog limit in one go (issue #203), so wait for the
       // socket to drain between batches instead of dropping a healthy client mid-replay. Live messages
       // arriving meanwhile are held (writeLive) and flushed after the replay, keeping arrival order.
@@ -1472,6 +1476,8 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
         }
         if (res.destroyed || closed || !replayHeld.has(res)) return
         replayHeld.delete(res)
+        // The whole replay is written: the client may resume from here. The held live events are numbered after it
+        sendSSE(res, cursor)
         // Back on the live path: from here the slow-client limit applies to every write
         for (const payload of held.payloads) writeToClient(res, payload)
       })()
