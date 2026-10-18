@@ -24,8 +24,9 @@ after(async () => {
   await server?.stop()
 })
 
-async function open(w: number, h = 900): Promise<Page> {
+async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h } })
+  if (locale) await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
   const page = await context.newPage()
   await page.goto(server.url, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
@@ -246,3 +247,34 @@ test('1000x900: still folded under 1024 px, one row', async () => {
     await page.context().close()
   }
 })
+
+// #500: the French labels are longer than the English ones (Sessions : Toutes les sessions, Afficher les sessions terminées,
+// 2 agents en attente / 1 agent en erreur). The bar keeps its two rows at 1440, 1280, 1100 and 1024 px, never taller than in
+// English; the heights are logged ("#500 ...") for the pull request.
+for (const w of [1440, 1280, 1100, 1024]) {
+  test(`${w}x900 in French: still two rows, no taller than in English, height published`, async () => {
+    const heights: Record<string, number> = {}
+    for (const locale of ['en', 'fr'] as const) {
+      const page = await open(w, 900, locale)
+      try {
+        const l = await measure(page)
+        heights[locale] = l.barHeight
+        // Room left in row 1 (identity and filters side by side): what the longer French texts can still take
+        const row1 = await page.evaluate(`(() => {
+          const row = document.querySelector('header [data-topbar-row="1"]')
+          const kids = [...row.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
+          const gap = parseFloat(getComputedStyle(row).columnGap) || 0
+          return { width: row.getBoundingClientRect().width, content: kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
+        })()`) as { width: number; content: number }
+        console.log(`#500 ${w}px ${locale}: bar ${l.barHeight} px, ${l.rows} rows, --topbar-h ${l.published} px; row 1 ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
+        assert.equal(l.rows, 2, `${w}px ${locale}: ${l.rows} rows`)
+        expectPublished(l, `${w}px ${locale}`)
+        assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
+        assert.equal(await page.locator('header').getAttribute('lang'), locale)
+      } finally {
+        await page.context().close()
+      }
+    }
+    assert.ok(heights.fr <= heights.en, `${w}px: ${heights.fr} px in French, ${heights.en} px in English`)
+  })
+}
