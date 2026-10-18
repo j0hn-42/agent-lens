@@ -1,6 +1,9 @@
 'use client'
 
-import { emptyState, PANEL_NAMES } from '@/lib/ui-glossary'
+import { emptyState } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
+import { panelName } from '@/lib/command-palette'
 import { useRef, useEffect, useMemo, useState, useId } from 'react'
 import { TimelineEntry, Z } from '@/lib/agent-types'
 import { COLORS, uiColor } from '@/lib/colors'
@@ -277,6 +280,7 @@ function drawTimeline(
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, links }: TimelinePanelProps) {
+  const { locale } = useLocale()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [tableView, setTableView] = useState(false)
@@ -366,7 +370,7 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
       width={dockRect?.w}
       className="motion-reduce:transition-none"
       attrs={{ ...dockAttrs('timeline', 'bottom', dock, visible), 'data-sensitive': '' }}
-      label={PANEL_NAMES.timeline}
+      label={panelName(locale, 'timeline')}
       style={dock.hidden ? { display: 'none' } : dockRect ? undefined : { maxWidth: 700, margin: '0 auto' }}
     >
       <div className="glass-card relative flex flex-col" role="region" aria-label="Execution timeline" style={{ maxHeight: dockRect?.h }}>
@@ -399,8 +403,8 @@ export function TimelinePanel({ visible, timelineEntries, currentTime, onClose, 
             </div>
           }
         >
-          <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
-            EXECUTION TIMELINE
+          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+            {translate(locale, 'panel.heading.timeline')}
           </span>
         </PanelHeader>
 
