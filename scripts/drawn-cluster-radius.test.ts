@@ -8,7 +8,7 @@ import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/
 import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
 import { computeNextFrame } from '../web/hooks/simulation/animate'
 import { createForceLayout, type ForceLayout } from '../web/hooks/simulation/force-layout'
-import { clusterRadius, hexPackRadius } from '../web/hooks/simulation/fleet-layout'
+import { clusterRadius } from '../web/hooks/simulation/fleet-layout'
 import { visibleAgents } from '../web/lib/inactive-agents'
 import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT, FORCE } from '../web/lib/canvas-constants'
 import type { Agent, SimulationEvent } from '../web/lib/agent-types'
@@ -170,13 +170,14 @@ for (const [total, active, maxBound] of [[83, 4, 300], [31, 30, 600], [81, 80, 1
 
 // ─── Disc radius ─────────────────────────────────────────────────────────────
 
+/** Radius holding n agents packed hexagonally at the collision distance: n circles of radius r cover n * pi r^2 at a density of pi / (2 sqrt 3) */
+const hexPackRadius = (n: number) => FORCE.collideRadius * Math.sqrt(n / (Math.PI / (2 * Math.sqrt(3))))
+
 test('clusterRadius: never below the hexagonal packing of its members plus one collision radius', () => {
   for (let n = 1; n <= CLUSTER_LAYOUT.maxMembers; n++) {
     assert.ok(clusterRadius(n) >= hexPackRadius(n) + FORCE.collideRadius - 1e-9, `${n} members`)
     assert.ok(clusterRadius(n) >= CLUSTER_LAYOUT.baseRadius + n * CLUSTER_LAYOUT.memberSpacing - 1e-9)
   }
-  // n circles of radius r packed hexagonally cover n * pi r^2 at a density of pi / (2 sqrt 3)
-  assert.ok(Math.abs(hexPackRadius(81) - FORCE.collideRadius * Math.sqrt(81 / (Math.PI / (2 * Math.sqrt(3))))) < 1e-9)
 })
 
 // ─── Risks ───────────────────────────────────────────────────────────────────
