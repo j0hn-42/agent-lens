@@ -15,6 +15,7 @@ import { ensureSetup } from '../../scripts/setup'
 import { startServer } from './server'
 import { remoteStartupError } from '../../scripts/remote-access'
 import { launchStartupError } from '../../scripts/routes/launch'
+import { watchParentStop } from './parent-stop'
 
 const command = process.argv[2]
 if (isCliCommand(command)) {
@@ -37,6 +38,14 @@ if (isCliCommand(command)) {
     process.exit(2)
   }
 
+  // Stop channel of the tray driver (#513): only with the internal --ipc-stop flag and an IPC channel opened by the
+  // parent. Watched from here on, so a stop (or a dead parent) during the start is kept and runs once the server is up
+  const parentStop = args.ipcStop ? watchParentStop(process, message => console.error(`Agent Lens: ${message}`)) : null
+  if (parentStop && !parentStop.ok) {
+    console.error(`Agent Lens: ${parentStop.error}`)
+    process.exit(2)
+  }
+
   console.log('Agent Lens\n')
 
   // Ensure hooks are configured
@@ -55,7 +64,16 @@ if (isCliCommand(command)) {
     ...(args.allowLaunch ? { launchRepos: args.launchRepos } : {}),
     // Remote access (#241, #517): remoteStartupError above guarantees a token file whenever a name is allowed
     ...(args.allowHosts.length > 0 && args.tokenFile ? { remote: { allowedHosts: args.allowHosts, tokenFile: args.tokenFile } } : {}),
-  }).catch((err: unknown) => {
+  }).then(server => {
+    // The same clean-up as SIGINT/SIGTERM/SIGHUP (idempotent): close, relay.dispose(), telemetry, exit 0
+    // A clean-up that throws must not become an unhandled rejection: fixed message (no detail), non-zero exit code
+    if (parentStop?.ok) {
+      parentStop.onStop(server.close, () => {
+        console.error('Agent Lens: the clean-up after the stop request failed')
+        process.exit(1)
+      })
+    }
+  }, (err: unknown) => {
     console.error(`Agent Lens: ${err instanceof Error ? err.message : 'the server could not start'}`)
     process.exit(2)
   })

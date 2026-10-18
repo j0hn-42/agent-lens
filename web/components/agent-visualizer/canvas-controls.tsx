@@ -128,7 +128,7 @@ export function CanvasControls({
       className="pointer-events-none absolute inset-x-3 z-10 flex flex-col items-start gap-2 sm:flex-row sm:items-end sm:justify-between"
       style={{ bottom: CONTROL_BAR_BOTTOM + controlBarH + DOCK_GAP }}
     >
-      <GraphLegend teams={teams} present={present} />
+      <GraphLegend teams={teams} present={present} locale={locale} />
       <div ref={wrapRef} className="pointer-events-auto flex max-w-full flex-col items-end gap-1 self-end">
         {/* Sits on the playback bar: "Fit to view" keeps the content above it (issue 378) */}
         <div data-canvas-inset="bottom" className="flex items-center gap-2">

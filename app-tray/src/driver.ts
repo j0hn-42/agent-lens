@@ -3,12 +3,14 @@
  * `deriveMenu` and talks to the native menu binary over the JSON line protocol of ./protocol.
  *
  * What the icon shows is never invented: a count comes from a recent /status answer, otherwise the
- * menu says "unknown" (see menu-model.ts). Only loopback is contacted. A signal is only ever sent to
- * the relay process this driver started, never to a PID found elsewhere. When the driver started the
+ * menu says "unknown" (see menu-model.ts). Only loopback is contacted. A signal (or, with
+ * `stopChannel: 'ipc'`, the stop message of #513) is only ever sent to the relay process this driver
+ * started, never to a PID found elsewhere. When the driver started the
  * relay, the relay lives as long as the driver: every way out (quit, closed icon, dead binary,
  * SIGTERM) stops it; when it only attached to a relay, closing the icon leaves the relay running.
  */
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import { spawn as nodeSpawn, type ChildProcess, type StdioOptions } from 'node:child_process'
+import { STOP_MESSAGE } from '../../app/src/parent-stop'
 import { translate, type Locale } from '../../web/lib/messages'
 import { deriveMenu, type MenuItem, type StatusProbe, type TrayMenu } from './menu-model'
 import { copyLocalUrl, localRelayUrl, openLocalUrl } from './open-url'
@@ -20,9 +22,19 @@ export interface CommandSpec {
   env?: NodeJS.ProcessEnv
 }
 
+export interface RelaySpawnSpec extends CommandSpec {
+  /**
+   * How the relay is stopped (#513). `sigterm` (default): `SIGTERM`, whose handlers do not run on Windows.
+   * `ipc`: the relay is started with a Node IPC channel and stopped with the message `{ v: 1, type: 'stop' }`;
+   * it must be started with `--ipc-stop` (app/src/parent-stop.ts). The channel also closes if the driver dies,
+   * which stops the relay.
+   */
+  stopChannel?: 'sigterm' | 'ipc'
+}
+
 export interface DriverOptions {
   /** `spawn`: start the relay and own it; `attach`: only query a relay already listening on this port */
-  relay: { spawn: CommandSpec } | { attach: number }
+  relay: { spawn: RelaySpawnSpec } | { attach: number }
   /** The native menu binary */
   tray: CommandSpec
   locale: Locale
@@ -197,9 +209,9 @@ export function startDriver(opts: DriverOptions): DriverHandle {
     }
     // Only the child this driver started: never a PID discovered elsewhere
     if (ownsRelay && relay && relay.exitCode === null && relay.signalCode === null) {
-      relay.kill('SIGTERM')
+      const how = stopRelay(relay)
       if (!(await waitExit(relay, stopMs))) {
-        log('the relay did not stop after SIGTERM; it is left running (its PID is ' + String(relay.pid) + ')')
+        log(`the relay did not stop after ${how}; it is left running (its PID is ${String(relay.pid)})`)
         exitCode = 1
       } else if (relay.exitCode !== null && relay.exitCode !== 0) {
         log(`the relay exited with code ${relay.exitCode}`)
@@ -210,6 +222,21 @@ export function startDriver(opts: DriverOptions): DriverHandle {
   }
 
   const fail = (message: string) => { log(message); void shutdown(1) }
+
+  const relayStopChannel = 'spawn' in opts.relay ? (opts.relay.spawn.stopChannel ?? 'sigterm') : 'sigterm'
+  /** Ask the relay to stop the way it was started for; returns what was sent, for the diagnostic line */
+  function stopRelay(child: ChildProcess): string {
+    if (relayStopChannel === 'ipc') {
+      // The channel was opened by this driver at spawn time: no other process can write on it. If it is already
+      // closed, the relay saw the disconnect and is stopping on its own: no signal is sent either way.
+      if (child.connected) {
+        try { child.send(STOP_MESSAGE, err => { if (err) log('could not send the stop message to the relay') }) } catch { log('could not send the stop message to the relay') }
+      }
+      return 'the stop message'
+    }
+    child.kill('SIGTERM')
+    return 'SIGTERM'
+  }
 
   // Each open or copy starts a process (openers are detached): one run at a time per action, and a
   // minimum delay between two, so a binary repeating a click cannot start a process per line
@@ -290,9 +317,11 @@ export function startDriver(opts: DriverOptions): DriverHandle {
     pollTimer = setTimeout(() => { void poll() }, pollMs)
   }
 
-  function startRelay(spec: CommandSpec): Promise<number> {
+  function startRelay(spec: RelaySpawnSpec): Promise<number> {
     return new Promise((resolve, reject) => {
-      const child = nodeSpawn(spec.file, spec.args, { stdio: ['ignore', 'pipe', 'inherit'], shell: false, env: spec.env ?? process.env })
+      // stdin stays ignored; with the IPC stop channel a fourth slot carries it (never a socket, never a port)
+      const stdio: StdioOptions = spec.stopChannel === 'ipc' ? ['ignore', 'pipe', 'inherit', 'ipc'] : ['ignore', 'pipe', 'inherit']
+      const child = nodeSpawn(spec.file, spec.args, { stdio, shell: false, env: spec.env ?? process.env, serialization: 'json' })
       relay = child
       let found = false
       const timer = setTimeout(() => reject(new Error('the relay printed no URL in time')), opts.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS)
@@ -307,8 +336,8 @@ export function startDriver(opts: DriverOptions): DriverHandle {
         const p = parseRelayUrlLine(event.line)
         if (p !== null) { found = true; clearTimeout(timer); resolve(p) }
       })
-      // Keep draining after the URL so the relay never blocks on a full pipe
-      child.stdout.on('data', (chunk: Buffer) => splitter.push(chunk))
+      // Keep draining after the URL so the relay never blocks on a full pipe (stdout is always 'pipe' above)
+      child.stdout!.on('data', (chunk: Buffer) => splitter.push(chunk))
     })
   }
 

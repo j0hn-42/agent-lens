@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import type { SessionInfo } from '../web/lib/bridge-types'
 import {
   parseRelayScopeState, scopeValue, parseScopeValue, scopeOptions, planScopeChoice, scopeSummary, scopeNotices,
-  scopeEmptyHint, applyRelayScope, type RelayScopeState,
+  scopeEmptyHint, applyRelayScope, runtimeProblemRecheckDelay, type RelayScopeState,
 } from '../web/lib/relay-scope'
 import { restrictToProject } from '../web/hooks/simulation/session-visibility'
 import { sanitizePref, sanitizePrefs, DEFAULT_UI_PREFS } from '../web/lib/ui-preferences'
@@ -123,9 +123,27 @@ test('#420: runtime problems are read strictly and bounded', () => {
   // Control characters are removed and the text is capped
   const [one] = parse([{ runtime: 'opencode', message: `OpenCode: \u001b[2Jbad${'x'.repeat(1000)}` }])
   assert.equal(/[\u0000-\u001f]/.test(one.message), false)
+  // The one definition of forbidden characters (web/lib/control-chars.ts): bidi and invisible ones too
+  const [bidi] = parse([{ runtime: 'opencode', message: 'OpenCode: \u202eevil\u200b\u2066x\ufeff' }])
+  assert.equal(bidi.message, 'OpenCode: evilx')
   assert.ok(one.message.length <= 300)
   // At most one entry per watched runtime
   assert.equal(parse([{ runtime: 'opencode', message: 'a' }, { runtime: 'opencode', message: 'b' }]).length, 1)
+})
+
+test('#420: GET /status is read again while a runtime problem is shown, never more often than its schedule', () => {
+  const shown = parseRelayScopeState(status({ runtimes: ['opencode'], runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] }))!
+  const delays = Array.from({ length: 12 }, (_, i) => runtimeProblemRecheckDelay(shown, i))
+  assert.equal(delays[0], 5_000, 'a notice that turned false is lifted within seconds')
+  for (let i = 1; i < delays.length; i++) assert.ok(delays[i]! >= delays[i - 1]!, 'the delay never shrinks')
+  // The re-read never stops while the notice is shown: a stale notice would claim a state that is no longer true
+  assert.equal(delays[delays.length - 1], 60_000)
+  // Nothing shown: nothing to re-read
+  assert.equal(runtimeProblemRecheckDelay(parseRelayScopeState(status())!, 0), null)
+  assert.equal(runtimeProblemRecheckDelay(null, 0), null)
+  // A bad attempt number still gives a bounded delay
+  assert.equal(runtimeProblemRecheckDelay(shown, -1), 5_000)
+  assert.equal(runtimeProblemRecheckDelay(shown, Number.NaN), 5_000)
 })
 
 test('applyRelayScope POSTs strict JSON and trusts only a coherent answer', async () => {

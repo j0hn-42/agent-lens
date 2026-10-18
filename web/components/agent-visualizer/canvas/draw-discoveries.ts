@@ -5,7 +5,7 @@ import type { ThemeId } from '@/lib/theme-tokens'
 import { getDiscoveryCardDimensions, MIN_VISIBLE_OPACITY } from '@/lib/canvas-constants'
 import { truncateText } from './draw-misc'
 import { maskText } from '../../../lib/presentation'
-import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
+import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, discoveryCardScale } from './draw-options'
 
 export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, theme?: ThemeId) {
   const scene = scenePalette(theme)
@@ -32,7 +32,7 @@ export function drawDiscoveryConnections(ctx: CanvasRenderingContext2D, discover
 export function drawDiscoveries(ctx: CanvasRenderingContext2D, discoveries: Discovery[], agents: Map<string, Agent>, selectedDiscoveryId?: string | null, opts: DrawOpts = DEFAULT_DRAW_OPTS) {
   // The text is hidden where 11 px would fall under LOD.minTextPx; in the hysteresis band the card is enlarged to hold it (#378)
   const showText = lodOf(opts).detailText
-  const textScale = showText ? textHoldScale(11, opts.zoom) : 1
+  const textScale = discoveryCardScale(opts)
   const scene = scenePalette(opts.theme)
   for (const disc of discoveries) {
     if (disc.opacity < MIN_VISIBLE_OPACITY) continue

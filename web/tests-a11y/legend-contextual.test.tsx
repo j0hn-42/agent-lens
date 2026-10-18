@@ -9,6 +9,7 @@ import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
 import { LEGEND_ENTRY_IDS, LEGEND_ENTRIES, type LegendEntryId } from '@/lib/legend-entries'
 import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-context'
 import { CTX_TOKENS_LABELS } from '@/lib/ui-glossary'
+import { MESSAGES } from '@/lib/messages'
 
 afterEach(() => { cleanup(); document.body.replaceChildren(); window.localStorage.clear() })
 
@@ -122,6 +123,7 @@ test('the contextual legend has no axe violation (open, filtered and complete)',
 test('the legend defines "ctx tokens", the unit of the Cost panel total (#545 review), filtered or not', () => {
   const view = render(<GraphLegend teams={[]} present={['shape-main']} />)
   openLegend(view)
+  assert.equal(MESSAGES.en['legend.ctxTokens'], CTX_TOKENS_LABELS.help)
   const def = view.getByText(CTX_TOKENS_LABELS.help)
   assert.match(def.textContent ?? '', /^ctx tokens/)
   assert.match(def.textContent ?? '', /context/)

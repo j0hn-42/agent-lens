@@ -21,6 +21,7 @@ import {
 } from './constants'
 import { safeWatch, readTrackedLines, runGuarded } from './fs-utils'
 import { createLogger } from './logger'
+import { displayCwd } from './display-cwd'
 import {
   CodexRolloutParser, CodexRolloutState, createCodexRolloutState,
 } from './codex-rollout-parser'
@@ -37,16 +38,6 @@ const SCAN_DAYS = 3
  *  Filenames look like: rollout-2026-04-22T09-15-00-{uuid}.jsonl */
 const SESSION_ID_FROM_FILENAME = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]{36})\.jsonl$/
 
-/** A cwd longer than this is not a path this adapter shows. */
-const CWD_MAX = 4096
-/** Control characters (C0, DEL, C1) and bidi overrides: never part of a path shown to the user. */
-const UNSAFE_PATH_CHARS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/
-
-/** session_meta.cwd as shown to the user: only an absolute, clean, bounded path (#420); anything else is left out. */
-function displayCwd(cwd: string | null): string | undefined {
-  if (!cwd || cwd.length > CWD_MAX || UNSAFE_PATH_CHARS.test(cwd)) return undefined
-  return path.isAbsolute(cwd) ? cwd : undefined
-}
 
 interface WatchedCodexSession {
   sessionId: string
@@ -473,6 +464,20 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     if (s.sessionDetected) this._onSessionLifecycle.fire({ type: 'ended', sessionId, label: s.label })
   }
 
+  /**
+   * A rollout attached while its first line was still being written has no cwd yet: it is read again on
+   * the next lines until the answer is final (cwdOf caches it then), and announced once with 'updated' (#420).
+   */
+  private lateCwd(session: WatchedCodexSession): void {
+    if (session.cwd !== undefined || this.cwdCache.has(session.filePath)) return
+    const cwd = displayCwd(this.cwdOf(session.filePath))
+    if (!cwd) return
+    session.cwd = cwd
+    if (session.sessionDetected) {
+      this._onSessionLifecycle.fire({ type: 'updated', sessionId: session.sessionId, label: session.label, runtime: 'codex', cwd })
+    }
+  }
+
   private readNewLinesUnguarded(sessionId: string): void {
     const session = this.sessions.get(sessionId)
     if (!session) return
@@ -480,6 +485,7 @@ export class CodexSessionWatcher implements AgentSessionWatcher {
     const lines = readTrackedLines(session.filePath, session)
     if (!lines) return
     session.lastActivityTime = Date.now()
+    this.lateCwd(session)
 
     for (const line of lines) {
       try { session.parser.processLine(line, session.rolloutState) }

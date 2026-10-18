@@ -7,6 +7,7 @@
  */
 import type { SessionInfo } from './bridge-types'
 import { projectOptions } from './session-filter'
+import { CONTROL_ALL } from './control-chars'
 
 export type RelayScope = 'workspace' | 'all'
 
@@ -53,8 +54,6 @@ function parseDiscovery(status: Record<string, unknown>): DiscoveryLimits | null
 }
 
 const RUNTIME_PROBLEM_MAX = 300
-// eslint-disable-next-line no-control-regex
-const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g
 
 /** Only a runtime the relay says it watches, one entry each, its sentence cleaned and capped. */
 function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[] {
@@ -66,7 +65,7 @@ function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[]
     const { runtime, message } = p as Record<string, unknown>
     if (typeof runtime !== 'string' || !watched.includes(runtime) || out.some(o => o.runtime === runtime)) continue
     if (typeof message !== 'string') continue
-    const text = message.replace(UNSAFE_TEXT, '').trim().slice(0, RUNTIME_PROBLEM_MAX)
+    const text = message.replace(CONTROL_ALL, '').trim().slice(0, RUNTIME_PROBLEM_MAX)
     if (text) out.push({ runtime, message: text })
   }
   return out
@@ -78,6 +77,21 @@ export function parseRelayScopeState(json: unknown): RelayScopeState | null {
   const s = json as Record<string, unknown>
   if (typeof s.allWorkspaces !== 'boolean' || typeof s.workspace !== 'string') return null
   return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s), runtimeProblems: parseRuntimeProblems(s) }
+}
+
+/** Delays between re-reads of GET /status while a runtime problem is shown (#420), then the last one, for as long as it is shown */
+const RUNTIME_PROBLEM_RECHECK_MS = [5_000, 10_000, 20_000, 40_000] as const
+const RUNTIME_PROBLEM_RECHECK_MAX_MS = 60_000
+
+/**
+ * When to read GET /status again (ms), or null when no runtime problem is shown. A notice read once could stay
+ * after it turned false (the database appears while the page is connected): it is re-read on a growing delay,
+ * capped at a minute, and never dropped from the schedule while it is shown.
+ */
+export function runtimeProblemRecheckDelay(state: RelayScopeState | null, attempt: number): number | null {
+  if (!state?.runtimeProblems?.length) return null
+  const i = Number.isInteger(attempt) && attempt > 0 ? attempt : 0
+  return i < RUNTIME_PROBLEM_RECHECK_MS.length ? RUNTIME_PROBLEM_RECHECK_MS[i] : RUNTIME_PROBLEM_RECHECK_MAX_MS
 }
 
 // ─── Choices ─────────────────────────────────────────────────────────────────

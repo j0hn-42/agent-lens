@@ -114,6 +114,7 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
         <h2
           id={headingId}
+          data-permission-head=""
           ref={headingRef}
           tabIndex={-1}
           className={rows.length ? `m-0 text-[11px] font-mono font-semibold tracking-wider pointer-events-auto rounded ${FOCUS_RING}` : 'sr-only'}
@@ -122,7 +123,7 @@ export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
           {rows.length ? t('permission.title') : t('permission.titleEmpty')}
         </h2>
         {rows.length > 0 && (
-          <p className="m-0 text-[11px] font-mono pointer-events-auto rounded px-2 py-1" style={{ color: COLORS.textMuted, background: COLORS.panelBg }}>
+          <p data-permission-head="" className="m-0 text-[11px] font-mono pointer-events-auto rounded px-2 py-1" style={{ color: COLORS.textMuted, background: COLORS.panelBg }}>
             {t('permission.intro')}
           </p>
         )}
