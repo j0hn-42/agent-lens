@@ -101,7 +101,9 @@ jobs:
       - name: Browser accessibility tests (Playwright + axe-core)
         run: pnpm --dir web run test:e2e
 
-      - name: Demo server log
+      # One log per e2e file (web/test-results/demo-server-<file>.log): pid, attempt, port, time, identity of
+      # the process listening on the port, then the server output. Read it first on a "connection refused" (#575).
+      - name: Demo server logs
         if: failure()
         uses: actions/upload-artifact@v4
         with:
