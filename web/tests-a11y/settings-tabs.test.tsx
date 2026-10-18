@@ -9,7 +9,7 @@ import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-vis
 import { useDialogsState } from '@/hooks/use-dialogs-state'
 import { setLocaleChoice } from '@/lib/locale'
 import { MESSAGES } from '@/lib/messages'
-import { SETTINGS_TABS, visibleSettingsTabs } from '@/lib/settings-tabs'
+import { visibleSettingsTabs } from '@/lib/settings-tabs'
 import { DEFAULT_RULES } from '@/lib/notification-rules'
 
 afterEach(() => {
@@ -209,9 +209,9 @@ test('arrow, Home and End with Alt, Ctrl or Meta are left to the browser: no tab
 })
 
 test('the palette offers the tabs the dialog shows: Notifications is left out without notifications and announcements', () => {
-  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: true }), [...SETTINGS_TABS])
-  assert.deepEqual(visibleSettingsTabs({ notifications: false, announcements: true }), [...SETTINGS_TABS])
-  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: false }), [...SETTINGS_TABS])
+  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: true }), ['general', 'sessions', 'notifications', 'keyboard'])
+  assert.deepEqual(visibleSettingsTabs({ notifications: false, announcements: true }), ['general', 'sessions', 'notifications', 'keyboard'])
+  assert.deepEqual(visibleSettingsTabs({ notifications: true, announcements: false }), ['general', 'sessions', 'notifications', 'keyboard'])
   assert.deepEqual(visibleSettingsTabs({ notifications: false, announcements: false }), ['general', 'sessions', 'keyboard'])
   const view = render(<SettingsDialog {...props({ notifications: undefined, announcements: undefined })} />)
   assert.deepEqual(tabs(view).map(t => t.textContent), [NAMES[0], NAMES[1], NAMES[3]], 'the dialog shows exactly that list')

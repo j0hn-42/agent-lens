@@ -6,7 +6,7 @@
  */
 import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from './messages'
 
-export const SETTINGS_TABS = ['general', 'sessions', 'notifications', 'keyboard'] as const
+const SETTINGS_TABS = ['general', 'sessions', 'notifications', 'keyboard'] as const
 export type SettingsTab = (typeof SETTINGS_TABS)[number]
 /** The tabs the dialog shows: Notifications is left out when there is no notification channel and no announcement setting */
 export function visibleSettingsTabs({ notifications, announcements }: { notifications: boolean; announcements: boolean }): SettingsTab[] {

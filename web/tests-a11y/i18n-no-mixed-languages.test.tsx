@@ -11,7 +11,9 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
-import { SETTINGS_TABS, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
+import { visibleSettingsTabs, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
+
+const ALL_SETTINGS_TABS = visibleSettingsTabs({ notifications: true, announcements: true })
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
 import { CommandPalette } from '@/components/agent-visualizer/command-palette'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
@@ -144,7 +146,7 @@ const SETTINGS_TAB_KEYS: Record<SettingsTab, MessageKey[]> = {
 }
 
 for (const locale of LOCALES) {
-  for (const tab of SETTINGS_TABS) {
+  for (const tab of ALL_SETTINGS_TABS) {
     test(`Settings, tab ${tab} (every notification state, an invalid threshold included) speaks only ${locale}`, () => {
       setLocaleChoice(locale)
       const strings: string[] = []
@@ -160,10 +162,10 @@ for (const locale of LOCALES) {
         strings.push(...shownStrings(dialog))
         cleanup()
       }
-      for (const key of [...SETTINGS_TAB_KEYS[tab], 'settings.title', 'settings.tabs', ...SETTINGS_TABS.map(t => SETTINGS_TAB_LABEL[t])] as MessageKey[]) {
+      for (const key of [...SETTINGS_TAB_KEYS[tab], 'settings.title', 'settings.tabs', ...ALL_SETTINGS_TABS.map(t => SETTINGS_TAB_LABEL[t])] as MessageKey[]) {
         assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
       }
-      for (const other of SETTINGS_TABS.filter(t => t !== tab)) {
+      for (const other of ALL_SETTINGS_TABS.filter(t => t !== tab)) {
         assert.ok(!strings.includes(MESSAGES[locale][SETTINGS_TAB_KEYS[other][1]]), `${other} is not shown in ${tab}`)
       }
       assert.deepEqual(foreignWords(locale, strings), [])
