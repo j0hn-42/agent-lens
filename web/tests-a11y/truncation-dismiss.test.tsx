@@ -171,3 +171,74 @@ test('All then a session: dismissed in All, a session it counted stays closed at
   await selectRow(s1)
   assert.ok(banner(r), 'one more node dropped in s1: back')
 })
+
+// ─── #569 review ─────────────────────────────────────────────────────────────
+
+const sessionsButton = () => document.getElementById(PANEL_BUTTON_IDS.sessions)!
+const sessionsMark = () => sessionsButton().querySelector<HTMLElement>('[data-loss-mark]')
+
+test('once dismissed, the loss stays visible outside the Sessions panel: a mark on the Sessions button, named for screen readers', async () => {
+  const r = await mount()
+  assert.equal(sessionsMark() === null, true, 'no mark while the banner itself shows')
+  await dismiss(r)
+  const mark = sessionsMark()
+  assert.ok(mark, 'the Sessions button of the top bar carries a mark after the dismissal (panel closed)')
+  assert.match(mark!.textContent ?? '', /⚠/, 'a symbol, not a colour alone')
+  assert.match(sessionsButton().textContent ?? '', /graph incomplete, losses listed in the Sessions panel/, 'the button name says it')
+  // Reopened from the indicator: the banner is back, the mark goes away
+  await openSessions()
+  await act(async () => { fireEvent.click(indicator()!.querySelector('button')!) })
+  await wait(100)
+  assert.ok(banner(r))
+  assert.equal(sessionsMark() === null, true, 'no mark while the banner shows again')
+})
+
+test('a stale dismissal (relay restarted: the total is now lower than the one dismissed at) does not hide a new loss', async () => {
+  // Dismissed at 100 in this tab before the relay restarted; the new relay's graph lost 6
+  window.sessionStorage.setItem(TRUNCATION_DISMISS_STORAGE_KEY, JSON.stringify({ 'view:all': 100, 'sel:s1': 100 }))
+  const r = await mount()
+  assert.ok(banner(r), 'a lower total is a new loss: the banner shows')
+})
+
+test('leaving full screen does not take the focus back to Details after a reopen from the indicator', async () => {
+  const r = await mount()
+  await dismiss(r)
+  await openSessions()
+  await act(async () => { fireEvent.click(indicator()!.querySelector('button')!) })
+  await wait(100)
+  assert.equal(document.activeElement === r.getByRole('button', { name: 'Details' }), true, 'the reopen itself focuses Details')
+  const enter = r.getByRole('button', { name: 'Enter full screen' })
+  enter.focus()
+  await act(async () => { fireEvent.click(enter) })
+  await wait(100)
+  assert.equal(banner(r) === null, true, 'no banner in full screen')
+  // Every focus move while leaving: Details must not take it, even for a moment (a screen reader announces each move)
+  const focused: string[] = []
+  const onFocusIn = (e: FocusEvent) => focused.push((e.target as HTMLElement).textContent ?? '')
+  document.addEventListener('focusin', onFocusIn)
+  try {
+    await act(async () => { fireEvent.click(r.getByRole('button', { name: 'Exit full screen' })) })
+    await wait(100)
+  } finally { document.removeEventListener('focusin', onFocusIn) }
+  assert.ok(banner(r), 'the banner is back after full screen')
+  assert.equal(document.activeElement === r.getByRole('button', { name: 'Details' }), false, 'the focus is not on Details')
+  assert.equal(focused.includes('Details'), false, `Details never took the focus while leaving full screen (${JSON.stringify(focused)})`)
+})
+
+test('the banner coming back for another reason (its total fell to 0, then a loss again) does not take the focus either', async () => {
+  const r = await mount()
+  await dismiss(r)
+  await openSessions()
+  await act(async () => { fireEvent.click(indicator()!.querySelector('button')!) })
+  await wait(100)
+  const sessions = sessionsButton()
+  sessions.focus()
+  // The session's counters drop to nothing (graph reloaded): no banner; then a loss again: the banner is back
+  await act(async () => { post(ev('s1', 'normalization_stats', { ignoredEvents: 0, malformed: 0, droppedByCap: 0, clampedFields: 0, duplicateEvents: 0 }, 2)) })
+  await wait(400)
+  assert.equal(banner(r) === null, true, 'nothing lost: no banner')
+  await act(async () => { post(ev('s1', 'normalization_stats', STATS, 3)) })
+  await wait(400)
+  assert.ok(banner(r), 'a loss again: the banner shows')
+  assert.equal(document.activeElement === sessions, true, 'the focus stays where the user left it')
+})

@@ -215,14 +215,27 @@ test('dismissTruncation: stores the total of the view; dismissing All also cover
   const s1 = truncationDismissKey('s1')
   const s2 = truncationDismissKey('s2')
   const prev = new Map([[s2, 99]])
-  const next = dismissTruncation(prev, all, 19, new Map([['s1', 12], ['s2', 7]]))
+  // s2's own view still counts 99 (a replay loss All does not show): its earlier dismissal at 99 still holds
+  const next = dismissTruncation(prev, all, 19, new Map([['s1', 12], ['s2', 7]]), new Map([['s1', 12], ['s2', 99]]))
   assert.equal(prev.size, 1, 'the previous map is not mutated')
   assert.equal(next.get(all), 19)
   assert.equal(next.get(s1), 12, 'switching from All to s1 at the same total keeps the banner closed')
-  assert.equal(next.get(s2), 99, 'a higher stored total is kept')
+  assert.equal(next.get(s2), 99, 'a higher stored total that the session view still counts is kept')
+  // #569 review: a higher stored total the session no longer counts is stale (relay restarted): replaced, not kept
+  const stale = dismissTruncation(prev, all, 19, new Map([['s1', 12], ['s2', 7]]), new Map([['s1', 12], ['s2', 7]]))
+  assert.equal(stale.get(s2), 7, 'stale higher total replaced by what All counted')
+  assert.equal(truncationBannerState({ ...createStats(), ignoredEvents: 7 }, 0, stale.get(s2)).show, false, 'so s2 opens closed after the All dismissal')
   assert.equal(truncationBannerState({ ...createStats(), ignoredEvents: 2 }, 10, next.get(s1)).show, false)
   assert.equal(truncationBannerState({ ...createStats(), ignoredEvents: 2 }, 11, next.get(s1)).show, true, 'more lost in s1: back')
   // A session dismissal stays a session dismissal
   const one = dismissTruncation(new Map(), s1, 12, new Map([['s2', 7]]))
   assert.deepEqual([...one], [[s1, 12]], 'covered totals only apply to the All view')
+})
+
+test('truncationBannerState: a total LOWER than the one dismissed at is a new loss (relay restarted, graph reloaded), so the banner shows (#569 review)', () => {
+  const stats = { ...createStats(), ignoredEvents: 3, droppedByCap: 2 }
+  assert.equal(truncationBannerState(stats, 0, 5).show, false, 'same total: still dismissed')
+  assert.equal(truncationBannerState(stats, 0, 100).show, true, 'normalizer counters only, lower than dismissed at')
+  assert.equal(truncationBannerState(createStats(), 40, 6371).show, true, 'replay loss only, lower than dismissed at')
+  assert.equal(truncationBannerState(createStats(), 0, 100).show, false, 'nothing lost now: nothing to show')
 })
