@@ -171,12 +171,17 @@ export function CanvasControls({
   const rootRef = useRef<HTMLDivElement>(null)
   const focusWasInside = useRef(false)
   useEffect(() => {
-    const onFocusIn = (e: globalThis.FocusEvent) => {
-      const target = e.target as Node
-      focusWasInside.current = !!(rootRef.current?.contains(target) || menuRef.current?.contains(target))
-    }
+    const inside = (target: EventTarget | null) =>
+      target instanceof Node && !!(rootRef.current?.contains(target) || menuRef.current?.contains(target))
+    const onFocusIn = (e: globalThis.FocusEvent) => { focusWasInside.current = inside(e.target) }
+    // A press on a spot that cannot take the focus sends it to <body> without any focusin: the focus has left
+    const onPointerDown = (e: PointerEvent) => { if (!inside(e.target)) focusWasInside.current = false }
     document.addEventListener('focusin', onFocusIn)
-    return () => document.removeEventListener('focusin', onFocusIn)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('pointerdown', onPointerDown, true)
+    }
   }, [])
   useLayoutEffect(() => {
     if (!focusWasInside.current) return
