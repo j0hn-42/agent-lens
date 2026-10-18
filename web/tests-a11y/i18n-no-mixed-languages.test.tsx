@@ -21,6 +21,8 @@ import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-con
 import { buildPaletteItems, type PaletteSource } from '@/lib/command-palette'
 import { sessionAttentionLabel } from '@/lib/card-text'
 import { STATE_LABEL_SHORT } from '@/lib/canvas-constants'
+import { agentStatusText } from '@/components/agent-visualizer/canvas/team-style'
+import { deriveFreshness, lastKnownStateText } from '@/hooks/simulation/freshness'
 import { LEGEND_ENTRY_IDS } from '@/lib/legend-entries'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
@@ -488,7 +490,27 @@ for (const locale of LOCALES) {
     // The canvas draws the English word under each agent: in French the row quotes it in lang=en, then glosses it
     const quoted = Array.from(dialog.querySelectorAll('[data-drawn-state]')).map(e => ({ text: e.textContent, lang: e.getAttribute('lang'), exempt: e.hasAttribute('data-i18n-exempt') }))
     if (locale === 'fr') {
-      assert.deepEqual([...new Set(quoted.map(q => q.text))].sort(), ['error', 'thinking', 'waiting'].sort())
+      // One row per kind of agent: the quoted word is the one the canvas draws under that node (agentStatusText, or
+      // lastKnownStateText in its place for a stale node, as draw-agents.ts does), then the French gloss follows
+      const canvasWord = (a: SessionListAgent) => deriveFreshness(a, PANEL_NOW) === 'stale' ? lastKnownStateText(a.state) : agentStatusText(a)
+      const expected: Array<[string, string | null]> = [
+        ['a:p', 'thinking'], // fresh main agent
+        ['a:s', 'thinking'], // fresh sub-agent
+        ['a:r', null], // a tool: the row shows the tool, no state word quoted
+        ['a:c', 'last known state: Thinking'], // teammate, stale for 60 s
+        ['a:w', 'last known state: Waiting for permission'], // agent silent for 10 min on a permission
+        ['a:e', 'error'], // closed after an error
+      ]
+      for (const [id, word] of expected) {
+        const agent = columnAgents.find(a => a.id === id)!
+        const row = dialog.querySelector(`[data-row-key="agent:${id}"]`)!
+        const span = row.querySelector('[data-drawn-state]')
+        if (word === null) { assert.equal(span, null, `${id}: no state word quoted next to a tool`); continue }
+        assert.equal(canvasWord(agent), word, `${id}: precondition, the canvas draws "${word}"`)
+        assert.equal(span?.textContent, word, `${id}: the row quotes the word drawn under the node`)
+        const gloss = (span?.parentElement?.textContent ?? '').slice(word.length)
+        assert.ok(gloss.startsWith(' : ') && gloss.length > 3, `${id}: then glosses it in French ("${gloss}")`)
+      }
       for (const q of quoted) assert.deepEqual([q.lang, q.exempt], ['en', true])
     } else {
       assert.deepEqual(quoted, [], 'in English the row already says the drawn word')
