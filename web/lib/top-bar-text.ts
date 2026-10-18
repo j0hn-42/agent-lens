@@ -96,7 +96,8 @@ export function connectionText(locale: Locale, status: ConnectionStatus, isDemo:
     default: return {
       label: tr(locale, 'topbar.connection.offline'),
       tone: 'error',
-      description: detailText ? tr(locale, 'topbar.connection.offline.detail', { detail: detailText.text }) : tr(locale, 'topbar.connection.offline.help'),
+      // A title attribute cannot declare its language (WCAG 3.1.2): a detail in another language stays beside the badge, out of the tooltip
+      description: detailText && detailText.lang === locale ? tr(locale, 'topbar.connection.offline.detail', { detail: detailText.text }) : tr(locale, 'topbar.connection.offline.help'),
       detail: detailText,
     }
   }
