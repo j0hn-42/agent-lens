@@ -8,14 +8,16 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import { recordingContext, stubDocument } from './canvas-recorder'
 import { LOD, AGENT_DRAW, STATS_OVERLAY, COST_DRAW } from '../web/lib/canvas-constants'
-import { lodForZoom, type LevelOfDetail } from '../web/components/agent-visualizer/canvas/draw-options'
+import { lodForZoom, discoveryCardScale, type LevelOfDetail } from '../web/components/agent-visualizer/canvas/draw-options'
+import { hitTestAt, focusShapeFor } from '../web/components/agent-visualizer/canvas/hit-detection'
+import { agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
 import { drawAgents } from '../web/components/agent-visualizer/canvas/draw-agents'
 import { drawToolCalls } from '../web/components/agent-visualizer/canvas/draw-tool-calls'
 import { drawMessageBubblesWorld } from '../web/components/agent-visualizer/canvas/draw-bubbles'
 import { drawCostLabels } from '../web/components/agent-visualizer/canvas/draw-cost'
 import { drawDiscoveries } from '../web/components/agent-visualizer/canvas/draw-discoveries'
 import { drawParticles } from '../web/components/agent-visualizer/canvas/draw-particles'
-import { drawPhaseLabels, drawTeamHalos } from '../web/components/agent-visualizer/canvas/draw-teams'
+import { drawPhaseLabels, drawClusterHalos, drawClusterLabels } from '../web/components/agent-visualizer/canvas/draw-teams'
 import { getToolCardSize } from '../web/components/agent-visualizer/canvas/render-cache'
 import { planOverlays, planKey } from '../web/components/agent-visualizer/canvas/overlay-plan'
 import { setOverlayHits, clearOverlayHits } from '../web/components/agent-visualizer/canvas/overlay-state'
@@ -293,10 +295,11 @@ test('a11y model: names, states and tool calls hidden by the LOD stay in the out
 })
 
 // ─── Secondary text: hidden under the floor, held at it where it is shown ───
-// Stats box, cost pill, context percentage, discovery text, particle labels, model caption, phase and
-// team halo labels are drawn in world space: they follow the zoom. Below the zoom where their size reaches
-// LOD.minTextPx on screen they are hidden (the panels and the outline keep the numbers); where they are
-// shown, hysteresis band included, they are never drawn under LOD.minTextPx.
+// Context percentage, discovery text, particle labels, model caption, phase and team halo labels are drawn
+// in world space: they follow the zoom. Below the zoom where their size reaches LOD.minTextPx on screen they
+// are hidden (the panels and the outline keep the numbers); where they are shown, hysteresis band included,
+// they are never drawn under LOD.minTextPx. The stats box and the cost pill (turned on by the user) are held
+// at LOD.minTextPx from LOD.detailMinZoom.
 
 /** Zooms from the fit of a team (0.4) to 150 %, each also with a previous frame that showed everything (hysteresis band) */
 const SECONDARY_ZOOMS = [0.4, 0.55, 0.6, 0.7, 0.8, 0.9, 0.93, 0.96, 1, 1.2, 1.5]
@@ -351,9 +354,9 @@ test('drawAgents: the model caption is drawn only where it reaches the minimum s
 test('planOverlays: the stats box and cost pill are reserved only where drawn, at the size they are drawn (#378)', () => {
   const a = mainAgent()
   const keys = [planKey.stats(a.id), planKey.cost(a.id)]
-  // Under the text floor: nothing is drawn, so nothing is reserved that would push other texts away
-  const low = planOverlays(planInput(map(a), 0.8, { showStats: true, showCost: true })).plan
-  for (const k of keys) assert.ok(!low.get(k) || low.get(k)!.hidden, `${k} reserved at 80 %`)
+  // Under the detail zoom: nothing is drawn, so nothing is reserved that would push other texts away
+  const low = planOverlays(planInput(map(a), 0.5, { showStats: true, showCost: true })).plan
+  for (const k of keys) assert.ok(!low.get(k) || low.get(k)!.hidden, `${k} reserved at 50 %`)
   // In the hysteresis band the text is held at the floor: the reserved rect is as high as the drawn one
   const zoom = 0.95
   const band = planOverlays(planInput(map(a), zoom, { showStats: true, showCost: true, lod: fromAbove(zoom) })).plan
@@ -363,6 +366,45 @@ test('planOverlays: the stats box and cost pill are reserved only where drawn, a
   const cost = band.get(planKey.cost(a.id))!
   assert.ok(cost && cost.rect, 'cost pill reserved in the band')
   assert.ok(cost.rect!.h >= COST_DRAW.pillHeight * (MIN_PX / 11) - 1e-9, `cost pill ${cost.rect!.h.toFixed(2)} px high on screen`)
+})
+
+// A Stats or Cost button that is on must show something where the auto-fit lands (often between 60 and
+// 100 % at 768 and 1024 px): from LOD.detailMinZoom the box and the pill are drawn, held at LOD.minTextPx.
+test('Stats and Cost on: from the detail zoom the stats box and the cost pill are drawn, at 11 px on screen (#378)', () => {
+  const a = mainAgent()
+  const tools = map(tool({ agentId: 's1:main', state: 'complete', tokenCost: 1200 }))
+  for (const zoom of [LOD.detailMinZoom, 0.7, 0.8, 0.9]) {
+    const lod = lodForZoom(zoom)
+    const rec = recordingContext(zoom)
+    drawAgents(rec.ctx, map(a), null, null, true, 0, opts(zoom, { lod, showStats: true, showCost: true }))
+    const stats = rec.texts.filter(t => t.text.includes('tools'))
+    assert.equal(stats.length, 1, `zoom ${zoom}: stats box drawn`)
+    assert.ok(stats[0].screenPx >= MIN_PX - 1e-9, `zoom ${zoom}: stats at ${stats[0].screenPx.toFixed(1)} px`)
+    const cost = recordingContext(zoom)
+    drawCostLabels(cost.ctx, map(a), tools, opts(zoom, { lod, showCost: true, showStats: true }))
+    const pill = cost.texts.filter(t => t.text.includes('$'))
+    assert.equal(pill.length, 1, `zoom ${zoom}: cost pill drawn`)
+    assert.ok(pill[0].screenPx >= MIN_PX - 1e-9, `zoom ${zoom}: cost pill at ${pill[0].screenPx.toFixed(1)} px`)
+  }
+})
+
+test('planOverlays: the stats box and the cost pill, held at 11 px, are reserved without overlapping each other (#378)', () => {
+  const a = mainAgent()
+  for (const zoom of [LOD.detailMinZoom, 0.7, 0.8, 0.9, 0.95, 1, 1.5]) {
+    for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
+      const { plan } = planOverlays(planInput(map(a), zoom, { showStats: true, showCost: true, lod }))
+      const stats = plan.get(planKey.stats(a.id))
+      const cost = plan.get(planKey.cost(a.id))
+      assert.ok(stats?.rect && !stats.hidden, `zoom ${zoom}: stats box reserved`)
+      assert.ok(cost?.rect && !cost.hidden, `zoom ${zoom}: cost pill reserved`)
+      assert.ok(stats.rect.h >= STATS_OVERLAY.boxHeight * (MIN_PX / STATS_OVERLAY.fontSize) - 1e-9, `zoom ${zoom}: stats box ${stats.rect.h.toFixed(2)} px high`)
+      assert.ok(cost.rect.h >= COST_DRAW.pillHeight * (MIN_PX / 11) - 1e-9, `zoom ${zoom}: cost pill ${cost.rect.h.toFixed(2)} px high`)
+      assert.equal(rectsOverlap(stats.rect, cost.rect), false, `zoom ${zoom}: stats ${JSON.stringify(stats.rect)} under cost ${JSON.stringify(cost.rect)}`)
+      // Both stay above the node
+      const nodeTop = (a.y - agentDrawRadius(a)) * zoom
+      assert.ok(stats.rect.y + stats.rect.h <= nodeTop + 1e-6, `zoom ${zoom}: stats box above the node`)
+    }
+  }
 })
 
 test('drawCostLabels: the cost pill is never drawn under the minimum on-screen size (#378)', () => {
@@ -397,18 +439,54 @@ test('drawDiscoveries and drawParticles: their text is never drawn under the min
   assert.ok(drawnAt > 0, 'discovery and particle text drawn at some zoom')
 })
 
-test('drawPhaseLabels and drawTeamHalos: halo and phase labels are never drawn under the minimum on-screen size (#378)', () => {
+// drawTeamHalos is not called by the draw loop (use-canvas-draw-loop.ts draws drawClusterHalos, drawPhaseLabels
+// and drawClusterLabels): the check covers the layers that are actually drawn.
+test('drawPhaseLabels, drawClusterHalos and drawClusterLabels (the halo layers of the draw loop): no text under the minimum on-screen size (#378)', () => {
   const labels: any[] = [{ clusterKey: 'c1', phase: 'build', text: 'Phase Build', x: 300, y: 200, memberIds: ['a', 'b'] }]
-  const halos: any[] = [{ name: 'release', color: '#aa66ff', cx: 300, cy: 300, r: 120, memberIds: ['a', 'b', 'c'] }]
-  let drawnAt = 0
+  const agents = map(
+    mainAgent({ x: 300, y: 300 }), agent({ id: 's1:worker', x: 420, y: 320 }),
+    agent({ id: 's2:main', agentKey: 's2:main', sessionId: 's2', isMain: true, parentId: null, parentKey: null, x: 900, y: 300 }),
+  )
+  const clusters = computeClusters(agents.values())
+  let phaseAt = 0
+  let titlesAt = 0
   for (const zoom of SECONDARY_ZOOMS) {
     for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
-      const rec = recordingContext(zoom)
-      drawPhaseLabels(rec.ctx, labels, opts(zoom, { lod }))
-      drawTeamHalos(rec.ctx, halos, opts(zoom, { lod }))
-      assert.deepEqual(tooSmall(rec), [], `zoom ${zoom}`)
-      if (rec.texts.length === 2) drawnAt++
+      // World space, under the camera: the phase chips and the halos (which carry no text of their own)
+      const world = recordingContext(zoom)
+      drawPhaseLabels(world.ctx, labels, opts(zoom, { lod }))
+      drawClusterHalos(world.ctx, clusters, null, opts(zoom, { lod }))
+      assert.deepEqual(tooSmall(world), [], `zoom ${zoom}: world-space halo layers`)
+      if (world.texts.some(t => t.text === 'Phase Build')) phaseAt++
+      // Screen space, after the camera: the halo titles placed by the overlay plan
+      const { plan } = planOverlays(planInput(agents, zoom, { lod }))
+      const screen = recordingContext(1)
+      drawClusterLabels(screen.ctx, clusters, plan, null, null, opts(zoom, { lod, plan }))
+      assert.deepEqual(tooSmall(screen), [], `zoom ${zoom}: halo titles`)
+      if (screen.texts.length > 0) titlesAt++
     }
   }
-  assert.ok(drawnAt > 0, 'phase and halo labels drawn at some zoom')
+  assert.ok(phaseAt > 0, 'phase labels drawn at some zoom')
+  assert.ok(titlesAt > 0, 'halo titles drawn at some zoom')
+})
+
+test('discovery cards: the click target and the focus ring follow the card as drawn, enlarged in the hysteresis band (#378)', () => {
+  const disc: any = { id: 'd1', agentId: 's1:main', type: 'file', label: 'canvas-constants.ts', content: 'LOD floor\n11 px', x: 500, y: 300, targetX: 500, targetY: 300, opacity: 1, timestamp: 0 }
+  const scene = { agents: new Map(), toolCalls: new Map(), discoveries: [disc] }
+  for (const zoom of [0.93, 0.96, 1, 1.5]) {
+    for (const lod of [lodForZoom(zoom), fromAbove(zoom)]) {
+      const rec = recordingContext(zoom)
+      drawDiscoveries(rec.ctx, [disc], new Map(), null, opts(zoom, { lod }))
+      // World size of the card as drawn (the recorder gives its on-screen size)
+      const card = rec.rects[0]
+      const drawnW = card.screenW / zoom
+      const drawnH = card.screenH / zoom
+      const inside = { x: disc.x + drawnW / 2 - 0.5, y: disc.y + drawnH / 2 - 0.5 }
+      assert.deepEqual(hitTestAt(inside.x, inside.y, scene, 0, zoom, lod), { type: 'discovery', id: 'd1' },
+        `zoom ${zoom}${lod.detailText ? ' (text shown)' : ''}: a click just inside the drawn corner (card ${drawnW.toFixed(1)} x ${drawnH.toFixed(1)})`)
+      const ring = focusShapeFor({ type: 'discovery', id: 'd1' } as any, scene, discoveryCardScale({ zoom, lod }))
+      assert.ok(ring && ring.kind === 'rect' && Math.abs(ring.w - drawnW) < 1e-6 && Math.abs(ring.h - drawnH) < 1e-6,
+        `zoom ${zoom}: focus ring ${JSON.stringify(ring)} around the drawn card ${drawnW} x ${drawnH}`)
+    }
+  }
 })

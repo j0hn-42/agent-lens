@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import { CAMERA } from '@/lib/canvas-constants'
-import { hitTestAt, type HitTarget, type ResolvedLink } from '@/components/agent-visualizer/canvas/index'
+import { hitTestAt, frameLevel, type HitTarget, type ResolvedLink } from '@/components/agent-visualizer/canvas/index'
 import {
   keyToAction, stepFocus, buildNodeOrder, locateNode, sameNode, type NavNode,
 } from '@/components/agent-visualizer/canvas/keyboard-nav'
@@ -96,7 +96,8 @@ export function useCanvasInteraction({
   const hitTest = useCallback((clientX: number, clientY: number): HitTarget | null => {
     const pos = screenToCanvas(clientX, clientY)
     const p = drawPropsRef.current
-    return hitTestAt(pos.x, pos.y, p, simTimeRef.current, transformRef.current.scale)
+    // With the level of detail of the last drawn frame: a discovery card enlarged in the hysteresis band is hit as drawn (#378)
+    return hitTestAt(pos.x, pos.y, p, simTimeRef.current, transformRef.current.scale, frameLevel.lod)
   }, [screenToCanvas, drawPropsRef, simTimeRef, transformRef])
 
   const updateHover = useCallback((target: HitTarget | null) => {

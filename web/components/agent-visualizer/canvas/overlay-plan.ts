@@ -256,7 +256,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, hard: true })
   }
   for (const z of input.workspaceZones ?? []) {
-    const h = workspaceHeaderRect(z, s, estimateTextWidth)
+    const h = workspaceHeaderRect(z, s)
     const rect = toScreen(t, h.x, h.y, h.w, h.h)
     if (onScreen(rect, vp, 0)) obstacles.push({ rect, cover: true })
   }
@@ -337,15 +337,15 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
 
     // Stats box and cost pill, stacked above the node (same layout as the draw code)
     const costUsage = agentCostUsage(a)
-    // Drawn only where their text reaches LOD.minTextPx (detailText; absent = details), held at it in the hysteresis band (#378)
-    const detailText = input.lod.detailText ?? input.lod.details
-    const showStatsBox = detailText && input.showStats && a.state !== 'complete'
-    const showCostPill = detailText && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
+    // Drawn from the detail zoom, held at LOD.minTextPx on screen (#378)
+    const showStatsBox = input.lod.details && input.showStats && a.state !== 'complete'
+    const showCostPill = input.lod.details && input.showCost && costUsage.value !== null && costUsage.value >= COST_DRAW.minDisplayCost
     if ((showStatsBox || showCostPill) && secondaryAllowed) {
       const layout = computeOverlayLayout({
         hasPercent: hasContextPercentFor(a), showStats: showStatsBox, showCost: showCostPill,
       })
-      // Both are enlarged around their bottom centre by the draw code in the hysteresis band
+      // Below 100 % the draw code enlarges the whole stack around the top of the node (both texts are 11 px)
+      const top = a.y - r
       if (showStatsBox && layout.statsTop != null) {
         const k = textHoldScale(STATS_OVERLAY.fontSize, s)
         const w = STATS_OVERLAY.boxWidth * k
@@ -353,7 +353,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         requests.push({
           id: planKey.stats(id),
           priority: overlayPriority(PRIORITY.stats, flags),
-          rect: toScreen(t, a.x - w / 2, a.y - r - layout.statsTop + STATS_OVERLAY.boxHeight - h, w, h),
+          rect: toScreen(t, a.x - w / 2, top - layout.statsTop * k, w, h),
           owner: id,
         })
       }
@@ -364,7 +364,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
         requests.push({
           id: planKey.cost(id),
           priority: overlayPriority(PRIORITY.cost, flags),
-          rect: toScreen(t, a.x - pillW / 2, a.y - r - layout.costTop + COST_DRAW.pillHeight - pillH, pillW, pillH),
+          rect: toScreen(t, a.x - pillW / 2, top - layout.costTop * k, pillW, pillH),
           owner: id,
         })
       }
