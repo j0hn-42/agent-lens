@@ -22,10 +22,12 @@ interface ReviewControlsInput {
   zoomToFit: () => void
   /** Start playing shortly after mount (not in the guided demo: the tour holds the scenario at each step's time) */
   autoPlay: boolean
+  /** Events on the timeline: with none there is nothing to review (undefined = not known, no guard) */
+  eventCount?: number
 }
 
 /** Live / review mode of the control bar: play-pause, resume live, seek, clear history, reload the session view */
-export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay }: ReviewControlsInput) {
+export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pushToast, seekingRef, zoomToFit, autoPlay, eventCount }: ReviewControlsInput) {
   const { isPlaying, maxTimeReached, play, pause, restart, setSpeed, seekToTime, saveSnapshot, restoreSnapshot } = sim
 
   useEffect(() => {
@@ -38,21 +40,28 @@ export function useReviewControls({ sim, bridge, isReviewing, setIsReviewing, pu
     pushToast({ message: 'Review mode - press LIVE to resume', durationMs: 4000 })
   }, [pushToast])
 
+  const nothingToReview = eventCount === 0
+  const refuseEmptyReview = useCallback(() => {
+    pushToast({ message: 'No events to review yet', durationMs: 4000 })
+  }, [pushToast])
+
   const handlePlayPause = useCallback(() => {
     if (isPlaying) {
+      if (nothingToReview) { refuseEmptyReview(); return }
       pause()
       setIsReviewing(true)
       announceReview()
     } else {
       play()
     }
-  }, [isPlaying, play, pause, announceReview, setIsReviewing])
+  }, [isPlaying, play, pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
 
   const handleEnterReview = useCallback(() => {
+    if (nothingToReview) { refuseEmptyReview(); return }
     pause()
     setIsReviewing(true)
     announceReview()
-  }, [pause, announceReview, setIsReviewing])
+  }, [pause, announceReview, setIsReviewing, nothingToReview, refuseEmptyReview])
 
   // Speed only applies in review mode: in live mode it would silently distort the time axis.
   // The keys 1 to 4 are not silent there: a toast says why nothing changed (#411).
