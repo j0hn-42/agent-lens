@@ -169,8 +169,9 @@ export function DetailPopup({ position, width, estimatedHeight, onClose, titleId
   // Tabbing away is not a request to close (WCAG 3.2.2, 2.4.3): Escape, Close and a click outside still do. The only
   // exception is below: focus entering a permission card that this popup covers.
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
-  // Over the lower part of the permission cards (height floor), the popup would hide a button that takes focus: it
-  // closes when focus enters a card (WCAG 2.4.7, #536). Elsewhere, tabbing away stays harmless.
+  // Over the lower part of the permission cards (the height floor, only when there is no room under nor beside them,
+  // #558), the popup would hide a button that takes focus: it closes when focus enters a card (WCAG 2.4.7, #536).
+  // Elsewhere, tabbing away stays harmless.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   const covers = placed.coversCards
