@@ -25,8 +25,8 @@ import type { ActiveTimeFields } from '@/lib/active-time'
  */
 export const ROW_GRID =
   'grid items-center gap-x-2 gap-y-0 grid-cols-[minmax(0,1fr)_10ch_7ch_9ch] ' +
-  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_9ch_10ch_11ch] ' +
-  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_9ch_10ch_11ch] ' +
+  '@min-[520px]:grid-cols-[minmax(0,1fr)_10ch_7ch_9ch_10ch_14ch] ' +
+  '@min-[640px]:grid-cols-[minmax(0,1fr)_9ch_9ch_12ch_7ch_9ch_10ch_14ch] ' +
   '@max-[440px]:flex @max-[440px]:flex-wrap'
 const WHEN_COST = 'hidden @min-[520px]:block'
 const WHEN_BRANCH = 'hidden @min-[640px]:block'
