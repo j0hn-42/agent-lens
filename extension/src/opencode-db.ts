@@ -50,6 +50,11 @@ export const OPENCODE_WINDOW_ROWS = 2000
 export const OPENCODE_WINDOW_MS = 10 * 60 * 1000
 /** Rows below the window checked per poll for a change the window missed (only id, time_updated and session_id are asked for). */
 export const OPENCODE_SWEEP_ROWS = 1000
+/**
+ * Rows delivered while still open (a tool part pending or running, an assistant message not completed)
+ * that are still read by id after they leave the window, so that their end is delivered (#420).
+ */
+export const OPENCODE_OPEN_ROWS = 500
 /** Changes found below the window remembered so that each one is counted once. */
 const STRAY_MAX = 1000
 /** State of a row in the window: to deliver, delivered but may still change, delivered, unreadable (counted). */
@@ -172,8 +177,14 @@ export interface OpenCodeKeyState {
   floor: number
   /** Last id checked by the sweep below the window ('' : start again from the lowest). */
   sweep: string
-  /** Changes found below the window and already counted: [id, time_updated]. */
+  /** Changes found below the window and already counted (or delivered by id): [id, time_updated]. */
   stray: [string, number][]
+  /**
+   * Rows delivered while open (a tool part pending or running, an assistant message not completed),
+   * oldest first: [id, time_updated delivered]. Once one leaves the window it is still read by id at each
+   * poll, and delivered when it changes; at most OPENCODE_OPEN_ROWS (absent: none).
+   */
+  open?: [string, number][]
 }
 export interface OpenCodeCursors {
   session: OpenCodeCursor
@@ -545,7 +556,7 @@ export class OpenCodeDb {
    * `limit`, within the byte budget), and OPENCODE_SWEEP_ROWS rows below the window (id, time_updated,
    * session_id). The light reads still read the b-tree leaf pages, which hold the start of each row.
    */
-  private readByKey<T extends { id: string; time_updated: number }>(
+  private readByKey<T extends { id: string; time_updated: number; data: string }>(
     name: 'message' | 'part',
     cursor: OpenCodeCursor,
     limit: number,
@@ -561,11 +572,12 @@ export class OpenCodeDb {
       // ceiling; what it held raises the floor, so that the sweep does not take those rows for losses.
       let floor = state.floor
       for (const [, t] of state.recent) floor = Math.max(floor, Math.min(t, now))
-      state = { ...this.keyStart(name, cursor.time, ceiling), stray: state.stray }
+      state = { ...this.keyStart(name, cursor.time, ceiling), stray: state.stray, open: state.open }
       state.floor = Math.max(state.floor, floor)
     }
     const recent = new Map<string, [number, number]>(state.recent.map(([id, t, s]) => [id, [t, s]]))
     const stray = new Map<string, number>(state.stray)
+    const open = new Map<string, number>(state.open ?? [])
     let floor = state.floor
 
     const capRows = OPENCODE_WINDOW_ROWS + limit + 1
@@ -578,7 +590,30 @@ export class OpenCodeDb {
     let skipped = 0
     const passedSkips: (string | null)[] = []
     const lost: (string | null)[] = []
+    // Open rows that left the window are read by id (#420): a tool silent for longer than the window
+    // still ends when it finishes. A changed one is loaded first, within the same limits.
+    const pinned = new Set<string>()
+    const outside = [...open.keys()].filter(id => state.below !== '' && id <= state.below)
+    if (outside.length > 0) {
+      const found = new Set<string>()
+      for (const r of this.conn.all(`SELECT ${this.lightColumns(name)} AND id IN (${outside.map(hexText).join(', ')}) ORDER BY ${name}.id ASC`)) {
+        const id = String(r.id)
+        found.add(id)
+        const t = timeOf(r.t)
+        if (t === undefined || t > upper || t === open.get(id)) continue
+        const v = r.n
+        const n = typeof v === 'number' && Number.isFinite(v) ? v : 0
+        if (toLoad.length >= limit || (toLoad.length > 0 && bytes + n > OPENCODE_POLL_BYTES_MAX)) { full = true; break }
+        bytes += n
+        owners.set(id, sessionIdOf(r.owner) ?? null)
+        pinned.add(id)
+        toLoad.push(id)
+      }
+      // Deleted: nothing more to follow (only known when the read went through)
+      if (!full) for (const id of outside) if (!found.has(id)) open.delete(id)
+    }
     for (const r of range) {
+      if (full) break
       const id = String(r.id)
       const owner = sessionIdOf(r.owner) ?? null
       owners.set(id, owner)
@@ -601,6 +636,25 @@ export class OpenCodeDb {
       toLoad.push(id)
     }
 
+    const remember = (id: string, t: number): void => {
+      stray.delete(id)
+      stray.set(id, t)
+      if (stray.size > STRAY_MAX) {
+        const oldest = stray.entries().next().value
+        if (oldest) { stray.delete(oldest[0]); floor = Math.max(floor, Math.min(oldest[1], now)) }
+      }
+    }
+    // A delivered row that is still open stays followed after it leaves the window; the oldest beyond
+    // OPENCODE_OPEN_ROWS is dropped (a later change to it is then counted by the sweep, not read).
+    const noteOpen = (row: T): void => {
+      open.delete(row.id)
+      if (!isOpenRow(name, row.data)) return
+      open.set(row.id, row.time_updated)
+      if (open.size > OPENCODE_OPEN_ROWS) {
+        const oldest = open.keys().next().value
+        if (oldest !== undefined) open.delete(oldest)
+      }
+    }
     const rows: T[] = []
     let settling = false
     let progressed = false
@@ -612,17 +666,33 @@ export class OpenCodeDb {
       for (const id of toLoad) {
         const r = byId.get(id)
         if (!r) continue // deleted between the two reads
-        const prev = recent.get(id)
         const t = timeOf(r.time_updated)
+        if (pinned.has(id)) {
+          // Below the window: delivered (or counted when unreadable), never taken back into the window.
+          // Remembered with its time, so that the sweep does not count this change as a loss.
+          if (t !== undefined && t > upper) continue
+          const row = t === undefined ? undefined : map(r)
+          if (!row) { progressed = true; remember(id, t ?? -1); open.delete(id); skipped++; passedSkips.push(owners.get(id) ?? null); continue }
+          rows.push(row)
+          // Still settling: given again at the next poll (its previous time is kept), like in the window
+          if (row.time_updated > now - SETTLE_MS) { settling = true; continue }
+          progressed = true
+          remember(id, row.time_updated)
+          noteOpen(row)
+          continue
+        }
+        const prev = recent.get(id)
         if (t !== undefined && t > upper) { recent.set(id, [t, PENDING]); progressed = true; continue }
         const row = t === undefined ? undefined : map(r)
         if (!row) {
           progressed = true
+          open.delete(id)
           if (!prev || prev[1] !== SKIPPED || prev[0] !== (t ?? -1)) { skipped++; passedSkips.push(owners.get(id) ?? null) }
           recent.set(id, [t ?? -1, SKIPPED])
           continue
         }
         rows.push(row)
+        noteOpen(row)
         const settled = row.time_updated <= now - SETTLE_MS
         if (!settled) settling = true
         // Giving again a row that is still settling is no progress: it must not keep the caller polling hot
@@ -635,14 +705,6 @@ export class OpenCodeDb {
 
     // The window keeps its newest OPENCODE_WINDOW_ROWS rows, and a settled row older than
     // OPENCODE_WINDOW_MS leaves it. What leaves raises the floor, under which the sweep sees no change.
-    const remember = (id: string, t: number): void => {
-      stray.delete(id)
-      stray.set(id, t)
-      if (stray.size > STRAY_MAX) {
-        const oldest = stray.entries().next().value
-        if (oldest) { stray.delete(oldest[0]); floor = Math.max(floor, Math.min(oldest[1], now)) }
-      }
-    }
     const sorted = [...recent].sort(byFirst)
     const cutoff = now - OPENCODE_WINDOW_MS
     let below = state.below
@@ -679,7 +741,8 @@ export class OpenCodeDb {
       for (const r of swept) {
         const id = String(r.id)
         const t = timeOf(r.t)
-        if (t === undefined || t <= floor || stray.get(id) === t) continue
+        // An open row is read by id (above): its change is delivered there, not lost
+        if (t === undefined || t <= floor || stray.get(id) === t || open.has(id)) continue
         lost.push(sessionIdOf(r.owner) ?? null)
         remember(id, t)
       }
@@ -695,6 +758,7 @@ export class OpenCodeDb {
       floor,
       sweep,
       stray: [...stray],
+      open: [...open],
     }
     return {
       rows,
@@ -777,10 +841,35 @@ function sanitizeKey(k: unknown): OpenCodeKeyState | undefined {
   for (const e of Array.isArray(o.stray) ? o.stray.slice(-STRAY_MAX) : []) {
     if (Array.isArray(e) && e.length === 2 && rawId(e[0]) && safeTime(e[1])) stray.push([e[0], e[1]])
   }
+  const open: [string, number][] = []
+  for (const e of Array.isArray(o.open) ? o.open.slice(-OPENCODE_OPEN_ROWS) : []) {
+    if (Array.isArray(e) && e.length === 2 && rawId(e[0]) && safeTime(e[1])) open.push([e[0], e[1]])
+  }
   let high = top
   if (recent.length > 0 && recent[recent.length - 1][0] > high) high = recent[recent.length - 1][0]
   if (below > high) high = below
-  return { below, top: high, recent, floor, sweep, stray }
+  return { below, top: high, recent, floor, sweep, stray, open }
+}
+
+/**
+ * A delivered row whose state can still change in a way the canvas shows (#420): a tool part pending or
+ * running (OpenCode then sets completed or error), an assistant message without `time.completed`. Only
+ * these are followed by id after they leave the window. Unparsable data is not open.
+ */
+export function isOpenRow(name: 'message' | 'part', data: string): boolean {
+  // Cheap filter first: most rows are neither (text parts, user messages)
+  if (!data.includes(name === 'part' ? '"tool"' : '"assistant"')) return false
+  let v: unknown
+  try { v = JSON.parse(data) } catch { return false }
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false
+  const o = v as Record<string, unknown>
+  if (name === 'part') {
+    const st = o.state && typeof o.state === 'object' ? (o.state as Record<string, unknown>).status : undefined
+    return o.type === 'tool' && (st === 'pending' || st === 'running')
+  }
+  const time = o.time && typeof o.time === 'object' ? (o.time as Record<string, unknown>) : undefined
+  const completed = time?.completed
+  return o.role === 'assistant' && !(typeof completed === 'number' && completed > 0)
 }
 
 function rowToSession(r: Record<string, unknown>): OpenCodeSessionRead | undefined {
