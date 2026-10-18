@@ -431,6 +431,8 @@ export const ANIM = {
   inertiaThreshold: 0.5,
   dragLerp: 0.25,
   autoFitLerp: 0.06,
+  /** Share of the gap to the auto-fit target closed per frame while part of what it frames is off the safe area (#378) */
+  autoFitCatchUpLerp: 0.25,
   dragThresholdPx: 5,
   viewportPadding: 120,
   breathe: {

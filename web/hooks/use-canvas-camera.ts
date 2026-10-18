@@ -2,7 +2,8 @@ import { useRef, useEffect, useCallback, type MutableRefObject } from 'react'
 import { Agent, ToolCallNode, Discovery, ANIM } from '@/lib/agent-types'
 import {
   computeFitBounds, fitContent, fitToView, fitInsets, circleBounds, NO_INSETS, clusterSetSignature, shouldResumeAutoFit, contentStamp,
-  type Transform, type Insets, type AutoFitState, type FitBoundsInput,
+  safeRect, autoFitStepShare, stepTowardAnchored,
+  type Transform, type Insets, type AutoFitState, type FitBoundsInput, type WorldBounds, type Rect,
 } from '@/components/agent-visualizer/canvas/camera-fit'
 import type { Cluster } from '@/components/agent-visualizer/canvas/cluster-model'
 import { computeWorkspaceZones } from '@/components/agent-visualizer/canvas/workspace-zones'
@@ -76,6 +77,8 @@ export function useCanvasCamera({
   const fitSettleRef = useRef(0)
   const followStateRef = useRef<FollowState>(INITIAL_FOLLOW)
   const lastFitKeyRef = useRef({ w: 0, h: 0, t: 0, r: 0, b: 0, l: 0 })
+  // The last fit target with the bounds it frames and its safe area: while part of them is off screen the camera catches up (#378)
+  const fitTargetRef = useRef<{ target: Transform; bounds: WorldBounds; safe: Rect } | null>(null)
 
   // Initialize transform centered on first agents
   useEffect(() => {
@@ -131,7 +134,11 @@ export function useCanvasCamera({
       zones: computeWorkspaceZones(clusters), simTime: simTimeRef.current ?? 0,
     }
     const insets = fitInsets(getInsets?.(), !focusScope && clusters.length > 0)
-    return fitContent(k => computeFitBounds(k === null ? input : { ...input, labelBlock, labelScale: k }), dimensions, insets)
+    // fitContent's last bounds are the ones its transform frames (each round fits the bounds it just asked for)
+    let framed: WorldBounds | null = null
+    const target = fitContent(k => (framed = computeFitBounds(k === null ? input : { ...input, labelBlock, labelScale: k })), dimensions, insets)
+    fitTargetRef.current = target && framed ? { target, bounds: framed, safe: safeRect(dimensions, insets) } : null
+    return target
   }, [getDescendantIds, drawPropsRef, simTimeRef, clustersRef, getInsets])
 
   const doZoomToFit = useCallback(() => {
@@ -313,11 +320,16 @@ export function useCanvasCamera({
     // Smooth lerp toward target
     const target = targetTransformRef.current
     if (target) {
-      const lerpSpeed = reducedMotionRef?.current ? 1 : ANIM.autoFitLerp
       const t = transformRef.current
-      const nx = t.x + (target.x - t.x) * lerpSpeed
-      const ny = t.y + (target.y - t.y) * lerpSpeed
-      const ns = t.scale + (target.scale - t.scale) * lerpSpeed
+      // A fit target catches up while what it frames sticks out of the safe area; every other target (zoom to a
+      // halo, keep the focus visible, presentation follow) eases as before
+      const fit = fitTargetRef.current?.target === target ? fitTargetRef.current : null
+      const lerpSpeed = reducedMotionRef?.current ? 1 : autoFitStepShare(t, fit?.bounds ?? null, fit?.safe ?? null, ANIM.autoFitLerp, ANIM.autoFitCatchUpLerp)
+      // A fit step keeps the centre of the safe area on its way to the target's (no sideways swing while zooming out)
+      const step = fit && lerpSpeed < 1
+        ? stepTowardAnchored(t, target, lerpSpeed, { x: fit.safe.x + fit.safe.w / 2, y: fit.safe.y + fit.safe.h / 2 })
+        : { x: t.x + (target.x - t.x) * lerpSpeed, y: t.y + (target.y - t.y) * lerpSpeed, scale: t.scale + (target.scale - t.scale) * lerpSpeed }
+      const nx = step.x, ny = step.y, ns = step.scale
       if (Math.abs(target.x - nx) < 0.5 && Math.abs(target.y - ny) < 0.5 && Math.abs(target.scale - ns) < 0.001) {
         targetTransformRef.current = null
         transformRef.current = { x: target.x, y: target.y, scale: target.scale }

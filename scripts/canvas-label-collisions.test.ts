@@ -14,9 +14,18 @@ import { computeClusters } from '../web/components/agent-visualizer/canvas/clust
 import { rectsOverlap, type Rect } from '../web/components/agent-visualizer/canvas/label-placement'
 import { formatTokensOfWindow } from '../web/lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../web/lib/usage'
-import { layoutAgentLabel, orchestratorInfo, agentDrawRadius } from '../web/components/agent-visualizer/canvas/team-style'
+import { layoutAgentLabel, orchestratorInfo, agentDrawRadius, hasSeveralSessions } from '../web/components/agent-visualizer/canvas/team-style'
 import { computeWorkspaceZones, workspaceHeaderRect } from '../web/components/agent-visualizer/canvas/workspace-zones'
 import { drawWorkspaceZones } from '../web/components/agent-visualizer/canvas/draw-teams'
+import { computeFitBounds, fitContent, fitInsets, safeRect } from '../web/components/agent-visualizer/canvas/camera-fit'
+import { agentLabelBlock } from '../web/components/agent-visualizer/canvas/overlay-plan'
+import { estimateTextWidth } from '../web/components/agent-visualizer/canvas/edge-bubbles'
+import { LOD } from '../web/lib/canvas-constants'
+import { processEvent, type ProcessEventContext } from '../web/hooks/simulation/process-event'
+import { createEmptyState, type SimulationState } from '../web/hooks/simulation/types'
+import { computeNextFrame } from '../web/hooks/simulation/animate'
+import { createForceLayout } from '../web/hooks/simulation/force-layout'
+import type { SimulationEvent } from '../web/lib/agent-types'
 
 stubDocument()
 // The main agent's hexagon is cached as a Path2D; node has none
@@ -246,3 +255,161 @@ test('drawWorkspaceZones: a wide-glyph (CJK) name is not squeezed by fillText ma
     assert.ok(natural <= (fill.args[3] as number) + 1e-6, `zoom ${zoom}: "${String(fill.args[0])}" needs ${natural} px, chip gives ${String(fill.args[3])} (text squeezed)`)
   }
 })
+
+// ─── A team of 10 agents at the zoom of the automatic framing (#378) ───
+// Audit of 2026-10-12: at the fit zoom the names of a 10-agent team were drawn at ~7-8 px, wrapped and covering each
+// other. Lots 2 and 4 hold the labels at 11 px and thin them out; this proves it on the real chain: the events of a team,
+// the force layout settled, the fit the camera computes, the overlay plan and what drawAgents draws. Every text drawn is
+// read back as a screen box (affine transform tracked) and none may cover another, nor the node of another agent.
+// The proof is made under the plan's width model (0.6 em per glyph); wider glyphs are checked on this layout below.
+
+/** A 2D context that tracks the full affine transform and records the screen box of every text drawn */
+function boxContext(emPerChar = 0.6) {
+  type M = [number, number, number, number, number, number]
+  let m: M = [1, 0, 0, 1, 0, 0]
+  const stack: Array<{ m: M; values: Record<string, unknown> }> = []
+  const saved = ['font', 'textAlign', 'textBaseline', 'globalAlpha', 'fillStyle'] as const
+  const state: Record<string | symbol, unknown> = { font: '10px sans-serif', textAlign: 'start', textBaseline: 'alphabetic', globalAlpha: 1, fillStyle: '#000' }
+  const texts: Array<Rect & { text: string; px: number }> = []
+  const mul = (n: M) => {
+    const [a, b, c, d, e, f] = m
+    m = [a * n[0] + c * n[1], b * n[0] + d * n[1], a * n[2] + c * n[3], b * n[2] + d * n[3], a * n[4] + c * n[5] + e, b * n[4] + d * n[5] + f]
+  }
+  const pt = (x: number, y: number) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+  const fontPx = () => Number(/(\d+(?:\.\d+)?)px/.exec(String(state.font))?.[1] ?? 10)
+  const methods: Record<string, (...a: any[]) => unknown> = {
+    save: () => { stack.push({ m: [...m] as M, values: Object.fromEntries(saved.map(k => [k, state[k]])) }) },
+    restore: () => { const top = stack.pop(); if (top) { m = top.m; Object.assign(state, top.values) } },
+    translate: (x: number, y: number) => mul([1, 0, 0, 1, x, y]),
+    scale: (sx: number, sy?: number) => mul([sx, 0, 0, sy ?? sx, 0, 0]),
+    rotate: (r: number) => mul([Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0]),
+    transform: (a: number, b: number, c: number, d: number, e: number, f: number) => mul([a, b, c, d, e, f]),
+    setTransform: (a: unknown, b: number, c: number, d: number, e: number, f: number) => { m = typeof a === 'number' ? [a, b, c, d, e, f] : [1, 0, 0, 1, 0, 0] },
+    resetTransform: () => { m = [1, 0, 0, 1, 0, 0] },
+    getTransform: () => ({ a: m[0], b: m[1], c: m[2], d: m[3], e: m[4], f: m[5] }),
+    measureText: (s: string) => ({ width: String(s).length * fontPx() * emPerChar }),
+    fillText: (s: string, x: number, y: number) => {
+      if (!(Number(state.globalAlpha) > 0.05) || !String(s).trim()) return
+      const fs = fontPx(), w = String(s).length * fs * emPerChar
+      const al = String(state.textAlign), bl = String(state.textBaseline)
+      const x0 = al === 'center' ? x - w / 2 : al === 'right' || al === 'end' ? x - w : x
+      const y0 = bl === 'top' ? y : bl === 'middle' ? y - fs / 2 : bl === 'bottom' ? y - fs : y - fs * 0.8
+      const [ax, ay] = pt(x0, y0), [bx, by] = pt(x0 + w, y0 + fs)
+      texts.push({ text: String(s), px: fs * Math.hypot(m[0], m[1]), x: Math.min(ax, bx), y: Math.min(ay, by), w: Math.abs(bx - ax), h: Math.abs(by - ay) })
+    },
+    createLinearGradient: () => ({ addColorStop: () => undefined }),
+    createRadialGradient: () => ({ addColorStop: () => undefined }),
+    getLineDash: () => [],
+  }
+  const ctx = new Proxy(state, {
+    get(target, prop) {
+      if (typeof prop === 'string' && prop in methods) return methods[prop]
+      if (prop in target) return target[prop]
+      return typeof prop === 'string' ? () => undefined : undefined
+    },
+    set(target, prop, value) { target[prop] = value; return true },
+  }) as unknown as CanvasRenderingContext2D
+  return { ctx, texts }
+}
+
+/** The events of one session hosting a team of 10 (its lead and nine teammates), the force layout run until it settles */
+function settledTeamOf10() {
+  const layout = createForceLayout()
+  let frame: SimulationState = createEmptyState()
+  let t = 1
+  const ctx: ProcessEventContext = {
+    syncForceSimulation: () => { frame = layout.syncState(frame) },
+    findToolSlot: () => ({ x: 0, y: 0 }), getContextWindowSize: () => 1_000_000, blockIdCounter: { current: 0 }, skipForceSync: false,
+  }
+  const names = ['api-dev', 'qa-dev', 'frontend-engineer', 'docs-writer', 'security-reviewer', 'db-migrations', 'perf-analyst', 'release-manager', 'ux-researcher']
+  const events = [
+    { type: 'agent_spawn', payload: { name: 'orchestrator', isMain: true, task: 'Refactor the payments API' } },
+    ...names.map(name => ({ type: 'agent_spawn', payload: { name, parent: 'orchestrator', kind: 'teammate', teamName: 'payments-squad', task: `${name} step` } })),
+  ]
+  for (const e of events) {
+    frame = processEvent({ time: t, type: e.type, payload: e.payload, sessionId: 's1' } as SimulationEvent, { ...frame, currentTime: t }, ctx)
+    t += 0.01
+  }
+  for (let i = 0; i < 2000 && (i < 60 || layout.active); i++) {
+    const dt = 1 / 60
+    const next = computeNextFrame(frame, dt, frame.currentTime + dt, Math.max(frame.maxTimeReached, frame.currentTime + dt), frame,
+      { useMockData: false, mockScenarioLength: 0, mockScenarioEndTime: 0 })
+    frame = layout.stepState(next)
+  }
+  layout.destroy()
+  // The widest token line of the canvas on every agent ("4.3k estimated / 1M tokens, window assumed")
+  const agents = new Map<string, any>()
+  let k = 0
+  for (const [id, a] of frame.agents) {
+    const used = 4300 + 9000 * k++
+    agents.set(id, {
+      ...a, opacity: 1, scale: 1, tokensUsed: used, tokensMax: 1_000_000, tokensMaxAssumed: true, tokensEstimated: true,
+      contextBreakdown: { systemPrompt: used, userMessages: 0, toolResults: 0, reasoning: 0, subagentResults: 0 },
+    })
+  }
+  return { agents, teams: frame.teams }
+}
+
+/** The transform the camera's automatic framing lands on (computeFitTransform in use-canvas-camera, no focus scope) */
+function autoFit(agents: Map<string, any>, clusters: any[], viewport: { width: number; height: number }, measured: { top: number; bottom: number }) {
+  const measure = (text: string) => estimateTextWidth(text, AGENT_DRAW.labelFontSize)
+  const showSession = hasSeveralSessions(agents.values())
+  const labelBlock = (a: any) => agentLabelBlock(a, agentDrawRadius(a), measure, { showSession, orchestrator: orchestratorInfo(a), details: true })
+  const input = { agents: [...agents.values()], toolCalls: [], discoveries: [], clusters, focusScope: null, zones: computeWorkspaceZones(clusters), simTime: 1 }
+  const insets = fitInsets({ top: measured.top, bottom: measured.bottom, left: 0, right: 0 }, clusters.length > 0)
+  const t = fitContent(s => computeFitBounds(s === null ? input : { ...input, labelBlock, labelScale: s }), viewport, insets)!
+  return { t, safe: safeRect(viewport, { top: measured.top, bottom: measured.bottom, left: 0, right: 0 }) }
+}
+
+for (const [w, h, top, bottom] of [[1024, 768, 60, 110], [1440, 900, 60, 110], [768, 1024, 181, 110]] as const) {
+  test(`a team of 10 at the fit zoom (${w} x ${h}): no drawn text covers another, nor another agent's node (#378)`, () => {
+    const { agents, teams } = settledTeamOf10()
+    assert.equal(agents.size, 10, 'precondition: ten agents')
+    const clusters = computeClusters(agents.values(), teams)
+    const { t, safe } = autoFit(agents, clusters, { width: w, height: h }, { top, bottom })
+    const lod = lodForZoom(t.scale)
+    assert.ok(lod.labels, `precondition: labels are drawn at the fit zoom ${t.scale.toFixed(3)}`)
+    const { plan } = planOverlays({
+      agents, clusters, edgeBubbles: [], transform: t, viewport: { w, h }, safeArea: safe, lod,
+      showStats: false, showCost: false, showSessionLabels: false, selectedAgentId: null, hoveredAgentId: null, focusedAgentId: null,
+      simTime: 1, teams, toolCards: [], workspaceZones: computeWorkspaceZones(clusters), isBubbleHeld: () => false,
+    } as any)
+    const draw = (withPlan: boolean, em = 0.6) => {
+      const rec = boxContext(em)
+      rec.ctx.translate(t.x, t.y)
+      rec.ctx.scale(t.scale, t.scale)
+      drawAgents(rec.ctx, agents, null, null, false, 0, { reducedMotion: true, zoom: t.scale, lod, plan: withPlan ? plan : undefined, teams, showCost: false, showStats: false, showSessionLabels: false } as any)
+      // The glyph at the centre of a node is part of its shape; every other text is a label line, a pill or a token line
+      return rec.texts.filter(x => [...x.text].length > 1)
+    }
+    const show = (r: Rect & { text?: string }) => `${r.text ? `"${r.text}" ` : ''}${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`
+    const overlaps = (texts: Array<Rect & { text: string }>) => {
+      const bad: string[] = []
+      for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) {
+        if (rectsOverlap(texts[i], texts[j])) bad.push(`${show(texts[i])} covers ${show(texts[j])}`)
+      }
+      // A text on the disc of a node (the label of a node hangs under its disc, never on it)
+      for (const a of agents.values()) {
+        const r = agentDrawRadius(a) * t.scale
+        const disc: Rect = { x: a.x * t.scale + t.x - r, y: a.y * t.scale + t.y - r, w: 2 * r, h: 2 * r }
+        for (const x of texts) if (rectsOverlap(x, disc)) bad.push(`${show(x)} on the node of ${a.name} ${show(disc)}`)
+      }
+      return bad
+    }
+    // The check is not vacuous: without the overlay plan, the same frame draws covered texts
+    assert.ok(overlaps(draw(false)).length > 0, 'precondition: without the plan the labels of the team overlap')
+    const texts = draw(true)
+    const names = texts.filter(x => [...agents.values()].some(a => x.text.includes(a.name)))
+    // The lead and at least one teammate keep a name (the plan thins the others out, see canvas-lod.test.ts)
+    assert.ok(names.length >= 2, `precondition: names are drawn at the fit zoom ${t.scale.toFixed(3)} (${names.map(n => n.text).join(', ')})`)
+    for (const x of texts) assert.ok(x.px >= LOD.minTextPx - 1e-6, `"${x.text}" drawn at ${x.px.toFixed(1)} px`)
+    assert.deepEqual(overlaps(texts), [], `zoom ${t.scale.toFixed(3)}: drawn texts overlap`)
+    // The plan reserves the texts at its estimate (0.6 em per glyph, a Latin monospace). With the glyphs measured and
+    // drawn wider than that (0.7 em, then 1 em as full-width CJK), the texts of this layout still cover nothing. This
+    // margin comes from the spacing of this settled layout, not from a guarantee of the plan.
+    for (const em of [0.7, 1]) assert.deepEqual(overlaps(draw(true, em)), [], `glyphs drawn at ${em} em: drawn texts overlap`)
+    const labels = [...agents.keys()].map(id => plan.get(planKey.label(id)))
+    console.log(`  ${w} x ${h}: zoom ${t.scale.toFixed(3)}, ${texts.length} texts drawn, names: ${names.map(n => n.text).join(', ')}; `
+      + `labels hidden ${labels.filter(p => p?.hidden).length}, one line ${labels.filter(p => p && !p.hidden && p.collapsed).length}`)
+  })
+}
