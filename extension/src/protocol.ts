@@ -309,6 +309,9 @@ export interface RelayStatus {
   /** Watched runtimes that cannot be read right now, with the reason (#420), e.g. the OpenCode database not found.
    *  Present only when there is one; the message never carries a file path. */
   runtimeProblems?: Array<{ runtime: string; message: string }>
+  /** Losses of a watched runtime that no followed session counts in its normalization_stats (#420): unreadable rows and
+   *  row changes not read, in sessions not followed at the time. Lower bounds. Present only when one is above 0. */
+  runtimeLosses?: Array<{ runtime: string; unreadableRows: number; missedUpdates: number }>
   /** Optional session index (#66): present only when one is configured */
   sessionIndex?: { status: 'ok' | 'degraded' | 'unavailable'; count: number; truncated: boolean; message?: string }
   /** Agent launches (#229): present only when the relay was started with --allow-launch, and never for a tunnel Host */

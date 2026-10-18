@@ -177,6 +177,15 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   /**
+   * The losses of the open file that no followed session took in its normalization_stats, as counts
+   * (#420): the ones status() words, for the relay's /status. Lower bounds; back to 0 when the file is
+   * replaced (they belonged to the old one).
+   */
+  unattributedLosses(): { unreadableRows: number; missedUpdates: number } {
+    return { unreadableRows: this.unattributedSkipped, missedUpdates: this.unattributedLost }
+  }
+
+  /**
    * Why the database cannot be read right now (not found, no driver, unexpected schema, failed poll), as
    * last observed; undefined while it reads or before the first look (#420). Never a file path: these
    * messages name none (the healthy status, which does, is not one of them). Capped like any shown text.
