@@ -19,7 +19,7 @@ import { carriesRefusal, redirectMessage, refusalProbe } from '@/lib/permission-
 import { useReconnectingSource } from '@/hooks/use-reconnecting-source'
 import type { SimulationEvent, TeamSummary } from '@/lib/agent-types'
 import { MOCK_SESSIONS } from '@/lib/mock-scenario'
-import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
+import { applyRelayScope, fetchRelayScopeState, runtimeProblemRecheckDelay, runtimeRecheckKey, type RelayScope, type RelayScopeState } from '@/lib/relay-scope'
 import {
   createSessionBuffers, appendSessionEvent, releaseSessionBuffer, clearSessionBuffers, sessionEventCount, sessionEventsFrom,
   bufferedEventCount, sessionExportSlice,
@@ -426,8 +426,12 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
   // A runtime problem read from GET /status may turn false while the page is connected (#420): re-read it on a
   // bounded schedule for as long as it is shown
   const runtimeRecheckRef = useRef(0)
+  const runtimeRecheckKeyRef = useRef('')
   useEffect(() => {
     if (!relayEnabled || source.status !== 'connected') return
+    // A problem that appears (or goes away) restarts the schedule from 5 s; a loss count that grows does not (#420)
+    const key = runtimeRecheckKey(relayScope)
+    if (key !== runtimeRecheckKeyRef.current) { runtimeRecheckKeyRef.current = key; runtimeRecheckRef.current = 0 }
     const delay = runtimeProblemRecheckDelay(relayScope, runtimeRecheckRef.current)
     if (delay === null) { runtimeRecheckRef.current = 0; return }
     const ctl = new AbortController()
