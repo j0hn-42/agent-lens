@@ -37,7 +37,7 @@ export function agentContextIncomplete(
 }
 
 /** The word after a context figure its session's loss leaves incomplete (canvas: short, the box is narrow) */
-export const CONTEXT_INCOMPLETE_MARK = ROLLUP_INCOMPLETE_TEXT
+const CONTEXT_INCOMPLETE_MARK = ROLLUP_INCOMPLETE_TEXT
 
 /** The same, in words, where there is room (the graph outline) */
 export const CONTEXT_LAST_READING_INCOMPLETE = `(last reading, ${ROLLUP_INCOMPLETE_TEXT.replace(/[()]/g, '')})`
