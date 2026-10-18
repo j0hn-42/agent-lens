@@ -123,6 +123,8 @@ function syncSceneIntoDrawProps(d: DrawLoopDeps): void {
     { agentId: p.selectedAgentId, toolCallId: p.selectedToolCallId ?? null, discoveryId: p.selectedDiscoveryId ?? null },
     d.hasFocusRef.current ? d.focusedNodeRef.current : null, d.collapseMemoryRef.current, s)
   d.collapseViewRef.current = scene.collapse
+  // The hidden agents drawn all the same are laid out by the force layout too (#554)
+  p.onLayoutKeepIds?.(scene.keptIds)
   p.agents = scene.agents
   p.collapse = scene.collapse
   p.toolCalls = scene.toolCalls

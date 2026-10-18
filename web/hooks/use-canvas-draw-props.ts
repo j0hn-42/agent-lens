@@ -26,7 +26,7 @@ function buildDrawProps(
   const {
     simulationRef, selectedAgentId, hoveredAgentId, showStats, showHexGrid, pauseAutoFit,
     onAgentClick, onAgentHover, onAgentDrag, onContextMenu, onToolCallClick, selectedToolCallId, onDiscoveryClick,
-    selectedDiscoveryId, showCostOverlay, hideInactive = false, onLinkClick, selectedLinkId, health,
+    selectedDiscoveryId, showCostOverlay, hideInactive = false, onLinkClick, selectedLinkId, health, onLayoutKeepIds,
   } = props
   const sim = simulationRef.current
   const scene = sceneAgents(sim.agents, hideInactive, [selectedAgentId, hoveredAgentId],
@@ -48,6 +48,7 @@ function buildDrawProps(
       onAgentDrag, onAgentClick, onAgentHover, onContextMenu,
       onToolCallClick, onDiscoveryClick, onLinkClick,
       onClusterClick,
+      onLayoutKeepIds,
       isDragging: prev?.isDragging ?? false,
     },
   }
