@@ -40,8 +40,6 @@ export function acceptQuota(prev: QuotaSnapshotView | null, next: QuotaSnapshotV
 export type QuotaGaugeState =
   | { kind: 'claude'; fiveHour: GaugeView | null; sevenDay: GaugeView | null; ageMinutes: number | null }
   | { kind: 'unknown' }
-  | { kind: 'unavailable'; runtime: 'copilot' }
-  | { kind: 'no-subscription'; runtime: 'opencode' }
   | { kind: 'hidden' }
 
 /** A window whose reset has passed shows the previous period's figure; one too far ahead cannot be right. Both are unknown. */
@@ -55,10 +53,9 @@ function liveWindow(w: GaugeView | null, now: number): GaugeView | null {
  *  `runtime` is the selected session's runtime. The relay tags every Claude session 'claude', so `undefined` means
  *  no session is selected: the account-wide Claude quota still applies, but with no snapshot there is nothing to show
  *  (a Claude session without any snapshot shows nothing either, #467).
- *  Copilot and OpenCode never read the snapshot. */
+ *  Any other runtime (Copilot, OpenCode, ...) has no subscription quota to prove: nothing is shown, never a permanent
+ *  "not available" text (#532); it never reads the snapshot. */
 export function quotaGaugeState(runtime: string | undefined, snapshot: QuotaSnapshotView | null, now: number): QuotaGaugeState {
-  if (runtime === 'copilot') return { kind: 'unavailable', runtime: 'copilot' }
-  if (runtime === 'opencode') return { kind: 'no-subscription', runtime: 'opencode' }
   if (runtime !== undefined && runtime !== 'claude') return { kind: 'hidden' }
   // No snapshot was ever received: with Claude Code that is the normal case until the status line is wrapped, not a problem
   // to report in the bar (the way to enable it is in Settings). 'unknown' is only for a figure we had and can no longer trust.

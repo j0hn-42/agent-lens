@@ -193,9 +193,7 @@ export function QuotaGauges({ state, interactive = true }: {
       </span>
     )
   }
-  return (
-    <span data-testid="topbar-quota" lang={locale} style={{ color: COLORS.textMuted }}>
-      {t(state.kind === 'unavailable' ? 'quota.unavailable' : 'quota.noSubscription')}
-    </span>
-  )
+  // Exhaustiveness: a new QuotaGaugeState kind must fail tsc here instead of silently rendering nothing
+  const exhaustive: never = state
+  return exhaustive
 }
