@@ -4,10 +4,13 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, act } from '@testing-library/react'
 import axe from 'axe-core'
+import fs from 'node:fs'
+import path from 'node:path'
 
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
+import { drawnStatusText } from '@/components/agent-visualizer/canvas/team-style'
 import { useFreshnessValue, type FreshnessClock } from '@/hooks/use-freshness-clock'
 import { freshnessKey } from '@/hooks/simulation/freshness'
 import { STALE_AFTER_MS, FRESHNESS_DRAW, TERMINAL_STATUS_VISIBLE_MS } from '@/lib/canvas-constants'
@@ -319,4 +322,31 @@ test('canvas: the stale label reads "last known state: Thinking" in an opaque li
   const fresh = freshCalls.find(c => c.fn === 'fillText' && c.text === 'thinking')
   assert.ok(fresh, 'a fresh node still says its state in words')
   assert.equal(fresh.fillStyle, THINKING_COLOR, 'and in the state colour')
+})
+
+// ─── The status line has one source (#502) ───────────────────────────────────
+
+test('canvas: the status line drawn under a node is drawnStatusText, the function the Sessions rows quote (#502)', () => {
+  const now = T0 + STALE_AFTER_MS + 1
+  const cases: Array<[string, Record<string, unknown>, string]> = [
+    ['teammate at work', { kind: 'teammate', activity: 'working', lastEventAt: now }, 'working'],
+    ['teammate reported idle while its state still says thinking', { kind: 'teammate', activity: 'idle', lastEventAt: now }, 'idle'],
+    ['stale agent', { lastEventAt: T0 }, 'last known state: Thinking'],
+    ['stale teammate', { kind: 'teammate', activity: 'working', lastEventAt: T0 }, 'last known state: Thinking'],
+  ]
+  for (const [name, over, word] of cases) {
+    assert.equal(drawnStatusText(canvasAgent('s1:a', over), now), word, `${name}: precondition`)
+    const texts = drawOne(over, now).filter(c => c.fn === 'fillText').map(c => c.text)
+    assert.ok(texts.includes(word), `${name}: the canvas draws "${word}" (drew ${JSON.stringify(texts)})`)
+  }
+})
+
+test('canvas: draw-agents takes the status line from drawnStatusText and keeps no copy of its rule (#502)', () => {
+  // A copy of the rule in draw-agents would draw the same words today and drift apart later with no test failing:
+  // the status line is read from the one function, and the pieces of that rule are not called there
+  const src = fs.readFileSync(path.join(__dirname, '../components/agent-visualizer/canvas/draw-agents.ts'), 'utf8')
+  assert.ok(src.includes('drawnStatusText('), 'draw-agents.ts calls drawnStatusText')
+  for (const piece of ['lastKnownStateText', 'agentStatusText']) {
+    assert.equal(src.includes(piece), false, `draw-agents.ts does not compose the status line itself (${piece})`)
+  }
 })

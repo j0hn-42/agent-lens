@@ -103,7 +103,8 @@ test('parseNormalizationStats never invents a number: bad counters read as 0', (
   assert.deepEqual(web.parseNormalizationStats(null), web.createStats())
   assert.deepEqual(web.parseNormalizationStats([1, 2]), web.createStats())
   const parsed = web.parseNormalizationStats({ ignoredEvents: 3.9, malformed: -2, droppedByCap: NaN, clampedFields: '7', duplicateEvents: Infinity, extra: 5 })
-  assert.deepEqual(parsed, { ignoredEvents: 3, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0 })
+  assert.deepEqual(parsed, { ignoredEvents: 3, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0, missedUpdates: 0 })
+  assert.equal(web.parseNormalizationStats({ missedUpdates: 2.5 }).missedUpdates, 2)
   assert.equal(web.parseNormalizationStats({ ignoredEvents: 1e300 }).ignoredEvents, web.NORM_NUM_MAX)
 })
 
@@ -117,6 +118,15 @@ test('banner rules: duplicates and clamping alone never claim the graph is trunc
   assert.equal(web.shouldShowTruncationBanner(cut, undefined), true)
   assert.equal(web.shouldShowTruncationBanner(cut, 7), false, 'dismissed at this total')
   assert.equal(web.shouldShowTruncationBanner({ ...cut, droppedByCap: 5 }, 7), true, 'comes back when more is dropped')
+})
+
+test('updates the source holds but the reader did not read (#420) have their own counter: they truncate the graph but are not ignored events', () => {
+  const missed = { ...web.createStats(), missedUpdates: 2 }
+  assert.equal(web.isTruncated(missed), true)
+  assert.equal(web.truncationTotal(missed), 2)
+  assert.deepEqual(web.truncationHeadline(missed), { events: 0, nodes: 0 }, 'not counted as events ignored')
+  assert.equal(web.shouldShowTruncationBanner(missed, undefined), true)
+  assert.equal(ext.isTruncated({ ...ext.createStats(), missedUpdates: 1 }), true)
 })
 
 test('sumNormalizationStats adds sessions up and stays capped (#366)', () => {

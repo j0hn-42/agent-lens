@@ -21,6 +21,7 @@ import { TourBridgeContext } from '@/components/agent-visualizer/guided-tour-con
 import { buildPaletteItems, type PaletteSource } from '@/lib/command-palette'
 import { sessionAttentionLabel } from '@/lib/card-text'
 import { STATE_LABEL_SHORT } from '@/lib/canvas-constants'
+import { drawnStatusText } from '@/components/agent-visualizer/canvas/team-style'
 import { LEGEND_ENTRY_IDS } from '@/lib/legend-entries'
 import { REPEAT_THRESHOLD, CYCLE_THRESHOLD } from '@/lib/loop-detection'
 import { DEFAULT_CALM_LAYERS } from '@/lib/motion-layers'
@@ -453,10 +454,13 @@ for (const locale of LOCALES) {
 
 // ---- The Sessions panel, columns and agent rows (#502) ----
 
-for (const d of ['Planner', 'Scribe', 'Checker', 'Runner', 'Reader', 'Fixer', 'ui-designer']) FIXTURE_DATA.add(d)
+for (const d of ['Planner', 'Scribe', 'Checker', 'Runner', 'Reader', 'Fixer', 'Tester', 'Idler', 'Closer', 'ui-designer']) FIXTURE_DATA.add(d)
 
 const PANEL_NOW = NOW
-/** One agent row per way the row can speak: fresh, a tool, last known, silent for a permission, closed after an error, a sub-agent. */
+/**
+ * One agent row per way the row can speak: fresh, a tool, last known, silent for a permission, closed after an error, a
+ * sub-agent, a teammate at work, a teammate whose reported activity differs from its state, a finished agent.
+ */
 const columnAgents: SessionListAgent[] = [
   { ...panelAgent('a:p', 'a', 'thinking', 'Planner'), kind: 'main', model: 'claude-opus-4-5-20251101', tokensUsed: 12_400, tokenStatus: 'partial', tokensEstimated: true, activeMs: 95_000, lastEventAt: PANEL_NOW, spawnTime: 1 },
   { ...panelAgent('a:s', 'a', 'thinking', 'Scribe'), kind: 'subagent', parentKey: 'a:p', tokensUsed: 800, lastEventAt: PANEL_NOW, spawnTime: 2 },
@@ -464,6 +468,9 @@ const columnAgents: SessionListAgent[] = [
   { ...panelAgent('a:c', 'a', 'thinking', 'Checker'), kind: 'teammate', lastEventAt: PANEL_NOW - 60_000, spawnTime: 4 },
   { ...panelAgent('a:w', 'a', 'waiting_permission', 'Reader'), lastEventAt: PANEL_NOW - 10 * 60_000, spawnTime: 5 },
   { ...panelAgent('a:e', 'a', 'error', 'Fixer'), lastEventAt: PANEL_NOW - 3 * 60_000, spawnTime: 6 },
+  { ...panelAgent('a:t', 'a', 'thinking', 'Tester'), kind: 'teammate', activity: 'working', lastEventAt: PANEL_NOW, spawnTime: 7 },
+  { ...panelAgent('a:i', 'a', 'thinking', 'Idler'), kind: 'teammate', activity: 'idle', lastEventAt: PANEL_NOW, spawnTime: 8 },
+  { ...panelAgent('a:d', 'a', 'complete', 'Closer'), lastEventAt: PANEL_NOW, spawnTime: 9 },
 ]
 const columnSessions: SessionInfo[] = [
   { id: 'a', label: 'fix login', status: 'active', startTime: 0, lastActivityTime: 3_000, runtime: 'claude', projectId: 'pa', projectName: 'alpha', branch: 'main', startTimeWatched: true },
@@ -502,7 +509,33 @@ for (const locale of LOCALES) {
     // The canvas draws the English word under each agent: in French the row quotes it in lang=en, then glosses it
     const quoted = Array.from(dialog.querySelectorAll('[data-drawn-state]')).map(e => ({ text: e.textContent, lang: e.getAttribute('lang'), exempt: e.hasAttribute('data-i18n-exempt') }))
     if (locale === 'fr') {
-      assert.deepEqual([...new Set(quoted.map(q => q.text))].sort(), ['error', 'thinking', 'waiting'].sort())
+      // One row per kind of agent: the quoted word is the one the canvas draws under that node (drawnStatusText, which
+      // draw-agents.ts draws: freshness.test.tsx), then the French gloss of that same word follows
+      const expected: Array<[string, string | null, string?]> = [
+        ['a:p', 'thinking', 'Réflexion'], // fresh main agent
+        ['a:s', 'thinking', 'Réflexion'], // fresh sub-agent
+        ['a:r', null], // a tool: the row shows the tool, no state word quoted
+        ['a:c', 'last known state: Thinking', 'dernier état connu : Réflexion'], // teammate, stale for 60 s
+        ['a:w', 'last known state: Waiting for permission', 'en attente d’autorisation depuis 10 min'], // agent silent for 10 min on a permission
+        ['a:e', 'error', 'fermé, dernier état connu : Erreur'], // closed after an error
+        ['a:t', 'working', 'Au travail'], // teammate at work: its activity is drawn, and glossed
+        ['a:i', 'idle', 'Inactif'], // teammate reported idle while its state still says thinking: never "idle : Réflexion"
+        ['a:d', 'done', 'Terminé'], // finished agent
+      ]
+      for (const [id, word, gloss] of expected) {
+        const agent = columnAgents.find(a => a.id === id)!
+        const row = dialog.querySelector(`[data-row-key="agent:${id}"]`)!
+        const span = row.querySelector('[data-drawn-state]')
+        if (word === null) { assert.equal(span, null, `${id}: no state word quoted next to a tool`); continue }
+        assert.equal(drawnStatusText(agent, PANEL_NOW), word, `${id}: precondition, the canvas draws "${word}"`)
+        assert.equal(span?.textContent, word, `${id}: the row quotes the word drawn under the node`)
+        const cell = span!.parentElement!
+        assert.equal(cell.textContent, `${word} : ${gloss}`, `${id}: then glosses that word in French`)
+        // Never cut, so no tooltip to repeat it: a tooltip would mix the English quote into a French attribute that
+        // cannot declare its own language, and reaches neither the keyboard nor touch (the e2e reflow test checks the cut)
+        assert.equal(cell.hasAttribute('title'), false, `${id}: the cell wraps, it carries no tooltip`)
+        assert.equal(cell.classList.contains('truncate'), false, `${id}: the quote and its gloss are never cut by an ellipsis`)
+      }
       for (const q of quoted) assert.deepEqual([q.lang, q.exempt], ['en', true])
     } else {
       assert.deepEqual(quoted, [], 'in English the row already says the drawn word')
