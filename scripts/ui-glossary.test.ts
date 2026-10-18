@@ -206,11 +206,35 @@ test('folded with a filter on, the More button says so on screen and in its name
   const g = await import('../web/lib/ui-glossary')
   assert.equal(g.TOP_BAR_LABELS.moreWithFilters(1), 'More · 1 filter')
   assert.equal(g.TOP_BAR_LABELS.moreWithFilters(2), 'More · 2 filters')
-  const one = g.TOP_BAR_LABELS.moreNameWithFilters(['Hide inactive agents'])
-  assert.equal(one, 'More · 1 filter on: panels, totals and filters (Hide inactive agents)')
+  const one = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactiveWithCount(3)])
+  assert.equal(one, 'More · 1 filter on: panels, totals and filters (Hide inactive · finished sessions hidden: 3)')
   // 2.5.3: the accessible name starts with the visible text
   assert.ok(one.startsWith(g.TOP_BAR_LABELS.moreWithFilters(1)))
-  const two = g.TOP_BAR_LABELS.moreNameWithFilters(['Hide inactive agents', 'Finished sessions hidden (3)'])
+  const two = g.TOP_BAR_LABELS.moreNameWithFilters([g.TOP_BAR_LABELS.filterHideInactive, 'Another filter'])
   assert.ok(two.startsWith(g.TOP_BAR_LABELS.moreWithFilters(2)))
-  assert.match(two, /Hide inactive agents, Finished sessions hidden \(3\)/)
+  assert.match(two, /Hide inactive, Another filter/)
+})
+
+test('no ambiguous filter name: the top bar filter and the Sessions panel filter never share a name (#372)', async () => {
+  const g = await import('../web/lib/ui-glossary')
+  // Two different rules (agents, plus a 10-minute window in All / a list filter with no time limit): two names that
+  // neither equal nor contain each other, in the glossary and in each language of the interface
+  const pairs: Array<[string, string, string]> = [
+    ['glossary', g.TOP_BAR_LABELS.filterHideInactive, g.SESSION_LIST_LABELS.activeOnly],
+    ['en', MESSAGES.en['show.hideInactive'], MESSAGES.en['sessions.activeOnly']],
+    ['fr', MESSAGES.fr['show.hideInactive'], MESSAGES.fr['sessions.activeOnly']],
+  ]
+  for (const [where, bar, panel] of pairs) {
+    const a = bar.toLowerCase(), b = panel.toLowerCase()
+    assert.notEqual(a, b, `${where}: same name`)
+    assert.ok(!a.includes(b) && !b.includes(a), `${where}: "${bar}" and "${panel}" contain each other`)
+  }
+  // No other message of either language takes the exact name of one of these two filters
+  for (const l of ['en', 'fr'] as const) {
+    const owners = new Map<string, string>([[MESSAGES[l]['show.hideInactive'], 'show.hideInactive'], [MESSAGES[l]['sessions.activeOnly'], 'sessions.activeOnly']])
+    for (const [key, value] of Object.entries(MESSAGES[l])) {
+      const owner = owners.get(value)
+      if (owner !== undefined) assert.equal(key, owner, `${l}: ${key} reuses the name of ${owner}`)
+    }
+  }
 })

@@ -132,8 +132,7 @@ const settingsProps = (state: NotifyState): SettingsDialogProps => ({
   open: true, onClose: noop,
   hexGrid: true, onHexGridChange: noop,
   muted: false, onToggleMute: noop,
-  showFinished: false, onShowFinishedChange: noop,
-  hideInactive: true, onHideInactiveChange: noop,
+  showMode: 'active', onShowModeChange: noop,
   singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop,
   notifications: { state, onToggle: noop, rules: { ...DEFAULT_RULES, cost: true }, onRulesChange: noop },
@@ -155,7 +154,7 @@ function shownStrings(root: Element): string[] {
 /** Settings in tabs (#533): each tab is checked alone, with the keys only that tab renders. */
 const SETTINGS_TAB_KEYS: Record<SettingsTab, MessageKey[]> = {
   general: ['settings.section.appearance', 'settings.theme', 'settings.language', 'settings.hexGrid.help', 'settings.quota', 'settings.quota.help', 'settings.quota.setup', 'settings.section.sound', 'settings.sound.help'],
-  sessions: ['settings.section.sessions', 'settings.showFinished.help', 'settings.hideInactive.help', 'settings.section.presentation', 'settings.presentation.help', 'settings.presentation.subtitles.help', 'settings.presentation.mask.help', 'settings.presentation.follow.help'],
+  sessions: ['settings.section.sessions', 'settings.section.presentation', 'settings.presentation.help', 'settings.presentation.subtitles.help', 'settings.presentation.mask.help', 'settings.presentation.follow.help'],
   notifications: ['settings.section.notifications', 'settings.notify.unsupported', 'settings.notify.denied', 'settings.notify.rulesPending', 'settings.notify.invalid', 'settings.notify.cost.help',
     'settings.section.announcements', 'settings.announce.level', 'settings.announce.level.all', 'settings.announce.level.important', 'settings.announce.help'],
   keyboard: ['settings.section.keyboard', 'settings.singleKey.help', 'settings.shortcuts', 'settings.section.reset', 'settings.reset', 'settings.reset.help'],
@@ -733,8 +732,8 @@ const barBase: TopBarProps = {
   activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1200, totalCost: 1, unattributedCost: 0.5,
   showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
   onTogglePanel: barNoop, onToggleTimeline: barNoop, onToggleStats: barNoop, showStats: false, onToggleMute: barNoop, onOpenShortcuts: barNoop,
-  onToggleHideInactive: barNoop, onOpenSettings: barNoop, onToggleFullscreen: barNoop, onOpenPalette: barNoop, notifyState: 'off', onToggleNotify: barNoop,
-  onToggleShowFinished: barNoop, finishedSessionCount: 2, hideInactive: true,
+  onChangeShowMode: barNoop, onOpenSettings: barNoop, onToggleFullscreen: barNoop, onOpenPalette: barNoop, notifyState: 'off', onToggleNotify: barNoop,
+  showMode: 'active',
   attention: { waiting: 1, errors: 2 }, onJumpToAttention: barNoop,
 }
 const barScope = parseRelayScopeState({
@@ -759,7 +758,7 @@ for (const locale of LOCALES) {
     }
     // Wide: every filter, an attention counter, a scope with its ceilings, every connection state
     keep({ scope: { state: { ...barScope, runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] }, sessions: [{ id: 'a', label: 'a', status: 'active', startTime: 0, lastActivityTime: 1, projectId: 'p', projectName: 'Alpha' }] as never, projectId: null, pending: false, error: 'The relay refused the change of scope (500)', onChoose: barNoop } })
-    keep({ connectionStatus: 'watching', selectedSessionId: 's1', showFinished: true })
+    keep({ connectionStatus: 'watching', selectedSessionId: 's1', showMode: 'all' })
     keep({ connectionStatus: 'connecting', attention: { waiting: 0, errors: 1 }, notifyState: 'denied', isMuted: true })
     keep({ connectionStatus: 'disconnected', connectionDetail: reconnectDetail(2, 10_000), onRetryConnection: barNoop })
     keep({ connectionStatus: 'disconnected', connectionDetail: 'proxy refused', onRetryConnection: barNoop })
@@ -768,7 +767,7 @@ for (const locale of LOCALES) {
     // Folded under 1024 px, then under 768 px: More names the filters that are on
     setMobileView(true)
     keep({})
-    keep({ hideInactive: false, finishedSessionCount: 0 })
+    keep({ showMode: 'all' })
     setMobileView(false)
 
     for (const x of [
@@ -777,8 +776,8 @@ for (const locale of LOCALES) {
       T('topbar.attention.title.many'),
       T('topbar.connection.watching'), T('topbar.connection.connecting'), T('topbar.connection.offline'), T('topbar.connection.demo'), T('topbar.connection.retry'), T('topbar.connection.exitDemo'),
       T('topbar.connection.reconnecting', { attempt: 2, seconds: 10 }),
-      T('topbar.finished.label', { n: 2 }), T('topbar.finished.title'),
-      T('topbar.more'), T('topbar.more.help'), T('topbar.more.withFilters.other', { n: 2 }),
+      T('show.hideInactive'), T('show.hideInactive.title.all', { n: 10 }),
+      T('topbar.more'), T('topbar.more.help'), T('topbar.more.withFilters.one', { n: 1 }),
       T('topbar.toolbar'), T('topbar.sidePanels'), T('topbar.context.vscode'),
       T('scope.group'), T('scope.select'), T('scope.title'), T('scope.option.workspace'), T('scope.option.all'), T('scope.summary', { name: 'alpha' }),
     ]) assert.ok(strings.includes(x), `"${x}" was rendered`)

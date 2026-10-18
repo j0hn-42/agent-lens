@@ -5,7 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
 import { setLocaleChoice } from '@/lib/locale'
-import { LOCALE_STORAGE_KEY, MESSAGES } from '@/lib/messages'
+import { LOCALE_STORAGE_KEY, MESSAGES, translate } from '@/lib/messages'
 import { DEFAULT_RULES } from '@/lib/notification-rules'
 import { SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
 
@@ -21,8 +21,7 @@ const props = (over: Partial<SettingsDialogProps> = {}): SettingsDialogProps => 
   open: true, onClose: noop,
   hexGrid: true, onHexGridChange: noop,
   muted: false, onToggleMute: noop,
-  showFinished: false, onShowFinishedChange: noop,
-  hideInactive: true, onHideInactiveChange: noop,
+  showMode: 'active', onShowModeChange: noop,
   singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop,
   notifications: { state: 'off', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop },
@@ -56,15 +55,18 @@ test('choosing French relabels the dialog at once, stores the choice and sets la
   assert.ok(view.getByRole('button', { name: MESSAGES.fr['common.close'] }))
   assert.ok(view.getByRole('tablist', { name: MESSAGES.fr['settings.tabs'] }))
   // One tab at a time (#533): its switches and its sections, named in French
-  const byTab: Array<[SettingsTab, Array<'settings.hexGrid' | 'settings.sound' | 'settings.showFinished' | 'settings.hideInactive' | 'settings.singleKey' | 'settings.notify.enable'>, Array<'settings.section.appearance' | 'settings.section.sound' | 'settings.section.sessions' | 'settings.section.notifications' | 'settings.section.keyboard'>]> = [
+  const byTab: Array<[SettingsTab, Array<'settings.hexGrid' | 'settings.sound' | 'show.hideInactive' | 'settings.singleKey' | 'settings.notify.enable'>, Array<'settings.section.appearance' | 'settings.section.sound' | 'settings.section.sessions' | 'settings.section.notifications' | 'settings.section.keyboard'>]> = [
     ['general', ['settings.hexGrid', 'settings.sound'], ['settings.section.appearance', 'settings.section.sound']],
-    ['sessions', ['settings.showFinished', 'settings.hideInactive'], ['settings.section.sessions']],
+    ['sessions', ['show.hideInactive'], ['settings.section.sessions']],
     ['notifications', ['settings.notify.enable'], ['settings.section.notifications']],
     ['keyboard', ['settings.singleKey'], ['settings.section.keyboard']],
   ]
   for (const [tab, switches, regions] of byTab) {
     showFrTab(view, tab)
-    for (const key of switches) assert.ok(view.getByRole('switch', { name: new RegExp(MESSAGES.fr[key]) }), `${tab}: ${key}`)
+    for (const key of switches) {
+      const label = translate('fr', key, { n: 10 }).replace(/[()]/g, '\\$&')
+      assert.ok(view.getByRole('switch', { name: new RegExp(label) }), `${tab}: ${key}`)
+    }
     for (const key of regions) assert.ok(view.getByRole('region', { name: MESSAGES.fr[key] }), `${tab}: ${key}`)
   }
   assert.ok(view.getByRole('button', { name: MESSAGES.fr['settings.shortcuts'] }))

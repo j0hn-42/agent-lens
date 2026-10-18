@@ -27,10 +27,6 @@ export function toggleCalmLayer(calm: CalmLayers, layer: MotionLayer): CalmLayer
   return { ...calm, [layer]: !calm[layer] }
 }
 
-export function serializeCalmLayers(calm: CalmLayers): string {
-  return JSON.stringify(Object.fromEntries(MOTION_LAYERS.map(l => [l, calm[l] === true])))
-}
-
 /** Parse the stored text; never throws. Unknown keys and non-boolean values are dropped. */
 export function parseCalmLayers(text: string | null | undefined): CalmLayers {
   if (typeof text !== 'string' || text.length === 0 || text.length > MAX_STORED_LENGTH) return DEFAULT_CALM_LAYERS

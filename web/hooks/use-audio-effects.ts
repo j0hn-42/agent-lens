@@ -1,5 +1,5 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
-import { SOUND_PREF_KEY } from '@/lib/canvas-constants'
+import { useRef, useEffect, useCallback } from 'react'
+import { useUiPreferences } from '@/hooks/use-ui-preferences'
 import { AudioEngine } from '@/lib/audio-engine'
 import type { Agent, ToolCallNode } from '@/lib/agent-types'
 import { detectStateChanges } from '@/components/agent-visualizer/canvas/detect-state-changes'
@@ -10,24 +10,24 @@ export function useAudioEffects(
   isReviewing: boolean,
 ) {
   const audioRef = useRef<AudioEngine | null>(null)
-  const [isMuted, setIsMuted] = useState(true)
+  // The sound choice lives in the preference blob (#372): 'Reset preferences' mutes it again
+  const { prefs, setPref } = useUiPreferences()
+  const isMuted = !prefs.soundOn
+  const isMutedRef = useRef(isMuted)
+  isMutedRef.current = isMuted
   const seekingRef = useRef(false)
   const prevToolStatesRef = useRef<Map<string, string>>(new Map())
   const prevAgentStatesRef = useRef<Map<string, string>>(new Map())
 
-  // Audio engine lifecycle + restore persisted mute preference
+  // Audio engine lifecycle
   useEffect(() => {
     const engine = new AudioEngine()
-    try {
-      const savedOn = localStorage.getItem(SOUND_PREF_KEY) === 'on'
-      if (savedOn) {
-        engine.setMuted(false)
-        setIsMuted(false)
-      }
-    } catch { /* localStorage unavailable (private browsing, etc.) */ }
+    engine.setMuted(isMutedRef.current)
     audioRef.current = engine
     return () => { audioRef.current?.dispose(); audioRef.current = null }
   }, [])
+  // The engine follows the stored choice (a toggle, a reset, another tab)
+  useEffect(() => { audioRef.current?.setMuted(isMuted) }, [isMuted])
 
   // Detect tool/agent state transitions and play sounds (live mode only)
   useEffect(() => {
@@ -53,12 +53,11 @@ export function useAudioEffects(
   }, [agents, toolCalls, isReviewing])
 
   const handleToggleMute = useCallback(() => {
-    if (audioRef.current) {
-      const nowMuted = audioRef.current.toggleMute()
-      setIsMuted(nowMuted)
-      try { localStorage.setItem(SOUND_PREF_KEY, nowMuted ? 'off' : 'on') } catch { /* ignore */ }
-    }
-  }, [])
+    // The engine is set right away: its audio context must start inside the user's gesture
+    const nowMuted = !isMutedRef.current
+    audioRef.current?.setMuted(nowMuted)
+    setPref('soundOn', !nowMuted)
+  }, [setPref])
 
   return { isMuted, seekingRef, handleToggleMute }
 }

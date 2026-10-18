@@ -43,6 +43,7 @@ export const TOOL_DEDUP_WINDOW_S = 3
 
 // ─── LocalStorage keys ─────────────────────────────────────────────────────
 
+/** Former localStorage key of the sound: now in the preference blob (#372), read once as a migration */
 export const SOUND_PREF_KEY = 'agent-viz-sound'
 
 // ─── Mock scenario buffer ──────────────────────────────────────────────────
@@ -77,6 +78,7 @@ export const TOOL_MIN_DISPLAY_S = 4.0
 export const TOOL_EXPIRY_S = 300
 /** Delays the user can pick for the orphan-call expiry */
 export const TOOL_EXPIRY_CHOICES_S = [60, 120, 300, 600, 1800] as const
+/** Former localStorage key of the expiry: now in the preference blob (#372), read once as a migration */
 export const TOOL_EXPIRY_KEY = 'agent-viz-tool-expiry-s'
 
 /** Reads a stored expiry delay; anything that is not one of the offered choices falls back to the default. */
@@ -88,17 +90,13 @@ export function parseToolExpiryS(raw: string | null | undefined): number {
 /** Live setting read by the simulation on each frame and each seek (set from the canvas controls). */
 export const toolExpiryConfig = { seconds: TOOL_EXPIRY_S }
 
-/** Loads the stored delay into the live setting and returns it (storage may be unavailable). */
-export function loadToolExpiryS(): number {
-  try { toolExpiryConfig.seconds = parseToolExpiryS(window.localStorage.getItem(TOOL_EXPIRY_KEY)) } catch { /* default */ }
-  return toolExpiryConfig.seconds
-}
-
-/** Applies and stores a new delay; a value outside the choices falls back to the default. */
+/**
+ * Applies a delay to the live setting and returns it; a value outside the choices falls back to the default.
+ * Stored by the caller in the preference blob (#372): the former key TOOL_EXPIRY_KEY is only read there, once.
+ */
 export function setToolExpiryS(seconds: number): number {
   const next = parseToolExpiryS(String(seconds))
   toolExpiryConfig.seconds = next
-  try { window.localStorage.setItem(TOOL_EXPIRY_KEY, String(next)) } catch { /* storage unavailable */ }
   return next
 }
 /** Seconds a discovery card stays visible before fading */
@@ -646,6 +644,7 @@ export const A11Y_ANNOUNCE_MAX = 3
 /** Global cap on bright flashes per second (WCAG 2.3.1) */
 export const FLASH_MAX_PER_SECOND = 2
 
+/** Former localStorage keys of 'Freeze motion' and 'Pin cards': now in the preference blob (#372), read once as a migration */
 export const ANIM_PAUSE_KEY = 'agent-viz-pause-animations'
 export const NEVER_HIDE_KEY = 'agent-viz-never-hide'
 export const LEGEND_OPEN_KEY = 'agent-viz-legend-open'

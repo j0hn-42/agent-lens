@@ -25,8 +25,7 @@ const props = (over: Partial<SettingsDialogProps> = {}): SettingsDialogProps => 
   open: true, onClose: noop,
   hexGrid: true, onHexGridChange: noop,
   muted: false, onToggleMute: noop,
-  showFinished: false, onShowFinishedChange: noop,
-  hideInactive: true, onHideInactiveChange: noop,
+  showMode: 'active', onShowModeChange: noop,
   singleKeyEnabled: true, onSingleKeyEnabledChange: noop,
   onOpenShortcuts: noop,
   onResetPrefs: noop,
@@ -85,7 +84,7 @@ test('each tab holds the sections decided in #533, every setting stays reachable
   const view = render(<SettingsDialog {...props({ quota: { show: true, onShowChange: noop } })} />)
   const expect: Array<[string, string[], RegExp[]]> = [
     ['General', ['Appearance', 'Sound'], [/Hex grid/, /Quota gauges/, /Sound effects/]],
-    ['Sessions and presentation', ['Sessions and agents', 'Presentation'], [/Show finished sessions/, /Hide inactive agents/, /Presentation mode/, /Subtitles of transitions/, /Mask sensitive data/, /Follow the active agent/]],
+    ['Sessions and presentation', ['Sessions and agents', 'Presentation'], [/Hide inactive/, /Presentation mode/, /Subtitles of transitions/, /Mask sensitive data/, /Follow the active agent/]],
     ['Notifications and announcements', ['Notifications', 'Screen reader announcements'], [/Enable notifications/, /Agent waiting for a permission/, /Agent in error/, /Session finished/, /Cost threshold reached/]],
     ['Keyboard and preferences', ['Keyboard', 'Preferences'], [/Enable single-key shortcuts/]],
   ]
