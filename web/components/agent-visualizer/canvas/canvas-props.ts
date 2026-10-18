@@ -49,5 +49,7 @@ export interface CanvasProps {
   announceLevel?: AnnounceLevel
   /** Loop verdict per agent id (lib/loop-detection, `health.byAgent`): a proven loop badges its node (#377). Absent = no loop badge */
   health?: ReadonlyMap<string, HealthVerdict>
+  /** Events the relay could not replay, per session id (#366): the tool count and the cost figures of that session's agents are lower bounds. Absent = none known */
+  replayLost?: ReadonlyMap<string, number>
   onClusterSelect?: (cluster: { key: string; kind: 'session' | 'team'; sessionIds: string[]; teamName?: string }) => void
 }

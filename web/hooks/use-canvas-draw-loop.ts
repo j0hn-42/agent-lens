@@ -487,7 +487,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
         syncBubbleButtons(deps.bubbleLayerRef.current, specs)
       }
 
-      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed, deps.presentationRef.current.mask) }
+      if (showCostOverlay) { const cost = costScope(deps.simulationRef.current); drawCostSummaryPanel(ctx, cost.agents, cost.toolCalls, cost.unattributed, deps.presentationRef.current.mask, deps.drawPropsRef.current.replayLost) }
       if (bloomRef.current && !calmOf('effects')) bloomRef.current.apply(canvas, ctx)
 
       // Tooltip follows its node without React re-renders
