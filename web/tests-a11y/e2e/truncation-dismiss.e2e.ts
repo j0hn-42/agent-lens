@@ -104,6 +104,55 @@ test('1280px: closed with Enter, reopened from the Sessions header with Enter th
   }
 })
 
+/** Where the ⚠ of the Sessions button is drawn, and whether the button holds it (#569 review) */
+const markBox = (frame: Frame) => frame.locator('#topbar-toggle-sessions').evaluate((btn: Element) => {
+  const mark = btn.querySelector('[data-loss-mark] [aria-hidden="true"]')
+  if (!mark) return null
+  const b = btn.getBoundingClientRect()
+  const m = mark.getBoundingClientRect()
+  return {
+    drawn: m.width > 0 && m.height > 0,
+    inside: m.left >= b.left - 0.5 && m.right <= b.right + 0.5 && m.top >= b.top - 0.5 && m.bottom <= b.bottom + 0.5,
+    overflow: document.documentElement.scrollWidth > window.innerWidth,
+  }
+})
+
+test('1280px: after a dismissal the Sessions button carries ⚠ with its words; leaving full screen never focuses Details (#569 review)', async () => {
+  const page = await browser.newPage()
+  try {
+    const frame = await mount(page, 1280, 800)
+    await banner(frame).waitFor()
+    assert.equal(await markBox(frame), null, 'no mark while the notice shows')
+    await frame.getByRole('button', { name: 'Dismiss truncation warning' }).focus()
+    await page.keyboard.press('Enter')
+    await banner(frame).waitFor({ state: 'detached' })
+    assert.deepEqual(await markBox(frame), { drawn: true, inside: true, overflow: false })
+    const name = await frame.locator('#topbar-toggle-sessions').evaluate((el: Element) => el.textContent ?? '')
+    assert.match(name, /graph incomplete, losses listed in the Sessions panel/)
+
+    // Reopen from the indicator: the focus goes to Details once
+    await openSessions(frame)
+    await indicator(frame).getByRole('button', { name: 'Show notice' }).focus()
+    await page.keyboard.press('Enter')
+    await banner(frame).waitFor()
+    assert.equal(await activeName(frame), 'Details')
+    assert.equal(await markBox(frame), null, 'the mark goes away while the notice shows')
+
+    // Full screen and back: record every focus move inside the app
+    await frame.evaluate(`(() => { window.__moves = []; document.addEventListener('focusin', e => window.__moves.push((e.target.getAttribute('aria-label') || e.target.textContent || '').trim())) })()`)
+    await frame.getByRole('button', { name: 'Enter full screen' }).click()
+    await banner(frame).waitFor({ state: 'detached' })
+    await frame.getByRole('button', { name: 'Exit full screen' }).click()
+    await banner(frame).waitFor()
+    await waitForStableLayout(frame)
+    const moves = await frame.evaluate('window.__moves') as string[]
+    assert.equal(moves.includes('Details'), false, `Details never took the focus (${JSON.stringify(moves)})`)
+    assert.notEqual(await activeName(frame), 'Details')
+  } finally {
+    await page.close()
+  }
+})
+
 test('320px: the indicator wraps inside the Sessions panel and its button is not covered (#567)', async () => {
   const page = await browser.newPage()
   try {
@@ -111,6 +160,8 @@ test('320px: the indicator wraps inside the Sessions panel and its button is not
     await banner(frame).waitFor()
     await frame.getByRole('button', { name: 'Dismiss truncation warning' }).evaluate((el: HTMLElement) => el.click())
     await banner(frame).waitFor({ state: 'detached' })
+    await waitForStableLayout(frame)
+    assert.deepEqual(await markBox(frame), { drawn: true, inside: true, overflow: false }, 'the ⚠ of the Sessions button fits at 320 px (#569 review)')
     await openSessions(frame)
     await waitForStableLayout(frame)
     const m = await indicator(frame).evaluate((el: Element) => {
