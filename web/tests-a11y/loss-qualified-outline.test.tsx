@@ -53,6 +53,14 @@ test('only the agent of the session that lost events is qualified', () => {
   assert.equal((text.match(/(?<!at least )13 tool calls\./g) ?? []).length, 1)
 })
 
+test('the token line of an agent is a lower bound when its session lost events, like the context bar', () => {
+  const lossy = outline([agent('s1:a', 's1', { tokensUsed: 150_000 })], new Map([['s1', 6]]))
+  assert.match(lossy, /at least 150k \/ 200k tokens/)
+  const plain = outline([agent('s1:a', 's1', { tokensUsed: 150_000 })])
+  assert.match(plain, /150k \/ 200k tokens/)
+  assert.doesNotMatch(plain, /at least 150k/)
+})
+
 test('the heading of a session halo reads its cost as a lower bound when that session lost events', () => {
   // Two sessions: each gets a halo heading, and the agent rows follow it
   const text = outline([agent('s1:a', 's1'), agent('s2:b', 's2')], new Map([['s1', 6]]))

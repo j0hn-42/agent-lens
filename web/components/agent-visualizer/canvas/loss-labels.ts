@@ -5,7 +5,8 @@
 import { STATS_OVERLAY } from '../../../lib/canvas-constants'
 import { agentCostUsage } from '../../../lib/cost'
 import { boundedCount, replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
-import type { UsageTotal } from '../../../lib/usage'
+import { formatTokenUsage, usageFromAgent, type UsageTotal } from '../../../lib/usage'
+import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatDuration } from '../../../lib/utils'
 import { estimateTextWidth } from './edge-bubbles'
 
@@ -19,6 +20,23 @@ export function agentReplayLost(lost: ReadonlyMap<string, number> | undefined, a
 /** Cost of an agent as its pill and the Cost panel row read it: a lower bound when its session lost events. */
 export function agentCostUsageUnderLoss(agent: Lossy & Parameters<typeof agentCostUsage>[0], lost: ReadonlyMap<string, number> | undefined): UsageTotal {
   return usageUnderLoss(agentCostUsage(agent), agentReplayLost(lost, agent))
+}
+
+/**
+ * Tokens of an agent as the context bar, the ring percentage, the outline and the agent card read them: a lower bound
+ * ("at least") when its session lost events. A figure that is "not reported" stays so.
+ */
+export function agentTokenUsageUnderLoss(
+  agent: Lossy & Parameters<typeof usageFromAgent>[0], lost: ReadonlyMap<string, number> | undefined,
+): UsageTotal {
+  return usageUnderLoss(usageFromAgent(agent), agentReplayLost(lost, agent))
+}
+
+/** The token line under the context bar ("at least 190k / 200k tokens"), shared by the drawing and the label block. */
+export function contextBarText(
+  agent: Lossy & Parameters<typeof usageFromAgent>[0] & Parameters<typeof formatTokensOfWindow>[1], lost: ReadonlyMap<string, number> | undefined,
+): string {
+  return formatTokensOfWindow(formatTokenUsage(agentTokenUsageUnderLoss(agent, lost)), agent)
 }
 
 /** Side padding of the stats text inside its box */

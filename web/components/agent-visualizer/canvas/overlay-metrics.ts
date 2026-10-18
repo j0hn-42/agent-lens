@@ -2,7 +2,7 @@ import type { Agent } from '../../../lib/agent-types'
 import { CONTEXT_RING } from '../../../lib/canvas-constants'
 import { SCENE } from '../../../lib/colors'
 import type { ScenePalette } from '../../../lib/scene-state-colors'
-import { qualify, usageFromAgent } from '../../../lib/usage'
+import { qualify, usageFromAgent, type UsageTotal } from '../../../lib/usage'
 
 /** Does the main agent draw its context percentage label above the ring? (pure: shared by the draw and the placement code) */
 export function hasContextPercentFor(
@@ -13,9 +13,14 @@ export function hasContextPercentFor(
   return agent.tokensUsed / agent.tokensMax > CONTEXT_RING.percentLabelThreshold
 }
 
-/** "95%", or "95% assumed" when the window it divides by is a fallback (#364). */
-export function contextPercentLabel(agent: Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokensEstimated' | 'tokensMaxAssumed'>, usage: number): string {
-  const pct = qualify(usageFromAgent(agent), `${Math.floor(usage * 100)}%`)
+/**
+ * "95%", or "95% assumed" when the window it divides by is a fallback (#364). `tokens` qualifies it ("at least 95%"):
+ * the agent's own usage by default, a lower bound when its session lost events (#366, agentTokenUsageUnderLoss).
+ */
+export function contextPercentLabel(
+  agent: Pick<Agent, 'tokensUsed' | 'tokenStatus' | 'tokensEstimated' | 'tokensMaxAssumed'>, usage: number, tokens: UsageTotal = usageFromAgent(agent),
+): string {
+  const pct = qualify(tokens, `${Math.floor(usage * 100)}%`)
   return agent.tokensMaxAssumed ? `${pct} assumed` : pct
 }
 

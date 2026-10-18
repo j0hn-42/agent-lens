@@ -9,9 +9,9 @@ import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { boundedCount } from '../../../lib/event-loss'
-import { agentReplayLost, agentCostUsageUnderLoss } from './loss-labels'
+import { agentReplayLost, agentCostUsageUnderLoss, agentTokenUsageUnderLoss } from './loss-labels'
 import { listedFileText } from '../../../lib/ui-glossary'
-import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
+import { spokenCostUsage, formatTokenUsage } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
 import { formatToolName } from '../../../lib/mcp-tool'
 import { describeModel } from '../../../lib/model-provenance'
@@ -44,9 +44,12 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
-/** "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". */
-function tokenSummary(a: Agent): string {
-  const usage = usageFromAgent(a)
+/**
+ * "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". A lower bound when the agent's
+ * session lost events (#366), the words of the token line under its context bar.
+ */
+function tokenSummary(a: Agent, replayLost?: ReadonlyMap<string, number>): string {
+  const usage = agentTokenUsageUnderLoss(a, replayLost)
   return usage.status === 'unavailable'
     ? `tokens ${formatTokenUsage(usage)}`
     : formatTokensOfWindow(formatTokenUsage(usage), a)
@@ -376,7 +379,7 @@ export function buildA11yModel(
       stateText: stale ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : a.runtime === 'opencode' ? 'OpenCode' : 'Claude',
-      tokens: tokenSummary(a),
+      tokens: tokenSummary(a, extras.replayLost),
       cost: spokenCostUsage(agentCostUsageUnderLoss(a, extras.replayLost)),
       toolCalls: a.toolCalls,
       toolCallsText: boundedCount(a.toolCalls, agentReplayLost(extras.replayLost, a), 'tool call'),

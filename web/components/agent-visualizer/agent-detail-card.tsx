@@ -6,6 +6,7 @@ import { COLORS, getStateColor } from '@/lib/colors'
 import { formatTokens, formatModelName, formatDuration } from '@/lib/utils'
 import { parseMcpTool, formatToolName } from '@/lib/mcp-tool'
 import { usageFromAgent, type UsageStatus } from '@/lib/usage'
+import { usageUnderLoss } from '@/lib/event-loss'
 import { GlassCard } from './glass-card'
 import { ActiveTimeStat } from './active-time-stat'
 import { PanelHeader, ProgressBar, useDialogBehavior, dialogEscapeHandler, useDockPanel, dockAttrs } from './shared-ui'
@@ -90,10 +91,13 @@ function formatClockTime(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
 }
 
-/** What follows "5k / 10k": the percentage of the window, or that the window is an assumption. Figures and qualifiers do not depend on the language. */
-function contextSuffix(locale: Locale, agent: { tokenStatus?: UsageStatus; tokensMaxAssumed?: boolean }, percent: number): string {
+/**
+ * What follows "5k / 10k": the percentage of the window, or that the window is an assumption. Figures and qualifiers do not
+ * depend on the language. `status` is the status of the token figure as shown (a lower bound under a replay loss, #366).
+ */
+function contextSuffix(locale: Locale, agent: { tokenStatus?: UsageStatus; tokensMaxAssumed?: boolean }, percent: number, status: UsageStatus | undefined = agent.tokenStatus): string {
   if (agent.tokenStatus === 'unavailable') return agent.tokensMaxAssumed ? ` ${translate(locale, 'card.ctx.assumedWindow')}` : ''
-  const pct = `${agent.tokenStatus === 'partial' ? '≥ ' : ''}${percent}%`
+  const pct = `${status === 'partial' ? '≥ ' : ''}${percent}%`
   return ` ${agent.tokensMaxAssumed ? translate(locale, 'card.ctx.pctOfAssumed', { pct }) : `(${pct})`}`
 }
 
@@ -121,6 +125,8 @@ export function AgentDetailCard({
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
+  // A lower bound when the relay could not replay events of the agent's session (#366), like the context bar on the canvas
+  const contextUsage = usageUnderLoss(usageFromAgent(agent), replayLost)
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
@@ -210,7 +216,7 @@ export function AgentDetailCard({
           <div className="flex justify-between mb-1">
             <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{t('card.contextWindow')}</span>
             <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-              {C.usageText(locale, usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent)}
+              {C.usageText(locale, contextUsage)} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent, contextUsage.status)}
             </span>
           </div>
           {/* Textual value is adjacent, so the bar itself is decorative */}

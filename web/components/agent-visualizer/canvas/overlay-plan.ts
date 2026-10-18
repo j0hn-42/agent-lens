@@ -10,10 +10,9 @@ import {
   AGENT_DRAW, CONTEXT_BAR, BUBBLE_MAX_W, BUBBLE_GAP, BUBBLE_DRAW, STATS_OVERLAY, COST_DRAW, CLUSTER_DRAW, PLACEMENT,
   MIN_VISIBLE_OPACITY, ORCHESTRATOR_DRAW,
 } from '../../../lib/canvas-constants'
-import { formatCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
-import { formatTokensOfWindow } from '../../../lib/context-window'
+import { formatCostUsage } from '../../../lib/usage'
 import { bubbleAlpha } from './bubble-utils'
-import { statsLabel, agentCostUsageUnderLoss } from './loss-labels'
+import { statsLabel, agentCostUsageUnderLoss, contextBarText } from './loss-labels'
 import { computeOverlayLayout } from './overlay-layout'
 import { hasContextPercentFor } from './overlay-metrics'
 import {
@@ -58,7 +57,11 @@ export interface AgentLabelBlock {
  */
 export function agentLabelBlock(
   a: Agent, r: number, measure: (text: string) => number,
-  options: { showSession: boolean; orchestrator: ReturnType<typeof orchestratorInfo>; details: boolean },
+  options: {
+    showSession: boolean; orchestrator: ReturnType<typeof orchestratorInfo>; details: boolean
+    /** Events the relay could not replay, per session id (#366): the token line is then the longer "at least" one */
+    replayLost?: ReadonlyMap<string, number>
+  },
 ): AgentLabelBlock {
   const layout = layoutAgentLabel(a, r, measure, options.showSession, options.orchestrator)
   let groupW = 0
@@ -78,7 +81,7 @@ export function agentLabelBlock(
   const barShown = contextBarShown(a)
   const barW = barShown ? Math.max(CONTEXT_BAR.minWidth, r * CONTEXT_BAR.widthMultiplier) + 4 : 0
   const tokenW = barShown && options.details
-    ? estimateTextWidth(formatTokensOfWindow(formatTokenUsage(usageFromAgent(a)), a), CONTEXT_BAR.fontSize)
+    ? estimateTextWidth(contextBarText(a, options.replayLost), CONTEXT_BAR.fontSize)
     : 0
   const labelH = lines * AGENT_DRAW.stateLabelGap
   const h = barShown ? Math.max(labelH, contextBlockHeight(r, layout.extraLines)) : labelH
@@ -318,6 +321,7 @@ export function planOverlays(input: OverlayPlanInput): OverlayPlanResult {
       const measure = (text: string) => estimateTextWidth(text, LABEL_FONT)
       const block = agentLabelBlock(a, r, measure, {
         showSession: input.showSessionLabels && secondaryAllowed, orchestrator: orchestratorInfo(a, input.teams), details: input.lod.details,
+        replayLost: input.replayLost,
       })
       const top = a.y + r + AGENT_DRAW.labelYOffset
       // Drawn enlarged by labelScale around its top centre below 100% (held at LOD.minTextPx on screen, #378)
