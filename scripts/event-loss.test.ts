@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence } from '../web/lib/event-loss'
+import {
+  parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence,
+  truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, TRUNCATION_DISMISS_STORAGE_KEY,
+  dismissTruncation, allViewSessionTotals,
+} from '../web/lib/event-loss'
 import { createStats } from '../web/lib/event-normalize'
 import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 
@@ -119,4 +123,104 @@ test('replayLostForSession: an agent card reads its own session only, never the 
   assert.equal(replayLostForSession(loss, ALL_SESSIONS_ID), 0, 'the All pseudo selection is no session')
   assert.equal(replayLostForSession(loss, '__proto__'), 0)
   assert.equal(replayLostForSession(null, 's1'), 0)
+})
+
+// #567: a dismissal of the truncation banner lasts as long as the tab (sessionStorage), with the total it was dismissed at.
+
+/** In-memory Storage double; `fail` makes every access throw like a blocked or full storage */
+function fakeStorage(initial: Record<string, string> = {}, fail = false) {
+  const data = new Map(Object.entries(initial))
+  return {
+    data,
+    getItem(k: string) { if (fail) throw new Error('SecurityError'); return data.has(k) ? data.get(k)! : null },
+    setItem(k: string, v: string) { if (fail) throw new Error('QuotaExceededError'); data.set(k, v) },
+  }
+}
+
+test('truncationDismissKey: one key for the All view (null, empty or the All pseudo id), one per selection otherwise', () => {
+  assert.equal(truncationDismissKey(null), truncationDismissKey(ALL_SESSIONS_ID))
+  assert.equal(truncationDismissKey(undefined), truncationDismissKey(''))
+  assert.equal(truncationDismissKey(''), truncationDismissKey(ALL_SESSIONS_ID))
+  assert.notEqual(truncationDismissKey('s1'), truncationDismissKey(ALL_SESSIONS_ID))
+  assert.notEqual(truncationDismissKey('s1'), truncationDismissKey('s2'))
+  assert.notEqual(truncationDismissKey('all'), truncationDismissKey(ALL_SESSIONS_ID), 'a session named like the view is not the view')
+})
+
+test('dismissals round-trip through the tab storage, keyed by selection, with the total dismissed at', () => {
+  const store = fakeStorage()
+  const map = new Map([[truncationDismissKey(ALL_SESSIONS_ID), 6371], [truncationDismissKey('s1'), 40]])
+  assert.equal(writeTruncationDismissals(store, map), true)
+  assert.ok(store.data.has(TRUNCATION_DISMISS_STORAGE_KEY))
+  assert.deepEqual([...readTruncationDismissals(store)], [...map])
+  // The dismissal holds at the same total and lets the banner back when the total grows (truncationBannerState)
+  const read = readTruncationDismissals(store)
+  assert.equal(truncationBannerState(createStats(), 40, read.get(truncationDismissKey('s1'))).show, false)
+  assert.equal(truncationBannerState(createStats(), 41, read.get(truncationDismissKey('s1'))).show, true)
+})
+
+test('an unavailable storage (it throws, or there is none) never throws: nothing is remembered, nothing breaks', () => {
+  const broken = fakeStorage({}, true)
+  assert.deepEqual([...readTruncationDismissals(broken)], [])
+  assert.equal(writeTruncationDismissals(broken, new Map([['x', 1]])), false)
+  assert.deepEqual([...readTruncationDismissals(null)], [])
+  assert.equal(writeTruncationDismissals(null, new Map([['x', 1]])), false)
+})
+
+test('tabStorage returns null when reading window.sessionStorage itself throws (blocked site data)', () => {
+  const g = globalThis as Record<string, unknown>
+  const had = Object.getOwnPropertyDescriptor(g, 'window')
+  const store = fakeStorage()
+  try {
+    if (!had) assert.equal(tabStorage(), null, 'no window (server render): no storage')
+    Object.defineProperty(g, 'window', { configurable: true, value: { sessionStorage: store } })
+    assert.equal(tabStorage(), store, 'the tab storage when it can be read')
+    Object.defineProperty(g, 'window', { configurable: true, value: { get sessionStorage() { throw new Error('SecurityError') } } })
+    assert.equal(tabStorage(), null)
+  } finally {
+    if (had) Object.defineProperty(g, 'window', had)
+    else delete g.window
+  }
+})
+
+test('the stored value is untrusted: junk, prototype keys, bad counts and oversized maps are dropped', () => {
+  for (const raw of ['not json', '[1,2]', 'null', '"x"', '42']) {
+    assert.deepEqual([...readTruncationDismissals(fakeStorage({ [TRUNCATION_DISMISS_STORAGE_KEY]: raw }))], [], raw)
+  }
+  const raw = JSON.stringify({ a: 3, b: -1, c: 'x', d: 1.5, e: 0, [`k${'x'.repeat(400)}`]: 2 }).replace('{', '{"__proto__": 5,')
+  assert.deepEqual([...readTruncationDismissals(fakeStorage({ [TRUNCATION_DISMISS_STORAGE_KEY]: raw }))], [['a', 3], ['e', 0]])
+  const many: Record<string, number> = {}
+  for (let i = 0; i < 1000; i++) many['s' + i] = i
+  assert.ok(readTruncationDismissals(fakeStorage({ [TRUNCATION_DISMISS_STORAGE_KEY]: JSON.stringify(many) })).size <= 100)
+  // Writing keeps the latest entries when there are too many
+  const store = fakeStorage()
+  writeTruncationDismissals(store, new Map(Object.entries(many)))
+  const kept = readTruncationDismissals(store)
+  assert.ok(kept.size <= 100)
+  assert.equal(kept.get('s999'), 999, 'the newest dismissal is kept')
+})
+
+test('allViewSessionTotals: what the All view counted for each session (normalizer counters, plus the replay loss of the sessions All shows)', () => {
+  const stats = new Map([['s1', { ...createStats(), ignoredEvents: 2, clampedFields: 9 }], ['s2', createStats()]])
+  const loss = { evicted: { s1: 10, s3: 7, hidden: 50 }, otherEvents: 4 }
+  assert.deepEqual([...allViewSessionTotals(stats, loss, new Set(['s1', 's2', 's3']))].sort(), [['s1', 12], ['s3', 7]])
+  // All shows every session (null): every named session's replay loss; otherEvents names none
+  assert.deepEqual([...allViewSessionTotals(stats, loss, null)].sort(), [['hidden', 50], ['s1', 12], ['s3', 7]])
+  assert.deepEqual([...allViewSessionTotals(new Map(), null, null)], [])
+})
+
+test('dismissTruncation: stores the total of the view; dismissing All also covers each session it counted, never lowering a stored total', () => {
+  const all = truncationDismissKey(ALL_SESSIONS_ID)
+  const s1 = truncationDismissKey('s1')
+  const s2 = truncationDismissKey('s2')
+  const prev = new Map([[s2, 99]])
+  const next = dismissTruncation(prev, all, 19, new Map([['s1', 12], ['s2', 7]]))
+  assert.equal(prev.size, 1, 'the previous map is not mutated')
+  assert.equal(next.get(all), 19)
+  assert.equal(next.get(s1), 12, 'switching from All to s1 at the same total keeps the banner closed')
+  assert.equal(next.get(s2), 99, 'a higher stored total is kept')
+  assert.equal(truncationBannerState({ ...createStats(), ignoredEvents: 2 }, 10, next.get(s1)).show, false)
+  assert.equal(truncationBannerState({ ...createStats(), ignoredEvents: 2 }, 11, next.get(s1)).show, true, 'more lost in s1: back')
+  // A session dismissal stays a session dismissal
+  const one = dismissTruncation(new Map(), s1, 12, new Map([['s2', 7]]))
+  assert.deepEqual([...one], [[s1, 12]], 'covered totals only apply to the All view')
 })
