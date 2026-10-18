@@ -95,7 +95,7 @@ export function AgentVisualizer() {
   const {
     frameRef, agents, toolCalls, edges, discoveries, fileAttention, waste, timelineEntries, currentTime, isPlaying, speed, maxTimeReached,
     conversations, droppedEvents, droppedMessages, normalizationStats, unattributed, foreignAttention, catchUp, links, teams,
-    play, pause, restart, setSpeed, seekToTime, updateAgentPosition, saveSnapshot, restoreSnapshot,
+    play, pause, restart, setSpeed, seekToTime, updateAgentPosition, setLayoutKeepIds, saveSnapshot, restoreSnapshot,
   } = useVisualizerSimulation(bridge, isReviewing, hideInactiveShown)
 
   const selection = useSelectionState({ agents, toolCalls, discoveries })
@@ -363,6 +363,7 @@ export function AgentVisualizer() {
         selectedDiscoveryId={selection.selectedDiscoveryId}
         showCostOverlay={showCostOverlay}
         hideInactive={hideInactiveShown}
+        onLayoutKeepIds={setLayoutKeepIds}
         announceLevel={prefs.announceLevel}
         health={health.byAgent}
         replayLost={replayLostBySession}

@@ -28,6 +28,8 @@ export interface NormalizationStats {
   malformed: number
   /** Exact repeats of an already-seen event (never truncate the graph) */
   duplicateEvents: number
+  /** Updates the source holds but the reader did not read (OpenCode, #420): an older state may show. A lower bound. */
+  missedUpdates: number
 }
 
 // Caps: keep identical to the NORM_* constants of extension/src/constants.ts (a unit test compares them).
@@ -78,12 +80,12 @@ const ID_KEYS: ReadonlySet<string> = new Set([
 ])
 
 export function createStats(): NormalizationStats {
-  return { ignoredEvents: 0, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0 }
+  return { ignoredEvents: 0, clampedFields: 0, droppedByCap: 0, malformed: 0, duplicateEvents: 0, missedUpdates: 0 }
 }
 
 /** True when something that shapes the graph was discarded (duplicates and clamping alone do not count). */
 export function isTruncated(s: NormalizationStats): boolean {
-  return s.ignoredEvents + s.droppedByCap + s.malformed > 0
+  return s.ignoredEvents + s.droppedByCap + s.malformed + s.missedUpdates > 0
 }
 
 function bump(stats: NormalizationStats | undefined, key: keyof NormalizationStats, n = 1): void {
@@ -340,6 +342,16 @@ export class SessionNormalizer {
     this.scheduleTrailing()
   }
 
+  /**
+   * Record `n` updates the source holds but will not deliver (an OpenCode row changed after the reader
+   * stopped following it, #420): not ignored events, the graph may show an older state. Published like
+   * noteMalformed.
+   */
+  noteMissed(n = 1): void {
+    this.stats.missedUpdates += n
+    this.scheduleTrailing()
+  }
+
   /** Normalize one event; returns the events to forward (0, 1 or 2 with a stats event). */
   process(raw: unknown): AgentEvent[] {
     const out: AgentEvent[] = []
@@ -519,7 +531,7 @@ export function parseNormalizationStats(payload: unknown): NormalizationStats {
 
 /** Everything that was left out of the graph so far (the banner re-appears when this grows). */
 export function truncationTotal(s: NormalizationStats): number {
-  return s.ignoredEvents + s.malformed + s.droppedByCap
+  return s.ignoredEvents + s.malformed + s.droppedByCap + s.missedUpdates
 }
 
 /** The two numbers of the banner headline: events ignored (ignored + malformed) and nodes dropped (by caps). */

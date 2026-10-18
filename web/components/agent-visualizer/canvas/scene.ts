@@ -13,18 +13,23 @@ export function sceneAgents(
   selection: { agentId: string | null; toolCallId: string | null; discoveryId: string | null },
   focused: NavNode | null,
   memory: CollapseMemory, sim: Pick<SimulationState, 'toolCalls' | 'discoveries'>,
-): { agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[] } {
+): {
+  agents: Map<string, Agent>; collapse: CollapseView; toolCalls: SimulationState['toolCalls']; discoveries: Discovery[]
+  /** Agents drawn although 'hide inactive' hides them (selected, hovered, keyboard focus): the force layout lays them out too (#554) */
+  keptIds: Array<string | null | undefined>
+} {
   // The keyboard-focused node pins its branch too, and survives 'hide inactive': focus must not vanish under the user (hover still does not)
   const focusedOwners = focusOwners(focused, sim.toolCalls, sim.discoveries)
   const selectedOwners = selectionOwners(selection.agentId, selection.toolCallId, selection.discoveryId, sim.toolCalls, sim.discoveries)
   // A selected card keeps its owner drawn under 'hide inactive': the card is only drawn with its agent (#378)
-  const base = visibleAgents(all, hideInactive, [...keepIds, ...focusedOwners, ...selectedOwners])
+  const keptIds = [...keepIds, ...focusedOwners, ...selectedOwners]
+  const base = visibleAgents(all, hideInactive, keptIds)
   // A selected card keeps the branch of its owner open, like a selected agent
   const owners = [...selectedOwners, ...focusedOwners]
   const collapse = evaluateCollapse(base, memory, owners)
   const agents = applyCollapse(base, collapse)
   const content = applyCollapseToContent(sim.toolCalls, sim.discoveries, collapse)
-  return { agents, collapse, ...contentOfDrawnAgents(content.toolCalls, content.discoveries, agents) }
+  return { agents, collapse, keptIds, ...contentOfDrawnAgents(content.toolCalls, content.discoveries, agents) }
 }
 
 /**

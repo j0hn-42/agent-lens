@@ -8,7 +8,7 @@
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
-export interface Stats { ignoredEvents: number; clampedFields: number; droppedByCap: number; malformed: number; duplicateEvents: number }
+export interface Stats { ignoredEvents: number; clampedFields: number; droppedByCap: number; malformed: number; duplicateEvents: number; missedUpdates: number }
 export interface Ev { time: number; type: string; payload: Record<string, unknown>; sessionId?: string }
 
 interface NormalizerLike {
@@ -16,6 +16,7 @@ interface NormalizerLike {
   process(raw: unknown): Ev[]
   processBatch(raw: unknown): Ev[]
   noteMalformed(n?: number): void
+  noteMissed(n?: number): void
   noteAgent(name: string): void
   flush(): Ev | null
   dispose(): void
@@ -41,6 +42,7 @@ export interface NormalizeApi {
   sanitizeValue(v: unknown, stats?: Stats, key?: string, depth?: number): unknown
   parseJsonLine(line: unknown, stats?: Stats): Record<string, unknown> | undefined
   createStats(): Stats
+  isTruncated(s: Stats): boolean
   SessionNormalizer: new (sessionId?: string, opts?: NormalizerOptions) => NormalizerLike
   SessionCounters: new () => { stats: Stats }
   CountersRegistry: new (max?: number) => {
@@ -561,6 +563,15 @@ export function normalizeSuite(label: string, api: NormalizeApi): void {
       assert.equal(n.stats.clampedFields, 2)
       assert.equal('sessionId' in n.process(ev(5)).find(x => x.type === 'agent_idle')!, false)
       assert.equal('sessionId' in n.process(ev('')).find(x => x.type === 'agent_idle')!, false)
+    })
+
+    it('noteMissed counts updates the source holds but did not deliver, apart from the ignored events (#420)', () => {
+      const n = new api.SessionNormalizer('s', { now: () => 1000 })
+      n.noteMissed(3)
+      n.noteMissed()
+      assert.equal(n.stats.missedUpdates, 4)
+      assert.equal(n.stats.ignoredEvents, 0)
+      assert.equal(api.isTruncated(n.stats), true)
     })
 
     it('a published stats event is a snapshot: later counting does not alter it', () => {
