@@ -302,3 +302,58 @@ test('one launch entry per role and session opens the card of the first agent be
   assert.equal(new Set(items.map(i => i.id)).size, items.length)
   assert.equal(searchPalette(items, 'launch qa')[0]?.items[0]?.label, 'Find issues to launch for agent:qa-engineer')
 })
+
+// Direct access to each tab of Settings (#533): one command per tab, in the language of the interface, found by its English and
+// French names. It opens the dialog on that tab; the dialog gives the focus to the tab, so the palette leaves focus alone.
+
+const ALL_TABS = ['general', 'sessions', 'notifications', 'keyboard'] as const
+
+test('one "Settings: <tab>" command per tab given, right after "Open settings", running the opener with its tab', () => {
+  calls.length = 0
+  const items = buildPaletteItems(source({
+    settingsTabs: { locale: 'en', tabs: ALL_TABS, open: tab => { calls.push(`settings:${tab}`) } },
+  }))
+  const actions = items.filter(i => i.group === 'Actions').map(i => i.label)
+  const at = actions.indexOf('Open settings')
+  assert.deepEqual(actions.slice(at, at + 5), [
+    'Open settings',
+    'Settings: General',
+    'Settings: Sessions and presentation',
+    'Settings: Notifications and announcements',
+    'Settings: Keyboard and preferences',
+  ])
+  byLabel(items, 'Settings: Notifications and announcements').run()
+  assert.deepEqual(calls, ['settings:notifications'])
+  const tabItems = items.filter(i => i.id.startsWith('action:settings-tab:'))
+  assert.ok(tabItems.every(i => !i.movesFocus && !i.sensitive && i.lang === 'en'))
+  assert.equal(new Set(items.map(i => i.id)).size, items.length)
+})
+
+test('a tab left out of the dialog has no command, and without the opener there is none', () => {
+  assert.equal(buildPaletteItems(source()).filter(i => i.id.startsWith('action:settings-tab:')).length, 0)
+  const items = buildPaletteItems(source({ settingsTabs: { locale: 'en', tabs: ['general', 'keyboard'], open: () => {} } }))
+  assert.deepEqual(items.filter(i => i.id.startsWith('action:settings-tab:')).map(i => i.id), ['action:settings-tab:general', 'action:settings-tab:keyboard'])
+})
+
+test('in French the commands are named as the dialog is (« Réglages : … ») and carry lang="fr"', () => {
+  const items = buildPaletteItems(source({ settingsTabs: { locale: 'fr', tabs: ALL_TABS, open: () => {} } }))
+  const tabItems = items.filter(i => i.id.startsWith('action:settings-tab:'))
+  assert.deepEqual(tabItems.map(i => i.label), [
+    'Réglages : Général', 'Réglages : Sessions et présentation', 'Réglages : Notifications et annonces', 'Réglages : Clavier et préférences',
+  ])
+  assert.ok(tabItems.every(i => i.lang === 'fr'))
+})
+
+test('a tab command is found by its English and its French name, whatever the language, accents optional', () => {
+  for (const locale of ['en', 'fr'] as const) {
+    const items = buildPaletteItems(source({ settingsTabs: { locale, tabs: ALL_TABS, open: () => {} } }))
+    const first = (q: string) => searchPalette(items, q).find(s => s.group === 'Actions')?.items.filter(i => i.id.startsWith('action:settings-tab:'))[0]?.id
+    assert.equal(first('keyboard and preferences'), 'action:settings-tab:keyboard', `${locale}: English name`)
+    assert.equal(first('clavier et préférences'), 'action:settings-tab:keyboard', `${locale}: French name`)
+    assert.equal(first('clavier et preferences'), 'action:settings-tab:keyboard', `${locale}: French name without accents`)
+    assert.equal(first('annonces'), 'action:settings-tab:notifications', `${locale}: a French section title`)
+    assert.equal(first('screen reader announcements'), 'action:settings-tab:notifications', `${locale}: an English section title`)
+    assert.equal(first('paramètres général'), 'action:settings-tab:general', `${locale}: « Paramètres » finds the commands too`)
+    assert.equal(first('settings sound'), 'action:settings-tab:general', `${locale}: the Sound section is in General`)
+  }
+})

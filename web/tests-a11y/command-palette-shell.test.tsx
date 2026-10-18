@@ -79,6 +79,26 @@ test('the shortcuts and settings entries open their dialogs', async () => {
   r.getByRole('dialog', { name: 'Keyboard shortcuts' })
 })
 
+test('a "Settings: <tab>" entry opens Settings on that tab with the focus on it, found by its French name too (#533)', async () => {
+  const r = await mount()
+  await ctrlK()
+  await act(async () => { fireEvent.change(field(r), { target: { value: 'clavier et préférences' } }) })
+  await act(async () => { fireEvent.keyDown(field(r), { key: 'Enter' }) })
+  await wait(50)
+  const dialog = r.getByRole('dialog', { name: 'Settings' })
+  const tab = r.getByRole('tab', { selected: true })
+  assert.equal(tab.textContent, 'Keyboard and preferences')
+  assert.equal(document.activeElement, tab, 'the focus goes to the tab')
+  assert.ok(r.getByRole('button', { name: 'Reset preferences' }), 'its panel is the one shown')
+  // Closed and reopened with the gear shortcut: the last tab is kept for the page
+  await act(async () => { fireEvent.keyDown(dialog, { key: 'Escape' }) })
+  await ctrlK()
+  await act(async () => { fireEvent.change(field(r), { target: { value: 'open settings' } }) })
+  await act(async () => { fireEvent.keyDown(field(r), { key: 'Enter' }) })
+  await wait(50)
+  assert.equal(r.getByRole('tab', { selected: true }).textContent, 'Keyboard and preferences')
+})
+
 test('Ctrl+K does not open the palette over another dialog', async () => {
   const r = await mount()
   await ctrlK()
