@@ -5,7 +5,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentEvent } from '../src/protocol'
 import {
-  appendBounded, capReplayBatches, createEvictionLog, logEvicted, evictedAfter, parseSinceParam, formatSinceParam,
+  appendBounded, capReplayBatches, createEvictionLog, logEvicted, evictedAfter, parseSinceParam,
   RELAY_EVICTION_LOG_PER_SESSION,
 } from '../src/relay-guards'
 
@@ -65,8 +65,8 @@ describe('eviction log (#366)', () => {
 })
 
 describe('since parameter (#366)', () => {
-  it('round-trips instance and number, and rejects anything else', () => {
-    assert.deepEqual(parseSinceParam('/events?since=' + formatSinceParam('a1b2c3d4e5f60718', 42)), { instance: 'a1b2c3d4e5f60718', seq: 42 })
+  it('reads instance and number, and rejects anything else', () => {
+    assert.deepEqual(parseSinceParam('/events?since=a1b2c3d4e5f60718.42'), { instance: 'a1b2c3d4e5f60718', seq: 42 })
     assert.deepEqual(parseSinceParam('/events?session=x&since=abcdef12.0'), { instance: 'abcdef12', seq: 0 })
     for (const bad of [undefined, '/events', '/events?since=', '/events?since=abc', '/events?since=zz!.1', '/events?since=abcdef12.-1',
       '/events?since=abcdef12.1.2', '/events?since=abcdef12.99999999999999999999', '/events?since=a.1&since=b.2', '/status?since=abcdef12.1',

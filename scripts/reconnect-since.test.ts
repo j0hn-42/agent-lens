@@ -3,7 +3,7 @@
 // count what the cut link lost. The first connection sends none; a malformed cursor or number is ignored.
 import { test, beforeEach, afterEach, mock } from 'node:test'
 import { strict as assert } from 'node:assert'
-import { createReconnectingSource, createLoadToken, parseRelayCursor, withSince, BACKOFF_BASE_MS, type EventSourceLike } from '../web/lib/reconnect'
+import { createReconnectingSource, createLoadToken, BACKOFF_BASE_MS, type EventSourceLike } from '../web/lib/reconnect'
 
 class FakeES implements EventSourceLike {
   static all: FakeES[] = []
@@ -38,18 +38,30 @@ beforeEach(() => {
 })
 afterEach(() => mock.timers.reset())
 
-test('parseRelayCursor: a hex instance and a safe non-negative number, nothing else', () => {
-  assert.deepEqual(parseRelayCursor({ type: 'relay-cursor', instance: INSTANCE, seq: 4 }), { instance: INSTANCE, seq: 4 })
-  for (const bad of [null, {}, { type: 'relay-cursor' }, { type: 'relay-cursor', instance: 'XYZ!', seq: 1 }, { type: 'relay-cursor', instance: INSTANCE, seq: -1 },
-    { type: 'relay-cursor', instance: INSTANCE, seq: 1.5 }, { type: 'relay-cursor', instance: 'a'.repeat(65), seq: 1 }, { type: 'other', instance: INSTANCE, seq: 1 }]) {
-    assert.equal(parseRelayCursor(bad), null, JSON.stringify(bad))
+/** URL of the reconnection after a connection that received `cursor` (or nothing when undefined) */
+async function reconnectUrlAfter(cursor: unknown, url = 'http://relay/events'): Promise<string> {
+  FakeES.all = []
+  const src = start(url)
+  FakeES.last.open()
+  if (cursor !== undefined) FakeES.last.send(cursor)
+  FakeES.last.fail()
+  await tick(BACKOFF_BASE_MS)
+  const next = FakeES.last.url
+  src.close()
+  return next
+}
+
+test('only a valid cursor is kept: a hex instance and a safe non-negative number', async () => {
+  assert.equal(await reconnectUrlAfter({ type: 'relay-cursor', instance: INSTANCE, seq: 4 }), `http://relay/events?since=${INSTANCE}.4`)
+  for (const bad of [{ type: 'relay-cursor' }, { type: 'relay-cursor', instance: 'XYZ!', seq: 1 }, { type: 'relay-cursor', instance: INSTANCE, seq: -1 },
+    { type: 'relay-cursor', instance: INSTANCE, seq: 1.5 }, { type: 'relay-cursor', instance: 'a'.repeat(65), seq: 1 }, { type: 'relay-cursor', instance: INSTANCE }]) {
+    assert.equal(await reconnectUrlAfter(bad), 'http://relay/events', JSON.stringify(bad))
   }
 })
 
-test('withSince appends the parameter to a URL with or without a query', () => {
-  assert.equal(withSince('http://relay/events', null), 'http://relay/events')
-  assert.equal(withSince('http://relay/events', { instance: INSTANCE, seq: 7 }), `http://relay/events?since=${INSTANCE}.7`)
-  assert.equal(withSince('http://relay/events?session=s1', { instance: INSTANCE, seq: 7 }), `http://relay/events?session=s1&since=${INSTANCE}.7`)
+test('the parameter is appended to a URL with or without a query', async () => {
+  assert.equal(await reconnectUrlAfter(undefined), 'http://relay/events')
+  assert.equal(await reconnectUrlAfter({ type: 'relay-cursor', instance: INSTANCE, seq: 7 }, 'http://relay/events?session=s1'), `http://relay/events?session=s1&since=${INSTANCE}.7`)
 })
 
 test('first connection: no since; the reconnection sends the cursor advanced by the live events received', async () => {

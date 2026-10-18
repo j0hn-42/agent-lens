@@ -144,13 +144,13 @@ export function createEventDedupe(capacity = DEDUPE_CAPACITY) {
 // ─── Resume point (#366) ──────────────────────────────────────────────────
 
 /** The relay process and the number of the last event received from it (see `relay-cursor`) */
-export interface RelayCursor { instance: string; seq: number }
+interface RelayCursor { instance: string; seq: number }
 
 const CURSOR_INSTANCE = /^[0-9a-f]{8,64}$/
 const isSeq = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
 
 /** A `relay-cursor` message as a validated cursor; null for anything else (untrusted data). */
-export function parseRelayCursor(data: unknown): RelayCursor | null {
+function parseRelayCursor(data: unknown): RelayCursor | null {
   if (typeof data !== 'object' || data === null) return null
   const d = data as { type?: unknown; instance?: unknown; seq?: unknown }
   if (d.type !== 'relay-cursor' || typeof d.instance !== 'string' || !CURSOR_INSTANCE.test(d.instance) || !isSeq(d.seq)) return null
@@ -158,7 +158,7 @@ export function parseRelayCursor(data: unknown): RelayCursor | null {
 }
 
 /** The stream URL with `?since=<instance>.<seq>` (the relay then counts what a cut link lost); unchanged without a cursor. */
-export function withSince(url: string, cursor: RelayCursor | null): string {
+function withSince(url: string, cursor: RelayCursor | null): string {
   if (!cursor) return url
   return `${url}${url.includes('?') ? '&' : '?'}since=${cursor.instance}.${cursor.seq}`
 }

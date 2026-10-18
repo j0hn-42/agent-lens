@@ -202,11 +202,6 @@ export function evictedAfter(log: EvictionLog, sessionId: string, since: number)
 export interface SinceParam { instance: string; seq: number }
 const SINCE_PATTERN = /^([0-9a-f]{8,64})\.(\d{1,16})$/
 
-/** The `since` value a client sends back (the relay's instance id and the last number it received). */
-export function formatSinceParam(instance: string, seq: number): string {
-  return `${instance}.${seq}`
-}
-
 /** The `since` parameter of an /events request; null when absent, repeated or malformed (then nothing is counted). */
 export function parseSinceParam(url: string | undefined): SinceParam | null {
   if (!url) return null
