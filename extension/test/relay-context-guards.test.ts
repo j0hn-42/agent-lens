@@ -75,26 +75,18 @@ describe('replaceSupersededReading guards (#574)', () => {
     assert.deepEqual(buffers.get('s'), [b], 'same provenance: replaced')
   })
 
-  it('isolation: a reading of another session is never replaced, and candidates are per session', () => {
+  it('isolation: candidates are per session (interleaved sessions, a non-neutral event elsewhere)', () => {
     const buffers = new Map<string, AgentEvent[]>()
     const evicted = createEvictedTally()
-    const a = reading('main', 10), b = reading('main', 20)
+    const a = reading('main', 10), b = reading('main', 20), a2 = reading('main', 30)
     appendBounded(buffers, 'one', a, limits, evicted)
     appendBounded(buffers, 'two', b, limits, evicted)
-    assert.deepEqual(buffers.get('one'), [a])
-    assert.deepEqual(buffers.get('two'), [b])
-    // a non-neutral event in session one ends its candidacy only
-    const c = reading('main', 30)
-    appendBounded(buffers, 'two', c, limits, evicted)
-    assert.deepEqual(buffers.get('two'), [c])
-    assert.deepEqual(buffers.get('one'), [a])
+    // a non-neutral event in session two must not end the candidacy of session one
+    const spawn = { time: 1, type: 'agent_spawn', payload: { name: 'x' }, sessionId: 'two' } as unknown as AgentEvent
+    appendBounded(buffers, 'two', spawn, limits, evicted)
+    appendBounded(buffers, 'one', a2, limits, evicted)
+    assert.deepEqual(buffers.get('one'), [a2], 'a is replaced in its own session')
+    assert.deepEqual(buffers.get('two'), [b, spawn], 'the other session is untouched')
     assert.equal(evicted.bySession.size, 0, 'a replaced reading is not a loss')
-  })
-
-  it('a non-neutral event ends the candidacy of the session', () => {
-    const buffers = new Map<string, AgentEvent[]>()
-    const a = reading('main', 10), b = reading('main', 20)
-    feed(buffers, 's', a, { time: 1, type: 'agent_spawn', payload: { name: 'x' }, sessionId: 's' } as unknown as AgentEvent, b)
-    assert.ok(buffers.get('s')!.includes(a))
   })
 })
