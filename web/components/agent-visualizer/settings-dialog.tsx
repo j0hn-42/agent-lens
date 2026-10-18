@@ -12,11 +12,18 @@ import type { NotifyState } from '@/hooks/use-attention-alerts'
 import type { PresentationOptions } from '@/lib/presentation'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { ANNOUNCE_LEVELS, type AnnounceLevel } from '@/lib/ui-preferences'
+import { DEFAULT_SETTINGS_TAB, SETTINGS_TABS, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
 
 export interface SettingsDialogProps {
   /** Whether the dialog is open; renders nothing when false */
   open: boolean
   onClose: () => void
+  /**
+   * Selected tab (#533). Given with onTabChange by the visualizer, which keeps it in memory for the page and opens a tab
+   * from the palette; left out, the dialog keeps its own (still remembered while it stays mounted).
+   */
+  tab?: SettingsTab
+  onTabChange?: (tab: SettingsTab) => void
   hexGrid: boolean
   onHexGridChange: (show: boolean) => void
   /** Sound effects are muted (the audio store only exposes a toggle) */
@@ -60,6 +67,11 @@ export interface SettingsDialogProps {
 }
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
+
+/** What Tab can reach: not the unselected tabs (tabindex -1) nor the controls of the hidden panels */
+function tabbable(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(n => n.tabIndex >= 0 && !n.closest('[hidden]'))
+}
 
 function SwitchRow({ label, help, extraHelp, checked, onChange }: {
   label: string
@@ -128,7 +140,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * 'Reset preferences' (#372): two native buttons, nothing is reset before the second one. The help says what is reset and
  * what is kept. Focus moves to the confirmation, and back to the reset button after a cancel or a reset.
  */
-function ResetSection({ onReset, signature }: { onReset: () => void; signature: string }) {
+function ResetSection({ onReset, signature, shown }: { onReset: () => void; signature: string; shown: boolean }) {
   const t = useT()
   const helpId = useId()
   const askId = useId()
@@ -144,6 +156,12 @@ function ResetSection({ onReset, signature }: { onReset: () => void; signature: 
   const resetRef = useRef<HTMLButtonElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
   const focusNext = useRef<'confirm' | 'reset' | null>(null)
+  // Leaving its tab cancels the confirmation (#533): nothing is reset, and the focus stays where the user moved it
+  useEffect(() => {
+    if (shown) return
+    focusNext.current = null
+    setAsking(false)
+  }, [shown])
   useEffect(() => {
     if (focusNext.current === 'confirm') confirmRef.current?.focus()
     else if (focusNext.current === 'reset') resetRef.current?.focus()
@@ -201,7 +219,7 @@ function AnnouncementsSection({ announcements }: { announcements: NonNullable<Se
   const helpId = useId()
   return (
     <Section title={t('settings.section.announcements')}>
-      <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1 text-xs font-mono">
         <label htmlFor={selectId} style={{ color: COLORS.textPrimary }}>{t('settings.announce.level')}</label>
         <select
           id={selectId}
@@ -287,9 +305,13 @@ function NotificationsSection({ notifications }: { notifications: NonNullable<Se
  * inactive agents, single-key shortcuts...). It only reads and writes their stores, it never persists anything
  * itself; 'Reset preferences' (#372) resets the preference blob only, as its help says.
  * Focus is trapped while open, Escape closes it and focus returns to the previously focused element.
+ *
+ * The sections sit in four tabs (#533, ARIA tabs pattern): one tablist, a single Tab stop with a roving tabindex, Left / Right
+ * (wrapping) and Home / End move and select. Every panel stays rendered, the unselected ones `hidden`, so their state (a
+ * threshold being typed) survives a tab change; the selected tab gets the focus when the dialog opens.
  */
 export function SettingsDialog({
-  open, onClose, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
+  open, onClose, tab, onTabChange, hexGrid, onHexGridChange, muted, onToggleMute, showFinished, onShowFinishedChange,
   hideInactive, onHideInactiveChange, singleKeyEnabled, onSingleKeyEnabledChange, onOpenShortcuts, notifications, presentation, announcements, quota,
   onResetPrefs,
 }: SettingsDialogProps) {
@@ -300,6 +322,31 @@ export function SettingsDialog({
   const backdropRef = useRef<HTMLDivElement>(null)
   const titleId = useId()
   const themeId = useId()
+  const tabsId = useId()
+  const [ownTab, setOwnTab] = useState<SettingsTab>(tab ?? DEFAULT_SETTINGS_TAB)
+  // A tab with nothing to show is left out (no notification channel and no announcement setting given)
+  const tabs = SETTINGS_TABS.filter(id => id !== 'notifications' || notifications || announcements)
+  const wanted = tab ?? ownTab
+  const current: SettingsTab = tabs.includes(wanted) ? wanted : DEFAULT_SETTINGS_TAB
+  const tabRefs = useRef<Partial<Record<SettingsTab, HTMLButtonElement | null>>>({})
+  const select = (next: SettingsTab, focus: boolean) => {
+    setOwnTab(next)
+    onTabChange?.(next)
+    if (focus) tabRefs.current[next]?.focus()
+  }
+  const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    const at = tabs.indexOf(current)
+    const next = e.key === 'ArrowRight' ? tabs[(at + 1) % tabs.length]
+      : e.key === 'ArrowLeft' ? tabs[(at - 1 + tabs.length) % tabs.length]
+      : e.key === 'Home' ? tabs[0]
+      : e.key === 'End' ? tabs[tabs.length - 1]
+      : null
+    if (!next) return
+    e.preventDefault()
+    select(next, true)
+  }
+  const tabDomId = (id: SettingsTab) => `${tabsId}-tab-${id}`
+  const panelDomId = (id: SettingsTab) => `${tabsId}-panel-${id}`
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
   // Every preference shown here: a change after a reset makes the "reset done" line untrue (#372).
@@ -311,7 +358,8 @@ export function SettingsDialog({
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
-    ref.current?.focus({ preventScroll: true })
+    const selectedTab = ref.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    ;(selectedTab ?? ref.current)?.focus({ preventScroll: true })
     return () => {
       if (previous && previous !== document.body && previous.isConnected) previous.focus({ preventScroll: true })
     }
@@ -335,7 +383,7 @@ export function SettingsDialog({
         return
       }
       if (e.key !== 'Tab' || !dialog) return
-      const nodes = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+      const nodes = tabbable(dialog)
       if (nodes.length === 0) {
         e.preventDefault()
         return
@@ -385,12 +433,43 @@ export function SettingsDialog({
             <CloseButton onClick={onClose} label={t('common.close')} />
           </div>
 
+          {/* Labels may wrap on two lines; the list wraps too, never a sideways scroll (WCAG 1.4.10) */}
+          <div role="tablist" aria-label={t('settings.tabs')} className="mb-3 flex flex-wrap gap-1 border-b" style={{ borderColor: COLORS.glassBorder }}>
+            {tabs.map(id => {
+              const isSelected = id === current
+              return (
+                <button
+                  key={id}
+                  ref={el => { tabRefs.current[id] = el }}
+                  id={tabDomId(id)}
+                  type="button"
+                  role="tab"
+                  aria-selected={isSelected}
+                  aria-controls={panelDomId(id)}
+                  tabIndex={isSelected ? 0 : -1}
+                  onClick={() => select(id, false)}
+                  onKeyDown={onTabKeyDown}
+                  className={`-mb-px min-h-6 flex-auto rounded-t px-2 py-1 text-center text-[11px] font-mono ${isSelected ? 'font-semibold' : ''} ${FOCUS_RING}`}
+                  style={{
+                    color: isSelected ? COLORS.textPrimary : COLORS.textMuted,
+                    background: isSelected ? COLORS.tabSelectedBg : 'transparent',
+                    // The selected tab is told by its weight and this underline as well as by its colour
+                    borderBottom: `2px solid ${isSelected ? COLORS.accent : 'transparent'}`,
+                  }}
+                >
+                  {t(SETTINGS_TAB_LABEL[id])}
+                </button>
+              )
+            })}
+          </div>
+
+          <div role="tabpanel" id={panelDomId('general')} aria-labelledby={tabDomId('general')} hidden={current !== 'general'}>
           <Section title={t('settings.section.appearance')}>
-            <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1 text-xs font-mono">
               <label htmlFor={themeId} style={{ color: COLORS.textPrimary }}>{t('settings.theme')}</label>
               <ThemeSelect id={themeId} />
             </div>
-            <div className="flex items-center justify-between gap-3 py-1 text-xs font-mono">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-1 text-xs font-mono">
               <label htmlFor={langId} style={{ color: COLORS.textPrimary }}>{t('settings.language')}</label>
               <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
             </div>
@@ -401,6 +480,9 @@ export function SettingsDialog({
           <Section title={t('settings.section.sound')}>
             <SwitchRow label={t('settings.sound')} help={t('settings.sound.help')} checked={!muted} onChange={() => onToggleMute()} />
           </Section>
+          </div>
+
+          <div role="tabpanel" id={panelDomId('sessions')} aria-labelledby={tabDomId('sessions')} hidden={current !== 'sessions'}>
 
           <Section title={t('settings.section.sessions')}>
             <SwitchRow
@@ -446,9 +528,16 @@ export function SettingsDialog({
             </Section>
           )}
 
-          {notifications && <NotificationsSection notifications={notifications} />}
+          </div>
 
-          {announcements && <AnnouncementsSection announcements={announcements} />}
+          {tabs.includes('notifications') && (
+            <div role="tabpanel" id={panelDomId('notifications')} aria-labelledby={tabDomId('notifications')} hidden={current !== 'notifications'}>
+              {notifications && <NotificationsSection notifications={notifications} />}
+              {announcements && <AnnouncementsSection announcements={announcements} />}
+            </div>
+          )}
+
+          <div role="tabpanel" id={panelDomId('keyboard')} aria-labelledby={tabDomId('keyboard')} hidden={current !== 'keyboard'}>
 
           <Section title={t('settings.section.keyboard')}>
             <SwitchRow
@@ -467,7 +556,8 @@ export function SettingsDialog({
             </button>
           </Section>
 
-          {onResetPrefs && <ResetSection onReset={onResetPrefs} signature={prefsSignature} />}
+          {onResetPrefs && <ResetSection onReset={onResetPrefs} signature={prefsSignature} shown={current === 'keyboard'} />}
+          </div>
         </GlassCard>
       </div>
     </div>

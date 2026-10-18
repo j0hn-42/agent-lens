@@ -342,24 +342,34 @@ test('dialog: keyboard shortcuts', async () => {
   await check('shortcuts-dialog', container)
 })
 
-test('dialog: settings with announcements (#379)', async () => {
-  const { container } = render(
-    <SettingsDialog
-      open onClose={noop}
-      hexGrid onHexGridChange={noop}
-      muted={false} onToggleMute={noop}
-      showFinished={false} onShowFinishedChange={noop}
-      hideInactive onHideInactiveChange={noop}
-      singleKeyEnabled onSingleKeyEnabledChange={noop}
-      onOpenShortcuts={noop}
-      announcements={{ level: 'important', onLevelChange: noop }}
-      onResetPrefs={noop}
-    />,
-  )
-  assert.ok(within(container).getByRole('combobox', { name: 'Announcement level' }), 'the announcements section is rendered')
-  assert.ok(within(container).getByRole('button', { name: 'Reset preferences' }), 'the reset section is rendered (#372)')
-  await check('settings-dialog', container)
-})
+// Settings in tabs (#533): axe runs once per tab, with every optional section given, on the panel that tab shows
+for (const [tab, name] of [
+  ['general', 'General'], ['sessions', 'Sessions and presentation'], ['notifications', 'Notifications and announcements'], ['keyboard', 'Keyboard and preferences'],
+] as const) {
+  test(`dialog: settings, tab ${tab} (#379, #372, #533)`, async () => {
+    const { container } = render(
+      <SettingsDialog
+        open onClose={noop}
+        hexGrid onHexGridChange={noop}
+        muted={false} onToggleMute={noop}
+        showFinished={false} onShowFinishedChange={noop}
+        hideInactive onHideInactiveChange={noop}
+        singleKeyEnabled onSingleKeyEnabledChange={noop}
+        onOpenShortcuts={noop}
+        announcements={{ level: 'important', onLevelChange: noop }}
+        notifications={{ state: 'on', onToggle: noop, rules: { permission: true, error: true, complete: false, cost: true, costThresholdUsd: 5 }, onRulesChange: noop }}
+        presentation={{ active: false, onActiveChange: noop, options: { subtitles: true, mask: true, follow: true }, onOptionChange: noop }}
+        quota={{ show: true, onShowChange: noop }}
+        onResetPrefs={noop}
+      />,
+    )
+    fireEvent.click(within(container).getByRole('tab', { name }))
+    const panel = within(container).getByRole('tabpanel', { name })
+    if (tab === 'notifications') assert.ok(within(panel).getByRole('combobox', { name: 'Announcement level' }), 'the announcements section is rendered')
+    if (tab === 'keyboard') assert.ok(within(panel).getByRole('button', { name: 'Reset preferences' }), 'the reset section is rendered (#372)')
+    await check('settings-dialog', container)
+  })
+}
 
 test('dialog: command palette, with results and with none', async () => {
   const items = buildPaletteItems({

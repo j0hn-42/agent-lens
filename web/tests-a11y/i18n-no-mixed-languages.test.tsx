@@ -1,5 +1,5 @@
 // #373: a surface covered by the message catalog never mixes the two languages. For each locale, the surfaces
-// already translated (Settings in full, the canvas controls and their View panel, the agent card, the Sessions panel, the
+// already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel, the
 // command palette, the legend) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
@@ -11,6 +11,7 @@ import { strict as assert } from 'node:assert'
 import React from 'react'
 import { render, cleanup, fireEvent, act } from '@testing-library/react'
 import { SettingsDialog, type SettingsDialogProps } from '@/components/agent-visualizer/settings-dialog'
+import { SETTINGS_TABS, SETTINGS_TAB_LABEL, type SettingsTab } from '@/lib/settings-tabs'
 import { CanvasControls } from '@/components/agent-visualizer/canvas-controls'
 import { CommandPalette } from '@/components/agent-visualizer/command-palette'
 import { GraphLegend } from '@/components/agent-visualizer/graph-legend'
@@ -121,35 +122,54 @@ const settingsProps = (state: NotifyState): SettingsDialogProps => ({
   announcements: { level: 'important', onLevelChange: noop },
   quota: { show: true, onShowChange: noop },
   presentation: { active: false, onActiveChange: noop, options: { subtitles: true, mask: true, follow: true }, onOptionChange: noop },
+  onResetPrefs: noop,
 })
 
 const NOTIFY_STATES: NotifyState[] = ['on', 'off', 'denied', 'unsupported']
 
+/** Strings of what is shown: a hidden subtree (an unselected tab panel of Settings, #533) is left out. */
+function shownStrings(root: Element): string[] {
+  const copy = root.cloneNode(true) as Element
+  copy.querySelectorAll('[hidden]').forEach(e => e.remove())
+  return surfaceStrings(copy)
+}
+
+/** Settings in tabs (#533): each tab is checked alone, with the keys only that tab renders. */
+const SETTINGS_TAB_KEYS: Record<SettingsTab, MessageKey[]> = {
+  general: ['settings.section.appearance', 'settings.theme', 'settings.language', 'settings.hexGrid.help', 'settings.quota', 'settings.quota.help', 'settings.quota.setup', 'settings.section.sound', 'settings.sound.help'],
+  sessions: ['settings.section.sessions', 'settings.showFinished.help', 'settings.hideInactive.help', 'settings.section.presentation', 'settings.presentation.help', 'settings.presentation.subtitles.help', 'settings.presentation.mask.help', 'settings.presentation.follow.help'],
+  notifications: ['settings.section.notifications', 'settings.notify.unsupported', 'settings.notify.denied', 'settings.notify.rulesPending', 'settings.notify.invalid', 'settings.notify.cost.help',
+    'settings.section.announcements', 'settings.announce.level', 'settings.announce.level.all', 'settings.announce.level.important', 'settings.announce.help'],
+  keyboard: ['settings.section.keyboard', 'settings.singleKey.help', 'settings.shortcuts', 'settings.section.reset', 'settings.reset', 'settings.reset.help'],
+}
+
 for (const locale of LOCALES) {
-  test(`Settings (every section and notification state, an invalid threshold included) speaks only ${locale}`, () => {
-    setLocaleChoice(locale)
-    const strings: string[] = []
-    for (const state of NOTIFY_STATES) {
-      const view = render(<SettingsDialog {...settingsProps(state)} />)
-      const dialog = view.getByRole('dialog')
-      assert.equal(langOf(dialog), locale, `the dialog declares lang=${locale}`)
-      if (state === 'on') {
-        fireEvent.change(view.getByLabelText(MESSAGES[locale]['settings.notify.threshold']), { target: { value: '-1' } })
-        assert.ok(view.getByRole('alert'), 'the invalid threshold message is rendered')
+  for (const tab of SETTINGS_TABS) {
+    test(`Settings, tab ${tab} (every notification state, an invalid threshold included) speaks only ${locale}`, () => {
+      setLocaleChoice(locale)
+      const strings: string[] = []
+      for (const state of NOTIFY_STATES) {
+        const view = render(<SettingsDialog {...settingsProps(state)} />)
+        const dialog = view.getByRole('dialog')
+        assert.equal(langOf(dialog), locale, `the dialog declares lang=${locale}`)
+        fireEvent.click(view.getByRole('tab', { name: MESSAGES[locale][SETTINGS_TAB_LABEL[tab]] }))
+        if (tab === 'notifications' && state === 'on') {
+          fireEvent.change(view.getByLabelText(MESSAGES[locale]['settings.notify.threshold']), { target: { value: '-1' } })
+          assert.ok(view.getByRole('alert'), 'the invalid threshold message is rendered')
+        }
+        strings.push(...shownStrings(dialog))
+        cleanup()
       }
-      strings.push(...surfaceStrings(dialog))
-      cleanup()
-    }
-    for (const key of ['settings.notify.unsupported', 'settings.notify.denied', 'settings.notify.rulesPending', 'settings.notify.invalid'] as MessageKey[]) {
-      assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
-    }
-    for (const key of ['settings.section.announcements', 'settings.announce.level', 'settings.announce.level.all', 'settings.announce.level.important', 'settings.announce.help', 'settings.quota', 'settings.quota.help', 'settings.quota.setup'] as MessageKey[]) {
-      assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
-    }
-    assert.ok(strings.length > 20, 'the dialog was rendered')
-    assert.deepEqual(foreignWords(locale, strings), [])
-    assert.deepEqual(strangers(locale, strings), [])
-  })
+      for (const key of [...SETTINGS_TAB_KEYS[tab], 'settings.title', 'settings.tabs', ...SETTINGS_TABS.map(t => SETTINGS_TAB_LABEL[t])] as MessageKey[]) {
+        assert.ok(strings.includes(MESSAGES[locale][key]), `${key} was rendered`)
+      }
+      for (const other of SETTINGS_TABS.filter(t => t !== tab)) {
+        assert.ok(!strings.includes(MESSAGES[locale][SETTINGS_TAB_KEYS[other][1]]), `${other} is not shown in ${tab}`)
+      }
+      assert.deepEqual(foreignWords(locale, strings), [])
+      assert.deepEqual(strangers(locale, strings), [])
+    })
+  }
 
   test(`the canvas controls and their View panel speak only ${locale}`, () => {
     const view = render(

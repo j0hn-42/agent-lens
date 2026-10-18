@@ -10,6 +10,7 @@ import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT } from './session-model'
 import { SHORTCUTS } from './shortcuts'
 import { HIERARCHY_TERMS, PANEL_NAMES } from './ui-glossary'
 import { translate, type Locale, type MessageKey } from './messages'
+import { settingsTabCommand, type SettingsTab } from './settings-tabs'
 
 export const PALETTE_GROUPS = ['Actions', 'Panels', 'Sessions', 'Agents', 'Themes'] as const
 export type PaletteGroup = (typeof PALETTE_GROUPS)[number]
@@ -85,6 +86,8 @@ export interface PaletteSource {
   notifications?: { on: boolean; run: () => void }
   /** The themes of Settings > Appearance, under the names the theme select gives them */
   themes?: { current: string; options: ReadonlyArray<{ id: string; label: string; alias?: string }>; set: (id: string) => void }
+  /** Tabs of the Settings dialog (#533): one command per tab the dialog shows, named in the interface language */
+  settingsTabs?: { tabs: readonly SettingsTab[]; open: (tab: SettingsTab) => void }
   /** The relay serving this page accepts launches (#229): each role of the view gets a launch entry (#377) */
   launchAvailable?: boolean
   togglePanel: (panel: PalettePanel) => void
@@ -194,6 +197,13 @@ export function buildPaletteItems(src: PaletteSource): PaletteItem[] {
   }
   action('shortcuts', 'palette.action.shortcuts', act.openShortcuts, '?')
   action('settings', 'palette.action.settings', act.openSettings, ',')
+  if (src.settingsTabs) {
+    const { open } = src.settingsTabs
+    for (const tab of src.settingsTabs.tabs) {
+      const { label, keywords } = settingsTabCommand(locale, tab)
+      items.push({ id: `action:settings-tab:${tab}`, group: 'Actions', label, keywords, movesFocus: false, sensitive: false, run: () => open(tab) })
+    }
+  }
 
   // Launching stays in the agent card (its issues labelled agent:<role>, each with its Launch button and confirmation):
   // these entries open the card of the first agent of each role and session. Nothing says an issue is open (#377)

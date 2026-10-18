@@ -126,6 +126,8 @@ test('settings: a Notifications section with one named switch per trigger and a 
   const view = render(<SettingsDialog {...settingsProps({
     notifications: { state: 'on', onToggle: () => { toggled++ }, rules: DEFAULT_RULES, onRulesChange: (r: NotificationRules) => changes.push(r) },
   })} />)
+  // Settings sit in tabs since #533: the Notifications section is in its own tab
+  fireEvent.click(view.getByRole('tab', { name: 'Notifications and announcements' }))
   view.getByRole('region', { name: 'Notifications' })
   const master = view.getByRole('switch', { name: /Enable notifications/ }) as HTMLInputElement
   assert.equal(master.checked, true)
@@ -149,9 +151,11 @@ test('settings: a Notifications section with one named switch per trigger and a 
 
 test('settings: notifications blocked or unsupported are said, never silently off', () => {
   const blockedView = render(<SettingsDialog {...settingsProps({ notifications: { state: 'denied', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop } })} />)
+  fireEvent.click(blockedView.getByRole('tab', { name: 'Notifications and announcements' }))
   blockedView.getByText(/blocked in the browser settings/)
   blockedView.unmount()
   const unsupported = render(<SettingsDialog {...settingsProps({ notifications: { state: 'unsupported', onToggle: noop, rules: DEFAULT_RULES, onRulesChange: noop } })} />)
+  fireEvent.click(unsupported.getByRole('tab', { name: 'Notifications and announcements' }))
   unsupported.getByText(/not available in this environment/)
 })
 

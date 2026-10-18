@@ -104,7 +104,7 @@ export function AgentVisualizer() {
     return a ? `${a.name}${a.sessionLabel ? ` (session ${a.sessionLabel})` : ''}` : key
   }, [agents])
   const { toasts, pushToast, dismissToast, runToastAction, undoLast, setToastsPaused } = useToastCenter(bridge.notice)
-  const { showShortcuts, openShortcuts, closeShortcuts, showSettings, openSettings, closeSettings, showPalette, openPalette, closePalette } = useDialogsState()
+  const { showShortcuts, openShortcuts, closeShortcuts, showSettings, openSettings, openSettingsTab, closeSettings, settingsTab, setSettingsTab, showPalette, openPalette, closePalette } = useDialogsState()
 
   const panels = usePanelsState(uiPrefs, selection.selectedAgentId)
   const {
@@ -235,7 +235,7 @@ export function AgentVisualizer() {
   const paletteItems = usePaletteItems({
     open: showPalette, singleKeyEnabled: singleKeyShortcuts, bridge, listAgents, panels, selectAgent: selection.handleAgentClick,
     actions: {
-      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings,
+      togglePlayPause: handlePlayPause, zoomToFit, toggleFullscreen, toggleMute: handleToggleMute, openShortcuts, openSettings, openSettingsTab,
       togglePresentation: presentation.toggle, clearHistory: handleClearHistory,
     },
     exportSession: { can: sessionActions.canExportSession, run: sessionActions.handleExportSession },
@@ -420,7 +420,7 @@ export function AgentVisualizer() {
 
       <VisualizerDialogs
         settings={{
-          open: showSettings, onClose: closeSettings, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
+          open: showSettings, onClose: closeSettings, tab: settingsTab, onTabChange: setSettingsTab, hexGrid: showHexGrid, onHexGridChange: setShowHexGrid,
           muted: isMuted, onToggleMute: handleToggleMute, showFinished: bridge.showFinished, onShowFinishedChange: bridge.setShowFinished,
           hideInactive, onHideInactiveChange: updateHideInactive, singleKeyEnabled: singleKeyShortcuts,
           onSingleKeyEnabledChange: updateSingleKeyShortcuts, onOpenShortcuts: openShortcuts, onResetPrefs: uiPrefs.resetPrefs,
