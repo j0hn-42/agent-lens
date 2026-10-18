@@ -340,6 +340,15 @@ export class SessionNormalizer {
     this.scheduleTrailing()
   }
 
+  /**
+   * Record `n` well-formed inputs the source will not deliver (an OpenCode row changed after the reader
+   * stopped looking at it, #420); published like noteMalformed.
+   */
+  noteIgnored(n = 1): void {
+    this.stats.ignoredEvents += n
+    this.scheduleTrailing()
+  }
+
   /** Normalize one event; returns the events to forward (0, 1 or 2 with a stats event). */
   process(raw: unknown): AgentEvent[] {
     const out: AgentEvent[] = []

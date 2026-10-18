@@ -108,7 +108,7 @@ const isArchived = (row: OpenCodeSessionRead): boolean => typeof row.time_archiv
 
 export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private db: OpenCodeDb | null = null
-  private cursors: OpenCodeCursors = { session: { time: 0, seen: [] }, message: { time: 0, seen: [] }, part: { time: 0, seen: [] } }
+  private cursors: OpenCodeCursors = { session: { time: 0 }, message: { time: 0, mode: 'key' }, part: { time: 0, mode: 'key' } }
   private sessions = new Map<string, WatchedOpenCodeSession>()
   private retired = new Map<string, RetiredOpenCodeSession>()
   private known = new Map<string, OpenCodeSessionRead>()
@@ -136,6 +136,8 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private dbIdentity: string | null = null
   /** Unreadable rows of the open file that no followed session could take in its normalization_stats (#420). */
   private unattributedSkipped = 0
+  /** Row changes of the open file the reader will not deliver, outside the followed sessions (#420). */
+  private unattributedLost = 0
   private started = false
   /**
    * OpenCode is proved in use (#420): its database was opened in this run, OPENCODE_DB is set, or the
@@ -166,8 +168,12 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    */
   status(): string {
     const n = this.unattributedSkipped
-    if (this.statusText !== this.okText || n === 0) return this.statusText
-    return `${this.statusText}; ${n} unreadable ${n === 1 ? 'row' : 'rows'} ignored outside the followed sessions`
+    const lost = this.unattributedLost
+    if (this.statusText !== this.okText) return this.statusText
+    let text = this.statusText
+    if (n > 0) text += `; ${n} unreadable ${n === 1 ? 'row' : 'rows'} ignored outside the followed sessions`
+    if (lost > 0) text += `; ${lost} row ${lost === 1 ? 'change' : 'changes'} not read outside the followed sessions`
+    return text
   }
 
   /**
@@ -222,13 +228,17 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.scanInterval = setInterval(() => this.scanNow(), SCAN_INTERVAL_MS)
   }
 
-  /** Session rows are all read, messages and parts only inside the activity window: history is not replayed. */
+  /**
+   * Session rows are all read, messages and parts only inside the activity window: history is not
+   * replayed. Messages and parts are followed by their primary key (#420): a cursor on time_updated
+   * would read the whole table at every poll, as OpenCode has no index on it.
+   */
   private resetCursors(): void {
     const since = this.now() - ACTIVE_SESSION_AGE_S * 1000
     this.cursors = {
-      session: { time: 0, seen: [] },
-      message: { time: since, seen: [] },
-      part: { time: since, seen: [] },
+      session: { time: 0 },
+      message: { time: since, mode: 'key' },
+      part: { time: since, mode: 'key' },
     }
     this.lastDataVersion = undefined
   }
@@ -266,6 +276,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     this.known.clear()
     this.verdicts.clear()
     this.unattributedSkipped = 0
+    this.unattributedLost = 0
   }
 
   /**
@@ -347,7 +358,7 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   private pollDb(): boolean {
     const db = this.db
     if (!db) return false
-    // The full scans cost on a large database: skip them while no commit happened, except after a
+    // A poll still scans the session table and reads the window of recent rows (#420): skip it while no commit happened, except after a
     // failed or partial poll and at least every DATA_VERSION_RECHECK_MS (a row dated in the future
     // margin becomes readable without any write).
     const version = db.dataVersion()
@@ -393,11 +404,22 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
    */
   private countSkipped(poll: OpenCodePoll): void {
     for (const { sessionId, count } of poll.skippedPassed ?? []) {
-      const rootId = sessionId ? this.rootOf(sessionId) : undefined
-      const s = rootId ? this.sessions.get(rootId) : undefined
+      const s = this.followedRoot(sessionId)
       if (s) s.parser.normalizer.noteMalformed(count)
       else this.unattributedSkipped = Math.min(this.unattributedSkipped + count, Number.MAX_SAFE_INTEGER)
     }
+    // Changes the reader will not deliver (a row updated after it left the window of recent rows, #420):
+    // well-formed but dropped, counted as ignored events of the followed session, else in the status.
+    for (const { sessionId, count } of poll.lostPassed ?? []) {
+      const s = this.followedRoot(sessionId)
+      if (s) s.parser.normalizer.noteIgnored(count)
+      else this.unattributedLost = Math.min(this.unattributedLost + count, Number.MAX_SAFE_INTEGER)
+    }
+  }
+
+  private followedRoot(sessionId: string | null): WatchedOpenCodeSession | undefined {
+    const rootId = sessionId ? this.rootOf(sessionId) : undefined
+    return rootId ? this.sessions.get(rootId) : undefined
   }
 
   private remember(row: OpenCodeSessionRead): void {
