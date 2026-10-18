@@ -174,10 +174,11 @@ interface AgentItemProps {
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
   useThemeVersion() // memoized row: repaint on a theme switch
   const t = useT() // memoized row: re-render on a language switch
+  const { locale } = useLocale()
   const a = node.agent
   rowRenderProbe.onRender?.(a.id)
   const selected = a.id === selectedAgentId
-  const { detail, stale, role } = agentRowView(a, freshnessNow)
+  const { detail, stale, role, drawn } = agentRowView(a, freshnessNow, locale)
   // The orchestrator plus its sub-agents, each counted once (issue #58)
   const branch = useMemo(() => (node.children.length > 0 ? rollupBranch(node) : null), [node])
   // This agent alone (its sub-agents are in the branch total)
@@ -188,7 +189,6 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         type="button"
         data-row-main
         data-row-key={`agent:${a.id}`}
-        lang="en" data-i18n-exempt=""
         tabIndex={-1}
         aria-current={selected ? 'true' : undefined}
         onClick={() => onSelectAgent(a.id)}
@@ -200,13 +200,16 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
           <StateMarker state={stale ? 'idle' : a.state} />
           <span className="sr-only">{role}, </span>
           <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
-          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>{detail}</span>
+          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>
+            {/* The canvas draws this English word under the agent and its text tree announces it in English: the row quotes it, then glosses it (as the legend does) */}
+            {drawn && <><span lang="en" data-i18n-exempt="" data-drawn-state="">{drawn}</span> : </>}{detail}
+          </span>
         </span>
-        <ColumnValue column="model" cell={modelCell(a.model)} title={a.model} />
+        <ColumnValue column="model" cell={modelCell(a.model, locale)} title={a.model} />
         <BlankCell column="runtime" />
         <BlankCell column="branch" />
-        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a))} />
-        <ColumnValue column="cost" cell={costCell(own)} />
+        <ColumnValue column="tokens" cell={tokensCell(usageFromAgent(a), locale)} />
+        <ColumnValue column="cost" cell={costCell(own, locale)} />
         <LiveTimeValue agent={a} freshness={deriveFreshness(a, freshnessNow)} />
         <BlankCell column="activity" />
         {branch && (
@@ -743,13 +746,13 @@ export function SessionListPanel({
                         <span className="truncate min-w-[6ch] flex-1 text-xs font-semibold" style={{ color: selected ? COLORS.holoBright : COLORS.textPrimary }} title={session.originalLabel ? t('sessions.renamedTitle', { name: tabName, original: session.originalLabel }) : tabName}>{tabName}</span>
                         {session.originalLabel && <span className="sr-only">{t('sessions.renamedSr', { original: session.originalLabel })}</span>}
                       </span>
-                      <ColumnValue column="model" cell={modelCell(modelId)} title={modelId} />
-                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime)} />
-                      <ColumnValue column="branch" cell={branchCell(session.branch)} title={session.branch} />
-                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null)} />
-                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null)} />
-                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime, relayOffline)} />
-                      <ColumnValue column="activity" cell={activityCell(session, currentTime)} />
+                      <ColumnValue column="model" cell={modelCell(modelId, locale)} title={modelId} />
+                      <ColumnValue column="runtime" cell={runtimeCell(session.runtime, locale)} />
+                      <ColumnValue column="branch" cell={branchCell(session.branch, locale)} title={session.branch} />
+                      <ColumnValue column="tokens" cell={rollupTokensCell(hasAgents ? rollups.get(row.id) : null, locale)} />
+                      <ColumnValue column="cost" cell={costCell(hasAgents ? rollups.get(row.id) : null, locale)} />
+                      <ColumnValue column="time" cell={sessionTimeCell(session, currentTime, relayOffline, locale)} />
+                      <ColumnValue column="activity" cell={activityCell(session, currentTime, locale)} />
                       <span className={COLUMN_CLASSES.secondLine} style={{ paddingLeft: 20 }}>
                         {unobserved && (
                           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textMuted }} title={statusHelp}>

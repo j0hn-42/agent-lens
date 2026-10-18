@@ -6,6 +6,9 @@
 import type { AgentLike, AgentNode } from './session-tree'
 import { getStateLabel } from './state-labels'
 import { deriveFreshness, deriveSilence, lastKnownStateText, silenceText } from '../hooks/simulation/freshness'
+import { translate, type Locale } from './messages'
+import * as C from './card-text'
+import { STATE_LABEL_SHORT } from './canvas-constants'
 
 /** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
@@ -13,24 +16,47 @@ export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = 
 export interface AgentRowView {
   detail: string
   stale: boolean
-  role: 'agent' | 'sub-agent' | 'teammate'
+  /** The role in the language asked for (English by default: 'agent', 'sub-agent', 'teammate') */
+  role: string
+  /**
+   * Outside English: the English state word the canvas draws under this agent ("thinking", "waiting", "done"), which
+   * the row quotes before its gloss so the word read on the canvas can be matched with the row (WCAG 1.4.1, 1.3.3).
+   * Absent in English (the detail already is that wording) and when the row shows a tool name instead of a state.
+   */
+  drawn?: string
 }
 
 /** What an agent row says about its agent: the same wording the row renders. */
-export function agentRowView(a: AgentLike, freshnessNow: number): AgentRowView {
+export function agentRowView(a: AgentLike, freshnessNow: number, locale: Locale = 'en'): AgentRowView {
   const freshness = deriveFreshness(a, freshnessNow)
   const stale = freshness === 'stale'
   // A stale status is only the last known one: said in words, and the marker is greyed
   const silence = stale ? deriveSilence(a, freshnessNow) : null
-  const detail = silence
-    ? silenceText(silence, a.state)
-    : stale
-    ? lastKnownStateText(a.state)
-    : freshness === 'closed' && a.state !== 'complete'
-      ? `closed, ${lastKnownStateText(a.state)}`
-      : a.currentTool && a.state === 'tool_calling' ? a.currentTool : getStateLabel(a.state)
-  const role = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
-  return { detail, stale, role }
+  const showsTool = !silence && !stale && !(freshness === 'closed' && a.state !== 'complete') && !!a.currentTool && a.state === 'tool_calling'
+  let detail: string
+  if (locale === 'en') {
+    detail = silence
+      ? silenceText(silence, a.state)
+      : stale
+      ? lastKnownStateText(a.state)
+      : freshness === 'closed' && a.state !== 'complete'
+        ? `closed, ${lastKnownStateText(a.state)}`
+        : a.currentTool && a.state === 'tool_calling' ? a.currentTool : getStateLabel(a.state)
+  } else {
+    // Same conditions as above, only the language of the words changes
+    detail = silence
+      ? C.silenceText(locale, silence, a.state)
+      : stale
+      ? C.lastKnownStateText(locale, a.state)
+      : freshness === 'closed' && a.state !== 'complete'
+        ? translate(locale, 'sessions.agent.closed', { rest: C.lastKnownStateText(locale, a.state) })
+        : a.currentTool && a.state === 'tool_calling' ? a.currentTool : C.stateText(locale, a.state)
+  }
+  const kind = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
+  const role = locale === 'en' ? kind : translate(locale, kind === 'sub-agent' ? 'sessions.role.subAgent' : kind === 'teammate' ? 'sessions.role.teammate' : 'sessions.role.agent')
+  const view: AgentRowView = { detail, stale, role }
+  if (locale !== 'en' && !showsTool) view.drawn = STATE_LABEL_SHORT[a.state] ?? a.state
+  return view
 }
 
 /**

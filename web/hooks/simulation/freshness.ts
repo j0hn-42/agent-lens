@@ -17,6 +17,7 @@ import {
   STALE_AFTER_MS, TERMINAL_STATUS_VISIBLE_MS, FRESHNESS_ANNOUNCE_MAX_NAMES, SILENT_AFTER_MS,
 } from '../../lib/canvas-constants'
 import { getStateLabel } from '../../lib/state-labels'
+import { translate, type Locale } from '../../lib/messages'
 
 export type Freshness = 'fresh' | 'stale' | 'interrupted' | 'error' | 'closed' | 'never-observed'
 
@@ -179,10 +180,11 @@ export function freshnessKey(agents: Iterable<FreshnessSubject>, now: number): s
   return parts.sort().join('|')
 }
 
-function listNames(names: string[]): string {
+function listNames(names: string[], locale: Locale = 'en'): string {
   const shown = names.slice(0, FRESHNESS_ANNOUNCE_MAX_NAMES).join(', ')
   const more = names.length - FRESHNESS_ANNOUNCE_MAX_NAMES
-  return more > 0 ? `${shown} and ${more} more` : shown
+  if (more <= 0) return shown
+  return locale === 'en' ? `${shown} and ${more} more` : translate(locale, 'freshness.announce.more', { names: shown, n: more })
 }
 
 /**
@@ -196,6 +198,7 @@ export function buildFreshnessAnnouncement(
   next: ReadonlyMap<string, Freshness>,
   names: ReadonlyMap<string, string>,
   fromHistory: ReadonlySet<string> = new Set(),
+  locale: Locale = 'en',
 ): string | null {
   const stale: string[] = []
   const history: string[] = []
@@ -206,6 +209,16 @@ export function buildFreshnessAnnouncement(
     const name = names.get(id) ?? id
     if (f === 'stale') (fromHistory.has(id) ? history : stale).push(name)
     else if (f === 'closed') closed.push(name)
+  }
+  if (locale !== 'en') {
+    // Same groups, same order, same conditions; only the words change (the names are data)
+    const say = (key: 'stale' | 'history' | 'closed', names: string[]) =>
+      translate(locale, `freshness.announce.${key}.${names.length === 1 ? 'one' : 'other'}`, { names: listNames(names, locale) })
+    const said: string[] = []
+    if (stale.length > 0) said.push(say('stale', stale))
+    if (history.length > 0) said.push(say('history', history))
+    if (closed.length > 0) said.push(say('closed', closed))
+    return said.length > 0 ? said.join('. ') + '.' : null
   }
   const parts: string[] = []
   if (stale.length > 0) parts.push(`${listNames(stale)} ${stale.length === 1 ? 'is' : 'are'} no longer reporting, showing the last known state`)
