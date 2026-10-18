@@ -88,7 +88,7 @@ function PanelToggle({ pressed, disabled, title, onClick, children }: {
       className={`${CONTROL_BUTTON_CLASS} justify-start gap-1`}
       style={{ ...BUTTON_STYLE, background: pressed ? COLORS.toggleActive : COLORS.panelBg }}
     >
-      <span aria-hidden="true" className="inline-block w-3">{pressed ? '✓' : ''}</span>
+      <span aria-hidden="true" className="inline-block w-3">{pressed ? '\u2713' : ''}</span>
       {children}
     </button>
   )
