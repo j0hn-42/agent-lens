@@ -194,3 +194,19 @@ The answer is `{"scope":"all","allWorkspaces":true}`, built after the rescan. St
 The counts are distinct sessions of the current scope, bounded: the UI reads them as "at least N". Codex, Copilot, Pi, Gemini CLI and OpenCode sessions are matched to the workspace by their own watchers and ignore the scope.
 
 `runtimeProblems` (#420), present only when there is one, lists the watched runtimes that cannot read their source right now, as `{ runtime, message }`: today the OpenCode database not found, not readable, or of an unexpected schema (`"OpenCode: database not found."`). The message never carries a file path and is capped at 300 characters.
+
+## Replay buffer: context readings replaced at the same instant (#567)
+
+The relay keeps, per session, the last events it received (5000 per session, 50 sessions, 50,000 in all) and replays at most 2000 of them per session to a page that connects (`RELAY_MAX_*` in `extension/src/constants.ts`). What these caps leave out is counted and sent as the `event-loss` message ("Graph incomplete: at least N earlier events were not replayed by the relay").
+
+A `context_update` is an absolute reading: the page sets the agent's context from it, it never adds readings up. A Claude Code tool call emits up to three of them in a row (after the call, after its result, and once more for the same result). In the replay buffer, an earlier reading of an agent is **replaced** by a later reading of the same agent (removed; the later one stays at its own place, so the other events keep their order) only when nothing the page shows can tell the difference:
+
+- **same stream time**: a review scrub reaches both readings or neither, so the context gauge reads the same at every instant;
+- **only tool calls, tool results, messages and other context readings in between**: none of them changes which agent a reading lands on. A spawn, a dispatch, a team, a completion, an idle, a model, a compaction, a return or an activity event in between keeps both;
+- **the later reading sets everything the earlier one set**: a figure at least as large (a context window that the earlier reading grew stays grown), a breakdown, a window when the earlier one carried one, and the same provenance (history or imported marks).
+
+Readings of different instants are all kept. Lifecycle events (`agent_spawn`, `subagent_dispatch`, `team_info`) are never replaced, and the lifecycle reserve of the replay (400) is unchanged, as are every cap. `agent_activity` keeps its own rule (only the latest per agent).
+
+**A replaced reading is not a loss**, and it is not counted in `event-loss`: the state it leads to is the same (agents, states, current context of each agent). No new figure is reported for these replacements. The only place where they show is a [session export](session-export.md) of a replayed session: a replaced reading has no row there.
+
+Measured on the real relay (`scripts/relay-replay-context-coalesce.test.ts`), one session, tool calls written 20 at a time: for 6003 events the loss reported goes from 4002 to about 1100, for 12003 events from 10002 to about 4300; at 2505 events nothing is lost any more (504 before). Lines written one by one, 40 ms apart: 294 of the 903 events replaced (2 of the 3 readings of a tool call). The share in a real session depends on how far apart its lines are written: a reading of a tool call and those of its result written seconds apart are all kept, except the duplicate of the result. The work per event is bounded (the earlier reading is looked for among the last 64 events at most).
