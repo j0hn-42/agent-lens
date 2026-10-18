@@ -8,15 +8,22 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, spawnPosition, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, spawnPosition, clusterRadius, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
 import { visibleAgents } from '../../lib/inactive-agents'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
 export const SYNC_TICKS = 30
 /** Alpha given to the simulation when the nodes change */
 const SYNC_ALPHA = 0.3
-/** Alpha given when agents only leave the simulation (#554): the ones left relax to the forces that remain */
+/** Alpha given when the agents no longer drawn leave the simulation, or drawn agents enter it without being re-placed (#554) */
 const RESIZE_ALPHA = 0.1
+/**
+ * An agent that stops being drawn (it finished, was deselected) stays in the simulation, undrawn, until its disc would
+ * lose more than this share of its radius without the agents so kept (#554, review of #564). One agent finishing then
+ * moves nothing, as before #554; the discs shrink in batches, or at the next rebuild (an agent appears, the filter is
+ * toggled). 0.2: an orchestrator with 4 drawn children keeps up to 3 such agents (disc 460 instead of 370).
+ */
+const TRIM_SHARE = 0.2
 /** Positions closer than this to the previous ones are not written back (no churn) */
 const POSITION_EPSILON = 0.01
 /** Ticks the centring may keep the layout awake once the simulation has cooled (children against the disc edge can leave a small gap for good) */
@@ -40,6 +47,12 @@ export interface ForceLayout {
    * agents leave the simulation, their discs shrinking to the drawn agents (#554). Taken into account on the next step.
    */
   setHideInactive(hide: boolean): void
+  /**
+   * Agents the canvas draws although 'Hide inactive agents' hides them: the selected, hovered and keyboard-focused ones
+   * (the same ids as sceneAgents). They are laid out like drawn agents: one that was out of the simulation comes back
+   * next to its parent rather than at its last position. Taken into account on the next step.
+   */
+  setKeepIds(ids: ReadonlyArray<string | null | undefined>): void
   /** True while the layout still moves */
   readonly active: boolean
   destroy(): void
@@ -56,9 +69,15 @@ export function createForceLayout(): ForceLayout {
   let lastProjects: SessionProjects | undefined
   let phasesKey = ''
   let centringBudget = 0
-  /** Agents in the simulation (the drawn ones) and agents left out of it at the last build */
+  /** Agents in the simulation (the drawn ones, and the ones no longer drawn not trimmed yet) and agents left out of it at the last build */
   let simIds = new Set<string>()
   let leftOut = new Set<string>()
+  /** Agents of the simulation the discs are sized on (not the ones only a selection keeps drawn) */
+  let countedIds = new Set<string>()
+  /** Hidden agents the canvas still draws (see setKeepIds) */
+  let keepIds: ReadonlyArray<string | null | undefined> = []
+  /** The filter was toggled since the last step: the agents no longer drawn leave at once */
+  let filterChanged = false
   const centring = createCentringForce(() => children, () => family, id => info.get(id))
   const sim: Simulation<ForceNode, ForceLink> = forceSimulation<ForceNode, ForceLink>([])
     .force('charge', forceManyBody().strength(FORCE.chargeStrength))
@@ -106,21 +125,56 @@ export function createForceLayout(): ForceLayout {
     return changed
   }
 
-  /** True when the drawn agents are not exactly the ones in the simulation */
-  const drawnChanged = (shown: ReadonlyMap<string, Agent>): boolean => {
-    if (shown.size !== simIds.size) return true
-    for (const id of shown.keys()) if (!simIds.has(id)) return true
+  /**
+   * Agents the filter draws (they size the discs) and agents the canvas draws: the same plus the hidden ones it keeps
+   * (selection, hover, keyboard focus). A kept agent is laid out (collisions, link to its parent) but sizes nothing:
+   * hovering or selecting a hidden agent must not move the clusters.
+   */
+  const drawnOf = (agents: Map<string, Agent>): { byFilter: Map<string, Agent>; drawn: Map<string, Agent> } => {
+    const byFilter = visibleAgents(agents, hideInactive)
+    return { byFilter, drawn: keepIds.some(Boolean) ? visibleAgents(agents, hideInactive, keepIds) : byFilter }
+  }
+
+  /** The agents of `members`, in the order of `agents` */
+  const subset = (agents: Map<string, Agent>, members: ReadonlySet<string>): Map<string, Agent> => {
+    const out = new Map<string, Agent>()
+    for (const [id, a] of agents) if (members.has(id)) out.set(id, a)
+    return out
+  }
+
+  /**
+   * True when a disc held by agents no longer drawn would lose more than TRIM_SHARE of its radius without them. A
+   * cluster none of whose agents is drawn any more does not count: it waits for the next rebuild, as before #554.
+   */
+  const undrawnTooMany = (drawn: ReadonlyMap<string, Agent>): boolean => {
+    const held = new Map<string, number>()
+    const shown = new Map<string, number>()
+    for (const id of simIds) {
+      const key = info.get(id)?.key
+      if (key === undefined) continue
+      held.set(key, (held.get(key) ?? 0) + 1)
+      if (drawn.has(id)) shown.set(key, (shown.get(key) ?? 0) + 1)
+    }
+    for (const [key, n] of held) {
+      const m = shown.get(key) ?? 0
+      if (m === 0 || m === n) continue
+      const r = clusterRadius(n)
+      if (r - clusterRadius(m) > TRIM_SHARE * r) return true
+    }
     return false
   }
 
   /**
-   * Put the drawn agents (and only them) in the simulation (#554). `keep` reuses the nodes already there (position,
-   * velocity, held drag) rather than reading the agents. An agent that was left out and is drawn again comes back next
-   * to its parent (as when it appeared), not at its last position, which the moves of its cluster may have left far away.
-   * An agent the user pinned stays where it was put. Returns true when an agent was re-placed so.
+   * Put `members` (the drawn agents, and the ones no longer drawn kept for now) in the simulation (#554); the discs and
+   * the ring of the phases are sized on `counted` (the same less the agents only a selection keeps drawn). `keep`
+   * reuses the nodes already there (position, velocity, held drag) rather than reading the agents. An agent that was left out and is drawn again comes back next to its parent (as
+   * when it appeared), not at its last position, which the moves of its cluster may have left far away. An agent the
+   * user pinned stays where it was put. Returns true when an agent was re-placed so.
    */
-  const build = (agents: Map<string, Agent>, edges: readonly Edge[], keep: boolean): boolean => {
-    const shown = visibleAgents(agents, hideInactive)
+  const build = (
+    agents: Map<string, Agent>, edges: readonly Edge[], members: ReadonlySet<string>, counted: ReadonlySet<string>, keep: boolean,
+  ): boolean => {
+    const shown = subset(agents, members)
     const previous = keep ? new Map(sim.nodes().map(n => [n.id, n])) : new Map<string, ForceNode>()
     let placed = shown
     let replaced = false
@@ -145,8 +199,9 @@ export function createForceLayout(): ForceLayout {
     simIds = new Set(shown.keys())
     leftOut = new Set()
     for (const id of agents.keys()) if (!simIds.has(id)) leftOut.add(id)
-    info = layoutInfo(agents, lastTeams, lastProjects, hideInactive).info
-    phasesKey = phaseSignature(agents, hideInactive, lastTeams)
+    countedIds = new Set(counted)
+    info = layoutInfo(subset(agents, countedIds), lastTeams, lastProjects).info
+    phasesKey = phaseSignature(agents, false, lastTeams, countedIds)
     refreshChildren(agents)
     sim.nodes(nodes)
     const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
@@ -158,7 +213,9 @@ export function createForceLayout(): ForceLayout {
     sync(agents, edges, teams, projects) {
       lastTeams = teams
       lastProjects = projects
-      build(agents as Map<string, Agent>, edges, false)
+      filterChanged = false
+      const { byFilter, drawn } = drawnOf(agents as Map<string, Agent>)
+      build(agents as Map<string, Agent>, edges, new Set(drawn.keys()), new Set(byFilter.keys()), false)
       sim.alpha(SYNC_ALPHA)
       active = true
       for (let i = 0; i < SYNC_TICKS; i++) tick()
@@ -171,24 +228,43 @@ export function createForceLayout(): ForceLayout {
       return agents === state.agents ? state : { ...state, agents }
     },
     stepState(state) {
-      // An agent hidden or drawn again (it finished, the button was toggled): the simulation holds the drawn agents
-      // only and the discs are resized to them (#554). Not a sync: no burst of ticks, everything is eased. Agents that
-      // left warm it up a little (the ones left relax without the forces of the hidden ones); an agent drawn again is
-      // re-placed next to its parent and warmed up like one that just appeared (see sync)
-      if (drawnChanged(visibleAgents(state.agents, hideInactive))) {
+      // The simulation holds the drawn agents and the discs are sized on them (#554). Not a sync: no burst of ticks,
+      // everything is eased. An agent drawn again that was out of the simulation is re-placed next to its parent and
+      // warmed up like one that just appeared (see sync). An agent only a selection, the hover or the keyboard focus
+      // keeps drawn is re-placed so too, but sizes nothing and warms nothing up: the clusters do not move for it. An
+      // agent that stops being drawn (it finished, was deselected) stays in the simulation undrawn: nothing moves, as
+      // before #554 (review of #564). Those agents leave when the filter is toggled or when a disc would lose more than
+      // TRIM_SHARE of its radius without them: the discs are resized and the clusters move once for the whole batch
+      const { byFilter, drawn } = drawnOf(state.agents)
+      let counts = false
+      for (const id of byFilter.keys()) if (!countedIds.has(id)) { counts = true; break }
+      let enters = counts
+      if (!enters) for (const id of drawn.keys()) if (!simIds.has(id)) { enters = true; break }
+      let gone = false
+      for (const id of simIds) if (!state.agents.has(id)) { gone = true; break }
+      const undrawn = !enters && !gone ? simIds.size - drawn.size : 1
+      const trim = undrawn > 0 && (filterChanged || undrawnTooMany(drawn))
+      filterChanged = false
+      if (enters || gone || trim) {
         lastTeams = state.teams
-        const warm = build(state.agents, state.edges, true) ? SYNC_ALPHA : RESIZE_ALPHA
-        sim.alpha(Math.max(sim.alpha(), warm))
+        const members = new Set(drawn.keys())
+        if (!trim) for (const id of simIds) if (state.agents.has(id)) members.add(id)
+        const counted = new Set<string>()
+        for (const id of members) if (byFilter.has(id) || countedIds.has(id)) counted.add(id)
+        const replaced = build(state.agents, state.edges, members, counted, true)
+        // A trim warms up a little: the agents left relax into their smaller disc. An agent only kept drawn (selection,
+        // hover, focus) or removed from the state warms nothing up
+        if (counts || trim) sim.alpha(Math.max(sim.alpha(), counts && replaced ? SYNC_ALPHA : RESIZE_ALPHA))
         centringBudget = CENTRING_TICKS
         active = true
       }
       // Not a sync: no reheating of the simulation, the centring alone eases the parent to its new middle
       if (refreshChildren(state.agents)) active = true
-      // A phase of a workflow appearing in or leaving the display (its agents finish, get hidden) re-places the phases
-      const phases = phaseSignature(state.agents, hideInactive, lastTeams)
+      // A phase of a workflow appearing in or leaving the simulation re-places the phases
+      const phases = phaseSignature(state.agents, false, lastTeams, countedIds)
       if (phases !== phasesKey) {
         phasesKey = phases
-        info = layoutInfo(state.agents, lastTeams, lastProjects, hideInactive).info
+        info = layoutInfo(subset(state.agents, countedIds), lastTeams, lastProjects).info
         centringBudget = CENTRING_TICKS
         active = true
       }
@@ -197,7 +273,11 @@ export function createForceLayout(): ForceLayout {
       const agents = apply(state.agents)
       return agents === state.agents ? state : { ...state, agents }
     },
-    setHideInactive(hide) { hideInactive = hide },
+    setHideInactive(hide) {
+      if (hide !== hideInactive) filterChanged = true
+      hideInactive = hide
+    },
+    setKeepIds(ids) { keepIds = ids },
     pin(id, x, y) {
       const node = sim.nodes().find(n => n.id === id)
       if (!node) return
@@ -208,7 +288,7 @@ export function createForceLayout(): ForceLayout {
       active = true
     },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set() },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set(); countedIds = new Set(); keepIds = []; filterChanged = false },
   }
   return layout
 }

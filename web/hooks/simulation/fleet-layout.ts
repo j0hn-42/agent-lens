@@ -315,9 +315,13 @@ export function restampClusterKeys(agents: Map<string, Agent>, teams?: ReadonlyM
 }
 
 /** Phases of the drawn workflow agents per cluster, as one string: changes when a phase appears or disappears from the display. */
-export function phaseSignature(agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>): string {
+export function phaseSignature(
+  agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>, members?: ReadonlySet<string>,
+): string {
   let out = ''
-  for (const a of visibleAgents(agents, hideInactive).values()) if (a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
+  // `members`: only these agents count (the ones the force layout holds), in place of the filter
+  const counted = members ? agents.values() : visibleAgents(agents, hideInactive).values()
+  for (const a of counted) if ((!members || members.has(a.id)) && a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
   return out
 }
 
