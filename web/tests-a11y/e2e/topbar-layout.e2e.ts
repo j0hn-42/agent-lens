@@ -12,6 +12,7 @@ import { strict as assert } from 'node:assert'
 import { chromium, type Browser, type Page } from 'playwright'
 import { waitForStableLayout } from './stable-layout'
 import { startDemoServer, type DemoServer } from './demo-server'
+import { openWorstCase } from './topbar-worstcase'
 
 let browser: Browser
 let server: DemoServer
@@ -24,8 +25,9 @@ after(async () => {
   await server?.stop()
 })
 
-async function open(w: number, h = 900): Promise<Page> {
+async function open(w: number, h = 900, locale?: 'fr' | 'en'): Promise<Page> {
   const context = await browser.newContext({ viewport: { width: w, height: h } })
+  if (locale) await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
   const page = await context.newPage()
   await page.goto(server.url, { waitUntil: 'networkidle' })
   await page.locator('header').getByRole('button', { name: /^Sessions/ }).waitFor()
@@ -242,6 +244,108 @@ test('1000x900: still folded under 1024 px, one row', async () => {
     assert.equal(await page.locator('header').getByRole('button', { name: /^More/ }).count(), 1)
     assert.equal(l.rows, 1)
     expectPublished(l, '1000px')
+  } finally {
+    await page.context().close()
+  }
+})
+
+// #500: the French labels are longer than the English ones (Sessions : Toutes les sessions, Afficher les sessions terminées,
+// 2 agents en attente / 1 agent en erreur). The bar keeps its two rows at 1440, 1280, 1100 and 1024 px, never taller than in
+// English; the heights are logged ("#500 ...") for the pull request.
+for (const w of [1440, 1280, 1100, 1024]) {
+  test(`${w}x900 in French: still two rows, no taller than in English, height published`, async () => {
+    const heights: Record<string, number> = {}
+    for (const locale of ['en', 'fr'] as const) {
+      const page = await open(w, 900, locale)
+      try {
+        const l = await measure(page)
+        heights[locale] = l.barHeight
+        // Room left in row 1 (identity and filters side by side): what the longer French texts can still take
+        const row1 = await page.evaluate(`(() => {
+          const row = document.querySelector('header [data-topbar-row="1"]')
+          const kids = [...row.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
+          const gap = parseFloat(getComputedStyle(row).columnGap) || 0
+          return { width: row.getBoundingClientRect().width, content: kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
+        })()`) as { width: number; content: number }
+        console.log(`#500 ${w}px ${locale}: bar ${l.barHeight} px, ${l.rows} rows, --topbar-h ${l.published} px; row 1 ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
+        assert.equal(l.rows, 2, `${w}px ${locale}: ${l.rows} rows`)
+        expectPublished(l, `${w}px ${locale}`)
+        assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
+        assert.equal(await page.locator('header').getAttribute('lang'), locale)
+      } finally {
+        await page.context().close()
+      }
+    }
+    assert.ok(heights.fr <= heights.en, `${w}px: ${heights.fr} px in French, ${heights.en} px in English`)
+  })
+}
+
+// #500, worst case of row 1 (the demo draws no attention counter, no scope selector and no finished-sessions toggle): the real
+// TopBar is drawn alone (topbar-worstcase.ts) with the three at once. At 1024 px the row is measured in French and in English
+// (logged); at 320 px in French the page must not scroll sideways and no control may be cropped.
+async function worstCase(w: number, locale: 'fr' | 'en', query = ''): Promise<Page> {
+  const context = await browser.newContext({ viewport: { width: w, height: 900 } })
+  await context.addInitScript(l => { try { window.localStorage.setItem('agent-lens:locale', l) } catch { /* blocked */ } }, locale)
+  const page = await openWorstCase(context, server.url, query)
+  await waitForStableLayout(page)
+  return page
+}
+
+for (const [name, query] of [['with the three discovery ceilings', ''], ['without a ceiling', '?ceilings=0']] as const) {
+  test(`1024x900 row 1 with attention, scope and finished sessions, ${name}: measured in French and English`, async () => {
+    const rows: Record<string, { content: number; width: number; rows: number; bar: number }> = {}
+    for (const locale of ['en', 'fr'] as const) {
+      const page = await worstCase(1024, locale, query)
+      try {
+        const l = await measure(page)
+        const row1 = await page.evaluate(`(() => {
+          const row = document.querySelector('header [data-topbar-row="1"]')
+          const kids = [...row.children].filter(k => k.getBoundingClientRect().width > 0 && !k.matches('[data-topbar-spacer]'))
+          const gap = parseFloat(getComputedStyle(row).columnGap) || 0
+          return { width: row.getBoundingClientRect().width, content: kids.reduce((n, k) => n + k.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1) }
+        })()`) as { width: number; content: number }
+        rows[locale] = { ...row1, rows: l.rows, bar: l.barHeight }
+        assert.equal(await page.locator('header [data-testid="attention-counter"]').count(), 1, 'the attention counter is drawn')
+        assert.equal(await page.locator('header [data-scope-selector]').count(), 1, 'the scope selector is drawn')
+        assert.equal(await page.locator('header').getByRole('button', { name: locale === 'fr' ? /sessions terminées/i : /finished sessions/i }).count(), 1, 'the finished-sessions toggle is drawn')
+        console.log(`#500 1024px ${name} ${locale}: bar ${l.barHeight} px, ${l.rows} rows; row 1 children ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
+        assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), `${locale}: no horizontal page scroll`)
+      } finally {
+        await page.context().close()
+      }
+    }
+    // The row wraps rather than overflows; French may not make the bar taller than English does
+    assert.ok(rows.fr.bar <= rows.en.bar && rows.fr.rows <= rows.en.rows, `French ${rows.fr.rows} rows / ${rows.fr.bar} px, English ${rows.en.rows} rows / ${rows.en.bar} px`)
+  })
+}
+
+test('320x568 worst case in French: no sideways scroll, nothing cropped', async () => {
+  const page = await worstCase(320, 'fr')
+  try {
+    assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), 'no horizontal page scroll')
+    // Every drawn control lies inside the window and the bar: scrollWidth alone misses a box cut by a clipped ancestor
+    const out = await page.evaluate(`(() => {
+      const w = window.innerWidth
+      const header = document.querySelector('header')
+      const hb = header.getBoundingClientRect()
+      const bad = []
+      for (const el of header.querySelectorAll('button, select, [data-testid="attention-counter"], [data-testid="connection-detail"]')) {
+        const r = el.getBoundingClientRect()
+        if (r.width <= 1 || r.height <= 1 || el.closest('.sr-only')) continue
+        const name = (el.getAttribute('aria-label') || el.textContent || el.tagName).trim().slice(0, 40)
+        if (r.left < -0.5 || r.right > w + 0.5 || r.right > hb.right + 0.5 || r.left < hb.left - 0.5) bad.push(name + ' ' + r.left.toFixed(1) + '..' + r.right.toFixed(1))
+        else if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX !== 'visible') bad.push('text cut in ' + name)
+      }
+      // Text cut with an ellipsis (class truncate): the full text stays in the DOM for screen readers, but a sighted person loses it
+      const ellipsis = [...header.querySelectorAll('*')].filter(e => getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1).map(e => (e.textContent || '').trim())
+      return { bad, ellipsis, header: header.scrollWidth <= header.clientWidth + 1, bar: hb.height, controls: [...header.querySelectorAll('button, select')].filter(e => e.getBoundingClientRect().width > 1).length }
+    })()`) as { bad: string[]; ellipsis: string[]; header: boolean; bar: number; controls: number }
+    console.log(`#500 320px worst case fr: bar ${out.bar} px, ${out.controls} controls drawn, outside the window or clipped: ${out.bad.length}; cut with an ellipsis: ${JSON.stringify(out.ellipsis)}`)
+    assert.deepEqual(out.bad, [])
+    assert.ok(out.header, 'the bar does not scroll inside itself')
+    // Known, measured: the Sessions label (max-width 320 px, class truncate) loses its end when the "not observed" suffix is
+    // drawn next to it in French. Nothing else may be cut; the label is whole in the DOM (and for screen readers).
+    assert.deepEqual(out.ellipsis.filter(t => !t.startsWith('Sessions')), [], 'only the Sessions label is cut with an ellipsis')
   } finally {
     await page.context().close()
   }

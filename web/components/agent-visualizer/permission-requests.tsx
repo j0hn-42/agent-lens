@@ -35,6 +35,8 @@ const ERROR_KEYS: Record<string, MessageKey> = {
 interface PermissionRequestsProps {
   /** Label of a session when the panel knows one (the full id is shown too) */
   sessionLabel?: (sessionId: string) => string | undefined
+  /** Told whether at least one card is shown (the first-run tour offer yields to a pending decision) */
+  onShownChange?: (shown: boolean) => void
 }
 
 /**
@@ -45,8 +47,13 @@ interface PermissionRequestsProps {
  * claimed applied. Outside VS Code nothing is rendered.
  * No global shortcut, no focus taken: news is announced in a polite live region.
  */
-export function PermissionRequests({ sessionLabel }: PermissionRequestsProps) {
+export function PermissionRequests({ sessionLabel, onShownChange }: PermissionRequestsProps) {
   const { available, rows, notice, decide, dismiss } = usePermissionRequests()
+  const shown = rows.length > 0
+  useEffect(() => {
+    onShownChange?.(shown)
+    return () => onShownChange?.(false)
+  }, [shown, onShownChange])
   const { locale } = useLocale()
   const t = useT()
   const headingId = useId()

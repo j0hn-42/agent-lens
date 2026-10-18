@@ -170,6 +170,57 @@ function agentNameOf(e: AgentEvent): unknown {
   return (e.payload as { name?: unknown } | undefined)?.name
 }
 
+/**
+ * Context readings superseded at the same instant (#567). A context_update is an absolute reading (the web sets the
+ * agent's context from it, it never adds it up), and a tool call emits up to three of them in a row. In the replay
+ * buffer, an earlier reading of the same agent is REPLACED by a later one (removed, the later one stays at its own
+ * place) only when no view can tell the difference:
+ * - same stream time: a review scrub (seekToTime) reaches both readings or neither;
+ * - only tool / message / context events since the earlier one: none of them changes which agent a reading lands on
+ *   (spawn, dispatch, completion, team, model or compaction events end the candidacy);
+ * - the later reading sets everything the earlier one set: a figure at least as large (a window an earlier reading
+ *   grew stays grown), a breakdown, a window when the earlier one carried one, and the same provenance.
+ * A replaced reading is not a lost event (the state it leads to is the same), so it is never counted in the loss.
+ * Readings of different instants are all kept: the review scrubber shows each of them.
+ */
+const CONTEXT_TYPE = 'context_update'
+const CONTEXT_NEUTRAL_TYPES = new Set(['tool_call_start', 'tool_call_end', 'message', CONTEXT_TYPE])
+/** How far back the earlier reading is looked for (it is a few events back; past this, it is simply kept). */
+const CONTEXT_SCAN_LIMIT = 64
+/** Agents with a candidate reading, per buffer; past this, the candidates are forgotten (readings are then kept). */
+const CONTEXT_MAX_CANDIDATES = 256
+/** The latest reading of each agent that a later one may still replace, per session buffer. */
+const contextCandidates = new WeakMap<AgentEvent[], Map<string, AgentEvent>>()
+
+const isReading = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
+const hasWindow = (p: Record<string, unknown>) => typeof p.tokensMax === 'number' && p.tokensMax > 0
+const hasBreakdown = (v: unknown) => typeof v === 'object' && v !== null && 'systemPrompt' in v
+
+/** True when `next` leaves nothing of `prev` visible (see above). */
+function supersedes(next: AgentEvent, prev: AgentEvent): boolean {
+  const p = prev.payload ?? {}, n = next.payload ?? {}
+  if (prev.time !== next.time || prev.imported !== next.imported || prev.replayed !== next.replayed) return false
+  if (!isReading(n.tokens) || n.tokens < (isReading(p.tokens) ? p.tokens : 0)) return false
+  return hasBreakdown(n.breakdown) && (hasWindow(n) || !hasWindow(p))
+}
+
+/** Remove from `buf` the earlier reading `next` supersedes, if any; record `next` as the agent's candidate. Bounded work. */
+function replaceSupersededReading(buf: AgentEvent[], event: AgentEvent): void {
+  if (!CONTEXT_NEUTRAL_TYPES.has(event.type)) { contextCandidates.delete(buf); return }
+  if (event.type !== CONTEXT_TYPE) return
+  const agent = event.payload?.agent
+  if (typeof agent !== 'string') return
+  let candidates = contextCandidates.get(buf)
+  if (!candidates || candidates.size >= CONTEXT_MAX_CANDIDATES) { candidates = new Map(); contextCandidates.set(buf, candidates) }
+  const prev = candidates.get(agent)
+  if (prev && supersedes(event, prev)) {
+    for (let i = buf.length - 1; i >= Math.max(0, buf.length - CONTEXT_SCAN_LIMIT); i--) {
+      if (buf[i] === prev) { buf.splice(i, 1); break }
+    }
+  }
+  candidates.set(agent, event)
+}
+
 /** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
  *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
 export function trimKeepingLifecycle(buf: AgentEvent[], max: number): number {
@@ -194,6 +245,8 @@ export function trimKeepingLifecycle(buf: AgentEvent[], max: number): number {
  * Append an event to a per-session buffer, keeping memory bounded: at most
  * `perSession` events per session, `sessions` sessions (least recently written
  * evicted first) and `total` events overall. `protect` is never evicted.
+ * Only the latest agent_activity per agent is kept, and a context_update superseded at the same instant is
+ * replaced (#567, see supersedes): neither is counted in `evicted`, the state they lead to is the same.
  */
 export function appendBounded(
   buffers: Map<string, AgentEvent[]>,
@@ -205,6 +258,7 @@ export function appendBounded(
 ): void {
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
+  replaceSupersededReading(buf, event)
   const previous = event.type === ACTIVITY_TYPE ? buf.findIndex(e => e.type === ACTIVITY_TYPE && agentNameOf(e) === agentNameOf(event)) : -1
   // Only the latest activity per (session, agent) is replayed: replace in place, it stays after the spawn
   if (previous >= 0) buf[previous] = event

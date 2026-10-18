@@ -2,7 +2,8 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, pluralize } from './utils'
+import { formatCost, formatDuration, formatTokens, pluralize } from './utils'
+import { translate, type Locale, type MessageKey } from './messages'
 import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
 import { formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
@@ -15,12 +16,21 @@ import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionIn
  * runtime reports nothing, each one names what is missing ("tokens not reported", "cost not reported") instead of two
  * bare "not reported" in a row (#383).
  */
-export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { tokens: string; spoken: string } {
+export function topBarContextText(tokens: UsageTotal, cost: UsageTotal, locale: Locale = 'en'): { tokens: string; spoken: string } {
   const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
+  // The figure with its qualifier, as usage.qualify does ("at least 5k estimated"); the words follow the language
+  const qualified = (u: UsageTotal, v: string) => {
+    if (u.status === 'partial') return translate(locale, u.estimated ? 'usage.partialEstimated' : 'usage.partial', { v })
+    return u.estimated ? translate(locale, 'usage.estimated', { v }) : v
+  }
   return {
-    tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${formatTokenUsage(tokens)} tokens in context`,
+    tokens: missing(tokens)
+      ? translate(locale, 'topbar.context.tokensMissing')
+      :translate(locale, 'topbar.context.tokens', { v: qualified(tokens, formatTokens(tokens.value as number)) }),
     // The cost in words (no "~"); a missing one reads "cost not reported"
-    spoken: missing(cost) ? `cost ${USAGE_LABELS.unavailable}` : spokenCostUsage(cost),
+    spoken: missing(cost)
+      ? translate(locale, 'topbar.context.costMissing')
+      : `${translate(locale, 'topbar.context.costName')} ${qualified(cost, formatCost(cost.value as number))}`,
   }
 }
 
@@ -171,21 +181,34 @@ export function scrubberValueText(current: number, total: number): string {
 
 // ─── Top bar ─────────────────────────────────────────────────────────────────
 
+/** "1 agent", "3 agents": the same word in both languages, only the plural mark follows the count. */
+function agentsText(locale: Locale, n: number): string {
+  return translate(locale, n === 1 ? 'count.agent.one' : 'count.agent.other', { n })
+}
+
+/** Plural form of a message that exists as <base>.one / <base>.other (French: 0 and 1 are singular). */
+function countPart(locale: Locale, base: 'topbar.counts.active' | 'topbar.counts.idle' | 'topbar.counts.done', n: number): string {
+  const rule = new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'
+  return translate(locale, `${base}.${rule}` as MessageKey, { n })
+}
+
 /**
  * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
  * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
  */
-function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
-  const staleText = stale > 0 ? ` - ${stale} last known state` : ''
-  const idleText = idle > 0 ? ` - ${idle} idle` : ''
-  const errorText = error > 0 ? ` - ${error} error` : ''
-  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
+function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
+  const staleText = stale > 0 ? ` - ${translate(locale, 'topbar.counts.stale', { n: stale })}` : ''
+  const idleText = idle > 0 ? ` - ${countPart(locale, 'topbar.counts.idle', idle)}` : ''
+  const errorText = error > 0 ? ` - ${translate(locale, 'topbar.counts.error', { n: error })}` : ''
+  const colon = locale === 'fr' ? ' :' : ':'
+  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${staleText}${idleText}${errorText} - ${countPart(locale, 'topbar.counts.done', done)}`
 }
 
 /** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the Sessions panel header (#523); the full wording (`formatAgentCounts`) is read by screen readers. */
-function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
-  const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
-  return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
+function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0, locale: Locale = 'en'): string {
+  const part = (n: number, text: string) => (n > 0 ? ` · ${text}` : '')
+  const colon = locale === 'fr' ? ' :' : ':'
+  return `${agentsText(locale, active + done + stale + idle + error)}${colon} ${countPart(locale, 'topbar.counts.active', active)}${part(stale, translate(locale, 'topbar.counts.stale.short', { n: stale }))}${part(idle, countPart(locale, 'topbar.counts.idle', idle))}${part(error, translate(locale, 'topbar.counts.error', { n: error }))} · ${countPart(locale, 'topbar.counts.done', done)}`
 }
 
 /** Agents of the view by state, as `agentActivityCounts` splits them. */
@@ -195,16 +218,17 @@ export interface AgentStateCounts { active: number; done: number; stale: number;
  * Agent counts of the view (#523, moved from the top bar to the Sessions panel header, same text): `drawn` is the
  * compact text ("30 agents: 0 active · 4 last known · 26 done"), `spoken` the full wording read by screen readers.
  * In All (`allSessionCount` not null) it is the sessions and agents ("3 sessions · 30 agents"), without the states.
+ * `locale` is the interface language (#500); English when omitted.
  */
-export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null): { drawn: string; spoken: string } {
+export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null, locale: Locale = 'en'): { drawn: string; spoken: string } {
   if (allSessionCount !== null) {
     const sessions = pluralize(allSessionCount, 'session')
-    const agents = pluralize(c.active + c.done + c.stale + c.idle + c.error, 'agent')
+    const agents = agentsText(locale, c.active + c.done + c.stale + c.idle + c.error)
     return { drawn: `${sessions} · ${agents}`, spoken: `${sessions}, ${agents}` }
   }
   return {
-    drawn: formatAgentCountsCompact(c.active, c.done, c.stale, c.idle, c.error),
-    spoken: formatAgentCounts(c.active, c.done, c.stale, c.idle, c.error),
+    drawn: formatAgentCountsCompact(c.active, c.done, c.stale, c.idle, c.error, locale),
+    spoken: formatAgentCounts(c.active, c.done, c.stale, c.idle, c.error, locale),
   }
 }
 

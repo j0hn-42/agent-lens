@@ -383,31 +383,42 @@ export function computeDockLayout(input: DockInput): DockLayout {
 
 export interface PopupPlacement {
   left: number; top: number; width: number; maxHeight: number
-  /** The popup lies over the lower part of the permission cards (the floor was applied): their buttons can be hidden (#536) */
+  /**
+   * The popup lies over the lower part of the permission cards: only when there is no room under them nor beside them
+   * (the floor was applied, #536, #558). Focus entering the cards then closes the popup (DetailPopup).
+   */
   coversCards: boolean
 }
 
 /**
- * Height a popup keeps when the permission cards' slot is not kept in full (WCAG 1.4.10 Reflow, 2.4.7): its close button,
- * a title and a few lines of body, about five 32 px rows, readable with its own scrollbar. It is a target, not a
- * guarantee: the cards' title and intro win over it (see placePopup), so a short window can leave less (86 px at
- * 640x300: 32 px of header and about 50 px).
+ * Height a popup asks for when it has to share the column with the permission cards (WCAG 1.4.10 Reflow): its close
+ * button, a title and a few lines of body, about five 32 px rows, readable with its own scrollbar. Under it, a popup
+ * goes beside the cards when a column is wide enough there, and otherwise keeps what is left under them (#558).
  */
 export const POPUP_MIN_H = 160
+
+/** Narrowest column beside the cards a popup is moved into rather than squeezed under them (#558) */
+const POPUP_MIN_W = 160
+
+/** Smallest height under the cards still used for a popup (its header and about one line, scrolled): under it, the floor */
+const POPUP_FIT_MIN_H = 64
 
 /** Height kept for the cards' title and intro when their measure is unknown (about a title line and a two-line intro) */
 const PERMISSIONS_HEAD_FALLBACK = 72
 
 /**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
- * bar (never over either), nor over the permission cards that sit right under the top bar (#410): their measured
- * slot is kept free where the popup overlaps them horizontally (permissionsX / permissionsW, the whole width when
- * unknown), and a popup on top of them would hide a pending decision. That reservation has a floor: when the cards
- * leave less than POPUP_MIN_H (200 % zoom, 320 px phone, cards at their 60vh cap), the popup starts higher, at POPUP_MIN_H
- * from the control bar, and covers the lower part of the cards (coversCards). It never covers their title and intro
- * (permissionsHeadH, measured; a fallback when unknown): those win over the floor, so on a very short window the popup
- * keeps less than POPUP_MIN_H. Escape closes it and gives the cards back. Wider-than-viewport popups shrink; taller
- * ones get a maxHeight to scroll.
+ * bar (never over either), nor over the permission cards that sit right under the top bar (#410, #558): a popup on
+ * top of them would hide a pending decision, the Approve and Deny buttons included. Their measured slot is kept free
+ * where the popup overlaps them horizontally (permissionsX / permissionsW, the whole width when unknown). In order:
+ * 1. under the cards, when at least POPUP_MIN_H is left there (or the popup does not overlap them);
+ * 2. beside them (left or right, the wider), over the full height of the column, when that column is at least
+ *    POPUP_MIN_W wide: the popup narrows to it;
+ * 3. under them in what is left, at least POPUP_FIT_MIN_H, with its own scrollbar;
+ * 4. no room at all (a very short and narrow window): the floor. The popup starts at POPUP_MIN_H from the control bar
+ *    and covers the lower part of the cards (coversCards), never their title and intro (permissionsHeadH, measured; a
+ *    fallback when unknown), which win over the floor. Focus entering the cards then closes it, and Escape too.
+ * Wider-than-viewport popups shrink; taller ones get a maxHeight to scroll.
  */
 export function placePopup(
   anchor: { x: number; y: number },
@@ -417,29 +428,44 @@ export function placePopup(
 ): PopupPlacement {
   const margin = 8
   const vw = env.viewport.w
-  const width = Math.max(0, Math.min(size.w, vw - 2 * margin))
-  const left = Math.round(clamp(finite(anchor.x, 0) - width / 2, margin, vw - width - margin))
+  const ax = finite(anchor.x, 0)
+  const ay = finite(anchor.y, 0) + offsetY
   const bottomLimit = env.viewport.h - CONTROL_BAR_BOTTOM - env.controlBarH - DOCK_GAP
   const topLimit = Math.min(env.topbarH, env.viewport.h)
+  /** The popup in a column [colLeft, colRight] x [minTop, bottomLimit] */
+  const inColumn = (colLeft: number, colRight: number, minTop: number, coversCards = false): PopupPlacement => {
+    const width = Math.max(0, Math.min(size.w, colRight - colLeft))
+    const left = Math.round(clamp(ax - width / 2, colLeft, colRight - width))
+    const maxBottom = Math.max(minTop, bottomLimit)
+    const maxHeight = Math.max(0, maxBottom - minTop)
+    const height = Math.min(size.h, maxHeight)
+    return { left, top: Math.round(clamp(ay, minTop, maxBottom - height)), width, maxHeight, coversCards }
+  }
+  const full = inColumn(margin, vw - margin, topLimit)
   const px = env.permissionsX
   const pw = env.permissionsW
-  const overlapsCards = !Number.isFinite(px) || !Number.isFinite(pw) || (left < (px as number) + (pw as number) && left + width > (px as number))
+  const known = Number.isFinite(px) && Number.isFinite(pw)
+  const overlapsCards = !known || (full.left < (px as number) + (pw as number) && full.left + full.width > (px as number))
   const band = overlapsCards ? permissionsBand(env.permissionsH) : 0
-  // Under the cards, but never leaving less than POPUP_MIN_H (or less than the whole free column when that is smaller)
-  const floorTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
-  // ... but never over the cards' title and intro, which win over the floor
-  const headH = band > 0 ? Math.min(band, Math.ceil(Math.max(0, finite(env.permissionsHeadH as number, PERMISSIONS_HEAD_FALLBACK))) + TOPBAR_STACK_GAP) : 0
-  const minTop = Math.max(floorTop, Math.min(topLimit + headH, Math.max(topLimit, bottomLimit)))
-  const maxBottom = Math.max(minTop, bottomLimit)
-  const maxHeight = Math.max(0, maxBottom - minTop)
-  const height = Math.min(size.h, maxHeight)
-  return {
-    left,
-    top: Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)),
-    width,
-    maxHeight,
-    coversCards: band > 0 && Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)) < topLimit + band && maxHeight > 0,
+  if (band === 0) return full
+  // 1. Under the cards, with the height a popup asks for
+  const under = inColumn(margin, vw - margin, Math.min(topLimit + band, Math.max(topLimit, bottomLimit)))
+  if (bottomLimit - (topLimit + band) >= POPUP_MIN_H) return under
+  // 2. Beside the cards, over the whole height of the column
+  if (known) {
+    const leftCol: [number, number] = [margin, (px as number) - TOPBAR_STACK_GAP]
+    const rightCol: [number, number] = [(px as number) + (pw as number) + TOPBAR_STACK_GAP, vw - margin]
+    const [colLeft, colRight] = leftCol[1] - leftCol[0] >= rightCol[1] - rightCol[0] ? leftCol : rightCol
+    if (colRight - colLeft >= POPUP_MIN_W && bottomLimit - topLimit >= POPUP_FIT_MIN_H) return inColumn(colLeft, colRight, topLimit)
   }
+  // 3. Under the cards in what is left
+  if (bottomLimit - (topLimit + band) >= POPUP_FIT_MIN_H) return under
+  // 4. The floor: over the lower part of the cards, never over their title and intro
+  const floorTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
+  const headH = Math.min(band, Math.ceil(Math.max(0, finite(env.permissionsHeadH as number, PERMISSIONS_HEAD_FALLBACK))) + TOPBAR_STACK_GAP)
+  const minTop = Math.max(floorTop, Math.min(topLimit + headH, Math.max(topLimit, bottomLimit)))
+  const floor = inColumn(margin, vw - margin, minTop)
+  return { ...floor, coversCards: floor.top < topLimit + band && floor.maxHeight > 0 }
 }
 
 // ─── Store (environment measurement + shared state) ─────────────────────────

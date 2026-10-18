@@ -1,11 +1,11 @@
 // #373: a surface covered by the message catalog never mixes the two languages. For each locale, the surfaces
 // already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel, the
-// command palette, the legend, the guided tour and the panel titles) are rendered and every visible
+// command palette, the legend, the guided tour, the panel titles and the whole top bar) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
-// lang) is left out. Surfaces not yet translated (top bar, panels)
-// are out of this test on purpose: see docs/reading-the-ui.md. The top bar controls translated in #373 have
-// their own test (topbar-i18n.test.tsx) until the whole bar can join this one.
+// lang) is left out. Surfaces not yet translated (the panels)
+// are out of this test on purpose: see docs/reading-the-ui.md. Control by control, the top bar also has
+// topbar-i18n.test.tsx.
 import { test, afterEach, beforeEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'
@@ -30,6 +30,11 @@ import { AgentDetailCard, AgentGoneCard } from '@/components/agent-visualizer/ag
 import { SessionListPanel, type SessionListAgent } from '@/components/agent-visualizer/session-list-panel'
 import { FreshnessAnnouncer } from '@/components/agent-visualizer/freshness-announcer'
 import { createFreshnessClock } from '@/hooks/use-freshness-clock'
+import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
+import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
+import { reconnectDetail } from '@/lib/reconnect'
+import { parseRelayScopeState } from '@/lib/relay-scope'
+import { setMobileView } from './mobile-media'
 import type { SessionInfo } from '@/lib/bridge-types'
 import type { DelegationRow } from '@/lib/delegation-report'
 import type { GitState } from '@/lib/git-state'
@@ -46,7 +51,6 @@ import { ProjectContextPanel } from '@/components/agent-visualizer/project-conte
 import { guidedSteps } from '@/lib/guided-steps'
 import { buildLiveTourSteps } from '@/lib/live-tour'
 import { panelName } from '@/lib/command-palette'
-import { setMobileView } from './mobile-media'
 
 afterEach(() => {
   cleanup()
@@ -716,6 +720,89 @@ for (const locale of LOCALES) {
     assert.ok(strings.length > 150, 'the legend was rendered')
     assert.deepEqual(foreignWords(locale, strings, LOCAL_ALLOW), [])
     assert.deepEqual([...new Set(listed(locale, strings))], [])
+  })
+}
+
+// ---- The whole top bar (#500, #501) ----
+
+const barNoop = () => {}
+const barBase: TopBarProps = {
+  sessions: [{ id: 's1', label: 'alpha-run', status: 'active', startTime: 1, lastActivityTime: 2 }],
+  selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(['other']),
+  showSessions: false, onToggleSessions: barNoop, isVSCode: false, connectionStatus: 'connected',
+  activeAgentCount: 2, staleAgentCount: 1, idleAgentCount: 1, errorAgentCount: 1, doneAgentCount: 3, totalTokens: 1200, totalCost: 1, unattributedCost: 0.5,
+  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, isMuted: false,
+  onTogglePanel: barNoop, onToggleTimeline: barNoop, onToggleStats: barNoop, showStats: false, onToggleMute: barNoop, onOpenShortcuts: barNoop,
+  onToggleHideInactive: barNoop, onOpenSettings: barNoop, onToggleFullscreen: barNoop, onOpenPalette: barNoop, notifyState: 'off', onToggleNotify: barNoop,
+  onToggleShowFinished: barNoop, finishedSessionCount: 2, hideInactive: true,
+  attention: { waiting: 1, errors: 2 }, onJumpToAttention: barNoop,
+}
+const barScope = parseRelayScopeState({
+  relayVersion: '1', workspace: '/home/me/code/alpha', runtimes: ['claude'], hooksConfigured: true, disable1MContext: false,
+  sessionCount: 1, allWorkspaces: false, skippedSessions: { watchLimit: 1, sizeLimit: 2, fileLimit: 2 },
+  discovery: { projectDirsCapped: false, maxProjectDirs: 200, maxFilesPerDir: 500 },
+})!
+
+for (const locale of LOCALES) {
+  test(`the whole top bar (every state, folded or not) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const T = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
+    const strings: string[] = []
+    const keep = (props: Partial<TopBarProps>) => {
+      const view = render(<TopBar {...barBase} {...props} />)
+      const header = view.container.querySelector('header') as HTMLElement
+      assert.equal(langOf(header), locale, `the bar declares lang=${locale}`)
+      strings.push(...surfaceStrings(header))
+      // What the relay wrote in English declares it
+      for (const e of Array.from(header.querySelectorAll('[data-i18n-exempt]'))) assert.equal(e.getAttribute('lang'), 'en', 'an exempt subtree declares lang=en')
+      cleanup()
+    }
+    // Wide: every filter, an attention counter, a scope with its ceilings, every connection state
+    keep({ scope: { state: { ...barScope, runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] }, sessions: [{ id: 'a', label: 'a', status: 'active', startTime: 0, lastActivityTime: 1, projectId: 'p', projectName: 'Alpha' }] as never, projectId: null, pending: false, error: 'The relay refused the change of scope (500)', onChoose: barNoop } })
+    keep({ connectionStatus: 'watching', selectedSessionId: 's1', showFinished: true })
+    keep({ connectionStatus: 'connecting', attention: { waiting: 0, errors: 1 }, notifyState: 'denied', isMuted: true })
+    keep({ connectionStatus: 'disconnected', connectionDetail: reconnectDetail(2, 10_000), onRetryConnection: barNoop })
+    keep({ connectionStatus: 'disconnected', connectionDetail: 'proxy refused', onRetryConnection: barNoop })
+    keep({ isDemo: true, onExitDemo: barNoop, isVSCode: true, notifyState: 'on' })
+    keep({ selectedSessionId: 'team:alpha', attention: { waiting: 2, errors: 0 } })
+    // Folded under 1024 px, then under 768 px: More names the filters that are on
+    setMobileView(true)
+    keep({})
+    keep({ hideInactive: false, finishedSessionCount: 0 })
+    setMobileView(false)
+
+    for (const x of [
+      T('topbar.sessions.button', { label: T('sessions.allSessions') }), T('topbar.sessions.title'), T('topbar.sessions.newActivity'), T('topbar.sessions.unobserved.one', { n: 1 }),
+      T('topbar.attention.waiting.one', { n: 1 }) + ' / ' + T('topbar.attention.error.other', { n: 2 }),
+      T('topbar.attention.title.many'),
+      T('topbar.connection.watching'), T('topbar.connection.connecting'), T('topbar.connection.offline'), T('topbar.connection.demo'), T('topbar.connection.retry'), T('topbar.connection.exitDemo'),
+      T('topbar.connection.reconnecting', { attempt: 2, seconds: 10 }),
+      T('topbar.finished.label', { n: 2 }), T('topbar.finished.title'),
+      T('topbar.more'), T('topbar.more.help'), T('topbar.more.withFilters.other', { n: 2 }),
+      T('topbar.toolbar'), T('topbar.sidePanels'), T('topbar.context.vscode'),
+      T('scope.group'), T('scope.select'), T('scope.title'), T('scope.option.workspace'), T('scope.option.all'), T('scope.summary', { name: 'alpha' }),
+    ]) assert.ok(strings.includes(x), `"${x}" was rendered`)
+    assert.ok(strings.some(s => s.endsWith(T('topbar.attention.answerWhere'))), 'the tooltip says where a permission is answered')
+    assert.ok(strings.some(s => s.includes(T('scope.notice.fileLimit.other', { n: 2, max: 500 }))), 'the ceilings are worded in the language')
+    assert.ok(strings.length > 60, 'the bar was rendered')
+
+    // Not catalog values on their own: the panel labels drawn without their shortcut, the symbols, the lists of figures read aloud
+    const panelLabels = (['files', 'conversation', 'context', 'system', 'cost', 'timeline', 'stats'] as const).map(p => T(`topbar.panel.${p}.name` as MessageKey).replace(/ \([A-Z]\)$/, ''))
+    // The spoken cost is the name, then one amount in the exact qualifiers of the language (usage.partial, usage.estimated, both, or none)
+    const amount = '<?\\$\\d[\\d.]*'
+    const qualifiers = ['{v}', 'usage.partial', 'usage.estimated', 'usage.partialEstimated'].map(k => (k === '{v}' ? k : MESSAGES[locale][k as MessageKey]).split('{v}').map(escapeRe).join(amount))
+    const spokenCost = new RegExp(`^${escapeRe(T('topbar.context.costName'))} (?:${qualifiers.join('|')})$`)
+    const spokenUnattributed = new RegExp(`^${escapeRe(T('topbar.context.unattributed', { cost: '$0.500' }))}$`)
+    // The text read aloud joins catalog values with ", ", " - " and " : " (a figure follows its words)
+    const spokenLine = (s: string) => /, /.test(s) && s.split(', ').every(part =>
+      strangers(locale, part.split(' - ').flatMap(x => (strangers(locale, [x], { data: [spokenCost, spokenUnattributed] }).length === 0 ? [x] : x.split(' : '))), { data: [spokenCost, spokenUnattributed] }).length === 0)
+    // Names of the fixtures (a session, a project): data as it came
+    const fixtureNames = new Set(['alpha-run', 'alpha', 'Alpha', 'a'])
+    // An unknown connection detail is exempt (data-i18n-exempt, lang=en) only on a page that is not in English; in English it is the page's own language, so it is data like the names above
+    if (locale === 'en') fixtureNames.add('proxy refused')
+    const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
+    assert.deepEqual(unknown, [])
+    assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && !fixtureNames.has(s)), new Set(['alpha-run'])), [])
   })
 }
 

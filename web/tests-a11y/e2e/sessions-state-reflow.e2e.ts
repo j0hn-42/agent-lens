@@ -74,11 +74,11 @@ test('fr 320px: a stale agent row shows its quote and its whole French gloss, no
     await post({ type: '__vscode-bridge-init' })
     await post({ type: 'config', showMockData: false })
     await post({ type: 'session-list', sessions: [{ id: 's1', label: 'reflow', status: 'active', startTime: now - 1000, lastActivityTime: now, workspace: '/w/reflow', runtime: 'claude' }] })
-    await page.getByRole('button', { name: /^Sessions: reflow/ }).waitFor()
+    await page.getByRole('button', { name: /^Sessions\s?: reflow/ }).waitFor()
     await post({ type: 'agent-event', event: { time: 0, type: 'agent_spawn', payload: { name: 'main-agent-with-a-long-name', isMain: true }, sessionId: 's1' } })
     await post({ type: 'agent-event', event: { time: 0.5, type: 'tool_call_start', payload: { agent: 'main-agent-with-a-long-name', tool: 'Read', args: 'a.ts' }, sessionId: 's1' } })
 
-    await page.getByRole('button', { name: /^Sessions:/ }).click()
+    await page.getByRole('button', { name: /^Sessions\s?:/ }).click()
     const row = page.locator('[data-row-key^="agent:"]').filter({ hasText: 'main-agent-with-a-long-name' }).first()
     await row.waitFor()
     // Silent past the stale threshold: the row quotes the last known state the canvas draws

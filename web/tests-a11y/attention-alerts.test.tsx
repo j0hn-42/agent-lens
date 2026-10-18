@@ -43,7 +43,7 @@ test('top bar: no counter without a blocked agent', () => {
 test('top bar: the counter names the numbers in words and each click goes to the next blocked agent (#377)', () => {
   let jumped = 0
   const { getByRole } = render(topBar({ attention: { waiting: 2, errors: 1 }, onJumpToAttention: () => { jumped++ } }))
-  const button = getByRole('button', { name: /2 waiting \/ 1 error\. Go to the next agent that needs you/ })
+  const button = getByRole('button', { name: /2 agents waiting \/ 1 agent in error\. Go to the next agent that needs you/ })
   fireEvent.click(button)
   fireEvent.click(button)
   assert.equal(jumped, 2)
@@ -51,7 +51,7 @@ test('top bar: the counter names the numbers in words and each click goes to the
 
 test('top bar: with a single blocked agent the counter does not promise a next one', () => {
   const { getByRole } = render(topBar({ attention: { waiting: 1, errors: 0 }, onJumpToAttention: noop }))
-  getByRole('button', { name: '1 waiting. Go to the agent that needs you' })
+  getByRole('button', { name: '1 agent waiting. Go to the agent that needs you' })
 })
 
 test('top bar: outside VS Code the counter says that a permission is answered where the agent runs (#377)', () => {

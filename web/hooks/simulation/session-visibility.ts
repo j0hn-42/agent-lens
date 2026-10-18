@@ -126,7 +126,3 @@ export function parseShowFinished(raw: string | null | undefined): boolean {
   return raw === 'true'
 }
 
-/** Label of the toggle: 'Show finished sessions (N)'. */
-export function finishedToggleLabel(count: number): string {
-  return `Show finished sessions (${count})`
-}

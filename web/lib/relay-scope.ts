@@ -8,6 +8,7 @@
 import type { SessionInfo } from './bridge-types'
 import { projectOptions } from './session-filter'
 import { CONTROL_ALL } from './control-chars'
+import { translate, type Locale, type MessageKey } from './messages'
 
 export type RelayScope = 'workspace' | 'all'
 
@@ -119,11 +120,11 @@ export function parseScopeValue(value: unknown): ScopeChoice | null {
 export interface ScopeOption { value: string; label: string }
 
 /** This workspace, all workspaces, then the projects present in the list (by name). */
-export function scopeOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'projectId' | 'projectName'>>): ScopeOption[] {
+export function scopeOptions(sessions: ReadonlyArray<Pick<SessionInfo, 'projectId' | 'projectName'>>, locale: Locale = 'en'): ScopeOption[] {
   return [
-    { value: 'workspace', label: 'This workspace' },
-    { value: 'all', label: 'All workspaces' },
-    ...projectOptions(sessions).map(p => ({ value: `${PROJECT_PREFIX}${p.projectId}`, label: `Project: ${p.projectName}` })),
+    { value: 'workspace', label: translate(locale, 'scope.option.workspace') },
+    { value: 'all', label: translate(locale, 'scope.option.all') },
+    ...projectOptions(sessions).map(p => ({ value: `${PROJECT_PREFIX}${p.projectId}`, label: translate(locale, 'scope.option.project', { name: p.projectName }) })),
   ]
 }
 
@@ -144,8 +145,8 @@ function baseName(p: string): string {
 }
 
 /** One line stating the limit in force. null on all workspaces: nothing is limited, the selector says it. */
-export function scopeSummary(state: RelayScopeState): string | null {
-  return state.scope === 'all' ? null : `Scanning this workspace only (${baseName(state.workspace)})`
+export function scopeSummary(state: RelayScopeState, locale: Locale = 'en'): string | null {
+  return state.scope === 'all' ? null : translate(locale, 'scope.summary', { name: baseName(state.workspace) })
 }
 
 /** Shown where a list would otherwise be silently empty: the limit, and the way out. null when nothing is limited or unknown. */
@@ -154,17 +155,19 @@ export function scopeEmptyHint(state: RelayScopeState | null): string | null {
   return 'Only the sessions of this workspace are discovered. Choose All workspaces to look at the others.'
 }
 
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
+/** A message that exists as <base>.one / <base>.other (French: 0 and 1 are singular). */
+const pluralText = (locale: Locale, base: string, n: number, params: Record<string, string | number> = {}) =>
+  translate(locale, `${base}.${new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'}` as MessageKey, { n, ...params })
 
 /** The discovery ceilings that were hit and the runtimes the relay cannot read, as sentences. Empty when none (or the relay does not say). */
-export function scopeNotices(state: RelayScopeState): string[] {
+export function scopeNotices(state: RelayScopeState, locale: Locale = 'en'): string[] {
   const out: string[] = (state.runtimeProblems ?? []).map(p => p.message)
   const d = state.discovery
   if (!d) return out
   const { fileLimit, sizeLimit, watchLimit } = d.skipped
-  if (fileLimit > 0) out.push(`At least ${fileLimit} older ${plural(fileLimit, 'transcript is', 'transcripts are')} not followed: more than ${d.maxFilesPerDir} in one folder.`)
-  if (sizeLimit > 0) out.push(`At least ${sizeLimit} ${plural(sizeLimit, 'transcript is', 'transcripts are')} too large to follow.`)
-  if (watchLimit > 0) out.push(`At least ${watchLimit} ${plural(watchLimit, 'session is', 'sessions are')} not followed: the watch limit is reached.`)
+  if (fileLimit > 0) out.push(pluralText(locale, 'scope.notice.fileLimit', fileLimit, { max: d.maxFilesPerDir }))
+  if (sizeLimit > 0) out.push(pluralText(locale, 'scope.notice.sizeLimit', sizeLimit))
+  if (watchLimit > 0) out.push(pluralText(locale, 'scope.notice.watchLimit', watchLimit))
   return out
 }
 

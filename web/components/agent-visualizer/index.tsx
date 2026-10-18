@@ -47,6 +47,8 @@ import { ConversationPanel } from "./conversation-panel"
 import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
+import { CostTotalsText } from "./cost-totals-text"
+import { ALL_SESSIONS_ID } from "@/lib/bridge-types"
 import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from "./truncation-banner"
 import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
 import { isUnionSelection } from "@/lib/bridge-types"
@@ -267,8 +269,10 @@ export function AgentVisualizer() {
   const quotaSourceActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData, tourActive: tour.active })
   const quotaSettingActive = quotaStreamActive({ relayOrigin: bridge.relayOrigin, isVSCode: bridge.isVSCode, useMockData: bridge.useMockData })
   // Offered once, on the first launch, as soon as the legend can start a tour (#377)
+  // A pending permission card comes first: the offer waits (not spent) until none is shown
+  const [permissionShown, setPermissionShown] = useState(false)
   const tourOffer = useTourOffer({
-    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn,
+    canStart: Boolean(tourBridge.startTour), tourActive: tour.active, guidedDemo: isGuidedDemo, immersive, presentation: presentationOn, permissionShown,
   })
 
   // One source for the dialog and the palette: a command never opens a tab the dialog leaves out
@@ -374,6 +378,8 @@ export function AgentVisualizer() {
         <HiddenFinishedNotice count={blankByHidingCount} onShow={() => updateHideInactive(false)} focusTargetId="visualizer-main" />
       )}
 
+      {showCostOverlay && !immersive && <CostTotalsText tokens={shownUsage.tokens} cost={shownUsage.cost} unattributedCost={usage.summary.unattributedCost} isAllMode={bridge.selectedSessionId === ALL_SESSIONS_ID} />}
+
       {/* Canvas fills everything */}
       <AgentCanvas
         {...canvasTeamProps}
@@ -463,7 +469,7 @@ export function AgentVisualizer() {
         undoKey={singleKeyShortcuts ? UNDO_SHORTCUT_KEY : null}
       />
       {/* Operator decisions (#240): renders nothing outside VS Code */}
-      <PermissionRequests sessionLabel={permissionSessionLabel} />
+      <PermissionRequests sessionLabel={permissionSessionLabel} onShownChange={setPermissionShown} />
       </main>
 
       <VisualizerDialogs
