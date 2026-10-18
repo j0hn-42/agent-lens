@@ -1,5 +1,5 @@
 // Phases of a workflow (#146) in the DOM outline and the sessions list, and the live announcement of
-// the finished agents 'Hide inactive agents' keeps off the screen (#147). Synthetic data only.
+// the finished agents 'Hide inactive' keeps off the screen (#147). Synthetic data only.
 import { test, afterEach } from 'node:test'
 import { strict as assert } from 'node:assert'
 import React from 'react'

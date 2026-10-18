@@ -9,7 +9,8 @@ import {
 import { isUnionSelection } from '@/lib/bridge-types'
 import { MOCK_SCENARIO } from '@/lib/mock-scenario'
 import { contextWindowSize, contextWindowAssumed } from '@/lib/context-window'
-import { ANIM_SPEED, toolExpiryConfig, loadToolExpiryS } from '@/lib/canvas-constants'
+import { ANIM_SPEED, toolExpiryConfig, setToolExpiryS } from '@/lib/canvas-constants'
+import { readUiPrefs } from '@/hooks/use-ui-preferences'
 import { createForceLayout, type ForceLayout } from './simulation/force-layout'
 
 import type { SimulationState, UseAgentSimulationOptions } from './simulation/types'
@@ -46,8 +47,8 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
   const sessionFilterRef = externalFilterRef ?? internalFilterRef
   const foreignAttentionRef = useRef<ForeignAttention>(new Map())
   const [foreignAttention, setForeignAttention] = useState<ForeignAttention>(foreignAttentionRef.current)
-  // The stored orphan-call expiry delay is read once after mount (server and first client render match)
-  useEffect(() => { loadToolExpiryS() }, [])
+  // The stored orphan-call expiry delay (preference blob, #372) is read once after mount (server and first client render match)
+  useEffect(() => { setToolExpiryS(readUiPrefs().toolExpiryS) }, [])
 
   // ─── State management ──────────────────────────────────────────────────────
   // frameRef: source of truth, updated every animation frame (no React render).

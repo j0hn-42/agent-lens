@@ -33,6 +33,19 @@ test('list + replayed events in the same tick: the finished session is not stamp
   assert.deepEqual([...(result.current.allViewSessionIds ?? [])].sort(), ['live'])
 })
 
+test('with a project scope, the finished count only covers the sessions of that project (#372: the bar says how many the filter hides)', () => {
+  const { result } = renderHook(() => useVSCodeBridge({ projectScope: 'p1' }))
+  act(() => {
+    post({ type: 'session-list', sessions: [
+      { ...info('old1', 'completed', 3 * H), projectId: 'p1', projectName: 'one' },
+      { ...info('old2', 'completed', 3 * H), projectId: 'p2', projectName: 'two' },
+      { ...info('live', 'active', 1000), projectId: 'p1', projectName: 'one' },
+    ] })
+  })
+  // old2 is out of the view because of the project, not of the filter: turning the filter off would not show it
+  assert.equal(result.current.finishedSessionCount, 1)
+})
+
 test('a session announced by session-started in the same tick is known to the event handler', () => {
   const { result } = renderHook(() => useVSCodeBridge())
   act(() => {

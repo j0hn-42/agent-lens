@@ -353,8 +353,7 @@ for (const [tab, name] of [
         open onClose={noop}
         hexGrid onHexGridChange={noop}
         muted={false} onToggleMute={noop}
-        showFinished={false} onShowFinishedChange={noop}
-        hideInactive onHideInactiveChange={noop}
+        showMode="active" onShowModeChange={noop}
         singleKeyEnabled onSingleKeyEnabledChange={noop}
         onOpenShortcuts={noop}
         announcements={{ level: 'important', onLevelChange: noop }}

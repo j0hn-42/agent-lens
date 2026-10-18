@@ -8,7 +8,7 @@ import { renderHook, cleanup, act } from '@testing-library/react'
 import { vscodeBridge } from '@/lib/vscode-bridge'
 
 import { useVSCodeBridge, PARSE_NOTICE_INTERVAL_MS } from '@/hooks/use-vscode-bridge'
-import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
+import { resetDefaultUiPreferencesStore, useUiPreferences } from '@/hooks/use-ui-preferences'
 import { BACKOFF_BASE_MS, POLL_INTERVAL_MS } from '@/lib/reconnect'
 import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
 
@@ -289,7 +289,8 @@ test('event-loss (#366): a scope change reloads the view, so the next connection
 
 test('event-loss (#453): All counts only the sessions it shows (finished ones hidden by default), never otherEvents then', async () => {
   relayEnv('4321')
-  const { result } = renderHook(() => useVSCodeBridge())
+  const hook = renderHook(() => ({ bridge: useVSCodeBridge(), ui: useUiPreferences() }))
+  const result = { get current() { return hook.result.current.bridge } }
   await act(async () => FakeES.last.open())
   const now = Date.now()
   await act(async () => realDispatch({ type: 'session-list', sessions: [
@@ -302,8 +303,8 @@ test('event-loss (#453): All counts only the sessions it shows (finished ones hi
   assert.equal(result.current.showFinished, false)
   assert.deepEqual([...(result.current.allViewSessionIds ?? [])], ['live'], 'the finished session is out of the view')
   assert.equal(result.current.replayLost, 3, 'the loss of the hidden finished session and of unnamed sessions is not claimed')
-  // Showing the finished sessions makes All every session: the whole tally counts again
-  await act(async () => result.current.setShowFinished(true))
+  // Showing the finished sessions (Show mode 'all', written in the preferences) makes All every session: the whole tally counts again
+  await act(async () => hook.result.current.ui.setPref('show', 'all'))
   assert.equal(result.current.allViewSessionIds, null)
   assert.equal(result.current.replayLost, 62)
 })
