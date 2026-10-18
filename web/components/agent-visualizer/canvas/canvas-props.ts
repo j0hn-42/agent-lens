@@ -28,6 +28,11 @@ export interface CanvasProps {
   showCostOverlay?: boolean
   /** Hide idle / complete agents (the selected agent and the parents of visible agents stay) */
   hideInactive?: boolean
+  /**
+   * Called every frame with the agents drawn although hidden (selected, hovered, keyboard focus): the force layout
+   * lays them out like the drawn ones, rather than leaving them at their last position (#554)
+   */
+  onLayoutKeepIds?: (ids: ReadonlyArray<string | null | undefined>) => void
   /** Communication links between agents (spawn / teammate). Defaults to the simulation's own links. */
   links?: Map<string, AgentLink>
   /** Agent Teams (halo colours, legend) */

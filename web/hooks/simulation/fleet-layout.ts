@@ -6,7 +6,7 @@
  * Pure: no React, no d3, no DOM.
  */
 import type { Agent, TeamSummary } from '../../lib/agent-types'
-import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT, WORKSPACE_ZONE } from '../../lib/canvas-constants'
+import { AGENT_SPAWN_DISTANCE, CLUSTER_LAYOUT, FORCE, WORKSPACE_ZONE } from '../../lib/canvas-constants'
 import { findTeam, teamOfAgent, phaseOfAgent } from './team-key'
 import { visibleAgents } from '../../lib/inactive-agents'
 
@@ -24,10 +24,24 @@ export interface ClusterAnchor { key: string; x: number; y: number; radius: numb
 
 type ClusterAgent = Pick<Agent, 'id' | 'sessionId' | 'teamName' | 'isMain' | 'clusterKey'>
 
-/** Radius of the disc a cluster of `members` agents occupies. */
+/** Density of a hexagonal packing of equal circles: pi / (2 sqrt 3) */
+const HEX_DENSITY = Math.PI / (2 * Math.sqrt(3))
+
+/** Radius holding the centres of `members` agents packed hexagonally at the collision distance (#554). */
+function hexPackRadius(members: number): number {
+  const n = Number.isFinite(members) ? Math.max(Math.floor(members), 1) : 1
+  return FORCE.collideRadius * Math.sqrt(n / HEX_DENSITY)
+}
+
+/**
+ * Radius of the disc a cluster of `members` agents occupies. The simulation counts only the agents it holds, the drawn
+ * ones (#554). Never below the hexagonal packing of the members plus one collision radius: a smaller disc would keep
+ * the collision and the disc constraint fighting, and the layout would never come to rest. With the current constants
+ * the linear term is always the larger one (1 to 100 members); the floor guards a change of them.
+ */
 export function clusterRadius(members: number): number {
   const n = Number.isFinite(members) ? Math.min(Math.max(Math.floor(members), 1), CLUSTER_LAYOUT.maxMembers) : 1
-  return CLUSTER_LAYOUT.baseRadius + n * CLUSTER_LAYOUT.memberSpacing
+  return Math.max(CLUSTER_LAYOUT.baseRadius + n * CLUSTER_LAYOUT.memberSpacing, hexPackRadius(n) + FORCE.collideRadius)
 }
 
 /** Namespaces of the cluster keys: a team called like a session id must not merge with that session. */
@@ -301,9 +315,13 @@ export function restampClusterKeys(agents: Map<string, Agent>, teams?: ReadonlyM
 }
 
 /** Phases of the drawn workflow agents per cluster, as one string: changes when a phase appears or disappears from the display. */
-export function phaseSignature(agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>): string {
+export function phaseSignature(
+  agents: Map<string, Agent>, hideInactive: boolean, teams?: ReadonlyMap<string, TeamSummary>, members?: ReadonlySet<string>,
+): string {
   let out = ''
-  for (const a of visibleAgents(agents, hideInactive).values()) if (a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
+  // `members`: only these agents count (the ones the force layout holds), in place of the filter
+  const counted = members ? agents.values() : visibleAgents(agents, hideInactive).values()
+  for (const a of counted) if ((!members || members.has(a.id)) && a.teamKind === 'workflow' && a.phase) out += `${keyOf(a, teams)}\u0000${a.phase};`
   return out
 }
 
@@ -351,13 +369,18 @@ export interface ClusterNodeInfo {
   role: 'lead' | 'member' | 'archived'
 }
 
-/** Per-agent layout role and anchor, computed from the agents. */
+/**
+ * Per-agent layout role and anchor, computed from the DRAWN agents (#554): under 'Hide inactive agents' the hidden ones
+ * neither widen the cluster discs nor the ring of the phases (both are sized on the same count, or the layout never
+ * rests), and they get no entry: they are not in the simulation.
+ */
 export function layoutInfo(
-  agents: ReadonlyMap<string, Agent>,
+  allAgents: ReadonlyMap<string, Agent>,
   teams?: ReadonlyMap<string, TeamSummary>,
   projects?: SessionProjects,
   hideInactive = false,
 ): { info: Map<string, ClusterNodeInfo>; anchors: Map<string, ClusterAnchor> } {
+  const agents = visibleAgents(allAgents as Map<string, Agent>, hideInactive)
   const anchors = computeClusterAnchors(clustersOf(agents.values(), teams, projects))
   const leads = new Map<string, string>()
   for (const a of agents.values()) {
@@ -368,7 +391,7 @@ export function layoutInfo(
   // Only the drawn agents count: a phase whose members are all hidden leaves no empty slot on the ring (nor drags the
   // phase that remains off the orchestrator)
   const phasesByCluster = new Map<string, string[]>()
-  for (const a of visibleAgents(agents as Map<string, Agent>, hideInactive).values()) {
+  for (const a of agents.values()) {
     if (a.teamKind !== 'workflow' || !a.phase) continue
     const key = keyOf(a, teams)
     const list = phasesByCluster.get(key)

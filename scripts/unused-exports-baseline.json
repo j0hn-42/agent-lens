@@ -100,7 +100,6 @@
   "web/hooks/simulation/archive.ts:MAX_ORPHAN_CONVERSATIONS",
   "web/hooks/simulation/archive.ts:pruneOrphanConversations",
   "web/hooks/simulation/fleet-layout.ts:CENTRE_EPSILON",
-  "web/hooks/simulation/fleet-layout.ts:clusterRadius",
   "web/hooks/simulation/fleet-layout.ts:clustersOf",
   "web/hooks/simulation/fleet-layout.ts:computeClusterAnchors",
   "web/hooks/simulation/fleet-layout.ts:extentCentre",

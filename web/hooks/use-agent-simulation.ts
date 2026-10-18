@@ -85,6 +85,10 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
 
   // The layout centres a parent on the children that are drawn: it follows 'Hide inactive agents'
   useEffect(() => { layoutRef.current?.setHideInactive(hideInactive) }, [hideInactive])
+  // Hidden agents the canvas draws all the same (selected, hovered, keyboard focus): the layout places them too (#554)
+  const setLayoutKeepIds = useCallback((ids: ReadonlyArray<string | null | undefined>) => {
+    layoutRef.current?.setKeepIds(ids)
+  }, [])
 
   // ─── Force simulation sync ───────────────────────────────────────────────
   // Rebuilds the nodes and anchors, runs the initial ticks and writes the positions into frameRef.
@@ -419,6 +423,7 @@ export function useAgentSimulation(options: UseAgentSimulationOptions = {}) {
     catchUp,
     play, pause, restart, setSpeed, seekToTime,
     updateAgentPosition,
+    setLayoutKeepIds,
     saveSnapshot, restoreSnapshot,
   }
 }
