@@ -89,6 +89,37 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     for (const s of keyed) assert.ok(!/ORDER BY (part|message)\.time_updated/.test(s), `no sort on time_updated: ${s}`)
   })
 
+  it('a tool silent for more than 10 minutes (session released, part out of the window) still ends when it finishes, after the session is reattached', () => {
+    const { fx, w, events, clock } = setup()
+    const t = T0 - 2000
+    fx.session('ses_a', { created: t, updated: t })
+    const msg = openCodeId('msg', t, 1)
+    const asst = openCodeId('msg', t + 10, 2)
+    const pid = openCodeId('prt', t + 20, 3)
+    const tool = (status: string, end?: number) => ({
+      type: 'tool', callID: 'c1', tool: 'bash',
+      state: { status, input: { command: 'sleep 900' }, time: { start: t + 20, ...(end ? { end } : {}) }, ...(end ? { output: 'ok' } : {}) },
+    })
+    fx.message(msg, 'ses_a', t, userMsg)
+    fx.message(asst, 'ses_a', t + 10, { role: 'assistant', time: { created: t + 10 }, agent: 'build', modelID: 'm', providerID: 'p' })
+    fx.part(pid, asst, 'ses_a', t + 20, t + 20, tool('running'))
+    w.start()
+    assert.ok(events.some(e => e.type === 'tool_call_start'), 'the tool is shown running')
+    // The tool stays silent for 11 minutes: the session is released, the part leaves the window
+    for (let i = 0; i < 11; i++) { clock.t += 60_000; w.scanNow() }
+    assert.equal(w.isSessionActive('ses_a'), false, 'released after 10 minutes without rows')
+    // The tool finishes, then OpenCode writes the next parts of the reply
+    const end = clock.t - 3000
+    fx.part(pid, asst, 'ses_a', t + 20, end, tool('completed', end))
+    fx.part(openCodeId('prt', end + 1, 4), asst, 'ses_a', end + 1, end + 1, { type: 'text', text: 'after the tool', time: { start: end + 1, end: end + 2 } })
+    clock.t += 1000
+    w.scanNow()
+    assert.equal(w.isSessionActive('ses_a'), true, 'reattached by the new rows')
+    assert.ok(events.some(e => e.type === 'tool_call_end' && e.sessionId === 'ses_a'), 'the completion is read: the tool is not left running')
+    const stats = events.filter(e => e.type === 'normalization_stats')
+    assert.equal(stats.reduce((s, e) => s + ((e.payload as { ignoredEvents?: number }).ignoredEvents ?? 0), 0), 0, 'nothing was lost')
+  })
+
   it('a part changed outside the window is counted in the normalization_stats of its followed session', async () => {
     const { fx, w, events, clock } = setup()
     const old = T0 - OPENCODE_WINDOW_MS - 3_600_000

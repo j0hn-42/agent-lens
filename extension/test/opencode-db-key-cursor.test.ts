@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
-  openOpenCodeDb, OPENCODE_SWEEP_ROWS, OPENCODE_WINDOW_MS, OPENCODE_WINDOW_ROWS,
+  openOpenCodeDb, OPENCODE_OPEN_ROWS, OPENCODE_SWEEP_ROWS, OPENCODE_WINDOW_MS, OPENCODE_WINDOW_ROWS,
   type OpenCodeCursors, type OpenCodeDb, type OpenCodePoll,
 } from '../src/opencode-db'
 import { nodeSqliteOpener, type IndexOpener } from '../src/session-index'
@@ -324,6 +324,83 @@ describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable()
     assert.deepEqual(p.lostPassed, [{ sessionId: 'ses_1', count: 1 }], 'never silent')
     const again = db.poll(p.cursors)
     assert.deepEqual(again.lostPassed, [], 'counted once')
+    db.close(); fx.close()
+  })
+
+  it('a tool part delivered while running is still read after it left the window: its completion is delivered, not lost', () => {
+    const fx = newDb()
+    const clock = { t: NOW }
+    const t = NOW - 60_000
+    const mid = openCodeId('msg', t, 1)
+    const pid = openCodeId('prt', t, 2)
+    const running = JSON.stringify({ type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'running' } })
+    const done = JSON.stringify({ type: 'tool', callID: 'c1', tool: 'bash', state: { status: 'completed' } })
+    fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{"role":"user"}')`)
+    fx.raw(`INSERT INTO part VALUES ('${pid}', '${mid}', 'ses_1', ${t}, ${t}, '${running}')`)
+    const db = open(fx.file, [], () => clock.t)
+    const first = db.poll(keyCursors(NOW - 600_000))
+    assert.deepEqual(first.parts.map(x => x.data), [running])
+    // 20 minutes of silence, then newer rows: the running part leaves the window
+    clock.t = NOW + 20 * 60_000
+    const t2 = clock.t - 5000
+    const mid2 = openCodeId('msg', t2, 3)
+    fx.raw(`INSERT INTO message VALUES ('${mid2}', 'ses_1', ${t2}, ${t2}, '{"role":"user"}')`)
+    const quiet = db.poll(first.cursors)
+    assert.ok(quiet.cursors.part.key!.below >= pid, 'the part left the window')
+    assert.deepEqual(quiet.lostPassed, [])
+    // The tool finishes
+    fx.raw(`UPDATE part SET data = '${done}', time_updated = ${clock.t - 1000} WHERE id = '${pid}'`)
+    const p = db.poll(quiet.cursors)
+    assert.deepEqual(p.parts.map(x => x.data), [done], 'the completion is read')
+    assert.deepEqual(p.lostPassed, [], 'and not counted as a loss')
+    const again = db.poll(p.cursors)
+    assert.deepEqual(again.parts, [], 'read once')
+    assert.deepEqual(again.lostPassed, [])
+    // Finished: no longer followed. A later change is a loss, counted (the documented limit)
+    fx.raw(`UPDATE part SET time_updated = ${clock.t - 500} WHERE id = '${pid}'`)
+    clock.t += 1000
+    const after = db.poll(again.cursors)
+    assert.deepEqual(after.parts, [])
+    assert.deepEqual(after.lostPassed, [{ sessionId: 'ses_1', count: 1 }])
+    db.close(); fx.close()
+  })
+
+  it('an assistant message delivered before it completed is still read after it left the window', () => {
+    const fx = newDb()
+    const clock = { t: NOW }
+    const t = NOW - 60_000
+    const mid = openCodeId('msg', t, 1)
+    fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{"role":"assistant","time":{"created":${t}}}')`)
+    const db = open(fx.file, [], () => clock.t)
+    const first = db.poll(keyCursors(NOW - 600_000))
+    assert.equal(first.messages.length, 1)
+    clock.t = NOW + 20 * 60_000
+    const t2 = clock.t - 5000
+    fx.raw(`INSERT INTO message VALUES ('${openCodeId('msg', t2, 3)}', 'ses_1', ${t2}, ${t2}, '{"role":"user"}')`)
+    const quiet = db.poll(first.cursors)
+    assert.ok(quiet.cursors.message.key!.below >= mid, 'the message left the window')
+    const completed = `{"role":"assistant","time":{"created":${t},"completed":${clock.t - 1000}}}`
+    fx.raw(`UPDATE message SET data = '${completed}', time_updated = ${clock.t - 1000} WHERE id = '${mid}'`)
+    const p = db.poll(quiet.cursors)
+    assert.deepEqual(p.messages.map(x => x.data), [completed])
+    assert.deepEqual(p.lostPassed, [])
+    db.close(); fx.close()
+  })
+
+  it('the rows still followed after they left the window are bounded, and a hostile list is data', () => {
+    const fx = newDb()
+    fill(fx, NOW - 60_000, 2)
+    const db = open(fx.file)
+    const huge = Array.from({ length: 50_000 }, (_, i) => [`prt_${String(i).padStart(26, '0')}`, 1])
+    const hostile = {
+      session: { time: 0 },
+      message: { time: 0, mode: 'key', key: { below: '', top: '', recent: [], floor: 0, sweep: '', stray: [], open: [["'; DROP", 'x'], 5, null] } },
+      part: { time: 0, mode: 'key', key: { below: 'prt_z', top: 'prt_z', recent: [], floor: 0, sweep: '', stray: [], open: huge } },
+    } as unknown as OpenCodeCursors
+    const p = db.poll(hostile)
+    assert.equal(p.error, undefined)
+    assert.ok((p.cursors.part.key?.open?.length ?? 0) <= OPENCODE_OPEN_ROWS)
+    assert.deepEqual(p.cursors.message.key?.open ?? [], [])
     db.close(); fx.close()
   })
 
