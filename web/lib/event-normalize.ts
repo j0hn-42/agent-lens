@@ -539,15 +539,6 @@ export function truncationHeadline(s: NormalizationStats): { events: number; nod
   return { events: s.ignoredEvents + s.malformed, nodes: s.droppedByCap }
 }
 
-/**
- * Whether the banner shows: the graph is truncated and the user has not dismissed it, or more
- * was dropped since they did. `dismissedAt` = truncationTotal(stats) at the time of dismissal.
- */
-export function shouldShowTruncationBanner(s: NormalizationStats, dismissedAt: number | undefined): boolean {
-  const total = truncationTotal(s)
-  return total > 0 && (dismissedAt === undefined || total > dismissedAt)
-}
-
 /** Counters of several sessions added up (the "All" view reads every session at once). Values stay capped. */
 export function sumNormalizationStats(list: Iterable<NormalizationStats>): NormalizationStats {
   const out = createStats()

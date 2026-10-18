@@ -5,7 +5,7 @@ import React from 'react'
 import { render, cleanup, fireEvent } from '@testing-library/react'
 import axe from 'axe-core'
 
-import { TruncationBanner, TruncationAnnouncer } from '@/components/agent-visualizer/truncation-banner'
+import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from '@/components/agent-visualizer/truncation-banner'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import { createStats, type NormalizationStats } from '@/lib/event-normalize'
 import { setLocaleChoice } from '@/lib/locale'
@@ -49,7 +49,7 @@ test('singular forms for a count of one', () => {
 })
 
 test('the details disclosure is a native button that toggles aria-expanded and lists the counters by reason', () => {
-  const { getByRole, getByLabelText } = render(<TruncationBanner stats={cut()} onDismiss={noop} />)
+  const { getByRole } = render(<TruncationBanner stats={cut()} onDismiss={noop} />)
   const toggle = getByRole('button', { name: 'Details' })
   assert.equal(toggle.tagName, 'BUTTON')
   assert.equal(toggle.getAttribute('aria-expanded'), 'false')
@@ -59,7 +59,7 @@ test('the details disclosure is a native button that toggles aria-expanded and l
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-expanded'), 'true')
   assert.equal(list.hidden, false)
-  const text = getByLabelText('Counters by reason').textContent ?? ''
+  const text = list.textContent ?? ''
   assert.match(text, /Events ignored[^:]*: 2/)
   assert.match(text, /Malformed inputs[^:]*: 1/)
   assert.match(text, /Nodes dropped[^:]*: 4/)
@@ -68,6 +68,106 @@ test('the details disclosure is a native button that toggles aria-expanded and l
   fireEvent.click(toggle)
   assert.equal(toggle.getAttribute('aria-expanded'), 'false')
   assert.equal(list.hidden, true)
+})
+
+test('Details keeps adjustments (fields shortened, duplicates skipped) apart from losses, under their own visible heading (#567)', () => {
+  const { getByRole, getByText } = render(<TruncationBanner stats={cut()} replayLost={6371} onDismiss={noop} />)
+  fireEvent.click(getByRole('button', { name: 'Details' }))
+  const losses = getByRole('list', { name: 'Losses' })
+  const adjustments = getByRole('list', { name: 'Adjustments (not losses)' })
+  assert.ok(getByText('Losses'), 'the losses heading is visible')
+  assert.ok(getByText('Adjustments (not losses)'), 'the adjustments heading is visible')
+  const lossText = losses.textContent ?? ''
+  assert.match(lossText, /Earlier events not replayed by the relay \(lower bound\): 6371/, 'the replay loss is listed with the other losses')
+  assert.match(lossText, /Events ignored[^:]*: 2/)
+  assert.match(lossText, /Malformed inputs[^:]*: 1/)
+  assert.match(lossText, /Nodes dropped[^:]*: 4/)
+  assert.doesNotMatch(lossText, /Fields shortened|Duplicate events/, 'adjustments are not read as losses')
+  const adjText = adjustments.textContent ?? ''
+  assert.match(adjText, /Fields shortened or clamped: 9/)
+  assert.match(adjText, /Duplicate events skipped: 5/)
+  assert.doesNotMatch(adjText, /Events ignored|not replayed/)
+})
+
+test('without a replay loss, Details does not list a replay line', () => {
+  const { getByRole } = render(<TruncationBanner stats={cut()} onDismiss={noop} />)
+  fireEvent.click(getByRole('button', { name: 'Details' }))
+  assert.doesNotMatch(getByRole('list', { name: 'Losses' }).textContent ?? '', /not replayed/)
+})
+
+test('Details in French: Pertes and Ajustements (pas des pertes)', () => {
+  setLocaleChoice('fr')
+  const { getByRole } = render(<TruncationBanner stats={cut()} replayLost={3} onDismiss={noop} />)
+  fireEvent.click(getByRole('button', { name: 'Détails' }))
+  assert.match(getByRole('list', { name: 'Pertes' }).textContent ?? '', /Événements antérieurs non rejoués par le relais \(borne basse\) : 3/)
+  assert.match(getByRole('list', { name: 'Ajustements (pas des pertes)' }).textContent ?? '', /Champs raccourcis ou bornés : 9/)
+})
+
+test('reopened from the indicator (initialOpen + takeFocus): Details is expanded and the focus lands on its toggle once (#567)', () => {
+  let taken = 0
+  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={6371} initialOpen takeFocus onFocusTaken={() => { taken++ }} onDismiss={noop} />)
+  const toggle = getByRole('button', { name: 'Details' })
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  assert.equal(document.getElementById(toggle.getAttribute('aria-controls') ?? '')?.hidden, false)
+  assert.equal(document.activeElement, toggle)
+  assert.equal(taken, 1, 'the parent is told the focus request is spent')
+})
+
+test('initialOpen alone (a later mount of a reopened banner) expands Details without moving the focus (#569 review)', () => {
+  const { getByRole } = render(<TruncationBanner stats={createStats()} replayLost={6371} initialOpen onDismiss={noop} />)
+  const toggle = getByRole('button', { name: 'Details' })
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true')
+  assert.notEqual(document.activeElement, toggle)
+})
+
+test('the indicator: a short text that stays, with a native button that reopens the notice (#567)', () => {
+  let shown = 0
+  const { getByTestId, getByRole } = render(<TruncationIndicator stats={createStats()} replayLost={6371} onShow={() => { shown++ }} />)
+  const el = getByTestId('truncation-indicator')
+  assert.match(el.textContent ?? '', /at least 6371 events not replayed/)
+  assert.equal(el.querySelector('[aria-hidden="true"]')?.textContent?.trim(), '⚠', 'the symbol is decorative')
+  const btn = getByRole('button', { name: 'Show notice' })
+  assert.equal(btn.tagName, 'BUTTON', 'a native button: Enter and Space activate it')
+  assert.equal(btn.getAttribute('type'), 'button')
+  assert.ok(btn.className.includes(FOCUS_RING), 'visible focus')
+  assert.ok(btn.className.includes('min-h-6'), '24px target')
+  fireEvent.click(btn)
+  assert.equal(shown, 1)
+})
+
+test('the indicator reads "at least", singular for one, and names a normalizer loss when there is no replay loss', () => {
+  const one = render(<TruncationIndicator stats={createStats()} replayLost={1} onShow={noop} />)
+  assert.match(one.getByTestId('truncation-indicator').textContent ?? '', /at least 1 event not replayed/)
+  one.unmount()
+  const cutOnly = render(<TruncationIndicator stats={cut()} onShow={noop} />)
+  assert.match(cutOnly.getByTestId('truncation-indicator').textContent ?? '', /3 events ignored, 4 nodes dropped/)
+  cutOnly.unmount()
+  const both = render(<TruncationIndicator stats={cut()} replayLost={5} onShow={noop} />)
+  const text = both.getByTestId('truncation-indicator').textContent ?? ''
+  assert.match(text, /at least 5 events not replayed/)
+  assert.match(text, /3 events ignored, 4 nodes dropped/)
+})
+
+test('the indicator renders nothing without a loss (adjustments alone are no loss)', () => {
+  for (const [stats, lost] of [[createStats(), 0], [{ ...createStats(), clampedFields: 12, duplicateEvents: 3 }, 0], [createStats(), -2], [createStats(), Number.NaN]] as const) {
+    const { container, unmount } = render(<TruncationIndicator stats={stats} replayLost={lost} onShow={noop} />)
+    assert.equal(container.firstChild, null)
+    unmount()
+  }
+})
+
+test('the indicator in French declares its language and says "au moins"', () => {
+  setLocaleChoice('fr')
+  const { getByTestId, getByRole } = render(<TruncationIndicator stats={createStats()} replayLost={6371} onShow={noop} />)
+  const el = getByTestId('truncation-indicator')
+  assert.equal(el.getAttribute('lang'), 'fr', 'the indicator declares its language')
+  assert.match(el.textContent ?? '', /au moins 6371 événements non rejoués/)
+  assert.ok(getByRole('button', { name: 'Afficher la notice' }))
+})
+
+test('no axe violations for the indicator', async () => {
+  const { container } = render(<TruncationIndicator stats={cut()} replayLost={7} onShow={noop} />)
+  assert.deepEqual(await violations(container), [])
 })
 
 test('dismiss is a native named button that reports to the parent (which owns the per-session memory)', () => {

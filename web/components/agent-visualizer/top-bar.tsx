@@ -219,6 +219,11 @@ export interface TopBarProps {
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
   /**
+   * A loss is known for the view and its truncation notice is closed (#569 review): the Sessions button carries ⚠ and
+   * says so to screen readers, so the loss stays visible with the Sessions panel closed.
+   */
+  lossMarked?: boolean
+  /**
    * 'Show: active / all' (#372): one control, 'Hide inactive', instead of 'Hide inactive agents' and 'Show finished
    * sessions'. 'active' hides the agents whose turn is over and, in All, the finished sessions silent for ACTIVE_WINDOW_MINUTES
    */
@@ -297,7 +302,7 @@ export interface TopBarProps {
 export const TopBar = memo(function TopBar({
   sessions, teams, selectedSessionId, sessionsWithActivity,
   showSessions, onToggleSessions,
-  allSessionCount, showMode = 'all', onChangeShowMode, finishedSessionCount = 0,
+  allSessionCount, lossMarked = false, showMode = 'all', onChangeShowMode, finishedSessionCount = 0,
   isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
@@ -491,6 +496,13 @@ export const TopBar = memo(function TopBar({
           >
             <span className="truncate" data-sensitive="">{t('topbar.sessions.button', { label: selectionLabelText(locale, selectedSessionId, sessions, teams) })}</span>
             <span className="ml-1.5 shrink-0" style={{ color: COLORS.textDim }}>({sessions.length})</span>
+            {lossMarked && (
+              // A symbol, never a colour alone; its words are read with the button name
+              <span data-loss-mark="" className="ml-1.5 shrink-0">
+                <span aria-hidden="true" title={t('truncation.topbarMark')}>⚠</span>
+                <span className="sr-only">, {t('truncation.topbarMark')}</span>
+              </span>
+            )}
             {unobservedCount > 0 && (
               <span className="ml-1.5 shrink-0" style={{ color: COLORS.textMuted }} title={sessionStatusHelp(locale, 'unobserved')}>
                 {unobservedSessionsText(locale, unobservedCount)}

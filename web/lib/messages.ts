@@ -771,6 +771,16 @@ const fr = {
   'truncation.reason.duplicateEvents': 'Événements en double écartés',
   'truncation.announce': 'Graphe incomplet ou tronqué : voir la notice sous la barre du haut.',
 
+  // Losses and adjustments in Details, and the indicator of the Sessions panel header that stays after a dismissal (#567)
+  'truncation.losses': 'Pertes',
+  'truncation.adjustments': 'Ajustements (pas des pertes)',
+  'truncation.reason.replayLost': 'Événements antérieurs non rejoués par le relais (borne basse)',
+  'truncation.indicator.replay.one': 'au moins {n} événement non rejoué',
+  'truncation.indicator.replay.other': 'au moins {n} événements non rejoués',
+  'truncation.indicator.show': 'Afficher la notice',
+  // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
+  'truncation.topbarMark': 'graphe incomplet, pertes listées dans le panneau Sessions',
+
   // Guided tour, its card, its offer and the panel headings (#557). Words drawn by the canvas (LEAD, MAIN) and tool names (Grep, Glob) are quoted as they are.
   'tour.button.demo': 'Visite guidée',
   'tour.button.session': 'Visiter cette session',
@@ -1653,6 +1663,16 @@ const en: Record<MessageKey, string> = {
   'truncation.reason.clampedFields': 'Fields shortened or clamped',
   'truncation.reason.duplicateEvents': 'Duplicate events skipped',
   'truncation.announce': 'Graph incomplete or truncated: see the notice under the top bar.',
+
+  // Losses and adjustments in Details, and the indicator of the Sessions panel header that stays after a dismissal (#567)
+  'truncation.losses': 'Losses',
+  'truncation.adjustments': 'Adjustments (not losses)',
+  'truncation.reason.replayLost': 'Earlier events not replayed by the relay (lower bound)',
+  'truncation.indicator.replay.one': 'at least {n} event not replayed',
+  'truncation.indicator.replay.other': 'at least {n} events not replayed',
+  'truncation.indicator.show': 'Show notice',
+  // Mark on the Sessions button of the top bar while a loss is known and the notice is closed (#569 review), read after the button label
+  'truncation.topbarMark': 'graph incomplete, losses listed in the Sessions panel',
 
   // Guided tour, its card, its offer and the panel headings (#557). Words drawn by the canvas (LEAD, MAIN) and tool names (Grep, Glob) are quoted as they are.
   'tour.button.demo': 'Guided tour',

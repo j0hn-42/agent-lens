@@ -330,6 +330,26 @@ test('the reading guide says when the truncation notice is announced: again afte
   assert.match(section, /again when leaving full screen/)
 })
 
+test('the reading guide says how long a dismissal of the truncation notice lasts, and where the loss stays visible (#567)', () => {
+  const section = read('docs/reading-the-ui.md').split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
+  assert.match(section, /kept for the browser tab/, 'the dismissal lasts for the tab')
+  assert.match(section, /comes back when more is lost/)
+  assert.match(section, /header of the Sessions panel/, 'the permanent indicator is named with its place')
+  assert.match(section, /Show notice/)
+  assert.match(section, /Adjustments \(not losses\)/, 'adjustments are not presented as losses')
+  assert.doesNotMatch(section, /It comes back if more is dropped later/, 'the old wording, true only for the page')
+})
+
+test('the reading guide names the mark on the Sessions button and the lower total that brings the notice back (#569 review)', () => {
+  const doc = read('docs/reading-the-ui.md')
+  const section = doc.split('\n## Graph truncated\n')[1]?.split('\n## ')[0] ?? ''
+  assert.match(section, /Sessions button of the top bar carries ⚠/, 'the loss stays visible with the panel closed')
+  assert.match(section, /graph incomplete, losses listed in the Sessions panel/)
+  assert.match(section, /lower than the one it was dismissed at/, 'a relay restart is a new loss')
+  // The Language list (glossary of the translated top bar) gives the French wording of the mark
+  assert.ok(doc.includes('graphe incomplet, pertes listées dans le panneau Sessions'))
+})
+
 test('the reading guide does not promise the sheet always starts under the truncation notice (#453 review)', () => {
   const item = read('docs/reading-the-ui.md').split('\n').find(l => l.startsWith('- **Hidden panels**')) ?? ''
   assert.ok(item, 'the Hidden panels item exists')

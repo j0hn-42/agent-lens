@@ -2,7 +2,7 @@
 
 import { useThemeVersion } from '@/lib/theme'
 import { visibleSettingsTabs } from '@/lib/settings-tabs'
-import { useState, useCallback, useRef, useMemo } from "react"
+import { useState, useCallback, useRef, useMemo, useEffect } from "react"
 import { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import { useSelectionState } from "@/hooks/use-selection-state"
@@ -49,10 +49,13 @@ import { TopBar, FullscreenIcon, PANEL_BUTTON_IDS } from "./top-bar"
 import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { CostTotalsText } from "./cost-totals-text"
-import { TruncationBanner, TruncationAnnouncer } from "./truncation-banner"
+import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from "./truncation-banner"
 import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
-import { isUnionSelection } from "@/lib/bridge-types"
-import { truncationBannerState, replayLostForAgents, usageUnderLoss } from "@/lib/event-loss"
+import { ALL_SESSIONS_ID, isUnionSelection } from "@/lib/bridge-types"
+import {
+  truncationBannerState, replayLostForAgents, usageUnderLoss, truncationDismissKey, readTruncationDismissals, writeTruncationDismissals,
+  tabStorage, dismissTruncation, allViewSessionTotals,
+} from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
 import { PermissionRequests } from "./permission-requests"
@@ -76,8 +79,17 @@ export function AgentVisualizer() {
   // Review mode: when in live mode and user pauses to scrub through history.
   // Declared before the simulation: speed other than 1x only applies while reviewing.
   const [isReviewing, setIsReviewing] = useState(false)
-  /** Per selection: truncationTotal when the user dismissed the truncation banner (it returns if more is dropped) */
-  const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => new Map())
+  /**
+   * Per view (truncationDismissKey): the total when the user dismissed the truncation banner (it returns when the total
+   * differs: more lost, or a lower one after a relay restart). Kept for the tab in sessionStorage (#567), so a reload or
+   * a relaunch in the same tab does not show it again.
+   */
+  const [truncationDismissed, setTruncationDismissed] = useState<Map<string, number>>(() => readTruncationDismissals(tabStorage()))
+  /**
+   * The view whose banner the indicator reopened, and how many times: remounts the banner with its details open.
+   * `focus`: the focus request of that reopen, not yet spent by the banner.
+   */
+  const [truncationReopened, setTruncationReopened] = useState<{ key: string; n: number; focus: boolean } | null>(null)
   const isReviewingRef = useRef(false)
   isReviewingRef.current = isReviewing
 
@@ -219,7 +231,7 @@ export function AgentVisualizer() {
   const feedTeamProps = { links, droppedMessages, teams }
 
   // Counters of the selection: one session, or every session added up for a union view (All, team pseudo selection)
-  const truncationKey = bridge.selectedSessionId ?? ''
+  const truncationKey = truncationDismissKey(bridge.selectedSessionId)
   const truncationStats = useMemo(
     () => bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId)
       ? normalizationStats.get(bridge.selectedSessionId) ?? createStats()
@@ -229,6 +241,32 @@ export function AgentVisualizer() {
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
   const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))
   const truncationShown = truncation.show && !immersive
+  // Reopened from the indicator for this view only: another view's banner never opens its details or takes the focus
+  const truncationReopenedHere = truncationReopened !== null && truncationReopened.key === truncationKey
+  useEffect(() => {
+    if (truncationReopened !== null && truncationReopened.key !== truncationKey) setTruncationReopened(null)
+  }, [truncationKey, truncationReopened])
+  const dismissTruncationBanner = () => {
+    // Dismissing All also covers each session it counted, at that session's own total (#567)
+    const isAll = truncationKey === truncationDismissKey(null)
+    const covered = isAll ? allViewSessionTotals(normalizationStats, bridge.eventLoss, bridge.allViewSessionIds) : undefined
+    // What each session's own view counts now: an older, higher dismissal above it is stale (#569 review)
+    const own = isAll ? allViewSessionTotals(normalizationStats, bridge.eventLoss, null) : undefined
+    const next = dismissTruncation(truncationDismissed, truncationKey, truncation.total, covered, own)
+    writeTruncationDismissals(tabStorage(), next)
+    setTruncationDismissed(next)
+    setTruncationReopened(null)
+  }
+  const reopenTruncationBanner = () => {
+    const next = new Map(truncationDismissed)
+    next.delete(truncationKey)
+    writeTruncationDismissals(tabStorage(), next)
+    setTruncationDismissed(next)
+    setTruncationReopened(prev => ({ key: truncationKey, n: (prev?.key === truncationKey ? prev.n : 0) + 1, focus: true }))
+  }
+  // The banner took the focus the user asked for: a later mount of it (leaving full screen, back after its total fell to 0)
+  // keeps Details expanded but never moves the focus again (#569 review)
+  const truncationFocusTaken = useCallback(() => setTruncationReopened(prev => (prev && prev.focus ? { ...prev, focus: false } : prev)), [])
 
   const isEmpty = agents.size === 0 && !bridge.useMockData
 
@@ -285,6 +323,7 @@ export function AgentVisualizer() {
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
         onToggleFullscreen={toggleFullscreen} sessions={bridge.sessions} teams={bridge.teams} allSessionCount={allSessionCount}
+        lossMarked={truncation.total > 0 && !truncation.show}
         showMode={showMode} onChangeShowMode={updateShowMode} finishedSessionCount={bridge.finishedSessionCount}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
         showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
@@ -312,11 +351,14 @@ export function AgentVisualizer() {
         contextOpen={showContext}
         banner={truncationShown ? (
           <TruncationBanner
-            key={truncationKey}
+            key={`${truncationKey}#${truncationReopenedHere ? truncationReopened?.n ?? 0 : 0}`}
             stats={truncationStats}
             replayLost={bridge.replayLost}
             returnFocusId={PANEL_BUTTON_IDS.sessions}
-            onDismiss={() => setTruncationDismissed(prev => new Map(prev).set(truncationKey, truncation.total))}
+            initialOpen={truncationReopenedHere}
+            takeFocus={truncationReopenedHere && truncationReopened?.focus === true}
+            onFocusTaken={truncationFocusTaken}
+            onDismiss={dismissTruncationBanner}
           />
         ) : null}
       />
@@ -421,6 +463,7 @@ export function AgentVisualizer() {
         panels={panels} sim={{ fileAttention, waste, agents, timelineEntries, currentTime }} bridge={bridge} selection={selection}
         attention={attention} health={health} sessionActions={sessionActions} uiPrefs={uiPrefs} allSessionCount={allSessionCount}
         agentCounts={{ active: activeAgentCount, done: doneAgentCount, stale: staleAgentCount, idle: idleAgentCount, error: errorAgentCount }}
+        lossIndicator={<TruncationIndicator stats={truncationStats} replayLost={bridge.replayLost} onShow={reopenTruncationBanner} />}
         listAgents={listAgents} agentLabel={agentLabel} openFile={openFile} fetchContext={fetchContext} contextOrigin={contextOrigin}
       />
 

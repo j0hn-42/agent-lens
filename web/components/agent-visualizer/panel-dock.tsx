@@ -1,5 +1,6 @@
 "use client"
 
+import type { ReactNode } from "react"
 import type { useAgentSimulation } from "@/hooks/use-agent-simulation"
 import type { useVSCodeBridge } from "@/hooks/use-vscode-bridge"
 import type { useSelectionState } from "@/hooks/use-selection-state"
@@ -33,6 +34,8 @@ interface PanelDockProps {
   allSessionCount: number
   /** Agents of the view by state, drawn in the Sessions panel header (#523, moved from the top bar) */
   agentCounts: AgentStateCounts
+  /** Permanent trace of a graph loss for the Sessions panel header (#567) */
+  lossIndicator?: ReactNode
   /** The agents the sessions list shows (finished ones hidden like on the canvas) */
   listAgents: Simulation['agents']
   agentLabel: (key: string) => string
@@ -45,7 +48,7 @@ type ComponentPropsOf<T> = T extends (props: infer P) => unknown ? P : never
 
 /** The slide-in panels around the canvas: files, sessions, project context, system, timeline */
 export function PanelDock({
-  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
+  panels, sim, bridge, selection, attention, health, sessionActions, uiPrefs, allSessionCount, agentCounts, lossIndicator, listAgents, agentLabel, openFile, fetchContext, contextOrigin,
 }: PanelDockProps) {
   const { prefs, setPref } = uiPrefs
   const selectedSession = bridge.sessions.find(s => s.id === bridge.selectedSessionId)
@@ -76,6 +79,7 @@ export function PanelDock({
           relayOffline={!bridge.useMockData && bridge.connectionStatus === 'disconnected'}
           allSessionCount={allSessionCount}
           agentCounts={agentCounts}
+          lossIndicator={lossIndicator}
           selectedSessionId={bridge.selectedSessionId}
           sessionsWithActivity={bridge.sessionsWithActivity}
           sessionModels={bridge.sessionModels}
