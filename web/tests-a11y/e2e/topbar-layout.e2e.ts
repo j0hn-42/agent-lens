@@ -164,10 +164,11 @@ test('1100x900: an icon shows its tooltip on hover and on focus; Escape closes i
   const page = await open(1100)
   try {
     const files = page.locator('header').getByRole('button', { name: 'Files', exact: true })
-    // Its tooltip repeats the name and the shortcut, so it is not linked by aria-describedby (#545 review): found next to it
-    assert.equal(await files.getAttribute('aria-describedby'), null)
+    // "Files (F)" adds the shortcut to the name, so it is linked by aria-describedby; only Conversation, whose tooltip is exactly its name, is not (#545 review)
     const tipId = await page.locator('#topbar-toggle-files').evaluate((b: Element) => b.parentElement!.querySelector('[role="tooltip"]')!.id)
     assert.ok(tipId)
+    assert.ok(((await files.getAttribute('aria-describedby')) ?? '').split(' ').includes(tipId), 'Files is linked to its tooltip')
+    assert.equal(await page.locator('header').getByRole('button', { name: /^Conversation/ }).first().getAttribute('aria-describedby'), null, 'Conversation: its tooltip is exactly its name')
     const tip = page.locator(`[id="${tipId}"]`)
     assert.equal(await tip.getAttribute('role'), 'tooltip')
     assert.ok(!(await tip.isVisible()), 'closed at rest')
