@@ -28,6 +28,8 @@ interface CameraOptions {
     selectedAgentId: string | null
     pauseAutoFit?: boolean
     isDragging: boolean
+    /** Events the relay could not replay, per session id (#366): the token lines framed are the drawn "at least" ones */
+    replayLost?: ReadonlyMap<string, number>
   }>
   simTimeRef: MutableRefObject<number>
   dimensions: { width: number; height: number }
@@ -99,7 +101,7 @@ export function useCanvasCamera({
   }, [])
 
   const computeFitTransform = useCallback((): Transform | null => {
-    const { agents, toolCalls, discoveries, dimensions, selectedAgentId } = drawPropsRef.current
+    const { agents, toolCalls, discoveries, dimensions, selectedAgentId, replayLost } = drawPropsRef.current
     if (agents.size === 0) return null
 
     // Determine focus scope: if a non-main agent is selected, focus on it + descendants
@@ -121,7 +123,7 @@ export function useCanvasCamera({
     const blocks = new Map<Agent, AgentLabelBlock>()
     const labelBlock = (a: Agent) => {
       let b = blocks.get(a)
-      if (!b) { b = agentLabelBlock(a, agentDrawRadius(a), measure, { showSession, orchestrator: orchestratorInfo(a), details: true }); blocks.set(a, b) }
+      if (!b) { b = agentLabelBlock(a, agentDrawRadius(a), measure, { showSession, orchestrator: orchestratorInfo(a), details: true, replayLost }); blocks.set(a, b) }
       return b
     }
     const input: FitBoundsInput = {

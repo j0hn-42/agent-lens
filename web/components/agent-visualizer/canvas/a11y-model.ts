@@ -9,7 +9,7 @@ import type { AgentLink } from '../../../hooks/simulation/types'
 import { formatCost, formatModelName } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { boundedCount } from '../../../lib/event-loss'
-import { agentReplayLost, agentCostUsageUnderLoss } from './loss-labels'
+import { agentReplayLost, agentCostUsageUnderLoss, agentContextIncomplete, CONTEXT_LAST_READING_INCOMPLETE } from './loss-labels'
 import { listedFileText } from '../../../lib/ui-glossary'
 import { spokenCostUsage, formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { toolEndWarning, toolStateText } from '../../../lib/tool-lifecycle'
@@ -44,12 +44,15 @@ export function stateText(state: string): string {
   return STATE_LABEL_LONG[state] ?? state
 }
 
-/** "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". */
-function tokenSummary(a: Agent): string {
+/**
+ * "1.5k / 200k tokens", "at least 1.5k estimated / 200k tokens" or "tokens not reported". When the agent's session lost
+ * events (#366): "… (last reading, incomplete)", the reading being absolute (see agentContextIncomplete).
+ */
+function tokenSummary(a: Agent, replayLost?: ReadonlyMap<string, number>): string {
   const usage = usageFromAgent(a)
-  return usage.status === 'unavailable'
-    ? `tokens ${formatTokenUsage(usage)}`
-    : formatTokensOfWindow(formatTokenUsage(usage), a)
+  if (usage.status === 'unavailable') return `tokens ${formatTokenUsage(usage)}`
+  const text = formatTokensOfWindow(formatTokenUsage(usage), a)
+  return agentContextIncomplete(a, replayLost) ? `${text} ${CONTEXT_LAST_READING_INCOMPLETE}` : text
 }
 
 // ─── Tool-call history (kept after a tool card fades from the canvas) ────────
@@ -358,7 +361,7 @@ export function buildA11yModel(
   }
 
   const showSession = hasSeveralSessions(agents.values())
-  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now })
+  const clusterList = computeClusters(agents.values(), extras.teams, { sessions: extras.sessions, costAgents: extras.costAgents, now: extras.now, replayLost: extras.replayLost })
   const linkNotes = clusterLinkNotes(clusterList, extras.sessionLinks ?? [], extras.sessions)
   const clusterOf = new Map<string, string>()
   for (const c of clusterList) for (const id of c.memberIds) clusterOf.set(id, c.key)
@@ -376,7 +379,7 @@ export function buildA11yModel(
       stateText: stale ? lastKnownStateText(a.state) : stateText(a.state),
       model: describeModel(a, formatModelName),
       runtime: a.runtime === 'codex' ? 'Codex' : a.runtime === 'copilot' ? 'Copilot' : a.runtime === 'pi' ? 'Pi' : a.runtime === 'gemini' ? 'Gemini CLI' : a.runtime === 'opencode' ? 'OpenCode' : 'Claude',
-      tokens: tokenSummary(a),
+      tokens: tokenSummary(a, extras.replayLost),
       cost: spokenCostUsage(agentCostUsageUnderLoss(a, extras.replayLost)),
       toolCalls: a.toolCalls,
       toolCallsText: boundedCount(a.toolCalls, agentReplayLost(extras.replayLost, a), 'tool call'),

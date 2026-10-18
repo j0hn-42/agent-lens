@@ -317,7 +317,7 @@ export function useCanvasDrawLoop(deps: DrawLoopDeps) {
       deps.updateDragLerp(agents, onAgentDrag)
 
       // Fleet clusters (one halo per session / team) and the collision-free placement of every text overlay
-      const clusters = computeClusters(agents.values(), deps.teamsRef.current, { sessions: deps.sessionsRef.current, costAgents: costScope(deps.simulationRef.current).agents.values(), now: Date.now() })
+      const clusters = computeClusters(agents.values(), deps.teamsRef.current, { sessions: deps.sessionsRef.current, costAgents: costScope(deps.simulationRef.current).agents.values(), now: Date.now(), replayLost: opts.replayLost })
       // Halos follow the agents that appear, finish or get hidden without jumping (a snap under reduced motion)
       haloEaserRef.current.apply(clusters, deltaTime, reducedMotion)
       deps.clustersRef.current = clusters

@@ -5,7 +5,9 @@ import { strict as assert } from 'node:assert'
 
 import { drawAgents } from '@/components/agent-visualizer/canvas/draw-agents'
 import { drawCostLabels } from '@/components/agent-visualizer/canvas/draw-cost'
-import { planOverlays, planKey } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { planOverlays, planKey, agentLabelBlock } from '@/components/agent-visualizer/canvas/overlay-plan'
+import { orchestratorInfo } from '@/components/agent-visualizer/canvas/team-style'
+import { estimateTextWidth } from '@/components/agent-visualizer/canvas/edge-bubbles'
 import { computeClusters } from '@/components/agent-visualizer/canvas/cluster-model'
 import { lodForZoom, type DrawOpts } from '@/components/agent-visualizer/canvas/draw-options'
 import { statsLabel } from '@/components/agent-visualizer/canvas/loss-labels'
@@ -99,4 +101,33 @@ test('the cost pill of an agent is a lower bound when its session lost events', 
   const plain: string[] = []
   drawCostLabels(recordingCtx(plain), new Map([['s1:main', a]]), new Map(), { ...opts, replayLost: undefined })
   assert.ok(plain.some(t => /^~\$/.test(t)), JSON.stringify(plain))
+})
+
+// A context reading is absolute (a lost compaction can lower it): under a loss it is the last one received, marked
+// "(incomplete)", never a lower bound ("at least") it cannot prove
+test('the token line under the context bar and the ring percentage read "(incomplete)", not "at least", when the agent\'s session lost events', () => {
+  const opts: DrawOpts = { reducedMotion: true, zoom: 1, showCost: false, showStats: false, replayLost: lossOf(4) }
+  // 190k of 200k: the ring draws its percentage too
+  const a = agent({ tokensUsed: 190_000 })
+  const lossy: string[] = []
+  drawAgents(recordingCtx(lossy), new Map([['s1:main', a]]), null, null, true, 0, opts)
+  assert.ok(lossy.includes('190k / 200k tokens (incomplete)'), JSON.stringify(lossy))
+  assert.ok(lossy.includes('95% (incomplete)'), JSON.stringify(lossy))
+  assert.equal(lossy.some(t => /at least (190k|95%)/.test(t)), false, JSON.stringify(lossy))
+  const plain: string[] = []
+  drawAgents(recordingCtx(plain), new Map([['s1:main', a]]), null, null, true, 0, { ...opts, replayLost: undefined })
+  assert.ok(plain.includes('190k / 200k tokens'), JSON.stringify(plain))
+  assert.ok(plain.includes('95%'), JSON.stringify(plain))
+  const other: string[] = []
+  drawAgents(recordingCtx(other), new Map([['s1:main', a]]), null, null, true, 0, { ...opts, replayLost: new Map([['s9', 3]]) })
+  assert.ok(other.includes('190k / 200k tokens'), 'the loss of another session is not this agent\'s')
+})
+
+test('the label block reserves the width of the qualified token line', () => {
+  const a = agent({ tokensUsed: 190_000, tokensMaxAssumed: true })
+  const measure = (t: string) => estimateTextWidth(t, 11)
+  const options = { showSession: false, orchestrator: orchestratorInfo(a), details: true }
+  const plain = agentLabelBlock(a, 20, measure, options)
+  const lossy = agentLabelBlock(a, 20, measure, { ...options, replayLost: lossOf(2) })
+  assert.ok(lossy.w > plain.w, `${lossy.w} > ${plain.w}`)
 })

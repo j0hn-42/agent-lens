@@ -141,6 +141,11 @@ interface BridgeHookResult {
   eventLoss: EventLoss | null
   /** Events of the selection the relay could not replay (0 when none is proven), see lib/event-loss */
   replayLost: number
+  /**
+   * Sessions a union view counts (#366): a team's sessions, or the ones All shows (null = every session). The scope of
+   * replayLost, and of the normalizer counters the truncation notice adds up. Unused for a single session.
+   */
+  viewSessionIds: ReadonlySet<string> | null
 }
 
 export const PARSE_NOTICE_INTERVAL_MS = 10_000
@@ -473,12 +478,14 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     return () => ctl.abort()
   }, [relayEnabled, source.status, relayOrigin])
   // What the relay could not replay, for the selection: a team counts only its own sessions, All only the ones it shows (#453)
-  const replayLost = useMemo(() => {
+  const teamIds = useMemo(() => {
     const team = parseTeamSelection(selectedSessionId)
-    return replayLostFor(eventLoss, selectedSessionId, team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions), visibility.ids)
+    return team === null ? null : teamSessionIds(team, teamTrackerRef.current, sessions)
     // teamView changes when the tracker learns a team member
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventLoss, selectedSessionId, sessions, teamView, visibility.ids])
+  }, [selectedSessionId, sessions, teamView])
+  const replayLost = useMemo(() => replayLostFor(eventLoss, selectedSessionId, teamIds, visibility.ids), [eventLoss, selectedSessionId, teamIds, visibility.ids])
+  const viewSessionIds = teamIds ?? visibility.ids
   const launch = useMemo(() => (launchMax === null ? null : { maxConcurrent: launchMax, launches }), [launchMax, launches])
 
   /** The relay scans another scope: reload the view once (sessions and replay of the old scope must not linger), then re-read the status. */
@@ -824,6 +831,7 @@ export function useVSCodeBridge(options?: UseVSCodeBridgeOptions): BridgeHookRes
     quota,
     eventLoss,
     replayLost,
+    viewSessionIds,
   }
 }
 

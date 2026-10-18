@@ -7,15 +7,13 @@ import {
 import { parseMcpTool } from '../../../lib/mcp-tool'
 import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import { alphaHex, formatModelName, modelTierColor } from '../../../lib/utils'
-import { formatTokensOfWindow } from '../../../lib/context-window'
-import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
 import { drawHexagon, stateColor, CLAUDE_SPARK_D, OPENAI_LOGO_D, OPENAI_LOGO_VIEWBOX, COPILOT_MARK_PATH, COPILOT_MARK_VIEWBOX, PI_MARK_PATH, PI_MARK_VIEWBOX, GEMINI_MARK_PATH, GEMINI_MARK_VIEWBOX, OPENCODE_MARK_PATH, OPENCODE_MARK_VIEWBOX } from './draw-misc'
 import { maskText, maskedLabelAgent } from '../../../lib/presentation'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, labelScaleForZoom, textHoldScale } from './draw-options'
 import { DEFAULT_THEME, type ThemeId } from '../../../lib/theme-tokens'
 import { computeOverlayLayout } from './overlay-layout'
-import { hasContextPercentFor, contextPercentLabel, contextPercentColor, contextAlertLevel } from './overlay-metrics'
-import { statsLabel } from './loss-labels'
+import { hasContextPercentFor, contextPercentColor, contextAlertLevel } from './overlay-metrics'
+import { statsLabel, contextBarText, contextRingText } from './loss-labels'
 import { planKey, resolvePlacement, type ResolvedPlacement } from './overlay-plan'
 import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
@@ -170,6 +168,8 @@ export function drawContextComposition(
   yShift = 0,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
+  /** Events the relay could not replay, per session id (#366): the token line is then marked incomplete */
+  replayLost?: ReadonlyMap<string, number>,
 ) {
   const scene = scenePalette(theme)
   const bd = agent.contextBreakdown
@@ -193,7 +193,7 @@ export function drawContextComposition(
     ctx.font = `${CONTEXT_BAR.fontSize}px monospace`
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
-    ctx.fillText(formatTokensOfWindow(formatTokenUsage(usageFromAgent(agent)), agent), agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
+    ctx.fillText(contextBarText(agent, replayLost), agent.x, barY + barHeight + CONTEXT_BAR.labelPadding)
   }
 
   // Segments
@@ -232,6 +232,8 @@ export function drawContextRing(
   textScale = 1,
   /** Theme of the scene (#381); absent = the neon scene */
   theme?: ThemeId,
+  /** Events the relay could not replay, per session id (#366): the percentage is then marked incomplete */
+  replayLost?: ReadonlyMap<string, number>,
 ) {
   const scene = scenePalette(theme)
   const bd = agent.contextBreakdown
@@ -295,7 +297,7 @@ export function drawContextRing(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'bottom'
     ctx.fillStyle = sceneColor(theme, 'text', contextPercentColor(usage, agent.tokensMaxAssumed === true, scene))
-    ctx.fillText(contextPercentLabel(agent, usage), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
+    ctx.fillText(contextRingText(agent, usage, replayLost), agent.x, agent.y - radius - CONTEXT_RING.percentYOffset)
   }
 }
 
@@ -881,14 +883,14 @@ export function drawAgents(
     // Context composition — ring for main agent, bar for sub-agents (archived agents stay light)
     if (live && (agent.state !== 'complete' || agent.opacity > 0.5)) {
       if (agent.isMain) {
-        drawContextRing(ctx, agent, r, time, reducedMotion, lod.detailText, textHoldScale(CONTEXT_BAR.fontSize, opts.zoom), sceneTheme)
+        drawContextRing(ctx, agent, r, time, reducedMotion, lod.detailText, textHoldScale(CONTEXT_BAR.fontSize, opts.zoom), sceneTheme, opts.replayLost)
       }
       // The bar hangs under the label: it follows the label when the placement shifted or enlarged it
       ctx.save()
       ctx.translate(labelDrawn.dx, labelDrawn.dy)
       scaleAbout(ctx, agent.x, agent.y + r + AGENT_DRAW.labelYOffset, labelDrawn.scale)
       // A label hidden by the plan (a tool card covers it, #378) takes its token line with it
-      drawContextComposition(ctx, agent, r, lod.details && labelDrawn.visible, extraLines * AGENT_DRAW.stateLabelGap, sceneTheme)
+      drawContextComposition(ctx, agent, r, lod.details && labelDrawn.visible, extraLines * AGENT_DRAW.stateLabelGap, sceneTheme, opts.replayLost)
       ctx.restore()
     }
 

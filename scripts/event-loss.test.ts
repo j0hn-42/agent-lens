@@ -3,6 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence,
   truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
+  viewNormalizationStats,
 } from '../web/lib/event-loss'
 
 /** The sessionStorage key the dismissals live under (#567) */
@@ -84,6 +85,22 @@ test('acceptEventLoss keeps the figure of the first connection of a graph and ig
   assert.equal(acceptEventLoss(2, null, later), null)
   assert.equal(acceptEventLoss(0, null, first), first, 'the status effect may not have run yet: still the first connection')
   assert.equal(acceptEventLoss(1, first, null), first, 'a malformed message never clears a figure')
+})
+
+test('parseEventLoss reads the gap of a reconnection like the counts (#366)', () => {
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: {}, gap: { a: 2, b: -1, c: 'x' } }), { evicted: {}, otherEvents: 0, gap: { a: 2 } })
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: { a: 1 } }), { evicted: { a: 1 }, otherEvents: 0 }, 'no gap field when none was sent')
+  assert.deepEqual(parseEventLoss({ type: 'event-loss', evicted: {}, gap: 'x' }), { evicted: {}, otherEvents: 0 })
+})
+
+test('acceptEventLoss adds the gap of a reconnection (events the cut link lost) to the figure the graph keeps (#366)', () => {
+  const first = { evicted: { a: 3 }, otherEvents: 2 }
+  // The relay's totals of a later connection are still ignored; only the gap, counted for THIS client, is added
+  assert.deepEqual(acceptEventLoss(2, first, { evicted: { a: 50 }, otherEvents: 9, gap: { a: 4, b: 1 } }), { evicted: { a: 7, b: 1 }, otherEvents: 2 })
+  assert.deepEqual(acceptEventLoss(3, null, { evicted: { a: 50 }, otherEvents: 0, gap: { c: 5 } }), { evicted: { c: 5 }, otherEvents: 0 }, 'a first connection without loss, then a gap')
+  assert.equal(acceptEventLoss(2, first, { evicted: { a: 50 }, otherEvents: 0, gap: {} }), first, 'an empty gap changes nothing')
+  // A first connection never carries a gap (no since); if one came, it is not added on top of totals that already cover it
+  assert.deepEqual(acceptEventLoss(1, null, { evicted: { a: 3 }, otherEvents: 0, gap: { a: 3 } }), { evicted: { a: 3 }, otherEvents: 0 })
 })
 
 test('truncationBannerState: shown while something was lost, back when more is lost, replay loss included', () => {
@@ -240,4 +257,29 @@ test('truncationBannerState: a total LOWER than the one dismissed at is a new lo
   assert.equal(truncationBannerState(stats, 0, 100).show, true, 'normalizer counters only, lower than dismissed at')
   assert.equal(truncationBannerState(createStats(), 40, 6371).show, true, 'replay loss only, lower than dismissed at')
   assert.equal(truncationBannerState(createStats(), 0, 100).show, false, 'nothing lost now: nothing to show')
+})
+
+test('allViewSessionTotals: the normalizer counters of a session All does not show are not counted for it either', () => {
+  const stats = new Map([['s1', { ...createStats(), ignoredEvents: 2 }], ['hidden', { ...createStats(), droppedByCap: 5 }]])
+  assert.deepEqual([...allViewSessionTotals(stats, null, new Set(['s1']))], [['s1', 2]])
+  assert.deepEqual([...allViewSessionTotals(stats, null, null)].sort(), [['hidden', 5], ['s1', 2]])
+})
+
+test('viewNormalizationStats: the counters of the sessions of the view only, the scope of the replay loss', () => {
+  const stats = new Map([
+    ['s1', { ...createStats(), ignoredEvents: 2, clampedFields: 1 }],
+    ['s2', { ...createStats(), droppedByCap: 3 }],
+    ['hidden', { ...createStats(), ignoredEvents: 40 }],
+  ])
+  // One session: its own counters, a fresh zero for a session with none
+  assert.equal(viewNormalizationStats(stats, 's1', null).ignoredEvents, 2)
+  assert.deepEqual(viewNormalizationStats(stats, 'nope', null), createStats())
+  // All (or a team) with the sessions it counts: the others are left out
+  const all = viewNormalizationStats(stats, ALL_SESSIONS_ID, new Set(['s1', 's2']))
+  assert.deepEqual([all.ignoredEvents, all.droppedByCap, all.clampedFields], [2, 3, 1])
+  const team = viewNormalizationStats(stats, 'team:T', new Set(['s2']))
+  assert.deepEqual([team.ignoredEvents, team.droppedByCap], [0, 3])
+  // All showing every session (null): every session
+  assert.equal(viewNormalizationStats(stats, ALL_SESSIONS_ID, null).ignoredEvents, 42)
+  assert.equal(viewNormalizationStats(stats, null, null).ignoredEvents, 42)
 })

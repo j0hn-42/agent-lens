@@ -39,6 +39,8 @@ let realWs = ''
 let transcript = ''
 const open: http.ClientRequest[] = []
 
+const CURSOR_MARK = '<relay-cursor>'
+
 /** A connected SSE client; `messages` holds the content of every user message delivered, in arrival order. */
 interface Client { req: http.ClientRequest; res: http.IncomingMessage; messages: string[]; closed: () => boolean }
 
@@ -46,6 +48,8 @@ interface Client { req: http.ClientRequest; res: http.IncomingMessage; messages:
 function collectMessages(block: string, out: string[]) {
   if (!block.startsWith('data: ')) return
   const msg = JSON.parse(block.slice(6))
+  // Where the relay's resume point arrives among the messages (#366): after the replay, never before or within it
+  if (msg.type === 'relay-cursor') { out.push(CURSOR_MARK); return }
   const events = msg.type === 'agent-event' ? [msg.event] : msg.type === 'agent-event-batch' ? msg.events : []
   for (const e of events) {
     const content = e.type === 'message' ? (e.payload as { content?: unknown })?.content : undefined
@@ -147,6 +151,9 @@ describe('relay: SSE replay larger than the slow-client limit (issue #203)', () 
     assert.equal(relay.debugState().sseClients, 1)
     assert.equal(contents.filter(m => m.startsWith('m')).length, MESSAGES, 'every replayed message is delivered')
     assert.equal(contents.at(-1), 'live-after-replay', 'the live event comes after the replay, not in the middle of it')
+    // #366: the cursor says "everything up to here was replayed", so it comes once the replay is written, before the held live event
+    assert.equal(contents.filter(m => m === CURSOR_MARK).length, 1, 'one cursor per connection')
+    assert.equal(contents.indexOf(CURSOR_MARK), contents.length - 2, 'the cursor follows the whole replay and precedes the live event')
     c.req.destroy()
     await waitFor(() => relay.debugState().sseClients === 0, 2_000)
   })
@@ -166,5 +173,12 @@ describe('relay: SSE replay larger than the slow-client limit (issue #203)', () 
       await waitFor(() => !connected(), 100)
     }
     assert.equal(connected(), false, 'the stalled client is dropped once its held live messages exceed the limit')
+    // #366: a cursor never claims a replay the client did not get. Whether the drop came during the replay (kernel
+    // buffers smaller than it) or after it, whatever reached the client before a cursor is the whole replay
+    c.res.socket.resume()
+    c.res.resume()
+    assert.ok(await waitFor(() => c.closed(), 5_000), 'the client sees the end of the stream')
+    const at = c.messages.indexOf(CURSOR_MARK)
+    if (at >= 0) assert.equal(c.messages.slice(0, at).filter(m => m.startsWith('m')).length, MESSAGES, 'the cursor follows the whole replay')
   })
 })

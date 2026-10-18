@@ -121,6 +121,10 @@ export function AgentDetailCard({
   // Moving focus elsewhere never clears the selection (WCAG 3.2.2, 2.4.3); Escape and Close do
   useDialogBehavior(ref, onClose, { closeOnFocusOutside: false })
   const contextPercent = agent.tokensMax > 0 ? Math.round((agent.tokensUsed / agent.tokensMax) * 100) : 0
+  // The last reading, incomplete, when the relay could not replay events of the agent's session (#366): a context
+  // reading is absolute (a lost compaction can lower it), so never "at least", like the context bar on the canvas
+  const contextUsage = usageFromAgent(agent)
+  const contextIncomplete = replayLost > 0 && contextUsage.status !== 'unavailable'
   const stateColor = getStateColor(agent.state)
   // Freshness of THIS node only; re-renders when it crosses a threshold, not on every tick
   const freshness = useFreshnessValue(t => deriveFreshness(agent, t), freshnessClock)
@@ -210,7 +214,7 @@ export function AgentDetailCard({
           <div className="flex justify-between mb-1">
             <span className="text-[11px]" style={{ color: COLORS.textMuted }}>{t('card.contextWindow')}</span>
             <span data-testid="inspector-context" className="text-[11px] font-mono" style={{ color: COLORS.textDim }}>
-              {C.usageText(locale, usageFromAgent(agent))} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent)}
+              {C.usageText(locale, contextUsage)} / {formatTokens(agent.tokensMax)}{contextSuffix(locale, agent, contextPercent)}{contextIncomplete ? ` ${translate(locale, 'card.ctx.lastReadingIncomplete')}` : ''}
             </span>
           </div>
           {/* Textual value is adjacent, so the bar itself is decorative */}

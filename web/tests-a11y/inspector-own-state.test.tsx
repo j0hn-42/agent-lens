@@ -123,3 +123,11 @@ test('replay loss (#366): tool count and tool errors read "at least", a zero is 
   assert.ok(v.getByText('4 tools'))
   assert.equal(v.queryByText(/not replayed by the relay/), null)
 })
+
+test('replay loss (#366): the context window is the last reading, incomplete (an absolute reading: no "at least", no "≥")', () => {
+  const a = { ...anchor, tokensUsed: 150_000, tokensMax: 200_000, tokenStatus: 'available' as const }
+  const v = render(<AgentDetailCard agent={a} toolErrors={0} replayLost={6} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-context').textContent, '150k / 200k (75%) (last reading, incomplete)')
+  v.rerender(<AgentDetailCard agent={a} toolErrors={0} onClose={noop} freshnessClock={clock} />)
+  assert.equal(v.getByTestId('inspector-context').textContent, '150k / 200k (75%)')
+})

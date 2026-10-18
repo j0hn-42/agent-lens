@@ -8,6 +8,7 @@
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { groupHeading, groupNounLower, normalizeGroupKind, type GroupKind } from '../../../lib/ui-glossary'
 import { totalCostUsage } from '../../../lib/cost'
+import { replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
 import { formatCostUsage, spokenCostUsage } from '../../../lib/usage'
 import { formatCost } from '../../../lib/utils'
 import { STATE_LABEL_LONG } from '../../../lib/canvas-constants'
@@ -187,6 +188,11 @@ export interface ClusterOptions {
   costAgents?: Iterable<Agent>
   /** Wall clock (ms): with it, a status only stale members show is worded as the last known one (#367) */
   now?: number
+  /**
+   * Events the relay could not replay, per session id (#366): the halo cost is a lower bound when one of the sessions
+   * of the agents it sums lost events, each session counted once (the same rule as the Cost panel header)
+   */
+  replayLost?: ReadonlyMap<string, number>
 }
 
 function sessionTitle(sessionIdIn: string | undefined, agents: Agent[], meta?: SessionMeta): string {
@@ -274,7 +280,8 @@ export function computeClusters(
     const statusText = stale.length === 0
       ? STATUS_TEXT[status]
       : haloStatusText(fresh.length > 0 ? statusOf(fresh) : undefined, statusOf(stale))
-    const costUsage = totalCostUsage(costGroups.get(key) ?? members)
+    const costMembers = costGroups.get(key) ?? members
+    const costUsage = usageUnderLoss(totalCostUsage(costMembers), replayLostForAgents(options.replayLost, costMembers))
 
     out.push({
       key,
