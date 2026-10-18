@@ -454,6 +454,30 @@ describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable()
     db.close(); fx.close()
   })
 
+  it('ids are ordered like SQLite orders them (UTF-8 bytes), not by UTF-16 units: no unchanged row is taken for a loss', () => {
+    // Outside OpenCode's format (a hostile or foreign database): an astral character sorts below U+E000 in
+    // UTF-16 units but above it in UTF-8 bytes, the order of SQLite
+    const fx = newDb()
+    const old = NOW - 20 * 60_000
+    const t = NOW - 60_000
+    fx.raw(`INSERT INTO message VALUES ('msg_A', 'ses_1', ${old}, ${old}, '{}')`)
+    fx.raw(`INSERT INTO part VALUES ('prt_A', 'msg_A', 'ses_1', ${old}, ${old}, '{}')`)
+    fx.raw(`INSERT INTO part VALUES ('prt_\u{1F600}', 'msg_A', 'ses_1', ${old}, ${old}, '{}')`)
+    fx.raw(`INSERT INTO part VALUES ('prt_\uE000', 'msg_A', 'ses_1', ${t}, ${t}, '{}')`)
+    const db = open(fx.file)
+    const first = db.poll(keyCursors(NOW - 600_000))
+    assert.deepEqual(first.parts.map(x => x.id), ['prt_\uE000'])
+    assert.deepEqual(first.lostPassed, [], 'the row delivered is not also counted as lost')
+    let cursors = first.cursors
+    for (let i = 0; i < 3; i++) {
+      const p = db.poll(cursors)
+      assert.deepEqual(p.parts, [], 'nothing changed')
+      assert.deepEqual(p.lostPassed, [], 'nothing changed: no loss')
+      cursors = p.cursors
+    }
+    db.close(); fx.close()
+  })
+
   it('the window is bounded in rows', () => {
     const fx = newDb()
     fill(fx, NOW - 120_000, Math.ceil((OPENCODE_WINDOW_ROWS + 400) / 4))
