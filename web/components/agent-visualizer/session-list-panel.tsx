@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore } from 'react'
+import { memo, useCallback, useId, useLayoutEffect, useMemo, useRef, useState, useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { Z } from '@/lib/agent-types'
 import type { TeamSummary } from '@/lib/agent-types'
 import type { GroupSummary } from '@/hooks/simulation/team-info'
@@ -80,6 +80,8 @@ interface SessionListPanelProps {
   allSessionCount?: number
   /** Agents of the view by state (#523: drawn in the header, moved from the top bar); absent = not drawn */
   agentCounts?: AgentStateCounts
+  /** Permanent trace of a graph loss (#567: the TruncationIndicator), drawn in the header under the agent counts */
+  lossIndicator?: ReactNode
   /** Clock override for tests */
   now?: number
   /** The relay is offline: no active session is proven to run, and durations stop at the last activity (#367) */
@@ -291,7 +293,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, lossIndicator, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
   filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange,
 }: SessionListPanelProps) {
   const { locale } = useLocale()
@@ -546,6 +548,7 @@ export function SessionListPanel({
             <span className="sr-only">{viewCounts.spoken}</span>
           </p>
         )}
+        {lossIndicator}
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
         <div role="search" aria-label={t('sessions.search.group')} className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">
