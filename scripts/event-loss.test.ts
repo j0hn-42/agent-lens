@@ -2,9 +2,11 @@ import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
 import {
   parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence,
-  truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, TRUNCATION_DISMISS_STORAGE_KEY,
-  dismissTruncation, allViewSessionTotals,
+  truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
 } from '../web/lib/event-loss'
+
+/** The sessionStorage key the dismissals live under (#567) */
+const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
 import { createStats } from '../web/lib/event-normalize'
 import { ALL_SESSIONS_ID } from '../web/lib/bridge-types'
 

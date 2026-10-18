@@ -12,7 +12,9 @@ import { vscodeBridge } from '@/lib/vscode-bridge'
 import { AgentVisualizer } from '@/components/agent-visualizer'
 import { PANEL_BUTTON_IDS } from '@/components/agent-visualizer/top-bar'
 import { resetDefaultUiPreferencesStore } from '@/hooks/use-ui-preferences'
-import { TRUNCATION_DISMISS_STORAGE_KEY } from '@/lib/event-loss'
+
+/** The sessionStorage key the dismissals live under (lib/event-loss) */
+const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
 
 const noopDeep = (): unknown => new Proxy(function () {}, { get: (_t, k) => (k === 'state' ? 'running' : k === 'currentTime' ? 0 : noopDeep()), apply: () => noopDeep(), set: () => true })
 ;(globalThis as Record<string, unknown>).AudioContext = function () { return noopDeep() }

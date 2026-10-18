@@ -117,7 +117,7 @@ export function truncationBannerState(stats: NormalizationStats, replayLost: num
 // ─── Dismissal of the truncation banner, for the tab (#567) ──────────────────
 
 /** sessionStorage key: a dismissal lasts as long as the tab, a new tab shows the banner again */
-export const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
+const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
 /** Views remembered at most: the newest dismissals are kept */
 const MAX_DISMISSALS = 100
 /** A key is a prefix and a session id (MAX_KEY_LENGTH) */
