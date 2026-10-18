@@ -160,6 +160,20 @@ export function costHeaderWraps(costW: number, tokensW: number): boolean {
   return COST_PANEL.contentPadding * 2 + costW + HEADER_GAP + tokensW > COST_PANEL.width
 }
 
+const HEADER_TOKENS_FONT_MAX = 11
+const HEADER_TOKENS_FONT_MIN = 9
+
+/** The token line of the header, measured with the canvas: the whole sentence at the largest size (11 px down to 9 px) that
+ *  fits maxWidth, so the qualifiers ("at least", "estimated") are never lost; cut with an ellipsis only below that (#545 review). */
+export function fitHeaderTokens(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): { text: string; font: string } {
+  for (let size = HEADER_TOKENS_FONT_MAX; size >= HEADER_TOKENS_FONT_MIN; size -= 0.5) {
+    ctx.font = `${size}px monospace`
+    if (ctx.measureText(text).width <= maxWidth) return { text, font: ctx.font }
+  }
+  ctx.font = `${HEADER_TOKENS_FONT_MIN}px monospace`
+  return { text: truncateText(ctx, text, maxWidth), font: ctx.font }
+}
+
 function readTopbarH(): string {
   try { return typeof document === 'undefined' ? '' : document.documentElement.style.getPropertyValue('--topbar-h') } catch { return '' }
 }
@@ -256,8 +270,13 @@ export function drawCostSummaryPanel(
 
   ctx.font = '11px monospace'
   ctx.fillStyle = SCENE.textMuted
-  if (wrapHeader) ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
-  else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
+  if (wrapHeader) {
+    // Alone on its line it still has to fit the panel: smaller font, then ellipsis (#545 review)
+    const fit = fitHeaderTokens(ctx, headerTokensText, panelW - COST_PANEL.contentPadding * 2)
+    ctx.font = fit.font
+    ctx.fillText(fit.text, panelX + COST_PANEL.contentPadding, y + HEADER_WRAP_H + 2)
+    ctx.font = '11px monospace'
+  } else ctx.fillText(headerTokensText, panelX + COST_PANEL.contentPadding + headerCostW + HEADER_GAP, y + 2)
 
   y += headerH
 
