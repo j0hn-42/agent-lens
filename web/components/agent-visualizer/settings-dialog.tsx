@@ -61,9 +61,11 @@ export interface SettingsDialogProps {
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [href], select, textarea, [tabindex]:not([tabindex="-1"])'
 
-function SwitchRow({ label, help, checked, onChange }: {
+function SwitchRow({ label, help, extraHelp, checked, onChange }: {
   label: string
   help: string
+  /** A second help sentence, in its own line */
+  extraHelp?: string
   checked: boolean
   onChange: (checked: boolean) => void
 }) {
@@ -81,6 +83,7 @@ function SwitchRow({ label, help, checked, onChange }: {
       <label htmlFor={id} className="cursor-pointer text-xs font-mono" style={{ color: COLORS.textPrimary }}>
         {label}
         <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>{help}</span>
+        {extraHelp && <span className="block text-[11px]" style={{ color: COLORS.textMuted }}>{extraHelp}</span>}
       </label>
     </div>
   )
@@ -392,7 +395,7 @@ export function SettingsDialog({
               <LanguageSelect id={langId} choice={choice} onChange={setChoice} autoLabel={t('settings.language.auto')} frLabel={t('settings.language.fr')} enLabel={t('settings.language.en')} />
             </div>
             <SwitchRow label={t('settings.hexGrid')} help={t('settings.hexGrid.help')} checked={hexGrid} onChange={onHexGridChange} />
-            {quota && <SwitchRow label={t('settings.quota')} help={t('settings.quota.help')} checked={quota.show} onChange={quota.onShowChange} />}
+            {quota && <SwitchRow label={t('settings.quota')} help={t('settings.quota.help')} extraHelp={t('settings.quota.setup')} checked={quota.show} onChange={quota.onShowChange} />}
           </Section>
 
           <Section title={t('settings.section.sound')}>

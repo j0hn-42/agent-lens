@@ -53,13 +53,16 @@ function liveWindow(w: GaugeView | null, now: number): GaugeView | null {
 
 /** What the quota gauge shows. `now` and `snapshot.receivedAt` are in milliseconds.
  *  `runtime` is the selected session's runtime. The relay tags every Claude session 'claude', so `undefined` means
- *  no session is selected: the account-wide Claude quota still applies, but with no snapshot there is nothing to show.
+ *  no session is selected: the account-wide Claude quota still applies, but with no snapshot there is nothing to show
+ *  (a Claude session without any snapshot shows nothing either, #467).
  *  Copilot and OpenCode never read the snapshot. */
 export function quotaGaugeState(runtime: string | undefined, snapshot: QuotaSnapshotView | null, now: number): QuotaGaugeState {
   if (runtime === 'copilot') return { kind: 'unavailable', runtime: 'copilot' }
   if (runtime === 'opencode') return { kind: 'no-subscription', runtime: 'opencode' }
   if (runtime !== undefined && runtime !== 'claude') return { kind: 'hidden' }
-  if (!snapshot) return runtime === undefined ? { kind: 'hidden' } : { kind: 'unknown' }
+  // No snapshot was ever received: with Claude Code that is the normal case until the status line is wrapped, not a problem
+  // to report in the bar (the way to enable it is in Settings). 'unknown' is only for a figure we had and can no longer trust.
+  if (!snapshot) return { kind: 'hidden' }
   // A clock behind receivedAt gives a negative age: treated as fresh, never as a negative figure
   const age = Math.max(0, now - snapshot.receivedAt)
   if (age > STALE_MS) return { kind: 'unknown' }
