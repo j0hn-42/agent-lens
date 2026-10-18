@@ -193,5 +193,7 @@ export function QuotaGauges({ state, interactive = true }: {
       </span>
     )
   }
-  return null
+  // Exhaustiveness: a new QuotaGaugeState kind must fail tsc here instead of silently rendering nothing
+  const exhaustive: never = state
+  return exhaustive
 }
