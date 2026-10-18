@@ -133,6 +133,8 @@ let maxSessionFileBytes = RELAY_MAX_SESSION_FILE_BYTES
  * the session was found, or transcript grown past the size cap. Distinct ids, bounded.
  */
 const SKIPPED_SESSIONS_MAX = 1000
+/** Ceiling of a runtimeLosses count on /status (#420): the largest count the web page accepts. */
+const RUNTIME_LOSS_MAX = 1e9
 const skippedSessions = { watchLimit: new Set<string>(), sizeLimit: new Set<string>(), fileLimit: new Set<string>() }
 /** More project folders than RELAY_MAX_PROJECT_DIRS exist in the scanned scope: the others are not scanned (#291) */
 let projectDirsCapped = false
@@ -1218,7 +1220,10 @@ export async function createRelay(options: RelayOptions): Promise<Relay> {
       // A runtime that cannot read its source says so, as last observed by its watcher (#420)
       runtimeProblems: [openCodeWatcher?.statusProblem()].flatMap(m => (m ? [{ runtime: 'opencode', message: m }] : [])),
       // Losses no followed session counts (a session not followed at the time): counted here, never silent (#420)
-      runtimeLosses: [openCodeWatcher?.unattributedLosses()].flatMap(l => (l && (l.unreadableRows > 0 || l.missedUpdates > 0) ? [{ runtime: 'opencode', ...l }] : [])),
+      // capped at 1e9, where the page reads a count: beyond, it stays a lower bound instead of being dropped
+      runtimeLosses: [openCodeWatcher?.unattributedLosses()].flatMap(l => (l && (l.unreadableRows > 0 || l.missedUpdates > 0)
+        ? [{ runtime: 'opencode', unreadableRows: Math.min(l.unreadableRows, RUNTIME_LOSS_MAX), missedUpdates: Math.min(l.missedUpdates, RUNTIME_LOSS_MAX) }]
+        : [])),
     }),
     readIndex,
     allowedHosts,
