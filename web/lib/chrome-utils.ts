@@ -2,77 +2,36 @@
  * Pure helpers for the visualizer chrome (top bar, session tabs, control bar,
  * announcements). Kept free of React/DOM so they can be unit-tested with node:test.
  */
-import { formatDuration, formatCost, formatTokens, pluralize } from './utils'
-import { groupHeading, memberNoun, COST_LABELS, type GroupKind } from './ui-glossary'
-import { formatCostUsage, formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
+import { formatDuration, pluralize } from './utils'
+import { groupHeading, memberNoun, type GroupKind } from './ui-glossary'
+import { formatTokenUsage, spokenCostUsage, USAGE_LABELS, type UsageTotal } from './usage'
 import { deriveFreshness } from '../hooks/simulation/freshness'
 import { SESSION_IMPORTED_TEXT, SESSION_INDEXED_TEXT, SESSION_NOT_OBSERVED_TEXT, SESSION_OFFLINE_TEXT, isSessionObserved, observedSessions } from './session-model'
 import { ALL_SESSIONS_ID, teamSelectionId, type ConnectionStatus, type SessionInfo } from './bridge-types'
 
 /**
- * Top bar texts of the context size and of its cost (`spoken`: the cost in words for screen
- * readers). When the runtime reports nothing, each one names what is missing ("tokens not reported", "cost not reported") instead of two bare "not reported" in a row (#383).
+ * The token and cost totals of the view in words, read by screen readers after the agent counts of the top bar (#523:
+ * they are no longer drawn there; the Cost panel draws them on the canvas, which screen readers do not read). When the
+ * runtime reports nothing, each one names what is missing ("tokens not reported", "cost not reported") instead of two
+ * bare "not reported" in a row (#383).
  */
-export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { tokens: string; cost: string; spoken: string } {
+export function topBarContextText(tokens: UsageTotal, cost: UsageTotal): { tokens: string; spoken: string } {
   const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
-  const costText = missing(cost) ? `cost ${USAGE_LABELS.unavailable}` : formatCostUsage(cost)
   return {
     tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${formatTokenUsage(tokens)} tokens in context`,
-    cost: costText,
-    // Same figure in words for assistive technology (no "~"); a missing one reads as it is shown
-    spoken: missing(cost) ? costText : spokenCostUsage(cost),
+    // The cost in words (no "~"); a missing one reads "cost not reported"
+    spoken: missing(cost) ? `cost ${USAGE_LABELS.unavailable}` : spokenCostUsage(cost),
   }
 }
 
-/** Key of the symbols of the compact summary (#497), shown in its popover and described in reading-the-ui.md. */
-export const SUMMARY_KEY = '≥ at least · ~ estimated · est. cost priced from estimated tokens · ctx = the context size, in tokens · unattr. = the part of the cost tied to no single agent'
+/** Time the pointer has to go from a top bar button to its tooltip, below it (WCAG 1.4.13, #523). */
+export const TOOLTIP_CLOSE_DELAY_MS = 300
 
 /**
- * Inks of the summary popover (#497), measured in every theme by scripts/theme-contrast.test.ts: `ground` is a palette
- * key or a theme variable, `text` the palette key of its text, `keyOpacity` the opacity of the key of the symbols.
+ * Inks of the tooltips of the top bar panel buttons (#523), measured in every theme by scripts/theme-contrast.test.ts:
+ * `ground` is a palette key or a theme variable, `text` the palette key of its text.
  */
-export const SUMMARY_POPOVER = { ground: 'panelBg', text: 'textMuted', keyOpacity: 1 } as const
-
-/** Time the pointer has to go from the summary to its popover across the rows of the bar between them (WCAG 1.4.13). */
-export const SUMMARY_CLOSE_DELAY_MS = 300
-
-/** "≥" at least (partial), "~" estimated: the short form of the qualifiers of `qualify` (same marks as the Sessions panel). */
-function compactMark(u: UsageTotal): string {
-  return `${u.status === 'partial' ? '≥' : ''}${u.estimated ? '~' : ''}`
-}
-
-/**
- * Compact texts of the top bar (#497): same figures as `topBarContextText`, qualifiers as symbols ("≥~5.3M ctx tokens",
- * "≥~$40.49 est."). A cost is always "~" (a context priced at a blended rate); "est." adds that its tokens are estimated.
- * Nothing is rounded or recomputed here.
- */
-export function topBarContextCompact(tokens: UsageTotal, cost: UsageTotal): { tokens: string; cost: string } {
-  const missing = (u: UsageTotal) => u.status === 'unavailable' || u.value === null
-  return {
-    tokens: missing(tokens) ? `tokens ${USAGE_LABELS.unavailable}` : `${compactMark(tokens)}${formatTokens(tokens.value as number)} ctx tokens`,
-    cost: missing(cost)
-      ? `cost ${USAGE_LABELS.unavailable}`
-      : `${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(cost.value as number)}${cost.estimated ? ' est.' : ''}`,
-  }
-}
-
-/**
- * Compact marker of the part of the cost tied to no single agent (#497 review): the long text says "(incl. ~$0.03
- * unattributed)". It is a part of the cost, so it carries the same qualifiers ("≥" partial, "est." estimated tokens).
- * Null when nothing is unattributed or no cost is reported.
- */
-export function topBarUnattributedCompact(cost: UsageTotal, unattributed: number): string | null {
-  if (!(unattributed > 0) || cost.status === 'unavailable' || cost.value === null) return null
-  return `incl. ${cost.status === 'partial' ? '≥' : ''}${COST_LABELS.mark}${formatCost(unattributed)}${cost.estimated ? ' est.' : ''} unattr.`
-}
-
-/**
- * The compact summary in words, the accessible name of its group: it keeps every word drawn, in the same order
- * (WCAG 2.5.3), with "≥" and "~" said as "at least" and "estimated" and the separators as commas.
- */
-export function spokenCompactSummary(compact: string): string {
-  return compact.replace(/ · /g, ', ').replace(/≥/g, 'at least ').replace(/~/g, 'estimated ')
-}
+export const TOPBAR_TOOLTIP = { ground: 'panelBg', text: 'textPrimary' } as const
 
 // ─── Session tabs ────────────────────────────────────────────────────────────
 
@@ -216,17 +175,37 @@ export function scrubberValueText(current: number, total: number): string {
  * "5 agents: 2 active - 3 done". Idle and error agents are counted apart ("- 1 idle - 1 error"), and agents whose
  * status is no longer proven are too ("- 4 last known state"): "active" only counts agents proven to be working.
  */
-export function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+function formatAgentCounts(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const staleText = stale > 0 ? ` - ${stale} last known state` : ''
   const idleText = idle > 0 ? ` - ${idle} idle` : ''
   const errorText = error > 0 ? ` - ${error} error` : ''
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${staleText}${idleText}${errorText} - ${done} done`
 }
 
-/** Compact "30 agents: 0 active · 4 last known · 26 done": the full wording is `formatAgentCounts` (popover, screen readers). */
-export function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
+/** Compact "30 agents: 0 active · 4 last known · 26 done", drawn in the Sessions panel header (#523); the full wording (`formatAgentCounts`) is read by screen readers. */
+function formatAgentCountsCompact(active: number, done: number, stale = 0, idle = 0, error = 0): string {
   const part = (n: number, label: string) => (n > 0 ? ` · ${n} ${label}` : '')
   return `${pluralize(active + done + stale + idle + error, 'agent')}: ${active} active${part(stale, 'last known')}${part(idle, 'idle')}${part(error, 'error')} · ${done} done`
+}
+
+/** Agents of the view by state, as `agentActivityCounts` splits them. */
+export interface AgentStateCounts { active: number; done: number; stale: number; idle: number; error: number }
+
+/**
+ * Agent counts of the view (#523, moved from the top bar to the Sessions panel header, same text): `drawn` is the
+ * compact text ("30 agents: 0 active · 4 last known · 26 done"), `spoken` the full wording read by screen readers.
+ * In All (`allSessionCount` not null) it is the sessions and agents ("3 sessions · 30 agents"), without the states.
+ */
+export function viewCountsText(c: AgentStateCounts, allSessionCount: number | null): { drawn: string; spoken: string } {
+  if (allSessionCount !== null) {
+    const sessions = pluralize(allSessionCount, 'session')
+    const agents = pluralize(c.active + c.done + c.stale + c.idle + c.error, 'agent')
+    return { drawn: `${sessions} · ${agents}`, spoken: `${sessions}, ${agents}` }
+  }
+  return {
+    drawn: formatAgentCountsCompact(c.active, c.done, c.stale, c.idle, c.error),
+    spoken: formatAgentCounts(c.active, c.done, c.stale, c.idle, c.error),
+  }
 }
 
 /** Splits agents into done, stale (status older than the freshness limit: only a last known state), idle, error and active. */
@@ -245,17 +224,6 @@ export function agentActivityCounts(
   return { active, done, stale, idle, error }
 }
 
-/** "3 sessions - 12 agents - ~$1.23" (summary shown in the top bar while the 'All' tab is selected) */
-export function formatAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
-  const costText = typeof cost === 'number' ? `${COST_LABELS.mark}${formatCost(cost)}` : formatCostUsage(cost)
-  return `${pluralize(sessionCount, 'session')} - ${pluralize(agentCount, 'agent')} - ${costText}`
-}
-
-/** The All summary for screen readers: commas for pauses, the estimate in words (they skip "~" and "-", #364) */
-export function spokenAllSummary(sessionCount: number, agentCount: number, cost: number | UsageTotal): string {
-  const usage: UsageTotal = typeof cost === 'number' ? { value: cost, status: 'available', estimated: false } : cost
-  return `${pluralize(sessionCount, 'session')}, ${pluralize(agentCount, 'agent')}, ${spokenCostUsage(usage)}`
-}
 
 /** Marker text for a history whose oldest events were dropped, or null when nothing was dropped. */
 export function formatTruncatedHistory(droppedEvents: number): string | null {

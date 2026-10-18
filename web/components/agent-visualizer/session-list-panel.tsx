@@ -11,7 +11,7 @@ import { deriveFreshness } from '@/hooks/simulation/freshness'
 import { modelCell, tokensCell, rollupTokensCell, sessionTimeCell, costCell, branchCell, runtimeCell, activityCell } from '@/lib/session-columns'
 import { stateMarkerShape, stateMarkerBox } from '@/lib/session-state-marker'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
-import { runtimeBadge, sessionStatusKind, type SessionStatusKind } from '@/lib/chrome-utils'
+import { runtimeBadge, sessionStatusKind, viewCountsText, type AgentStateCounts, type SessionStatusKind } from '@/lib/chrome-utils'
 import { FOCUS_RING } from '@/lib/focus-ring'
 import {
   buildAgentForests, buildSessionRows, filterActiveSessions, filterActiveTeams,
@@ -78,6 +78,8 @@ interface SessionListPanelProps {
   teamMemberCounts?: ReadonlyMap<string, number>
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
+  /** Agents of the view by state (#523: drawn in the header, moved from the top bar); absent = not drawn */
+  agentCounts?: AgentStateCounts
   /** Clock override for tests */
   now?: number
   /** The relay is offline: no active session is proven to run, and durations stop at the last activity (#367) */
@@ -269,7 +271,7 @@ function AgentNodes({ nodes, depth, selectedAgentId, onSelectAgent, freshnessNow
 export function SessionListPanel({
   visible, onClose, sessions, selectedSessionId, sessionsWithActivity, sessionModels,
   onSelectSession, onCloseSession, onRenameSession, onExportSession, canExportSession, agents, selectedAgentId, onSelectAgent,
-  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
+  teams, teamWorking, teamSummaries, teamMemberCounts, allSessionCount, agentCounts, now, relayOffline = false, observedSessionIds, freshnessClock, attention: sharedAttention, health,
   filterProject, filterRuntime, filterBranch, onFilterChange, scopeHint, activeOnly: storedActiveOnly, onActiveOnlyChange,
 }: SessionListPanelProps) {
   const { locale } = useLocale()
@@ -467,6 +469,9 @@ export function SessionListPanel({
     return () => el.removeEventListener('keydown', onKey)
   }, [])
 
+  const viewCounts = agentCounts
+    ? viewCountsText(agentCounts, selectedSessionId === ALL_SESSIONS_ID ? (allSessionCount ?? sessions.length) : null)
+    : null
   const firstTabStop = rows.length > 0 ? rows[0].id : undefined
   const stopId = rows.some(r => r.id === selectedSessionId) ? selectedSessionId : firstTabStop
 
@@ -513,6 +518,14 @@ export function SessionListPanel({
             {t('sessions.count', { active: activeCount, total: sessions.length })}
           </span>
         </PanelHeader>
+        {viewCounts && (
+          // #523: the agent counts of the view, moved from the top bar with the same text. English text (the qualifiers
+          // "last known", "done" are those of the canvas and the docs); the full wording is read, the compact one drawn
+          <p data-testid="sessions-agent-counts" lang="en" data-i18n-exempt="" className="m-0 px-2 pb-1.5 text-[11px] tabular-nums" style={{ color: COLORS.textMuted }}>
+            <span aria-hidden="true">{viewCounts.drawn}</span>
+            <span className="sr-only">{viewCounts.spoken}</span>
+          </p>
+        )}
 
         <div role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-panel-announcer>{announcement}</div>
         <div role="search" aria-label={t('sessions.search.group')} className="flex flex-wrap items-center gap-1.5 px-2 pb-1.5 text-[11px]">

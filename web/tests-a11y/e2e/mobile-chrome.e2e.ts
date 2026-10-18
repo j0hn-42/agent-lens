@@ -93,9 +93,9 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
 
       const more = page.getByRole('button', { name: /^More/ })
       assert.equal(await more.getAttribute('aria-expanded'), 'false')
-      // The drawn totals are the compact summary (#497); the full text stays for screen readers
-      const totals = page.locator('header').getByTestId('topbar-summary-compact')
-      // Folded, the totals are visually hidden (sr-only, 1 px) but stay in the accessibility tree
+      // #523: the bar draws no totals (no tokens, no cost, no agent counts: those are in the Sessions panel header); the
+      // totals stay in the bar for screen readers only (sr-only, 1 px), in the accessibility tree
+      const totals = page.locator('header').getByTestId('topbar-spoken-totals')
       // Width actually drawn: the narrowest box among the text and its ancestors in the bar (sr-only clips to 1 px)
       const drawnWidth = () => totals.evaluate((el: Element) => {
         let w = Infinity
@@ -105,8 +105,8 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
         }
         return w
       })
-      assert.ok(await drawnWidth() <= 1, 'folded: the token total is not drawn')
-      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total')
+      assert.ok(await drawnWidth() <= 1, 'folded: the totals are not drawn')
+      assert.match(String(await page.locator('header').ariaSnapshot()), /tokens in context/, 'folded: screen readers still read the token total (#523: read, not drawn)')
       assert.equal(await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).count(), 0, 'folded: the filters are not in the Tab order')
       const invisible = await page.evaluate(findInvisibleFocusables, FOCUSABLE_SELECTOR)
       assert.deepEqual(invisible.filter(i => !i.startsWith('nextjs-portal')), [], 'folded: no invisible Tab stop')
@@ -124,7 +124,7 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
       await more.focus()
       await page.keyboard.press('Enter')
       assert.equal(await more.getAttribute('aria-expanded'), 'true')
-      assert.ok(await drawnWidth() > 1, 'expanded: the token total is drawn')
+      assert.ok(await drawnWidth() <= 1, 'expanded: the totals are still not drawn (#523)')
       await page.keyboard.press('Tab')
       const next = await page.evaluate('document.activeElement && document.activeElement.textContent.trim()')
       assert.match(String(next), /Notifications|Hide inactive agents|Show finished|finished/, `Tab after More reaches a folded control (got "${next}")`)
@@ -147,14 +147,18 @@ for (const [w, h, budget] of [[767, 900, 140], [390, 844, 140], [320, 568, 180]]
   })
 }
 
-// 768 px and wider nothing folds, no disclosure button (#476; 600 px before). 1280 px at 200 % browser zoom is
-// 640 px wide, so it folds now: it is checked with the folded widths above
-for (const [w, h] of [[768, 900], [1280, 800]] as Array<[number, number]>) {
-  test(`top bar ${w}x${h}: nothing is folded at 768 px and wider`, async () => {
+// 1024 px and wider nothing folds, no disclosure button (#523; 768 px in #476, 600 px before). From 768 to 1023 px the
+// bar folds without the mobile branches (tests-a11y/e2e/topbar-layout.e2e.ts). 1280 px at 200 % browser zoom is 640 px
+// wide, so it folds: it is checked with the folded widths above
+for (const [w, h] of [[1024, 900], [1280, 800]] as Array<[number, number]>) {
+  test(`top bar ${w}x${h}: nothing is folded at 1024 px and wider`, async () => {
     const page = await open(w, h)
     try {
       assert.equal(await page.getByRole('button', { name: /^More/ }).count(), 0, 'no disclosure button')
-      assert.ok(await page.getByTestId('topbar-summary-compact').isVisible(), 'the token total is drawn')
+      // #523: the bar draws no summary text; the agent counts are drawn in the Sessions panel header
+      assert.equal(await page.locator('header').getByTestId('topbar-agent-counts').count(), 0, 'no agent counts in the bar')
+      const drawn = await page.locator('header').evaluate((el: Element) => { const c = el.cloneNode(true) as Element; for (const n of Array.from(c.querySelectorAll('.sr-only, [hidden], [role="tooltip"]'))) n.remove(); return c.textContent ?? '' })
+      assert.doesNotMatch(drawn, /agents?:|\blast known\b|\bdone\b/, `no counts drawn in the bar: "${drawn}"`)
       assert.ok(await noHorizontalScroll(page), 'no horizontal page scroll')
     } finally {
       await page.context().close()
@@ -191,11 +195,11 @@ test('top bar 390x844: folded with Hide inactive agents on, More says a filter i
 // Crossing 768 px (a resize or a browser zoom) must not drop the focus on <body> (2.4.3)
 const focusedName = (page: Page) => page.evaluate(`(() => { const a = document.activeElement; return !a || a === document.body ? 'BODY' : (a.getAttribute('aria-label') || a.textContent.trim()) })()`) as Promise<string>
 
-test('top bar: More has the focus and the window widens past 768 px, the focus stays in the bar', async () => {
+test('top bar: More has the focus and the window widens past 1024 px, the focus stays in the bar', async () => {
   const page = await open(390, 844)
   try {
     await page.locator('header button[aria-expanded]').focus()
-    await page.setViewportSize({ width: 800, height: 844 })
+    await page.setViewportSize({ width: 1100, height: 844 })
     await page.waitForFunction(`!document.querySelector('header button[aria-expanded]')`)
     const name = await focusedName(page)
     assert.notEqual(name, 'BODY', 'the focus is not lost on <body>')
@@ -205,8 +209,8 @@ test('top bar: More has the focus and the window widens past 768 px, the focus s
   }
 })
 
-test('top bar: a filter has the focus and the window narrows under 768 px, the filter keeps it', async () => {
-  const page = await open(800, 844)
+test('top bar: a filter has the focus and the window narrows under 1024 px, the filter keeps it', async () => {
+  const page = await open(1100, 844)
   try {
     await page.getByRole('button', { name: 'Hide inactive agents', exact: true }).focus()
     await page.setViewportSize({ width: 390, height: 844 })

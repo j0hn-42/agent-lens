@@ -3,9 +3,10 @@ import assert from 'node:assert/strict'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PANEL_NAMES, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, openPanelLabel, hiddenPanelsText,
+  PANEL_NAMES, PANEL_SUMMARIES, COST_LABELS, HIERARCHY_TERMS, CONVERSATION_LABELS, emptyState, emptyMatch, hiddenPanelsText,
 } from '../web/lib/ui-glossary'
 import { SHORTCUTS } from '../web/lib/shortcuts'
+import { MESSAGES } from '../web/lib/messages'
 import {
   EMPTY_MESSAGES, EMPTY_SEARCH, COLLAPSED_TEXT_MAX, TOOL_MESSAGE_TYPES, buildFeedMessages, latestFeedMessage,
   filterBySearch, tabForSelection,
@@ -30,9 +31,18 @@ test('one empty-state wording: "No <things> yet", shared by the glossary and the
 })
 
 test('the Conversation button is named with its shortcut and the pill/close controls use the same name', () => {
-  assert.equal(openPanelLabel('conversation', 'C'), 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonLabel, 'Conversation (C)')
-  assert.equal(CONVERSATION_LABELS.buttonText, 'Conversation')
+  // The top bar names come from messages.ts since #523 (an icon under 1280 px); in English they are the glossary names
+  assert.equal(MESSAGES.en['topbar.panel.conversation.name'], `${PANEL_NAMES.conversation} (C)`)
+  for (const p of ['files', 'timeline', 'stats'] as const) assert.equal(MESSAGES.en[`topbar.panel.${p}.name`], PANEL_NAMES[p])
+  assert.equal(MESSAGES.en['topbar.panel.context.name'], `${PANEL_NAMES.context} (P)`)
+  assert.equal(MESSAGES.en['topbar.panel.system.name'], `${PANEL_NAMES.system} (Y)`)
+  assert.equal(MESSAGES.en['topbar.panel.cost.name'], `$${PANEL_NAMES.cost}`)
+  // One source for the English tooltips (#545 review): built from the glossary, never a copy that can drift
+  assert.equal(MESSAGES.en['topbar.panel.cost.tooltip'], `Cost overlay ($). ${COST_LABELS.method}`)
+  assert.equal(MESSAGES.en['topbar.panel.context.tooltip'], `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`)
+  const catalog = readFileSync(join('web/lib', 'messages.ts'), 'utf8')
+  assert.equal(catalog.includes(COST_LABELS.method), false, 'messages.ts does not copy COST_LABELS.method by hand')
+  assert.equal(catalog.includes(PANEL_SUMMARIES.context), false, 'messages.ts does not copy PANEL_SUMMARIES.context by hand')
   assert.equal(CONVERSATION_LABELS.open, 'Open Conversation')
   assert.equal(CONVERSATION_LABELS.close, 'Close Conversation')
 })
@@ -187,8 +197,9 @@ test('the top bar disclosure under 768 px (#378, #476): its visible text starts 
   assert.equal(g.TOP_BAR_LABELS.more, 'More')
   assert.ok(g.TOP_BAR_LABELS.moreName.startsWith(g.TOP_BAR_LABELS.more))
   assert.equal(g.TOP_BAR_LABELS.moreName, 'More: panels, totals and filters')
-  assert.match(g.TOP_BAR_LABELS.moreHelp, /tokens in context/)
-  assert.match(g.TOP_BAR_LABELS.moreHelp, /768 px/)
+  assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /agent counts/, 'no agent counts in the bar any more (#523: Sessions panel header)')
+  assert.doesNotMatch(g.TOP_BAR_LABELS.moreHelp, /tokens|cost/, 'no token total or cost in the bar any more (#523)')
+  assert.match(g.TOP_BAR_LABELS.moreHelp, /1024 px/, 'the bar folds under 1024 px (#523), the mobile view stays under 768 px')
 })
 
 test('folded with a filter on, the More button says so on screen and in its name (#378)', async () => {

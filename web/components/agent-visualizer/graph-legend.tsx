@@ -254,6 +254,7 @@ export function GraphLegend({ teams = [], present, locale = 'en' }: { teams?: A1
 
           </ShownContext.Provider>
 
+          <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>{t('legend.ctxTokens')}</p>
           <p className="mt-2 text-[11px]" style={{ color: COLORS.textMuted }}>
             {t('legend.footer')}{' '}<LearnMoreLink locale={locale} />
           </p>

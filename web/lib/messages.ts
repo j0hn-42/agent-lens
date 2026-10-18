@@ -2,6 +2,8 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
+import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES } from './ui-glossary'
+
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 
@@ -235,7 +237,7 @@ const fr = {
   'tray.quit.stopRelay': 'Quitter et arrêter le relais',
   'tray.quit.closeIcon': 'Fermer l’icône, le relais continue',
   'tray.tooltip': 'Agent Lens : {state}',
-  // Top bar (#373): the controls it owns. Panel names, counts and connection state come from the glossary and stay English for now.
+  // Top bar (#373): the controls it owns. The panel button names are further down (#523); counts and connection state come from the glossary and stay English for now.
   'topbar.hideInactive': 'Masquer les agents inactifs',
   'topbar.hideInactive.title': 'Masquer les agents inactifs ou terminés',
   'topbar.notify': 'Notifications',
@@ -461,6 +463,22 @@ const fr = {
   'sessions.announce.expanded': 'Agents de {label} dépliés',
   'sessions.resize.value': '{px} pixels de large',
   'sessions.project.none': 'Aucun dépôt',
+  // Top bar panel buttons (#523): an icon under 1280 px wide, so the name and the tooltip are translated here.
+  // The visible label is the name without its shortcut ("Contexte (P)" shows "Contexte").
+  'topbar.panel.files.name': 'Fichiers',
+  'topbar.panel.files.tooltip': 'Fichiers (F)',
+  'topbar.panel.conversation.name': 'Conversation (C)',
+  'topbar.panel.conversation.tooltip': 'Conversation (C)',
+  'topbar.panel.context.name': 'Contexte (P)',
+  'topbar.panel.context.tooltip': 'Contexte : CLAUDE.md du projet, mémoire, issues (P)',
+  'topbar.panel.system.name': 'Système (Y)',
+  'topbar.panel.system.tooltip': 'Système : processeur, mémoire, disque (Y)',
+  'topbar.panel.cost.name': 'Coût',
+  'topbar.panel.cost.tooltip': 'Coûts affichés sur le canevas ($). Estimation du coût du contexte : les jetons présents dans le contexte × un tarif mixte par modèle (75 % du prix d’entrée, 25 % du prix de sortie). Ce n’est pas une facture : elle baisse après une compaction, ignore les lectures de cache et n’additionne pas les appels précédents.',
+  'topbar.panel.timeline.name': 'Chronologie',
+  'topbar.panel.timeline.tooltip': 'Chronologie (T)',
+  'topbar.panel.stats.name': 'Statistiques',
+  'topbar.panel.stats.tooltip': 'Statistiques (S)',
 
   // Command palette (#503). Group names Actions, Sessions and Agents, and the panel name Conversation, are the same word in both languages: they stay in code.
   'palette.title': 'Palette de commandes',
@@ -517,6 +535,7 @@ const fr = {
   'legend.onScreen.other': '{n} symboles à l’écran.',
   'legend.showAll': 'Afficher tous les symboles',
   'legend.footer': 'Non observé, au moins, estimé :',
+  'legend.ctxTokens': 'ctx tokens (total du panneau Coût) : les jetons que contiennent maintenant les contextes de la vue, pas une consommation ; le chiffre baisse après une compaction.',
   'learnMore.text': 'En savoir plus',
   'learnMore.sr': 'sur la lecture de cette vue (s’ouvre dans un nouvel onglet)',
   'legend.section.states': 'États',
@@ -1065,6 +1084,22 @@ const en: Record<MessageKey, string> = {
   'sessions.announce.expanded': 'Agents of {label} expanded',
   'sessions.resize.value': '{px} pixels wide',
   'sessions.project.none': 'No repository',
+  // Top bar panel buttons (#523): the names they had before the icons, unchanged
+  'topbar.panel.files.name': 'Files',
+  'topbar.panel.files.tooltip': 'Files (F)',
+  'topbar.panel.conversation.name': 'Conversation (C)',
+  'topbar.panel.conversation.tooltip': 'Conversation (C)',
+  'topbar.panel.context.name': 'Context (P)',
+  // Built from the glossary, the one source of these English texts (#545 review)
+  'topbar.panel.context.tooltip': `${PANEL_NAMES.context}: ${PANEL_SUMMARIES.context} (P)`,
+  'topbar.panel.system.name': 'System (Y)',
+  'topbar.panel.system.tooltip': 'System: CPU, memory, disk (Y)',
+  'topbar.panel.cost.name': '$Cost',
+  'topbar.panel.cost.tooltip': `Cost overlay ($). ${COST_LABELS.method}`,
+  'topbar.panel.timeline.name': 'Timeline',
+  'topbar.panel.timeline.tooltip': 'Timeline (T)',
+  'topbar.panel.stats.name': 'Stats',
+  'topbar.panel.stats.tooltip': 'Stats (S)',
 
   // Command palette (#503). Group names Actions, Sessions and Agents, and the panel name Conversation, are the same word in both languages: they stay in code.
   'palette.title': 'Command palette',
@@ -1121,6 +1156,7 @@ const en: Record<MessageKey, string> = {
   'legend.onScreen.other': '{n} symbols on screen.',
   'legend.showAll': 'Show all symbols',
   'legend.footer': 'Not observed, at least, estimated:',
+  'legend.ctxTokens': 'ctx tokens (Cost panel total): the tokens the contexts of the view hold now, not a consumption; the figure drops after a compaction.',
   'learnMore.text': 'Learn more',
   'learnMore.sr': 'about reading this view (opens in a new tab)',
   'legend.section.states': 'States',

@@ -21,6 +21,20 @@ export function truncateText(ctx: CanvasRenderingContext2D, text: string, maxWid
   return lo > 0 ? text.slice(0, lo) + '\u2026' : '\u2026'
 }
 
+const HEADER_TOKENS_FONT_MAX = 11
+const HEADER_TOKENS_FONT_MIN = 9
+
+/** The token line of the header, measured with the canvas: the whole sentence at the largest size (11 px down to 9 px) that
+ *  fits maxWidth, so the qualifiers ("at least", "estimated") are never lost; cut with an ellipsis only below that (#545 review). */
+export function fitHeaderTokens(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): { text: string; font: string } {
+  for (let size = HEADER_TOKENS_FONT_MAX; size >= HEADER_TOKENS_FONT_MIN; size -= 0.5) {
+    ctx.font = `${size}px monospace`
+    if (ctx.measureText(text).width <= maxWidth) return { text, font: ctx.font }
+  }
+  ctx.font = `${HEADER_TOKENS_FONT_MIN}px monospace`
+  return { text: truncateText(ctx, text, maxWidth), font: ctx.font }
+}
+
 /** Anything the tether can start from: an agent, a tool card or a discovery card. */
 export type TetherSource = { x: number; y: number; isMain?: boolean }
 

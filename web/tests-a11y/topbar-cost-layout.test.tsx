@@ -1,38 +1,11 @@
-// #112: the two qualified totals of the top bar are separated, and the canvas cost panel sits below the (wrapping) bar.
-import { test, afterEach } from 'node:test'
+// #112: the canvas cost panel sits below the (wrapping) top bar. The totals of the top bar itself are no longer drawn
+// (#523): see topbar-counts.test.tsx.
+import { test } from 'node:test'
 import { strict as assert } from 'node:assert'
-import React from 'react'
-import { render, cleanup } from '@testing-library/react'
 
-import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { costPanelTop, costHeaderWraps } from '@/components/agent-visualizer/canvas/draw-cost'
+import { fitHeaderTokens } from '@/components/agent-visualizer/canvas/draw-misc'
 import { COST_PANEL } from '@/lib/canvas-constants'
-import { COST_LABELS } from '@/lib/ui-glossary'
-import { ALL_SESSIONS_ID } from '@/lib/bridge-types'
-
-afterEach(() => {
-  cleanup()
-  document.body.replaceChildren()
-})
-
-const noop = () => {}
-const base: TopBarProps = {
-  sessions: [{ id: 's1', label: 'one', status: 'active', startTime: 1, lastActivityTime: 2 }],
-  selectedSessionId: 's1', sessionsWithActivity: new Set(),
-  showSessions: false, onToggleSessions: noop, isVSCode: false, connectionStatus: 'connected',
-  activeAgentCount: 1, doneAgentCount: 0, totalTokens: 33000, totalCost: 0.312,
-  showFileAttention: false, showConversation: false, showCostOverlay: false, showTimeline: false, showStats: false, isMuted: false,
-  onTogglePanel: noop, onToggleTimeline: noop, onToggleStats: noop, onToggleMute: noop, onOpenShortcuts: noop,
-}
-
-test('a partial estimated token total and a partial estimated cost are separated', () => {
-  const partial = { value: 33000, status: 'partial', estimated: true } as const
-  const cost = { value: 0.312, status: 'partial', estimated: true } as const
-  const { container } = render(<TopBar {...base} tokenUsage={partial} costUsage={cost} unattributedCost={0.03} />)
-  const text = container.textContent ?? ''
-  assert.doesNotMatch(text, /estimated\s*at least/, 'no "estimated" glued to the next "at least"')
-  assert.match(text, /tokens in context\s+·\s+at least/, 'a space on each side of the separator (#497)')
-})
 
 test('cost panel top follows the published top bar height', () => {
   assert.equal(costPanelTop('96px'), 96)
@@ -51,30 +24,36 @@ test('cost panel header puts tokens on a second line when both do not fit side b
   assert.equal(costHeaderWraps(114, 126), true)
 })
 
-test('the top bar cost is a context cost estimate: marked "~", named in words, method in its tooltip (#364)', () => {
-  const cost = { value: 0.312, status: 'available', estimated: false } as const
-  const tokens = { value: 33000, status: 'available', estimated: false } as const
-  const { getByTestId, container } = render(<TopBar {...base} tokenUsage={tokens} costUsage={cost} />)
-  const el = getByTestId('topbar-cost')
-  assert.equal(el.getAttribute('title'), COST_LABELS.method)
-  assert.match(el.textContent ?? '', /~\$0\.312/)
-  // Starts with a pause: the "·" before it is hidden, so it must not run into "tokens in context"
-  assert.equal(el.querySelector('.sr-only')?.textContent, `, ${COST_LABELS.name} $0.312`)
-  // The token total adds up what each context holds now, not what was consumed
-  assert.match(container.textContent ?? '', /33k tokens in context/)
+// #545 review: « ctx tokens » made the wrapped token line wider than the panel (« at least 5.3M estimated ctx tokens »
+// is 34 characters, about 225 px at 11 px for a 212 px content width)
+const fakeCtx = () => {
+  const ctx = { font: '11px monospace', measureText: (s: string) => ({ width: s.length * parseFloat(ctx.font) * 0.602 }) }
+  return ctx as unknown as CanvasRenderingContext2D
+}
+
+test('the token line of the cost panel header never leaves the panel, whatever its qualifiers', () => {
+  const widest = [
+    'at least 5.3M estimated ctx tokens',
+    'at least 13M estimated ctx tokens',
+    'at least 130M estimated ctx tokens',
+    '11k ctx tokens',
+  ]
+  const inner = COST_PANEL.width - COST_PANEL.contentPadding * 2
+  for (const text of widest) {
+    const ctx = fakeCtx()
+    const fit = fitHeaderTokens(ctx, text, inner)
+    ctx.font = fit.font
+    assert.ok(ctx.measureText(fit.text).width <= inner, `"${fit.text}" (${fit.font}) is ${ctx.measureText(fit.text).width} px for ${inner} px`)
+    assert.equal(fit.text, text, 'the whole sentence is kept, a smaller font makes it fit')
+    assert.ok(parseFloat(fit.font) >= 9, `${fit.font}: still readable`)
+  }
 })
 
-test('All mode: the summary keeps "~" on screen and says the estimate in words to screen readers (#364)', () => {
-  const cost = { value: 1.23, status: 'available', estimated: false } as const
-  const { getByTestId } = render(<TopBar {...base} selectedSessionId={ALL_SESSIONS_ID} allSessionCount={3} costUsage={cost} />)
-  const el = getByTestId('topbar-all-summary')
-  assert.equal(el.querySelector('[aria-hidden="true"]')?.textContent, '3 sessions - 1 agent - ~$1.23')
-  assert.equal(el.querySelector('.sr-only')?.textContent, `3 sessions, 1 agent, ${COST_LABELS.name} $1.23`)
-})
-
-test('unavailable usage names what is missing, on screen and for assistive technology (#383)', () => {
-  const none = { value: null, status: 'unavailable', estimated: false } as const
-  const { container, getByTestId } = render(<TopBar {...base} totalTokens={0} totalCost={0} tokenUsage={none} costUsage={none} />)
-  assert.match(container.textContent ?? '', /tokens not reported\s*·\s*cost not reported/)
-  assert.doesNotMatch(getByTestId('topbar-cost').textContent ?? '', /context cost estimate not reported/)
+test('a token line too long even at the smallest size is cut with an ellipsis, never drawn past the panel', () => {
+  const inner = COST_PANEL.width - COST_PANEL.contentPadding * 2
+  const ctx = fakeCtx()
+  const fit = fitHeaderTokens(ctx, 'at least 1234567890123M estimated ctx tokens, and more words than a panel holds', inner)
+  ctx.font = fit.font
+  assert.ok(ctx.measureText(fit.text).width <= inner)
+  assert.ok(fit.text.endsWith('…'))
 })

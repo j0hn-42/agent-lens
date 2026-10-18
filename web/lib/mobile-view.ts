@@ -10,6 +10,14 @@ const MOBILE_BREAKPOINT = 768
 export const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 0.02}px)`
 /** Side (px) of the touch target below 768 px; what TOUCH_TARGET gives the DOM controls, for the canvas zones. */
 export const TOUCH_TARGET_PX = 44
+
+/**
+ * Top bar (#523), apart from the mobile view: below TOPBAR_FOLD_BREAKPOINT the bar folds behind More (one row), but the
+ * panels stay docked and the controls keep their size (drawers and 44 px targets stay under MOBILE_BREAKPOINT). The CSS
+ * side of the same width is Tailwind `lg` (64rem): the rows of the bar are `display: contents` below it.
+ */
+const TOPBAR_FOLD_BREAKPOINT = 1024
+export const TOPBAR_FOLD_QUERY = `(max-width: ${TOPBAR_FOLD_BREAKPOINT - 0.02}px)`
 /**
  * Classes that give a control a 44x44 px box below 768 px only (Tailwind `max-md` is `width < 48rem`, 768 px).
  * A literal string so Tailwind finds it.

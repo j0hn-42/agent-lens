@@ -546,7 +546,7 @@ for (const locale of LOCALES) {
 
     const T = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
     for (const x of [
-      T('legend.onScreen.other', { n: 2 }), T('legend.complete', { n: LEGEND_ENTRY_IDS.length }), T('legend.none'), T('legend.footer'), T('legend.section.states'),
+      T('legend.onScreen.other', { n: 2 }), T('legend.complete', { n: LEGEND_ENTRY_IDS.length }), T('legend.none'), T('legend.footer'), T('legend.ctxTokens'), T('legend.section.states'),
       T('legend.mark-loop', { repeat: REPEAT_THRESHOLD, cycle: CYCLE_THRESHOLD }), T('legend.mark-repeated', { rule: T('legend.repeatRule') }),
       T('legend.state.waiting_permission.long'), T('card.contextWindow'), T('learnMore.text'), T('legend.name'),
     ]) assert.ok(strings.includes(x), `"${x}" was rendered`)
