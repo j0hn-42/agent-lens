@@ -114,6 +114,95 @@ export function truncationBannerState(stats: NormalizationStats, replayLost: num
   return { show, total }
 }
 
+// ─── Dismissal of the truncation banner, for the tab (#567) ──────────────────
+
+/** sessionStorage key: a dismissal lasts as long as the tab, a new tab shows the banner again */
+export const TRUNCATION_DISMISS_STORAGE_KEY = 'agent-lens:truncation-dismissed'
+/** Views remembered at most: the newest dismissals are kept */
+const MAX_DISMISSALS = 100
+/** A key is a prefix and a session id (MAX_KEY_LENGTH) */
+const MAX_DISMISS_KEY_LENGTH = MAX_KEY_LENGTH + 8
+
+/** What the dismissal helpers need of a Storage */
+export type DismissStore = Pick<Storage, 'getItem' | 'setItem'>
+
+/**
+ * The view a dismissal belongs to: the All view (no selection, or the All pseudo id) has one key, each other selection
+ * (a session, a team) its own. Prefixed, so a session id never names the All view.
+ */
+export function truncationDismissKey(selectedId: string | null | undefined): string {
+  return !selectedId || selectedId === ALL_SESSIONS_ID ? 'view:all' : `sel:${selectedId}`
+}
+
+/** The tab's sessionStorage, or null when it cannot be reached (reading it throws when site data is blocked). */
+export function tabStorage(): DismissStore | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage ?? null
+  } catch { return null }
+}
+
+/** Dismissals stored for the tab, view key -> total dismissed at. Untrusted: parsed entry by entry; never throws. */
+export function readTruncationDismissals(storage: DismissStore | null): Map<string, number> {
+  const out = new Map<string, number>()
+  if (!storage) return out
+  let parsed: unknown
+  try { parsed = JSON.parse(storage.getItem(TRUNCATION_DISMISS_STORAGE_KEY) ?? 'null') } catch { return out }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
+  let scanned = 0
+  for (const key of Object.keys(parsed)) {
+    if (out.size >= MAX_DISMISSALS || ++scanned > MAX_DISMISSALS * 4) break
+    if (key.length > MAX_DISMISS_KEY_LENGTH || key === '__proto__') continue
+    const n = (parsed as Record<string, unknown>)[key]
+    if (typeof n === 'number' && Number.isSafeInteger(n) && n >= 0) out.set(key, n)
+  }
+  return out
+}
+
+/** Store the dismissals for the tab (the newest MAX_DISMISSALS); false when the storage is missing or refuses. */
+export function writeTruncationDismissals(storage: DismissStore | null, dismissals: ReadonlyMap<string, number>): boolean {
+  if (!storage) return false
+  const entries = [...dismissals].slice(-MAX_DISMISSALS)
+  try {
+    storage.setItem(TRUNCATION_DISMISS_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)))
+    return true
+  } catch { return false }
+}
+
+/**
+ * What the All view counted for each session: its normalizer counters, plus its replay loss when All shows it
+ * (`allViewSessionIds`, as replayLostFor; null = every session the tally names). Sessions with nothing lost are left out.
+ */
+export function allViewSessionTotals(
+  statsBySession: ReadonlyMap<string, NormalizationStats>,
+  loss: EventLoss | null,
+  allViewSessionIds: ReadonlySet<string> | null,
+): Map<string, number> {
+  const totals = new Map<string, number>()
+  const bump = (sid: string, n: number) => { if (n > 0) totals.set(sid, add(totals.get(sid) ?? 0, n)) }
+  for (const [sid, stats] of statsBySession) bump(sid, truncationTotal(stats))
+  if (loss) for (const sid of allViewSessionIds ?? Object.keys(loss.evicted)) bump(sid, replayLostForSession(loss, sid))
+  return totals
+}
+
+/**
+ * The dismissals after the user closed the banner of view `key` at `total` (a new map, the newest entry last).
+ * Dismissing the All view also covers each session it counted (`covered`, session id -> that session's own total):
+ * opening one of them right after shows no banner at the same total. A higher stored total is never lowered.
+ */
+export function dismissTruncation(
+  prev: ReadonlyMap<string, number>,
+  key: string,
+  total: number,
+  covered: ReadonlyMap<string, number> = new Map(),
+): Map<string, number> {
+  const next = new Map(prev)
+  const put = (k: string, n: number) => { const was = next.get(k); next.delete(k); next.set(k, Math.max(was ?? 0, n)) }
+  if (key === truncationDismissKey(ALL_SESSIONS_ID)) for (const [sid, n] of covered) put(truncationDismissKey(sid), n)
+  next.delete(key)
+  next.set(key, total)
+  return next
+}
+
 /**
  * A count over a graph that may be incomplete (#366). `lost` is replayLostFor() for the scope of the figure.
  * Nothing lost: the plain count. Lost: "at least N", and a zero is "no X observed (incomplete)", never a clean zero.
