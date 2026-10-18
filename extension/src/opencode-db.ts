@@ -14,7 +14,8 @@
  * - Cheap on a large database (#420): `message` and `part` have no index on `time_updated`, so a cursor
  *   on it reads and sorts the whole table at every poll. With `mode: 'key'` they are followed by their
  *   primary key (OpenCode's message and part ids are ascending: creation time first), and a bounded
- *   window of recent rows is read again, without its data, to find the rows updated in place. A row
+ *   window of recent rows is read again (id, time_updated, session_id and the size of data in bytes,
+ *   octet_length, which does not load the content) to find the rows updated in place. A row
  *   updated after it left the window is not read; a slow sweep below the window finds such changes and
  *   reports them in `lostPassed` (never silent).
  * - No network, no vscode dependency: usable from the relay. The database content is untrusted input.
@@ -25,7 +26,7 @@ import { CONTROL_ALL } from './control-chars'
 import { nodeSqliteOpener, type IndexConnection, type IndexOpener } from './session-index'
 import type { OpenCodeSessionRow, OpenCodeMessageRow, OpenCodePartRow } from './opencode-event-parser'
 
-/** Largest `data` column read, in characters; a larger row is skipped and counted. */
+/** Largest `data` column read, in bytes (UTF-8); a larger row is skipped and counted. */
 export const OPENCODE_ROW_DATA_MAX = 1024 * 1024
 /** Cumulative `data` bytes read per table per poll; the poll reports `truncated` when it stops there. */
 export const OPENCODE_POLL_BYTES_MAX = 16 * 1024 * 1024
@@ -47,7 +48,7 @@ const TEXT_COLUMN_MAX = 4096
 export const OPENCODE_WINDOW_ROWS = 2000
 /** A settled row leaves the window once its `time_updated` is older than this (the activity window). */
 export const OPENCODE_WINDOW_MS = 10 * 60 * 1000
-/** Rows below the window checked per poll for a change the window missed (no data loaded). */
+/** Rows below the window checked per poll for a change the window missed (only id, time_updated and session_id are asked for). */
 export const OPENCODE_SWEEP_ROWS = 1000
 /** Changes found below the window remembered so that each one is counted once. */
 const STRAY_MAX = 1000
@@ -406,7 +407,7 @@ export class OpenCodeDb {
   // skipped, not taken for a root).
   private selectColumns(name: TableSpec['table']): string[] {
     return this.columns[name].map(c => {
-      if (c === 'data') return `CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN data END AS data`
+      if (c === 'data') return `CASE WHEN typeof(data) = 'text' AND ${DATA_BYTES} <= ${OPENCODE_ROW_DATA_MAX} THEN data END AS data`
       if (c === 'time_created' || c === 'time_archived') {
         return `CASE WHEN typeof(${c}) = 'integer' AND ${c} BETWEEN 1 AND ${MAX_SAFE} THEN ${c} END AS ${c}`
       }
@@ -443,9 +444,9 @@ export class OpenCodeDb {
     let rowLimit = sqlLimit
     let budgetHit = false
     if (this.columns[name].includes('data')) {
-      // First a light query (no data), to cut the rows at the byte budget before loading them.
+      // First a light query (the size of data, not its content), to cut the rows at the byte budget before loading them.
       const sizes = this.conn.all(
-        `SELECT CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN length(data) ELSE 0 END AS n `
+        `SELECT ${DATA_SIZE} AS n `
         + `FROM ${name} ${where} LIMIT ${sqlLimit}`)
       let total = 0
       let cut = sizes.length
@@ -504,11 +505,14 @@ export class OpenCodeDb {
     return typeof above === 'string' && OPENCODE_ID_RE.test(above) && above.startsWith(`${prefix}_`) ? ceiling : undefined
   }
 
-  /** Columns of the light reads by key: no data, only its length (bounded like the data read). */
-  private lightColumns(name: 'message' | 'part'): string {
+  /**
+   * Columns of the light reads by key: the size of data in bytes (`withSize`), never its content. The
+   * sweep only counts changes and does not ask for the size.
+   */
+  private lightColumns(name: 'message' | 'part', withSize = true): string {
     return `id, CASE WHEN typeof(time_updated) = 'integer' AND time_updated BETWEEN 1 AND ${MAX_SAFE} THEN time_updated END AS t, `
-      + `CASE WHEN typeof(session_id) = 'text' AND length(session_id) <= ${ID_MAX} THEN session_id END AS owner, `
-      + `CASE WHEN typeof(data) = 'text' AND length(data) <= ${OPENCODE_ROW_DATA_MAX} THEN length(data) ELSE 0 END AS n `
+      + `CASE WHEN typeof(session_id) = 'text' AND length(session_id) <= ${ID_MAX} THEN session_id END AS owner`
+      + (withSize ? `, ${DATA_SIZE} AS n ` : ' ')
       + `FROM ${name} WHERE ${KEY_ID_OK}`
   }
 
@@ -536,9 +540,10 @@ export class OpenCodeDb {
 
   /**
    * Rows of `message` or `part` changed since the key cursor (#420). Three reads, all through the
-   * primary key index: the window and the new rows without their data (at most OPENCODE_WINDOW_ROWS +
-   * limit + 1), the data of the rows that are new or changed (at most `limit`, within the byte budget),
-   * and OPENCODE_SWEEP_ROWS rows below the window without their data.
+   * primary key index: the window and the new rows with the size of their data but not its content (at
+   * most OPENCODE_WINDOW_ROWS + limit + 1), the data of the rows that are new or changed (at most
+   * `limit`, within the byte budget), and OPENCODE_SWEEP_ROWS rows below the window (id, time_updated,
+   * session_id). The light reads still read the b-tree leaf pages, which hold the start of each row.
    */
   private readByKey<T extends { id: string; time_updated: number }>(
     name: 'message' | 'part',
@@ -670,7 +675,7 @@ export class OpenCodeDb {
       segment = `AND id > ${hexText(sweep > epoch ? sweep : epoch)}`
     }
     if (segment) {
-      const swept = this.conn.all(`SELECT ${this.lightColumns(name)} ${segment} ORDER BY ${name}.id ASC LIMIT ${OPENCODE_SWEEP_ROWS}`)
+      const swept = this.conn.all(`SELECT ${this.lightColumns(name, false)} ${segment} ORDER BY ${name}.id ASC LIMIT ${OPENCODE_SWEEP_ROWS}`)
       for (const r of swept) {
         const id = String(r.id)
         const t = timeOf(r.t)
@@ -702,6 +707,16 @@ export class OpenCodeDb {
     }
   }
 }
+
+/**
+ * Size of `data` in bytes. octet_length() of a column takes the size from the record header and does
+ * not load the content; length() counts characters, so it reads the whole text, overflow pages
+ * included (measured: 33 MB read for a window of 2,000 rows of 16 KB, see the bench in bytes of
+ * opencode-db-key-cursor.test.ts). typeof() does not load it either.
+ */
+const DATA_BYTES = 'octet_length(data)'
+/** Size in bytes of a readable `data`, else 0 (bounded like the data read). */
+const DATA_SIZE = `CASE WHEN typeof(data) = 'text' AND ${DATA_BYTES} <= ${OPENCODE_ROW_DATA_MAX} THEN ${DATA_BYTES} ELSE 0 END`
 
 /** An ascending message or part id of OpenCode: prefix, 12 hex digits of time, 14 base62 characters. */
 const OPENCODE_ID_RE = /^(msg|prt)_[0-9a-f]{12}[0-9A-Za-z]{14}$/
