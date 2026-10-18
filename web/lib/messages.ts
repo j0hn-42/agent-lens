@@ -2,7 +2,7 @@
 // Scope so far: the motion controls, the canvas controls and the settings dialog. Other strings stay in
 // ui-glossary.ts and in their components until they move here; a key is added to every locale at once (scripts/messages.test.ts checks keys and {placeholders}).
 
-import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES } from './ui-glossary'
+import { COST_LABELS, PANEL_NAMES, PANEL_SUMMARIES, TOP_BAR_LABELS } from './ui-glossary'
 
 export const LOCALES = ['fr', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
@@ -1355,9 +1355,10 @@ const en: Record<MessageKey, string> = {
   'topbar.finished.label': 'Show finished sessions ({n})',
   'topbar.finished.title': 'Also show sessions that finished more than 10 minutes ago',
   'topbar.finished.hidden': 'Finished sessions hidden ({n})',
-  'topbar.more': 'More',
-  'topbar.more.name': 'More: panels, totals and filters',
-  'topbar.more.help': 'Panel buttons, quota gauges and the view filters (folded under 1024 px wide)',
+  // Built from the glossary, the one source of these English texts
+  'topbar.more': TOP_BAR_LABELS.more,
+  'topbar.more.name': TOP_BAR_LABELS.moreName,
+  'topbar.more.help': TOP_BAR_LABELS.moreHelp,
   'topbar.more.withFilters.one': 'More · {n} filter',
   'topbar.more.withFilters.other': 'More · {n} filters',
   'topbar.more.nameBefore.one': 'More · {n} filter on: panels, totals and filters (',

@@ -10,7 +10,6 @@ import {
   moreText, selectionLabelText, unobservedSessionsText,
 } from '../web/lib/top-bar-text'
 import { connectionDisplay, topBarContextText, viewCountsText } from '../web/lib/chrome-utils'
-import { finishedToggleLabel } from '../web/hooks/simulation/session-visibility'
 import { selectionLabel } from '../web/lib/session-tree'
 import { parseReconnectDetail, reconnectDetail } from '../web/lib/reconnect'
 import { parseRelayScopeState, scopeNotices, scopeOptions, scopeSummary, type RelayScopeState } from '../web/lib/relay-scope'
@@ -116,7 +115,7 @@ test('the Sessions button texts exist in both languages', () => {
 
 test('finished sessions: English is the legacy text, French is translated with the same count', () => {
   for (const n of [0, 1, 12]) {
-    assert.equal(finishedToggleText('en', n), finishedToggleLabel(n))
+    assert.equal(finishedToggleText('en', n), `Show finished sessions (${n})`)
     assert.equal(finishedHiddenText('en', n), TOP_BAR_LABELS.filterFinishedHidden(n))
     assert.match(finishedToggleText('fr', n), new RegExp(`^Afficher les sessions terminées \\(${n}\\)$`))
     assert.match(finishedHiddenText('fr', n), new RegExp(`^Sessions terminées masquées \\(${n}\\)$`))
