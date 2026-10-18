@@ -448,9 +448,11 @@ function useDrawerKeys(ref: RefObject<HTMLElement | null>, active: boolean) {
 
 /**
  * With a permission card shown, a drawer starts under it (margin-top, see drawerStyle) and scrolls in the room left
- * above the bottom control bar (7.5rem), so it never reaches under that bar (#548).
+ * above the bottom control bar (7.5rem), so it never reaches under that bar (#548). A scroll container clips what
+ * is painted outside its padding box: the 5 px of padding (and of scroll-padding, so that a focused control scrolled
+ * into view stops 5 px from the edge) hold the focus ring of a control at its edge (2 px outline, 2 px offset).
  */
-const DRAWER_BELOW_CARD = '[html[data-permission-open]_&]:max-h-[calc(100dvh-var(--topbar-h,60px)-16px-var(--permission-h,0px)-7.5rem)] [html[data-permission-open]_&]:overflow-y-auto'
+const DRAWER_BELOW_CARD = '[html[data-permission-open]_&]:max-h-[calc(100dvh-var(--topbar-h,60px)-16px-var(--permission-h,0px)-7.5rem)] [html[data-permission-open]_&]:overflow-y-auto [html[data-permission-open]_&]:p-[5px] [html[data-permission-open]_&]:scroll-p-[5px]'
 
 export function SlidingPanel({
   visible, position, axis = 'X', offset = 20,
