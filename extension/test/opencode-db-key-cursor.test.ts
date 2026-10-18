@@ -10,6 +10,7 @@
  */
 import { describe, it, after } from 'node:test'
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import {
   openOpenCodeDb, OPENCODE_SWEEP_ROWS, OPENCODE_WINDOW_MS, OPENCODE_WINDOW_ROWS,
@@ -97,6 +98,14 @@ function drain(db: OpenCodeDb, cursors: OpenCodeCursors, limit = 500, max = 200)
 
 const touches = (sql: string, table: string): boolean => new RegExp(`\\bFROM ${table}\\b`).test(sql)
 
+/** Bytes this process read through read(2)/pread(2) so far (`rchar` of /proc/self/io); undefined where the kernel does not say. */
+function bytesRead(): number | undefined {
+  try {
+    const m = /^rchar: (\d+)$/m.exec(fs.readFileSync('/proc/self/io', 'utf8'))
+    return m ? Number(m[1]) : undefined
+  } catch { return undefined }
+}
+
 describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable() }, () => {
   it('bench: a poll after new rows reads only the new rows with their data, through the primary key, whatever the table size', () => {
     const counts: number[] = []
@@ -137,6 +146,53 @@ describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable()
       fx.close()
     }
     assert.equal(counts[0], counts[1], 'the rows asked for do not grow with the table')
+  })
+
+  it('bench in bytes: with a FULL window of recent rows with large data, a poll does not read that data', (tc) => {
+    // 2,000 recent parts of 16 KB (32 MB of data), already seen: the window is full and nothing changed
+    const fx = newDb()
+    const big = JSON.stringify({ type: 'text', text: 'y'.repeat(16_000) })
+    const windowBytes = OPENCODE_WINDOW_ROWS * big.length
+    const start = NOW - 300_000
+    let c = 0
+    fx.batch(() => {
+      for (let m = 0; m < OPENCODE_WINDOW_ROWS / 4; m++) {
+        const t = start + m
+        const mid = openCodeId('msg', t, ++c)
+        fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{"role":"user"}')`)
+        for (let p = 0; p < 4; p++) fx.raw(`INSERT INTO part VALUES ('${openCodeId('prt', t, ++c)}', '${mid}', 'ses_1', ${t}, ${t}, '${big}')`)
+      }
+    })
+    const log: Recorded[] = []
+    const db = open(fx.file, log)
+    // Seen before the reader started: in the window (younger than OPENCODE_WINDOW_MS), not to deliver
+    const boot = drain(db, keyCursors(NOW - 60_000))
+    assert.equal(boot.cursors.part.key?.recent.length, OPENCODE_WINDOW_ROWS, 'the window is full')
+
+    // One new small part: the poll reads the full window again (light), the sweep and one row of data
+    const t = NOW - 2000
+    const mid = openCodeId('msg', t, ++c)
+    fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{"role":"user"}')`)
+    fx.raw(`INSERT INTO part VALUES ('${openCodeId('prt', t, ++c)}', '${mid}', 'ses_1', ${t}, ${t}, '${DATA}')`)
+    log.length = 0
+    const before = bytesRead()
+    const p = db.poll(boot.cursors)
+    const read = bytesRead() === undefined || before === undefined ? undefined : bytesRead()! - before
+    assert.equal(p.error, undefined)
+    assert.equal(p.parts.length, 1)
+
+    // Measured in bytes where the kernel reports them (Linux: /proc/self/io, `rchar` counts every read of
+    // the file, cached or not; SQLite does not map the file by default)
+    tc.diagnostic(`bytes read by the poll: ${read ?? 'not reported'} (window data: ${windowBytes})`)
+    if (read !== undefined) {
+      assert.ok(read < windowBytes / 2, `${read} bytes read for a window holding ${windowBytes} bytes of data`)
+    }
+    // Everywhere: the light reads ask SQLite only for the size in bytes of `data` (octet_length does not
+    // load the content; length() counts characters, so it reads all of it, overflow pages included)
+    const light = log.filter(r => (touches(r.sql, 'part') || touches(r.sql, 'message')) && !r.rows.some(row => 'data' in row))
+    assert.ok(light.length > 0)
+    for (const r of light) assert.doesNotMatch(r.sql, /(?<!octet_)length\(data\)/, r.sql)
+    db.close(); fx.close()
   })
 
   it('more than 5 500 rows in the same millisecond are all read, each once, and the cursor moves past them', () => {
