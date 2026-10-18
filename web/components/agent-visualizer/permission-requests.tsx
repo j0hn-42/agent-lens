@@ -11,6 +11,7 @@ import { useLocale, useT } from '@/lib/locale'
 import type { MessageKey } from '@/lib/messages'
 import type { PermissionAction } from '@/lib/bridge-types'
 import { usePermissionRequests, type PermissionNotice, type PermissionRow } from '@/hooks/use-vscode-bridge'
+import { TOUCH_TARGET } from '@/lib/mobile-view'
 import { RedirectDialog } from './permission-redirect-dialog'
 
 const CLOSED_KEYS: Record<string, MessageKey> = {
@@ -215,7 +216,7 @@ function RequestRow({ row, subject, session, locale, t, onDecide, onDismiss, onF
   const name = (action: string) => summary
     ? t('permission.actionName', { action, tool: r.toolName, summary, session })
     : t('permission.actionNameShort', { action, tool: r.toolName, session })
-  const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 rounded motion-safe:transition-colors ${FOCUS_RING}`
+  const button = `text-[11px] font-mono px-2 min-h-6 min-w-6 ${TOUCH_TARGET} rounded motion-safe:transition-colors ${FOCUS_RING}`
   const buttonStyle = { color: COLORS.textPrimary, border: `1px solid ${COLORS.controlBorder}`, background: 'transparent' }
   const sending = state === 'sending'
   const secondsLeft = useSecondsLeft(r.expiresAt)
