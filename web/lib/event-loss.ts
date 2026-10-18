@@ -8,8 +8,8 @@
  * those events had been received). A later connection that keeps the graph says nothing about it: the client
  * already received most of those events live. See {@link acceptEventLoss}.
  */
-import { truncationTotal, type NormalizationStats } from './event-normalize'
-import { ALL_SESSIONS_ID, parseTeamSelection } from './bridge-types'
+import { truncationTotal, createStats, sumNormalizationStats, type NormalizationStats } from './event-normalize'
+import { ALL_SESSIONS_ID, parseTeamSelection, isUnionSelection } from './bridge-types'
 import type { UsageTotal } from './usage'
 
 export interface EventLoss {
@@ -95,6 +95,23 @@ export function replayLostForSession(loss: EventLoss | null, sessionId: string |
 }
 
 /**
+ * Normalizer counters of the selection, over the same sessions as replayLostFor: one session, its own counters; All or a
+ * team, the sum over the sessions of the view (`viewSessionIds`: the ones All shows, or the team's; null = every session).
+ * A session the view leaves out is never counted in its notice, even when the simulation still holds its counters.
+ */
+export function viewNormalizationStats(
+  statsBySession: ReadonlyMap<string, NormalizationStats>,
+  selectedId: string | null | undefined,
+  viewSessionIds: ReadonlySet<string> | null,
+): NormalizationStats {
+  if (selectedId && !isUnionSelection(selectedId)) return statsBySession.get(selectedId) ?? createStats()
+  if (!viewSessionIds) return sumNormalizationStats(statsBySession.values())
+  const shown: NormalizationStats[] = []
+  for (const [sid, stats] of statsBySession) if (viewSessionIds.has(sid)) shown.push(stats)
+  return sumNormalizationStats(shown)
+}
+
+/**
  * Which figure the view keeps. `connections` is how many times the link has been up since the graph was
  * last emptied (a scope change reloads it). Only the first connection's message counts: it was received
  * while the graph was empty. A later one is the relay's cumulative total, not what this graph lacks, so it
@@ -171,8 +188,8 @@ export function writeTruncationDismissals(storage: DismissStore | null, dismissa
 }
 
 /**
- * What the All view counted for each session: its normalizer counters, plus its replay loss when All shows it
- * (`allViewSessionIds`, as replayLostFor; null = every session the tally names). Sessions with nothing lost are left out.
+ * What the All view counted for each session it shows (`allViewSessionIds`, as replayLostFor; null = every session): its
+ * normalizer counters, plus its replay loss. Sessions with nothing lost are left out.
  */
 export function allViewSessionTotals(
   statsBySession: ReadonlyMap<string, NormalizationStats>,
@@ -181,7 +198,7 @@ export function allViewSessionTotals(
 ): Map<string, number> {
   const totals = new Map<string, number>()
   const bump = (sid: string, n: number) => { if (n > 0) totals.set(sid, add(totals.get(sid) ?? 0, n)) }
-  for (const [sid, stats] of statsBySession) bump(sid, truncationTotal(stats))
+  for (const [sid, stats] of statsBySession) if (!allViewSessionIds || allViewSessionIds.has(sid)) bump(sid, truncationTotal(stats))
   if (loss) for (const sid of allViewSessionIds ?? Object.keys(loss.evicted)) bump(sid, replayLostForSession(loss, sid))
   return totals
 }

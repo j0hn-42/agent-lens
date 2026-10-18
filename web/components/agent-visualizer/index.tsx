@@ -50,11 +50,9 @@ import { ChromeAnnouncer, HiddenFinishedAnnouncer } from "./chrome-announcer"
 import { HistoryLoadingIndicator } from "./history-loading-indicator"
 import { CostTotalsText } from "./cost-totals-text"
 import { TruncationBanner, TruncationAnnouncer, TruncationIndicator } from "./truncation-banner"
-import { createStats, sumNormalizationStats } from "@/lib/event-normalize"
-import { ALL_SESSIONS_ID, isUnionSelection } from "@/lib/bridge-types"
 import {
   truncationBannerState, replayLostForAgents, usageUnderLoss, truncationDismissKey, readTruncationDismissals, writeTruncationDismissals,
-  tabStorage, dismissTruncation, allViewSessionTotals,
+  tabStorage, dismissTruncation, allViewSessionTotals, viewNormalizationStats,
 } from "@/lib/event-loss"
 import { useAudioEffects } from "@/hooks/use-audio-effects"
 import { ToastRegion } from "./toast-region"
@@ -232,11 +230,10 @@ export function AgentVisualizer() {
 
   // Counters of the selection: one session, or every session added up for a union view (All, team pseudo selection)
   const truncationKey = truncationDismissKey(bridge.selectedSessionId)
+  // A union view adds up only the sessions it counts, the scope of the replay loss (#366)
   const truncationStats = useMemo(
-    () => bridge.selectedSessionId && !isUnionSelection(bridge.selectedSessionId)
-      ? normalizationStats.get(bridge.selectedSessionId) ?? createStats()
-      : sumNormalizationStats(normalizationStats.values()),
-    [normalizationStats, bridge.selectedSessionId],
+    () => viewNormalizationStats(normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds),
+    [normalizationStats, bridge.selectedSessionId, bridge.viewSessionIds],
   )
   // What the normalizer discarded plus what the relay could not replay (#366): see lib/event-loss
   const truncation = truncationBannerState(truncationStats, bridge.replayLost, truncationDismissed.get(truncationKey))

@@ -303,10 +303,29 @@ test('event-loss (#453): All counts only the sessions it shows (finished ones hi
   assert.equal(result.current.showFinished, false)
   assert.deepEqual([...(result.current.allViewSessionIds ?? [])], ['live'], 'the finished session is out of the view')
   assert.equal(result.current.replayLost, 3, 'the loss of the hidden finished session and of unnamed sessions is not claimed')
+  assert.deepEqual([...(result.current.viewSessionIds ?? [])], ['live'], 'the notice adds up the normalizer counters of the same sessions')
   // Showing the finished sessions (Show mode 'all', written in the preferences) makes All every session: the whole tally counts again
   await act(async () => hook.result.current.ui.setPref('show', 'all'))
   assert.equal(result.current.allViewSessionIds, null)
   assert.equal(result.current.replayLost, 62)
+  assert.equal(result.current.viewSessionIds, null)
+})
+
+test('event-loss (#366): a team view counts the sessions of the team, for the replay loss and for the notice alike', async () => {
+  relayEnv('4321')
+  const { result } = renderHook(() => useVSCodeBridge())
+  await act(async () => FakeES.last.open())
+  const now = Date.now()
+  await act(async () => realDispatch({ type: 'session-list', sessions: [
+    { id: 'lead', label: 'lead', status: 'active', startTime: now, lastActivityTime: now, teamName: 'T' },
+    { id: 'solo', label: 'solo', status: 'active', startTime: now, lastActivityTime: now },
+  ] }))
+  await act(async () => FakeES.last.send({ type: 'event-loss', evicted: { lead: 2, solo: 30 } }))
+  await act(async () => result.current.selectSession('team:T'))
+  assert.equal(result.current.selectedSessionId, 'team:T')
+  assert.ok(result.current.viewSessionIds?.has('lead'), JSON.stringify([...(result.current.viewSessionIds ?? [])]))
+  assert.equal(result.current.viewSessionIds?.has('solo'), false)
+  assert.equal(result.current.replayLost, 2)
 })
 
 test('event-loss (#366): outside relay mode there is none', () => {

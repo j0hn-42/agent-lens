@@ -3,6 +3,7 @@ import { strict as assert } from 'node:assert'
 import {
   parseEventLoss, replayLostFor, replayLostForSession, acceptEventLoss, truncationBannerState, boundedCount, replayLostSentence,
   truncationDismissKey, readTruncationDismissals, writeTruncationDismissals, tabStorage, dismissTruncation, allViewSessionTotals,
+  viewNormalizationStats,
 } from '../web/lib/event-loss'
 
 /** The sessionStorage key the dismissals live under (#567) */
@@ -240,4 +241,29 @@ test('truncationBannerState: a total LOWER than the one dismissed at is a new lo
   assert.equal(truncationBannerState(stats, 0, 100).show, true, 'normalizer counters only, lower than dismissed at')
   assert.equal(truncationBannerState(createStats(), 40, 6371).show, true, 'replay loss only, lower than dismissed at')
   assert.equal(truncationBannerState(createStats(), 0, 100).show, false, 'nothing lost now: nothing to show')
+})
+
+test('allViewSessionTotals: the normalizer counters of a session All does not show are not counted for it either', () => {
+  const stats = new Map([['s1', { ...createStats(), ignoredEvents: 2 }], ['hidden', { ...createStats(), droppedByCap: 5 }]])
+  assert.deepEqual([...allViewSessionTotals(stats, null, new Set(['s1']))], [['s1', 2]])
+  assert.deepEqual([...allViewSessionTotals(stats, null, null)].sort(), [['hidden', 5], ['s1', 2]])
+})
+
+test('viewNormalizationStats: the counters of the sessions of the view only, the scope of the replay loss', () => {
+  const stats = new Map([
+    ['s1', { ...createStats(), ignoredEvents: 2, clampedFields: 1 }],
+    ['s2', { ...createStats(), droppedByCap: 3 }],
+    ['hidden', { ...createStats(), ignoredEvents: 40 }],
+  ])
+  // One session: its own counters, a fresh zero for a session with none
+  assert.equal(viewNormalizationStats(stats, 's1', null).ignoredEvents, 2)
+  assert.deepEqual(viewNormalizationStats(stats, 'nope', null), createStats())
+  // All (or a team) with the sessions it counts: the others are left out
+  const all = viewNormalizationStats(stats, ALL_SESSIONS_ID, new Set(['s1', 's2']))
+  assert.deepEqual([all.ignoredEvents, all.droppedByCap, all.clampedFields], [2, 3, 1])
+  const team = viewNormalizationStats(stats, 'team:T', new Set(['s2']))
+  assert.deepEqual([team.ignoredEvents, team.droppedByCap], [0, 3])
+  // All showing every session (null): every session
+  assert.equal(viewNormalizationStats(stats, ALL_SESSIONS_ID, null).ignoredEvents, 42)
+  assert.equal(viewNormalizationStats(stats, null, null).ignoredEvents, 42)
 })
