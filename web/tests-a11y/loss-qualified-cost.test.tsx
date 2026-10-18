@@ -62,7 +62,8 @@ test('the Cost panel: header totals and rows read "at least" for a session with 
   assert.ok(costs.some(t => !t.startsWith('at least')), 'the agent of the intact session keeps its plain figure')
 })
 
-test('the spoken totals of the top bar carry the qualifier', () => {
+// The wiring of the top bar (index.tsx -> TopBar) is tested in loss-qualified-wiring.test.tsx; this is only the wording helper
+test('topBarContextText words a lower-bound usage "at least", an exact one plainly', () => {
   const cost: UsageTotal = { value: 2.1, status: 'available', estimated: true }
   const t = topBarContextText(usageUnderLoss(exact, 2), usageUnderLoss(cost, 2))
   assert.match(t.tokens, /^at least 120k tokens in context$/)
