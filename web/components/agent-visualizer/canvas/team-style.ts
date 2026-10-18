@@ -133,19 +133,13 @@ export function agentStatusText(agent: StatusInput): string {
 }
 
 /**
- * What the canvas draws under a stale node in place of agentStatusText ("last known state: Thinking"): its state is
- * no longer proven. Undefined when the agent is not stale.
- */
-export function staleStatusText(agent: FreshnessInput, now: number): string | undefined {
-  return deriveFreshness(agent, now) === 'stale' ? lastKnownStateText(agent.state) : undefined
-}
-
-/**
- * The status line the canvas draws under the node at `now`, before it is ellipsized to fit: the one source for every
- * surface that quotes that word (the agent rows of the Sessions panel in French, #502).
+ * The status line drawAgentLabel (draw-agents.ts) draws under the node at `now`, before a stale line is ellipsized to
+ * fit: agentStatusText, or "last known state: Thinking" in its place when the node is stale (its state is no longer
+ * proven). The agent rows of the Sessions panel quote this same function in French (#502); freshness.test.tsx checks
+ * that the canvas draws it and keeps no copy of the rule.
  */
 export function drawnStatusText(agent: StatusInput & FreshnessInput, now: number): string {
-  return staleStatusText(agent, now) ?? agentStatusText(agent)
+  return deriveFreshness(agent, now) === 'stale' ? lastKnownStateText(agent.state) : agentStatusText(agent)
 }
 
 // ─── Label layout ────────────────────────────────────────────────────────────

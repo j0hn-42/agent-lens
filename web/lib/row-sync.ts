@@ -8,7 +8,7 @@ import { getStateLabel } from './state-labels'
 import { deriveFreshness, deriveSilence, lastKnownStateText, silenceText } from '../hooks/simulation/freshness'
 import { translate, type Locale } from './messages'
 import * as C from './card-text'
-import { drawnStatusText } from '../components/agent-visualizer/canvas/team-style'
+import { drawnStatusText, teammateActivity } from '../components/agent-visualizer/canvas/team-style'
 
 /** Test seam: called with the agent id each time an agent row really renders (never set in production). */
 export const rowRenderProbe: { onRender: ((agentId: string) => void) | null } = { onRender: null }
@@ -56,8 +56,16 @@ export function agentRowView(a: AgentLike, freshnessNow: number, locale: Locale 
   const kind = a.kind === 'subagent' ? 'sub-agent' : a.kind === 'teammate' ? 'teammate' : 'agent'
   const role = locale === 'en' ? kind : translate(locale, kind === 'sub-agent' ? 'sessions.role.subAgent' : kind === 'teammate' ? 'sessions.role.teammate' : 'sessions.role.agent')
   const view: AgentRowView = { detail, stale, role }
-  // The same function as the canvas label (draw-agents.ts), never a parallel table: a teammate shows its activity, a stale node its last known state
-  if (locale !== 'en' && !showsTool) view.drawn = drawnStatusText(a, freshnessNow)
+  if (locale !== 'en' && !showsTool) {
+    // drawnStatusText is the function drawAgentLabel draws the status line with (draw-agents.ts): a teammate's activity,
+    // a stale node's last known state. Where the row would gloss the state word, a teammate drawn with its activity is
+    // glossed with that activity instead: its state can lag behind (an agent_activity 'idle' while the state says
+    // thinking reads "idle : Inactif", never "idle : Réflexion")
+    view.drawn = drawnStatusText(a, freshnessNow)
+    const activity = teammateActivity(a)
+    const glossesState = !stale && !(freshness === 'closed' && a.state !== 'complete')
+    if (glossesState && activity && view.drawn === activity) view.detail = C.activityText(locale, activity)
+  }
   return view
 }
 

@@ -170,6 +170,19 @@ interface AgentItemProps {
   sig: string
 }
 
+/**
+ * The state cell of an agent row. Alone, the state word is short and an ellipsis may cut it (its tooltip has it).
+ * A quote of the canvas word followed by its gloss (French, #502) is never cut: the gloss carries what is proper to the
+ * row (how long the agent has been silent, its last known state), and a tooltip reaches neither the keyboard nor touch.
+ * So the cell wraps, and a stale row, whose quote is long ("last known state: Waiting for permission"), takes its own
+ * line under the name, at 320 px included (WCAG 1.4.10). Such a cell has no tooltip: nothing in it is hidden, and a
+ * title cannot declare the language of the English quote inside a French sentence (WCAG 3.1.2).
+ */
+function stateCellClass(drawn: string | undefined, stale: boolean): string {
+  if (!drawn) return 'max-w-[45%] shrink-0 truncate'
+  return stale ? 'basis-full min-w-0 whitespace-normal break-words' : 'max-w-[45%] shrink-0 min-w-0 whitespace-normal break-words'
+}
+
 /** Row rebuilt only when its signature changes, so frequent agent events leave the other rows (and their focus) alone. */
 const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSelectAgent, freshnessNow }: AgentItemProps) {
   useThemeVersion() // memoized row: repaint on a theme switch
@@ -195,13 +208,17 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
         className={`${ROW_GRID} w-full min-h-6 rounded py-0.5 pr-2 text-left text-[11px] hover:bg-[var(--lens-hover-05)] ${selected ? 'font-semibold' : ''} ${FOCUS_RING}`}
         style={{ paddingLeft: 8 + depth * 14, color: selected ? COLORS.holoBright : COLORS.textMuted, background: selected ? COLORS.tabSelectedBg : undefined }}
       >
-        <span className={`flex min-w-0 items-center gap-x-1.5 ${COLUMN_CLASSES.name}`}>
+        <span className={`flex min-w-0 items-center gap-x-1.5 ${drawn && stale ? 'flex-wrap' : ''} ${COLUMN_CLASSES.name}`}>
           <span aria-hidden="true" className="shrink-0" style={{ color: COLORS.textDim }}>{depth > 0 ? '└' : ''}</span>
           <StateMarker state={stale ? 'idle' : a.state} />
           <span className="sr-only">{role}, </span>
           <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
-          <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>
-            {/* drawn = drawnStatusText, the very function behind the English status line the canvas draws under this agent (a teammate's activity, "last known state: …" when stale): the row quotes it, then glosses it (as the legend does) */}
+          <span
+            className={stateCellClass(drawn, stale)}
+            title={drawn ? undefined : detail}
+            style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}
+          >
+            {/* drawn = drawnStatusText, the function draw-agents.ts draws the English status line with under this agent (a teammate's activity, "last known state: …" when stale): the row quotes it, then glosses it (as the legend does) */}
             {drawn && <><span lang="en" data-i18n-exempt="" data-drawn-state="">{drawn}</span> : </>}{detail}
           </span>
         </span>
