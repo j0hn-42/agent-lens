@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
@@ -30,6 +32,8 @@ const BUTTON_STYLE = { background: COLORS.panelBg, border: `1px solid ${COLORS.c
  * inside the card, so they never take the arrow keys away from the graph keyboard navigation.
  */
 export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, onExit }: GuidedTourCardProps) {
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(locale, key, params)
   // The tour opens on Next: a first Enter goes forward instead of ending the tour (Exit tour comes first in the card)
   const nextRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -77,6 +81,7 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
     <section
       ref={dialogRef}
       role="dialog"
+      lang={locale}
       // The camera fit keeps the agents of the step above the card
       data-canvas-inset="bottom"
       aria-labelledby="guided-tour-title"
@@ -91,23 +96,23 @@ export function GuidedTourCard({ steps, index, stale, onNext, onPrev, onGoTo, on
       }}
     >
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span style={{ color: COLORS.textMuted }}>{`Step ${index + 1} of ${steps.length}`}</span>
-        <button type="button" onClick={onExit} className={BUTTON_CLASS} style={BUTTON_STYLE}>Exit tour</button>
+        <span style={{ color: COLORS.textMuted }}>{t('tour.card.step', { n: index + 1, total: steps.length })}</span>
+        <button type="button" onClick={onExit} className={BUTTON_CLASS} style={BUTTON_STYLE}>{t('tour.card.exit')}</button>
       </div>
       <div aria-live="polite">
         <h2 id="guided-tour-title" className="mb-1 text-sm font-semibold">{step.title}</h2>
         <p id="guided-tour-body" className="leading-relaxed" style={{ color: COLORS.textPrimary }}>{step.body}</p>
         {stale && (
           <p className="mt-1 leading-relaxed" style={{ color: COLORS.textMuted }}>
-            This is no longer on screen: the session moved on since the tour started.
+            {t('tour.card.stale')}
           </p>
         )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Previous</button>
-        <button ref={nextRef} type="button" onClick={() => { if (!isLast) onNext() }} aria-disabled={isLast || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>Next</button>
+        <button type="button" onClick={() => { if (!isFirst) onPrev() }} aria-disabled={isFirst || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>{t('tour.card.prev')}</button>
+        <button ref={nextRef} type="button" onClick={() => { if (!isLast) onNext() }} aria-disabled={isLast || undefined} className={BUTTON_CLASS} style={BUTTON_STYLE}>{t('tour.card.next')}</button>
         <select
-          aria-label="Go to step"
+          aria-label={t('tour.card.goto')}
           value={index}
           onChange={e => onGoTo(Number(e.target.value))}
           className="ml-auto max-w-[12rem] bg-transparent font-mono text-xs"

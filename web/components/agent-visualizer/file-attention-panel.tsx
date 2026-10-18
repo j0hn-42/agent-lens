@@ -4,7 +4,10 @@ import { FileAttention, Z } from '@/lib/agent-types'
 import { COLORS } from '@/lib/colors'
 import { formatTokens, truncatePath } from '@/lib/utils'
 import { PanelHeader, ProgressBar, SlidingPanel, DockResizer, useDockPanel, dockAttrs, dockPanelDomId } from './shared-ui'
-import { emptyState, FILE_TIMELINE_LABELS, PANEL_NAMES } from '@/lib/ui-glossary'
+import { emptyState, FILE_TIMELINE_LABELS } from '@/lib/ui-glossary'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
+import { panelName } from '@/lib/command-palette'
 import { fileStepTotal, type FileTimeline } from '@/lib/file-timeline'
 import { combineUsage, formatTokenUsage, qualify, type UsageTotal } from '@/lib/usage'
 import { FOCUS_RING_INSET } from '@/lib/focus-ring'
@@ -80,6 +83,7 @@ function FileTimelineDetails({ path, timeline, label, incomplete }: {
 }
 
 export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile, agentLabel, waste = EMPTY_WASTE, agents, replayLost = 0 }: FileAttentionPanelProps) {
+  const { locale } = useLocale()
   // Right dock (resizable): placed by the shared layout, below the link panel, above the control bar
   const dock = useDockPanel('files', visible)
   const { rect } = dock
@@ -100,14 +104,15 @@ export function FileAttentionPanel({ visible, fileAttention, onClose, onOpenFile
       zIndex={Z.sidePanel}
       width={rect?.w ?? 380}
       attrs={{ ...dockAttrs('files', 'right', dock), 'data-sensitive': '' }}
-      label={PANEL_NAMES.files}
+      label={panelName(locale, 'files')}
+      labelLang={locale}
       style={dock.hidden ? { display: 'none' } : undefined}
     >
       <DockResizer label="Resize files panel" controls={dockPanelDomId('files')} />
       <div className="glass-card relative flex flex-col" style={{ maxHeight: rect?.h }}>
         <PanelHeader onClose={onClose}>
-          <span className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
-            FILE ATTENTION
+          <span lang={locale} className="text-[11px] font-mono tracking-wider" style={{ color: COLORS.textPrimary }}>
+            {translate(locale, 'panel.heading.files')}
           </span>
         </PanelHeader>
 

@@ -5,6 +5,7 @@ import {
   type PaletteSource, type PaletteItem,
 } from '../web/lib/command-palette'
 import { ALL_SESSIONS_ID, type SessionInfo } from '../web/lib/bridge-types'
+import { MESSAGES } from '../web/lib/messages'
 
 const calls: string[] = []
 const rec = (name: string) => () => { calls.push(name) }
@@ -348,12 +349,12 @@ test('French: a command is found by its French name and by its English name', ()
   assert.ok(found('evenements').includes('panel:timeline'))
 })
 
-test('French: the tour label comes from the tour, so it declares lang=en; the others do not', () => {
-  const tour = { label: 'Tour this session', run: () => {} }
+test('French: the tour label is the catalog one, in the language of the palette, so no command declares a language of its own (#557)', () => {
+  const tour = { label: MESSAGES.fr['tour.button.session'], run: () => {} }
   const items = buildPaletteItems(source({ locale: 'fr', tour }))
-  assert.equal(items.find(i => i.id === 'action:tour')?.lang, 'en')
-  assert.ok(items.filter(i => i.id !== 'action:tour').every(i => i.lang === undefined))
-  assert.equal(buildPaletteItems(source({ tour })).find(i => i.id === 'action:tour')?.lang, undefined)
+  assert.equal(items.find(i => i.id === 'action:tour')?.label, 'Visiter cette session')
+  assert.ok(items.every(i => !('lang' in i)))
+  assert.ok(buildPaletteItems(source({ tour: { label: MESSAGES.en['tour.button.session'], run: () => {} } })).every(i => !('lang' in i)))
 })
 
 test('French: details keep every fact, in French', () => {
@@ -398,7 +399,7 @@ test('one "Settings: <tab>" command per tab given, right after "Open settings", 
   byLabel(items, 'Settings: Notifications and announcements').run()
   assert.deepEqual(calls, ['settings:notifications'])
   const tabItems = items.filter(i => i.id.startsWith('action:settings-tab:'))
-  assert.ok(tabItems.every(i => !i.movesFocus && !i.sensitive && i.lang === undefined), 'same language as the palette, no lang of its own')
+  assert.ok(tabItems.every(i => !i.movesFocus && !i.sensitive && !('lang' in i)), 'same language as the palette, no lang of its own')
   assert.equal(new Set(items.map(i => i.id)).size, items.length)
 })
 
@@ -414,7 +415,7 @@ test('in French the commands are named as the dialog is (« Réglages : … »),
   assert.deepEqual(tabItems.map(i => i.label), [
     'Réglages : Général', 'Réglages : Sessions et présentation', 'Réglages : Notifications et annonces', 'Réglages : Clavier et préférences',
   ])
-  assert.ok(tabItems.every(i => i.lang === undefined))
+  assert.ok(tabItems.every(i => !('lang' in i)))
 })
 
 test('a tab command is found by its English and its French name, whatever the language, accents optional', () => {

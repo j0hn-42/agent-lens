@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useId, useLayoutEffect, useRef } from 'react'
+import { useLocale } from '@/lib/locale'
+import { translate } from '@/lib/messages'
 import { COLORS } from '@/lib/colors'
 import { Z } from '@/lib/agent-types'
 import { CONTROL_BAR_BOTTOM, DOCK_GAP } from '@/lib/panel-layout'
@@ -8,7 +10,6 @@ import { FOCUS_RING } from '@/lib/focus-ring'
 import { guidedTourButton } from './guided-tour-context'
 import { useDockSnapshot } from './shared-ui'
 
-const TITLE = 'New to Agent Lens?'
 /** Room kept for the row of canvas controls (legend button, zoom, View) that sits right above the control bar */
 const CANVAS_CONTROLS_ROW = 40
 const BUTTON_CLASS = `inline-flex min-h-6 min-w-6 items-center justify-center rounded-md px-3 py-1 text-xs font-mono ${FOCUS_RING}`
@@ -16,7 +17,7 @@ const BUTTON_CLASS = `inline-flex min-h-6 min-w-6 items-center justify-center ro
 interface TourOfferProps {
   open: boolean
   /** Name of the tour button of the legend ("Tour this session"): the offer says where the tour stays available */
-  label: string
+  label?: string
   onStart: () => void
   onDismiss: () => void
 }
@@ -27,12 +28,15 @@ interface TourOfferProps {
  * it, or Not now, closes it; the focus then goes to the tour button of the legend, where the tour stays available.
  */
 export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
+  const { locale } = useLocale()
+  const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate(locale, key, params)
   const titleId = useId()
   const bodyId = useId()
   const sectionRef = useRef<HTMLElement>(null)
   // Above the canvas controls, which sit above the control bar: the card never covers them
   const { controlBarH } = useDockSnapshot().env
-  const body = `A short tour explains what is on screen. It stays available from ${label} next to the Legend, and from Commands (Ctrl+K / Cmd+K).`
+  const title = t('tour.offer.title')
+  const body = t('tour.offer.body', { label: label ?? t('tour.button.demo') })
 
   const dismiss = () => {
     const hadFocus = sectionRef.current?.contains(document.activeElement) ?? false
@@ -82,11 +86,12 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
 
   return (
     <>
-      <div role="status" className="sr-only">{open ? `${TITLE} ${body}` : ''}</div>
+      <div role="status" lang={locale} className="sr-only">{open ? `${title} ${body}` : ''}</div>
       {open && (
         <section
           ref={sectionRef}
           data-tour-offer=""
+          lang={locale}
           aria-labelledby={titleId}
           aria-describedby={bodyId}
           className="pointer-events-auto absolute left-1/2 w-[min(26rem,calc(100vw-24px))] -translate-x-1/2 rounded-md p-3 font-mono text-xs"
@@ -98,7 +103,7 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
             color: COLORS.textPrimary,
           }}
         >
-          <h2 id={titleId} className="mb-1 text-sm font-semibold">{TITLE}</h2>
+          <h2 id={titleId} className="mb-1 text-sm font-semibold">{title}</h2>
           <p id={bodyId} className="m-0 leading-relaxed">{body}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
@@ -107,7 +112,7 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
               className={BUTTON_CLASS}
               style={{ background: COLORS.toggleActive, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              Start the tour
+              {t('tour.offer.start')}
             </button>
             <button
               type="button"
@@ -115,7 +120,7 @@ export function TourOffer({ open, label, onStart, onDismiss }: TourOfferProps) {
               className={BUTTON_CLASS}
               style={{ background: COLORS.panelBg, border: `1px solid ${COLORS.controlBorder}`, color: COLORS.textPrimary }}
             >
-              Not now
+              {t('tour.offer.later')}
             </button>
           </div>
         </section>
