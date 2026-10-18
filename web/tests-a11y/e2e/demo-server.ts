@@ -55,11 +55,47 @@ export function freePort(): Promise<number> {
   })
 }
 
+/** The server process ended before it answered (port taken, crash at startup): another attempt on a new port can succeed. */
+export class StartExitedError extends Error {}
+
+/**
+ * Runs `attempt` (1-based) up to `max` times while it fails with StartExitedError. Any other failure (the server
+ * is alive but silent past the deadline) is thrown at once, and so is the last StartExitedError: nothing is hidden.
+ */
+export async function startWithRetries<T>(attempt: (n: number) => Promise<T>, max: number): Promise<T> {
+  for (let n = 1; ; n++) {
+    try { return await attempt(n) } catch (err) {
+      if (!(err instanceof StartExitedError) || n >= max) throw err
+    }
+  }
+}
+
+function groupAlive(pgid: number): boolean {
+  try { process.kill(-pgid, 0); return true } catch { return false }
+}
+
+/**
+ * Stops the whole process group of `child` and returns only once no member is left. Waiting for the leader
+ * (`pnpm`) alone is not enough: it exits at once while `next dev` and `next-server` keep running for seconds
+ * (more under load), still holding .next-e2e, while the next test file already starts its own server (#440).
+ */
+export async function stopProcessGroup(child: ChildProcess, graceMs = 10_000): Promise<void> {
+  const pgid = child.pid
+  if (!pgid) return
+  const signal = (sig: NodeJS.Signals) => { try { process.kill(-pgid, sig) } catch { /* already gone */ } }
+  signal('SIGTERM')
+  const deadline = Date.now() + graceMs
+  while (groupAlive(pgid)) {
+    if (Date.now() > deadline) signal('SIGKILL')
+    await new Promise(r => setTimeout(r, 50))
+  }
+}
+
 async function waitUntilServing(url: string, child: ChildProcess, exited: () => boolean): Promise<void> {
   const deadline = Date.now() + START_TIMEOUT_MS
   let last = 'no answer yet'
   while (Date.now() < deadline) {
-    if (exited()) throw new Error(`the demo server exited before answering (see ${LOG_FILE})`)
+    if (exited()) throw new StartExitedError(`the demo server exited before answering (see ${LOG_FILE})`)
     try {
       const res = await fetch(url)
       if (res.ok) return
@@ -71,18 +107,15 @@ async function waitUntilServing(url: string, child: ChildProcess, exited: () => 
   throw new Error(`the demo server did not answer at ${url} within ${START_TIMEOUT_MS / 1000} s (${last}; see ${LOG_FILE})`)
 }
 
-export async function startDemoServer(): Promise<DemoServer> {
-  const configured = process.env.E2E_BASE_URL
-  if (configured) {
-    const res = await fetch(configured).catch(err => { throw new Error(`E2E_BASE_URL ${configured} is not reachable: ${String(err)}`) })
-    if (!res.ok) throw new Error(`E2E_BASE_URL ${configured} answered HTTP ${res.status}`)
-    return { url: configured, stop: async () => {} }
-  }
+const START_ATTEMPTS = 3
 
+async function startOnce(attempt: number): Promise<DemoServer> {
   const port = await freePort()
   const url = `http://127.0.0.1:${port}`
   fs.mkdirSync(path.dirname(LOG_FILE), { recursive: true })
-  const log = fs.openSync(LOG_FILE, 'w')
+  // Appended, not truncated: every server of a run keeps its output, so a server that died mid-suite leaves a trace.
+  const log = fs.openSync(LOG_FILE, 'a')
+  fs.writeSync(log, `\n=== demo server runner pid ${process.pid}, attempt ${attempt}, port ${port}, ${new Date().toISOString()} ===\n`)
   // Own process group so the whole next dev tree (pnpm, next, its workers) is stopped with one signal.
   const child = spawnGuarded('pnpm', ['exec', 'next', 'dev', '-H', '127.0.0.1', '-p', String(port)], {
     cwd: WEB_DIR,
@@ -90,15 +123,10 @@ export async function startDemoServer(): Promise<DemoServer> {
     stdio: ['ignore', log, log],
   })
   let hasExited = false
-  const closed = new Promise<void>(resolve => child.once('exit', () => { hasExited = true; resolve() }))
+  child.once('exit', () => { hasExited = true })
   const stop = async () => {
-    if (!hasExited && child.pid) {
-      try { process.kill(-child.pid, 'SIGTERM') } catch { /* already gone */ }
-      const forced = setTimeout(() => { try { process.kill(-child.pid!, 'SIGKILL') } catch { /* already gone */ } }, 10_000)
-      await closed
-      clearTimeout(forced)
-    }
-    fs.closeSync(log)
+    await stopProcessGroup(child)
+    try { fs.closeSync(log) } catch { /* already closed */ }
   }
   try {
     await waitUntilServing(url, child, () => hasExited)
@@ -107,4 +135,14 @@ export async function startDemoServer(): Promise<DemoServer> {
     throw err
   }
   return { url, stop }
+}
+
+export async function startDemoServer(): Promise<DemoServer> {
+  const configured = process.env.E2E_BASE_URL
+  if (configured) {
+    const res = await fetch(configured).catch(err => { throw new Error(`E2E_BASE_URL ${configured} is not reachable: ${String(err)}`) })
+    if (!res.ok) throw new Error(`E2E_BASE_URL ${configured} answered HTTP ${res.status}`)
+    return { url: configured, stop: async () => {} }
+  }
+  return startWithRetries(startOnce, START_ATTEMPTS)
 }
