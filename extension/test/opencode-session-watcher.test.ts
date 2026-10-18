@@ -321,6 +321,17 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.deepEqual(w.unattributedLosses(), { unreadableRows: 2, missedUpdates: 0 }, 'the same count, for the relay (#420)')
   })
 
+  it('#420: an unreadable row of a session proved to belong to another folder is not counted', () => {
+    const { fx, w } = setup()
+    fx.session('ses_other', { created: T0 - 5000, updated: T0 - 1000, dir: '/elsewhere-agent-lens-test' })
+    fx.raw(`INSERT INTO message VALUES ('msg_x', 'ses_other', ${T0 - 900}, ${T0 - 900}, NULL)`)
+    fx.raw(`INSERT INTO message VALUES ('msg_y', 'ses_unknown', ${T0 - 900}, ${T0 - 900}, NULL)`)
+    w.start()
+    // A row of an unknown session may be one of ours: it stays counted
+    assert.match(w.status(), /; 1 unreadable row ignored outside the followed sessions$/)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 1, missedUpdates: 0 })
+  })
+
   it('ignores a completed tool part whose message predates the activity window', () => {
     const { fx, w, events } = setup()
     const old = T0 - (ACTIVE_SESSION_AGE_S + 60) * 1000
@@ -548,6 +559,24 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
       assert.equal(c.polls, 3)
       w.scanNow()               // complete poll: now skipped
       assert.equal(c.polls, 3)
+    })
+
+    it('#420: while a poll fails the losses are not given apart from the problem, like status(); they come back once it reads', () => {
+      const { fx, w } = setup()
+      fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+      fx.raw(`INSERT INTO message VALUES ('msg_x', 'ses_unknown', ${T0 - 900}, ${T0 - 900}, NULL)`)
+      w.start()
+      assert.deepEqual(w.unattributedLosses(), { unreadableRows: 1, missedUpdates: 0 })
+      let failing = true
+      const empty = { sessions: [], messages: [], parts: [], skippedRows: 0, cursors: undefined }
+      counted(w, () => (failing ? { ...empty, truncated: false, error: 'OpenCode: locked' } : undefined))
+      fx.message('msg_1', 'ses_a', T0 - 500, userMsg)
+      w.scanNow()
+      assert.equal(w.status(), 'OpenCode: locked')
+      assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 0 }, 'only the problem is said, as in the extension')
+      failing = false
+      w.scanNow()
+      assert.deepEqual(w.unattributedLosses(), { unreadableRows: 1, missedUpdates: 0 }, 'same file: the count is kept')
     })
 
     it('forces a poll after 60 s on the injected clock, and the idle release keeps running while polls are skipped', () => {
