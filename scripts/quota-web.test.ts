@@ -136,12 +136,12 @@ test('quotaGaugeState : un snapshot qui a existé puis périmé reste unknown (d
   assert.deepEqual(quotaGaugeState('claude', snap(), NOW + 30 * MIN + 1), { kind: 'unknown' })
 })
 
-test('quotaGaugeState : copilot et opencode n utilisent jamais le snapshot', () => {
+test('quotaGaugeState : copilot et opencode = hidden, avec ou sans snapshot, jamais de texte permanent (#532)', () => {
   for (const s of [snap(), null]) {
-    assert.deepEqual(quotaGaugeState('copilot', s, NOW), { kind: 'unavailable', runtime: 'copilot' })
-    assert.deepEqual(quotaGaugeState('opencode', s, NOW), { kind: 'no-subscription', runtime: 'opencode' })
+    assert.deepEqual(quotaGaugeState('copilot', s, NOW), { kind: 'hidden' })
+    assert.deepEqual(quotaGaugeState('opencode', s, NOW), { kind: 'hidden' })
   }
-  assert.equal(quotaGaugeState('copilot', snap(), NOW + 99 * MIN).kind, 'unavailable')
+  assert.deepEqual(quotaGaugeState('copilot', snap(), NOW + 99 * MIN), { kind: 'hidden' })
 })
 
 test('quotaGaugeState : autres runtimes = hidden', () => {

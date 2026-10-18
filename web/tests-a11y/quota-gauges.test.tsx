@@ -86,13 +86,13 @@ test('the quota text declares its language: a French text is not read with an En
   assert.equal(fr.container.querySelector('[data-testid="topbar-quota"]')!.getAttribute('lang'), 'fr')
   cleanup()
   setLocaleChoice('en')
-  for (const state of [claude(), { kind: 'unknown' }, { kind: 'unavailable', runtime: 'copilot' }, { kind: 'no-subscription', runtime: 'opencode' }] as QuotaGaugeState[]) {
+  for (const state of [claude(), { kind: 'unknown' }] as QuotaGaugeState[]) {
     const view = render(<QuotaGauges state={state} />)
     assert.equal(view.container.querySelector('[data-testid="topbar-quota"]')!.getAttribute('lang'), 'en', state.kind)
     cleanup()
   }
   setLocaleChoice('fr')
-  for (const state of [{ kind: 'unknown' }, { kind: 'unavailable', runtime: 'copilot' }, { kind: 'no-subscription', runtime: 'opencode' }] as QuotaGaugeState[]) {
+  for (const state of [{ kind: 'unknown' }] as QuotaGaugeState[]) {
     const view = render(<QuotaGauges state={state} />)
     assert.equal(view.container.querySelector('[data-testid="topbar-quota"]')!.getAttribute('lang'), 'fr', state.kind)
     cleanup()
@@ -231,12 +231,8 @@ test('unknown: no number, the enabling command on focus, announced as the descri
   assert.match(view.getByRole('tooltip').textContent ?? '', /node scripts\/setup\.js --statusline/)
 })
 
-test('copilot: not available; opencode: no subscription quota; hidden: nothing', () => {
+test('hidden: nothing is drawn (Copilot and OpenCode have no permanent quota text, #532)', () => {
   setLocaleChoice('en')
-  assert.match(render(<QuotaGauges state={{ kind: 'unavailable', runtime: 'copilot' }} />).container.textContent ?? '', /quota not available/)
-  cleanup()
-  assert.match(render(<QuotaGauges state={{ kind: 'no-subscription', runtime: 'opencode' }} />).container.textContent ?? '', /no subscription quota/)
-  cleanup()
   const hidden = render(<QuotaGauges state={{ kind: 'hidden' }} />)
   assert.equal(hidden.container.innerHTML, '')
 })
