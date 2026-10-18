@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import type { SessionInfo } from '../web/lib/bridge-types'
 import {
   parseRelayScopeState, scopeValue, parseScopeValue, scopeOptions, planScopeChoice, scopeSummary, scopeNotices,
-  scopeEmptyHint, applyRelayScope, runtimeProblemRecheckDelay, type RelayScopeState,
+  scopeEmptyHint, applyRelayScope, runtimeProblemRecheckDelay, runtimeRecheckKey, scopeLossNotices, type RelayScopeState,
 } from '../web/lib/relay-scope'
 import { restrictToProject } from '../web/hooks/simulation/session-visibility'
 import { sanitizePref, sanitizePrefs, DEFAULT_UI_PREFS } from '../web/lib/ui-preferences'
@@ -131,6 +131,50 @@ test('#420: runtime problems are read strictly and bounded', () => {
   assert.equal(parse([{ runtime: 'opencode', message: 'a' }, { runtime: 'opencode', message: 'b' }]).length, 1)
 })
 
+test('#420: losses outside the followed sessions are stated as lower bounds, in the page language', () => {
+  const s = parseRelayScopeState(status({ runtimes: ['opencode'], runtimeLosses: [{ runtime: 'opencode', unreadableRows: 2, missedUpdates: 1 }] }))!
+  assert.deepEqual(s.runtimeLosses, [{ runtime: 'opencode', unreadableRows: 2, missedUpdates: 1 }])
+  assert.deepEqual(scopeLossNotices(s), [
+    'OpenCode: at least 1 update not read outside the followed sessions.',
+    'OpenCode: at least 2 unreadable rows ignored outside the followed sessions.',
+  ])
+  assert.deepEqual(scopeLossNotices(s, 'fr'), [
+    'OpenCode : au moins 1 mise à jour non lue hors des sessions suivies.',
+    'OpenCode : au moins 2 lignes illisibles ignorées hors des sessions suivies.',
+  ])
+  // The count grows while the relay runs: it stays out of the notices of the live region, so a rise is not announced again
+  assert.deepEqual(scopeNotices(s), [])
+  // A zero is not a loss: no sentence for it
+  const one = parseRelayScopeState(status({ runtimes: ['opencode'], runtimeLosses: [{ runtime: 'opencode', unreadableRows: 0, missedUpdates: 3 }] }))!
+  assert.deepEqual(scopeLossNotices(one), ['OpenCode: at least 3 updates not read outside the followed sessions.'])
+  // An older relay, or nothing lost: nothing is claimed
+  assert.deepEqual(parseRelayScopeState(status())!.runtimeLosses, [])
+  // The count only grows while the relay runs: it is read again on the same schedule as a problem, so it does not stay behind
+  assert.equal(runtimeProblemRecheckDelay(s, 0), 5_000)
+  assert.equal(runtimeProblemRecheckDelay(s, 20), 60_000)
+})
+
+test('#420: runtime losses are read strictly and bounded', () => {
+  const parse = (runtimeLosses: unknown) => parseRelayScopeState(status({ runtimes: ['opencode'], runtimeLosses }))!.runtimeLosses ?? []
+  assert.deepEqual(parse('3 lost'), [])
+  // Not counts: dropped, never shown as a number
+  assert.deepEqual(parse([
+    { runtime: 'opencode', unreadableRows: -1, missedUpdates: 1 },
+    { runtime: 'opencode', unreadableRows: 1.5, missedUpdates: 1 },
+    { runtime: 'opencode', unreadableRows: '2', missedUpdates: 1 },
+    { runtime: 'opencode', missedUpdates: 1 },
+    null, 3,
+  ]), [])
+  assert.deepEqual(parse([{ runtime: 'opencode', unreadableRows: 0, missedUpdates: 0 }]), [], 'nothing lost is no entry')
+  // A runtime the relay does not watch is not trusted
+  assert.deepEqual(parse([{ runtime: 'codex', unreadableRows: 1, missedUpdates: 1 }]), [])
+  // A watched runtime the page cannot name is not put raw into a translated sentence
+  const future = parseRelayScopeState(status({ runtimes: ['opencode', 'x'.repeat(500)], runtimeLosses: [{ runtime: 'x'.repeat(500), unreadableRows: 1, missedUpdates: 0 }] }))!
+  assert.deepEqual(future.runtimeLosses, [])
+  // At most one entry per watched runtime
+  assert.equal(parse([{ runtime: 'opencode', unreadableRows: 1, missedUpdates: 0 }, { runtime: 'opencode', unreadableRows: 2, missedUpdates: 0 }]).length, 1)
+})
+
 test('#420: GET /status is read again while a runtime problem is shown, never more often than its schedule', () => {
   const shown = parseRelayScopeState(status({ runtimes: ['opencode'], runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: database not found.' }] }))!
   const delays = Array.from({ length: 12 }, (_, i) => runtimeProblemRecheckDelay(shown, i))
@@ -144,6 +188,17 @@ test('#420: GET /status is read again while a runtime problem is shown, never mo
   // A bad attempt number still gives a bounded delay
   assert.equal(runtimeProblemRecheckDelay(shown, -1), 5_000)
   assert.equal(runtimeProblemRecheckDelay(shown, Number.NaN), 5_000)
+})
+
+test('#420: the re-read schedule starts again from 5 s when the runtime problems change, not when a loss count grows', () => {
+  const lossy = (n: number, problems: unknown[] = []) => parseRelayScopeState(status({
+    runtimes: ['opencode'], runtimeProblems: problems, runtimeLosses: [{ runtime: 'opencode', unreadableRows: 0, missedUpdates: n }],
+  }))
+  const missing = [{ runtime: 'opencode', message: 'OpenCode: database not found.' }]
+  assert.equal(runtimeRecheckKey(lossy(1)), runtimeRecheckKey(lossy(9)), 'a growing count keeps the schedule')
+  assert.notEqual(runtimeRecheckKey(lossy(9)), runtimeRecheckKey(lossy(9, missing)), 'a new problem restarts it')
+  assert.notEqual(runtimeRecheckKey(lossy(9, missing)), runtimeRecheckKey(lossy(9)), 'so does a problem that went away')
+  assert.equal(runtimeRecheckKey(null), '')
 })
 
 test('applyRelayScope POSTs strict JSON and trusts only a coherent answer', async () => {

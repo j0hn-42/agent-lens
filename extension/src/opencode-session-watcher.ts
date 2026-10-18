@@ -177,6 +177,17 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
   }
 
   /**
+   * The losses of the open file that no followed session took in its normalization_stats, as counts
+   * (#420): exactly the ones status() words, for the relay's /status. Lower bounds; back to 0 when the file
+   * is replaced (they belonged to the old one). While the database cannot be read, status() says only the
+   * problem: so does this (0, 0), and the counts come back once it reads again.
+   */
+  unattributedLosses(): { unreadableRows: number; missedUpdates: number } {
+    if (this.statusText !== this.okText) return { unreadableRows: 0, missedUpdates: 0 }
+    return { unreadableRows: this.unattributedSkipped, missedUpdates: this.unattributedLost }
+  }
+
+  /**
    * Why the database cannot be read right now (not found, no driver, unexpected schema, failed poll), as
    * last observed; undefined while it reads or before the first look (#420). Never a file path: these
    * messages name none (the healthy status, which does, is not one of them). Capped like any shown text.
@@ -406,15 +417,28 @@ export class OpenCodeSessionWatcher implements AgentSessionWatcher {
     for (const { sessionId, count } of poll.skippedPassed ?? []) {
       const s = this.followedRoot(sessionId)
       if (s) s.parser.normalizer.noteMalformed(count)
-      else this.unattributedSkipped = Math.min(this.unattributedSkipped + count, Number.MAX_SAFE_INTEGER)
+      else if (!this.provedOutsideWorkspace(sessionId)) this.unattributedSkipped = Math.min(this.unattributedSkipped + count, Number.MAX_SAFE_INTEGER)
     }
     // Changes the reader will not deliver (a row updated after the reader stopped following it, #420):
     // counted as updates not read of the followed session, else in the status.
     for (const { sessionId, count } of poll.lostPassed ?? []) {
       const s = this.followedRoot(sessionId)
       if (s) s.parser.normalizer.noteMissed(count)
-      else this.unattributedLost = Math.min(this.unattributedLost + count, Number.MAX_SAFE_INTEGER)
+      else if (!this.provedOutsideWorkspace(sessionId)) this.unattributedLost = Math.min(this.unattributedLost + count, Number.MAX_SAFE_INTEGER)
     }
+  }
+
+  /**
+   * The row belongs to a root session whose directory is outside the workspace filter: OpenCode keeps one
+   * database for every project, and such a session is never shown, so its loss leaves nothing shown incomplete
+   * (#420). A session that cannot be resolved (unknown id, no root) is not proved elsewhere: its loss is counted.
+   */
+  private provedOutsideWorkspace(sessionId: string | null): boolean {
+    if (!this.workspacePath || !sessionId) return false
+    const rootId = this.rootOf(sessionId)
+    const row = rootId ? this.lookup(rootId) : undefined
+    if (!rootId || !row) return false
+    return !this.inWorkspace(rootId, row.directory, this.safeDirectory(row.directory))
   }
 
   private followedRoot(sessionId: string | null): WatchedOpenCodeSession | undefined {

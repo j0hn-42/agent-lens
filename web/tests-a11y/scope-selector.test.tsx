@@ -13,6 +13,7 @@ import { TopBar, type TopBarProps } from '@/components/agent-visualizer/top-bar'
 import { SessionListPanel } from '@/components/agent-visualizer/session-list-panel'
 import { parseRelayScopeState, type RelayScopeState } from '@/lib/relay-scope'
 import { ALL_SESSIONS_ID, type SessionInfo } from '@/lib/bridge-types'
+import { setLocaleChoice } from '@/lib/locale'
 
 afterEach(() => { cleanup(); document.body.replaceChildren() })
 
@@ -106,15 +107,47 @@ test('#420: a watched runtime the relay cannot read is said in the same live reg
   assert.equal(region.textContent, 'OpenCode: database not found.')
 })
 
+test('#420: losses outside the followed sessions are written next to the scope, outside the live region: a growing count is not announced again', () => {
+  const lossy = (n: number) => state({
+    runtimes: ['claude', 'opencode'],
+    runtimeProblems: [{ runtime: 'opencode', message: 'OpenCode: locked.' }],
+    runtimeLosses: [{ runtime: 'opencode', unreadableRows: 0, missedUpdates: n }],
+  })
+  const view = render(<ScopeSelector {...base} state={lossy(1)} />)
+  const region = view.container.querySelector('[data-scope-notices]') as HTMLElement
+  const losses = view.container.querySelector('[data-scope-losses]') as HTMLElement
+  assert.equal(region.getAttribute('role'), 'status')
+  assert.equal(region.textContent, 'OpenCode: locked.')
+  assert.equal(losses.textContent, 'OpenCode: at least 1 update not read outside the followed sessions.')
+  assert.equal(losses.closest('[role="status"], [aria-live]'), null, 'not inside a live region')
+  assert.equal(losses.getAttribute('aria-live'), null)
+  view.rerender(<ScopeSelector {...base} state={lossy(7)} />)
+  assert.equal(region.textContent, 'OpenCode: locked.', 'the live region does not change when only the count grows')
+  assert.equal(losses.textContent, 'OpenCode: at least 7 updates not read outside the followed sessions.')
+})
+
+test('#420: the losses are worded in the page language', () => {
+  setLocaleChoice('fr')
+  try {
+    const { container } = render(<ScopeSelector {...base} state={state({
+      runtimes: ['opencode'], runtimeLosses: [{ runtime: 'opencode', unreadableRows: 2, missedUpdates: 0 }],
+    })} />)
+    const losses = container.querySelector('[data-scope-losses]') as HTMLElement
+    assert.equal(losses.textContent, 'OpenCode : au moins 2 lignes illisibles ignorées hors des sessions suivies.')
+    assert.equal(losses.closest('[lang]')?.getAttribute('lang'), 'fr')
+  } finally { setLocaleChoice('auto') }
+})
+
 test('a failed change is said, and the shown scope is still the scanned one', () => {
   const { container, getByRole } = render(<ScopeSelector {...base} state={state()} error="The relay refused the change of scope" />)
   assert.match(container.querySelector('[data-scope-notices]')!.textContent ?? '', /refused the change of scope/)
   assert.equal((getByRole('combobox', { name: 'Session scope' }) as HTMLSelectElement).value, 'workspace')
 })
 
-test('no axe violation, with notices and an error showing', async () => {
+test('no axe violation, with notices, losses and an error showing', async () => {
   const { container } = render(<ScopeSelector {...base} state={state({
     allWorkspaces: true, discovery: { projectDirsCapped: true, maxProjectDirs: 200, maxFilesPerDir: 500 },
+    runtimes: ['claude', 'opencode'], runtimeLosses: [{ runtime: 'opencode', unreadableRows: 1, missedUpdates: 2 }],
   })} error="boom" />)
   const results = await axe.run(container, {
     runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice'] },

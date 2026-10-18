@@ -9,6 +9,7 @@ import type { SessionInfo } from './bridge-types'
 import { projectOptions } from './session-filter'
 import { CONTROL_ALL } from './control-chars'
 import { translate, type Locale, type MessageKey } from './messages'
+import { runtimeBadge } from './chrome-utils'
 
 export type RelayScope = 'workspace' | 'all'
 
@@ -28,6 +29,16 @@ export interface RuntimeProblem {
   message: string
 }
 
+/**
+ * Losses of a watched runtime that no followed session counts (#420): rows it could not read and row changes it will
+ * not deliver, in sessions not followed at the time. Lower bounds, never 0 together (no entry then).
+ */
+export interface RuntimeLoss {
+  runtime: string
+  unreadableRows: number
+  missedUpdates: number
+}
+
 export interface RelayScopeState {
   scope: RelayScope
   /** Folder the relay was started in, as the relay reports it */
@@ -36,6 +47,8 @@ export interface RelayScopeState {
   discovery: DiscoveryLimits | null
   /** Watched runtimes the relay reports unusable at the time of the status; empty = none reported (or an older relay) */
   runtimeProblems?: RuntimeProblem[]
+  /** Losses the relay reports outside the followed sessions; empty = none reported (or an older relay) */
+  runtimeLosses?: RuntimeLoss[]
 }
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1e9
@@ -72,12 +85,31 @@ function parseRuntimeProblems(status: Record<string, unknown>): RuntimeProblem[]
   return out
 }
 
+/**
+ * Only a runtime the relay says it watches and the page can name (its name goes into a translated sentence, never the
+ * raw string of the relay), one entry each, two counts and at least one above 0.
+ */
+function parseRuntimeLosses(status: Record<string, unknown>): RuntimeLoss[] {
+  const watched = Array.isArray(status.runtimes) ? status.runtimes.filter((r): r is string => typeof r === 'string') : []
+  if (!Array.isArray(status.runtimeLosses)) return []
+  const out: RuntimeLoss[] = []
+  for (const l of status.runtimeLosses.slice(0, watched.length)) {
+    if (typeof l !== 'object' || l === null) continue
+    const { runtime, unreadableRows, missedUpdates } = l as Record<string, unknown>
+    if (typeof runtime !== 'string' || !watched.includes(runtime) || out.some(o => o.runtime === runtime)) continue
+    if (!runtimeBadge(runtime as SessionInfo['runtime'])) continue
+    if (!isCount(unreadableRows) || !isCount(missedUpdates) || unreadableRows + missedUpdates === 0) continue
+    out.push({ runtime, unreadableRows, missedUpdates })
+  }
+  return out
+}
+
 /** Reads GET /status strictly: the scope needs a boolean `allWorkspaces`; anything else is "unknown" (null). */
 export function parseRelayScopeState(json: unknown): RelayScopeState | null {
   if (typeof json !== 'object' || json === null || Array.isArray(json)) return null
   const s = json as Record<string, unknown>
   if (typeof s.allWorkspaces !== 'boolean' || typeof s.workspace !== 'string') return null
-  return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s), runtimeProblems: parseRuntimeProblems(s) }
+  return { scope: s.allWorkspaces ? 'all' : 'workspace', workspace: s.workspace, discovery: parseDiscovery(s), runtimeProblems: parseRuntimeProblems(s), runtimeLosses: parseRuntimeLosses(s) }
 }
 
 /** Delays between re-reads of GET /status while a runtime problem is shown (#420), then the last one, for as long as it is shown */
@@ -85,14 +117,23 @@ const RUNTIME_PROBLEM_RECHECK_MS = [5_000, 10_000, 20_000, 40_000] as const
 const RUNTIME_PROBLEM_RECHECK_MAX_MS = 60_000
 
 /**
- * When to read GET /status again (ms), or null when no runtime problem is shown. A notice read once could stay
- * after it turned false (the database appears while the page is connected): it is re-read on a growing delay,
- * capped at a minute, and never dropped from the schedule while it is shown.
+ * When to read GET /status again (ms), or null when no runtime problem or loss is shown. A notice read once could stay
+ * after it turned false (the database appears while the page is connected), and a count of losses only grows while
+ * the relay runs: it is re-read on a growing delay, capped at a minute, and never dropped from the schedule while it is shown.
  */
 export function runtimeProblemRecheckDelay(state: RelayScopeState | null, attempt: number): number | null {
-  if (!state?.runtimeProblems?.length) return null
+  if (!state?.runtimeProblems?.length && !state?.runtimeLosses?.length) return null
   const i = Number.isInteger(attempt) && attempt > 0 ? attempt : 0
   return i < RUNTIME_PROBLEM_RECHECK_MS.length ? RUNTIME_PROBLEM_RECHECK_MS[i] : RUNTIME_PROBLEM_RECHECK_MAX_MS
+}
+
+/**
+ * What restarts the re-read schedule from its first delay: the runtime problems shown (a new one, or one that went
+ * away). A loss count that grows does not: the schedule keeps slowing down while only the count changes.
+ */
+export function runtimeRecheckKey(state: RelayScopeState | null): string {
+  if (!state) return ''
+  return JSON.stringify((state.runtimeProblems ?? []).map(p => [p.runtime, p.message]))
 }
 
 // ─── Choices ─────────────────────────────────────────────────────────────────
@@ -158,6 +199,22 @@ export function scopeEmptyHint(state: RelayScopeState | null): string | null {
 /** A message that exists as <base>.one / <base>.other (French: 0 and 1 are singular). */
 const pluralText = (locale: Locale, base: string, n: number, params: Record<string, string | number> = {}) =>
   translate(locale, `${base}.${new Intl.PluralRules(locale).select(n) === 'one' ? 'one' : 'other'}` as MessageKey, { n, ...params })
+
+/**
+ * The losses of the watched runtimes outside the followed sessions, as sentences (#420). Kept apart from scopeNotices:
+ * these counts only grow while the relay runs and are re-read every few seconds, so they are written next to the scope
+ * but outside the live region, which would otherwise announce its whole content again at each rise.
+ */
+export function scopeLossNotices(state: RelayScopeState, locale: Locale = 'en'): string[] {
+  const out: string[] = []
+  for (const l of state.runtimeLosses ?? []) {
+    const runtime = runtimeBadge(l.runtime as SessionInfo['runtime'])?.label
+    if (!runtime) continue
+    if (l.missedUpdates > 0) out.push(pluralText(locale, 'scope.notice.runtimeMissed', l.missedUpdates, { runtime }))
+    if (l.unreadableRows > 0) out.push(pluralText(locale, 'scope.notice.runtimeUnreadable', l.unreadableRows, { runtime }))
+  }
+  return out
+}
 
 /** The discovery ceilings that were hit and the runtimes the relay cannot read, as sentences. Empty when none (or the relay does not say). */
 export function scopeNotices(state: RelayScopeState, locale: Locale = 'en'): string[] {

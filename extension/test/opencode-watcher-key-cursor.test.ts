@@ -120,10 +120,10 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     assert.equal(stats.reduce((s, e) => s + ((e.payload as { ignoredEvents?: number }).ignoredEvents ?? 0), 0), 0, 'nothing was lost')
   })
 
-  it('a change the window missed in a session that is not followed is counted in the status', () => {
+  it('a change missed in a session proved to belong to another folder is not counted: it would never be shown', () => {
     const fx = new OpenCodeFixture(path.join(tmpDir(), 'opencode.db'))
     const clock = { t: T0 }
-    // The session is in another workspace: never followed
+    // OpenCode keeps one database for every project; this session is in another one
     const w = new OpenCodeSessionWatcher('/elsewhere-agent-lens-test', { dbFile: fx.file, now: () => clock.t })
     watchers.push(w)
     const old = T0 - OPENCODE_WINDOW_MS - 3_600_000
@@ -133,12 +133,35 @@ describe('OpenCodeSessionWatcher: cursor by primary key (#420)', { skip: !sqlite
     fx.message(oldMsg, 'ses_a', old, userMsg)
     fx.part(oldPart, oldMsg, 'ses_a', old, old, { type: 'text', text: 'x' })
     w.start()
+    clock.t = T0 + 2000
+    fx.part(oldPart, oldMsg, 'ses_a', old, T0 + 1000, { type: 'text', text: 'y' })
+    w.scanNow()
+    assert.doesNotMatch(w.status(), /not read/)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 0 })
+  })
+
+  it('a change the window missed in a session of the workspace that is not followed is counted in the status', () => {
+    const fx = new OpenCodeFixture(path.join(tmpDir(), 'opencode.db'))
+    const clock = { t: T0 }
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: fx.file, now: () => clock.t })
+    watchers.push(w)
+    const old = T0 - OPENCODE_WINDOW_MS - 3_600_000
+    // In the workspace, but silent for more than an hour: not followed
+    fx.session('ses_a', { created: old, updated: old, dir: '/w' })
+    const oldMsg = openCodeId('msg', old, 1)
+    const oldPart = openCodeId('prt', old, 2)
+    fx.message(oldMsg, 'ses_a', old, userMsg)
+    fx.part(oldPart, oldMsg, 'ses_a', old, old, { type: 'text', text: 'x' })
+    w.start()
     assert.equal(w.isSessionActive('ses_a'), false)
     assert.doesNotMatch(w.status(), /not read/)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 0 })
     clock.t = T0 + 2000
     fx.part(oldPart, oldMsg, 'ses_a', old, T0 + 1000, { type: 'text', text: 'y' })
     w.scanNow()
     assert.match(w.status(), /; 1 row change not read outside the followed sessions$/)
+    // The same count, as numbers, for the relay's /status (#420: losses reported everywhere)
+    assert.deepEqual(w.unattributedLosses(), { unreadableRows: 0, missedUpdates: 1 })
   })
 
   it('a part changed outside the window is counted in the normalization_stats of its followed session', async () => {

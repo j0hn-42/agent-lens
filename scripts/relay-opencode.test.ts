@@ -32,6 +32,19 @@ describe("relay runtime: 'opencode'", { skip: !sqliteAvailable() && 'node:sqlite
       assert.equal(s.sessionCount, 1)
       assert.equal(JSON.stringify(s).includes('opencode.db'), false, '/status must not expose the database path')
       assert.equal((s as { runtimeProblems?: unknown }).runtimeProblems, undefined, 'a database that reads is no problem (#420)')
+      assert.equal((s as { runtimeLosses?: unknown }).runtimeLosses, undefined, 'nothing lost: nothing claimed (#420)')
+      // Losses outside the followed sessions reach /status, as counts read when answering (#420)
+      const losses = mock.method(OpenCodeSessionWatcher.prototype, 'unattributedLosses', () => ({ unreadableRows: 2, missedUpdates: 3 }))
+      try {
+        const lossy = await statusOf(relay)
+        assert.deepEqual((lossy as { runtimeLosses?: unknown }).runtimeLosses, [{ runtime: 'opencode', unreadableRows: 2, missedUpdates: 3 }])
+      } finally { losses.mock.restore() }
+      // Capped where the page reads it (1e9): a larger count stays a lower bound instead of being dropped by the page
+      const huge = mock.method(OpenCodeSessionWatcher.prototype, 'unattributedLosses', () => ({ unreadableRows: Number.MAX_SAFE_INTEGER, missedUpdates: 4 }))
+      try {
+        const capped = await statusOf(relay)
+        assert.deepEqual((capped as { runtimeLosses?: unknown }).runtimeLosses, [{ runtime: 'opencode', unreadableRows: 1e9, missedUpdates: 4 }])
+      } finally { huge.mock.restore() }
       assert.equal(disposeSpy.mock.callCount(), 0)
     } finally { relay.dispose() }
     assert.equal(disposeSpy.mock.callCount(), 1)

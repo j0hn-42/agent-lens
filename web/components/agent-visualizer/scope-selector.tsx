@@ -4,7 +4,7 @@ import { COLORS } from "@/lib/colors"
 import { FOCUS_RING } from "@/lib/focus-ring"
 import { TOUCH_TARGET } from "@/lib/mobile-view"
 import type { SessionInfo } from "@/lib/bridge-types"
-import { parseScopeValue, scopeNotices, scopeOptions, scopeSummary, scopeValue, type RelayScopeState, type ScopeChoice } from "@/lib/relay-scope"
+import { parseScopeValue, scopeLossNotices, scopeNotices, scopeOptions, scopeSummary, scopeValue, type RelayScopeState, type ScopeChoice } from "@/lib/relay-scope"
 import { projectOptions } from "@/lib/session-filter"
 import { useLocale } from "@/lib/locale"
 import { translate } from "@/lib/messages"
@@ -39,6 +39,9 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
   // English data: it keeps its own lang instead of passing for the page language (WCAG 3.1.2).
   const notices = scopeNotices({ ...state, runtimeProblems: [] }, locale)
   const relayTexts = [...(error ? [error] : []), ...(state.runtimeProblems ?? []).map(p => p.message)]
+  // Counts that only grow and are re-read every few seconds (issue 420): written, but outside the live region, which would
+  // otherwise announce its whole content (role=status is atomic) again at each rise
+  const losses = scopeLossNotices(state, locale)
   return (
     <div role="group" aria-label={translate(locale, 'scope.group')} lang={locale} className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0" data-scope-selector>
       <select
@@ -59,6 +62,7 @@ export function ScopeSelector({ state, sessions, projectId, pending, error, onCh
         {relayTexts.map((text, i) => <span key={`relay-${i}`} lang="en" data-i18n-exempt="">{i > 0 && ' '}{text}</span>)}
         {notices.length > 0 && `${relayTexts.length > 0 ? ' ' : ''}${notices.join(' ')}`}
       </span>
+      {losses.length > 0 && <span data-scope-losses className="min-w-0" style={{ color: COLORS.textMuted }}>{losses.join(' ')}</span>}
     </div>
   )
 }
