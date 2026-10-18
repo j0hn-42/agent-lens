@@ -152,13 +152,19 @@ export function CanvasControls({
   const slotDrawn = slot !== null && (slot.parentElement?.getClientRects().length ?? 0) > 0
   const folded = slotDrawn && !canvasControlsFit(env)
   const [menuOpen, setMenuOpen] = useState(false)
-  // The guided tour can show the legend: the folded block opens with it
+  // The guided tour can show the legend: the folded block opens with it. Escape or a press outside still closes it
+  // (until the tour stops showing the legend), so the block never stays open with the focus sent back to its button
   const { legendOpen: tourWantsLegend } = useTourBridge()
-  const menuShown = folded && (menuOpen || tourWantsLegend)
+  const [tourLegendDismissed, setTourLegendDismissed] = useState(false)
+  if (!tourWantsLegend && tourLegendDismissed) setTourLegendDismissed(false)
+  const menuShown = folded && (menuOpen || (tourWantsLegend && !tourLegendDismissed))
   const menuRef = useRef<HTMLDivElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const menuId = useId()
-  const closeMenu = useCallback(() => setMenuOpen(false), [])
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false)
+    if (tourWantsLegend) setTourLegendDismissed(true)
+  }, [tourWantsLegend])
   usePopupDismiss(menuShown, menuRef, menuButtonRef, closeMenu)
 
   // Folding or unfolding with the focus on a control removes that control: the focus goes to the one that replaces it, not to <body> (2.4.3)
@@ -275,7 +281,7 @@ export function CanvasControls({
           title={t('controls.canvasMenu')}
           aria-expanded={menuShown}
           aria-controls={menuShown ? menuId : undefined}
-          onClick={() => setMenuOpen(o => !o)}
+          onClick={() => { if (menuShown) closeMenu(); else setMenuOpen(true) }}
           className={CONTROL_BUTTON_CLASS}
           style={{ ...BUTTON_STYLE, background: menuShown ? COLORS.toggleActive : COLORS.panelBg }}
         >
