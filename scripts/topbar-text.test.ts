@@ -84,6 +84,9 @@ test('French connection texts: same states and tones, a translated label and des
 test('an unknown detail keeps its own language instead of pretending to be French', () => {
   const off = connectionText('fr', 'disconnected' as ConnectionStatus, false, 'proxy refused')
   assert.deepEqual(off.detail, { text: 'proxy refused', lang: 'en' })
+  // WCAG 3.1.2: a title attribute cannot declare its language, so the English detail stays out of the French tooltip
+  assert.equal(off.description, 'Relais hors ligne')
+  assert.equal(connectionText('en', 'disconnected' as ConnectionStatus, false, 'proxy refused').description, 'Relay offline: proxy refused')
 })
 
 test('parseReconnectDetail reads what reconnectDetail writes, and nothing else', () => {

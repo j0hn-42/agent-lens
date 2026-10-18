@@ -142,6 +142,19 @@ for (const locale of LOCALES) {
     assert.equal(demo.getByTestId('exit-demo').textContent, T(locale, 'topbar.connection.exitDemo'))
   })
 
+  test(`an unknown connection detail never lands in the ${locale} tooltip unless it is in ${locale} (WCAG 3.1.2)`, () => {
+    setLocaleChoice(locale)
+    const view = render(<TopBar {...base} connectionStatus="disconnected" connectionDetail="proxy refused" onRetryConnection={noop} />)
+    // The detail stays visible beside the badge, declaring lang=en
+    assert.equal(view.getByTestId('connection-detail').textContent, 'proxy refused')
+    assert.equal(langOf(view.getByTestId('connection-detail')), 'en')
+    // A title attribute cannot declare its language: it inherits the page's
+    const badge = Array.from(view.container.querySelectorAll('[title]')).find(e => (e.getAttribute('title') ?? '').startsWith(locale === 'fr' ? 'Relais hors ligne' : 'Relay offline'))!
+    assert.ok(badge, 'the badge has a tooltip')
+    if (locale === 'fr') assert.equal(badge.getAttribute('title'), T('fr', 'topbar.connection.offline.help'))
+    else assert.equal(badge.getAttribute('title'), T('en', 'topbar.connection.offline.detail').replace('{detail}', 'proxy refused'))
+  })
+
   test(`the attention counter is spelled out in ${locale}, with an aria-label and a title that agree`, () => {
     setLocaleChoice(locale)
     const view = render(<TopBar {...base} attention={{ waiting: 1, errors: 2 }} onJumpToAttention={noop} />)
