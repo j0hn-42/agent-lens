@@ -93,6 +93,8 @@ export function capReplayBatches(
   limits: Partial<ReplayLimits> = {},
   /** Receives, per session, the events the cap left out of the replay (#366). */
   dropped?: Map<string, number>,
+  /** Receives the events the cap left out themselves (#366): a reconnecting client is told those it never received */
+  onDrop?: (events: readonly AgentEvent[]) => void,
 ): ReplayBatchMsg[] {
   const { perSession, total, batchSize } = { ...DEFAULT_REPLAY_LIMITS, ...limits }
   let budget = total
@@ -101,7 +103,7 @@ export function capReplayBatches(
   for (; i >= 0 && budget > 0; i--) {
     const events = batches[i].events
     const take = Math.min(events.length, perSession, budget)
-    if (take <= 0) { countEvicted(dropped, events, events.length); continue }
+    if (take <= 0) { countEvicted(dropped, events, events.length); onDrop?.(events); continue }
     // Lifecycle events cut off by the cap are re-added in front (bounded), so the graph still builds
     const cut = events.slice(0, events.length - take)
     const head = [
@@ -112,9 +114,13 @@ export function capReplayBatches(
     budget -= take + head.length
     // `head` is a subset of `cut` (no linear includes per event): only what is not re-added is lost
     countEvicted(dropped, cut, cut.length - head.length)
+    if (onDrop && cut.length > head.length) {
+      const readded = new Set(head)
+      onDrop(cut.filter(e => !readded.has(e)))
+    }
   }
   // Batches never reached because the total budget ran out
-  for (; i >= 0; i--) countEvicted(dropped, batches[i].events, batches[i].events.length)
+  for (; i >= 0; i--) { countEvicted(dropped, batches[i].events, batches[i].events.length); onDrop?.(batches[i].events) }
   const out: ReplayBatchMsg[] = []
   for (const events of kept) {
     for (let i = 0; i < events.length; i += batchSize) {
@@ -152,6 +158,67 @@ export function addEvicted(tally: EvictedTally, sessionId: string, n: number, ma
     tally.other = Math.min(tally.other + (tally.bySession.get(oldest) ?? 0), Number.MAX_SAFE_INTEGER)
     tally.bySession.delete(oldest)
   }
+}
+
+/**
+ * Numbers (`seq`, see the relay) of the events the buffer let go of, per session (#366), so that a client that
+ * reconnects and says the last number it received (`since`) can be told how many events numbered after it it will
+ * never receive. Bounded: at most RELAY_EVICTION_LOG_PER_SESSION numbers per session (the LOWEST are forgotten first:
+ * a reconnecting client asks about recent ones) and `sessions` sessions (the least recently touched forgotten). What is
+ * forgotten is not counted, so the count stays a lower bound.
+ */
+export interface EvictionLog { bySession: Map<string, number[]> }
+export const RELAY_EVICTION_LOG_PER_SESSION = 4096
+export function createEvictionLog(): EvictionLog { return { bySession: new Map() } }
+
+export function logEvicted(
+  log: EvictionLog, sessionId: string, seqs: Iterable<number>,
+  perSession: number = RELAY_EVICTION_LOG_PER_SESSION, maxSessions: number = RELAY_MAX_BUFFERED_SESSIONS,
+): void {
+  const list = log.bySession.get(sessionId) ?? []
+  let added = false
+  for (const n of seqs) if (Number.isSafeInteger(n) && n > 0) { list.push(n); added = true }
+  if (!added) return
+  // Trimmed in bulk (amortised): up to twice the bound, then sorted and cut back to the newest numbers
+  if (list.length > perSession * 2) {
+    list.sort((a, b) => a - b)
+    list.splice(0, list.length - perSession)
+  }
+  log.bySession.delete(sessionId)
+  log.bySession.set(sessionId, list)
+  while (log.bySession.size > Math.max(1, maxSessions)) log.bySession.delete(log.bySession.keys().next().value as string)
+}
+
+/** Evicted events of a session numbered after `since` (that a client which received up to `since` never got). */
+export function evictedAfter(log: EvictionLog, sessionId: string, since: number): number {
+  const list = log.bySession.get(sessionId)
+  if (!list) return 0
+  let n = 0
+  for (const seq of list) if (seq > since) n++
+  return n
+}
+
+/** `?since=<instance>.<seq>`: what a reconnecting client last received from this relay process. */
+export interface SinceParam { instance: string; seq: number }
+const SINCE_PATTERN = /^([0-9a-f]{8,64})\.(\d{1,16})$/
+
+/** The `since` value a client sends back (the relay's instance id and the last number it received). */
+export function formatSinceParam(instance: string, seq: number): string {
+  return `${instance}.${seq}`
+}
+
+/** The `since` parameter of an /events request; null when absent, repeated or malformed (then nothing is counted). */
+export function parseSinceParam(url: string | undefined): SinceParam | null {
+  if (!url) return null
+  let parsed: URL
+  try { parsed = new URL(url, 'http://localhost') } catch { return null }
+  if (parsed.pathname !== '/events') return null
+  const all = parsed.searchParams.getAll('since')
+  if (all.length !== 1) return null
+  const m = SINCE_PATTERN.exec(all[0])
+  if (!m) return null
+  const seq = Number(m[2])
+  return Number.isSafeInteger(seq) ? { instance: m[1], seq } : null
 }
 
 export interface BufferLimits { perSession: number; sessions: number; total: number }
@@ -223,7 +290,7 @@ function replaceSupersededReading(buf: AgentEvent[], event: AgentEvent): void {
 
 /** Trim a buffer to `max` events, evicting the oldest non-lifecycle event first. Lifecycle events
  *  are only evicted (oldest first) when they alone exceed RELAY_REPLAY_LIFECYCLE_RESERVE. */
-export function trimKeepingLifecycle(buf: AgentEvent[], max: number): number {
+export function trimKeepingLifecycle(buf: AgentEvent[], max: number, out?: AgentEvent[]): number {
   let removed = 0
   while (buf.length > max) {
     let lifecycle = 0
@@ -235,7 +302,8 @@ export function trimKeepingLifecycle(buf: AgentEvent[], max: number): number {
       break
     }
     if (victim < 0 || lifecycle > RELAY_REPLAY_LIFECYCLE_RESERVE) victim = 0
-    buf.splice(victim, 1)
+    const [gone] = buf.splice(victim, 1)
+    if (out) out.push(gone)
     removed++
   }
   return removed
@@ -255,6 +323,8 @@ export function appendBounded(
   limits: Partial<BufferLimits> = {},
   /** Events the buffer let go of (#366): what a replay can no longer show. Bounded, see EvictedTally. */
   evicted?: EvictedTally,
+  /** Receives the events the buffer let go of, with their session (#366, see EvictionLog); not replaced readings */
+  onEvict?: (sessionId: string, events: readonly AgentEvent[]) => void,
 ): void {
   const lim = { ...DEFAULT_BUFFER_LIMITS, ...limits }
   const buf = buffers.get(sessionId) ?? []
@@ -263,8 +333,10 @@ export function appendBounded(
   // Only the latest activity per (session, agent) is replayed: replace in place, it stays after the spawn
   if (previous >= 0) buf[previous] = event
   else buf.push(event)
-  const trimmed = trimKeepingLifecycle(buf, lim.perSession)
+  const gone: AgentEvent[] | undefined = onEvict ? [] : undefined
+  const trimmed = trimKeepingLifecycle(buf, lim.perSession, gone)
   if (evicted) addEvicted(evicted, sessionId, trimmed, lim.sessions)
+  if (onEvict && gone && gone.length > 0) onEvict(sessionId, gone)
   // Re-insert so Map order reflects recency of writes
   buffers.delete(sessionId)
   buffers.set(sessionId, buf)
@@ -274,16 +346,19 @@ export function appendBounded(
   while (buffers.size > 1 && (buffers.size > lim.sessions || totalEvents > lim.total)) {
     const oldest = buffers.keys().next().value
     if (oldest === undefined || oldest === sessionId) { break }
-    const lost = buffers.get(oldest)?.length ?? 0
+    const lostEvents = buffers.get(oldest) ?? []
+    const lost = lostEvents.length
     totalEvents -= lost
     if (evicted) addEvicted(evicted, oldest, lost, lim.sessions)
+    if (onEvict && lost > 0) onEvict(oldest, lostEvents)
     buffers.delete(oldest)
   }
   // A single session may still exceed the total: trim its head
   if (totalEvents > lim.total) {
     const cut = Math.min(buf.length - 1, totalEvents - lim.total)
-    buf.splice(0, cut)
+    const head = buf.splice(0, cut)
     if (evicted) addEvicted(evicted, sessionId, cut, lim.sessions)
+    if (onEvict && head.length > 0) onEvict(sessionId, head)
   }
 }
 

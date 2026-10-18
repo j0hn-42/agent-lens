@@ -210,14 +210,22 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'wa
 
 export type ExtensionToWebviewMessage =
   | { type: 'connection-status'; status: ConnectionStatus; source: string }
-  | { type: 'agent-event'; event: AgentEvent }
+  /** `seq` (relay only, #366): the number of the event for this relay process, see `relay-cursor` */
+  | { type: 'agent-event'; event: AgentEvent; seq?: number }
   | { type: 'agent-event-batch'; events: AgentEvent[] }
   | { type: 'reset'; reason: string }
   /** Sent by the relay once per /events connection, before the replay (#366). `evicted`: per session, events the
    *  relay can no longer replay (buffer or replay cap), totals since the relay started: REPLACE the previous value,
    *  never add. It says what the replay lacks, not what this client missed: a client that stayed connected got them live.
-   *  `otherEvents`: the same count for sessions no longer listed individually. Absent when nothing was lost. */
-  | { type: 'event-loss'; evicted: Record<string, number>; otherEvents?: number }
+   *  `otherEvents`: the same count for sessions no longer listed individually. Absent when nothing was lost.
+   *  `gap`: only for a client back with `?since=` from this relay process, per session, the events numbered after
+   *  `since` that it will never receive (evicted, or left out by this replay's cap): a lower bound, to ADD to what the
+   *  client already knows it lacks. */
+  | { type: 'event-loss'; evicted: Record<string, number>; otherEvents?: number; gap?: Record<string, number> }
+  /** Relay only, once per /events connection after `event-loss` and before the replay (#366): the relay process and
+   *  the number of the last event it delivered. A client sends it back as `?since=<instance>.<seq>` when it reconnects,
+   *  updated with the `seq` of each live `agent-event` it receives. */
+  | { type: 'relay-cursor'; instance: string; seq: number }
   | { type: 'config'; config: Partial<VisualizerConfig> }
   | { type: 'session-list'; sessions: SessionInfo[] }
   | { type: 'session-started'; session: SessionInfo }
