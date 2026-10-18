@@ -6,7 +6,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 import { pathToFileURL } from 'node:url'
 import net from 'node:net'
-import { demoServerEnv, demoServerLogPath, E2E_DIST_DIR, foreignListeners, listenerPidsOnPort, parseListenerPids, processGroupOf, spawnGuarded, stopProcessGroup, startWithRetries, StartExitedError } from './e2e/demo-server'
+import { demoServerEnv, demoServerLogPath, E2E_DIST_DIR, classifySsOutput, foreignListeners, listenerPidsOnPort, parseListenerPids, processGroupOf, spawnGuarded, stopProcessGroup, startWithRetries, StartExitedError } from './e2e/demo-server'
 
 const WEB_DIR = path.resolve(__dirname, '..')
 
@@ -153,13 +153,22 @@ test("processGroupOf lit le groupe réel d'un processus", () => {
   assert.equal(processGroupOf(2 ** 22 + 12345), undefined)
 })
 
-test('listenerPidsOnPort trouve le processus qui écoute un port', async () => {
+test('classifySsOutput : une ligne sans pid rend toute la sonde non prouvée (pas de faux « identity verified »)', () => {
+  const ours = 'LISTEN 0 511 127.0.0.1:45999 0.0.0.0:* users:(("next-server",pid=10,fd=20))\n'
+  const foreign = 'LISTEN 0 511 [::1]:45999 [::]:*\n'
+  assert.deepEqual(classifySsOutput(ours), { status: 'ok', pids: [10] })
+  assert.deepEqual(classifySsOutput(''), { status: 'ok', pids: [] })
+  assert.deepEqual(classifySsOutput(ours + foreign), { status: 'unreadable' })
+  assert.deepEqual(classifySsOutput(foreign), { status: 'unreadable' })
+})
+
+test('listenerPidsOnPort trouve le processus qui écoute un port', async t => {
   const srv = net.createServer().listen(0, '127.0.0.1')
   await new Promise(r => srv.once('listening', r))
   try {
     const port = (srv.address() as net.AddressInfo).port
-    const pids = listenerPidsOnPort(port)
-    if (pids === undefined) return // ss indisponible : l'identité n'est pas vérifiable, le serveur le journalise
-    assert.deepEqual(pids, [process.pid])
+    const probe = listenerPidsOnPort(port)
+    if (probe.status === 'unavailable') { t.skip('ss indisponible'); return }
+    assert.deepEqual(probe, { status: 'ok', pids: [process.pid] })
   } finally { srv.close() }
 })

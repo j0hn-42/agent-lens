@@ -11,9 +11,9 @@ const WEB_DIR = path.resolve(__dirname, '..', '..')
 const START_TIMEOUT_MS = 180_000
 
 /**
- * Journal du serveur démo : un fichier par fichier e2e (`demo-server-<nom>.log`), d'après le point d'entrée du
- * processus de test (`node --test` lance chaque fichier dans son propre processus). Sans point d'entrée connu,
- * journal commun `demo-server.log`. Tout `web/test-results/` est joint aux artefacts CI en cas d'échec (#575).
+ * Demo server log: one file per e2e file (`demo-server-<name>.log`), from the entry point of the test process
+ * (`node --test` runs each file in its own process). Without a known entry point, the shared `demo-server.log`.
+ * All of `web/test-results/` is attached to the CI artifacts on failure (#575).
  */
 export function demoServerLogPath(entry: string | undefined): string {
   const name = entry ? path.basename(entry).replace(/\.e2e\.(ts|tsx|js|mjs)$|\.(ts|tsx|js|mjs)$/, '') : ''
@@ -22,29 +22,38 @@ export function demoServerLogPath(entry: string | undefined): string {
 
 const LOG_FILE = demoServerLogPath(process.argv[1])
 
-/** Pids (`pid=N`) lus dans la sortie de `ss -ltnp` ; sans colonne `users`, aucun pid n'est prouvé. */
+/** Pids (`pid=N`) read in the output of `ss -ltnp`; without a `users` column no pid is proven. */
 export function parseListenerPids(output: string): number[] {
   const pids = [...output.matchAll(/pid=(\d+)/g)].map(m => Number(m[1]))
   return [...new Set(pids)]
 }
 
-/**
- * Pids qui écoutent le port TCP d'après `ss` (`lsof` ne voit pas next-server dans le sandbox de test : prouvé),
- * ou `undefined` si `ss` est indisponible ou échoue (identité alors non vérifiable, et journalisée comme telle).
- */
-export function listenerPidsOnPort(port: number): number[] | undefined {
-  const res = spawnSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' })
-  if (res.error || res.status !== 0) return undefined
-  const pids = parseListenerPids(res.stdout)
-  // A listener shown without its pid (not our process, not readable): not proven either way.
-  return pids.length === 0 && res.stdout.trim() !== '' ? undefined : pids
+export type ListenerProbe =
+  | { status: 'ok'; pids: number[] }
+  /** ss works but shows a listener without its pid (not readable, e.g. another user): nothing is proven. */
+  | { status: 'unreadable' }
+  /** ss is missing or failed. */
+  | { status: 'unavailable' }
+
+/** Reads `ss -ltnp` line by line: a single listener without `pid=` makes the whole probe unreadable. */
+export function classifySsOutput(output: string): ListenerProbe {
+  const lines = output.split('\n').filter(l => l.trim() !== '')
+  if (lines.some(l => !/pid=\d+/.test(l))) return { status: 'unreadable' }
+  return { status: 'ok', pids: parseListenerPids(output) }
 }
 
-/** Groupe de processus (champ 5 de /proc/<pid>/stat, ou `ps`), `undefined` si le processus n'existe pas ou n'est pas lisible. */
+/** Probes the TCP listeners of a port with `ss` (`lsof` does not see next-server in the test sandbox: proven). */
+export function listenerPidsOnPort(port: number): ListenerProbe {
+  const res = spawnSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' })
+  if (res.error || res.status !== 0) return { status: 'unavailable' }
+  return classifySsOutput(res.stdout)
+}
+
+/** Process group (field 5 of /proc/<pid>/stat, or `ps`), `undefined` if the process does not exist or is unreadable. */
 export function processGroupOf(pid: number): number | undefined {
   try {
     const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-    // Le nom (champ 2) est entre parenthèses et peut contenir des espaces : on lit après la dernière ')'.
+    // The name (field 2) is in parentheses and may contain spaces: read after the last ')'.
     const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
     const pgrp = Number(rest[2])
     return Number.isInteger(pgrp) ? pgrp : undefined
@@ -55,7 +64,7 @@ export function processGroupOf(pid: number): number | undefined {
   }
 }
 
-/** Écouteurs qui n'appartiennent pas au groupe lancé par nous ; un groupe inconnu n'est pas prouvé, donc signalé. */
+/** Listeners outside the process group we started; an unknown group is not proven, so it is reported. */
 export function foreignListeners(listeners: number[], pgid: number, pgidOf: (pid: number) => number | undefined = processGroupOf): number[] {
   return listeners.filter(pid => pgidOf(pid) !== pgid)
 }
@@ -164,23 +173,23 @@ export class ForeignServerError extends StartExitedError {}
  * belong to our process group. The result (or the impossibility to check) is written to the server log.
  */
 function verifyServerIdentity(port: number, child: ChildProcess, log: number): void {
-  const listeners = listenerPidsOnPort(port)
-  if (listeners === undefined) {
-    fs.writeSync(log, `=== identity of the server on port ${port} NOT verified (ss unavailable) ===\n`)
+  const probe = listenerPidsOnPort(port)
+  if (probe.status !== 'ok') {
+    const why = probe.status === 'unavailable' ? 'ss unavailable' : 'a listener pid is not readable'
+    fs.writeSync(log, `=== identity of the server on port ${port} NOT verified (${why}) ===\n`)
     return
   }
+  const listeners = probe.pids
   const foreign = foreignListeners(listeners, child.pid!)
   if (foreign.length > 0 || listeners.length === 0) {
     const msg = listeners.length === 0
       ? `nothing listens on port ${port} although it answered`
       : `pid(s) ${foreign.join(', ')} listening on port ${port} are outside the process group ${child.pid} we started`
     fs.writeSync(log, `=== FOREIGN server suspected: ${msg} ===\n`)
-    throw new ForeignServerError(`the answer on ${url(port)} does not come from the server we started: ${msg} (see ${LOG_FILE})`)
+    throw new ForeignServerError(`the answer on http://127.0.0.1:${port} does not come from the server we started: ${msg} (see ${LOG_FILE})`)
   }
   fs.writeSync(log, `=== identity verified: pid(s) ${listeners.join(', ')} listen on port ${port}, in process group ${child.pid} ===\n`)
 }
-
-const url = (port: number) => `http://127.0.0.1:${port}`
 
 const START_ATTEMPTS = 3
 
