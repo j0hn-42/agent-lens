@@ -779,8 +779,9 @@ export function hasContextPercent(agent: Agent): boolean {
 function drawStatsOverlay(ctx: CanvasRenderingContext2D, agent: Agent, r: number, statsTop: number, textScale: number, theme: ThemeId | undefined) {
   const scene = scenePalette(theme)
   const sy = agent.y - r - statsTop
-  // Held at LOD.minTextPx on screen: enlarged around its bottom centre, as the overlay plan reserves it
-  scaleAbout(ctx, agent.x, sy + STATS_OVERLAY.boxHeight, textScale)
+  // Held at LOD.minTextPx on screen: the stack above the node (stats, cost) is enlarged as a whole around the
+  // top of the node, so the box and the pill keep their order without overlapping, as the overlay plan reserves them
+  scaleAbout(ctx, agent.x, agent.y - r, textScale)
   ctx.fillStyle = scene.cardBgDark
   ctx.beginPath()
   ctx.roundRect(agent.x - STATS_OVERLAY.boxWidth / 2, sy, STATS_OVERLAY.boxWidth, STATS_OVERLAY.boxHeight, STATS_OVERLAY.borderRadius)
@@ -886,7 +887,8 @@ export function drawAgents(
     const repeatMark = opts.repeatMarks?.get(id)
     if (repeatMark) drawRepeatBadge(ctx, agent.x - r * REPEAT_BADGE_DRAW.offset, agent.y - r * REPEAT_BADGE_DRAW.offset, repeatMark.kind, sceneTheme)
 
-    if (lod.detailText && showStats && agent.state !== 'complete') {
+    // From the detail zoom, held at LOD.minTextPx: a Stats button that is on shows the box where the auto-fit lands (#378)
+    if (lod.details && showStats && agent.state !== 'complete') {
       // Stacked layout shared with the cost pill: stats, cost and the % label never overlap
       const layout = computeOverlayLayout({ hasPercent: hasContextPercent(agent), showStats: true, showCost: opts.showCost })
       const place = resolvePlacement(opts.plan, planKey.stats(id), opts.zoom)

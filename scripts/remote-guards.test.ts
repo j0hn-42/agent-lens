@@ -23,8 +23,11 @@ delete process.env.AGENT_LENS_ALL_WORKSPACES
 
 const TUNNEL = 'box.tail1234.ts.net'
 const TOKEN_FILE = path.join(fakeHome, 'pair-token')
-/** Pairing cookie of this file's client (#475), set in before() through the real POST /pair */
+/** Pairing cookie of this file's tunnel client (#475), set in before() through the real POST /pair on the tunnel Host */
 let cookie = ''
+/** Pairing cookie of this file's loopback client (#517), set in before() through POST /pair on a loopback Host. A
+ *  pairing only opens the Host class it was made on (#535): the tunnel cookie reads nothing on a loopback Host. */
+let loopbackCookie = ''
 let pairToken = ''
 const logged: string[] = []
 
@@ -38,11 +41,13 @@ interface Reply { status: number; headers: http.IncomingHttpHeaders; body: strin
 
 /**
  * One request; with `keep` the reply resolves at the headers and the connection stays open (SSE).
- * Every request carries the pairing cookie (#475) unless it sets its own Cookie header ('' = none): with an allow list,
- * a loopback Host needs it too (#517), and a foreign Host is refused with or without it.
+ * Every request carries the pairing cookie of its Host class (#475, #535: the tunnel one for the tunnel Host, the loopback
+ * one otherwise) unless it sets its own Cookie header ('' = none): with an allow list, a loopback Host needs it too
+ * (#517), and a foreign Host is refused with or without it.
  */
 function request(method: string, urlPath: string, headers: http.OutgoingHttpHeaders = {}, body?: string, keep = false): Promise<Reply> {
-  const withCookie = !('Cookie' in headers) ? { Cookie: cookie } : {}
+  const viaTunnel = typeof headers.Host === 'string' && headers.Host.toLowerCase() === TUNNEL
+  const withCookie = !('Cookie' in headers) ? { Cookie: viaTunnel ? cookie : loopbackCookie } : {}
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, agent: false, headers: { 'User-Agent': `remote-${Math.random()}`, ...withCookie, ...headers } }, res => {
       if (keep) { res.resume(); open.push(req); return resolve({ status: res.statusCode ?? 0, headers: res.headers, body: '' }) }
@@ -83,6 +88,11 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
       assert.equal(paired.status, 204, paired.body)
       cookie = String(paired.headers['set-cookie']?.[0] ?? '').split(';')[0]
       assert.ok(cookie, 'no pairing cookie')
+      const local = `127.0.0.1:${port}`
+      const pairedLocal = await request('POST', '/pair', { Host: local, Origin: `http://${local}`, 'Content-Type': 'application/json', Cookie: '' }, JSON.stringify({ token: pairToken }))
+      assert.equal(pairedLocal.status, 204, pairedLocal.body)
+      loopbackCookie = String(pairedLocal.headers['set-cookie']?.[0] ?? '').split(';')[0]
+      assert.ok(loopbackCookie && loopbackCookie !== cookie, 'no loopback pairing cookie')
     } finally {
       for (const restore of spies) restore()
     }
@@ -254,7 +264,8 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
 
     it('without the cookie, /events and /status answer 401 without detail, before any work; the static app still loads', async () => {
       const before = relay.debugState()
-      for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${'A'.repeat(43)}`, `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`, `${cookie}; ${cookie}`]) {
+      // The cookie of a loopback pairing (#535) does not open the tunnel Host either
+      for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${'A'.repeat(43)}`, `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`, `${cookie}; ${cookie}`, loopbackCookie]) {
         const sse = await request('GET', '/events', { Host: TUNNEL, Cookie: c }, undefined, true)
         assert.equal(sse.status, 401, `/events with ${JSON.stringify(c)}`)
         open.pop()?.destroy()
@@ -325,7 +336,8 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
       const before = relay.debugState()
       for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`, undefined]) {
         const h = host ? { Host: host } : {}
-        for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`]) {
+        // The cookie of the TUNNEL pairing (#535) does not open a loopback Host: a pairing is bound to its Host class
+        for (const c of ['', 'theme=dark', `__Host-agent-lens-pair=${pairToken}`, `${cookie}x`, cookie]) {
           for (const p of ['/status', '/observations', '/statusline', '/issue-links?role=qa-engineer', '/context?session=77777777-7777-4777-8777-777777777777']) {
             const r = await request('GET', p, { ...h, Cookie: c })
             assert.equal(r.status, 401, `${p} ${String(host)} ${JSON.stringify(c)}`)
@@ -362,6 +374,20 @@ describe('remote access guards (#241): allowed Host through a tunnel', () => {
       assert.equal((await request('GET', '/observations', { Cookie: localCookie })).status, 200)
       // GET /pair answers nothing that pairs
       assert.equal((await request('GET', '/pair', { Cookie: '' })).headers['set-cookie'], undefined)
+    })
+
+    it('a pairing opens only the Host class it was made on (#535): a tunnel cookie reads nothing on loopback, and back', async () => {
+      const before = relay.debugState()
+      for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `[::1]:${port}`]) {
+        for (const p of ['/status', '/observations']) assert.equal((await request('GET', p, { Host: host, Cookie: cookie })).status, 401, `${p} ${host} with the tunnel cookie`)
+        assert.equal((await request('GET', '/status', { Host: host, Cookie: loopbackCookie })).status, 200, `${host} with the loopback cookie`)
+      }
+      for (const p of ['/status', '/events']) {
+        assert.equal((await request('GET', p, { Host: TUNNEL, Cookie: loopbackCookie }, undefined, p === '/events')).status, 401, `${p} tunnel with the loopback cookie`)
+        open.pop()?.destroy()
+      }
+      assert.equal((await request('GET', '/status', { Host: TUNNEL, Cookie: cookie })).status, 200, 'the tunnel cookie still opens the tunnel Host')
+      assert.equal(relay.debugState().remoteSseClients, before.remoteSseClients, 'no stream held with the wrong class of cookie')
     })
   })
 

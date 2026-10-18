@@ -381,13 +381,20 @@ export function computeDockLayout(input: DockInput): DockLayout {
 
 // ─── Popups ─────────────────────────────────────────────────────────────────
 
-export interface PopupPlacement { left: number; top: number; width: number; maxHeight: number }
+export interface PopupPlacement {
+  left: number; top: number; width: number; maxHeight: number
+  /** The popup lies over the lower part of the permission cards (the floor was applied): their buttons can be hidden (#536) */
+  coversCards: boolean
+}
 
 /**
  * Smallest height left to a popup (WCAG 1.4.10 Reflow, 2.4.7): its close button, a title and a few lines of body, about
  * five 32 px rows, readable with its own scrollbar. Below it the cards' slot is no longer kept in full (see placePopup).
  */
-const POPUP_MIN_H = 160
+export const POPUP_MIN_H = 160
+
+/** Height kept for the cards' title and intro when their measure is unknown (about a title line and a two-line intro) */
+const PERMISSIONS_HEAD_FALLBACK = 72
 
 /**
  * Place a popup under an anchor point, inside the viewport and between the top bar and the control
@@ -401,7 +408,7 @@ const POPUP_MIN_H = 160
 export function placePopup(
   anchor: { x: number; y: number },
   size: { w: number; h: number },
-  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number; permissionsX?: number; permissionsW?: number },
+  env: { viewport: Viewport; topbarH: number; controlBarH: number; permissionsH?: number; permissionsHeadH?: number; permissionsX?: number; permissionsW?: number },
   offsetY = 20,
 ): PopupPlacement {
   const margin = 8
@@ -415,7 +422,10 @@ export function placePopup(
   const overlapsCards = !Number.isFinite(px) || !Number.isFinite(pw) || (left < (px as number) + (pw as number) && left + width > (px as number))
   const band = overlapsCards ? permissionsBand(env.permissionsH) : 0
   // Under the cards, but never leaving less than POPUP_MIN_H (or less than the whole free column when that is smaller)
-  const minTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
+  const floorTop = clamp(topLimit + band, topLimit, Math.max(topLimit, Math.min(topLimit + band, bottomLimit - POPUP_MIN_H)))
+  // ... but never over the cards' title and intro, which win over the floor
+  const headH = band > 0 ? Math.min(band, Math.ceil(Math.max(0, finite(env.permissionsHeadH as number, PERMISSIONS_HEAD_FALLBACK))) + TOPBAR_STACK_GAP) : 0
+  const minTop = Math.max(floorTop, Math.min(topLimit + headH, Math.max(topLimit, bottomLimit)))
   const maxBottom = Math.max(minTop, bottomLimit)
   const maxHeight = Math.max(0, maxBottom - minTop)
   const height = Math.min(size.h, maxHeight)
@@ -424,6 +434,7 @@ export function placePopup(
     top: Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)),
     width,
     maxHeight,
+    coversCards: band > 0 && Math.round(clamp(finite(anchor.y, 0) + offsetY, minTop, maxBottom - height)) < topLimit + band && maxHeight > 0,
   }
 }
 
@@ -440,6 +451,8 @@ export interface DockEnv {
   bannerH?: number
   /** Height of the drawn permission cards (absent when none is drawn, #410). */
   permissionsH?: number
+  /** Height from the top of the cards to the bottom of their title and intro (absent when no cards are drawn, #536). */
+  permissionsHeadH?: number
   /** Left edge and width of the drawn permission cards: a popup clear of them horizontally is not pushed down. */
   permissionsX?: number
   permissionsW?: number
@@ -490,8 +503,18 @@ export function measureDockEnv(doc: Document | undefined = typeof document === '
   const perm = doc.querySelector<HTMLElement>('[data-permission-requests]')
   const permRect = perm && !perm.closest('[aria-hidden="true"]') && !perm.closest('[inert]') ? perm.getBoundingClientRect() : null
   const permissionsH = permRect ? Math.max(0, Math.ceil(permRect.height)) : 0
+  // Title and intro of the cards, from the cards' top, as laid out before any scroll of the cards
+  let permissionsHeadH = 0
+  if (perm && permRect && permissionsH > 0) {
+    for (const el of Array.from(perm.querySelectorAll<HTMLElement>('[data-permission-head]'))) {
+      const r = el.getBoundingClientRect()
+      if (r.height <= 0) continue
+      permissionsHeadH = Math.max(permissionsHeadH, Math.ceil(r.bottom - permRect.top + perm.scrollTop))
+    }
+    permissionsHeadH = Math.min(permissionsHeadH, permissionsH)
+  }
   return {
-    viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH,
+    viewport, topbarH, controlBarH: barH > 0 ? Math.ceil(barH) : CONTROL_BAR_FALLBACK_H, obstacles, noticeH, bannerH, permissionsH, permissionsHeadH,
     ...(permRect && permissionsH > 0 ? { permissionsX: Math.floor(permRect.left), permissionsW: Math.ceil(permRect.width) } : {}),
   }
 }

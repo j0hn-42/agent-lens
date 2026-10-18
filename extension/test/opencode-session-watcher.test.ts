@@ -157,6 +157,51 @@ describe('OpenCodeSessionWatcher', { skip: !sqliteAvailable() }, () => {
     assert.equal(w.statusProblem(), undefined)
   })
 
+  it('optional (relay auto mode): a missing database is no problem until OpenCode is proved in use (#420)', () => {
+    const root = tmpDir()
+    const dataDir = path.join(root, 'opencode')
+    const file = path.join(dataDir, 'opencode.db')
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: file, now: () => T0, optional: true })
+    watchers.push(w)
+    w.start()
+    assert.match(w.status(), /not found/, 'the connection status still says what it sees')
+    assert.equal(w.statusProblem(), undefined, 'no data directory: OpenCode is not used here, nothing to report')
+    fs.mkdirSync(dataDir)
+    w.scanNow()
+    assert.equal(w.statusProblem(), 'OpenCode: database not found.', 'the data directory exists without its database: a real problem')
+  })
+
+  it('optional: a database read then removed is reported', () => {
+    const root = tmpDir()
+    const dataDir = path.join(root, 'opencode')
+    const file = path.join(dataDir, 'opencode.db')
+    fs.mkdirSync(dataDir)
+    const fx = new OpenCodeFixture(file)
+    fx.session('ses_a', { created: T0 - 5000, updated: T0 - 1000 })
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: file, now: () => T0, optional: true })
+    watchers.push(w)
+    w.start()
+    assert.equal(w.statusProblem(), undefined)
+    fx.close()
+    fs.rmSync(dataDir, { recursive: true, force: true })
+    w.scanNow()
+    assert.equal(w.statusProblem(), 'OpenCode: database not found.', 'it was read in this run: its loss is a fact')
+  })
+
+  it('never puts the database path in statusProblem, even inside a driver error (#420)', () => {
+    const dir = tmpDir()
+    const file = path.join(dir, 'opencode.db')
+    fs.writeFileSync(file, '')
+    const opener = (p: string) => { throw new Error(`unable to open database file: ${p}`) }
+    const w = new OpenCodeSessionWatcher('/w', { dbFile: file, now: () => T0, opener })
+    watchers.push(w)
+    w.start()
+    const problem = w.statusProblem() ?? ''
+    assert.match(problem, /could not be opened/)
+    assert.equal(problem.includes(file), false, problem)
+    assert.equal(problem.includes(dir), false, problem)
+  })
+
   it('never exposes a hostile directory as cwd, and does not attach it to a workspace', () => {
     const { fx, w } = setup(null)
     fx.session('ses_ctl', { dir: '/w/\u001b[2Jx', created: T0 - 5000, updated: T0 - 1000 })
