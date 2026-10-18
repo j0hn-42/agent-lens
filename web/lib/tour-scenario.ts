@@ -13,7 +13,8 @@ const PAYMENTS = 'tour-payments'
 const RELEASE = 'tour-release'
 const DOCS = 'tour-docs'
 
-const START = 1_700_000_000_000
+// Dated from the page load, not from a fixed instant: a fixed one reads "1062 d ago" and "1062d 22h" of runtime
+const START = Date.now() - 90_000
 
 export const TOUR_SESSIONS: SessionInfo[] = [
   { id: PAYMENTS, label: 'payments-api · refactor', status: 'active', startTime: START, lastActivityTime: START + 90_000, runtime: 'claude', workspace: 'payments-api', cwd: '/work/payments-api', projectId: 'proj-payments', projectName: 'payments-api' },

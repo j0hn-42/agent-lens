@@ -19,6 +19,14 @@ const ctx: ProcessEventContext = {
   skipForceSync: true,
 }
 
+test('the demo sessions are dated now, not years ago: no "1062 d ago", no "1062d 22h" of runtime (#383)', () => {
+  const DAY = 86_400_000
+  for (const s of TOUR_SESSIONS) {
+    assert.ok(Math.abs(Date.now() - s.lastActivityTime) < DAY, `${s.id} last activity is within a day of now`)
+    assert.ok(Date.now() - s.startTime < DAY, `${s.id} started within a day of now`)
+  }
+})
+
 function play(events: SimulationEvent[]): SimulationState {
   let state = createEmptyState()
   for (const e of events) state = processEvent(e, { ...state, currentTime: e.time }, ctx)
