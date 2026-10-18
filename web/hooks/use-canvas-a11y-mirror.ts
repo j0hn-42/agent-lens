@@ -89,7 +89,7 @@ export function useCanvasA11yMirror({
       const model = buildA11yModel(scene.agents, scene.toolCalls, scene.discoveries, a11yRecorder.tools, {
         links: linksPropRef.current ?? s.links, edges: s.edges, collapse: scene.collapse, teams: teamsRef.current, simTime: s.currentTime, now: Date.now(),
         sessions: sessionsRef.current, sessionLinks: sessionLinksRef.current, costAgents: costScope(s).agents.values(),
-        fileAttention: s.fileAttention, repeatMarks: marks,
+        fileAttention: s.fileAttention, repeatMarks: marks, replayLost: dp.replayLost,
       })
       // Legend: derived on every tick, even when the outline did not change (a held row expires with time)
       const links = linksPropRef.current ?? s.links

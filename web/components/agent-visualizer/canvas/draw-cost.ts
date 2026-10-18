@@ -7,6 +7,8 @@ import { USAGE_LABELS, formatCostUsage, formatCtxTokenUsage, type UsageTotal } f
 import { COST_LABELS } from '../../../lib/ui-glossary'
 import { summarizeCosts, sessionUsage, type UnattributedUsage } from '../../../lib/attribution'
 import { maskText } from '../../../lib/presentation'
+import { replayLostForAgents, usageUnderLoss } from '../../../lib/event-loss'
+import { agentCostUsageUnderLoss } from './loss-labels'
 import { truncateText, fitHeaderTokens } from './draw-misc'
 import { type DrawOpts, DEFAULT_DRAW_OPTS, lodOf, textHoldScale } from './draw-options'
 import { computeOverlayLayout } from './overlay-layout'
@@ -53,7 +55,7 @@ export function drawCostLabels(
 
   for (const [, agent] of agents) {
     if (!isAgentVisible(agent)) continue
-    const costUsage = agentCostUsage(agent)
+    const costUsage = agentCostUsageUnderLoss(agent, opts.replayLost)
     if (costUsage.value === null || costUsage.value < COST_DRAW.minDisplayCost) continue
 
     const r = agentDrawRadius(agent)
@@ -171,7 +173,10 @@ export function drawCostSummaryPanel(
   unattributed: Iterable<UnattributedUsage> = [],
   /** Presentation mode (#245): agent names are drawn as bullets */
   maskNames = false,
+  /** Events the relay could not replay per session id (#366): the totals of the sessions concerned are lower bounds ("at least") */
+  replayLost?: ReadonlyMap<string, number>,
 ) {
+  const lostOf = (a: { sessionId?: string }) => replayLostForAgents(replayLost, [a])
   // Only agents with a known figure get a row: an unknown count is never listed as 0 (the header flags the gap)
   const agentList = Array.from(agents.values()).filter(a => agentCostUsage(a).value !== null)
   // Usage that belongs to no single agent is shown apart, never folded into one (#61)
@@ -183,18 +188,24 @@ export function drawCostSummaryPanel(
 
   // Per-agent breakdown sorted by cost desc
   const agentBreakdown = agentList
-    .map(a => { const usage = agentCostUsage(a); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
+    .map(a => { const usage = usageUnderLoss(agentCostUsage(a), lostOf(a)); return { name: maskNames ? maskText(a.name) : a.name, usage, cost: usage.value ?? 0 } })
     .sort((a, b) => b.cost - a.cost)
   const totalCost = summary.sessionCost
   // Header qualifies the totals: agents with no data make them a lower bound, estimates are flagged;
   // the unattributed remainder counts in the session total
-  const { cost: costUsage, tokens: tokenUsage } = sessionUsage(agents.values(), rest)
+  const sessionTotals = sessionUsage(agents.values(), rest)
+  const viewLost = replayLostForAgents(replayLost, [...agents.values(), ...rest])
+  const costUsage = usageUnderLoss(sessionTotals.cost, viewLost)
+  const tokenUsage = usageUnderLoss(sessionTotals.tokens, viewLost)
 
   // Per-tool-type breakdown, costed at the owning agent's model rate
   // A figure is an estimate as soon as one call of the tool is, and a lower bound when a call has no figure
   const toolBreakdown = new Map<string, { tokens: number; cost: number; estimated: boolean; missing: boolean }>()
   for (const [, tc] of toolCalls) {
     const entry = toolBreakdown.get(tc.toolName) || { tokens: 0, cost: 0, estimated: false, missing: false }
+    // A call of a session whose events were lost makes the figure of its tool a lower bound (#366)
+    const owner = agents.get(tc.agentId)
+    if (owner && lostOf(owner) > 0) entry.missing = true
     if (tc.tokenCost) {
       entry.tokens += tc.tokenCost
       entry.cost += agentCost(tc.tokenCost, agents.get(tc.agentId)?.model)
