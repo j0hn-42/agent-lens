@@ -41,6 +41,15 @@ test('Edit: an insertion and a deletion are named as such (#383)', () => {
 
 const summaryText = (r: ReturnType<typeof show>) => r.getByRole('group', { name: 'Edit summary' }).textContent?.replace(/\s+/g, ' ').trim()
 
+test('Edit: a failed call does not claim lines replaced, a deleted or inserted line (#383)', () => {
+  const failed = (data: Record<string, unknown>) => render(
+    <ToolDetailPopup tool={{ id: 't1', toolName: 'Edit', args: '', state: 'error', inputData: data }} position={{ x: 10, y: 10 }} onClose={() => {}} />,
+  )
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: 'a\nb\nc', new_string: 'x\ny' })), 'call failed, not applied: asked old 3 lines, new 2 lines')
+  cleanup()
+  assert.equal(summaryText(failed({ file_path: '/a.ts', old_string: '', new_string: 'a' })), 'call failed, not applied: asked old 0 lines, new 1 line')
+})
+
 test('Edit: a removed word is not called a deleted line (#383)', () => {
   // old_string may be part of a line: the call proves text was removed from 1 line, not that the line went
   assert.equal(summaryText(show('Edit', { file_path: '/a.ts', old_string: 'foo', new_string: '' })), 'text removed from 1 line')

@@ -18,9 +18,11 @@ interface ToolContentRendererProps {
   inputData?: Record<string, unknown>
   args?: string
   compact?: boolean  // shorter rendering for inline chat
+  /** The call ended in error: an Edit / MultiEdit summary must not claim a change that was not made */
+  failed?: boolean
 }
 
-export function ToolContentRenderer({ toolName, inputData, args, compact = false }: ToolContentRendererProps) {
+export function ToolContentRenderer({ toolName, inputData, args, compact = false, failed = false }: ToolContentRendererProps) {
   if (!inputData) {
     return <span style={{ color: COLORS.contentDim }}>{args || toolName}</span>
   }
@@ -29,9 +31,9 @@ export function ToolContentRenderer({ toolName, inputData, args, compact = false
     case 'apply_patch':
       return <PatchContent data={inputData} compact={compact} />
     case 'Edit':
-      return <EditContent data={inputData} compact={compact} />
+      return <EditContent data={inputData} compact={compact} failed={failed} />
     case 'MultiEdit':
-      return <MultiEditContent data={inputData} compact={compact} />
+      return <MultiEditContent data={inputData} compact={compact} failed={failed} />
     case 'TodoWrite':
       return <TodoContent data={inputData} />
     case 'Bash':
@@ -135,8 +137,10 @@ const pairKind = ({ old, next }: EditPair) =>
  *  diff. A verb only when every block is of one kind (a MultiEdit that inserts here and deletes there replaces
  *  nothing); a deletion says "text removed from N lines", since old_string may be part of a line. Null when both
  *  strings are empty everywhere. */
-function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair[]): string | null {
+function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair[], failed: boolean): string | null {
   if (added === 0 && removed === 0) return null
+  // A failed call proved no change: only what it asked for
+  if (failed) return `call failed, not applied: asked old ${plural(removed, 'line')}, new ${plural(added, 'line')}`
   const kinds = new Set(pairs.map(pairKind).filter(k => k !== 'none'))
   const kind = kinds.size === 1 ? [...kinds][0] : null
   if (kind === 'insert') return `${plural(added, 'line')} inserted`
@@ -147,8 +151,8 @@ function replaceSentence({ added, removed }: EditStats, pairs: readonly EditPair
 
 /** "+N -M" with a spoken equivalent: the sign carries the meaning, the color only reinforces it. A patch is a real
  *  diff; an Edit / MultiEdit (`pairs`) only has the two strings, so it says what they are in words. */
-function EditSummary({ stats, pairs }: { stats: EditStats; pairs?: readonly EditPair[] }) {
-  const sentence = pairs ? replaceSentence(stats, pairs) : null
+function EditSummary({ stats, pairs, failed = false }: { stats: EditStats; pairs?: readonly EditPair[]; failed?: boolean }) {
+  const sentence = pairs ? replaceSentence(stats, pairs, failed) : null
   if (pairs && sentence == null) return null
   return (
     <div role="group" aria-label="Edit summary" className="mb-1 flex flex-wrap items-center gap-x-2 text-[11px] font-mono">
@@ -196,7 +200,7 @@ function DiffBlock({ oldText, newText, maxLines }: { oldText: string; newText: s
 const hiddenLines = (oldText: string, newText: string, max: number) =>
   truncateLines(oldText, max).hidden + truncateLines(newText, max).hidden
 
-function EditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+function EditContent({ data, compact, failed }: { data: Record<string, unknown>; compact: boolean; failed: boolean }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const oldText = String(data.old_string || '')
@@ -207,7 +211,7 @@ function EditContent({ data, compact }: { data: Record<string, unknown>; compact
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} pairs={[{ old: oldText, next: newText }]} />}
+      {stats && <EditSummary stats={stats} pairs={[{ old: oldText, next: newText }]} failed={failed} />}
       <DiffBlock oldText={oldText} newText={newText} maxLines={showAll ? Infinity : base} />
       <ShowAllToggle visible={hiddenLines(oldText, newText, base) > 0 || showAll} showAll={showAll} onToggle={() => setShowAll(v => !v)} />
     </div>
@@ -260,7 +264,7 @@ function PatchContent({ data, compact }: { data: Record<string, unknown>; compac
   )
 }
 
-function MultiEditContent({ data, compact }: { data: Record<string, unknown>; compact: boolean }) {
+function MultiEditContent({ data, compact, failed }: { data: Record<string, unknown>; compact: boolean; failed: boolean }) {
   const [showAll, setShowAll] = useState(false)
   const filePath = String(data.file_path || '')
   const stats = editStats('MultiEdit', data)
@@ -271,7 +275,7 @@ function MultiEditContent({ data, compact }: { data: Record<string, unknown>; co
   return (
     <div>
       <FilePath path={filePath} />
-      {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} />}
+      {stats && <EditSummary stats={stats} pairs={edits.map(e => ({ old: e.old_string, next: e.new_string }))} failed={failed} />}
       {edits.map((e, i) => (
         <div key={i} className={i > 0 ? 'mt-1.5' : undefined}>
           <div className="mb-0.5 text-[11px]" style={{ color: COLORS.contentDim }}>Block {i + 1} of {edits.length}</div>
