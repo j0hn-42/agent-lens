@@ -8,6 +8,7 @@
 import { NODE } from '../../../lib/agent-types'
 import type { Agent, TeamSummary } from '../../../lib/agent-types'
 import { MIN_VISIBLE_OPACITY, STATE_LABEL_SHORT, AGENT_DRAW, ORCHESTRATOR_DRAW } from '../../../lib/canvas-constants'
+import { deriveFreshness, lastKnownStateText, type FreshnessInput } from '../../../hooks/simulation/freshness'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -104,8 +105,11 @@ export function agentDrawRadius(agent: Pick<Agent, 'archived' | 'scale' | 'isMai
   return (agent.isMain ? NODE.radiusMain : NODE.radiusSub) * agentDrawScale(agent)
 }
 
+/** What the status line of a node is read from; `state` is a plain string so the Sessions panel rows (AgentLike) share it. */
+type StatusInput = Partial<Pick<Agent, 'kind' | 'activity'>> & { state: string }
+
 /** Activity of a teammate (explicit field first, derived from the state otherwise); undefined for other agents. */
-export function teammateActivity(agent: Pick<Agent, 'kind' | 'activity' | 'state'>): TeammateActivity | undefined {
+export function teammateActivity(agent: StatusInput): TeammateActivity | undefined {
   if (agent.kind !== 'teammate') return undefined
   if (agent.activity === 'working' || agent.activity === 'idle' || agent.activity === 'done') return agent.activity
   if (agent.state === 'complete') return 'done'
@@ -122,10 +126,26 @@ export function teammateAccent(agent: Pick<Agent, 'teamColor'>): string {
  * Short text under the node name. Teammates show their activity ('working' / 'idle' / 'done'),
  * unless the state itself is more urgent (error, waiting for permission, paused).
  */
-export function agentStatusText(agent: Pick<Agent, 'kind' | 'activity' | 'state'>): string {
+export function agentStatusText(agent: StatusInput): string {
   const activity = teammateActivity(agent)
   if (activity && agent.state !== 'error' && agent.state !== 'waiting_permission' && agent.state !== 'paused') return activity
   return STATE_LABEL_SHORT[agent.state] ?? agent.state
+}
+
+/**
+ * What the canvas draws under a stale node in place of agentStatusText ("last known state: Thinking"): its state is
+ * no longer proven. Undefined when the agent is not stale.
+ */
+export function staleStatusText(agent: FreshnessInput, now: number): string | undefined {
+  return deriveFreshness(agent, now) === 'stale' ? lastKnownStateText(agent.state) : undefined
+}
+
+/**
+ * The status line the canvas draws under the node at `now`, before it is ellipsized to fit: the one source for every
+ * surface that quotes that word (the agent rows of the Sessions panel in French, #502).
+ */
+export function drawnStatusText(agent: StatusInput & FreshnessInput, now: number): string {
+  return staleStatusText(agent, now) ?? agentStatusText(agent)
 }
 
 // ─── Label layout ────────────────────────────────────────────────────────────

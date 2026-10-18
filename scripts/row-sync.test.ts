@@ -43,6 +43,11 @@ test('signature: changes with any displayed field', () => {
   }
 })
 
+test('signature: the activity of a teammate changes it (in French the row quotes the word drawn from it, #502)', () => {
+  const mate: AgentLike = { ...base, kind: 'teammate' }
+  assert.notEqual(agentTreeSignature(node({ ...mate, activity: 'idle' }), 1500), agentTreeSignature(node({ ...mate, activity: 'working' }), 1500))
+})
+
 test('signature: ignores fields that are not displayed (spawn time, last event while fresh)', () => {
   const ref = agentTreeSignature(node(base), 1500)
   assert.equal(agentTreeSignature(node({ ...base, spawnTime: 99, lastEventAt: 1400 }), 1500), ref)

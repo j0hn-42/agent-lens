@@ -5,7 +5,7 @@ import {
   AGENT_DRAW, CONTEXT_BAR, CONTEXT_RING, STATS_OVERLAY, ORCHESTRATOR_DRAW, MCP_DRAW, FRESHNESS_DRAW, REPEAT_BADGE_DRAW, LOD,
 } from '../../../lib/canvas-constants'
 import { parseMcpTool } from '../../../lib/mcp-tool'
-import { deriveFreshness, lastKnownStateText } from '../../../hooks/simulation/freshness'
+import { deriveFreshness } from '../../../hooks/simulation/freshness'
 import { alphaHex, formatDuration, pluralize, formatModelName, modelTierColor } from '../../../lib/utils'
 import { formatTokensOfWindow } from '../../../lib/context-window'
 import { formatTokenUsage, usageFromAgent } from '../../../lib/usage'
@@ -20,7 +20,7 @@ import { pointInView, AGENT_CULL_EXTENT } from './view-cull'
 import { getAgentGlowSprite, measureTextCached } from './render-cache'
 import {
   isAgentVisible, agentDrawOpacity, agentDrawScale, teammateActivity, teammateAccent, layoutAgentLabel,
-  isTeammate, isOrchestrator, orchestratorInfo, ellipsize, type OrchestratorInfo,
+  isTeammate, isOrchestrator, orchestratorInfo, ellipsize, staleStatusText, type OrchestratorInfo,
 } from './team-style'
 
 let _claudeSparkPath: Path2D | null = null
@@ -863,7 +863,7 @@ export function drawAgents(
       ? drawAgentLabel(
         ctx, opts.maskText ? maskedLabelAgent(agent) : agent, r, isHovered, color, !!opts.showSessionLabels && (!opts.crowded || priorityAgent),
         maskedOrchestrator(orchestratorInfo(agent, opts.teams), opts.maskText), resolvePlacement(opts.plan, planKey.label(id), opts.zoom),
-        stale ? lastKnownStateText(agent.state) : undefined, labelScale, sceneTheme,
+        staleStatusText(agent, now), labelScale, sceneTheme,
       )
       : { extraLines: 0, dx: 0, dy: 0, scale: 1, visible: false }
     ctx.globalAlpha = nodeAlpha

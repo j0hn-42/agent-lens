@@ -201,7 +201,7 @@ const AgentItem = memo(function AgentItem({ node, depth, selectedAgentId, onSele
           <span className="sr-only">{role}, </span>
           <span className="truncate min-w-[6ch] flex-1" title={a.name}>{a.name}</span>
           <span className="max-w-[45%] shrink-0 truncate" title={detail} style={{ color: stale ? COLORS.textMuted : STATE_COLOR[a.state] ?? COLORS.textMuted }}>
-            {/* The canvas draws this English word under the agent and its text tree announces it in English: the row quotes it, then glosses it (as the legend does) */}
+            {/* drawn = drawnStatusText, the very function behind the English status line the canvas draws under this agent (a teammate's activity, "last known state: …" when stale): the row quotes it, then glosses it (as the legend does) */}
             {drawn && <><span lang="en" data-i18n-exempt="" data-drawn-state="">{drawn}</span> : </>}{detail}
           </span>
         </span>

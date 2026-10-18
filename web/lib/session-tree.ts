@@ -20,6 +20,8 @@ export interface AgentLike {
   name: string
   state: string
   kind?: 'main' | 'subagent' | 'teammate'
+  /** Teammate activity (as on Agent): part of the word the canvas draws under a teammate */
+  activity?: 'working' | 'idle' | 'done'
   /** Workflow agents: the group is a Workflow run, and the phase the workflow announced for the agent (#146) */
   teamKind?: 'team' | 'workflow'
   phase?: string
