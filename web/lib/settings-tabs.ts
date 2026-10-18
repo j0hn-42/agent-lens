@@ -10,10 +10,6 @@ export const SETTINGS_TABS = ['general', 'sessions', 'notifications', 'keyboard'
 export type SettingsTab = (typeof SETTINGS_TABS)[number]
 export const DEFAULT_SETTINGS_TAB: SettingsTab = 'general'
 
-export function isSettingsTab(v: unknown): v is SettingsTab {
-  return typeof v === 'string' && (SETTINGS_TABS as readonly string[]).includes(v)
-}
-
 export const SETTINGS_TAB_LABEL: Readonly<Record<SettingsTab, MessageKey>> = {
   general: 'settings.tab.general',
   sessions: 'settings.tab.sessions',
@@ -22,7 +18,7 @@ export const SETTINGS_TAB_LABEL: Readonly<Record<SettingsTab, MessageKey>> = {
 }
 
 /** Title keys of the sections a tab holds, in their order in the panel */
-export const SETTINGS_TAB_SECTIONS: Readonly<Record<SettingsTab, readonly MessageKey[]>> = {
+const SETTINGS_TAB_SECTIONS: Readonly<Record<SettingsTab, readonly MessageKey[]>> = {
   general: ['settings.section.appearance', 'settings.section.sound'],
   sessions: ['settings.section.sessions', 'settings.section.presentation'],
   notifications: ['settings.section.notifications', 'settings.section.announcements'],
@@ -30,7 +26,7 @@ export const SETTINGS_TAB_SECTIONS: Readonly<Record<SettingsTab, readonly Messag
 }
 
 /** Lower case without diacritics, so "preferences" finds "préférences" */
-export function foldAccents(text: string): string {
+function foldAccents(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
@@ -40,9 +36,9 @@ export function foldAccents(text: string): string {
  */
 export function settingsTabCommand(locale: Locale, tab: SettingsTab): { label: string; keywords: string[] } {
   const label = translate(locale, 'settings.tab.command', { tab: translate(locale, SETTINGS_TAB_LABEL[tab]) })
-  const words = new Set<string>(['settings', 'preferences', 'paramètres'])
+  const words = new Set<string>()
   for (const l of LOCALES) {
-    for (const key of ['settings.title', SETTINGS_TAB_LABEL[tab], ...SETTINGS_TAB_SECTIONS[tab]] as const) words.add(MESSAGES[l][key].toLowerCase())
+    for (const key of ['settings.title', 'settings.tab.alias', SETTINGS_TAB_LABEL[tab], ...SETTINGS_TAB_SECTIONS[tab]] as const) words.add(MESSAGES[l][key].toLowerCase())
   }
   for (const w of Array.from(words)) words.add(foldAccents(w))
   return { label, keywords: Array.from(words) }
