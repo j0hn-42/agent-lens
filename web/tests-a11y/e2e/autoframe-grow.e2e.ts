@@ -5,7 +5,7 @@
 // Every frame drawn is checked in the page: the longest run of frames with something drawn in world space outside the
 // band between the top bar and the controls row (or past a side edge) must stay short. Measured over 40 s (about
 // 2 300 frames per size), before / after the catch-up: 1024 x 768, 137 / 27 frames with an item outside, longest run
-// 657 / 100 ms; 390 x 844, 106 / 17 frames, 468 / 99 ms. A card or an agent can still spawn outside the frame (worst
+// 657 / 100 ms; 390 x 844, 106 / 17-19 frames, 468 / 99-116 ms (two runs after). A card or an agent can still spawn outside the frame (worst
 // item about 220 px off on its first frame): the camera then brings it in within a few frames.
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
