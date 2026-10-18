@@ -426,6 +426,34 @@ describe('opencode-db: cursor by primary key (#420)', { skip: !sqliteAvailable()
     db.close(); fx.close()
   })
 
+  it('a row delivered less than 500 ms ago is not pushed out of the window: a change in the same millisecond is still read', () => {
+    const fx = newDb()
+    const clock = { t: NOW }
+    // A full window of settled rows
+    fill(fx, NOW - 120_000, OPENCODE_WINDOW_ROWS / 4)
+    const db = open(fx.file, [], () => clock.t)
+    const boot = drain(db, keyCursors(NOW - 600_000), 5000)
+    // More than a window of new rows in one millisecond, delivered while they still settle
+    const t = NOW + 1000
+    clock.t = t + 10
+    const mid = openCodeId('msg', t, 1)
+    const first = openCodeId('prt', t, 2)
+    fx.batch(() => {
+      fx.raw(`INSERT INTO message VALUES ('${mid}', 'ses_1', ${t}, ${t}, '{}')`)
+      for (let i = 2; i <= OPENCODE_WINDOW_ROWS + 100; i++) fx.raw(`INSERT INTO part VALUES ('${openCodeId('prt', t, i)}', '${mid}', 'ses_1', ${t}, ${t}, '{"v":1}')`)
+    })
+    const p = db.poll(boot.cursors, 5000)
+    assert.ok(p.parts.some(x => x.id === first))
+    // The lowest of them changes within the same millisecond
+    fx.raw(`UPDATE part SET data = '{"v":2}' WHERE id = '${first}'`)
+    clock.t = t + 2000
+    const next = drain(db, p.cursors, 5000)
+    const again = next.polls.flatMap(x => x.parts).filter(x => x.id === first)
+    assert.deepEqual(again.map(x => x.data), ['{"v":2}'], 'given again once settled, with its last content')
+    assert.deepEqual(next.polls.flatMap(x => x.lostPassed), [])
+    db.close(); fx.close()
+  })
+
   it('the window is bounded in rows', () => {
     const fx = newDb()
     fill(fx, NOW - 120_000, Math.ceil((OPENCODE_WINDOW_ROWS + 400) / 4))
