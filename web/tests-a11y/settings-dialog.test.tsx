@@ -26,6 +26,9 @@ const dialogProps = (over: Partial<SettingsDialogProps> = {}): SettingsDialogPro
   ...over,
 })
 
+/** The settings sit in tabs since #533: show the panel that holds the setting under test */
+const showTab = (view: ReturnType<typeof render>, name: string) => fireEvent.click(view.getByRole('tab', { name }))
+
 const topBarProps: TopBarProps = {
   sessions: [{ id: 's1', label: 'one', status: 'active', startTime: 1, lastActivityTime: 2 }],
   selectedSessionId: ALL_SESSIONS_ID, sessionsWithActivity: new Set(),
@@ -44,9 +47,16 @@ test('is a labelled modal dialog with one named switch per setting', () => {
   const view = render(<SettingsDialog {...dialogProps()} />)
   const dialog = view.getByRole('dialog', { name: 'Settings' })
   assert.equal(dialog.getAttribute('aria-modal'), 'true')
-  for (const name of ['Hex grid', 'Sound effects', 'Show finished sessions', 'Hide inactive agents', 'Enable single-key shortcuts']) {
-    assert.ok(view.getByRole('switch', { name: new RegExp(name) }), name)
+  const byTab: Array<[string, string[]]> = [
+    ['General', ['Hex grid', 'Sound effects']],
+    ['Sessions and presentation', ['Show finished sessions', 'Hide inactive agents']],
+    ['Keyboard and preferences', ['Enable single-key shortcuts']],
+  ]
+  for (const [tab, names] of byTab) {
+    showTab(view, tab)
+    for (const name of names) assert.ok(view.getByRole('switch', { name: new RegExp(name) }), `${tab}: ${name}`)
   }
+  showTab(view, 'General')
   assert.ok(view.getByRole('combobox', { name: 'Theme' }))
 })
 
@@ -62,6 +72,7 @@ test('toggling a switch reports the new value; sound is shown inverted from mute
   assert.equal(sound.checked, false)
   fireEvent.click(sound)
   fireEvent.click(view.getByRole('switch', { name: /Hex grid/ }))
+  showTab(view, 'Sessions and presentation')
   fireEvent.click(view.getByRole('switch', { name: /Hide inactive agents/ }))
   assert.deepEqual(changes, ['mute', 'hex:false', 'hide:false'])
 })
@@ -105,6 +116,7 @@ test('Escape closes and focus returns to the trigger', () => {
 test('"View keyboard shortcuts" closes settings then opens the shortcuts dialog', () => {
   const calls: string[] = []
   const view = render(<SettingsDialog {...dialogProps({ onClose: () => calls.push('close'), onOpenShortcuts: () => calls.push('shortcuts') })} />)
+  showTab(view, 'Keyboard and preferences')
   fireEvent.click(view.getByRole('button', { name: 'View keyboard shortcuts' }))
   assert.deepEqual(calls, ['close', 'shortcuts'])
 })
@@ -122,10 +134,12 @@ test('top bar gear button opens settings, and is absent without a handler', () =
 
 test('announcements (#379): a named select with its help, reporting the chosen level; absent without the prop', () => {
   const view = render(<SettingsDialog {...dialogProps()} />)
-  assert.equal(view.queryByRole('combobox', { name: 'Announcement level' }), null)
+  assert.equal(view.queryByRole('tab', { name: 'Notifications and announcements' }), null, 'no tab without its settings')
+  assert.equal(document.querySelector('select[aria-describedby]'), null, 'no announcement select, hidden panels included')
   cleanup()
   const levels: string[] = []
   const shown = render(<SettingsDialog {...dialogProps({ announcements: { level: 'all', onLevelChange: l => levels.push(l) } })} />)
+  showTab(shown, 'Notifications and announcements')
   const select = shown.getByRole('combobox', { name: 'Announcement level' }) as HTMLSelectElement
   assert.equal(select.value, 'all')
   assert.deepEqual(Array.from(select.options).map(o => o.textContent), ['Every change', 'Important only'])
@@ -141,10 +155,12 @@ test('announcements (#379): a named select with its help, reporting the chosen l
 
 test('reset preferences (#372): asks first, says what it resets and keeps, then calls the reset once; absent without the prop', () => {
   const none = render(<SettingsDialog {...dialogProps()} />)
+  showTab(none, 'Keyboard and preferences')
   assert.equal(none.queryByRole('button', { name: 'Reset preferences' }), null)
   cleanup()
   let resets = 0
   const view = render(<SettingsDialog {...dialogProps({ onResetPrefs: () => { resets++ } })} />)
+  showTab(view, 'Keyboard and preferences')
   const reset = view.getByRole('button', { name: 'Reset preferences' })
   const help = document.getElementById(reset.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
   assert.ok(/Theme, language, sound, notifications and presentation are kept/.test(help), 'the help names what is not reset')
@@ -165,6 +181,7 @@ test('reset preferences (#372): asks first, says what it resets and keeps, then 
 
 test('reset confirmation (#372): the question names the group of the two buttons', () => {
   const view = render(<SettingsDialog {...dialogProps({ onResetPrefs: noop })} />)
+  showTab(view, 'Keyboard and preferences')
   fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
   const group = view.getByRole('group', { name: 'Restore these preferences to their defaults?' })
   assert.ok(group.contains(view.getByRole('button', { name: 'Reset now' })))
@@ -174,6 +191,7 @@ test('reset confirmation (#372): the question names the group of the two buttons
 test('reset done line (#372): disappears as soon as a preference changes afterwards, so it never states something false', () => {
   const props = dialogProps({ onResetPrefs: noop })
   const view = render(<SettingsDialog {...props} />)
+  showTab(view, 'Keyboard and preferences')
   fireEvent.click(view.getByRole('button', { name: 'Reset preferences' }))
   fireEvent.click(view.getByRole('button', { name: 'Reset now' }))
   assert.equal(view.getByRole('status').textContent, 'Preferences reset to their defaults')

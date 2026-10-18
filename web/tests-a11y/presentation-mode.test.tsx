@@ -100,6 +100,8 @@ test('Settings has a Presentation section with named switches that persist', asy
   await act(async () => { fireEvent.click(r.getByRole('button', { name: /settings/i })) })
   await settle()
   const dialog = r.getByRole('dialog')
+  // Settings sit in tabs since #533: Presentation is in the "Sessions and presentation" tab
+  await act(async () => { fireEvent.click(r.getByRole('tab', { name: 'Sessions and presentation' })) })
   const section = dialog.querySelector('section[aria-label="Presentation"]') as HTMLElement
   assert.ok(section, 'Presentation section')
   for (const name of ['Subtitles of transitions', 'Mask sensitive data', 'Follow the active agent']) {
