@@ -352,6 +352,10 @@ test('the tray doc says what is shipped, what is not, and what the menu never sh
     assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle}`)
   }
   assert.ok(read('README.md').includes('(docs/tray.md)'), 'README should link docs/tray.md')
+  // #513: the stop channel that replaces SIGTERM, and what is not proven on Windows
+  for (const needle of ['--ipc-stop', '{"v":1,"type":"stop"}', 'no route', 'not tested on Windows']) {
+    assert.ok(doc.includes(needle), `docs/tray.md should mention ${needle} (#513)`)
+  }
   assert.ok(fs.existsSync(path.join(root, 'app-tray/src/driver.ts')))
   // The next probe starts 5 s after the previous one ends: 5 to 7 s apart with the 2 s time limit
   assert.ok(!doc.includes('every 5 seconds'), 'the probe is not sent every 5 seconds')
