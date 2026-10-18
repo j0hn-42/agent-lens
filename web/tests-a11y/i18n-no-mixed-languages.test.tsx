@@ -1,6 +1,6 @@
 // #373: a surface covered by the message catalog never mixes the two languages. For each locale, the surfaces
 // already translated (Settings tab by tab, the canvas controls and their View panel, the agent card, the Sessions panel, the
-// command palette, the legend) are rendered and every visible
+// command palette, the legend, the guided tour and the panel titles) are rendered and every visible
 // text, accessible name, tooltip and description must be a value of that locale's catalog (placeholders filled in)
 // or an entry of an explicit allowlist (proper names, symbols). A subtree marked data-i18n-exempt (it carries its own
 // lang) is left out. Surfaces not yet translated (top bar, panels)
@@ -36,6 +36,16 @@ import { setLocaleChoice } from '@/lib/locale'
 import { DEFAULT_RULES } from '@/lib/notification-rules'
 import { LOCALES, MESSAGES, translate, type Locale, type MessageKey } from '@/lib/messages'
 import type { NotifyState } from '@/hooks/use-attention-alerts'
+import { GuidedTourCard } from '@/components/agent-visualizer/guided-tour-card'
+import { TourOffer } from '@/components/agent-visualizer/tour-offer'
+import { SystemPanel } from '@/components/agent-visualizer/system-panel'
+import { TimelinePanel } from '@/components/agent-visualizer/timeline-panel'
+import { FileAttentionPanel } from '@/components/agent-visualizer/file-attention-panel'
+import { ProjectContextPanel } from '@/components/agent-visualizer/project-context-panel'
+import { guidedSteps } from '@/lib/guided-steps'
+import { buildLiveTourSteps } from '@/lib/live-tour'
+import { panelName } from '@/lib/command-palette'
+import { setMobileView } from './mobile-media'
 
 afterEach(() => {
   cleanup()
@@ -564,7 +574,7 @@ function paletteItemsFor(locale: Locale) {
     },
     attention: { detail: sessionAttentionLabel(locale, { waiting: 1, errors: 2 }) ?? '', movesFocus: false, run: noop },
     notifications: { on: true, run: noop },
-    tour: { label: 'Tour this session', run: noop },
+    tour: { label: MESSAGES[locale]['tour.button.session'], run: noop },
     themes: { current: 'neon', options: [{ id: 'neon', label: 'Neon' }, { id: 'contrast', label: MESSAGES[locale]['theme.contrast'], alias: 'High contrast' }], set: noop },
     togglePanel: noop, selectSession: noop, selectAgent: noop,
   }
@@ -587,12 +597,13 @@ for (const locale of LOCALES) {
       fireEvent.change(input, { target: { value: 'full screen' } })
       assert.ok(view.getByRole('option', { name: /plein écran/ }), 'the English name finds the command in French')
     }
-    // The tour label comes from the tour (English): it declares its own language
-    fireEvent.change(input, { target: { value: 'Tour this' } })
-    const tour =view.getAllByRole('option').find(o => (o.textContent ?? '').includes('Tour this session'))!
-    assert.equal(langOf(tour.querySelector('span[lang]') ?? tour), 'en')
-    if (locale === 'fr') assert.ok(tour.querySelector('span[lang][data-i18n-exempt]'), 'the tour label is left out of the check by data-i18n-exempt')
-    if (locale === 'fr') assert.equal(tour.querySelector('[lang]')?.getAttribute('lang'), 'en')
+    // The tour label is the catalog one (#557): no language of its own, nothing left out of the check
+    fireEvent.change(input, { target: { value: MESSAGES[locale]['tour.button.session'].split(' ')[0] } })
+    const tour = view.getAllByRole('option').find(o => (o.textContent ?? '').includes(MESSAGES[locale]['tour.button.session']))!
+    assert.ok(tour, 'the tour command is listed')
+    assert.equal(tour.querySelector('[lang]'), null, 'the tour label declares no language of its own')
+    assert.equal(tour.querySelector('[data-i18n-exempt]'), null, 'the tour label is no longer exempt')
+    scan()
 
     for (const key of ['palette.title', 'palette.hint', 'palette.group.panels', 'palette.group.themes', 'palette.none', 'palette.count.one', 'palette.currentView', 'palette.theme.current'] as MessageKey[]) {
       // A detail sits inside a list of facts ("alpha, vue actuelle"): the words only have to be there
@@ -615,7 +626,7 @@ for (const locale of LOCALES) {
       { key: 'd', name: 'idle-flow', color: '#cccccc', teamKind: 'workflow', memberNames: [] },
       { key: 'e', name: 'solo-flow', color: '#bbbbbb', teamKind: 'workflow', memberNames: ['x'] },
     ] as never
-    const bridge = { legendOpen: false, canvasToScreenRef: { current: null }, startTour: noop, startTourLabel: 'Guided tour' }
+    const bridge = { legendOpen: false, canvasToScreenRef: { current: null }, startTour: noop, startTourLabel: MESSAGES[locale]['tour.button.demo'] }
     const strings: string[] = []
     const show = (present?: readonly (typeof LEGEND_ENTRY_IDS)[number][]) => {
       const view = render(<TourBridgeContext.Provider value={bridge}><GraphLegend teams={legendTeams} present={present} locale={locale} /></TourBridgeContext.Provider>)
@@ -626,10 +637,10 @@ for (const locale of LOCALES) {
       assert.equal(langOf(region), locale, `the legend declares lang=${locale}`)
       assert.equal(region.closest('[data-i18n-exempt]'), null, 'the legend is no longer exempt')
       strings.push(...surfaceStrings(view.container))
-      // The guided tour is not translated: its button says so
-      const tourButton = view.getByRole('button', { name: 'Guided tour' })
-      assert.equal(langOf(tourButton), 'en')
-      assert.ok(tourButton.hasAttribute('data-i18n-exempt'), 'the tour button is left out of the check by data-i18n-exempt')
+      // The tour button (#557) is in the language of the legend and checked like the rest
+      const tourButton = view.getByRole('button', { name: MESSAGES[locale]['tour.button.demo'] })
+      assert.equal(langOf(tourButton), locale)
+      assert.equal(tourButton.closest('[data-i18n-exempt]'), null, 'the tour button is no longer exempt')
       return { view, region }
     }
     // Every entry
@@ -672,5 +683,116 @@ for (const locale of LOCALES) {
     assert.ok(strings.length > 150, 'the legend was rendered')
     assert.deepEqual(foreignWords(locale, strings, LOCAL_ALLOW), [])
     assert.deepEqual([...new Set(listed(locale, strings))], [])
+  })
+}
+
+// ---- The guided tour and the titles of the panels (#557) ----
+// The tour (card, steps, offer, buttons) and the titles of the panels used to be English, declared lang=en and left out of
+// this check by data-i18n-exempt. They are in the catalog now: nothing is exempt, and no allowlist is widened here.
+// A live step joins several catalog sentences, so its body is checked for foreign function words, not sentence by sentence.
+const TOUR_ALL = { entries: [...LEGEND_ENTRY_IDS], agentFor: { 'state-error': 'k' }, labels: { k: 'refactor-api' } }
+/** The mode name of a Grep call is a technical identifier (files_with_matches), quoted as the tool spells it */
+const withoutIdentifier = (s: string) => s.replace('files_with_matches', '')
+const withoutNumber = (s: string) => s.replace(/^\d+\. /, '')
+
+for (const locale of LOCALES) {
+  const T = (key: MessageKey, params?: Record<string, string | number>) => translate(locale, key, params)
+
+  test(`the demo tour (every step, the step list, the card buttons) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const steps = guidedSteps(locale)
+    const strings: string[] = []
+    steps.forEach((_, i) => {
+      const view = render(<GuidedTourCard steps={steps} index={i} onNext={noop} onPrev={noop} onGoTo={noop} onExit={noop} />)
+      const dialog = view.getByRole('dialog')
+      assert.equal(langOf(dialog), locale, `the card declares lang=${locale}`)
+      assert.equal(dialog.closest('[data-i18n-exempt]'), null, 'the tour is no longer exempt')
+      assert.ok(view.getByRole('combobox', { name: T('tour.card.goto') }), 'the step list is named in the language')
+      strings.push(...surfaceStrings(view.container))
+      cleanup()
+    })
+    for (const key of ['tour.card.exit', 'tour.card.prev', 'tour.card.next'] as MessageKey[]) assert.ok(strings.includes(T(key)), `${key} was rendered`)
+    assert.ok(strings.includes(T('tour.card.step', { n: 2, total: steps.length })), 'the position of a step')
+    for (const s of steps) assert.ok(strings.includes(s.title) && strings.includes(s.body), `step ${s.id} was rendered`)
+    assert.ok(strings.length > 100)
+    assert.deepEqual(foreignWords(locale, strings.map(withoutIdentifier)), [])
+    assert.deepEqual([...new Set(strangers(locale, strings.map(withoutNumber)))], [])
+  })
+
+  test(`the tour of a real session (every group, the stale notice) speaks only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const steps = buildLiveTourSteps(TOUR_ALL, locale)
+    const strings: string[] = []
+    const chrome: string[] = []
+    steps.forEach((s, i) => {
+      const view = render(<GuidedTourCard steps={steps} index={i} stale={i === 0} onNext={noop} onPrev={noop} onGoTo={noop} onExit={noop} />)
+      assert.equal(langOf(view.getByRole('dialog')), locale)
+      const here = surfaceStrings(view.container)
+      strings.push(...here)
+      chrome.push(...here.filter(x => x !== s.body))
+      cleanup()
+    })
+    assert.ok(strings.includes(T('tour.card.stale')), 'the stale notice')
+    assert.ok(strings.some(x => x.includes(T('tour.live.highlighted', { label: 'refactor-api' }))), 'the highlighted agent is quoted in the language')
+    assert.ok(steps.length >= 15)
+    assert.deepEqual(foreignWords(locale, strings.map(withoutIdentifier)), [])
+    // Sessions is the same word in both languages (the title of its group has no catalog key)
+    assert.deepEqual([...new Set(strangers(locale, chrome.map(withoutNumber), { allow: new Set(['Sessions']) }))], [])
+  })
+
+  test(`the tour offer and the tour buttons speak only ${locale}`, () => {
+    setLocaleChoice(locale)
+    const label = T('tour.button.session')
+    const view = render(<TourOffer open label={label} onStart={noop} onDismiss={noop} />)
+    const region = view.getByRole('region', { name: T('tour.offer.title') })
+    assert.equal(langOf(region), locale, `the offer declares lang=${locale}`)
+    assert.equal(region.closest('[data-i18n-exempt]'), null)
+    view.getByRole('button', { name: T('tour.offer.start') })
+    view.getByRole('button', { name: T('tour.offer.later') })
+    const strings = surfaceStrings(view.container)
+    const announced = `${T('tour.offer.title')} ${T('tour.offer.body', { label })}`
+    assert.ok(strings.includes(announced), 'the live region announces the offer')
+    assert.equal(langOf(view.getByRole('status')), locale)
+    assert.ok(strings.includes(T('tour.offer.body', { label })))
+    assert.deepEqual(foreignWords(locale, strings), [])
+    assert.deepEqual([...new Set(strangers(locale, strings.filter(s => s !== announced)))], [])
+  })
+
+  test(`the panel titles are the names of the palette and of the top bar, in ${locale}`, () => {
+    setLocaleChoice(locale)
+    const view = render(<>
+      <SystemPanel visible samples={[]} onClose={noop} />
+      <TimelinePanel visible timelineEntries={new Map()} currentTime={0} onClose={noop} />
+      <FileAttentionPanel visible fileAttention={new Map()} onClose={noop} />
+      <ProjectContextPanel visible sessionId={null} unavailableReason="none" fetchContext={async () => 'unavailable'} onClose={noop} />
+    </>)
+    const headings = Array.from(view.container.querySelectorAll('h2')).map(h => ({ text: h.textContent, lang: langOf(h.querySelector('[lang]') ?? h) }))
+    for (const text of [panelName(locale, 'system'), T('panel.heading.timeline'), T('panel.heading.files'), T('panel.heading.context')]) {
+      const h = headings.find(x => x.text?.toLowerCase() === text.toLowerCase())
+      assert.ok(h, `a panel is titled ${text}`)
+      assert.equal(h.lang, locale, `${text} declares lang=${locale}`)
+    }
+    // The System panel is named by its heading: the palette says "Système" / "System", the title says the same word
+    assert.ok(view.getByRole('region', { name: panelName(locale, 'system') }))
+  })
+
+  test(`under 768 px a panel drawer is named like the palette and the top bar name it, in ${locale}`, () => {
+    setLocaleChoice(locale)
+    setMobileView(true)
+    try {
+      for (const [id, el] of [
+        ['timeline', <TimelinePanel key="t" visible timelineEntries={new Map()} currentTime={0} onClose={noop} />],
+        ['files', <FileAttentionPanel key="f" visible fileAttention={new Map()} onClose={noop} />],
+        ['context', <ProjectContextPanel key="c" visible sessionId={null} unavailableReason="none" fetchContext={async () => 'unavailable'} onClose={noop} />],
+        ['system', <SystemPanel key="s" visible samples={[]} onClose={noop} />],
+      ] as const) {
+        const view = render(el)
+        const dialog = view.getByRole('dialog', { name: new RegExp(`^${escapeRe(panelName(locale, id))}$`, 'i') })
+        assert.ok(dialog.hasAttribute('data-mobile-drawer'), `${id} is a drawer`)
+        const buttonName = MESSAGES[locale][`topbar.panel.${id}.name` as MessageKey].replace(/ \([A-Z]\)$/, '')
+        assert.equal(panelName(locale, id), buttonName, `${id}: the drawer, the palette and the top bar button agree`)
+        cleanup()
+      }
+    } finally { setMobileView(false) }
   })
 }
