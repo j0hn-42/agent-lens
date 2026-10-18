@@ -50,7 +50,6 @@ import { ProjectContextPanel } from '@/components/agent-visualizer/project-conte
 import { guidedSteps } from '@/lib/guided-steps'
 import { buildLiveTourSteps } from '@/lib/live-tour'
 import { panelName } from '@/lib/command-palette'
-import { setMobileView } from './mobile-media'
 
 afterEach(() => {
   cleanup()
@@ -771,6 +770,9 @@ for (const locale of LOCALES) {
     const unknown = strangers(locale, strings, { allow: new Set([...panelLabels, '?', ...fixtureNames]), data: [spokenCost, spokenUnattributed] }).filter(s => !spokenLine(s))
     assert.deepEqual(unknown, [])
     assert.deepEqual(foreignWords(locale, strings.filter(s => !s.includes('OpenCode') && !s.includes('The relay refused') && !fixtureNames.has(s)), new Set(['alpha-run'])), [])
+  })
+}
+
 // ---- The guided tour and the titles of the panels (#557) ----
 // The tour (card, steps, offer, buttons) and the titles of the panels used to be English, declared lang=en and left out of
 // this check by data-i18n-exempt. They are in the catalog now: nothing is exempt, and no allowlist is widened here.
