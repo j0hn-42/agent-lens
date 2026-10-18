@@ -7,6 +7,7 @@ import type { ResultPill } from './action-summary'
 import type { UnverifiedReason } from '../hooks/simulation/edge-validation'
 import type { FileTimeline } from './file-timeline'
 import type { GitState } from './git-state'
+import { POPUP_MIN_H } from './panel-layout'
 
 export type AgentState = 'idle' | 'thinking' | 'tool_calling' | 'complete' | 'error' | 'paused' | 'waiting_permission'
 
@@ -477,7 +478,8 @@ export const TETHER = {
 
 export const POPUP = {
   tool: { width: 320, estimatedHeight: 200 },
-  discovery: { width: 300, estimatedHeight: 160 },
+  // A short popup: it asks for no more than the height a popup keeps anyway (#536)
+  discovery: { width: 300, estimatedHeight: POPUP_MIN_H },
   controlBarMaxWidth: 680,
 } as const
 

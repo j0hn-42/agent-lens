@@ -388,8 +388,10 @@ export interface PopupPlacement {
 }
 
 /**
- * Smallest height left to a popup (WCAG 1.4.10 Reflow, 2.4.7): its close button, a title and a few lines of body, about
- * five 32 px rows, readable with its own scrollbar. Below it the cards' slot is no longer kept in full (see placePopup).
+ * Height a popup keeps when the permission cards' slot is not kept in full (WCAG 1.4.10 Reflow, 2.4.7): its close button,
+ * a title and a few lines of body, about five 32 px rows, readable with its own scrollbar. It is a target, not a
+ * guarantee: the cards' title and intro win over it (see placePopup), so a short window can leave less (86 px at
+ * 640x300: 32 px of header and about 50 px).
  */
 export const POPUP_MIN_H = 160
 
@@ -401,9 +403,11 @@ const PERMISSIONS_HEAD_FALLBACK = 72
  * bar (never over either), nor over the permission cards that sit right under the top bar (#410): their measured
  * slot is kept free where the popup overlaps them horizontally (permissionsX / permissionsW, the whole width when
  * unknown), and a popup on top of them would hide a pending decision. That reservation has a floor: when the cards
- * leave less than POPUP_MIN_H (200 % zoom, 320 px phone, cards at their 60vh cap), the popup takes POPUP_MIN_H and covers
- * only the lower part of the cards, never their heading; Escape closes it and gives the cards back. Wider-than-viewport
- * popups shrink; taller ones get a maxHeight to scroll.
+ * leave less than POPUP_MIN_H (200 % zoom, 320 px phone, cards at their 60vh cap), the popup starts higher, at POPUP_MIN_H
+ * from the control bar, and covers the lower part of the cards (coversCards). It never covers their title and intro
+ * (permissionsHeadH, measured; a fallback when unknown): those win over the floor, so on a very short window the popup
+ * keeps less than POPUP_MIN_H. Escape closes it and gives the cards back. Wider-than-viewport popups shrink; taller
+ * ones get a maxHeight to scroll.
  */
 export function placePopup(
   anchor: { x: number; y: number },

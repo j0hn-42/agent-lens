@@ -258,11 +258,12 @@ test('640x300 (200 % zoom of 1280x600): the popup starts under the cards title, 
 
 test('popups keep a readable height when the cards take the whole column (#410, reflow)', () => {
   // 320x568 and 640x360 (200 % zoom): cards at their 60vh cap
-  for (const [w, h] of [[320, 568], [640, 360]] as const) {
+  for (const [w, h, expected] of [[320, 568, POPUP_MIN_H], [640, 360, 146]] as const) {
     const env = { viewport: { w, h }, topbarH: TOPBAR_H, controlBarH: BAR_H, permissionsH: Math.round(h * 0.6), permissionsHeadH: HEAD_H, permissionsX: 12, permissionsW: w - 24 }
     const p = placePopup({ x: w / 2, y: 0 }, { w: 320, h: 400 }, env)
-    // Floor, less what the cards' title and intro keep (they win, #536)
-    assert.ok(p.maxHeight >= Math.min(POPUP_MIN_H, h - 16 - BAR_H - 8 - TOPBAR_H - HEAD_H - 4), `${w}x${h}: maxHeight ${p.maxHeight}`)
+    // The cards' title and intro win over the floor (#536): the popup starts under them, and keeps what is left
+    assert.ok(p.top >= TOPBAR_H + HEAD_H, `${w}x${h}: top ${p.top} is over the title and intro (head ends at ${TOPBAR_H + HEAD_H})`)
+    assert.equal(p.maxHeight, expected, `${w}x${h}: maxHeight`)
     assert.ok(p.top + p.maxHeight <= h - 16 - BAR_H - 8, `${w}x${h}: ends above the control bar`)
   }
 })
