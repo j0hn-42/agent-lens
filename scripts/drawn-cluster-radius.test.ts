@@ -22,6 +22,8 @@ function createRig(hideInactive = true) {
   const layout: ForceLayout = createForceLayout()
   layout.setHideInactive(hideInactive)
   let hide = hideInactive
+  /** Agents the canvas draws although hidden (selected, hovered, keyboard focus), as sceneAgents does */
+  let keep: string[] = []
   let frame: SimulationState = createEmptyState()
   let t = 1
   let tickMs = 0
@@ -74,7 +76,9 @@ function createRig(hideInactive = true) {
       frame = { ...frame, agents }
     },
     setHideInactive(h: boolean) { hide = h; layout.setHideInactive(h) },
-    shown(): Map<string, Agent> { return visibleAgents(frame.agents, hide) },
+    /** Select / hover / focus: the canvas draws these agents even when hidden, the layout is told the same ids */
+    keepDrawn(ids: string[]) { keep = ids; layout.setKeepIds(ids) },
+    shown(): Map<string, Agent> { return visibleAgents(frame.agents, hide, keep) },
     flush: () => new Promise<void>(r => setTimeout(r, 0)),
     destroy: () => layout.destroy(),
   }
@@ -149,9 +153,10 @@ for (const view of ['session', 'all'] as const) {
   })
 }
 
-// ─── Sessions without phases: unchanged ──────────────────────────────────────
+// ─── Sessions without phases: unchanged but for the case of 4 at work ────────
 
-for (const [total, active, maxBound] of [[83, 4, 300], [31, 30, 600], [81, 80, 1100]] as const) {
+// Bounds about 5 % above the values measured with #554 (max 247 / 555 / 1071, median 244 / 420 / 737)
+for (const [total, active, maxBound, medianBound] of [[83, 4, 260, 256], [31, 30, 585, 441], [81, 80, 1100, 774]] as const) {
   test(`a session of ${active} children at work out of ${total - 1} (no phases) keeps its placement`, async (t) => {
     const rig = createRig(true)
     try {
@@ -160,8 +165,11 @@ for (const [total, active, maxBound] of [[83, 4, 300], [31, 30, 600], [81, 80, 1
       const d = childDistances(rig, 'S')
       t.diagnostic(`children at ${Math.round(d[0])}-${Math.round(d[d.length - 1])}, median ${Math.round(d[Math.floor(d.length / 2)])}, rest after ${ticks} frames`)
       assert.equal(d.length, active)
-      // Before #554: 4 at work 210-231; 30 at work median 420, max 555; 80 at work median 737, max 1071 (collision limit)
-      assert.ok(Math.max(...d) < maxBound, `children at ${Math.round(d[Math.floor(d.length / 2)])} (median) / ${Math.round(Math.max(...d))} (max)`)
+      // Before #554 (develop): 4 at work 210-277, median 212 (with #554: 239-247, median 244, a slight change);
+      // 30 at work median 420, max 555; 80 at work median 737, max 1071 (collision limit)
+      const median = d[Math.floor(d.length / 2)]
+      assert.ok(Math.max(...d) < maxBound, `children at ${Math.round(median)} (median) / ${Math.round(Math.max(...d))} (max)`)
+      assert.ok(median < medianBound, `median ${Math.round(median)}`)
       assert.ok(Math.min(...d) > FORCE.collideRadius, `no child on top of the orchestrator (${Math.round(Math.min(...d))})`)
       assert.ok(ticks < SETTLE_BOUND, `the layout comes to rest (${ticks} frames)`)
     } finally { rig.destroy() }
@@ -281,5 +289,85 @@ test('cost per layout step: hidden agents left out of the simulation do not make
     // Measured, not asserted against a fixed time (shared machine): reported in the PR. Sanity bound only.
     t.diagnostic(`mean layout step ${rig.msPerTick.toFixed(3)} ms`)
     assert.ok(rig.msPerTick < 20, `${rig.msPerTick.toFixed(3)} ms per step`)
+  } finally { rig.destroy() }
+})
+
+// ─── One agent finishing (review of #564) ────────────────────────────────────
+
+/**
+ * Bound on how far one agent finishing may move the other drawn agents. Measured on develop (before #554) with the same
+ * scenarios: 0.10 (All view, 20 children at work) and 6.23 (All view, workflow of 4 at work, phase ring); with the first
+ * version of #564: 133 and 101, the layout awake for 228-230 frames. 10 covers develop with a margin.
+ */
+const FINISH_MOVE_BOUND = 10
+/** Frames the layout may stay awake after one agent finished: develop rests in 4, one second is the bound */
+const FINISH_FRAMES_BOUND = 60
+
+const finishCases: Array<[string, (rig: Rig) => Promise<void>, string]> = [
+  ['All view, 20 children at work out of 29 next to a session of 10', async rig => { await grow(rig, { sid: 'N', total: 11, active: 10 }); await grow(rig, { sid: 'S', total: 30, active: 20 }) }, 'w20'],
+  ['All view, a workflow of 83 agents with 4 at work next to a session of 10', async rig => { await grow(rig, { sid: 'N', total: 11, active: 10 }); await grow(rig, { sid: 'S', total: 83, active: 4, workflow: true }) }, 'w80'],
+]
+for (const [label, setup, finish] of finishCases) {
+  test(`${label}: one agent finishing does not move the other drawn agents more than ${FINISH_MOVE_BOUND}`, async (t) => {
+    const rig = createRig(true)
+    try {
+      await setup(rig)
+      rig.settle()
+      const ids = Array.from(rig.shown().keys()).filter(id => id !== `S:${finish}`)
+      const before = new Map(ids.map(id => [id, { x: rig.frame.agents.get(id)!.x, y: rig.frame.agents.get(id)!.y }]))
+      rig.push([{ type: 'agent_complete', sessionId: 'S', payload: { name: finish } }])
+      assert.equal(rig.shown().has(`S:${finish}`), false, 'the finished agent is hidden')
+      let worst = 0
+      let frames = 0
+      while (frames < SETTLE_BOUND) {
+        rig.frames(1)
+        frames++
+        for (const id of ids) {
+          const a = rig.frame.agents.get(id)!
+          worst = Math.max(worst, Math.hypot(a.x - before.get(id)!.x, a.y - before.get(id)!.y))
+        }
+        if (!rig.layout.active) break
+      }
+      t.diagnostic(`other drawn agents moved up to ${worst.toFixed(2)}, layout awake for ${frames} frames`)
+      assert.ok(worst < FINISH_MOVE_BOUND, `moved up to ${worst.toFixed(2)} (develop: 0.10 / 6.23)`)
+      assert.ok(frames < FINISH_FRAMES_BOUND, `awake for ${frames} frames (develop: 4)`)
+    } finally { rig.destroy() }
+  })
+}
+
+// ─── Hidden agents the canvas still draws (selected, hovered, keyboard focus) ─
+
+test('a finished agent hidden, then selected, is drawn next to its parent, not at its last position', async () => {
+  const rig = createRig(true)
+  try {
+    await grow(rig, { sid: 'S', total: 6, active: 5 })
+    rig.settle()
+    const id = 'S:w1'
+    rig.push([{ type: 'agent_complete', sessionId: 'S', payload: { name: 'w1' } }])
+    // A new agent appears: the layout is rebuilt on the drawn agents, the finished one leaves it
+    rig.push([{ type: 'agent_spawn', sessionId: 'S', payload: { name: 'late', parent: 'orch' } }])
+    rig.setState('S:late', 'thinking')
+    await rig.flush()
+    rig.settle()
+    // While hidden, its last position is far away (as after the clusters moved)
+    rig.patch(id, { x: 3000, y: -2500 })
+    rig.keepDrawn([id])
+    assert.equal(rig.shown().has(id), true, 'selected: drawn although finished')
+    rig.frames(1)
+    const orch = rig.frame.agents.get('S:orch')!
+    const kept = rig.frame.agents.get(id)!
+    const d = Math.hypot(kept.x - orch.x, kept.y - orch.y)
+    assert.ok(d < AGENT_SPAWN_DISTANCE + 60, `drawn at ${Math.round(d)} from its parent`)
+    rig.settle()
+    assert.equal(closePairs(rig), 0, 'the collisions part it from the other drawn agents')
+    // Deselected: hidden again, the drawn agents do not move
+    const snap = new Map(Array.from(rig.shown().keys(), k => [k, { x: rig.frame.agents.get(k)!.x, y: rig.frame.agents.get(k)!.y }]))
+    rig.keepDrawn([])
+    rig.settle()
+    for (const [k, p] of snap) {
+      if (k === id) continue
+      const a = rig.frame.agents.get(k)!
+      assert.ok(Math.hypot(a.x - p.x, a.y - p.y) < FINISH_MOVE_BOUND, `${k} stays`)
+    }
   } finally { rig.destroy() }
 })
