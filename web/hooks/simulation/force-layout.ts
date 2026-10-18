@@ -8,12 +8,15 @@ import { forceSimulation, forceLink, forceManyBody, forceCollide, type Simulatio
 import type { Agent, Edge } from '../../lib/agent-types'
 import { FORCE } from '../../lib/canvas-constants'
 import type { ForceNode, ForceLink, SimulationState } from './types'
-import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { layoutInfo, createClusterForce, createCentringForce, centredChildren, familyOf, constrainToClusters, phaseSignature, spawnPosition, type ClusterNodeInfo, type SessionProjects } from './fleet-layout'
+import { visibleAgents } from '../../lib/inactive-agents'
 
 /** Ticks run synchronously when the node set changes, so a new cluster shows up near its place at once. */
 export const SYNC_TICKS = 30
 /** Alpha given to the simulation when the nodes change */
 const SYNC_ALPHA = 0.3
+/** Alpha given when agents only leave the simulation (#554): the ones left relax to the forces that remain */
+const RESIZE_ALPHA = 0.1
 /** Positions closer than this to the previous ones are not written back (no churn) */
 const POSITION_EPSILON = 0.01
 /** Ticks the centring may keep the layout awake once the simulation has cooled (children against the disc edge can leave a small gap for good) */
@@ -32,7 +35,10 @@ export interface ForceLayout {
   stepState(state: SimulationState): SimulationState
   /** Hold a node at a position (user drag): the simulation keeps it there and moves the others around it. */
   pin(id: string, x: number, y: number): void
-  /** 'Hide inactive agents' (#151): hidden children do not count when a parent is centred on its children. */
+  /**
+   * 'Hide inactive agents': hidden children do not count when a parent is centred on its children (#151), and hidden
+   * agents leave the simulation, their discs shrinking to the drawn agents (#554). Taken into account on the next step.
+   */
   setHideInactive(hide: boolean): void
   /** True while the layout still moves */
   readonly active: boolean
@@ -50,6 +56,9 @@ export function createForceLayout(): ForceLayout {
   let lastProjects: SessionProjects | undefined
   let phasesKey = ''
   let centringBudget = 0
+  /** Agents in the simulation (the drawn ones) and agents left out of it at the last build */
+  let simIds = new Set<string>()
+  let leftOut = new Set<string>()
   const centring = createCentringForce(() => children, () => family, id => info.get(id))
   const sim: Simulation<ForceNode, ForceLink> = forceSimulation<ForceNode, ForceLink>([])
     .force('charge', forceManyBody().strength(FORCE.chargeStrength))
@@ -97,26 +106,59 @@ export function createForceLayout(): ForceLayout {
     return changed
   }
 
+  /** True when the drawn agents are not exactly the ones in the simulation */
+  const drawnChanged = (shown: ReadonlyMap<string, Agent>): boolean => {
+    if (shown.size !== simIds.size) return true
+    for (const id of shown.keys()) if (!simIds.has(id)) return true
+    return false
+  }
+
+  /**
+   * Put the drawn agents (and only them) in the simulation (#554). `keep` reuses the nodes already there (position,
+   * velocity, held drag) rather than reading the agents. An agent that was left out and is drawn again comes back next
+   * to its parent (as when it appeared), not at its last position, which the moves of its cluster may have left far away.
+   * An agent the user pinned stays where it was put. Returns true when an agent was re-placed so.
+   */
+  const build = (agents: Map<string, Agent>, edges: readonly Edge[], keep: boolean): boolean => {
+    const shown = visibleAgents(agents, hideInactive)
+    const previous = keep ? new Map(sim.nodes().map(n => [n.id, n])) : new Map<string, ForceNode>()
+    let placed = shown
+    let replaced = false
+    const nodes: ForceNode[] = []
+    for (const a of shown.values()) {
+      const old = previous.get(a.id)
+      if (old) { nodes.push(old); continue }
+      let { x, y, vx, vy } = a
+      if (leftOut.has(a.id) && a.parentId && !a.pinned) {
+        ({ x, y } = spawnPosition(placed, { ...a, parentId: a.parentId }, lastTeams))
+        vx = 0; vy = 0
+        replaced = true
+        // The next one re-placed around the same parent takes another free angle
+        if (placed === shown) placed = new Map(shown)
+        placed.set(a.id, { ...a, x, y })
+      }
+      nodes.push({ id: a.id, x, y, vx, vy, fx: a.pinned ? x : undefined, fy: a.pinned ? y : undefined })
+    }
+    const links: ForceLink[] = edges
+      .filter(e => e.type === 'parent-child' && shown.has(e.from) && shown.has(e.to))
+      .map(e => ({ id: e.id, source: e.from, target: e.to }))
+    simIds = new Set(shown.keys())
+    leftOut = new Set()
+    for (const id of agents.keys()) if (!simIds.has(id)) leftOut.add(id)
+    info = layoutInfo(agents, lastTeams, lastProjects, hideInactive).info
+    phasesKey = phaseSignature(agents, hideInactive, lastTeams)
+    refreshChildren(agents)
+    sim.nodes(nodes)
+    const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
+    if (linkForce) linkForce.links(links)
+    return replaced
+  }
+
   const layout: ForceLayout = {
     sync(agents, edges, teams, projects) {
-      const nodes: ForceNode[] = Array.from(agents.values()).map(a => ({
-        id: a.id,
-        x: a.x, y: a.y,
-        vx: a.vx, vy: a.vy,
-        fx: a.pinned ? a.x : undefined,
-        fy: a.pinned ? a.y : undefined,
-      }))
-      const links: ForceLink[] = edges
-        .filter(e => e.type === 'parent-child' && agents.has(e.from) && agents.has(e.to))
-        .map(e => ({ id: e.id, source: e.from, target: e.to }))
       lastTeams = teams
       lastProjects = projects
-      info = layoutInfo(agents, teams, projects, hideInactive).info
-      phasesKey = phaseSignature(agents as Map<string, Agent>, hideInactive, teams)
-      refreshChildren(agents as Map<string, Agent>)
-      sim.nodes(nodes)
-      const linkForce = sim.force('link') as ReturnType<typeof forceLink> | undefined
-      if (linkForce) linkForce.links(links)
+      build(agents as Map<string, Agent>, edges, false)
       sim.alpha(SYNC_ALPHA)
       active = true
       for (let i = 0; i < SYNC_TICKS; i++) tick()
@@ -129,6 +171,17 @@ export function createForceLayout(): ForceLayout {
       return agents === state.agents ? state : { ...state, agents }
     },
     stepState(state) {
+      // An agent hidden or drawn again (it finished, the button was toggled): the simulation holds the drawn agents
+      // only and the discs are resized to them (#554). Not a sync: no burst of ticks, everything is eased. Agents that
+      // left warm it up a little (the ones left relax without the forces of the hidden ones); an agent drawn again is
+      // re-placed next to its parent and warmed up like one that just appeared (see sync)
+      if (drawnChanged(visibleAgents(state.agents, hideInactive))) {
+        lastTeams = state.teams
+        const warm = build(state.agents, state.edges, true) ? SYNC_ALPHA : RESIZE_ALPHA
+        sim.alpha(Math.max(sim.alpha(), warm))
+        centringBudget = CENTRING_TICKS
+        active = true
+      }
       // Not a sync: no reheating of the simulation, the centring alone eases the parent to its new middle
       if (refreshChildren(state.agents)) active = true
       // A phase of a workflow appearing in or leaving the display (its agents finish, get hidden) re-places the phases
@@ -155,7 +208,7 @@ export function createForceLayout(): ForceLayout {
       active = true
     },
     get active() { return active },
-    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0 },
+    destroy() { sim.stop(); sim.nodes([]); info = new Map(); children = new Map(); family = new Map(); childrenKey = ''; phasesKey = ''; centringBudget = 0; simIds = new Set(); leftOut = new Set() },
   }
   return layout
 }
