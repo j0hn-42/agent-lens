@@ -1,4 +1,4 @@
-// Real-browser check of the workflow phase groups (#146) and of 'Active only (10 min)' (formerly 'Hide inactive agents') on finished members (#147),
+// Real-browser check of the workflow phase groups (#146) and of 'Hide inactive' (formerly 'Hide inactive agents') on finished members (#147),
 // on the demo scenario ?scenario=workflow (a workflow of two phases, the first one finished).
 import { test, before, after } from 'node:test'
 import { strict as assert } from 'node:assert'
@@ -51,7 +51,7 @@ test('workflow demo: finished members are hidden from the outline and the sessio
     assert.equal(await list.getByText('plan-a').count(), 0, 'finished agents are not listed')
     assert.equal(await list.getByText('plan-b').count(), 0)
 
-    await page.getByRole('button', { name: /^Active only \(10 min\)/ }).click()
+    await page.getByRole('button', { name: /^Hide inactive/ }).click()
     await page.waitForFunction(() => !/finished agents? hidden/.test(document.body.textContent ?? ''))
     assert.ok((await phaseGroups(page)).includes('Phase Plan'))
     assert.ok(await list.getByText('plan-a').count() >= 1, 'listed again')
@@ -63,7 +63,7 @@ test('workflow demo: finished members are hidden from the outline and the sessio
 test('workflow demo: with every member shown, both phases form separate groups on the canvas', async () => {
   const { page, close } = await openWorkflow()
   try {
-    await page.getByRole('button', { name: /^Active only \(10 min\)/ }).click()
+    await page.getByRole('button', { name: /^Hide inactive/ }).click()
     await page.waitForFunction(() => document.querySelector('[role="group"][aria-label="Phase Plan"]') !== null)
     await waitForStableLayout(page)
     await page.screenshot({ path: 'test-results/phase-groups.png' })

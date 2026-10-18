@@ -219,11 +219,13 @@ export interface TopBarProps {
   /** Sessions the 'All' view counts (defaults to every session) */
   allSessionCount?: number
   /**
-   * 'Show: active / all' (#372): one control instead of 'Hide inactive agents' and 'Show finished sessions'. 'active'
-   * hides the agents whose turn is over and, in All, the finished sessions silent for ACTIVE_WINDOW_MINUTES
+   * 'Show: active / all' (#372): one control, 'Hide inactive', instead of 'Hide inactive agents' and 'Show finished
+   * sessions'. 'active' hides the agents whose turn is over and, in All, the finished sessions silent for ACTIVE_WINDOW_MINUTES
    */
   showMode?: ShowMode
   onChangeShowMode?: (mode: ShowMode) => void
+  /** Sessions the bridge counts as finished in the view's project scope: the ones 'active' hides from All */
+  finishedSessionCount?: number
   // Connection
   isVSCode: boolean
   connectionStatus: ConnectionStatus
@@ -295,7 +297,7 @@ export interface TopBarProps {
 export const TopBar = memo(function TopBar({
   sessions, teams, selectedSessionId, sessionsWithActivity,
   showSessions, onToggleSessions,
-  allSessionCount, showMode = 'all', onChangeShowMode,
+  allSessionCount, showMode = 'all', onChangeShowMode, finishedSessionCount = 0,
   isVSCode, connectionStatus, isDemo = false, connectionDetail, onRetryConnection, onExitDemo,
   activeAgentCount, staleAgentCount = 0, idleAgentCount = 0, errorAgentCount = 0, doneAgentCount, totalTokens, totalCost, tokenUsage, costUsage, unattributedCost = 0,
   showFileAttention, showConversation, showContext = false, showSystem = false, showCostOverlay, showTimeline, showStats, isMuted,
@@ -323,6 +325,7 @@ export const TopBar = memo(function TopBar({
   const filtersId = useId()
   const row2Id = useId()
   const moreNameId = useId()
+  const hiddenFinishedId = useId()
   // Crossing 1024 or 768 px (resize, browser zoom) unmounts More or a folded control: keep the focus out of <body>
   // (2.4.3). The focus is read in the media query handlers, before React renders the new width.
   const filtersRef = useRef<HTMLDivElement>(null)
@@ -394,8 +397,18 @@ export const TopBar = memo(function TopBar({
   ].filter((part): part is string => part !== null).join(', ')
   // Folded, the filters that change what the canvas shows are named on More, never hidden behind it (reading-the-ui.md)
   // Same wording and language as the filter button that More reveals (#373); `lang` is the language of that wording
-  const showActiveLabel = t('show.active', { n: ACTIVE_WINDOW_MINUTES })
-  const activeFilters: { text: string; lang: string }[] = showMode === 'active' && onChangeShowMode ? [{ text: showActiveLabel, lang: locale }] : []
+  // 'Hide inactive' (#372): in All, while it hides finished sessions, it says how many (the bridge count, never a guess)
+  const hidesInactive = showMode === 'active' && !!onChangeShowMode
+  const hiddenFinished = hidesInactive && isAllMode && finishedSessionCount > 0 ? finishedSessionCount : 0
+  const hideInactiveLabel = t('show.hideInactive')
+  const hideInactiveCount = hiddenFinished > 0 ? t('show.hideInactive.count', { n: hiddenFinished }) : null
+  const hideInactiveTitle = [
+    isAllMode ? t('show.hideInactive.title.all', { n: ACTIVE_WINDOW_MINUTES }) : t('show.hideInactive.title.one'),
+    hideInactiveCount,
+  ].filter((part): part is string => part !== null).join(' ')
+  const activeFilters: { text: string; lang: string }[] = hidesInactive
+    ? [{ text: hiddenFinished > 0 ? t('show.hideInactive.withCount', { n: hiddenFinished }) : hideInactiveLabel, lang: locale }]
+    : []
   const showFilterCount = folded && activeFilters.length > 0
   // Folded (under 1024 px) a panel button folds More again and the focus waits on More (the button is gone). Under 768 px
   // the panel opens as a drawer below the short bar, which takes the focus; More is where it comes back when it closes
@@ -559,18 +572,24 @@ export const TopBar = memo(function TopBar({
               {notifyState === 'denied' ? t('topbar.notify.blocked') : t('topbar.notify')}
             </ToggleButton>
           )}
-          {/* 'Show: active / all' (#372): one toggle, pressed = active only; its name states the threshold (2.5.3: it starts with the label) */}
+          {/* 'Show: active / all' (#372): one toggle, pressed = the inactive ones are hidden. Its short name starts with the
+              label (2.5.3) and names only what the view hides (sessions in All only); the rule is in the tooltip; in All the
+              number of finished sessions it hides is its description */}
           {!folded && onChangeShowMode && (
-            <ToggleButton
-              active={showMode === 'active'}
-              pressed={showMode === 'active'}
-              onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
-              ariaLabel={t('show.active.name', { n: ACTIVE_WINDOW_MINUTES })}
-              title={t('show.active.title', { n: ACTIVE_WINDOW_MINUTES })}
-              lang={locale}
-            >
-              {showActiveLabel}
-            </ToggleButton>
+            <Fragment>
+              <ToggleButton
+                active={showMode === 'active'}
+                pressed={showMode === 'active'}
+                onClick={() => onChangeShowMode(showMode === 'active' ? 'all' : 'active')}
+                ariaLabel={isAllMode ? t('show.hideInactive.name.all') : t('show.hideInactive.name.one')}
+                title={hideInactiveTitle}
+                describedBy={hideInactiveCount ? hiddenFinishedId : undefined}
+                lang={locale}
+              >
+                {hideInactiveLabel}
+              </ToggleButton>
+              {hideInactiveCount && <span id={hiddenFinishedId} lang={locale} className="sr-only">{hideInactiveCount}</span>}
+            </Fragment>
           )}
         </div>
       </div>

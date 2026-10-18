@@ -286,7 +286,7 @@ export function AgentVisualizer() {
       <div style={{ display: immersive ? 'none' : 'contents' }}>
       <TopBar
         onToggleFullscreen={toggleFullscreen} sessions={bridge.sessions} teams={bridge.teams} allSessionCount={allSessionCount}
-        showMode={showMode} onChangeShowMode={updateShowMode}
+        showMode={showMode} onChangeShowMode={updateShowMode} finishedSessionCount={bridge.finishedSessionCount}
         selectedSessionId={bridge.selectedSessionId} sessionsWithActivity={bridge.sessionsWithActivity}
         showSessions={showSessions} onToggleSessions={() => setShowSessions(prev => !prev)}
         isVSCode={bridge.isVSCode} connectionStatus={bridge.connectionStatus} isDemo={bridge.useMockData}

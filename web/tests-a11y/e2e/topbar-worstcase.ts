@@ -1,5 +1,5 @@
 // Harness for the worst case of the top bar (#500): the real TopBar drawn alone in a real browser with an attention counter,
-// a scope selector and the Active only toggle (#372) at once, which the demo never shows (no relay link, no finished session).
+// a scope selector and the Hide inactive toggle (#372) at once, which the demo never shows (no relay link, no finished session).
 // The page is served by the demo server (same origin, route fulfilled in the browser), takes its stylesheets from the demo page
 // (Tailwind compiled from the same sources) and its script from an esbuild bundle of topbar-worstcase-entry.tsx.
 import path from 'node:path'

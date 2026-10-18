@@ -66,11 +66,11 @@ test('under 768 px: More shows the panel buttons, the filters and the totals', (
   // More controls the filters (row 1) and row 2 (#523): every id names a rendered element
   const regions = more.getAttribute('aria-controls')!.split(' ').map(id => document.getElementById(id))
   assert.ok(regions.length > 0 && regions.every(Boolean), 'aria-controls names rendered elements')
-  for (const name of ['Files', 'Timeline', 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes', 'Settings', 'Keyboard shortcuts']) {
+  for (const name of ['Files', 'Timeline', 'Hide inactive: agents', 'Settings', 'Keyboard shortcuts']) {
     assert.ok(view.getByRole('button', { name }), `${name} is shown`)
   }
   assert.ok(regions.some(r => r!.contains(view.getByRole('toolbar', { name: 'View controls' }))), 'the panel buttons are what More controls')
-  assert.ok(regions.some(r => r!.contains(view.getByRole('button', { name: 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes' }))), 'the filters are what More controls')
+  assert.ok(regions.some(r => r!.contains(view.getByRole('button', { name: 'Hide inactive: agents' }))), 'the filters are what More controls')
 })
 
 test('under 768 px: a panel button folds More again and leaves the focus on More (the drawer takes it next)', () => {
@@ -94,7 +94,7 @@ test('under 768 px: a filter keeps More open (several can be changed in a row)',
   const view = render(<TopBar {...base} />)
   const more = view.getByRole('button', { name: /^More/ })
   fireEvent.click(more)
-  fireEvent.click(view.getByRole('button', { name: 'Active only (10 min): hides agents whose turn is over and finished sessions with no event for 10 minutes' }))
+  fireEvent.click(view.getByRole('button', { name: 'Hide inactive: agents' }))
   assert.equal(more.getAttribute('aria-expanded'), 'true')
 })
 

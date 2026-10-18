@@ -47,10 +47,10 @@ for (const locale of LOCALES) {
       const button = view.getByRole('button', { name: T(locale, key) })
       assert.equal(button.closest('[lang]')?.getAttribute('lang'), locale, `${key} declares lang=${locale}`)
     }
-    // 'Show: active / all' (#372): its name (the same words as Settings, with the threshold) in the language
-    const show = view.getByRole('button', { name: translate(locale, 'show.active.name', { n: 10 }) })
+    // 'Show: active / all' (#372): its name (starting with the label of Settings) in the language, the rule in the tooltip
+    const show = view.getByRole('button', { name: translate(locale, 'show.hideInactive.name.all') })
     assert.equal(show.closest('[lang]')?.getAttribute('lang'), locale)
-    assert.ok(titled(view.container, translate(locale, 'show.active.title', { n: 10 })), 'show.active.title is a tooltip')
+    assert.ok(titled(view.container, translate(locale, 'show.hideInactive.title.all', { n: 10 })), 'show.hideInactive.title.all is a tooltip')
     for (const key of ['topbar.notify.title', 'topbar.mute.title', 'topbar.fullscreen.title', 'topbar.commands.title', 'topbar.settings.title', 'topbar.shortcuts.title'] as MessageKey[]) {
       assert.ok(titled(view.container, T(locale, key)), `${key} is a tooltip`)
     }
@@ -69,11 +69,11 @@ test('the denied and the muted states are translated as well', () => {
 // Under 768 px More names the filters that are on; the name uses the same wording as the filter button it hides, and the
 // passage declares its own language (a screen reader must not hear one control under two names)
 for (const locale of LOCALES) {
-  test(`under 768 px, More names "Active only" as the button does (${locale})`, () => {
+  test(`under 768 px, More names "Hide inactive" as the button does (${locale})`, () => {
     setLocaleChoice(locale)
     setMobileView(true)
     const view = render(<TopBar {...base} showMode="active" />)
-    const label = translate(locale, 'show.active', { n: 10 })
+    const label = translate(locale, 'show.hideInactive')
     const more = view.getByRole('button', { name: new RegExp(`^${T(locale, 'topbar.more')}`) })
     const name = more.getAttribute('aria-labelledby')
       ? more.getAttribute('aria-labelledby')!.split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
@@ -85,7 +85,7 @@ for (const locale of LOCALES) {
       assert.ok(passage, `the filter name inside More's name declares lang=${locale}`)
     }
     fireEvent.click(more)
-    const opened = view.getByRole('button', { name: translate(locale, 'show.active.name', { n: 10 }) })
+    const opened = view.getByRole('button', { name: translate(locale, 'show.hideInactive.name.all') })
     assert.equal(opened.textContent, label, 'the button that opens shows the very same words')
   })
 }

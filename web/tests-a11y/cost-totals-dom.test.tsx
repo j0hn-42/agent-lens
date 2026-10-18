@@ -90,7 +90,7 @@ async function mount(lost: Record<string, number> | null, openCost = true) {
     // After the tool: an absolute context reading clears the gap a tool without a reported cost leaves, so the totals are complete
     FakeES.last.send(ev('s1', 'context_update', { agent: 'main', tokens: 120_000, tokenSource: 'reported' }, 4))
   })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)|^Actifs seuls \(10 min\)/ })) }) // idle agents are hidden by default
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive|^Masquer les inactifs/ })) }) // idle agents are hidden by default
   // The two canvas texts that carry numbers: the stats under each agent, and the Cost panel
   await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.stats)!) })
   if (openCost) await act(async () => { fireEvent.click(document.getElementById(PANEL_BUTTON_IDS.cost)!) })

@@ -55,9 +55,9 @@ test('choosing French relabels the dialog at once, stores the choice and sets la
   assert.ok(view.getByRole('button', { name: MESSAGES.fr['common.close'] }))
   assert.ok(view.getByRole('tablist', { name: MESSAGES.fr['settings.tabs'] }))
   // One tab at a time (#533): its switches and its sections, named in French
-  const byTab: Array<[SettingsTab, Array<'settings.hexGrid' | 'settings.sound' | 'show.active' | 'settings.singleKey' | 'settings.notify.enable'>, Array<'settings.section.appearance' | 'settings.section.sound' | 'settings.section.sessions' | 'settings.section.notifications' | 'settings.section.keyboard'>]> = [
+  const byTab: Array<[SettingsTab, Array<'settings.hexGrid' | 'settings.sound' | 'show.hideInactive' | 'settings.singleKey' | 'settings.notify.enable'>, Array<'settings.section.appearance' | 'settings.section.sound' | 'settings.section.sessions' | 'settings.section.notifications' | 'settings.section.keyboard'>]> = [
     ['general', ['settings.hexGrid', 'settings.sound'], ['settings.section.appearance', 'settings.section.sound']],
-    ['sessions', ['show.active'], ['settings.section.sessions']],
+    ['sessions', ['show.hideInactive'], ['settings.section.sessions']],
     ['notifications', ['settings.notify.enable'], ['settings.section.notifications']],
     ['keyboard', ['settings.singleKey'], ['settings.section.keyboard']],
   ]

@@ -776,7 +776,7 @@ for (const locale of LOCALES) {
       T('topbar.attention.title.many'),
       T('topbar.connection.watching'), T('topbar.connection.connecting'), T('topbar.connection.offline'), T('topbar.connection.demo'), T('topbar.connection.retry'), T('topbar.connection.exitDemo'),
       T('topbar.connection.reconnecting', { attempt: 2, seconds: 10 }),
-      T('show.active', { n: 10 }), T('show.active.title', { n: 10 }),
+      T('show.hideInactive'), T('show.hideInactive.title.all', { n: 10 }),
       T('topbar.more'), T('topbar.more.help'), T('topbar.more.withFilters.one', { n: 1 }),
       T('topbar.toolbar'), T('topbar.sidePanels'), T('topbar.context.vscode'),
       T('scope.group'), T('scope.select'), T('scope.title'), T('scope.option.workspace'), T('scope.option.all'), T('scope.summary', { name: 'alpha' }),

@@ -90,7 +90,7 @@ const fr = {
   'settings.shortcuts': 'Voir les raccourcis clavier',
   'settings.section.reset': 'Préférences',
   'settings.reset': 'Réinitialiser les préférences',
-  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Files, Conversation, Timeline, Stats, Cost), la grille hexagonale, le filtre Actifs seuls, les filtres de la liste des sessions, les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
+  'settings.reset.help': 'Remet par défaut les panneaux gardés ouverts (Files, Conversation, Timeline, Stats, Cost), la grille hexagonale, le filtre Masquer les inactifs, les filtres de la liste des sessions (dont Actives seulement), les raccourcis à une touche, le niveau d’annonce, la largeur du dock, le menu Affichage (Figer les animations, Calmer le fond, les liens, les agents, les effets, Garder les cartes affichées, Masquer les appels sans réponse après) et coupe le son ; oublie la session mémorisée et la portée de découverte choisie. Le thème, la langue, les notifications et la présentation sont conservés, comme les noms de session, la légende et la largeur de la liste des sessions.',
   'settings.reset.ask': 'Remettre ces préférences par défaut ?',
   'settings.reset.confirm': 'Réinitialiser maintenant',
   'settings.reset.cancel': 'Annuler',
@@ -882,11 +882,18 @@ const fr = {
   'panel.heading.files': 'ATTENTION AUX FICHIERS',
   'panel.heading.timeline': 'CHRONOLOGIE D’EXÉCUTION',
   'panel.heading.context': 'CONTEXTE DU PROJET',
-  // 'Afficher : actifs / tous' (#372): one control replaces 'Masquer les agents inactifs' and 'Afficher les sessions terminées'; {n} = the threshold in minutes (show-mode.ts)
-  'show.active': 'Actifs seuls ({n} min)',
-  'show.active.name': 'Actifs seuls ({n} min) : masque les agents dont le tour est fini et les sessions terminées sans événement depuis {n} minutes',
-  'show.active.title': 'Activé : masque les agents dont le tour est fini (pas ceux en erreur ou en attente d’une autorisation) et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Désactivé : tout est affiché.',
-  'settings.show.active.help': 'Masque les agents dont le tour est fini et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Une session jamais marquée terminée reste affichée. Désactivé, tout est affiché.',
+  // 'Afficher : actifs / tous' (#372): one control replaces 'Masquer les agents inactifs' and 'Afficher les sessions terminées'.
+  // Not « Actives seulement » (sessions.activeOnly), the list filter of the Sessions panel, a different rule. The label claims no
+  // time window: only the session filter of the All view has one ({n} = its threshold in minutes, show-mode.ts), said in the tooltip.
+  // name.all / title.all: All sessions (agents and sessions are hidden); name.one / title.one: one session or a team (agents only).
+  'show.hideInactive': 'Masquer les inactifs',
+  'show.hideInactive.name.all': 'Masquer les inactifs : agents et sessions',
+  'show.hideInactive.name.one': 'Masquer les inactifs : agents',
+  'show.hideInactive.title.all': 'Activé : masque les agents dont le tour est fini (pas ceux en erreur ou en attente d’une autorisation) et les sessions terminées sans événement depuis {n} minutes. Désactivé : tout est affiché.',
+  'show.hideInactive.title.one': 'Activé : masque les agents dont le tour est fini (pas ceux en erreur ou en attente d’une autorisation). Désactivé : ils sont affichés.',
+  'show.hideInactive.count': 'Sessions terminées masquées : {n}',
+  'show.hideInactive.withCount': 'Masquer les inactifs · sessions terminées masquées : {n}',
+  'settings.show.hideInactive.help': 'Masque les agents dont le tour est fini et, dans la vue « Toutes les sessions », les sessions terminées sans événement depuis {n} minutes. Une session jamais marquée terminée reste affichée. Désactivé, tout est affiché.',
 } as const
 
 export type MessageKey = keyof typeof fr
@@ -965,7 +972,7 @@ const en: Record<MessageKey, string> = {
   'settings.shortcuts': 'View keyboard shortcuts',
   'settings.section.reset': 'Preferences',
   'settings.reset': 'Reset preferences',
-  'settings.reset.help': 'Restores the defaults of the panels kept open (Files, Conversation, Timeline, Stats, Cost), the hex grid, the Active only filter, the session list filters, single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.',
+  'settings.reset.help': 'Restores the defaults of the panels kept open (Files, Conversation, Timeline, Stats, Cost), the hex grid, the Hide inactive filter, the session list filters (Active only among them), single-key shortcuts, the announcement level, the dock width and the View menu (Freeze motion, Calm background, links, agents, effects, Pin cards, Hide unanswered calls after), and mutes the sound; forgets the remembered session and the chosen discovery scope. Theme, language, notifications and presentation are kept, as are session names, the legend and the Sessions list width.',
   'settings.reset.ask': 'Restore these preferences to their defaults?',
   'settings.reset.confirm': 'Reset now',
   'settings.reset.cancel': 'Cancel',
@@ -1756,11 +1763,15 @@ const en: Record<MessageKey, string> = {
   'panel.heading.files': 'FILE ATTENTION',
   'panel.heading.timeline': 'EXECUTION TIMELINE',
   'panel.heading.context': 'PROJECT CONTEXT',
-  // 'Show: active / all' (#372)
-  'show.active': 'Active only ({n} min)',
-  'show.active.name': 'Active only ({n} min): hides agents whose turn is over and finished sessions with no event for {n} minutes',
-  'show.active.title': 'On: hides agents whose turn is over (not those in error or waiting for a permission) and, in the All sessions view, finished sessions with no event for {n} minutes. Off: shows everything.',
-  'settings.show.active.help': 'Hides agents whose turn is over and, in the All sessions view, finished sessions with no event for {n} minutes. A session never marked finished stays shown. Off, everything is shown.',
+  // 'Show: active / all' (#372): the label and the More entry come from the glossary
+  'show.hideInactive': TOP_BAR_LABELS.filterHideInactive,
+  'show.hideInactive.name.all': 'Hide inactive: agents and sessions',
+  'show.hideInactive.name.one': 'Hide inactive: agents',
+  'show.hideInactive.title.all': 'On: hides agents whose turn is over (not those in error or waiting for a permission) and finished sessions with no event for {n} minutes. Off: shows everything.',
+  'show.hideInactive.title.one': 'On: hides agents whose turn is over (not those in error or waiting for a permission). Off: shows them.',
+  'show.hideInactive.count': 'Finished sessions hidden: {n}',
+  'show.hideInactive.withCount': TOP_BAR_LABELS.filterHideInactiveWithCount('{n}'),
+  'settings.show.hideInactive.help': 'Hides agents whose turn is over and, in the All sessions view, finished sessions with no event for {n} minutes. A session never marked finished stays shown. Off, everything is shown.',
 }
 
 export const MESSAGES: Readonly<Record<Locale, Readonly<Record<MessageKey, string>>>> = Object.freeze({ fr, en })

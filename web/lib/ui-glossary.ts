@@ -236,8 +236,14 @@ export const TOP_BAR_LABELS = {
     after: ')',
   }),
   /** Filter names used in those strings */
-  /** 'Show: active / all' (#372) when it is on 'active', with its threshold in minutes (ACTIVE_WINDOW_MINUTES): one name in the bar, More and Settings */
-  filterShowActive: (minutes: number) => `Active only (${minutes} min)`,
+  /**
+   * 'Show: active / all' (#372) when it is on 'active': one name in the bar, More and Settings. Not 'Active only'
+   * (SESSION_LIST_LABELS.activeOnly), the Sessions panel filter, a different rule; and no time window in the name: only
+   * the session filter of the All view has one (10 min), the agent filter has none.
+   */
+  filterHideInactive: 'Hide inactive',
+  /** The same, folded behind More in the All view, with the finished sessions it hides there */
+  filterHideInactiveWithCount: (count: number | string) => `Hide inactive · finished sessions hidden: ${count}`,
 } as const
 
 /** Suffix of a timeline label whose call expired. */

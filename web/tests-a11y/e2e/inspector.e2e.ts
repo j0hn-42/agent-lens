@@ -65,7 +65,7 @@ async function openWithFakeRelay(width: number, height: number) {
   // Idle agents are hidden by default. Under 768 px the filter is behind More (#378, #476)
   const more = page.getByRole('button', { name: /^More/ })
   if (await more.count()) await more.evaluate((el: HTMLElement) => el.click())
-  await page.getByRole('button', { name: /^Active only \(10 min\)/ }).evaluate((el: HTMLElement) => el.click())
+  await page.getByRole('button', { name: /^Hide inactive/ }).evaluate((el: HTMLElement) => el.click())
   return { page, close: () => context.close() }
 }
 

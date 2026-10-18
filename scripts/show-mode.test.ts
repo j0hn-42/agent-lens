@@ -37,19 +37,35 @@ test('migration: only the default pair of the former settings stays "active"', (
   assert.equal(showModeFromLegacy(false, true), 'all')
 })
 
-test('one name: the glossary, the top bar and Settings write the same words with the threshold, in English and French', () => {
+test('one name: the glossary, the top bar and Settings write the same words, in English and French', () => {
   const n = ACTIVE_WINDOW_MINUTES
-  assert.equal(TOP_BAR_LABELS.filterShowActive(n), 'Active only (10 min)')
-  assert.equal(translate('en', 'show.active', { n }), TOP_BAR_LABELS.filterShowActive(n))
-  assert.equal(translate('fr', 'show.active', { n }), 'Actifs seuls (10 min)')
+  assert.equal(TOP_BAR_LABELS.filterHideInactive, 'Hide inactive')
+  assert.equal(translate('en', 'show.hideInactive'), TOP_BAR_LABELS.filterHideInactive)
+  assert.equal(translate('fr', 'show.hideInactive'), 'Masquer les inactifs')
   for (const locale of ['en', 'fr'] as const) {
-    const label = translate(locale, 'show.active', { n })
-    const name = translate(locale, 'show.active.name', { n })
-    // 2.5.3: the accessible name starts with the visible label; it states the exact threshold
-    assert.ok(name.startsWith(label), `${locale}: name starts with the label`)
-    assert.match(name, /10 minutes/, `${locale}: name states the threshold`)
-    assert.match(translate(locale, 'show.active.title', { n }), /10 minutes/)
-    assert.match(translate(locale, 'settings.show.active.help', { n }), /10 minutes/)
+    const label = translate(locale, 'show.hideInactive')
+    // The label claims no time window: only the session filter of the All view has one, the agents have none
+    assert.doesNotMatch(label, /\d|min/, `${locale}: no threshold in the label`)
+    for (const view of ['all', 'one'] as const) {
+      const name = translate(locale, `show.hideInactive.name.${view}`)
+      // 2.5.3: the accessible name starts with the visible label; it stays short (the tooltip carries the rule)
+      assert.ok(name.startsWith(label), `${locale}/${view}: name starts with the label`)
+      assert.ok(name.length <= 45, `${locale}/${view}: short name (${name.length})`)
+      assert.doesNotMatch(name, /minute/, `${locale}/${view}: the rule is not repeated in the name`)
+    }
+    // Only the All view hides sessions: only its name and tooltip mention them and their window
+    assert.match(translate(locale, 'show.hideInactive.name.all'), /sessions/)
+    assert.doesNotMatch(translate(locale, 'show.hideInactive.name.one'), /session/)
+    assert.match(translate(locale, 'show.hideInactive.title.all', { n }), /10 minutes/)
+    assert.doesNotMatch(translate(locale, 'show.hideInactive.title.one'), /session|minute/)
+    assert.match(translate(locale, 'settings.show.hideInactive.help', { n }), /10 minutes/)
+    // The hidden finished sessions are counted, in the language of the bar
+    assert.match(translate(locale, 'show.hideInactive.count', { n: 3 }), /3/)
+    const withCount = translate(locale, 'show.hideInactive.withCount', { n: 3 })
+    assert.ok(withCount.startsWith(label))
+    assert.match(withCount, /3/)
   }
-  assert.doesNotMatch(MESSAGES.en['show.active.name'], /Hide inactive agents|Show finished sessions/)
+  assert.equal(translate('en', 'show.hideInactive.count', { n: 3 }), 'Finished sessions hidden: 3')
+  assert.equal(translate('en', 'show.hideInactive.withCount', { n: 3 }), TOP_BAR_LABELS.filterHideInactiveWithCount(3))
+  assert.equal(MESSAGES.en['show.hideInactive.name.all'], 'Hide inactive: agents and sessions')
 })

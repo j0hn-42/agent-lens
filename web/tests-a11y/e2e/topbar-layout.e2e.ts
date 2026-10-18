@@ -129,8 +129,8 @@ for (const w of [1440, 1280, 1100, 1024]) {
       orders.set(w, order)
       console.log(`#523 ${w}px tab order: ${order.join(' | ')}`)
       const at = (name: string) => order.indexOf(name)
-      const show = order.findIndex(n => n.startsWith('Active only (10 min)'))
-      assert.ok(show > 0 && show < at(PANELS[0]), 'the filters (row 1, #372: Active only) come before the panels (row 2)')
+      const show = order.findIndex(n => n.startsWith('Hide inactive'))
+      assert.ok(show > 0 && show < at(PANELS[0]), 'the filters (row 1, #372: Hide inactive) come before the panels (row 2)')
       for (let i = 1; i < PANELS.length; i++) assert.ok(at(PANELS[i - 1]) < at(PANELS[i]), `${PANELS[i - 1]} before ${PANELS[i]}`)
       assert.ok(at('Keyboard shortcuts') > at('Stats'), 'tools after panels')
     } finally {
@@ -250,7 +250,7 @@ test('1000x900: still folded under 1024 px, one row', async () => {
   }
 })
 
-// #500: the French labels are longer than the English ones (Sessions : Toutes les sessions, Actifs seuls (10 min),
+// #500: the French labels are longer than the English ones (Sessions : Toutes les sessions, Masquer les inactifs,
 // 2 agents en attente / 1 agent en erreur). The bar keeps its two rows at 1440, 1280, 1100 and 1024 px, never taller than in
 // English; the heights are logged ("#500 ...") for the pull request.
 for (const w of [1440, 1280, 1100, 1024]) {
@@ -281,7 +281,7 @@ for (const w of [1440, 1280, 1100, 1024]) {
   })
 }
 
-// #500, worst case of row 1 (the demo draws no attention counter and no scope selector; #372: the Active only toggle replaced
+// #500, worst case of row 1 (the demo draws no attention counter and no scope selector; #372: the Hide inactive toggle replaced
 // the finished-sessions toggle and Hide inactive agents): the real TopBar is drawn alone (topbar-worstcase.ts) with them at once. At 1024 px the row is measured in French and in English
 // (logged); at 320 px in French the page must not scroll sideways and no control may be cropped.
 async function worstCase(w: number, locale: 'fr' | 'en', query = ''): Promise<Page> {
@@ -293,7 +293,7 @@ async function worstCase(w: number, locale: 'fr' | 'en', query = ''): Promise<Pa
 }
 
 for (const [name, query] of [['with the three discovery ceilings', ''], ['without a ceiling', '?ceilings=0']] as const) {
-  test(`1024x900 row 1 with attention, scope and Active only, ${name}: measured in French and English`, async () => {
+  test(`1024x900 row 1 with attention, scope and Hide inactive, ${name}: measured in French and English`, async () => {
     const rows: Record<string, { content: number; width: number; rows: number; bar: number }> = {}
     for (const locale of ['en', 'fr'] as const) {
       const page = await worstCase(1024, locale, query)
@@ -308,7 +308,7 @@ for (const [name, query] of [['with the three discovery ceilings', ''], ['withou
         rows[locale] = { ...row1, rows: l.rows, bar: l.barHeight }
         assert.equal(await page.locator('header [data-testid="attention-counter"]').count(), 1, 'the attention counter is drawn')
         assert.equal(await page.locator('header [data-scope-selector]').count(), 1, 'the scope selector is drawn')
-        assert.equal(await page.locator('header').getByRole('button', { name: locale === 'fr' ? /^Actifs seuls \(10 min\)/ : /^Active only \(10 min\)/ }).count(), 1, 'the Active only toggle is drawn (#372)')
+        assert.equal(await page.locator('header').getByRole('button', { name: locale === 'fr' ? /^Masquer les inactifs/ : /^Hide inactive/ }).count(), 1, 'the Hide inactive toggle is drawn (#372)')
         console.log(`#500 1024px ${name} ${locale}: bar ${l.barHeight} px, ${l.rows} rows; row 1 children ${row1.content.toFixed(2)} of ${row1.width.toFixed(2)} px (margin ${(row1.width - row1.content).toFixed(2)})`)
         assert.ok(await page.evaluate('document.documentElement.scrollWidth <= window.innerWidth'), `${locale}: no horizontal page scroll`)
       } finally {

@@ -486,10 +486,10 @@ export function SettingsDialog({
           <div role="tabpanel" id={panelDomId('sessions')} aria-labelledby={tabDomId('sessions')} hidden={current !== 'sessions'}>
 
           <Section title={t('settings.section.sessions')}>
-            {/* 'Show: active / all' (#372): the same words and threshold as the top bar control; off = all */}
+            {/* 'Show: active / all' (#372): the same label as the top bar control, the threshold in the help; off = all */}
             <SwitchRow
-              label={t('show.active', { n: ACTIVE_WINDOW_MINUTES })}
-              help={t('settings.show.active.help', { n: ACTIVE_WINDOW_MINUTES })}
+              label={t('show.hideInactive')}
+              help={t('settings.show.hideInactive.help', { n: ACTIVE_WINDOW_MINUTES })}
               checked={showMode === 'active'}
               onChange={on => onShowModeChange(on ? 'active' : 'all')}
             />

@@ -75,7 +75,7 @@ async function mountWith(sessions: unknown[], events: unknown[], row: number | n
   }
   await wait(100)
   await act(async () => { for (const e of events) post(e) })
-  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Active only \(10 min\)/ })) }) // idle agents are hidden by default
+  await act(async () => { fireEvent.click(r.getByRole('button', { name: /^Hide inactive/ })) }) // idle agents are hidden by default
   await wait(700)
   return r
 }
@@ -161,7 +161,7 @@ test('proven session links reach the canvas: a child session drawn with the dott
   const baseline = dots()
   assert.equal(baseline, 0, 'no proven link, no link dash')
   cleanup()
-  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Active only (10 min)' choice of the first one is not carried over
+  resetDefaultUiPreferencesStore() // a second, fresh page load: the 'Hide inactive' choice of the first one is not carried over
   calls.length = 0
 
   await withSlowFrames(8, async () => { // #440: fewer frames must not matter
